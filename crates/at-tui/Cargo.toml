@@ -1,0 +1,20 @@
+[package]
+name = "at-tui"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "at-tui"
+path = "src/main.rs"
+
+[dependencies]
+at-core = { path = "../at-core" }
+at-telemetry = { path = "../at-telemetry" }
+ratatui = { workspace = true }
+crossterm = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+chrono = { workspace = true }
+unicode-width = "0.2"
+dirs = "6"

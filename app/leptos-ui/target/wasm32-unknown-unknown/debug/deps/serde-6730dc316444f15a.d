@@ -1,0 +1,12 @@
+/Users/studio/rust-harness/auto-tundra/app/leptos-ui/target/wasm32-unknown-unknown/debug/deps/serde-6730dc316444f15a.d: /Users/studio/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /Users/studio/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /Users/studio/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /Users/studio/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /Users/studio/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /Users/studio/rust-harness/auto-tundra/app/leptos-ui/target/wasm32-unknown-unknown/debug/build/serde-ff5568ae5832ea7c/out/private.rs
+
+/Users/studio/rust-harness/auto-tundra/app/leptos-ui/target/wasm32-unknown-unknown/debug/deps/libserde-6730dc316444f15a.rmeta: /Users/studio/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /Users/studio/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /Users/studio/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /Users/studio/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /Users/studio/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /Users/studio/rust-harness/auto-tundra/app/leptos-ui/target/wasm32-unknown-unknown/debug/build/serde-ff5568ae5832ea7c/out/private.rs
+
+/Users/studio/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs:
+/Users/studio/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs:
+/Users/studio/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs:
+/Users/studio/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs:
+/Users/studio/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs:
+/Users/studio/rust-harness/auto-tundra/app/leptos-ui/target/wasm32-unknown-unknown/debug/build/serde-ff5568ae5832ea7c/out/private.rs:
+
+# env-dep:OUT_DIR=/Users/studio/rust-harness/auto-tundra/app/leptos-ui/target/wasm32-unknown-unknown/debug/build/serde-ff5568ae5832ea7c/out

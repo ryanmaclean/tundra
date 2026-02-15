@@ -1,0 +1,392 @@
+/* auto-tundra dark theme */
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    background: #0d1117;
+    color: #c9d1d9;
+    font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    margin: 0;
+    padding: 0;
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+/* Navigation */
+.nav-bar {
+    display: flex;
+    background: #161b22;
+    border-bottom: 1px solid #30363d;
+    overflow-x: auto;
+    position: sticky;
+    top: 0;
+    z-index: 50;
+}
+
+.nav-tab {
+    padding: 8px 16px;
+    cursor: pointer;
+    color: #8b949e;
+    border: none;
+    background: none;
+    font-family: inherit;
+    font-size: 13px;
+    white-space: nowrap;
+    border-bottom: 2px solid transparent;
+    transition: color 0.15s, border-color 0.15s;
+}
+
+.nav-tab:hover {
+    color: #c9d1d9;
+}
+
+.nav-tab.active {
+    color: #f0c674;
+    border-bottom: 2px solid #f0c674;
+}
+
+/* Status bar */
+.status-bar {
+    position: fixed;
+    bottom: 0;
+    background: #161b22;
+    border-top: 1px solid #30363d;
+    padding: 4px 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    font-size: 12px;
+    color: #8b949e;
+    z-index: 50;
+}
+
+.status-bar .left {
+    display: flex;
+    gap: 16px;
+}
+
+.status-bar .right {
+    display: flex;
+    gap: 16px;
+}
+
+.status-bar kbd {
+    background: #30363d;
+    border: 1px solid #484f58;
+    border-radius: 3px;
+    padding: 1px 5px;
+    font-size: 11px;
+    font-family: inherit;
+}
+
+/* Content area */
+.content {
+    padding-bottom: 40px;
+}
+
+/* KPI grid */
+.kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    padding: 12px;
+}
+
+.kpi-card {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    padding: 16px;
+}
+
+.kpi-card .value {
+    font-size: 2em;
+    font-weight: bold;
+}
+
+.kpi-card .label {
+    color: #8b949e;
+    font-size: 0.85em;
+}
+
+/* Agent grid */
+.agent-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 12px;
+    padding: 12px;
+}
+
+.agent-card {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    padding: 12px;
+}
+
+.agent-card .agent-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.agent-card .agent-name {
+    font-weight: bold;
+    font-size: 1em;
+}
+
+.agent-card .agent-role {
+    color: #8b949e;
+    font-size: 0.85em;
+}
+
+.agent-card .agent-model {
+    color: #58a6ff;
+    font-size: 0.8em;
+}
+
+.agent-card .agent-status {
+    font-size: 1.2em;
+    font-weight: bold;
+    width: 24px;
+    text-align: center;
+}
+
+/* Status glyphs */
+.glyph-active { color: #3fb950; }
+.glyph-idle { color: #f0c674; }
+.glyph-pending { color: #f85149; }
+.glyph-unknown { color: #58a6ff; }
+.glyph-stopped { color: #484f58; }
+
+/* Kanban board */
+.kanban {
+    display: flex;
+    gap: 12px;
+    padding: 12px;
+    height: calc(100vh - 120px);
+}
+
+.kanban-column {
+    flex: 1;
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    overflow-y: auto;
+    min-width: 0;
+}
+
+.kanban-column h3 {
+    padding: 8px 12px;
+    border-bottom: 1px solid #30363d;
+    margin: 0;
+    font-size: 0.9em;
+    color: #8b949e;
+    position: sticky;
+    top: 0;
+    background: #161b22;
+}
+
+.kanban-column .count {
+    color: #484f58;
+    font-weight: normal;
+}
+
+/* Bead card */
+.bead-card {
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 4px;
+    padding: 8px;
+    margin: 8px;
+}
+
+.bead-card .bead-title {
+    font-weight: bold;
+    font-size: 0.9em;
+    margin-bottom: 4px;
+}
+
+.bead-card .bead-id {
+    color: #484f58;
+    font-size: 0.75em;
+}
+
+.bead-card .bead-status {
+    font-size: 0.8em;
+    margin-top: 4px;
+}
+
+/* Help modal */
+.help-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    z-index: 99;
+}
+
+.help-modal {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    padding: 24px;
+    z-index: 100;
+    min-width: 400px;
+    max-width: 600px;
+}
+
+.help-modal h2 {
+    margin-top: 0;
+    color: #f0c674;
+}
+
+.help-modal .keybind {
+    display: flex;
+    justify-content: space-between;
+    padding: 4px 0;
+    border-bottom: 1px solid #21262d;
+}
+
+.help-modal .keybind kbd {
+    background: #30363d;
+    border: 1px solid #484f58;
+    border-radius: 3px;
+    padding: 2px 8px;
+    font-family: inherit;
+    font-size: 0.85em;
+}
+
+.help-modal .close-btn {
+    margin-top: 16px;
+    background: #30363d;
+    color: #c9d1d9;
+    border: 1px solid #484f58;
+    border-radius: 4px;
+    padding: 6px 16px;
+    cursor: pointer;
+    font-family: inherit;
+}
+
+/* Tables */
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px;
+}
+
+.data-table th,
+.data-table td {
+    padding: 8px 12px;
+    text-align: left;
+    border-bottom: 1px solid #21262d;
+}
+
+.data-table th {
+    color: #8b949e;
+    font-weight: normal;
+    font-size: 0.85em;
+    border-bottom: 1px solid #30363d;
+}
+
+.data-table tr:hover td {
+    background: #161b22;
+}
+
+/* Page headers */
+.page-header {
+    padding: 12px;
+    border-bottom: 1px solid #21262d;
+    margin-bottom: 4px;
+}
+
+.page-header h2 {
+    margin: 0;
+    font-size: 1.1em;
+    color: #c9d1d9;
+}
+
+/* Progress bars */
+.progress-bar {
+    background: #21262d;
+    border-radius: 4px;
+    height: 8px;
+    overflow: hidden;
+}
+
+.progress-bar .fill {
+    background: #3fb950;
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.3s;
+}
+
+/* Config block */
+.config-block {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    padding: 16px;
+    margin: 12px;
+    white-space: pre-wrap;
+    font-size: 0.85em;
+    overflow-x: auto;
+}
+
+/* Section */
+.section {
+    margin: 12px;
+}
+
+.section h3 {
+    color: #8b949e;
+    font-size: 0.9em;
+    margin-bottom: 8px;
+}
+
+/* Activity feed */
+.activity-feed {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    padding: 12px;
+    margin: 12px;
+}
+
+.activity-item {
+    padding: 6px 0;
+    border-bottom: 1px solid #21262d;
+    font-size: 0.85em;
+}
+
+.activity-item:last-child {
+    border-bottom: none;
+}
+
+.activity-item .timestamp {
+    color: #484f58;
+    margin-right: 8px;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .kpi-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .kanban {
+        flex-direction: column;
+        height: auto;
+    }
+
+    .kanban-column {
+        max-height: 300px;
+    }
+}

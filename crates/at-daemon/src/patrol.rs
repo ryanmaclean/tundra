@@ -23,7 +23,7 @@ pub struct PatrolReport {
 /// Runs periodic patrol sweeps over the cache to detect anomalies.
 pub struct PatrolRunner {
     /// Heartbeat interval in seconds; agents missing for 2x this are stale.
-    heartbeat_interval_secs: u64,
+    _heartbeat_interval_secs: u64,
     /// Maximum duration a bead may remain in `Slung` before it is considered stuck.
     slung_timeout: ChronoDuration,
 }
@@ -35,7 +35,7 @@ impl PatrolRunner {
     /// (2x the heartbeat interval). The default slung timeout is 30 minutes.
     pub fn new(heartbeat_interval_secs: u64) -> Self {
         Self {
-            heartbeat_interval_secs,
+            _heartbeat_interval_secs: heartbeat_interval_secs,
             slung_timeout: ChronoDuration::minutes(30),
         }
     }

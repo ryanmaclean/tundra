@@ -1,0 +1,11 @@
+/Users/studio/rust-harness/auto-tundra/app/leptos-ui/target/wasm32-unknown-unknown/debug/deps/slotmap-c813072b46ea9efa.d: /Users/studio/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/slotmap-1.1.1/src/lib.rs /Users/studio/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/slotmap-1.1.1/src/basic.rs /Users/studio/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/slotmap-1.1.1/src/dense.rs /Users/studio/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/slotmap-1.1.1/src/hop.rs /Users/studio/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/slotmap-1.1.1/src/secondary.rs /Users/studio/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/slotmap-1.1.1/src/sparse_secondary.rs /Users/studio/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/slotmap-1.1.1/src/util.rs
+
+/Users/studio/rust-harness/auto-tundra/app/leptos-ui/target/wasm32-unknown-unknown/debug/deps/libslotmap-c813072b46ea9efa.rmeta: /Users/studio/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/slotmap-1.1.1/src/lib.rs /Users/studio/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/slotmap-1.1.1/src/basic.rs /Users/studio/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/slotmap-1.1.1/src/dense.rs /Users/studio/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/slotmap-1.1.1/src/hop.rs /Users/studio/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/slotmap-1.1.1/src/secondary.rs /Users/studio/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/slotmap-1.1.1/src/sparse_secondary.rs /Users/studio/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/slotmap-1.1.1/src/util.rs
+
+/Users/studio/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/slotmap-1.1.1/src/lib.rs:
+/Users/studio/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/slotmap-1.1.1/src/basic.rs:
+/Users/studio/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/slotmap-1.1.1/src/dense.rs:
+/Users/studio/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/slotmap-1.1.1/src/hop.rs:
+/Users/studio/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/slotmap-1.1.1/src/secondary.rs:
+/Users/studio/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/slotmap-1.1.1/src/sparse_secondary.rs:
+/Users/studio/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/slotmap-1.1.1/src/util.rs:
