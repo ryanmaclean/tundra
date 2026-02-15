@@ -4,3 +4,17 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+at-core = { path = "../at-core" }
+at-telemetry = { path = "../at-telemetry" }
+tokio = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+flume = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }

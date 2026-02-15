@@ -8,3 +8,10 @@ name = "at"
 path = "src/main.rs"
 
 [dependencies]
+at-core = { path = "../at-core" }
+at-telemetry = { path = "../at-telemetry" }
+tokio = { workspace = true }
+clap = { version = "4", features = ["derive"] }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+dirs = "6"
