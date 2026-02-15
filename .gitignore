@@ -1,0 +1,8 @@
+/target
+*.db
+*.db-shm
+*.db-wal
+.env
+.env.*
+/dolt/.dolt/
+/node_modules/

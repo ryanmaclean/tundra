@@ -1,0 +1,32 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/at-core",
+    "crates/at-harness",
+    "crates/at-session",
+    "crates/at-agents",
+    "crates/at-daemon",
+    "crates/at-telemetry",
+    "crates/at-cli",
+    "crates/at-bridge",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+rust-version = "1.91"
+
+[workspace.dependencies]
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+async-trait = "0.1"
+flume = "0.11"
+dashmap = "6"

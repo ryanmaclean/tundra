@@ -1,0 +1,6 @@
+[package]
+name = "at-bridge"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
