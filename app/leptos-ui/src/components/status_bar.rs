@@ -20,9 +20,15 @@ pub fn StatusBar() -> impl IntoView {
             <div class="left">
                 <span>
                     {move || if status.get().daemon_running {
-                        "daemon: running"
+                        view! {
+                            <span class="status-dot status-dot-running"></span>
+                            "daemon: running"
+                        }
                     } else {
-                        "daemon: stopped"
+                        view! {
+                            <span class="status-dot status-dot-stopped"></span>
+                            "daemon: stopped"
+                        }
                     }}
                 </span>
                 <span>{move || format!("agents: {}", status.get().active_agents)}</span>

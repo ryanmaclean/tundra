@@ -42,7 +42,7 @@ transport = "http""#;
 
     view! {
         <div class="page-header">
-            <h2>"Configuration"</h2>
+            <h2>"Settings"</h2>
         </div>
         <div class="config-block">
             {config_text}

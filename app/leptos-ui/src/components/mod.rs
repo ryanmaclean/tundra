@@ -4,3 +4,4 @@ pub mod agent_card;
 pub mod bead_card;
 pub mod kpi_card;
 pub mod help_modal;
+pub mod new_task_modal;

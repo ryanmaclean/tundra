@@ -10,7 +10,7 @@ pub fn AgentsPage() -> impl IntoView {
 
     view! {
         <div class="page-header">
-            <h2>"Agents"</h2>
+            <h2>"Agent Terminals"</h2>
         </div>
         <div class="agent-grid">
             {move || agents.get().into_iter().map(|agent| {

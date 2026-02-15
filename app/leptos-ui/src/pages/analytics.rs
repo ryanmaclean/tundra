@@ -21,15 +21,15 @@ pub fn AnalyticsPage() -> impl IntoView {
             .count()
     };
 
-    let beads_pending = move || {
+    let beads_planning = move || {
         beads.get().iter()
-            .filter(|b| b.status == crate::types::BeadStatus::Pending)
+            .filter(|b| b.status == crate::types::BeadStatus::Planning)
             .count()
     };
 
     view! {
         <div class="page-header">
-            <h2>"Analytics"</h2>
+            <h2>"Insights"</h2>
         </div>
 
         <div class="kpi-grid">
@@ -55,7 +55,7 @@ pub fn AnalyticsPage() -> impl IntoView {
             <h3>"Bead Status Breakdown"</h3>
             <div class="activity-feed">
                 <div class="activity-item">
-                    {move || format!("Pending: {}", beads_pending())}
+                    {move || format!("Planning: {}", beads_planning())}
                 </div>
                 <div class="activity-item">
                     {move || format!("In Progress: {}", beads_in_progress())}

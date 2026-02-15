@@ -1,6 +1,22 @@
 use leptos::prelude::*;
 use leptos::ev::MouseEvent;
 
+const HELP_ITEMS: &[(&str, &str)] = &[
+    ("Show help", "?"),
+    ("Kanban Board", "1"),
+    ("Agent Terminals", "2"),
+    ("Insights", "3"),
+    ("Ideation", "4"),
+    ("Roadmap", "5"),
+    ("Context", "6"),
+    ("MCP Overview", "7"),
+    ("Worktrees", "8"),
+    ("GitHub Issues", "9"),
+    ("GitHub PRs", "0"),
+    ("Claude Code", "-"),
+    ("Settings", "="),
+];
+
 #[component]
 pub fn HelpModal(
     on_close: impl Fn(MouseEvent) + 'static,
@@ -10,46 +26,16 @@ pub fn HelpModal(
         </div>
         <div class="help-modal">
             <h2>"Keyboard Shortcuts"</h2>
-            <div class="keybind">
-                <span>"Show help"</span>
-                <kbd>"?"</kbd>
-            </div>
-            <div class="keybind">
-                <span>"Dashboard"</span>
-                <kbd>"1"</kbd>
-            </div>
-            <div class="keybind">
-                <span>"Agents"</span>
-                <kbd>"2"</kbd>
-            </div>
-            <div class="keybind">
-                <span>"Beads"</span>
-                <kbd>"3"</kbd>
-            </div>
-            <div class="keybind">
-                <span>"Sessions"</span>
-                <kbd>"4"</kbd>
-            </div>
-            <div class="keybind">
-                <span>"Convoys"</span>
-                <kbd>"5"</kbd>
-            </div>
-            <div class="keybind">
-                <span>"Costs"</span>
-                <kbd>"6"</kbd>
-            </div>
-            <div class="keybind">
-                <span>"Analytics"</span>
-                <kbd>"7"</kbd>
-            </div>
-            <div class="keybind">
-                <span>"Config"</span>
-                <kbd>"8"</kbd>
-            </div>
-            <div class="keybind">
-                <span>"MCP"</span>
-                <kbd>"9"</kbd>
-            </div>
+            {HELP_ITEMS.iter().map(|(label, key)| {
+                let label = *label;
+                let key = *key;
+                view! {
+                    <div class="keybind">
+                        <span>{label}</span>
+                        <kbd>{key}</kbd>
+                    </div>
+                }
+            }).collect::<Vec<_>>()}
             <button class="close-btn">"Close"</button>
         </div>
     }

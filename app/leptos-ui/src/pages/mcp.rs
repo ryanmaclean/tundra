@@ -9,7 +9,7 @@ pub fn McpPage() -> impl IntoView {
 
     view! {
         <div class="page-header">
-            <h2>"MCP Servers"</h2>
+            <h2>"MCP Overview"</h2>
         </div>
         <table class="data-table">
             <thead>
