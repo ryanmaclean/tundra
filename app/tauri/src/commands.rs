@@ -274,6 +274,33 @@ pub async fn hook_bead(
     Ok(bead_to_response(&bead))
 }
 
+/// Transition a bead to Review status (Slung -> Review).
+pub async fn review_bead(
+    state: &AppState,
+    bead_id: String,
+) -> Result<BeadResponse, TauriError> {
+    let uuid = Uuid::parse_str(&bead_id)
+        .map_err(|_| TauriError::InvalidState(format!("invalid uuid: {bead_id}")))?;
+    let mut bead = state
+        .cache
+        .get_bead(uuid)
+        .await?
+        .ok_or_else(|| TauriError::NotFound(format!("bead {bead_id}")))?;
+
+    if !bead.status.can_transition_to(&BeadStatus::Review) {
+        return Err(TauriError::InvalidState(format!(
+            "cannot transition bead from {:?} to review",
+            bead.status
+        )));
+    }
+
+    bead.status = BeadStatus::Review;
+    bead.updated_at = Utc::now();
+
+    state.cache.upsert_bead(&bead).await?;
+    Ok(bead_to_response(&bead))
+}
+
 /// Mark a bead as done or failed.
 pub async fn done_bead(
     state: &AppState,

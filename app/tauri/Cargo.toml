@@ -24,3 +24,5 @@ tokio-rusqlite = "0.6"
 
 [dev-dependencies]
 tokio = { workspace = true }
+at-agents = { path = "../../crates/at-agents" }
+at-bridge = { path = "../../crates/at-bridge" }

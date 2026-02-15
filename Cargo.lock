@@ -218,6 +218,7 @@ name = "at-tauri"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "at-agents",
  "at-bridge",
  "at-core",
  "at-telemetry",
