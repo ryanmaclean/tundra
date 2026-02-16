@@ -1,15 +1,23 @@
 pub mod changelog;
+pub mod cost_tracker;
 pub mod ideation;
 pub mod insights;
 pub mod llm;
 pub mod memory;
+pub mod model_router;
 pub mod roadmap;
+pub mod token_cache;
 
 // Re-export canonical LLM types for convenience.
 pub use llm::{
     AnthropicProvider, LlmConfig, LlmError, LlmMessage, LlmProvider, LlmResponse, LlmRole,
     LlmUsageTracker, MockProvider as LlmMockProvider, OpenAiProvider,
 };
+
+// Re-export optimization types.
+pub use cost_tracker::{CostTracker, LetsMetrics, ModelPricing, QcaScore, TokenBudget};
+pub use model_router::{ComplexityLevel, ModelRouter, RouteDecision, RoutingStrategy};
+pub use token_cache::{CacheStats, TokenCache, TokenCacheConfig};
 
 use thiserror::Error;
 use uuid::Uuid;

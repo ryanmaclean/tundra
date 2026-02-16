@@ -54,6 +54,8 @@ pub struct ExecutionResult {
     pub output: String,
     /// Structured events parsed from the output, if any.
     pub events: Vec<AgentEvent>,
+    /// Tool use errors encountered during execution.
+    pub tool_errors: Vec<ToolUseError>,
     /// Duration of execution in milliseconds.
     pub duration_ms: u64,
     /// Exit code of the agent process, if available.
@@ -66,6 +68,91 @@ pub struct AgentEvent {
     pub event_type: String,
     pub message: String,
     pub data: Option<serde_json::Value>,
+}
+
+/// A tool_use_error parsed from LLM agent output.
+/// These occur when the agent tries to use a tool that isn't available.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolUseError {
+    /// The tool name that was requested but unavailable.
+    pub tool_name: String,
+    /// The raw error message from the LLM platform.
+    pub error_message: String,
+    /// The full raw XML tag content.
+    pub raw: String,
+}
+
+/// Strategy for recovering from a tool_use_error.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolErrorRecovery {
+    /// Inject a hint telling the agent to use an alternative tool.
+    RetryWithHint { hint: String },
+    /// Skip this tool call and continue execution.
+    Skip,
+    /// Abort the task.
+    Abort,
+}
+
+/// Maps unavailable tools to available alternatives.
+pub struct ToolFallbackMap {
+    fallbacks: std::collections::HashMap<String, Vec<String>>,
+}
+
+impl Default for ToolFallbackMap {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ToolFallbackMap {
+    pub fn new() -> Self {
+        let mut fallbacks = std::collections::HashMap::new();
+        // Common tool name mismatches in LLM agents
+        fallbacks.insert("Bash".into(), vec!["bash".into(), "shell".into(), "execute_command".into()]);
+        fallbacks.insert("bash".into(), vec!["Bash".into(), "shell".into(), "execute_command".into()]);
+        fallbacks.insert("Read".into(), vec!["read_file".into(), "cat".into(), "file_read".into()]);
+        fallbacks.insert("Write".into(), vec!["write_file".into(), "file_write".into(), "create_file".into()]);
+        fallbacks.insert("Edit".into(), vec!["edit_file".into(), "file_edit".into(), "str_replace_editor".into()]);
+        fallbacks.insert("Grep".into(), vec!["grep".into(), "search".into(), "ripgrep".into()]);
+        fallbacks.insert("Glob".into(), vec!["glob".into(), "find_files".into(), "list_files".into()]);
+        fallbacks.insert("WebSearch".into(), vec!["web_search".into(), "search_web".into()]);
+        fallbacks.insert("WebFetch".into(), vec!["web_fetch".into(), "fetch_url".into(), "curl".into()]);
+        Self { fallbacks }
+    }
+
+    /// Register a fallback for a tool name.
+    pub fn add_fallback(&mut self, tool: impl Into<String>, alternatives: Vec<String>) {
+        self.fallbacks.insert(tool.into(), alternatives);
+    }
+
+    /// Given a tool name that failed, suggest alternatives.
+    pub fn suggest_alternatives(&self, failed_tool: &str) -> Vec<&str> {
+        self.fallbacks
+            .get(failed_tool)
+            .map(|alts| alts.iter().map(|s| s.as_str()).collect())
+            .unwrap_or_default()
+    }
+
+    /// Build a recovery strategy for a tool_use_error.
+    pub fn recover(&self, error: &ToolUseError, available_tools: &[String]) -> ToolErrorRecovery {
+        let alternatives = self.suggest_alternatives(&error.tool_name);
+
+        // Find the first alternative that's actually available
+        for alt in &alternatives {
+            if available_tools.iter().any(|t| t == alt) {
+                return ToolErrorRecovery::RetryWithHint {
+                    hint: format!(
+                        "The tool '{}' is not available. Use '{}' instead.",
+                        error.tool_name, alt
+                    ),
+                };
+            }
+        }
+
+        // No alternatives found — skip this call
+        ToolErrorRecovery::Skip
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -425,6 +512,17 @@ impl AgentExecutor {
         let duration_ms = start.elapsed().as_millis() as u64;
         let output = String::from_utf8_lossy(&output_buf).to_string();
 
+        // Parse tool_use_errors from the accumulated output
+        let tool_errors = parse_tool_use_errors(&output);
+        if !tool_errors.is_empty() {
+            warn!(
+                task_id = %task.id,
+                error_count = tool_errors.len(),
+                tools = ?tool_errors.iter().map(|e| &e.tool_name).collect::<Vec<_>>(),
+                "tool_use_errors detected in agent output"
+            );
+        }
+
         let timed_out = collect_result.is_err();
         if timed_out {
             warn!(
@@ -452,6 +550,7 @@ impl AgentExecutor {
             success,
             duration_ms,
             events_count = events.len(),
+            tool_errors = tool_errors.len(),
             "task execution finished"
         );
 
@@ -460,6 +559,7 @@ impl AgentExecutor {
             success,
             output,
             events,
+            tool_errors,
             duration_ms,
             exit_code: if success { Some(0) } else { None },
         })
@@ -592,6 +692,77 @@ fn parse_agent_event(line: &str) -> Option<AgentEvent> {
     }
 
     None
+}
+
+/// Parse `<tool_use_error>` XML tags from agent output.
+///
+/// These tags appear when an LLM platform rejects a tool call because
+/// the tool doesn't exist in the available tool set. Common examples:
+/// - `<tool_use_error>Error: No such tool available: Bash</tool_use_error>`
+/// - `<tool_use_error>Tool "Read" is not available</tool_use_error>`
+pub fn parse_tool_use_errors(output: &str) -> Vec<ToolUseError> {
+    let mut errors = Vec::new();
+    let open_tag = "<tool_use_error>";
+    let close_tag = "</tool_use_error>";
+
+    let mut search_from = 0;
+    while let Some(start) = output[search_from..].find(open_tag) {
+        let abs_start = search_from + start;
+        let content_start = abs_start + open_tag.len();
+
+        if let Some(end) = output[content_start..].find(close_tag) {
+            let content = &output[content_start..content_start + end];
+            let raw = &output[abs_start..content_start + end + close_tag.len()];
+
+            let tool_name = extract_tool_name(content);
+            errors.push(ToolUseError {
+                tool_name,
+                error_message: content.trim().to_string(),
+                raw: raw.to_string(),
+            });
+
+            search_from = content_start + end + close_tag.len();
+        } else {
+            break;
+        }
+    }
+
+    errors
+}
+
+/// Extract the tool name from a tool_use_error message.
+///
+/// Handles patterns like:
+/// - "Error: No such tool available: Bash"
+/// - "Tool \"Read\" is not available"
+/// - "Unknown tool: Write"
+fn extract_tool_name(error_msg: &str) -> String {
+    let msg = error_msg.trim();
+
+    // Pattern: "No such tool available: <ToolName>"
+    if let Some(idx) = msg.rfind(": ") {
+        let after = msg[idx + 2..].trim();
+        if !after.is_empty() && after.chars().next().map_or(false, |c| c.is_alphabetic()) {
+            return after.to_string();
+        }
+    }
+
+    // Pattern: "Tool \"<ToolName>\" is not available" or "Tool '<ToolName>'"
+    if msg.contains("Tool") {
+        let cleaned = msg.replace('"', "").replace('\'', "");
+        for word in cleaned.split_whitespace() {
+            // Tool names are typically PascalCase or lowercase
+            if word != "Tool" && word != "is" && word != "not" && word != "available"
+                && word != "Error:" && word != "Unknown"
+                && word.chars().next().map_or(false, |c| c.is_alphabetic())
+            {
+                return word.to_string();
+            }
+        }
+    }
+
+    // Fallback: return the whole message
+    msg.to_string()
 }
 
 // ---------------------------------------------------------------------------
@@ -843,5 +1014,126 @@ mod tests {
         assert!(prompt.contains("Test task"));
         assert!(prompt.contains("Discovery"));
         assert!(prompt.contains("Medium"));
+    }
+
+    // -- tool_use_error parsing tests --
+
+    #[test]
+    fn parse_tool_use_error_no_such_tool() {
+        let output = r#"some output
+<tool_use_error>Error: No such tool available: Bash</tool_use_error>
+more output"#;
+        let errors = parse_tool_use_errors(output);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].tool_name, "Bash");
+        assert!(errors[0].error_message.contains("No such tool"));
+    }
+
+    #[test]
+    fn parse_tool_use_error_multiple() {
+        let output = r#"<tool_use_error>Error: No such tool available: Bash</tool_use_error>
+text in between
+<tool_use_error>Error: No such tool available: Read</tool_use_error>"#;
+        let errors = parse_tool_use_errors(output);
+        assert_eq!(errors.len(), 2);
+        assert_eq!(errors[0].tool_name, "Bash");
+        assert_eq!(errors[1].tool_name, "Read");
+    }
+
+    #[test]
+    fn parse_tool_use_error_none() {
+        let output = "normal output without any errors";
+        let errors = parse_tool_use_errors(output);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn parse_tool_use_error_unclosed_tag() {
+        let output = "<tool_use_error>Error: No such tool available: Bash";
+        let errors = parse_tool_use_errors(output);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn parse_tool_use_error_tool_quoted() {
+        let output = r#"<tool_use_error>Tool "Write" is not available</tool_use_error>"#;
+        let errors = parse_tool_use_errors(output);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].tool_name, "Write");
+    }
+
+    #[test]
+    fn tool_fallback_map_suggests_alternatives() {
+        let map = ToolFallbackMap::new();
+        let alts = map.suggest_alternatives("Bash");
+        assert!(!alts.is_empty());
+        assert!(alts.contains(&"bash"));
+    }
+
+    #[test]
+    fn tool_fallback_map_unknown_tool() {
+        let map = ToolFallbackMap::new();
+        let alts = map.suggest_alternatives("NonExistentTool");
+        assert!(alts.is_empty());
+    }
+
+    #[test]
+    fn tool_fallback_map_recover_with_available() {
+        let map = ToolFallbackMap::new();
+        let error = ToolUseError {
+            tool_name: "Bash".into(),
+            error_message: "No such tool".into(),
+            raw: "<tool_use_error>No such tool</tool_use_error>".into(),
+        };
+        let available = vec!["bash".to_string(), "read_file".to_string()];
+        let recovery = map.recover(&error, &available);
+        match recovery {
+            ToolErrorRecovery::RetryWithHint { hint } => {
+                assert!(hint.contains("bash"), "hint should suggest 'bash': {hint}");
+            }
+            other => panic!("expected RetryWithHint, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn tool_fallback_map_recover_no_available() {
+        let map = ToolFallbackMap::new();
+        let error = ToolUseError {
+            tool_name: "Bash".into(),
+            error_message: "No such tool".into(),
+            raw: "".into(),
+        };
+        let available = vec!["some_other_tool".to_string()];
+        let recovery = map.recover(&error, &available);
+        assert_eq!(recovery, ToolErrorRecovery::Skip);
+    }
+
+    #[test]
+    fn tool_fallback_map_custom_fallback() {
+        let mut map = ToolFallbackMap::new();
+        map.add_fallback("MyCustomTool", vec!["alt_tool".to_string()]);
+        let alts = map.suggest_alternatives("MyCustomTool");
+        assert_eq!(alts, vec!["alt_tool"]);
+    }
+
+    #[tokio::test]
+    async fn execute_task_detects_tool_use_errors() {
+        let output_with_error = b"some output\n<tool_use_error>Error: No such tool available: Bash</tool_use_error>\nmore output\n".to_vec();
+
+        let spawner = Arc::new(MockSpawner::new(
+            vec![output_with_error],
+            false,
+        ));
+        let bus = EventBus::new();
+        let cache = Arc::new(CacheDb::new_in_memory().await.unwrap());
+
+        let executor = AgentExecutor::with_spawner(spawner, bus, cache);
+        let task = make_test_task();
+        let mut config = make_config();
+        config.timeout_secs = 2;
+
+        let result = executor.execute_task(&task, &config).await.unwrap();
+        assert_eq!(result.tool_errors.len(), 1);
+        assert_eq!(result.tool_errors[0].tool_name, "Bash");
     }
 }
