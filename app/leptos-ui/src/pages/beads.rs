@@ -67,6 +67,20 @@ fn progress_for_lane(lane: &Lane) -> String {
     }
 }
 
+/// Lane index for collapse state tracking.
+fn lane_index(lane: &Lane) -> usize {
+    match lane {
+        Lane::Backlog => 0,
+        Lane::Queue => 1,
+        Lane::Planning => 2,
+        Lane::InProgress => 3,
+        Lane::AiReview => 4,
+        Lane::HumanReview => 5,
+        Lane::Done => 6,
+        Lane::PrCreated => 7,
+    }
+}
+
 #[component]
 pub fn BeadsPage() -> impl IntoView {
     let state = use_app_state();
@@ -78,6 +92,12 @@ pub fn BeadsPage() -> impl IntoView {
     let (filter_category, set_filter_category) = signal("All".to_string());
     let (filter_priority, set_filter_priority) = signal("All".to_string());
     let (filter_search, set_filter_search) = signal(String::new());
+
+    // Task detail modal state
+    let (selected_bead_id, set_selected_bead_id) = signal(Option::<String>::None);
+
+    // Column collapse state: a Vec<bool> of 8 lanes, all start expanded (false = not collapsed)
+    let (collapsed, set_collapsed) = signal(vec![false; 8]);
 
     let clear_filters = move |_| {
         set_filter_category.set("All".to_string());
@@ -179,6 +199,19 @@ pub fn BeadsPage() -> impl IntoView {
                 let lane_for_drop = lane.clone();
                 let lane_for_over = lane.clone();
                 let move_bead_drop = move_bead.clone();
+                let col_idx = lane_index(&lane);
+
+                let is_collapsed = move || {
+                    collapsed.get().get(col_idx).copied().unwrap_or(false)
+                };
+
+                let toggle_collapse = move |_| {
+                    set_collapsed.update(|cols| {
+                        if let Some(v) = cols.get_mut(col_idx) {
+                            *v = !*v;
+                        }
+                    });
+                };
 
                 let count = move || {
                     beads.get().into_iter()
@@ -208,18 +241,36 @@ pub fn BeadsPage() -> impl IntoView {
                     }
                 };
 
+                let col_class = move || {
+                    if is_collapsed() {
+                        "kanban-column kanban-column-collapsed"
+                    } else {
+                        "kanban-column"
+                    }
+                };
+
                 view! {
                     <div
-                        class="kanban-column"
+                        class=col_class
                         on:dragover=on_dragover
                         on:drop=on_drop
                     >
                         <h3>
+                            <button
+                                class="column-collapse-btn"
+                                on:click=toggle_collapse
+                                title=move || if is_collapsed() { "Expand column" } else { "Collapse column" }
+                            >
+                                {move || if is_collapsed() { "+" } else { "-" }}
+                            </button>
                             {label}
                             " "
-                            <span class="count">"(" {count} ")"</span>
+                            <span class="count">{count}</span>
                         </h3>
                         {move || {
+                            if is_collapsed() {
+                                return Vec::new();
+                            }
                             let move_bead_action = move_bead.clone();
                             let cat_filter = filter_category.get();
                             let pri_filter = filter_priority.get();
@@ -241,6 +292,7 @@ pub fn BeadsPage() -> impl IntoView {
                                 })
                                 .map(|bead| {
                                     let bead_id = bead.id.clone();
+                                    let bead_id_click = bead.id.clone();
                                     let bead_id_drag = bead.id.clone();
                                     let set_dragging_start = set_dragging.clone();
                                     let set_dragging_end = set_dragging.clone();
@@ -380,12 +432,18 @@ pub fn BeadsPage() -> impl IntoView {
                                         set_dragging_end.set(None);
                                     };
 
+                                    // Click handler to open task detail
+                                    let on_card_click = move |_| {
+                                        set_selected_bead_id.set(Some(bead_id_click.clone()));
+                                    };
+
                                     view! {
                                         <div
                                             class={format!("bead-card {}", status_class)}
                                             draggable="true"
                                             on:dragstart=on_dragstart
                                             on:dragend=on_dragend
+                                            on:click=on_card_click
                                         >
                                             <div class="bead-card-header">
                                                 <span class="bead-title">{bead.title.clone()}</span>
@@ -410,5 +468,15 @@ pub fn BeadsPage() -> impl IntoView {
                 }
             }).collect::<Vec<_>>()}
         </div>
+
+        // Task detail modal
+        {move || selected_bead_id.get().map(|id| {
+            view! {
+                <crate::components::task_detail::TaskDetail
+                    bead_id=id
+                    on_close=move |_| set_selected_bead_id.set(None)
+                />
+            }
+        })}
     }
 }

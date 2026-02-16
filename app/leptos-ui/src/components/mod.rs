@@ -5,3 +5,5 @@ pub mod bead_card;
 pub mod kpi_card;
 pub mod help_modal;
 pub mod new_task_modal;
+pub mod task_wizard;
+pub mod task_detail;

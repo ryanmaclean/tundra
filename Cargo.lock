@@ -180,6 +180,7 @@ dependencies = [
  "tokio",
  "tokio-rusqlite",
  "toml",
+ "tracing",
  "uuid",
 ]
 
@@ -188,8 +189,11 @@ name = "at-daemon"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
+ "at-agents",
  "at-bridge",
  "at-core",
+ "at-session",
  "at-telemetry",
  "axum",
  "chrono",

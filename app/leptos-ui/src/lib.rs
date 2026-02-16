@@ -53,7 +53,7 @@ pub fn App() -> impl IntoView {
                         0 => view! { <pages::dashboard::DashboardPage /> }.into_any(),
                         1 => view! { <pages::beads::BeadsPage /> }.into_any(),
                         2 => view! { <pages::agents::AgentsPage /> }.into_any(),
-                        3 => view! { <pages::analytics::AnalyticsPage /> }.into_any(),
+                        3 => view! { <pages::insights::InsightsPage /> }.into_any(),
                         4 => view! { <pages::ideation::IdeationPage /> }.into_any(),
                         5 => view! { <pages::roadmap::RoadmapPage /> }.into_any(),
                         6 => view! { <pages::context::ContextPage /> }.into_any(),
@@ -76,7 +76,7 @@ pub fn App() -> impl IntoView {
         })}
 
         {move || show_new_task.get().then(|| view! {
-            <components::new_task_modal::NewTaskModal
+            <components::task_wizard::TaskWizard
                 on_close=move |_| set_show_new_task.set(false)
             />
         })}

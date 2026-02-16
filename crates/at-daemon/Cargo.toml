@@ -6,6 +6,9 @@ edition.workspace = true
 [dependencies]
 at-core = { path = "../at-core" }
 at-telemetry = { path = "../at-telemetry" }
+at-session = { path = "../at-session" }
+at-agents = { path = "../at-agents" }
+at-bridge = { path = "../at-bridge" }
 tokio = { workspace = true }
 tracing = { workspace = true }
 thiserror = { workspace = true }
@@ -15,8 +18,8 @@ chrono = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 flume = { workspace = true }
-at-bridge = { path = "../at-bridge" }
 axum = { workspace = true }
+async-trait = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }
