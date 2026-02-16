@@ -1,6 +1,7 @@
 pub mod types;
 pub mod cache;
 pub mod config;
+pub mod context_engine;
 pub mod session_store;
 pub mod settings;
 pub mod worktree;
