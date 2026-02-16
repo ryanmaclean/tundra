@@ -1,5 +1,5 @@
 use leptos::prelude::*;
-use crate::api::{self, ApiSettings, ApiGeneralSettings, ApiDisplaySettings, ApiAgentsSettings, ApiTerminalSettings, ApiSecuritySettings, ApiIntegrationSettings, ApiCredentialStatus};
+use crate::api::{self, ApiSettings, ApiGeneralSettings, ApiDisplaySettings, ApiAgentsSettings, ApiTerminalSettings, ApiSecuritySettings, ApiIntegrationSettings};
 
 /// Helper to populate all signal setters from an `ApiSettings` struct.
 fn apply_settings_to_signals(
