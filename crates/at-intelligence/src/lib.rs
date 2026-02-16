@@ -1,6 +1,7 @@
 pub mod changelog;
 pub mod ideation;
 pub mod insights;
+pub mod llm;
 pub mod memory;
 pub mod roadmap;
 

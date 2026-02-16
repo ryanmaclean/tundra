@@ -19,7 +19,15 @@ use at_core::types::{
     Agent, Bead, BeadStatus, KpiSnapshot, Lane, Task, TaskCategory, TaskComplexity, TaskPhase,
     TaskPriority,
 };
+use at_intelligence::{
+    changelog::ChangelogEngine,
+    ideation::IdeationEngine,
+    insights::InsightsEngine,
+    memory::MemoryStore,
+    roadmap::RoadmapEngine,
+};
 use crate::event_bus::EventBus;
+use crate::intelligence_api;
 use crate::terminal::TerminalRegistry;
 use crate::terminal_ws;
 
@@ -61,6 +69,12 @@ pub struct ApiState {
     pub settings_manager: Arc<SettingsManager>,
     /// GitHub sync status tracking.
     pub sync_status: Arc<RwLock<SyncStatus>>,
+    // ---- Intelligence engines ------------------------------------------------
+    pub insights_engine: Arc<RwLock<InsightsEngine>>,
+    pub ideation_engine: Arc<RwLock<IdeationEngine>>,
+    pub roadmap_engine: Arc<RwLock<RoadmapEngine>>,
+    pub memory_store: Arc<RwLock<MemoryStore>>,
+    pub changelog_engine: Arc<RwLock<ChangelogEngine>>,
 }
 
 impl ApiState {
@@ -89,6 +103,11 @@ impl ApiState {
             pty_handles: Arc::new(RwLock::new(std::collections::HashMap::new())),
             settings_manager: Arc::new(SettingsManager::default_path()),
             sync_status: Arc::new(RwLock::new(SyncStatus::default())),
+            insights_engine: Arc::new(RwLock::new(InsightsEngine::new())),
+            ideation_engine: Arc::new(RwLock::new(IdeationEngine::new())),
+            roadmap_engine: Arc::new(RwLock::new(RoadmapEngine::new())),
+            memory_store: Arc::new(RwLock::new(MemoryStore::new())),
+            changelog_engine: Arc::new(RwLock::new(ChangelogEngine::new())),
         }
     }
 
@@ -125,6 +144,7 @@ pub fn api_router(state: Arc<ApiState>) -> Router {
         .route("/api/github/sync/status", get(get_sync_status))
         .route("/api/github/pr/{task_id}", post(create_pr_for_task))
         .route("/ws", get(ws_handler))
+        .merge(intelligence_api::intelligence_router())
         .layer(CorsLayer::very_permissive())
         .with_state(state)
 }

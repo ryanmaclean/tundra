@@ -142,6 +142,62 @@ impl RoadmapEngine {
         &self.roadmaps
     }
 
+    /// Parse a structured analysis string into a `Roadmap`.
+    ///
+    /// Each line is expected to follow the format:
+    ///
+    /// ```text
+    /// - Feature: <title> | Description: <desc> | Priority: <N>
+    /// ```
+    ///
+    /// Lines that do not match this pattern are silently skipped. The
+    /// resulting `Roadmap` is stored in the engine and also returned by
+    /// reference.
+    ///
+    /// This is a **synchronous parser** — the actual LLM call that produces
+    /// the analysis string happens in the API layer.
+    pub fn generate_from_codebase(&mut self, analysis: &str) -> &Roadmap {
+        let mut features = Vec::new();
+
+        for line in analysis.lines() {
+            let trimmed = line.trim().trim_start_matches('-').trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+
+            // Split on '|' and look for the expected key-value segments.
+            let parts: Vec<&str> = trimmed.split('|').collect();
+            let mut title: Option<&str> = None;
+            let mut description: Option<&str> = None;
+            let mut priority: u8 = 5; // default mid-range
+
+            for part in &parts {
+                let part = part.trim();
+                if let Some(val) = part.strip_prefix("Feature:") {
+                    title = Some(val.trim());
+                } else if let Some(val) = part.strip_prefix("Description:") {
+                    description = Some(val.trim());
+                } else if let Some(val) = part.strip_prefix("Priority:") {
+                    priority = val.trim().parse::<u8>().unwrap_or(5);
+                }
+            }
+
+            if let Some(t) = title {
+                let desc = description.unwrap_or("");
+                features.push(RoadmapFeature::new(t, desc, priority));
+            }
+        }
+
+        let roadmap = Roadmap {
+            id: Uuid::new_v4(),
+            name: "Generated Roadmap".to_string(),
+            features,
+            generated_at: Utc::now(),
+        };
+        self.roadmaps.push(roadmap);
+        self.roadmaps.last().unwrap()
+    }
+
     pub fn reorder_features(
         &mut self,
         roadmap_id: &Uuid,

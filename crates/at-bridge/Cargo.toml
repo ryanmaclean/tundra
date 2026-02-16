@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 at-core = { path = "../at-core" }
+at-intelligence = { path = "../at-intelligence" }
 at-session = { path = "../at-session" }
 tokio = { workspace = true }
 tracing = { workspace = true }
