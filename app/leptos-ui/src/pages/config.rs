@@ -1,4 +1,41 @@
 use leptos::prelude::*;
+use crate::api::{self, ApiSettings, ApiGeneralSettings, ApiDisplaySettings, ApiAgentsSettings, ApiTerminalSettings, ApiSecuritySettings, ApiIntegrationSettings};
+
+/// Helper to populate all signal setters from an `ApiSettings` struct.
+fn apply_settings_to_signals(
+    s: &ApiSettings,
+    set_project_name: WriteSignal<String>,
+    set_theme: WriteSignal<String>,
+    set_font_size: WriteSignal<String>,
+    set_compact_mode: WriteSignal<bool>,
+    set_heartbeat_interval: WriteSignal<u32>,
+    set_max_parallel: WriteSignal<u32>,
+    set_term_font_family: WriteSignal<String>,
+    set_term_font_size: WriteSignal<u32>,
+    set_cursor_style: WriteSignal<String>,
+    set_api_key_masking: WriteSignal<bool>,
+    set_auto_lock_timeout: WriteSignal<u32>,
+    set_sandbox_mode: WriteSignal<bool>,
+    set_github_token: WriteSignal<String>,
+    set_gitlab_token: WriteSignal<String>,
+    set_linear_api_key: WriteSignal<String>,
+) {
+    set_project_name.set(s.general.project_name.clone());
+    set_theme.set(s.display.theme.clone());
+    set_font_size.set(s.display.font_size.to_string());
+    set_compact_mode.set(s.display.compact_mode);
+    set_heartbeat_interval.set(s.agents.heartbeat_interval_secs as u32);
+    set_max_parallel.set(s.agents.max_concurrent);
+    set_term_font_family.set(s.terminal.font_family.clone());
+    set_term_font_size.set(s.terminal.font_size as u32);
+    set_cursor_style.set(s.terminal.cursor_style.clone());
+    set_api_key_masking.set(s.security.mask_api_keys);
+    set_auto_lock_timeout.set(s.security.auto_lock_timeout_mins);
+    set_sandbox_mode.set(s.security.sandbox_mode);
+    set_github_token.set(s.integrations.github_token.clone().unwrap_or_default());
+    set_gitlab_token.set(s.integrations.gitlab_token.clone().unwrap_or_default());
+    set_linear_api_key.set(s.integrations.linear_api_key.clone().unwrap_or_default());
+}
 
 #[component]
 pub fn ConfigPage() -> impl IntoView {
@@ -41,6 +78,25 @@ pub fn ConfigPage() -> impl IntoView {
     let (gitlab_token, set_gitlab_token) = signal(String::new());
     let (linear_api_key, set_linear_api_key) = signal(String::new());
 
+    // ── Load settings from API on mount ──
+    leptos::task::spawn_local(async move {
+        match api::fetch_settings().await {
+            Ok(s) => {
+                apply_settings_to_signals(
+                    &s,
+                    set_project_name, set_theme, set_font_size, set_compact_mode,
+                    set_heartbeat_interval, set_max_parallel,
+                    set_term_font_family, set_term_font_size, set_cursor_style,
+                    set_api_key_masking, set_auto_lock_timeout, set_sandbox_mode,
+                    set_github_token, set_gitlab_token, set_linear_api_key,
+                );
+            }
+            Err(e) => {
+                web_sys::console::warn_1(&format!("Failed to load settings: {e}").into());
+            }
+        }
+    });
+
     let tab_labels = vec![
         "General",
         "Display",
@@ -50,7 +106,7 @@ pub fn ConfigPage() -> impl IntoView {
         "Integration",
     ];
 
-    let show_toast_fn = move |msg: &str| {
+    let _show_toast_fn = move |msg: &str| {
         set_toast_msg.set(msg.to_string());
         set_show_toast.set(true);
         // Auto-hide after 3 seconds
@@ -62,39 +118,84 @@ pub fn ConfigPage() -> impl IntoView {
     };
 
     let on_save = move |_| {
-        web_sys::console::log_1(&"Settings saved".into());
-        show_toast_fn("Settings saved successfully!");
+        let settings = build_settings_from_signals(
+            &project_name, &theme, &font_size, &compact_mode,
+            &heartbeat_interval, &max_parallel,
+            &term_font_family, &term_font_size, &cursor_style,
+            &api_key_masking, &auto_lock_timeout, &sandbox_mode,
+            &github_token, &gitlab_token, &linear_api_key,
+        );
+        leptos::task::spawn_local(async move {
+            match api::save_settings(&settings).await {
+                Ok(_) => {
+                    set_toast_msg.set("Settings saved successfully!".to_string());
+                    set_show_toast.set(true);
+                    let set_show = set_show_toast;
+                    leptos::task::spawn_local(async move {
+                        gloo_timers::future::TimeoutFuture::new(3_000).await;
+                        set_show.set(false);
+                    });
+                }
+                Err(e) => {
+                    set_toast_msg.set(format!("Failed to save: {e}"));
+                    set_show_toast.set(true);
+                    let set_show = set_show_toast;
+                    leptos::task::spawn_local(async move {
+                        gloo_timers::future::TimeoutFuture::new(3_000).await;
+                        set_show.set(false);
+                    });
+                }
+            }
+        });
     };
 
     let on_reset = move |_| {
-        // Reset General
+        // Reset to defaults locally
         set_project_name.set("auto-tundra".to_string());
         set_default_cli.set("Claude".to_string());
         set_auto_save.set(true);
         set_max_parallel.set(4);
-        // Reset Display
-        set_theme.set("Dark".to_string());
+        set_theme.set("dark".to_string());
         set_font_size.set("14".to_string());
         set_compact_mode.set(false);
-        // Reset Agent
         set_default_model.set("sonnet".to_string());
         set_thinking_level.set("medium".to_string());
         set_heartbeat_interval.set(30);
         set_max_retries.set(3);
-        // Reset Terminal
         set_term_font_family.set("JetBrains Mono".to_string());
         set_term_font_size.set(14);
         set_cursor_style.set("block".to_string());
-        // Reset Security
         set_api_key_masking.set(true);
         set_auto_lock_timeout.set(15);
         set_sandbox_mode.set(true);
-        // Reset Integration
         set_github_token.set(String::new());
         set_gitlab_token.set(String::new());
         set_linear_api_key.set(String::new());
 
-        show_toast_fn("Settings reset to defaults");
+        // Save defaults to backend
+        let settings = ApiSettings::default();
+        leptos::task::spawn_local(async move {
+            match api::save_settings(&settings).await {
+                Ok(_) => {
+                    set_toast_msg.set("Settings reset to defaults".to_string());
+                    set_show_toast.set(true);
+                    let set_show = set_show_toast;
+                    leptos::task::spawn_local(async move {
+                        gloo_timers::future::TimeoutFuture::new(3_000).await;
+                        set_show.set(false);
+                    });
+                }
+                Err(e) => {
+                    set_toast_msg.set(format!("Failed to reset: {e}"));
+                    set_show_toast.set(true);
+                    let set_show = set_show_toast;
+                    leptos::task::spawn_local(async move {
+                        gloo_timers::future::TimeoutFuture::new(3_000).await;
+                        set_show.set(false);
+                    });
+                }
+            }
+        });
     };
 
     view! {
@@ -589,4 +690,62 @@ fn event_target_checked(ev: &leptos::ev::Event) -> bool {
         .and_then(|t| t.dyn_into::<web_sys::HtmlInputElement>().ok())
         .map(|el| el.checked())
         .unwrap_or(false)
+}
+
+fn build_settings_from_signals(
+    project_name: &ReadSignal<String>,
+    theme: &ReadSignal<String>,
+    font_size: &ReadSignal<String>,
+    compact_mode: &ReadSignal<bool>,
+    heartbeat_interval: &ReadSignal<u32>,
+    max_parallel: &ReadSignal<u32>,
+    term_font_family: &ReadSignal<String>,
+    term_font_size: &ReadSignal<u32>,
+    cursor_style: &ReadSignal<String>,
+    api_key_masking: &ReadSignal<bool>,
+    auto_lock_timeout: &ReadSignal<u32>,
+    sandbox_mode: &ReadSignal<bool>,
+    github_token: &ReadSignal<String>,
+    gitlab_token: &ReadSignal<String>,
+    linear_api_key: &ReadSignal<String>,
+) -> ApiSettings {
+    let gh = github_token.get();
+    let gl = gitlab_token.get();
+    let li = linear_api_key.get();
+
+    ApiSettings {
+        general: ApiGeneralSettings {
+            project_name: project_name.get(),
+            log_level: "info".to_string(),
+            workspace_root: None,
+        },
+        display: ApiDisplaySettings {
+            theme: theme.get(),
+            font_size: font_size.get().parse().unwrap_or(14),
+            compact_mode: compact_mode.get(),
+        },
+        agents: ApiAgentsSettings {
+            max_concurrent: max_parallel.get(),
+            heartbeat_interval_secs: heartbeat_interval.get() as u64,
+            auto_restart: false,
+        },
+        terminal: ApiTerminalSettings {
+            font_family: term_font_family.get(),
+            font_size: term_font_size.get() as u8,
+            cursor_style: cursor_style.get(),
+        },
+        security: ApiSecuritySettings {
+            allow_shell_exec: false,
+            sandbox: sandbox_mode.get(),
+            allowed_paths: Vec::new(),
+            mask_api_keys: api_key_masking.get(),
+            auto_lock_timeout_mins: auto_lock_timeout.get(),
+            sandbox_mode: sandbox_mode.get(),
+        },
+        integrations: ApiIntegrationSettings {
+            github_token: if gh.is_empty() { None } else { Some(gh) },
+            gitlab_token: if gl.is_empty() { None } else { Some(gl) },
+            linear_api_key: if li.is_empty() { None } else { Some(li) },
+        },
+    }
 }

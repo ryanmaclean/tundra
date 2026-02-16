@@ -4,3 +4,4 @@ pub mod ipc;
 pub mod notifications;
 pub mod protocol;
 pub mod terminal;
+pub mod terminal_ws;

@@ -63,6 +63,7 @@ pub fn App() -> impl IntoView {
                         10 => view! { <pages::github_prs::GithubPrsPage /> }.into_any(),
                         11 => view! { <pages::claude_code::ClaudeCodePage /> }.into_any(),
                         12 => view! { <pages::config::ConfigPage /> }.into_any(),
+                        13 => view! { <pages::terminals::TerminalsPage /> }.into_any(),
                         _ => view! { <pages::dashboard::DashboardPage /> }.into_any(),
                     }}
                 </div>

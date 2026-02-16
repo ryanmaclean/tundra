@@ -14,6 +14,7 @@ const NAV_ITEMS: &[(&str, &str)] = &[
     ("\u{1F500}", "GitHub PRs"),
     ("\u{1F916}", "Claude Code"),
     ("\u{2699}\u{FE0F}", "Settings"),
+    (">_", "Terminals"),
 ];
 
 #[component]

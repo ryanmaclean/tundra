@@ -22,6 +22,12 @@ pub struct Config {
     pub ui: UiConfig,
     #[serde(default)]
     pub bridge: BridgeConfig,
+    #[serde(default)]
+    pub display: DisplayConfig,
+    #[serde(default)]
+    pub terminal: TerminalConfig,
+    #[serde(default)]
+    pub integrations: IntegrationConfig,
 }
 
 impl Default for Config {
@@ -36,6 +42,9 @@ impl Default for Config {
             daemon: DaemonConfig::default(),
             ui: UiConfig::default(),
             bridge: BridgeConfig::default(),
+            display: DisplayConfig::default(),
+            terminal: TerminalConfig::default(),
+            integrations: IntegrationConfig::default(),
         }
     }
 }
@@ -235,6 +244,12 @@ pub struct SecurityConfig {
     pub sandbox: bool,
     #[serde(default)]
     pub allowed_paths: Vec<String>,
+    #[serde(default = "default_true")]
+    pub mask_api_keys: bool,
+    #[serde(default = "default_auto_lock_timeout")]
+    pub auto_lock_timeout_mins: u32,
+    #[serde(default = "default_true")]
+    pub sandbox_mode: bool,
 }
 
 impl Default for SecurityConfig {
@@ -243,8 +258,18 @@ impl Default for SecurityConfig {
             allow_shell_exec: false,
             sandbox: true,
             allowed_paths: Vec::new(),
+            mask_api_keys: true,
+            auto_lock_timeout_mins: default_auto_lock_timeout(),
+            sandbox_mode: true,
         }
     }
+}
+
+fn default_true() -> bool {
+    true
+}
+fn default_auto_lock_timeout() -> u32 {
+    15
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -329,4 +354,93 @@ fn default_bridge_socket() -> String {
 }
 fn default_bridge_buffer() -> usize {
     8192
+}
+
+// ---------------------------------------------------------------------------
+// Display settings (UI-facing)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DisplayConfig {
+    #[serde(default = "default_display_theme")]
+    pub theme: String,
+    #[serde(default = "default_display_font_size")]
+    pub font_size: u8,
+    #[serde(default)]
+    pub compact_mode: bool,
+}
+
+impl Default for DisplayConfig {
+    fn default() -> Self {
+        Self {
+            theme: default_display_theme(),
+            font_size: default_display_font_size(),
+            compact_mode: false,
+        }
+    }
+}
+
+fn default_display_theme() -> String {
+    "dark".into()
+}
+fn default_display_font_size() -> u8 {
+    14
+}
+
+// ---------------------------------------------------------------------------
+// Terminal settings (UI-facing)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TerminalConfig {
+    #[serde(default = "default_term_font_family")]
+    pub font_family: String,
+    #[serde(default = "default_term_font_size")]
+    pub font_size: u8,
+    #[serde(default = "default_cursor_style")]
+    pub cursor_style: String,
+}
+
+impl Default for TerminalConfig {
+    fn default() -> Self {
+        Self {
+            font_family: default_term_font_family(),
+            font_size: default_term_font_size(),
+            cursor_style: default_cursor_style(),
+        }
+    }
+}
+
+fn default_term_font_family() -> String {
+    "JetBrains Mono".into()
+}
+fn default_term_font_size() -> u8 {
+    14
+}
+fn default_cursor_style() -> String {
+    "block".into()
+}
+
+// ---------------------------------------------------------------------------
+// Integration settings (UI-facing)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IntegrationConfig {
+    #[serde(default)]
+    pub github_token: Option<String>,
+    #[serde(default)]
+    pub gitlab_token: Option<String>,
+    #[serde(default)]
+    pub linear_api_key: Option<String>,
+}
+
+impl Default for IntegrationConfig {
+    fn default() -> Self {
+        Self {
+            github_token: None,
+            gitlab_token: None,
+            linear_api_key: None,
+        }
+    }
 }
