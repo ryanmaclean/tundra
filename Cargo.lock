@@ -234,6 +234,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "at-intelligence"
+version = "0.1.0"
+dependencies = [
+ "at-core",
+ "chrono",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "at-session"
 version = "0.1.0"
 dependencies = [

@@ -11,6 +11,7 @@ members = [
     "crates/at-bridge",
     "crates/at-tui",
     "crates/at-integrations",
+    "crates/at-intelligence",
     "app/tauri",
 ]
 

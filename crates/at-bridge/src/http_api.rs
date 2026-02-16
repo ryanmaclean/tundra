@@ -13,7 +13,10 @@ use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
 use uuid::Uuid;
 
-use at_core::types::{Agent, Bead, BeadStatus, KpiSnapshot, Lane};
+use at_core::types::{
+    Agent, Bead, BeadStatus, KpiSnapshot, Lane, Task, TaskCategory, TaskComplexity, TaskPhase,
+    TaskPriority,
+};
 use crate::event_bus::EventBus;
 
 /// Shared application state for all HTTP/WS handlers.
@@ -22,6 +25,7 @@ pub struct ApiState {
     pub beads: Arc<RwLock<Vec<Bead>>>,
     pub agents: Arc<RwLock<Vec<Agent>>>,
     pub kpi: Arc<RwLock<KpiSnapshot>>,
+    pub tasks: Arc<RwLock<Vec<Task>>>,
     pub start_time: std::time::Instant,
 }
 
@@ -44,6 +48,7 @@ impl ApiState {
                 active_agents: 0,
                 timestamp: chrono::Utc::now(),
             })),
+            tasks: Arc::new(RwLock::new(Vec::new())),
             start_time: std::time::Instant::now(),
         }
     }
@@ -58,6 +63,11 @@ pub fn api_router(state: Arc<ApiState>) -> Router {
         .route("/api/beads/{id}/status", post(update_bead_status))
         .route("/api/agents", get(list_agents))
         .route("/api/kpi", get(get_kpi))
+        .route("/api/tasks", get(list_tasks))
+        .route("/api/tasks", post(create_task))
+        .route("/api/tasks/{id}", get(get_task))
+        .route("/api/tasks/{id}/phase", post(update_task_phase))
+        .route("/api/tasks/{id}/logs", get(get_task_logs))
         .route("/ws", get(ws_handler))
         .layer(CorsLayer::very_permissive())
         .with_state(state)
@@ -85,6 +95,20 @@ pub struct CreateBeadRequest {
 #[derive(Debug, Deserialize)]
 pub struct UpdateBeadStatusRequest {
     pub status: BeadStatus,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateTaskRequest {
+    pub title: String,
+    pub bead_id: Uuid,
+    pub category: TaskCategory,
+    pub priority: TaskPriority,
+    pub complexity: TaskComplexity,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateTaskPhaseRequest {
+    pub phase: TaskPhase,
 }
 
 // ---------------------------------------------------------------------------
@@ -166,6 +190,89 @@ async fn list_agents(State(state): State<Arc<ApiState>>) -> Json<Vec<Agent>> {
 async fn get_kpi(State(state): State<Arc<ApiState>>) -> Json<KpiSnapshot> {
     let kpi = state.kpi.read().await;
     Json(kpi.clone())
+}
+
+// ---------------------------------------------------------------------------
+// Task handlers
+// ---------------------------------------------------------------------------
+
+async fn list_tasks(State(state): State<Arc<ApiState>>) -> Json<Vec<Task>> {
+    let tasks = state.tasks.read().await;
+    Json(tasks.clone())
+}
+
+async fn create_task(
+    State(state): State<Arc<ApiState>>,
+    Json(req): Json<CreateTaskRequest>,
+) -> impl IntoResponse {
+    let task = Task::new(req.title, req.bead_id, req.category, req.priority, req.complexity);
+
+    let mut tasks = state.tasks.write().await;
+    tasks.push(task.clone());
+
+    (axum::http::StatusCode::CREATED, Json(task))
+}
+
+async fn get_task(
+    State(state): State<Arc<ApiState>>,
+    Path(id): Path<Uuid>,
+) -> impl IntoResponse {
+    let tasks = state.tasks.read().await;
+    let Some(task) = tasks.iter().find(|t| t.id == id) else {
+        return (
+            axum::http::StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "task not found"})),
+        );
+    };
+    (axum::http::StatusCode::OK, Json(serde_json::json!(task)))
+}
+
+async fn update_task_phase(
+    State(state): State<Arc<ApiState>>,
+    Path(id): Path<Uuid>,
+    Json(req): Json<UpdateTaskPhaseRequest>,
+) -> impl IntoResponse {
+    let mut tasks = state.tasks.write().await;
+    let Some(task) = tasks.iter_mut().find(|t| t.id == id) else {
+        return (
+            axum::http::StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "task not found"})),
+        );
+    };
+
+    if !task.phase.can_transition_to(&req.phase) {
+        return (
+            axum::http::StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": format!(
+                    "invalid phase transition from {:?} to {:?}",
+                    task.phase, req.phase
+                )
+            })),
+        );
+    }
+
+    task.set_phase(req.phase);
+    let task_snapshot = task.clone();
+
+    (axum::http::StatusCode::OK, Json(serde_json::json!(task_snapshot)))
+}
+
+async fn get_task_logs(
+    State(state): State<Arc<ApiState>>,
+    Path(id): Path<Uuid>,
+) -> impl IntoResponse {
+    let tasks = state.tasks.read().await;
+    let Some(task) = tasks.iter().find(|t| t.id == id) else {
+        return (
+            axum::http::StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "task not found"})),
+        );
+    };
+    (
+        axum::http::StatusCode::OK,
+        Json(serde_json::json!(task.logs)),
+    )
 }
 
 // ---------------------------------------------------------------------------

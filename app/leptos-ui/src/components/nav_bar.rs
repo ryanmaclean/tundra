@@ -1,6 +1,7 @@
 use leptos::prelude::*;
 
 const NAV_ITEMS: &[(&str, &str)] = &[
+    ("\u{1F3E0}", "Dashboard"),
     ("\u{1F4CB}", "Kanban Board"),
     ("\u{1F5A5}\u{FE0F}", "Agent Terminals"),
     ("\u{1F4CA}", "Insights"),
@@ -35,7 +36,7 @@ pub fn NavBar(
 
             <nav class="sidebar-nav">
                 <div class="sidebar-section-label">"Main"</div>
-                {NAV_ITEMS[..3].iter().enumerate().map(|(i, (icon, label))| {
+                {NAV_ITEMS[..4].iter().enumerate().map(|(i, (icon, label))| {
                     let icon = *icon;
                     let label = *label;
                     view! {
@@ -51,8 +52,8 @@ pub fn NavBar(
                 }).collect::<Vec<_>>()}
 
                 <div class="sidebar-section-label">"Planning"</div>
-                {NAV_ITEMS[3..6].iter().enumerate().map(|(j, (icon, label))| {
-                    let i = j + 3;
+                {NAV_ITEMS[4..7].iter().enumerate().map(|(j, (icon, label))| {
+                    let i = j + 4;
                     let icon = *icon;
                     let label = *label;
                     view! {
@@ -68,8 +69,8 @@ pub fn NavBar(
                 }).collect::<Vec<_>>()}
 
                 <div class="sidebar-section-label">"Infrastructure"</div>
-                {NAV_ITEMS[6..8].iter().enumerate().map(|(j, (icon, label))| {
-                    let i = j + 6;
+                {NAV_ITEMS[7..9].iter().enumerate().map(|(j, (icon, label))| {
+                    let i = j + 7;
                     let icon = *icon;
                     let label = *label;
                     view! {
@@ -85,8 +86,8 @@ pub fn NavBar(
                 }).collect::<Vec<_>>()}
 
                 <div class="sidebar-section-label">"Integrations"</div>
-                {NAV_ITEMS[8..11].iter().enumerate().map(|(j, (icon, label))| {
-                    let i = j + 8;
+                {NAV_ITEMS[9..12].iter().enumerate().map(|(j, (icon, label))| {
+                    let i = j + 9;
                     let icon = *icon;
                     let label = *label;
                     view! {
@@ -102,8 +103,8 @@ pub fn NavBar(
                 }).collect::<Vec<_>>()}
 
                 <div class="sidebar-section-label">"System"</div>
-                {NAV_ITEMS[11..].iter().enumerate().map(|(j, (icon, label))| {
-                    let i = j + 11;
+                {NAV_ITEMS[12..].iter().enumerate().map(|(j, (icon, label))| {
+                    let i = j + 12;
                     let icon = *icon;
                     let label = *label;
                     view! {

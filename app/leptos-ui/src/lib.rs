@@ -1,5 +1,6 @@
 use leptos::prelude::*;
 
+pub mod api;
 pub mod types;
 pub mod state;
 pub mod pages;
@@ -49,19 +50,20 @@ pub fn App() -> impl IntoView {
 
                 <div class="main-content">
                     {move || match current_tab.get() {
-                        0 => view! { <pages::beads::BeadsPage /> }.into_any(),
-                        1 => view! { <pages::agents::AgentsPage /> }.into_any(),
-                        2 => view! { <pages::analytics::AnalyticsPage /> }.into_any(),
-                        3 => view! { <pages::ideation::IdeationPage /> }.into_any(),
-                        4 => view! { <pages::roadmap::RoadmapPage /> }.into_any(),
-                        5 => view! { <pages::context::ContextPage /> }.into_any(),
-                        6 => view! { <pages::mcp::McpPage /> }.into_any(),
-                        7 => view! { <pages::worktrees::WorktreesPage /> }.into_any(),
-                        8 => view! { <pages::github_issues::GithubIssuesPage /> }.into_any(),
-                        9 => view! { <pages::github_prs::GithubPrsPage /> }.into_any(),
-                        10 => view! { <pages::claude_code::ClaudeCodePage /> }.into_any(),
-                        11 => view! { <pages::config::ConfigPage /> }.into_any(),
-                        _ => view! { <pages::beads::BeadsPage /> }.into_any(),
+                        0 => view! { <pages::dashboard::DashboardPage /> }.into_any(),
+                        1 => view! { <pages::beads::BeadsPage /> }.into_any(),
+                        2 => view! { <pages::agents::AgentsPage /> }.into_any(),
+                        3 => view! { <pages::analytics::AnalyticsPage /> }.into_any(),
+                        4 => view! { <pages::ideation::IdeationPage /> }.into_any(),
+                        5 => view! { <pages::roadmap::RoadmapPage /> }.into_any(),
+                        6 => view! { <pages::context::ContextPage /> }.into_any(),
+                        7 => view! { <pages::mcp::McpPage /> }.into_any(),
+                        8 => view! { <pages::worktrees::WorktreesPage /> }.into_any(),
+                        9 => view! { <pages::github_issues::GithubIssuesPage /> }.into_any(),
+                        10 => view! { <pages::github_prs::GithubPrsPage /> }.into_any(),
+                        11 => view! { <pages::claude_code::ClaudeCodePage /> }.into_any(),
+                        12 => view! { <pages::config::ConfigPage /> }.into_any(),
+                        _ => view! { <pages::dashboard::DashboardPage /> }.into_any(),
                     }}
                 </div>
 

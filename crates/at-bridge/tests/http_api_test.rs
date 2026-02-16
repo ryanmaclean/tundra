@@ -3,7 +3,7 @@ use std::sync::Arc;
 use at_bridge::event_bus::EventBus;
 use at_bridge::http_api::{api_router, ApiState};
 use at_bridge::protocol::BridgeMessage;
-use serde_json::Value;
+use serde_json::{json, Value};
 
 /// Spin up an API server on a random port, return the base URL.
 async fn start_test_server() -> (String, Arc<ApiState>) {
@@ -195,4 +195,162 @@ async fn test_websocket_receives_events() {
     let text = msg.into_text().expect("expected text message");
     let parsed: Value = serde_json::from_str(&text).unwrap();
     assert_eq!(parsed["type"], "get_status");
+}
+
+// ---------------------------------------------------------------------------
+// Task CRUD tests
+// ---------------------------------------------------------------------------
+
+fn task_payload() -> Value {
+    json!({
+        "title": "Implement login",
+        "bead_id": uuid::Uuid::new_v4(),
+        "category": "feature",
+        "priority": "high",
+        "complexity": "medium"
+    })
+}
+
+#[tokio::test]
+async fn test_create_task() {
+    let (base, _state) = start_test_server().await;
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .post(format!("{base}/api/tasks"))
+        .json(&task_payload())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 201);
+
+    let body: Value = resp.json().await.unwrap();
+    assert_eq!(body["title"], "Implement login");
+    assert_eq!(body["phase"], "discovery");
+    assert_eq!(body["category"], "feature");
+    assert_eq!(body["priority"], "high");
+    assert_eq!(body["complexity"], "medium");
+    assert!(body["id"].is_string());
+}
+
+#[tokio::test]
+async fn test_list_tasks() {
+    let (base, _state) = start_test_server().await;
+    let client = reqwest::Client::new();
+
+    // Empty initially
+    let resp = reqwest::get(format!("{base}/api/tasks")).await.unwrap();
+    assert_eq!(resp.status(), 200);
+    let body: Vec<Value> = resp.json().await.unwrap();
+    assert!(body.is_empty());
+
+    // Create one
+    client
+        .post(format!("{base}/api/tasks"))
+        .json(&task_payload())
+        .send()
+        .await
+        .unwrap();
+
+    let resp = reqwest::get(format!("{base}/api/tasks")).await.unwrap();
+    let body: Vec<Value> = resp.json().await.unwrap();
+    assert_eq!(body.len(), 1);
+}
+
+#[tokio::test]
+async fn test_get_task() {
+    let (base, _state) = start_test_server().await;
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .post(format!("{base}/api/tasks"))
+        .json(&task_payload())
+        .send()
+        .await
+        .unwrap();
+    let created: Value = resp.json().await.unwrap();
+    let id = created["id"].as_str().unwrap();
+
+    let resp = reqwest::get(format!("{base}/api/tasks/{id}")).await.unwrap();
+    assert_eq!(resp.status(), 200);
+    let body: Value = resp.json().await.unwrap();
+    assert_eq!(body["title"], "Implement login");
+}
+
+#[tokio::test]
+async fn test_get_task_not_found() {
+    let (base, _state) = start_test_server().await;
+    let fake_id = uuid::Uuid::new_v4();
+    let resp = reqwest::get(format!("{base}/api/tasks/{fake_id}")).await.unwrap();
+    assert_eq!(resp.status(), 404);
+}
+
+#[tokio::test]
+async fn test_update_task_phase() {
+    let (base, _state) = start_test_server().await;
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .post(format!("{base}/api/tasks"))
+        .json(&task_payload())
+        .send()
+        .await
+        .unwrap();
+    let created: Value = resp.json().await.unwrap();
+    let id = created["id"].as_str().unwrap();
+
+    // discovery -> context_gathering (valid)
+    let resp = client
+        .post(format!("{base}/api/tasks/{id}/phase"))
+        .json(&json!({"phase": "context_gathering"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let body: Value = resp.json().await.unwrap();
+    assert_eq!(body["phase"], "context_gathering");
+}
+
+#[tokio::test]
+async fn test_update_task_phase_invalid() {
+    let (base, _state) = start_test_server().await;
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .post(format!("{base}/api/tasks"))
+        .json(&task_payload())
+        .send()
+        .await
+        .unwrap();
+    let created: Value = resp.json().await.unwrap();
+    let id = created["id"].as_str().unwrap();
+
+    // discovery -> coding (invalid, skips steps)
+    let resp = client
+        .post(format!("{base}/api/tasks/{id}/phase"))
+        .json(&json!({"phase": "coding"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 400);
+}
+
+#[tokio::test]
+async fn test_get_task_logs() {
+    let (base, _state) = start_test_server().await;
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .post(format!("{base}/api/tasks"))
+        .json(&task_payload())
+        .send()
+        .await
+        .unwrap();
+    let created: Value = resp.json().await.unwrap();
+    let id = created["id"].as_str().unwrap();
+
+    let resp = reqwest::get(format!("{base}/api/tasks/{id}/logs")).await.unwrap();
+    assert_eq!(resp.status(), 200);
+    let body: Vec<Value> = resp.json().await.unwrap();
+    assert!(body.is_empty()); // No logs on a fresh task
 }

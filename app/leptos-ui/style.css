@@ -2309,3 +2309,145 @@ code.file-path, code.branch-name {
 .filter-clear-btn:hover {
     background: rgba(239, 68, 68, 0.2);
 }
+
+/* ── Dashboard Page ── */
+
+.dashboard-refresh-btn {
+    margin-left: auto;
+}
+
+.page-header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.dashboard-error {
+    background: rgba(239, 68, 68, 0.15);
+    border: 1px solid var(--accent-red);
+    color: var(--accent-red);
+    padding: 10px 16px;
+    border-radius: 8px;
+    margin-bottom: 16px;
+    font-size: 13px;
+}
+
+.dashboard-loading {
+    color: var(--text-muted);
+    font-size: 13px;
+    margin-bottom: 16px;
+    padding: 8px 0;
+}
+
+.dashboard-kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+.dashboard-kpi-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    transition: border-color 0.2s;
+}
+
+.dashboard-kpi-card:hover {
+    border-color: var(--accent-purple);
+}
+
+.dashboard-kpi-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 8px;
+}
+
+.dashboard-kpi-value {
+    font-size: 36px;
+    font-weight: 700;
+    color: var(--accent-purple);
+    line-height: 1;
+    margin-bottom: 6px;
+}
+
+.dashboard-kpi-value-red {
+    color: var(--accent-red);
+}
+
+.dashboard-kpi-subtitle {
+    font-size: 11px;
+    color: var(--text-secondary);
+}
+
+.dashboard-secondary-kpi {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 24px;
+}
+
+.dashboard-kpi-card-sm {
+    flex: 1;
+    padding: 16px;
+}
+
+.dashboard-kpi-card-sm .dashboard-kpi-value {
+    font-size: 28px;
+}
+
+.dashboard-status-section {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+}
+
+.dashboard-status-section h3 {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 16px;
+}
+
+.dashboard-status-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+}
+
+.dashboard-status-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.dashboard-status-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.dashboard-status-value {
+    font-size: 16px;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+@media (max-width: 900px) {
+    .dashboard-kpi-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    .dashboard-status-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
