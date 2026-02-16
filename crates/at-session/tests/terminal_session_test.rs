@@ -250,10 +250,10 @@ fn test_pool_session_isolation() {
     let pool = PtyPool::new(4);
 
     let h1 = pool
-        .spawn("/bin/sh", &["-c", "cat"], &[])
+        .spawn("/bin/cat", &[], &[])
         .expect("spawn 1");
     let h2 = pool
-        .spawn("/bin/sh", &["-c", "cat"], &[])
+        .spawn("/bin/cat", &[], &[])
         .expect("spawn 2");
 
     // Write to h1 only.

@@ -359,6 +359,104 @@ pub enum TaskComplexity {
 }
 
 // ---------------------------------------------------------------------------
+// TaskImpact
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskImpact {
+    Low,
+    Medium,
+    High,
+    Critical,
+}
+
+// ---------------------------------------------------------------------------
+// PhaseConfig
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PhaseConfig {
+    pub phase_name: String,
+    pub model: String,
+    pub thinking_level: String,
+}
+
+impl Default for PhaseConfig {
+    fn default() -> Self {
+        Self {
+            phase_name: "spec_creation".to_string(),
+            model: "sonnet".to_string(),
+            thinking_level: "medium".to_string(),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// AgentProfile
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentProfile {
+    Auto,
+    Complex,
+    Balanced,
+    Quick,
+    Custom(String),
+}
+
+impl AgentProfile {
+    /// Return a human-readable display name for the profile.
+    pub fn display_name(&self) -> &str {
+        match self {
+            AgentProfile::Auto => "Auto Optimized",
+            AgentProfile::Complex => "Complex",
+            AgentProfile::Balanced => "Balanced",
+            AgentProfile::Quick => "Quick",
+            AgentProfile::Custom(_) => "Custom",
+        }
+    }
+
+    /// Return default phase configurations for this profile.
+    pub fn default_phase_configs(&self) -> Vec<PhaseConfig> {
+        match self {
+            AgentProfile::Auto => vec![
+                PhaseConfig { phase_name: "spec_creation".into(), model: "sonnet".into(), thinking_level: "medium".into() },
+                PhaseConfig { phase_name: "planning".into(), model: "sonnet".into(), thinking_level: "medium".into() },
+                PhaseConfig { phase_name: "code_review".into(), model: "sonnet".into(), thinking_level: "medium".into() },
+            ],
+            AgentProfile::Complex => vec![
+                PhaseConfig { phase_name: "spec_creation".into(), model: "opus".into(), thinking_level: "high".into() },
+                PhaseConfig { phase_name: "planning".into(), model: "opus".into(), thinking_level: "high".into() },
+                PhaseConfig { phase_name: "code_review".into(), model: "opus".into(), thinking_level: "high".into() },
+            ],
+            AgentProfile::Balanced => vec![
+                PhaseConfig { phase_name: "spec_creation".into(), model: "sonnet".into(), thinking_level: "medium".into() },
+                PhaseConfig { phase_name: "planning".into(), model: "opus".into(), thinking_level: "medium".into() },
+                PhaseConfig { phase_name: "code_review".into(), model: "haiku".into(), thinking_level: "low".into() },
+            ],
+            AgentProfile::Quick => vec![
+                PhaseConfig { phase_name: "spec_creation".into(), model: "haiku".into(), thinking_level: "low".into() },
+                PhaseConfig { phase_name: "planning".into(), model: "haiku".into(), thinking_level: "low".into() },
+                PhaseConfig { phase_name: "code_review".into(), model: "haiku".into(), thinking_level: "low".into() },
+            ],
+            AgentProfile::Custom(_) => vec![
+                PhaseConfig { phase_name: "spec_creation".into(), model: "sonnet".into(), thinking_level: "medium".into() },
+                PhaseConfig { phase_name: "planning".into(), model: "sonnet".into(), thinking_level: "medium".into() },
+                PhaseConfig { phase_name: "code_review".into(), model: "sonnet".into(), thinking_level: "medium".into() },
+            ],
+        }
+    }
+}
+
+impl std::fmt::Display for AgentProfile {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.display_name())
+    }
+}
+
+// ---------------------------------------------------------------------------
 // SubtaskStatus / Subtask
 // ---------------------------------------------------------------------------
 
@@ -425,6 +523,9 @@ pub struct Task {
     pub category: TaskCategory,
     pub priority: TaskPriority,
     pub complexity: TaskComplexity,
+    pub impact: Option<TaskImpact>,
+    pub agent_profile: Option<AgentProfile>,
+    pub phase_configs: Vec<PhaseConfig>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub started_at: Option<DateTime<Utc>>,
@@ -455,6 +556,9 @@ impl Task {
             category,
             priority,
             complexity,
+            impact: None,
+            agent_profile: None,
+            phase_configs: Vec::new(),
             created_at: now,
             updated_at: now,
             started_at: None,
@@ -481,6 +585,166 @@ impl Task {
         self.progress_percent = phase.progress_percent();
         self.phase = phase;
         self.updated_at = Utc::now();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// QA Report types
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QaSeverity {
+    Critical,
+    Major,
+    Minor,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QaStatus {
+    Passed,
+    Failed,
+    Pending,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QaIssue {
+    pub id: Uuid,
+    pub severity: QaSeverity,
+    pub description: String,
+    pub file: Option<String>,
+    pub line: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QaReport {
+    pub id: Uuid,
+    pub task_id: Uuid,
+    pub status: QaStatus,
+    pub issues: Vec<QaIssue>,
+    pub timestamp: DateTime<Utc>,
+}
+
+impl QaReport {
+    pub fn new(task_id: Uuid, status: QaStatus) -> Self {
+        Self {
+            id: Uuid::new_v4(),
+            task_id,
+            status,
+            issues: Vec::new(),
+            timestamp: Utc::now(),
+        }
+    }
+
+    /// Returns true if any issue has Critical severity.
+    pub fn has_critical_issues(&self) -> bool {
+        self.issues.iter().any(|i| i.severity == QaSeverity::Critical)
+    }
+
+    /// Determine the next phase based on QA status.
+    pub fn next_phase(&self) -> TaskPhase {
+        match self.status {
+            QaStatus::Passed => TaskPhase::Merging,
+            QaStatus::Failed => TaskPhase::Fixing,
+            QaStatus::Pending => TaskPhase::Qa,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// TaskFile types
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskFileType {
+    Spec,
+    Implementation,
+    Test,
+    Config,
+    Documentation,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskFile {
+    pub id: Uuid,
+    pub task_id: Uuid,
+    pub path: String,
+    pub file_type: TaskFileType,
+    pub content: Option<String>,
+    pub size_bytes: Option<u64>,
+    pub phase_added: TaskPhase,
+    pub subtask_id: Option<Uuid>,
+}
+
+impl TaskFile {
+    pub fn new(
+        task_id: Uuid,
+        path: impl Into<String>,
+        file_type: TaskFileType,
+        phase: TaskPhase,
+    ) -> Self {
+        Self {
+            id: Uuid::new_v4(),
+            task_id,
+            path: path.into(),
+            file_type,
+            content: None,
+            size_bytes: None,
+            phase_added: phase,
+            subtask_id: None,
+        }
+    }
+
+    /// Normalize the file path (remove leading ./, collapse //)
+    pub fn normalized_path(&self) -> String {
+        let p = self.path.replace("//", "/");
+        p.strip_prefix("./").unwrap_or(&p).to_string()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// TaskFiles collection
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct TaskFiles {
+    pub files: Vec<TaskFile>,
+}
+
+impl TaskFiles {
+    pub fn new() -> Self {
+        Self { files: Vec::new() }
+    }
+
+    pub fn add(&mut self, file: TaskFile) {
+        self.files.push(file);
+    }
+
+    /// Check if a file path already exists in the collection.
+    pub fn has_path(&self, path: &str) -> bool {
+        self.files.iter().any(|f| f.path == path)
+    }
+
+    /// Filter files by type.
+    pub fn by_type(&self, file_type: &TaskFileType) -> Vec<&TaskFile> {
+        self.files.iter().filter(|f| &f.file_type == file_type).collect()
+    }
+
+    /// Filter files by phase.
+    pub fn by_phase(&self, phase: &TaskPhase) -> Vec<&TaskFile> {
+        self.files.iter().filter(|f| &f.phase_added == phase).collect()
+    }
+
+    /// Filter files by subtask.
+    pub fn by_subtask(&self, subtask_id: Uuid) -> Vec<&TaskFile> {
+        self.files.iter().filter(|f| f.subtask_id == Some(subtask_id)).collect()
+    }
+
+    /// Count of files.
+    pub fn count(&self) -> usize {
+        self.files.len()
     }
 }
 

@@ -19,8 +19,8 @@ use at_core::config::Config;
 use at_core::session_store::{SessionState, SessionStore};
 use at_core::settings::SettingsManager;
 use at_core::types::{
-    Agent, Bead, BeadStatus, KpiSnapshot, Lane, Task, TaskCategory, TaskComplexity, TaskPhase,
-    TaskPriority,
+    Agent, AgentProfile, Bead, BeadStatus, KpiSnapshot, Lane, PhaseConfig, Task, TaskCategory,
+    TaskComplexity, TaskImpact, TaskPhase, TaskPriority,
 };
 use at_intelligence::{
     changelog::ChangelogEngine,
@@ -155,6 +155,8 @@ pub fn api_router_with_auth(state: Arc<ApiState>, api_key: Option<String>) -> Ro
         .route("/api/tasks", get(list_tasks))
         .route("/api/tasks", post(create_task))
         .route("/api/tasks/{id}", get(get_task))
+        .route("/api/tasks/{id}", put(update_task))
+        .route("/api/tasks/{id}", axum::routing::delete(delete_task))
         .route("/api/tasks/{id}/phase", post(update_task_phase))
         .route("/api/tasks/{id}/logs", get(get_task_logs))
         .route("/api/terminals", get(terminal_ws::list_terminals))
@@ -222,6 +224,22 @@ pub struct CreateTaskRequest {
     pub category: TaskCategory,
     pub priority: TaskPriority,
     pub complexity: TaskComplexity,
+    pub description: Option<String>,
+    pub impact: Option<TaskImpact>,
+    pub agent_profile: Option<AgentProfile>,
+    pub phase_configs: Option<Vec<PhaseConfig>>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateTaskRequest {
+    pub title: Option<String>,
+    pub description: Option<String>,
+    pub category: Option<TaskCategory>,
+    pub priority: Option<TaskPriority>,
+    pub complexity: Option<TaskComplexity>,
+    pub impact: Option<TaskImpact>,
+    pub agent_profile: Option<AgentProfile>,
+    pub phase_configs: Option<Vec<PhaseConfig>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -357,12 +375,25 @@ async fn create_task(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<CreateTaskRequest>,
 ) -> impl IntoResponse {
-    let task = Task::new(req.title, req.bead_id, req.category, req.priority, req.complexity);
+    if req.title.is_empty() {
+        return (
+            axum::http::StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "title cannot be empty"})),
+        ).into_response();
+    }
+
+    let mut task = Task::new(req.title, req.bead_id, req.category, req.priority, req.complexity);
+    task.description = req.description;
+    task.impact = req.impact;
+    task.agent_profile = req.agent_profile;
+    if let Some(configs) = req.phase_configs {
+        task.phase_configs = configs;
+    }
 
     let mut tasks = state.tasks.write().await;
     tasks.push(task.clone());
 
-    (axum::http::StatusCode::CREATED, Json(task))
+    (axum::http::StatusCode::CREATED, Json(serde_json::json!(task))).into_response()
 }
 
 async fn get_task(
@@ -377,6 +408,74 @@ async fn get_task(
         );
     };
     (axum::http::StatusCode::OK, Json(serde_json::json!(task)))
+}
+
+async fn update_task(
+    State(state): State<Arc<ApiState>>,
+    Path(id): Path<Uuid>,
+    Json(req): Json<UpdateTaskRequest>,
+) -> impl IntoResponse {
+    let mut tasks = state.tasks.write().await;
+    let Some(task) = tasks.iter_mut().find(|t| t.id == id) else {
+        return (
+            axum::http::StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "task not found"})),
+        );
+    };
+
+    if let Some(title) = req.title {
+        if title.is_empty() {
+            return (
+                axum::http::StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": "title cannot be empty"})),
+            );
+        }
+        task.title = title;
+    }
+    if let Some(desc) = req.description {
+        task.description = Some(desc);
+    }
+    if let Some(cat) = req.category {
+        task.category = cat;
+    }
+    if let Some(pri) = req.priority {
+        task.priority = pri;
+    }
+    if let Some(cplx) = req.complexity {
+        task.complexity = cplx;
+    }
+    if let Some(impact) = req.impact {
+        task.impact = Some(impact);
+    }
+    if let Some(profile) = req.agent_profile {
+        task.agent_profile = Some(profile);
+    }
+    if let Some(configs) = req.phase_configs {
+        task.phase_configs = configs;
+    }
+    task.updated_at = chrono::Utc::now();
+
+    let task_snapshot = task.clone();
+    (axum::http::StatusCode::OK, Json(serde_json::json!(task_snapshot)))
+}
+
+async fn delete_task(
+    State(state): State<Arc<ApiState>>,
+    Path(id): Path<Uuid>,
+) -> impl IntoResponse {
+    let mut tasks = state.tasks.write().await;
+    let len_before = tasks.len();
+    tasks.retain(|t| t.id != id);
+    if tasks.len() == len_before {
+        return (
+            axum::http::StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "task not found"})),
+        );
+    }
+    (
+        axum::http::StatusCode::OK,
+        Json(serde_json::json!({"status": "deleted", "id": id.to_string()})),
+    )
 }
 
 async fn update_task_phase(
