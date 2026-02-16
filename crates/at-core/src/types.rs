@@ -100,15 +100,62 @@ impl Bead {
 // Agent-related enums
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentRole {
+    // --- Core orchestration ---
     Mayor,
     Deacon,
     Witness,
     Refinery,
     Polecat,
     Crew,
+
+    // --- Spec pipeline ---
+    SpecGatherer,
+    SpecWriter,
+    SpecResearcher,
+    SpecCritic,
+    SpecValidator,
+
+    // --- Planning ---
+    Planner,
+    FollowupPlanner,
+
+    // --- Coding ---
+    Coder,
+    CoderRecovery,
+
+    // --- QA ---
+    QaReviewer,
+    QaFixer,
+    ValidationFixer,
+
+    // --- Analysis ---
+    InsightExtractor,
+    ComplexityAssessor,
+    CompetitorAnalysis,
+    AiAnalyzer,
+
+    // --- Ideation ---
+    IdeationCodeQuality,
+    IdeationPerformance,
+    IdeationSecurity,
+    IdeationDocumentation,
+    IdeationUiUx,
+    IdeationCodeImprovements,
+
+    // --- Roadmap ---
+    RoadmapDiscovery,
+    RoadmapFeatures,
+
+    // --- Utilities ---
+    CommitMessage,
+    PrTemplateFiller,
+    MergeResolver,
+
+    // --- Dynamic plugin agent (from .claude/agents/) ---
+    Plugin,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

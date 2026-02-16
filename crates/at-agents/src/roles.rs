@@ -782,13 +782,23 @@ impl AgentLifecycle for CrewAgent {
 // ---------------------------------------------------------------------------
 
 /// Create a boxed RoleConfig for the given agent role.
+///
+/// Specialized agent roles (SpecGatherer, QaReviewer, etc.) map to
+/// a base lifecycle agent with the role-specific behavior handled via
+/// context steering (prompt injection from prompts/*.md templates).
 pub fn role_config_for(role: &AgentRole) -> Box<dyn RoleConfig + Send + Sync> {
     match role {
         AgentRole::Mayor => Box::new(MayorAgent::new()),
-        AgentRole::Deacon => Box::new(DeaconAgent::new()),
-        AgentRole::Witness => Box::new(WitnessAgent::new()),
+        AgentRole::Deacon | AgentRole::QaReviewer | AgentRole::SpecCritic => {
+            Box::new(DeaconAgent::new())
+        }
+        AgentRole::Witness | AgentRole::QaFixer | AgentRole::ValidationFixer => {
+            Box::new(WitnessAgent::new())
+        }
         AgentRole::Refinery => Box::new(RefineryAgent::new()),
         AgentRole::Polecat => Box::new(PolecatAgent::new()),
-        AgentRole::Crew => Box::new(CrewAgent::new()),
+        // All specialized roles use Crew as the base.
+        // Their unique behavior comes from prompt templates + context steering.
+        _ => Box::new(CrewAgent::new()),
     }
 }

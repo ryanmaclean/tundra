@@ -92,11 +92,17 @@ impl AgentSupervisor {
 
         let mut lifecycle: Box<dyn AgentLifecycle> = match role {
             AgentRole::Mayor => Box::new(MayorAgent::new()),
-            AgentRole::Deacon => Box::new(DeaconAgent::new()),
-            AgentRole::Witness => Box::new(WitnessAgent::new()),
+            AgentRole::Deacon | AgentRole::QaReviewer | AgentRole::SpecCritic => {
+                Box::new(DeaconAgent::new())
+            }
+            AgentRole::Witness | AgentRole::QaFixer | AgentRole::ValidationFixer => {
+                Box::new(WitnessAgent::new())
+            }
             AgentRole::Refinery => Box::new(RefineryAgent::new()),
             AgentRole::Polecat => Box::new(PolecatAgent::new()),
-            AgentRole::Crew => Box::new(CrewAgent::new()),
+            // All other roles use Crew as the base lifecycle for now.
+            // Specialized prompts are injected via context steering, not lifecycle.
+            _ => Box::new(CrewAgent::new()),
         };
 
         // Call on_start and transition Spawning -> Active

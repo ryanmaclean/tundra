@@ -7,3 +7,4 @@ pub mod executor;
 pub mod profiles;
 pub mod approval;
 pub mod registry;
+pub mod prompts;

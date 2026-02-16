@@ -1,3 +1,4 @@
+pub mod api_profiles;
 pub mod changelog;
 pub mod cost_tracker;
 pub mod ideation;
@@ -6,6 +7,8 @@ pub mod llm;
 pub mod memory;
 pub mod model_router;
 pub mod roadmap;
+pub mod runner;
+pub mod spec;
 pub mod token_cache;
 
 // Re-export canonical LLM types for convenience.
@@ -18,6 +21,9 @@ pub use llm::{
 pub use cost_tracker::{CostTracker, LetsMetrics, ModelPricing, QcaScore, TokenBudget};
 pub use model_router::{ComplexityLevel, ModelRouter, RouteDecision, RoutingStrategy};
 pub use token_cache::{CacheStats, TokenCache, TokenCacheConfig};
+
+// Re-export API profiles for multi-provider and failover.
+pub use api_profiles::{ApiProfile, ProfileRegistry, ProfileUsage, ProviderKind};
 
 use thiserror::Error;
 use uuid::Uuid;
