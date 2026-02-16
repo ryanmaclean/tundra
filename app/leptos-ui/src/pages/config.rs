@@ -1,5 +1,5 @@
 use leptos::prelude::*;
-use crate::api::{self, ApiSettings, ApiGeneralSettings, ApiDisplaySettings, ApiAgentsSettings, ApiTerminalSettings, ApiSecuritySettings, ApiIntegrationSettings};
+use crate::api::{self, ApiSettings, ApiGeneralSettings, ApiDisplaySettings, ApiAgentsSettings, ApiTerminalSettings, ApiSecuritySettings, ApiIntegrationSettings, ApiCredentialStatus};
 
 /// Helper to populate all signal setters from an `ApiSettings` struct.
 fn apply_settings_to_signals(
@@ -13,12 +13,13 @@ fn apply_settings_to_signals(
     set_term_font_family: WriteSignal<String>,
     set_term_font_size: WriteSignal<u32>,
     set_cursor_style: WriteSignal<String>,
-    set_api_key_masking: WriteSignal<bool>,
     set_auto_lock_timeout: WriteSignal<u32>,
     set_sandbox_mode: WriteSignal<bool>,
-    set_github_token: WriteSignal<String>,
-    set_gitlab_token: WriteSignal<String>,
-    set_linear_api_key: WriteSignal<String>,
+    set_github_token_env: WriteSignal<String>,
+    set_github_owner: WriteSignal<String>,
+    set_github_repo: WriteSignal<String>,
+    set_gitlab_token_env: WriteSignal<String>,
+    set_linear_api_key_env: WriteSignal<String>,
 ) {
     set_project_name.set(s.general.project_name.clone());
     set_theme.set(s.display.theme.clone());
@@ -29,12 +30,13 @@ fn apply_settings_to_signals(
     set_term_font_family.set(s.terminal.font_family.clone());
     set_term_font_size.set(s.terminal.font_size as u32);
     set_cursor_style.set(s.terminal.cursor_style.clone());
-    set_api_key_masking.set(s.security.mask_api_keys);
     set_auto_lock_timeout.set(s.security.auto_lock_timeout_mins);
     set_sandbox_mode.set(s.security.sandbox_mode);
-    set_github_token.set(s.integrations.github_token.clone().unwrap_or_default());
-    set_gitlab_token.set(s.integrations.gitlab_token.clone().unwrap_or_default());
-    set_linear_api_key.set(s.integrations.linear_api_key.clone().unwrap_or_default());
+    set_github_token_env.set(s.integrations.github_token_env.clone());
+    set_github_owner.set(s.integrations.github_owner.clone().unwrap_or_default());
+    set_github_repo.set(s.integrations.github_repo.clone().unwrap_or_default());
+    set_gitlab_token_env.set(s.integrations.gitlab_token_env.clone());
+    set_linear_api_key_env.set(s.integrations.linear_api_key_env.clone());
 }
 
 #[component]
@@ -46,39 +48,43 @@ pub fn ConfigPage() -> impl IntoView {
     let (show_toast, set_show_toast) = signal(false);
     let (toast_msg, set_toast_msg) = signal(String::new());
 
-    // ── General Tab signals ──
+    // -- General Tab signals --
     let (project_name, set_project_name) = signal("auto-tundra".to_string());
     let (default_cli, set_default_cli) = signal("Claude".to_string());
     let (auto_save, set_auto_save) = signal(true);
     let (max_parallel, set_max_parallel) = signal(4u32);
 
-    // ── Display Tab signals ──
+    // -- Display Tab signals --
     let (theme, set_theme) = signal("Dark".to_string());
     let (font_size, set_font_size) = signal("14".to_string());
     let (compact_mode, set_compact_mode) = signal(false);
 
-    // ── Agent Tab signals ──
+    // -- Agent Tab signals --
     let (default_model, set_default_model) = signal("sonnet".to_string());
     let (thinking_level, set_thinking_level) = signal("medium".to_string());
     let (heartbeat_interval, set_heartbeat_interval) = signal(30u32);
     let (max_retries, set_max_retries) = signal(3u32);
 
-    // ── Terminal Tab signals ──
+    // -- Terminal Tab signals --
     let (term_font_family, set_term_font_family) = signal("JetBrains Mono".to_string());
     let (term_font_size, set_term_font_size) = signal(14u32);
     let (cursor_style, set_cursor_style) = signal("block".to_string());
 
-    // ── Security Tab signals ──
-    let (api_key_masking, set_api_key_masking) = signal(true);
+    // -- Security Tab signals --
     let (auto_lock_timeout, set_auto_lock_timeout) = signal(15u32);
     let (sandbox_mode, set_sandbox_mode) = signal(true);
 
-    // ── Integration Tab signals ──
-    let (github_token, set_github_token) = signal(String::new());
-    let (gitlab_token, set_gitlab_token) = signal(String::new());
-    let (linear_api_key, set_linear_api_key) = signal(String::new());
+    // -- Integration Tab signals (env var names, not secrets) --
+    let (github_token_env, set_github_token_env) = signal("GITHUB_TOKEN".to_string());
+    let (github_owner, set_github_owner) = signal(String::new());
+    let (github_repo, set_github_repo) = signal(String::new());
+    let (gitlab_token_env, set_gitlab_token_env) = signal("GITLAB_TOKEN".to_string());
+    let (linear_api_key_env, set_linear_api_key_env) = signal("LINEAR_API_KEY".to_string());
 
-    // ── Load settings from API on mount ──
+    // -- Credential status (loaded from API) --
+    let (cred_providers, set_cred_providers) = signal(Vec::<String>::new());
+
+    // -- Load settings from API on mount --
     leptos::task::spawn_local(async move {
         match api::fetch_settings().await {
             Ok(s) => {
@@ -87,12 +93,22 @@ pub fn ConfigPage() -> impl IntoView {
                     set_project_name, set_theme, set_font_size, set_compact_mode,
                     set_heartbeat_interval, set_max_parallel,
                     set_term_font_family, set_term_font_size, set_cursor_style,
-                    set_api_key_masking, set_auto_lock_timeout, set_sandbox_mode,
-                    set_github_token, set_gitlab_token, set_linear_api_key,
+                    set_auto_lock_timeout, set_sandbox_mode,
+                    set_github_token_env, set_github_owner, set_github_repo,
+                    set_gitlab_token_env, set_linear_api_key_env,
                 );
             }
             Err(e) => {
                 web_sys::console::warn_1(&format!("Failed to load settings: {e}").into());
+            }
+        }
+        // Also load credential status
+        match api::fetch_credential_status().await {
+            Ok(status) => {
+                set_cred_providers.set(status.providers);
+            }
+            Err(e) => {
+                web_sys::console::warn_1(&format!("Failed to load credential status: {e}").into());
             }
         }
     });
@@ -122,8 +138,9 @@ pub fn ConfigPage() -> impl IntoView {
             &project_name, &theme, &font_size, &compact_mode,
             &heartbeat_interval, &max_parallel,
             &term_font_family, &term_font_size, &cursor_style,
-            &api_key_masking, &auto_lock_timeout, &sandbox_mode,
-            &github_token, &gitlab_token, &linear_api_key,
+            &auto_lock_timeout, &sandbox_mode,
+            &github_token_env, &github_owner, &github_repo,
+            &gitlab_token_env, &linear_api_key_env,
         );
         leptos::task::spawn_local(async move {
             match api::save_settings(&settings).await {
@@ -165,12 +182,13 @@ pub fn ConfigPage() -> impl IntoView {
         set_term_font_family.set("JetBrains Mono".to_string());
         set_term_font_size.set(14);
         set_cursor_style.set("block".to_string());
-        set_api_key_masking.set(true);
         set_auto_lock_timeout.set(15);
         set_sandbox_mode.set(true);
-        set_github_token.set(String::new());
-        set_gitlab_token.set(String::new());
-        set_linear_api_key.set(String::new());
+        set_github_token_env.set("GITHUB_TOKEN".to_string());
+        set_github_owner.set(String::new());
+        set_github_repo.set(String::new());
+        set_gitlab_token_env.set("GITLAB_TOKEN".to_string());
+        set_linear_api_key_env.set("LINEAR_API_KEY".to_string());
 
         // Save defaults to backend
         let settings = ApiSettings::default();
@@ -540,26 +558,6 @@ pub fn ConfigPage() -> impl IntoView {
 
                             <div class="settings-row">
                                 <div class="settings-row-info">
-                                    <span class="settings-label">"API Key Masking"</span>
-                                    <span class="settings-hint">"Mask API keys in the interface"</span>
-                                </div>
-                                <div class="settings-control">
-                                    <label class="toggle-switch">
-                                        <input
-                                            type="checkbox"
-                                            prop:checked=move || api_key_masking.get()
-                                            on:change=move |ev| set_api_key_masking.set(event_target_checked(&ev))
-                                        />
-                                        <span class="toggle-slider"></span>
-                                    </label>
-                                    <span class="toggle-label">
-                                        {move || if api_key_masking.get() { "On" } else { "Off" }}
-                                    </span>
-                                </div>
-                            </div>
-
-                            <div class="settings-row">
-                                <div class="settings-row-info">
                                     <span class="settings-label">"Auto-Lock Timeout"</span>
                                     <span class="settings-hint">"Lock after inactivity (minutes)"</span>
                                 </div>
@@ -605,52 +603,94 @@ pub fn ConfigPage() -> impl IntoView {
                     5 => view! {
                         <div class="settings-panel">
                             <h3 class="settings-panel-title">"Integration Settings"</h3>
+                            <p class="settings-hint">
+                                "Credentials are read from environment variables at runtime. "
+                                "Set the env vars in your shell profile, then restart the daemon."
+                            </p>
 
                             <div class="settings-row">
                                 <div class="settings-row-info">
-                                    <span class="settings-label">"GitHub Token"</span>
-                                    <span class="settings-hint">"Personal access token for GitHub API"</span>
+                                    <span class="settings-label">"GitHub Token Env Var"</span>
+                                    <span class="settings-hint">"Name of the environment variable holding your GitHub PAT"</span>
                                 </div>
                                 <div class="settings-control">
                                     <input
-                                        type="password"
+                                        type="text"
                                         class="settings-text-input"
-                                        placeholder="ghp_..."
-                                        prop:value=move || github_token.get()
-                                        on:input=move |ev| set_github_token.set(event_target_value(&ev))
+                                        prop:value=move || github_token_env.get()
+                                        on:input=move |ev| set_github_token_env.set(event_target_value(&ev))
+                                    />
+                                    <span class="settings-badge">
+                                        {move || if cred_providers.get().contains(&"github".to_string()) { "Connected" } else { "Not set" }}
+                                    </span>
+                                </div>
+                            </div>
+
+                            <div class="settings-row">
+                                <div class="settings-row-info">
+                                    <span class="settings-label">"GitHub Owner"</span>
+                                    <span class="settings-hint">"GitHub org or user name"</span>
+                                </div>
+                                <div class="settings-control">
+                                    <input
+                                        type="text"
+                                        class="settings-text-input"
+                                        placeholder="my-org"
+                                        prop:value=move || github_owner.get()
+                                        on:input=move |ev| set_github_owner.set(event_target_value(&ev))
                                     />
                                 </div>
                             </div>
 
                             <div class="settings-row">
                                 <div class="settings-row-info">
-                                    <span class="settings-label">"GitLab Token"</span>
-                                    <span class="settings-hint">"Personal access token for GitLab API"</span>
+                                    <span class="settings-label">"GitHub Repo"</span>
+                                    <span class="settings-hint">"GitHub repository name"</span>
                                 </div>
                                 <div class="settings-control">
                                     <input
-                                        type="password"
+                                        type="text"
                                         class="settings-text-input"
-                                        placeholder="glpat-..."
-                                        prop:value=move || gitlab_token.get()
-                                        on:input=move |ev| set_gitlab_token.set(event_target_value(&ev))
+                                        placeholder="my-repo"
+                                        prop:value=move || github_repo.get()
+                                        on:input=move |ev| set_github_repo.set(event_target_value(&ev))
                                     />
                                 </div>
                             </div>
 
                             <div class="settings-row">
                                 <div class="settings-row-info">
-                                    <span class="settings-label">"Linear API Key"</span>
-                                    <span class="settings-hint">"API key for Linear integration"</span>
+                                    <span class="settings-label">"GitLab Token Env Var"</span>
+                                    <span class="settings-hint">"Name of the environment variable holding your GitLab token"</span>
                                 </div>
                                 <div class="settings-control">
                                     <input
-                                        type="password"
+                                        type="text"
                                         class="settings-text-input"
-                                        placeholder="lin_api_..."
-                                        prop:value=move || linear_api_key.get()
-                                        on:input=move |ev| set_linear_api_key.set(event_target_value(&ev))
+                                        prop:value=move || gitlab_token_env.get()
+                                        on:input=move |ev| set_gitlab_token_env.set(event_target_value(&ev))
                                     />
+                                    <span class="settings-badge">
+                                        {move || if cred_providers.get().contains(&"gitlab".to_string()) { "Connected" } else { "Not set" }}
+                                    </span>
+                                </div>
+                            </div>
+
+                            <div class="settings-row">
+                                <div class="settings-row-info">
+                                    <span class="settings-label">"Linear API Key Env Var"</span>
+                                    <span class="settings-hint">"Name of the environment variable holding your Linear API key"</span>
+                                </div>
+                                <div class="settings-control">
+                                    <input
+                                        type="text"
+                                        class="settings-text-input"
+                                        prop:value=move || linear_api_key_env.get()
+                                        on:input=move |ev| set_linear_api_key_env.set(event_target_value(&ev))
+                                    />
+                                    <span class="settings-badge">
+                                        {move || if cred_providers.get().contains(&"linear".to_string()) { "Connected" } else { "Not set" }}
+                                    </span>
                                 </div>
                             </div>
                         </div>
@@ -702,16 +742,16 @@ fn build_settings_from_signals(
     term_font_family: &ReadSignal<String>,
     term_font_size: &ReadSignal<u32>,
     cursor_style: &ReadSignal<String>,
-    api_key_masking: &ReadSignal<bool>,
     auto_lock_timeout: &ReadSignal<u32>,
     sandbox_mode: &ReadSignal<bool>,
-    github_token: &ReadSignal<String>,
-    gitlab_token: &ReadSignal<String>,
-    linear_api_key: &ReadSignal<String>,
+    github_token_env: &ReadSignal<String>,
+    github_owner: &ReadSignal<String>,
+    github_repo: &ReadSignal<String>,
+    gitlab_token_env: &ReadSignal<String>,
+    linear_api_key_env: &ReadSignal<String>,
 ) -> ApiSettings {
-    let gh = github_token.get();
-    let gl = gitlab_token.get();
-    let li = linear_api_key.get();
+    let gh_owner = github_owner.get();
+    let gh_repo = github_repo.get();
 
     ApiSettings {
         general: ApiGeneralSettings {
@@ -738,14 +778,15 @@ fn build_settings_from_signals(
             allow_shell_exec: false,
             sandbox: sandbox_mode.get(),
             allowed_paths: Vec::new(),
-            mask_api_keys: api_key_masking.get(),
             auto_lock_timeout_mins: auto_lock_timeout.get(),
             sandbox_mode: sandbox_mode.get(),
         },
         integrations: ApiIntegrationSettings {
-            github_token: if gh.is_empty() { None } else { Some(gh) },
-            gitlab_token: if gl.is_empty() { None } else { Some(gl) },
-            linear_api_key: if li.is_empty() { None } else { Some(li) },
+            github_token_env: github_token_env.get(),
+            github_owner: if gh_owner.is_empty() { None } else { Some(gh_owner) },
+            github_repo: if gh_repo.is_empty() { None } else { Some(gh_repo) },
+            gitlab_token_env: gitlab_token_env.get(),
+            linear_api_key_env: linear_api_key_env.get(),
         },
     }
 }

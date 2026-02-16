@@ -53,7 +53,6 @@ async fn test_get_settings_returns_defaults() {
     assert_eq!(body["display"]["font_size"], 14);
     assert_eq!(body["terminal"]["font_family"], "JetBrains Mono");
     assert_eq!(body["terminal"]["cursor_style"], "block");
-    assert_eq!(body["security"]["mask_api_keys"], true);
     assert_eq!(body["security"]["sandbox_mode"], true);
 }
 
@@ -234,7 +233,8 @@ async fn test_patch_settings_preserves_unmodified_fields() {
 
     // Set initial values
     let mut cfg = Config::default();
-    cfg.integrations.github_token = Some("ghp_original".into());
+    cfg.integrations.github_token_env = "CUSTOM_GH_TOKEN".into();
+    cfg.integrations.github_owner = Some("test-org".into());
     cfg.display.theme = "dusk".into();
     cfg.terminal.font_size = 16;
     state.settings_manager.save(&cfg).unwrap();
@@ -257,7 +257,8 @@ async fn test_patch_settings_preserves_unmodified_fields() {
     let body: Value = resp.json().await.unwrap();
     assert_eq!(body["display"]["theme"], "retro");
     // These should be preserved
-    assert_eq!(body["integrations"]["github_token"], "ghp_original");
+    assert_eq!(body["integrations"]["github_token_env"], "CUSTOM_GH_TOKEN");
+    assert_eq!(body["integrations"]["github_owner"], "test-org");
     assert_eq!(body["terminal"]["font_size"], 16);
 }
 

@@ -221,8 +221,6 @@ pub struct ApiSecuritySettings {
     #[serde(default)]
     pub allowed_paths: Vec<String>,
     #[serde(default)]
-    pub mask_api_keys: bool,
-    #[serde(default)]
     pub auto_lock_timeout_mins: u32,
     #[serde(default)]
     pub sandbox_mode: bool,
@@ -231,11 +229,23 @@ pub struct ApiSecuritySettings {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ApiIntegrationSettings {
     #[serde(default)]
-    pub github_token: Option<String>,
+    pub github_token_env: String,
     #[serde(default)]
-    pub gitlab_token: Option<String>,
+    pub github_owner: Option<String>,
     #[serde(default)]
-    pub linear_api_key: Option<String>,
+    pub github_repo: Option<String>,
+    #[serde(default)]
+    pub gitlab_token_env: String,
+    #[serde(default)]
+    pub linear_api_key_env: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ApiCredentialStatus {
+    #[serde(default)]
+    pub providers: Vec<String>,
+    #[serde(default)]
+    pub daemon_auth: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -298,6 +308,10 @@ pub async fn fetch_settings() -> Result<ApiSettings, String> {
 
 pub async fn save_settings(settings: &ApiSettings) -> Result<ApiSettings, String> {
     put_json(&format!("{API_BASE}/api/settings"), settings).await
+}
+
+pub async fn fetch_credential_status() -> Result<ApiCredentialStatus, String> {
+    fetch_json(&format!("{API_BASE}/api/credentials/status")).await
 }
 
 // ── DELETE helper ──

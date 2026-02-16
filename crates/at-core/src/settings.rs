@@ -85,7 +85,9 @@ mod tests {
         cfg.general.project_name = "roundtrip-test".into();
         cfg.display.theme = "light".into();
         cfg.terminal.font_size = 18;
-        cfg.integrations.github_token = Some("ghp_test123".into());
+        cfg.integrations.github_token_env = "MY_GH_TOKEN".into();
+        cfg.integrations.github_owner = Some("my-org".into());
+        cfg.integrations.github_repo = Some("my-repo".into());
 
         mgr.save(&cfg).unwrap();
         let loaded = mgr.load().unwrap();
@@ -93,7 +95,9 @@ mod tests {
         assert_eq!(loaded.general.project_name, "roundtrip-test");
         assert_eq!(loaded.display.theme, "light");
         assert_eq!(loaded.terminal.font_size, 18);
-        assert_eq!(loaded.integrations.github_token, Some("ghp_test123".into()));
+        assert_eq!(loaded.integrations.github_token_env, "MY_GH_TOKEN");
+        assert_eq!(loaded.integrations.github_owner, Some("my-org".into()));
+        assert_eq!(loaded.integrations.github_repo, Some("my-repo".into()));
 
         // cleanup
         let _ = fs::remove_dir_all(path.parent().unwrap());
@@ -138,8 +142,7 @@ project_name = "partial"
         // All other fields should be defaults
         assert_eq!(cfg.display.theme, "dark");
         assert_eq!(cfg.terminal.font_family, "JetBrains Mono");
-        assert_eq!(cfg.security.mask_api_keys, true);
-        assert_eq!(cfg.integrations.github_token, None);
+        assert_eq!(cfg.integrations.github_token_env, "GITHUB_TOKEN");
 
         let _ = fs::remove_dir_all(path.parent().unwrap());
     }
@@ -166,12 +169,13 @@ project_name = "partial"
         assert_eq!(cfg.terminal.font_family, "JetBrains Mono");
         assert_eq!(cfg.terminal.font_size, 14);
         assert_eq!(cfg.terminal.cursor_style, "block");
-        assert_eq!(cfg.security.mask_api_keys, true);
         assert_eq!(cfg.security.auto_lock_timeout_mins, 15);
         assert_eq!(cfg.security.sandbox_mode, true);
-        assert_eq!(cfg.integrations.github_token, None);
-        assert_eq!(cfg.integrations.gitlab_token, None);
-        assert_eq!(cfg.integrations.linear_api_key, None);
+        assert_eq!(cfg.integrations.github_token_env, "GITHUB_TOKEN");
+        assert_eq!(cfg.integrations.gitlab_token_env, "GITLAB_TOKEN");
+        assert_eq!(cfg.integrations.linear_api_key_env, "LINEAR_API_KEY");
+        assert!(cfg.integrations.github_owner.is_none());
+        assert!(cfg.integrations.github_repo.is_none());
     }
 
     #[test]

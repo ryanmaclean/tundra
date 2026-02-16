@@ -15,7 +15,7 @@ use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
 use uuid::Uuid;
 
-use at_core::config::Config;
+use at_core::config::{Config, CredentialProvider};
 use at_core::session_store::{SessionState, SessionStore};
 use at_core::settings::SettingsManager;
 use at_core::types::{
@@ -166,6 +166,7 @@ pub fn api_router_with_auth(state: Arc<ApiState>, api_key: Option<String>) -> Ro
         .route("/api/settings", get(get_settings))
         .route("/api/settings", put(put_settings))
         .route("/api/settings", patch(patch_settings))
+        .route("/api/credentials/status", get(get_credentials_status))
         .route("/api/github/sync", post(trigger_github_sync))
         .route("/api/github/sync/status", get(get_sync_status))
         .route("/api/github/pr/{task_id}", post(create_pr_for_task))
@@ -583,6 +584,16 @@ async fn patch_settings(
             Json(serde_json::json!({"error": e.to_string()})),
         ),
     }
+}
+
+/// GET /api/credentials/status — report which credential providers are available.
+async fn get_credentials_status() -> impl IntoResponse {
+    let providers: Vec<&str> = CredentialProvider::available_providers();
+    let daemon_auth = CredentialProvider::daemon_api_key().is_some();
+    Json(serde_json::json!({
+        "providers": providers,
+        "daemon_auth": daemon_auth,
+    }))
 }
 
 /// Deep-merge `patch` into `target`. Objects are merged recursively; other

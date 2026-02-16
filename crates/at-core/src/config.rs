@@ -2,7 +2,11 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 /// Top-level configuration loaded from `~/.auto-tundra/config.toml`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// **Security**: This struct NEVER stores API keys, tokens, or secrets.
+/// All credentials are read from environment variables at runtime.
+/// See [`CredentialProvider`] for the env-var-based credential model.
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Config {
     #[serde(default)]
     pub general: GeneralConfig,
@@ -28,6 +32,22 @@ pub struct Config {
     pub terminal: TerminalConfig,
     #[serde(default)]
     pub integrations: IntegrationConfig,
+}
+
+impl std::fmt::Debug for Config {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Config")
+            .field("general", &self.general)
+            .field("providers", &self.providers)
+            .field("agents", &self.agents)
+            .field("security", &self.security)
+            .field("daemon", &self.daemon)
+            .field("ui", &self.ui)
+            .field("display", &self.display)
+            .field("terminal", &self.terminal)
+            .field("integrations", &self.integrations)
+            .finish()
+    }
 }
 
 impl Default for Config {
@@ -244,16 +264,10 @@ pub struct SecurityConfig {
     pub sandbox: bool,
     #[serde(default)]
     pub allowed_paths: Vec<String>,
-    #[serde(default = "default_true")]
-    pub mask_api_keys: bool,
     #[serde(default = "default_auto_lock_timeout")]
     pub auto_lock_timeout_mins: u32,
     #[serde(default = "default_true")]
     pub sandbox_mode: bool,
-    /// Optional API key for authenticating HTTP API requests.
-    /// When `None`, all requests are allowed (development mode).
-    #[serde(default)]
-    pub api_key: Option<String>,
 }
 
 impl Default for SecurityConfig {
@@ -262,10 +276,8 @@ impl Default for SecurityConfig {
             allow_shell_exec: false,
             sandbox: true,
             allowed_paths: Vec::new(),
-            mask_api_keys: true,
             auto_lock_timeout_mins: default_auto_lock_timeout(),
             sandbox_mode: true,
-            api_key: None,
         }
     }
 }
@@ -430,22 +442,86 @@ fn default_cursor_style() -> String {
 // Integration settings (UI-facing)
 // ---------------------------------------------------------------------------
 
+/// Integration settings — references env var names, NEVER stores actual tokens.
+///
+/// All credentials are resolved at runtime via [`CredentialProvider`].
+/// Config only stores the *name* of the env var to read, e.g. `"GITHUB_TOKEN"`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IntegrationConfig {
+    /// Env var name for GitHub personal access token (default: `GITHUB_TOKEN`).
+    #[serde(default = "default_github_env")]
+    pub github_token_env: String,
+    /// GitHub repository owner (org or user).
     #[serde(default)]
-    pub github_token: Option<String>,
+    pub github_owner: Option<String>,
+    /// GitHub repository name.
     #[serde(default)]
-    pub gitlab_token: Option<String>,
-    #[serde(default)]
-    pub linear_api_key: Option<String>,
+    pub github_repo: Option<String>,
+    /// Env var name for GitLab token (default: `GITLAB_TOKEN`).
+    #[serde(default = "default_gitlab_env")]
+    pub gitlab_token_env: String,
+    /// Env var name for Linear API key (default: `LINEAR_API_KEY`).
+    #[serde(default = "default_linear_env")]
+    pub linear_api_key_env: String,
 }
 
 impl Default for IntegrationConfig {
     fn default() -> Self {
         Self {
-            github_token: None,
-            gitlab_token: None,
-            linear_api_key: None,
+            github_token_env: default_github_env(),
+            github_owner: None,
+            github_repo: None,
+            gitlab_token_env: default_gitlab_env(),
+            linear_api_key_env: default_linear_env(),
         }
+    }
+}
+
+fn default_github_env() -> String { "GITHUB_TOKEN".into() }
+fn default_gitlab_env() -> String { "GITLAB_TOKEN".into() }
+fn default_linear_env() -> String { "LINEAR_API_KEY".into() }
+
+// ---------------------------------------------------------------------------
+// Credential provider — reads secrets from environment at runtime
+// ---------------------------------------------------------------------------
+
+/// Reads credentials from environment variables at runtime.
+/// Never stores secrets in memory longer than needed.
+///
+/// Follows the opencode pattern: config stores env var *names*,
+/// this provider resolves them to values on demand.
+pub struct CredentialProvider;
+
+impl CredentialProvider {
+    /// Read the daemon API key from the `AUTO_TUNDRA_API_KEY` env var.
+    /// Returns `None` in dev mode (var not set).
+    pub fn daemon_api_key() -> Option<String> {
+        std::env::var("AUTO_TUNDRA_API_KEY").ok()
+    }
+
+    /// Read the Anthropic API key from the `ANTHROPIC_API_KEY` env var.
+    pub fn anthropic_api_key() -> Option<String> {
+        std::env::var("ANTHROPIC_API_KEY").ok()
+    }
+
+    /// Read the OpenAI API key from the `OPENAI_API_KEY` env var.
+    pub fn openai_api_key() -> Option<String> {
+        std::env::var("OPENAI_API_KEY").ok()
+    }
+
+    /// Read a credential from a named env var.
+    pub fn from_env(var_name: &str) -> Option<String> {
+        std::env::var(var_name).ok()
+    }
+
+    /// Check which providers have credentials available.
+    pub fn available_providers() -> Vec<&'static str> {
+        let mut providers = Vec::new();
+        if Self::anthropic_api_key().is_some() { providers.push("anthropic"); }
+        if Self::openai_api_key().is_some() { providers.push("openai"); }
+        if Self::from_env("GITHUB_TOKEN").is_some() { providers.push("github"); }
+        if Self::from_env("GITLAB_TOKEN").is_some() { providers.push("gitlab"); }
+        if Self::from_env("LINEAR_API_KEY").is_some() { providers.push("linear"); }
+        providers
     }
 }

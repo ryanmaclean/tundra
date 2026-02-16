@@ -6,7 +6,7 @@ use chrono::Utc;
 use at_bridge::event_bus::EventBus;
 use at_bridge::http_api::ApiState;
 use at_core::cache::CacheDb;
-use at_core::config::Config;
+use at_core::config::{Config, CredentialProvider};
 use tracing::{error, info, warn};
 
 use crate::heartbeat::HeartbeatMonitor;
@@ -118,7 +118,14 @@ impl Daemon {
         );
 
         // Spawn the HTTP/WS API server.
-        let api_router = at_bridge::http_api::api_router(self.api_state.clone());
+        // Read the daemon API key from the environment (if set).
+        let api_key = CredentialProvider::daemon_api_key();
+        if api_key.is_some() {
+            info!("daemon API key found — authentication enabled");
+        } else {
+            warn!("AUTO_TUNDRA_API_KEY not set — running without authentication (dev mode)");
+        }
+        let api_router = at_bridge::http_api::api_router_with_auth(self.api_state.clone(), api_key);
         let listener = tokio::net::TcpListener::bind("0.0.0.0:9090").await?;
         tokio::spawn(async move {
             if let Err(e) = axum::serve(listener, api_router).await {

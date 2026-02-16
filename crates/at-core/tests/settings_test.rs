@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::PathBuf;
 
-use at_core::config::Config;
+use at_core::config::{Config, CredentialProvider};
 use at_core::settings::SettingsManager;
 
 /// Generate a unique temporary path for each test to avoid collisions.
@@ -48,8 +48,9 @@ fn test_settings_save_and_load_roundtrip() {
     cfg.display.font_size = 18;
     cfg.terminal.font_size = 20;
     cfg.terminal.cursor_style = "underline".into();
-    cfg.security.mask_api_keys = false;
-    cfg.integrations.github_token = Some("ghp_roundtrip".into());
+    cfg.integrations.github_token_env = "MY_CUSTOM_GH_TOKEN".into();
+    cfg.integrations.github_owner = Some("test-org".into());
+    cfg.integrations.github_repo = Some("test-repo".into());
 
     mgr.save(&cfg).unwrap();
     let loaded = mgr.load().unwrap();
@@ -59,11 +60,9 @@ fn test_settings_save_and_load_roundtrip() {
     assert_eq!(loaded.display.font_size, 18);
     assert_eq!(loaded.terminal.font_size, 20);
     assert_eq!(loaded.terminal.cursor_style, "underline");
-    assert_eq!(loaded.security.mask_api_keys, false);
-    assert_eq!(
-        loaded.integrations.github_token,
-        Some("ghp_roundtrip".into())
-    );
+    assert_eq!(loaded.integrations.github_token_env, "MY_CUSTOM_GH_TOKEN");
+    assert_eq!(loaded.integrations.github_owner, Some("test-org".into()));
+    assert_eq!(loaded.integrations.github_repo, Some("test-repo".into()));
 
     cleanup(&path);
 }
@@ -88,16 +87,16 @@ fn test_settings_default_values() {
     assert_eq!(cfg.terminal.cursor_style, "block");
 
     // Security
-    assert_eq!(cfg.security.mask_api_keys, true);
     assert_eq!(cfg.security.auto_lock_timeout_mins, 15);
     assert_eq!(cfg.security.sandbox_mode, true);
     assert_eq!(cfg.security.allow_shell_exec, false);
-    assert!(cfg.security.api_key.is_none());
 
-    // Integrations
-    assert!(cfg.integrations.github_token.is_none());
-    assert!(cfg.integrations.gitlab_token.is_none());
-    assert!(cfg.integrations.linear_api_key.is_none());
+    // Integrations — stores env var names, never actual tokens
+    assert_eq!(cfg.integrations.github_token_env, "GITHUB_TOKEN");
+    assert_eq!(cfg.integrations.gitlab_token_env, "GITLAB_TOKEN");
+    assert_eq!(cfg.integrations.linear_api_key_env, "LINEAR_API_KEY");
+    assert!(cfg.integrations.github_owner.is_none());
+    assert!(cfg.integrations.github_repo.is_none());
 
     // Daemon
     assert_eq!(cfg.daemon.port, 9876);
@@ -137,8 +136,7 @@ theme = "ocean"
     assert_eq!(cfg.terminal.font_family, "JetBrains Mono");
     assert_eq!(cfg.terminal.font_size, 14);
     assert_eq!(cfg.terminal.cursor_style, "block");
-    assert_eq!(cfg.security.mask_api_keys, true);
-    assert!(cfg.integrations.github_token.is_none());
+    assert_eq!(cfg.integrations.github_token_env, "GITHUB_TOKEN");
 
     cleanup(&path);
 }
@@ -326,26 +324,21 @@ fn test_compact_mode_toggle() {
 // ===========================================================================
 
 #[test]
-fn test_security_config_api_key() {
-    let mut cfg = Config::default();
-    assert!(cfg.security.api_key.is_none());
-
-    cfg.security.api_key = Some("sk-test-12345".into());
-    let toml_str = cfg.to_toml().unwrap();
-    let parsed: Config = toml::from_str(&toml_str).unwrap();
-    assert_eq!(parsed.security.api_key, Some("sk-test-12345".into()));
-}
-
-#[test]
-fn test_security_config_mask_api_keys() {
+fn test_config_never_contains_secrets() {
+    // After the security refactor, Config should never store actual
+    // API keys or tokens — only env var *names*.
     let cfg = Config::default();
-    assert_eq!(cfg.security.mask_api_keys, true);
+    let toml_str = cfg.to_toml().unwrap();
 
-    let mut cfg2 = cfg.clone();
-    cfg2.security.mask_api_keys = false;
-    let toml_str = cfg2.to_toml().unwrap();
-    let parsed: Config = toml::from_str(&toml_str).unwrap();
-    assert_eq!(parsed.security.mask_api_keys, false);
+    // The serialized config must not contain any secret-looking values.
+    assert!(!toml_str.contains("sk-"), "TOML contains what looks like a secret key");
+    assert!(!toml_str.contains("ghp_"), "TOML contains what looks like a GitHub token");
+    assert!(!toml_str.contains("glpat-"), "TOML contains what looks like a GitLab token");
+
+    // It should contain env var names instead.
+    assert!(toml_str.contains("GITHUB_TOKEN"));
+    assert!(toml_str.contains("GITLAB_TOKEN"));
+    assert!(toml_str.contains("LINEAR_API_KEY"));
 }
 
 #[test]
@@ -382,52 +375,67 @@ fn test_security_config_auto_lock_timeout() {
 // ===========================================================================
 
 #[test]
-fn test_integration_github_token() {
+fn test_integration_github_token_env() {
     let mut cfg = Config::default();
-    assert!(cfg.integrations.github_token.is_none());
+    assert_eq!(cfg.integrations.github_token_env, "GITHUB_TOKEN");
 
-    cfg.integrations.github_token = Some("ghp_abc123def456".into());
+    cfg.integrations.github_token_env = "CUSTOM_GH_TOKEN".into();
+    cfg.integrations.github_owner = Some("my-org".into());
+    cfg.integrations.github_repo = Some("my-repo".into());
     let path = tmp_settings_path();
     let mgr = SettingsManager::new(&path);
     mgr.save(&cfg).unwrap();
 
     let loaded = mgr.load().unwrap();
-    assert_eq!(
-        loaded.integrations.github_token,
-        Some("ghp_abc123def456".into())
-    );
+    assert_eq!(loaded.integrations.github_token_env, "CUSTOM_GH_TOKEN");
+    assert_eq!(loaded.integrations.github_owner, Some("my-org".into()));
+    assert_eq!(loaded.integrations.github_repo, Some("my-repo".into()));
 
     cleanup(&path);
 }
 
 #[test]
-fn test_integration_gitlab_token() {
+fn test_integration_gitlab_token_env() {
     let mut cfg = Config::default();
-    assert!(cfg.integrations.gitlab_token.is_none());
+    assert_eq!(cfg.integrations.gitlab_token_env, "GITLAB_TOKEN");
 
-    cfg.integrations.gitlab_token = Some("glpat-xxxx".into());
+    cfg.integrations.gitlab_token_env = "MY_GITLAB_TOKEN".into();
     let toml_str = cfg.to_toml().unwrap();
     let parsed: Config = toml::from_str(&toml_str).unwrap();
-    assert_eq!(parsed.integrations.gitlab_token, Some("glpat-xxxx".into()));
+    assert_eq!(parsed.integrations.gitlab_token_env, "MY_GITLAB_TOKEN");
 }
 
 #[test]
-fn test_integration_linear_api_key() {
+fn test_integration_linear_api_key_env() {
     let mut cfg = Config::default();
-    assert!(cfg.integrations.linear_api_key.is_none());
+    assert_eq!(cfg.integrations.linear_api_key_env, "LINEAR_API_KEY");
 
-    cfg.integrations.linear_api_key = Some("lin_api_test_key".into());
+    cfg.integrations.linear_api_key_env = "MY_LINEAR_KEY".into();
     let path = tmp_settings_path();
     let mgr = SettingsManager::new(&path);
     mgr.save(&cfg).unwrap();
 
     let loaded = mgr.load().unwrap();
-    assert_eq!(
-        loaded.integrations.linear_api_key,
-        Some("lin_api_test_key".into())
-    );
+    assert_eq!(loaded.integrations.linear_api_key_env, "MY_LINEAR_KEY");
 
     cleanup(&path);
+}
+
+#[test]
+fn test_credential_provider_available_providers() {
+    // Without any env vars set, available_providers should return an empty
+    // list (or only those whose env vars happen to be set in the test env).
+    let providers = CredentialProvider::available_providers();
+    // We cannot assert exact contents since CI may have env vars set,
+    // but we can verify the return type and that it doesn't panic.
+    assert!(providers.len() <= 5, "at most 5 known providers");
+}
+
+#[test]
+fn test_credential_provider_from_env() {
+    // Reading a non-existent env var returns None.
+    let val = CredentialProvider::from_env("AT_TEST_NONEXISTENT_VAR_12345");
+    assert!(val.is_none());
 }
 
 #[test]
