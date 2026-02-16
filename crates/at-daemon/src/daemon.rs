@@ -2,6 +2,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
+use chrono::Utc;
+use at_bridge::event_bus::EventBus;
+use at_bridge::http_api::ApiState;
 use at_core::cache::CacheDb;
 use at_core::config::Config;
 use tracing::{error, info, warn};
@@ -43,6 +46,8 @@ pub struct Daemon {
     intervals: DaemonIntervals,
     shutdown_tx: flume::Sender<()>,
     shutdown_rx: flume::Receiver<()>,
+    event_bus: EventBus,
+    api_state: Arc<ApiState>,
 }
 
 impl Daemon {
@@ -53,12 +58,16 @@ impl Daemon {
             heartbeat_secs: config.agents.heartbeat_interval_secs,
             ..DaemonIntervals::default()
         };
+        let event_bus = EventBus::new();
+        let api_state = Arc::new(ApiState::new(event_bus.clone()));
         Self {
             config,
             cache,
             intervals,
             shutdown_tx,
             shutdown_rx,
+            event_bus,
+            api_state,
         }
     }
 
@@ -86,6 +95,16 @@ impl Daemon {
         let _ = self.shutdown_tx.try_send(());
     }
 
+    /// Returns a reference to the event bus.
+    pub fn event_bus(&self) -> &EventBus {
+        &self.event_bus
+    }
+
+    /// Returns a reference to the shared API state.
+    pub fn api_state(&self) -> &Arc<ApiState> {
+        &self.api_state
+    }
+
     /// Run the main event loop.
     ///
     /// This drives the patrol, heartbeat, and KPI loops concurrently using
@@ -97,6 +116,16 @@ impl Daemon {
             kpi_secs = self.intervals.kpi_secs,
             "daemon starting event loop"
         );
+
+        // Spawn the HTTP/WS API server.
+        let api_router = at_bridge::http_api::api_router(self.api_state.clone());
+        let listener = tokio::net::TcpListener::bind("0.0.0.0:9090").await?;
+        tokio::spawn(async move {
+            if let Err(e) = axum::serve(listener, api_router).await {
+                error!(error = %e, "API server error");
+            }
+        });
+        info!("API server listening on 0.0.0.0:9090");
 
         let patrol_runner = PatrolRunner::new(
             self.config.agents.heartbeat_interval_secs,
@@ -129,6 +158,20 @@ impl Daemon {
                                 stuck_beads = report.stuck_beads,
                                 orphan_ptys = report.orphan_ptys,
                                 "patrol completed"
+                            );
+                            self.event_bus.publish(
+                                at_bridge::protocol::BridgeMessage::Event(
+                                    at_bridge::protocol::EventPayload {
+                                        event_type: "patrol_completed".to_string(),
+                                        agent_id: None,
+                                        bead_id: None,
+                                        message: format!(
+                                            "stale_agents={} stuck_beads={} orphan_ptys={}",
+                                            report.stale_agents, report.stuck_beads, report.orphan_ptys
+                                        ),
+                                        timestamp: Utc::now(),
+                                    },
+                                ),
                             );
                         }
                         Err(e) => {
@@ -164,6 +207,25 @@ impl Daemon {
                                 backlog = snapshot.backlog,
                                 active_agents = snapshot.active_agents,
                                 "kpi snapshot collected"
+                            );
+                            // Update shared KPI state for REST endpoint.
+                            {
+                                let mut kpi = self.api_state.kpi.write().await;
+                                *kpi = snapshot.clone();
+                            }
+                            self.event_bus.publish(
+                                at_bridge::protocol::BridgeMessage::KpiUpdate(
+                                    at_bridge::protocol::KpiPayload {
+                                        total_beads: snapshot.total_beads,
+                                        backlog: snapshot.backlog,
+                                        hooked: snapshot.hooked,
+                                        slung: snapshot.slung,
+                                        review: snapshot.review,
+                                        done: snapshot.done,
+                                        failed: snapshot.failed,
+                                        active_agents: snapshot.active_agents,
+                                    },
+                                ),
                             );
                         }
                         Err(e) => {

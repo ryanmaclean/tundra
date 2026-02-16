@@ -10,6 +10,7 @@ members = [
     "crates/at-cli",
     "crates/at-bridge",
     "crates/at-tui",
+    "crates/at-integrations",
     "app/tauri",
 ]
 
@@ -34,3 +35,8 @@ flume = "0.11"
 dashmap = "6"
 ratatui = "0.29"
 crossterm = "0.28"
+axum = { version = "0.8", features = ["ws"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+octocrab = "0.43"
+reqwest = { version = "0.12", features = ["json"] }

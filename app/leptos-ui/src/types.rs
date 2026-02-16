@@ -71,21 +71,27 @@ impl std::fmt::Display for BeadStatus {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum Lane {
+    Backlog,
+    Queue,
     Planning,
     InProgress,
     AiReview,
     HumanReview,
     Done,
+    PrCreated,
 }
 
 impl std::fmt::Display for Lane {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Lane::Backlog => write!(f, "Backlog"),
+            Lane::Queue => write!(f, "Queue"),
             Lane::Planning => write!(f, "Planning"),
             Lane::InProgress => write!(f, "In Progress"),
             Lane::AiReview => write!(f, "AI Review"),
             Lane::HumanReview => write!(f, "Human Review"),
             Lane::Done => write!(f, "Done"),
+            Lane::PrCreated => write!(f, "PR Created"),
         }
     }
 }
@@ -305,6 +311,73 @@ pub fn demo_agents() -> Vec<AgentResponse> {
 
 pub fn demo_beads() -> Vec<BeadResponse> {
     vec![
+        // Backlog column (3 beads)
+        BeadResponse {
+            id: "bead-021".into(),
+            title: "Multi-repo support".into(),
+            status: BeadStatus::Planning,
+            lane: Lane::Backlog,
+            agent_id: None,
+            description: "Support managing multiple git repositories in a single session".into(),
+            tags: vec!["Feature".into()],
+            progress_stage: "plan".into(),
+            agent_names: vec![],
+            timestamp: "3d ago".into(),
+            action: Some("start".into()),
+        },
+        BeadResponse {
+            id: "bead-022".into(),
+            title: "Agent memory system".into(),
+            status: BeadStatus::Planning,
+            lane: Lane::Backlog,
+            agent_id: None,
+            description: "Persistent memory across agent sessions using vector embeddings".into(),
+            tags: vec!["Feature".into(), "High".into()],
+            progress_stage: "plan".into(),
+            agent_names: vec![],
+            timestamp: "4d ago".into(),
+            action: Some("start".into()),
+        },
+        BeadResponse {
+            id: "bead-023".into(),
+            title: "Custom MCP tool builder".into(),
+            status: BeadStatus::Planning,
+            lane: Lane::Backlog,
+            agent_id: None,
+            description: "Visual tool for creating custom MCP server definitions".into(),
+            tags: vec!["Feature".into()],
+            progress_stage: "plan".into(),
+            agent_names: vec![],
+            timestamp: "5d ago".into(),
+            action: Some("start".into()),
+        },
+        // Queue column (2 beads)
+        BeadResponse {
+            id: "bead-024".into(),
+            title: "Cost budget alerts".into(),
+            status: BeadStatus::Planning,
+            lane: Lane::Queue,
+            agent_id: None,
+            description: "Send notifications when token spend approaches budget threshold".into(),
+            tags: vec!["Feature".into()],
+            progress_stage: "plan".into(),
+            agent_names: vec![],
+            timestamp: "1d ago".into(),
+            action: Some("start".into()),
+        },
+        BeadResponse {
+            id: "bead-025".into(),
+            title: "Agent health checks".into(),
+            status: BeadStatus::Planning,
+            lane: Lane::Queue,
+            agent_id: None,
+            description: "Periodic health monitoring for running agent processes".into(),
+            tags: vec!["Feature".into(), "High".into()],
+            progress_stage: "plan".into(),
+            agent_names: vec![],
+            timestamp: "2d ago".into(),
+            action: Some("start".into()),
+        },
         // Planning column (5 beads)
         BeadResponse {
             id: "bead-001".into(),
@@ -569,6 +642,33 @@ pub fn demo_beads() -> Vec<BeadResponse> {
             agent_names: vec!["Coder-B".into()],
             timestamp: "6h ago".into(),
             action: Some("resume".into()),
+        },
+        // PR Created column (2 beads)
+        BeadResponse {
+            id: "bead-026".into(),
+            title: "Config hot-reload".into(),
+            status: BeadStatus::Done,
+            lane: Lane::PrCreated,
+            agent_id: Some("agent-002".into()),
+            description: "Watch config file for changes and reload without restart".into(),
+            tags: vec!["Feature".into(), "PR Created".into()],
+            progress_stage: "done".into(),
+            agent_names: vec!["Coder-A".into()],
+            timestamp: "4h ago".into(),
+            action: None,
+        },
+        BeadResponse {
+            id: "bead-027".into(),
+            title: "Structured logging format".into(),
+            status: BeadStatus::Done,
+            lane: Lane::PrCreated,
+            agent_id: Some("agent-003".into()),
+            description: "JSON-structured log output with trace correlation IDs".into(),
+            tags: vec!["Refactoring".into(), "PR Created".into()],
+            progress_stage: "done".into(),
+            agent_names: vec!["Coder-B".into()],
+            timestamp: "8h ago".into(),
+            action: None,
         },
     ]
 }

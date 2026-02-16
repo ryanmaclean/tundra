@@ -5,6 +5,8 @@ edition.workspace = true
 
 [dependencies]
 at-core = { path = "../at-core" }
+at-session = { path = "../at-session" }
+at-bridge = { path = "../at-bridge" }
 tokio = { workspace = true }
 async-trait = { workspace = true }
 tracing = { workspace = true }

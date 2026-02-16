@@ -15,11 +15,14 @@ fn next_lane_for_action(action: &str, current: &Lane) -> Option<Lane> {
         "reject" => Some(Lane::InProgress),
         // Generic forward movement
         "forward" => match current {
+            Lane::Backlog => Some(Lane::Queue),
+            Lane::Queue => Some(Lane::Planning),
             Lane::Planning => Some(Lane::InProgress),
             Lane::InProgress => Some(Lane::AiReview),
             Lane::AiReview => Some(Lane::HumanReview),
             Lane::HumanReview => Some(Lane::Done),
-            Lane::Done => None,
+            Lane::Done => Some(Lane::PrCreated),
+            Lane::PrCreated => None,
         },
         _ => None,
     }
@@ -27,31 +30,40 @@ fn next_lane_for_action(action: &str, current: &Lane) -> Option<Lane> {
 
 fn status_for_lane(lane: &Lane) -> BeadStatus {
     match lane {
+        Lane::Backlog => BeadStatus::Planning,
+        Lane::Queue => BeadStatus::Planning,
         Lane::Planning => BeadStatus::Planning,
         Lane::InProgress => BeadStatus::InProgress,
         Lane::AiReview => BeadStatus::AiReview,
         Lane::HumanReview => BeadStatus::HumanReview,
         Lane::Done => BeadStatus::Done,
+        Lane::PrCreated => BeadStatus::Done,
     }
 }
 
 fn action_for_lane(lane: &Lane) -> Option<String> {
     match lane {
+        Lane::Backlog => Some("start".to_string()),
+        Lane::Queue => Some("start".to_string()),
         Lane::Planning => Some("start".to_string()),
         Lane::InProgress => None,
         Lane::AiReview => None,
         Lane::HumanReview => None,
         Lane::Done => None,
+        Lane::PrCreated => None,
     }
 }
 
 fn progress_for_lane(lane: &Lane) -> String {
     match lane {
+        Lane::Backlog => "plan".to_string(),
+        Lane::Queue => "plan".to_string(),
         Lane::Planning => "plan".to_string(),
         Lane::InProgress => "code".to_string(),
         Lane::AiReview => "qa".to_string(),
         Lane::HumanReview => "qa".to_string(),
         Lane::Done => "done".to_string(),
+        Lane::PrCreated => "done".to_string(),
     }
 }
 
@@ -62,12 +74,32 @@ pub fn BeadsPage() -> impl IntoView {
     let set_beads = state.set_beads;
     let set_dragging = state.set_dragging_bead;
 
+    // Filter state
+    let (filter_category, set_filter_category) = signal("All".to_string());
+    let (filter_priority, set_filter_priority) = signal("All".to_string());
+    let (filter_search, set_filter_search) = signal(String::new());
+
+    let clear_filters = move |_| {
+        set_filter_category.set("All".to_string());
+        set_filter_priority.set("All".to_string());
+        set_filter_search.set(String::new());
+    };
+
+    let has_filters = move || {
+        filter_category.get() != "All"
+            || filter_priority.get() != "All"
+            || !filter_search.get().is_empty()
+    };
+
     let lanes = vec![
+        (Lane::Backlog, "Backlog"),
+        (Lane::Queue, "Queue"),
         (Lane::Planning, "Planning"),
         (Lane::InProgress, "In Progress"),
         (Lane::AiReview, "AI Review"),
         (Lane::HumanReview, "Human Review"),
         (Lane::Done, "Done"),
+        (Lane::PrCreated, "PR Created"),
     ];
 
     // Move a bead to a target lane
@@ -87,6 +119,59 @@ pub fn BeadsPage() -> impl IntoView {
         <div class="page-header">
             <h2>"Kanban Board"</h2>
         </div>
+
+        // Filter bar
+        <div class="filter-bar">
+            <div class="filter-group">
+                <label class="filter-label">"Category"</label>
+                <select
+                    class="filter-select"
+                    prop:value=move || filter_category.get()
+                    on:change=move |ev| set_filter_category.set(event_target_value(&ev))
+                >
+                    <option value="All">"All"</option>
+                    <option value="Feature">"Feature"</option>
+                    <option value="Bug Fix">"Bug Fix"</option>
+                    <option value="Refactoring">"Refactoring"</option>
+                    <option value="Documentation">"Documentation"</option>
+                    <option value="Security">"Security"</option>
+                    <option value="Performance">"Performance"</option>
+                    <option value="UI/UX">"UI/UX"</option>
+                    <option value="Infrastructure">"Infrastructure"</option>
+                    <option value="Testing">"Testing"</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <label class="filter-label">"Priority"</label>
+                <select
+                    class="filter-select"
+                    prop:value=move || filter_priority.get()
+                    on:change=move |ev| set_filter_priority.set(event_target_value(&ev))
+                >
+                    <option value="All">"All"</option>
+                    <option value="Low">"Low"</option>
+                    <option value="Medium">"Medium"</option>
+                    <option value="High">"High"</option>
+                    <option value="Urgent">"Urgent"</option>
+                </select>
+            </div>
+            <div class="filter-group filter-search-group">
+                <label class="filter-label">"Search"</label>
+                <input
+                    type="text"
+                    class="filter-search"
+                    placeholder="Filter by title..."
+                    prop:value=move || filter_search.get()
+                    on:input=move |ev| set_filter_search.set(event_target_value(&ev))
+                />
+            </div>
+            {move || has_filters().then(|| view! {
+                <button class="filter-clear-btn" on:click=clear_filters>
+                    "Clear Filters"
+                </button>
+            })}
+        </div>
+
         <div class="kanban">
             {lanes.into_iter().map(|( lane, label)| {
                 let lane_for_count = lane.clone();
@@ -101,13 +186,13 @@ pub fn BeadsPage() -> impl IntoView {
                         .count()
                 };
 
-                // Drag-and-drop: on_dragover — allow drop
+                // Drag-and-drop: on_dragover -- allow drop
                 let on_dragover = move |ev: DragEvent| {
                     ev.prevent_default();
                     let _ = &lane_for_over; // keep in scope
                 };
 
-                // Drag-and-drop: on_drop — move bead to this lane
+                // Drag-and-drop: on_drop -- move bead to this lane
                 let on_drop = {
                     let set_dragging = set_dragging.clone();
                     move |ev: DragEvent| {
@@ -136,8 +221,24 @@ pub fn BeadsPage() -> impl IntoView {
                         </h3>
                         {move || {
                             let move_bead_action = move_bead.clone();
+                            let cat_filter = filter_category.get();
+                            let pri_filter = filter_priority.get();
+                            let search_filter = filter_search.get().to_lowercase();
+
                             beads.get().into_iter()
                                 .filter(|b| b.lane == lane_for_render)
+                                .filter(|b| {
+                                    if cat_filter == "All" { return true; }
+                                    b.tags.iter().any(|t| *t == cat_filter)
+                                })
+                                .filter(|b| {
+                                    if pri_filter == "All" { return true; }
+                                    b.tags.iter().any(|t| *t == pri_filter)
+                                })
+                                .filter(|b| {
+                                    if search_filter.is_empty() { return true; }
+                                    b.title.to_lowercase().contains(&search_filter)
+                                })
                                 .map(|bead| {
                                     let bead_id = bead.id.clone();
                                     let bead_id_drag = bead.id.clone();
@@ -224,9 +325,9 @@ pub fn BeadsPage() -> impl IntoView {
                                             _ => "action-btn",
                                         };
                                         let label = match action.as_str() {
-                                            "start" => "▶ Start",
-                                            "recover" => "↻ Recover",
-                                            "resume" => "▶ Resume",
+                                            "start" => "Start",
+                                            "recover" => "Recover",
+                                            "resume" => "Resume",
                                             _ => "Action",
                                         };
                                         view! {
@@ -248,7 +349,7 @@ pub fn BeadsPage() -> impl IntoView {
                                     let bead_id_fwd = bead_id.clone();
                                     let bead_lane_fwd = bead.lane.clone();
                                     let move_bead_fwd = move_bead_action.clone();
-                                    let show_forward = bead.lane != Lane::Done;
+                                    let show_forward = bead.lane != Lane::PrCreated;
                                     let forward_view = show_forward.then(|| {
                                         view! {
                                             <button
@@ -261,7 +362,7 @@ pub fn BeadsPage() -> impl IntoView {
                                                     }
                                                 }
                                             >
-                                                "→"
+                                                "\u{2192}"
                                             </button>
                                         }
                                     });
