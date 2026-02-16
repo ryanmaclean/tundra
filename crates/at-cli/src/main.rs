@@ -6,6 +6,10 @@ use clap::{Parser, Subcommand};
 #[derive(Parser)]
 #[command(name = "at", version, about)]
 struct Cli {
+    /// Base URL for the auto-tundra API daemon.
+    #[arg(long, global = true, default_value = "http://localhost:9090")]
+    api_url: String,
+
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -15,61 +19,54 @@ enum Commands {
     /// Show system status (default when no subcommand is given).
     Status,
 
-    /// Assign (sling) a bead to an agent.
+    /// Create a new bead and put it in the "slung" state.
     Sling {
-        /// Bead title or ID to assign.
-        bead: String,
-        /// Target agent name.
-        agent: String,
-    },
-
-    /// Pin (hook) a piece of work so an agent can claim it.
-    Hook {
-        /// Title for the new bead.
+        /// Bead title.
         title: String,
-        /// Agent name to assign.
-        agent: String,
+        /// Lane for the bead (experimental, standard, critical).
+        #[arg(long, default_value = "standard")]
+        lane: String,
     },
 
-    /// Mark a bead as done (or failed).
+    /// Move a bead to the "hooked" (active/assigned) state.
+    Hook {
+        /// Bead ID to hook.
+        bead_id: String,
+    },
+
+    /// Mark a bead as done.
     Done {
-        /// Bead title or ID to complete.
-        bead: String,
-        /// Mark as failed instead of done.
-        #[arg(long)]
-        fail: bool,
+        /// Bead ID to mark done.
+        bead_id: String,
     },
 
-    /// Send a nudge message to an agent.
+    /// Nudge a stuck agent (send restart signal).
     Nudge {
-        /// Target agent name.
-        agent: String,
-        /// Message to send.
-        #[arg(short, long)]
-        message: String,
+        /// Agent ID to nudge.
+        agent_id: String,
     },
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
+    let api_url = cli.api_url.trim_end_matches('/').to_string();
 
     match cli.command {
         None | Some(Commands::Status) => {
-            commands::status::run().await?;
+            commands::status::run(&api_url).await?;
         }
-        Some(Commands::Sling { bead, agent }) => {
-            println!("sling: bead={bead:?} -> agent={agent:?} (not yet implemented)");
+        Some(Commands::Sling { title, lane }) => {
+            commands::sling::run(&api_url, &title, &lane).await?;
         }
-        Some(Commands::Hook { title, agent }) => {
-            println!("hook: title={title:?} -> agent={agent:?} (not yet implemented)");
+        Some(Commands::Hook { bead_id }) => {
+            commands::hook::run(&api_url, &bead_id).await?;
         }
-        Some(Commands::Done { bead, fail }) => {
-            let outcome = if fail { "failed" } else { "done" };
-            println!("done: bead={bead:?} outcome={outcome} (not yet implemented)");
+        Some(Commands::Done { bead_id }) => {
+            commands::done::run(&api_url, &bead_id).await?;
         }
-        Some(Commands::Nudge { agent, message }) => {
-            println!("nudge: agent={agent:?} message={message:?} (not yet implemented)");
+        Some(Commands::Nudge { agent_id }) => {
+            commands::nudge::run(&api_url, &agent_id).await?;
         }
     }
 

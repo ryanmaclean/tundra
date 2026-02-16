@@ -1,3 +1,4 @@
+pub mod auth;
 pub mod event_bus;
 pub mod http_api;
 pub mod intelligence_api;

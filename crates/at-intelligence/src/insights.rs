@@ -3,48 +3,8 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use uuid::Uuid;
 
+use crate::llm::{LlmConfig, LlmMessage, LlmProvider, LlmRole};
 use crate::IntelligenceError;
-
-// ---------------------------------------------------------------------------
-// LLM provider abstraction
-// ---------------------------------------------------------------------------
-// When Team Xi delivers crate::llm, replace this block with:
-//   use crate::llm::{LlmProvider, LlmMessage, LlmResponse};
-//
-// For now we define a compatible local copy so the engine compiles and tests
-// can exercise the AI path with a MockProvider.
-// ---------------------------------------------------------------------------
-
-/// Role for an LLM message (mirrors crate::llm::LlmMessage).
-#[derive(Debug, Clone)]
-pub struct LlmMessage {
-    pub role: String,
-    pub content: String,
-}
-
-/// Response from an LLM provider (mirrors crate::llm::LlmResponse).
-#[derive(Debug, Clone)]
-pub struct LlmResponse {
-    pub content: String,
-    pub model: String,
-    pub usage: Option<LlmUsage>,
-}
-
-#[derive(Debug, Clone)]
-pub struct LlmUsage {
-    pub input_tokens: u32,
-    pub output_tokens: u32,
-}
-
-/// Trait implemented by LLM backends (mirrors crate::llm::LlmProvider).
-#[async_trait::async_trait]
-pub trait LlmProvider: Send + Sync + std::fmt::Debug {
-    async fn complete(
-        &self,
-        messages: Vec<LlmMessage>,
-        model: Option<&str>,
-    ) -> Result<LlmResponse, Box<dyn std::error::Error + Send + Sync>>;
-}
 
 // ---------------------------------------------------------------------------
 // ChatRole
@@ -91,8 +51,7 @@ pub struct InsightsEngine {
     provider: Option<Arc<dyn LlmProvider>>,
 }
 
-// Manual Debug impl because `dyn LlmProvider` already requires Debug but
-// Arc<dyn …> doesn't auto-derive Debug in all contexts.
+// Manual Debug impl because Arc<dyn LlmProvider> doesn't auto-derive Debug.
 impl std::fmt::Debug for InsightsEngine {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("InsightsEngine")
@@ -210,27 +169,26 @@ impl InsightsEngine {
             Help the user understand code structure, patterns, dependencies, and \
             potential improvements. Be concise and precise.";
 
-        let mut llm_messages = vec![LlmMessage {
-            role: "system".to_string(),
-            content: system_prompt.to_string(),
-        }];
+        let mut llm_messages = vec![LlmMessage::system(system_prompt)];
 
         for msg in &session.messages {
             let role = match msg.role {
-                ChatRole::User => "user",
-                ChatRole::Assistant => "assistant",
-                ChatRole::System => "system",
+                ChatRole::User => LlmRole::User,
+                ChatRole::Assistant => LlmRole::Assistant,
+                ChatRole::System => LlmRole::System,
             };
-            llm_messages.push(LlmMessage {
-                role: role.to_string(),
-                content: msg.content.clone(),
-            });
+            llm_messages.push(LlmMessage::new(role, msg.content.clone()));
         }
 
         // 3. Call the LLM.
-        let model_hint = session.model.clone();
+        let config = LlmConfig {
+            model: session.model.clone(),
+            max_tokens: 1024,
+            temperature: 0.7,
+            system_prompt: None,
+        };
         let response = provider
-            .complete(llm_messages, Some(&model_hint))
+            .complete(&llm_messages, &config)
             .await
             .map_err(|e| IntelligenceError::InvalidOperation(format!("LLM call failed: {e}")))?;
 
@@ -268,16 +226,18 @@ impl Default for InsightsEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::llm::{LlmConfig, LlmError, LlmMessage, LlmProvider, LlmResponse, LlmRole};
+    use std::pin::Pin;
     use std::sync::Mutex;
+    use futures_util::Stream;
 
     // ---- MockProvider --------------------------------------------------------
 
-    #[derive(Debug)]
     struct MockProvider {
         /// The canned response the mock returns.
         response: String,
         /// Captured calls for assertions.
-        calls: Mutex<Vec<Vec<LlmMessage>>>,
+        calls: Mutex<Vec<(Vec<LlmMessage>, LlmConfig)>>,
     }
 
     impl MockProvider {
@@ -288,7 +248,7 @@ mod tests {
             }
         }
 
-        fn captured_calls(&self) -> Vec<Vec<LlmMessage>> {
+        fn captured_calls(&self) -> Vec<(Vec<LlmMessage>, LlmConfig)> {
             self.calls.lock().unwrap().clone()
         }
     }
@@ -297,15 +257,25 @@ mod tests {
     impl LlmProvider for MockProvider {
         async fn complete(
             &self,
-            messages: Vec<LlmMessage>,
-            _model: Option<&str>,
-        ) -> Result<LlmResponse, Box<dyn std::error::Error + Send + Sync>> {
-            self.calls.lock().unwrap().push(messages);
+            messages: &[LlmMessage],
+            config: &LlmConfig,
+        ) -> Result<LlmResponse, LlmError> {
+            self.calls.lock().unwrap().push((messages.to_vec(), config.clone()));
             Ok(LlmResponse {
                 content: self.response.clone(),
                 model: "mock".to_string(),
-                usage: None,
+                input_tokens: 10,
+                output_tokens: 5,
+                finish_reason: "end_turn".to_string(),
             })
+        }
+
+        async fn stream(
+            &self,
+            _messages: &[LlmMessage],
+            _config: &LlmConfig,
+        ) -> Result<Pin<Box<dyn Stream<Item = Result<String, LlmError>> + Send>>, LlmError> {
+            Err(LlmError::Unsupported("mock does not support streaming".into()))
         }
     }
 
@@ -334,7 +304,7 @@ mod tests {
         assert_eq!(session.messages[0].content, "Explain the module structure");
         assert_eq!(session.messages[1].role, ChatRole::Assistant);
 
-        // Second exchange – history should accumulate
+        // Second exchange -- history should accumulate
         let _reply2 = engine
             .send_message_with_ai(&session_id, "Tell me more about errors")
             .await
@@ -348,15 +318,15 @@ mod tests {
         assert_eq!(calls.len(), 2);
 
         // First call: system + 1 user message
-        assert_eq!(calls[0].len(), 2); // system + user
-        assert_eq!(calls[0][0].role, "system");
-        assert_eq!(calls[0][1].role, "user");
+        assert_eq!(calls[0].0.len(), 2); // system + user
+        assert_eq!(calls[0].0[0].role, LlmRole::System);
+        assert_eq!(calls[0].0[1].role, LlmRole::User);
 
         // Second call: system + user + assistant + user
-        assert_eq!(calls[1].len(), 4); // system + user + assistant + user
-        assert_eq!(calls[1][0].role, "system");
-        assert_eq!(calls[1][3].role, "user");
-        assert_eq!(calls[1][3].content, "Tell me more about errors");
+        assert_eq!(calls[1].0.len(), 4); // system + user + assistant + user
+        assert_eq!(calls[1].0[0].role, LlmRole::System);
+        assert_eq!(calls[1].0[3].role, LlmRole::User);
+        assert_eq!(calls[1].0[3].content, "Tell me more about errors");
     }
 
     #[tokio::test]

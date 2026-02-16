@@ -5,45 +5,7 @@ use uuid::Uuid;
 
 use at_core::types::{Bead, Lane};
 
-// ---------------------------------------------------------------------------
-// LLM provider abstraction
-// ---------------------------------------------------------------------------
-// When Team Xi delivers crate::llm, replace this block with:
-//   use crate::llm::{LlmProvider, LlmMessage, LlmResponse};
-//
-// For now we re-use the same trait shape defined in insights.rs so the
-// ideation engine can also call an LLM.  We duplicate the minimal types
-// here to avoid circular module dependencies; once crate::llm lands both
-// files will import from the canonical location.
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone)]
-pub struct LlmMessage {
-    pub role: String,
-    pub content: String,
-}
-
-#[derive(Debug, Clone)]
-pub struct LlmResponse {
-    pub content: String,
-    pub model: String,
-    pub usage: Option<LlmUsage>,
-}
-
-#[derive(Debug, Clone)]
-pub struct LlmUsage {
-    pub input_tokens: u32,
-    pub output_tokens: u32,
-}
-
-#[async_trait::async_trait]
-pub trait LlmProvider: Send + Sync + std::fmt::Debug {
-    async fn complete(
-        &self,
-        messages: Vec<LlmMessage>,
-        model: Option<&str>,
-    ) -> Result<LlmResponse, Box<dyn std::error::Error + Send + Sync>>;
-}
+use crate::llm::{LlmConfig, LlmMessage, LlmProvider};
 
 // ---------------------------------------------------------------------------
 // IdeaCategory
@@ -252,20 +214,21 @@ impl IdeationEngine {
         );
 
         let messages = vec![
-            LlmMessage {
-                role: "system".to_string(),
-                content: system_prompt,
-            },
-            LlmMessage {
-                role: "user".to_string(),
-                content: format!(
-                    "Category: {category_label}\n\nCodebase context:\n{context}"
-                ),
-            },
+            LlmMessage::system(system_prompt),
+            LlmMessage::user(format!(
+                "Category: {category_label}\n\nCodebase context:\n{context}"
+            )),
         ];
 
+        let config = LlmConfig {
+            model: "claude-sonnet-4-20250514".to_string(),
+            max_tokens: 1024,
+            temperature: 0.7,
+            system_prompt: None,
+        };
+
         let response = provider
-            .complete(messages, None)
+            .complete(&messages, &config)
             .await
             .map_err(|e| {
                 crate::IntelligenceError::InvalidOperation(format!("LLM call failed: {e}"))
@@ -416,14 +379,16 @@ impl Default for IdeationEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::llm::{LlmConfig, LlmError, LlmMessage, LlmProvider, LlmResponse, LlmRole};
+    use std::pin::Pin;
     use std::sync::Mutex;
+    use futures_util::Stream;
 
     // ---- MockProvider --------------------------------------------------------
 
-    #[derive(Debug)]
     struct MockProvider {
         response: String,
-        calls: Mutex<Vec<Vec<LlmMessage>>>,
+        calls: Mutex<Vec<(Vec<LlmMessage>, LlmConfig)>>,
     }
 
     impl MockProvider {
@@ -434,7 +399,7 @@ mod tests {
             }
         }
 
-        fn captured_calls(&self) -> Vec<Vec<LlmMessage>> {
+        fn captured_calls(&self) -> Vec<(Vec<LlmMessage>, LlmConfig)> {
             self.calls.lock().unwrap().clone()
         }
     }
@@ -443,15 +408,25 @@ mod tests {
     impl LlmProvider for MockProvider {
         async fn complete(
             &self,
-            messages: Vec<LlmMessage>,
-            _model: Option<&str>,
-        ) -> Result<LlmResponse, Box<dyn std::error::Error + Send + Sync>> {
-            self.calls.lock().unwrap().push(messages);
+            messages: &[LlmMessage],
+            config: &LlmConfig,
+        ) -> Result<LlmResponse, LlmError> {
+            self.calls.lock().unwrap().push((messages.to_vec(), config.clone()));
             Ok(LlmResponse {
                 content: self.response.clone(),
                 model: "mock".to_string(),
-                usage: None,
+                input_tokens: 10,
+                output_tokens: 5,
+                finish_reason: "end_turn".to_string(),
             })
+        }
+
+        async fn stream(
+            &self,
+            _messages: &[LlmMessage],
+            _config: &LlmConfig,
+        ) -> Result<Pin<Box<dyn Stream<Item = Result<String, LlmError>> + Send>>, LlmError> {
+            Err(LlmError::Unsupported("mock does not support streaming".into()))
         }
     }
 
@@ -486,15 +461,15 @@ mod tests {
         // Verify the prompt was sent correctly
         let calls = mock.captured_calls();
         assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0][0].role, "system");
-        assert!(calls[0][0].content.contains("performance"));
-        assert_eq!(calls[0][1].role, "user");
-        assert!(calls[0][1].content.contains("slow DB queries"));
+        assert_eq!(calls[0].0[0].role, LlmRole::System);
+        assert!(calls[0].0[0].content.contains("performance"));
+        assert_eq!(calls[0].0[1].role, LlmRole::User);
+        assert!(calls[0].0[1].content.contains("slow DB queries"));
     }
 
     #[tokio::test]
     async fn generate_ideas_with_ai_falls_back_to_text_parsing() {
-        // Non-JSON response – the engine should still produce ideas.
+        // Non-JSON response -- the engine should still produce ideas.
         let text_response = "- Refactor the auth module\n- Add unit tests for login flow\n";
 
         let mock = Arc::new(MockProvider::new(text_response));

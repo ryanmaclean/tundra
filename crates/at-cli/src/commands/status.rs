@@ -1,54 +1,78 @@
-use anyhow::Context;
-use at_core::cache::CacheDb;
-use at_core::config::Config;
+use super::{api_client, friendly_error};
 
-/// Run the `status` subcommand: load config, open cache, print KPI snapshot.
-pub async fn run() -> anyhow::Result<()> {
-    let cfg = Config::load().context("failed to load config")?;
+/// Run the `status` subcommand: call the API and pretty-print system status.
+pub async fn run(api_url: &str) -> anyhow::Result<()> {
+    let client = api_client();
 
-    at_telemetry::logging::init_logging("at-cli", &cfg.general.log_level);
-    tracing::debug!(project = %cfg.general.project_name, "config loaded");
+    // Fetch overall system status
+    let status_url = format!("{api_url}/api/status");
+    let status_resp = client
+        .get(&status_url)
+        .send()
+        .await
+        .map_err(friendly_error)?;
 
-    // Resolve cache path, expanding `~` to the real home directory.
-    let cache_path = expand_tilde(&cfg.cache.path);
-
-    // Ensure the parent directory exists.
-    if let Some(parent) = std::path::Path::new(&cache_path).parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("failed to create directory {}", parent.display()))?;
+    if !status_resp.status().is_success() {
+        anyhow::bail!(
+            "Failed to fetch status (HTTP {})",
+            status_resp.status()
+        );
     }
+    let status: serde_json::Value = status_resp.json().await.map_err(friendly_error)?;
 
-    let db = CacheDb::new(&cache_path)
+    // Fetch beads list
+    let beads_url = format!("{api_url}/api/beads");
+    let beads_resp = client
+        .get(&beads_url)
+        .send()
         .await
-        .with_context(|| format!("failed to open cache db at {cache_path}"))?;
+        .map_err(friendly_error)?;
 
-    let kpi = db
-        .compute_kpi_snapshot()
-        .await
-        .context("failed to compute KPI snapshot")?;
+    let beads: Vec<serde_json::Value> = if beads_resp.status().is_success() {
+        beads_resp.json().await.unwrap_or_default()
+    } else {
+        Vec::new()
+    };
 
-    println!("auto-tundra status  ({})", cfg.general.project_name);
-    println!("{}", "-".repeat(40));
-    println!("Total beads:    {}", kpi.total_beads);
-    println!("  backlog:      {}", kpi.backlog);
-    println!("  hooked:       {}", kpi.hooked);
-    println!("  slung:        {}", kpi.slung);
-    println!("  review:       {}", kpi.review);
-    println!("  done:         {}", kpi.done);
-    println!("  failed:       {}", kpi.failed);
-    println!("  escalated:    {}", kpi.escalated);
-    println!("Active agents:  {}", kpi.active_agents);
-    println!("Snapshot at:    {}", kpi.timestamp.format("%Y-%m-%d %H:%M:%S UTC"));
+    // Count beads per status
+    let mut backlog: u64 = 0;
+    let mut hooked: u64 = 0;
+    let mut slung: u64 = 0;
+    let mut review: u64 = 0;
+    let mut done: u64 = 0;
+    let mut failed: u64 = 0;
+    let mut escalated: u64 = 0;
 
-    Ok(())
-}
-
-/// Expand a leading `~` or `~/` to the user's home directory.
-fn expand_tilde(path: &str) -> String {
-    if path.starts_with("~/") || path == "~" {
-        if let Some(home) = dirs::home_dir() {
-            return path.replacen('~', &home.to_string_lossy(), 1);
+    for bead in &beads {
+        match bead["status"].as_str().unwrap_or("") {
+            "backlog" => backlog += 1,
+            "hooked" => hooked += 1,
+            "slung" => slung += 1,
+            "review" => review += 1,
+            "done" => done += 1,
+            "failed" => failed += 1,
+            "escalated" => escalated += 1,
+            _ => {}
         }
     }
-    path.to_string()
+
+    let total = beads.len() as u64;
+    let version = status["version"].as_str().unwrap_or("unknown");
+    let uptime = status["uptime_seconds"].as_u64().unwrap_or(0);
+    let agent_count = status["agent_count"].as_u64().unwrap_or(0);
+
+    println!("auto-tundra status  (v{version})");
+    println!("{}", "-".repeat(40));
+    println!("Uptime:         {}s", uptime);
+    println!("Active agents:  {}", agent_count);
+    println!("Total beads:    {}", total);
+    println!("  backlog:      {}", backlog);
+    println!("  hooked:       {}", hooked);
+    println!("  slung:        {}", slung);
+    println!("  review:       {}", review);
+    println!("  done:         {}", done);
+    println!("  failed:       {}", failed);
+    println!("  escalated:    {}", escalated);
+
+    Ok(())
 }

@@ -5,6 +5,12 @@ pub mod llm;
 pub mod memory;
 pub mod roadmap;
 
+// Re-export canonical LLM types for convenience.
+pub use llm::{
+    AnthropicProvider, LlmConfig, LlmError, LlmMessage, LlmProvider, LlmResponse, LlmRole,
+    LlmUsageTracker, MockProvider as LlmMockProvider, OpenAiProvider,
+};
+
 use thiserror::Error;
 use uuid::Uuid;
 

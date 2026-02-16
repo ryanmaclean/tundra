@@ -165,6 +165,9 @@ dependencies = [
  "at-telemetry",
  "clap",
  "dirs",
+ "reqwest",
+ "serde",
+ "serde_json",
  "tokio",
  "tracing",
 ]

@@ -572,6 +572,37 @@ impl LlmProvider for MockProvider {
 }
 
 // ---------------------------------------------------------------------------
+// LlmUsageTracker
+// ---------------------------------------------------------------------------
+
+/// Simple tracker for cumulative LLM usage across multiple requests.
+#[derive(Debug, Clone, Default)]
+pub struct LlmUsageTracker {
+    pub total_input_tokens: u64,
+    pub total_output_tokens: u64,
+    pub total_requests: u64,
+}
+
+impl LlmUsageTracker {
+    /// Create a new empty tracker.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Record usage from an [`LlmResponse`].
+    pub fn record(&mut self, response: &LlmResponse) {
+        self.total_input_tokens += response.input_tokens;
+        self.total_output_tokens += response.output_tokens;
+        self.total_requests += 1;
+    }
+
+    /// Total tokens (input + output) across all tracked requests.
+    pub fn total_tokens(&self) -> u64 {
+        self.total_input_tokens + self.total_output_tokens
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -988,5 +1019,48 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.content, "Mock response");
+    }
+
+    // -- LlmUsageTracker tests -----------------------------------------------
+
+    #[test]
+    fn usage_tracker_starts_empty() {
+        let tracker = LlmUsageTracker::new();
+        assert_eq!(tracker.total_input_tokens, 0);
+        assert_eq!(tracker.total_output_tokens, 0);
+        assert_eq!(tracker.total_requests, 0);
+        assert_eq!(tracker.total_tokens(), 0);
+    }
+
+    #[test]
+    fn usage_tracker_records_response() {
+        let mut tracker = LlmUsageTracker::new();
+        let resp = LlmResponse {
+            content: "answer".to_string(),
+            model: "test".to_string(),
+            input_tokens: 100,
+            output_tokens: 50,
+            finish_reason: "end_turn".to_string(),
+        };
+
+        tracker.record(&resp);
+        assert_eq!(tracker.total_input_tokens, 100);
+        assert_eq!(tracker.total_output_tokens, 50);
+        assert_eq!(tracker.total_requests, 1);
+        assert_eq!(tracker.total_tokens(), 150);
+
+        // Record a second response.
+        let resp2 = LlmResponse {
+            content: "another".to_string(),
+            model: "test".to_string(),
+            input_tokens: 200,
+            output_tokens: 75,
+            finish_reason: "end_turn".to_string(),
+        };
+        tracker.record(&resp2);
+        assert_eq!(tracker.total_input_tokens, 300);
+        assert_eq!(tracker.total_output_tokens, 125);
+        assert_eq!(tracker.total_requests, 2);
+        assert_eq!(tracker.total_tokens(), 425);
     }
 }

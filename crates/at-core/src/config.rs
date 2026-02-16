@@ -250,6 +250,10 @@ pub struct SecurityConfig {
     pub auto_lock_timeout_mins: u32,
     #[serde(default = "default_true")]
     pub sandbox_mode: bool,
+    /// Optional API key for authenticating HTTP API requests.
+    /// When `None`, all requests are allowed (development mode).
+    #[serde(default)]
+    pub api_key: Option<String>,
 }
 
 impl Default for SecurityConfig {
@@ -261,6 +265,7 @@ impl Default for SecurityConfig {
             mask_api_keys: true,
             auto_lock_timeout_mins: default_auto_lock_timeout(),
             sandbox_mode: true,
+            api_key: None,
         }
     }
 }

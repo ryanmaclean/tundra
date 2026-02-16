@@ -26,6 +26,7 @@ use at_intelligence::{
     memory::MemoryStore,
     roadmap::RoadmapEngine,
 };
+use crate::auth::AuthLayer;
 use crate::event_bus::EventBus;
 use crate::intelligence_api;
 use crate::terminal::TerminalRegistry;
@@ -120,13 +121,23 @@ impl ApiState {
 }
 
 /// Build the full API router with all REST and WebSocket routes.
+///
+/// When `api_key` is `Some`, the [`AuthLayer`] middleware will require
+/// every request to carry a valid key. When `None`, all requests pass
+/// through (development mode).
 pub fn api_router(state: Arc<ApiState>) -> Router {
+    api_router_with_auth(state, None)
+}
+
+/// Build the API router with optional authentication.
+pub fn api_router_with_auth(state: Arc<ApiState>, api_key: Option<String>) -> Router {
     Router::new()
         .route("/api/status", get(get_status))
         .route("/api/beads", get(list_beads))
         .route("/api/beads", post(create_bead))
         .route("/api/beads/{id}/status", post(update_bead_status))
         .route("/api/agents", get(list_agents))
+        .route("/api/agents/{id}/nudge", post(nudge_agent))
         .route("/api/kpi", get(get_kpi))
         .route("/api/tasks", get(list_tasks))
         .route("/api/tasks", post(create_task))
@@ -145,6 +156,7 @@ pub fn api_router(state: Arc<ApiState>) -> Router {
         .route("/api/github/pr/{task_id}", post(create_pr_for_task))
         .route("/ws", get(ws_handler))
         .merge(intelligence_api::intelligence_router())
+        .layer(AuthLayer::new(api_key))
         .layer(CorsLayer::very_permissive())
         .with_state(state)
 }
@@ -261,6 +273,36 @@ async fn update_bead_status(
 async fn list_agents(State(state): State<Arc<ApiState>>) -> Json<Vec<Agent>> {
     let agents = state.agents.read().await;
     Json(agents.clone())
+}
+
+async fn nudge_agent(
+    State(state): State<Arc<ApiState>>,
+    Path(id): Path<Uuid>,
+) -> impl IntoResponse {
+    let mut agents = state.agents.write().await;
+    let Some(agent) = agents.iter_mut().find(|a| a.id == id) else {
+        return (
+            axum::http::StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "agent not found"})),
+        );
+    };
+
+    // If the agent is running (Active/Idle), mark it as Pending to signal a
+    // restart cycle. In a full implementation this would also send a signal
+    // to the agent process.
+    use at_core::types::AgentStatus;
+    match agent.status {
+        AgentStatus::Active | AgentStatus::Idle | AgentStatus::Unknown => {
+            agent.status = AgentStatus::Pending;
+            agent.last_seen = chrono::Utc::now();
+        }
+        AgentStatus::Pending | AgentStatus::Stopped => {
+            // Already pending/stopped -- nothing to do but acknowledge.
+        }
+    }
+
+    let snapshot = agent.clone();
+    (axum::http::StatusCode::OK, Json(serde_json::json!(snapshot)))
 }
 
 async fn get_kpi(State(state): State<Arc<ApiState>>) -> Json<KpiSnapshot> {
