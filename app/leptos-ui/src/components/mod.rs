@@ -7,3 +7,4 @@ pub mod help_modal;
 pub mod new_task_modal;
 pub mod task_wizard;
 pub mod task_detail;
+pub mod notification_bell;

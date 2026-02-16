@@ -13,7 +13,9 @@ use tokio::sync::Mutex;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
+use crate::approval::{ApprovalPolicy, ToolApprovalSystem};
 use crate::profiles::AgentConfig;
+use crate::roles::RoleConfig;
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -197,6 +199,8 @@ pub struct AgentExecutor {
     cache: Arc<CacheDb>,
     /// Active task handles, keyed by task ID.
     active_tasks: Arc<Mutex<HashMap<Uuid, Arc<SpawnedProcess>>>>,
+    /// Tool approval system for gating tool invocations.
+    approval_system: Arc<Mutex<ToolApprovalSystem>>,
 }
 
 impl AgentExecutor {
@@ -211,6 +215,7 @@ impl AgentExecutor {
             event_bus,
             cache,
             active_tasks: Arc::new(Mutex::new(HashMap::new())),
+            approval_system: Arc::new(Mutex::new(ToolApprovalSystem::new())),
         }
     }
 
@@ -225,10 +230,78 @@ impl AgentExecutor {
             event_bus,
             cache,
             active_tasks: Arc::new(Mutex::new(HashMap::new())),
+            approval_system: Arc::new(Mutex::new(ToolApprovalSystem::new())),
         }
     }
 
-    /// Execute a task using the given agent configuration.
+    /// Create an executor with a custom spawner and approval system.
+    pub fn with_spawner_and_approval(
+        spawner: Arc<dyn PtySpawner>,
+        event_bus: EventBus,
+        cache: Arc<CacheDb>,
+        approval_system: ToolApprovalSystem,
+    ) -> Self {
+        Self {
+            spawner,
+            event_bus,
+            cache,
+            active_tasks: Arc::new(Mutex::new(HashMap::new())),
+            approval_system: Arc::new(Mutex::new(approval_system)),
+        }
+    }
+
+    /// Get a reference to the approval system.
+    pub fn approval_system(&self) -> &Arc<Mutex<ToolApprovalSystem>> {
+        &self.approval_system
+    }
+
+    /// Execute a task using the given agent configuration and role config.
+    ///
+    /// This will:
+    /// 1. Apply role-specific pre-execution hooks
+    /// 2. Build CLI arguments from the AgentConfig
+    /// 3. Spawn the CLI process via the PTY pool
+    /// 4. Feed the task prompt (with system prompt) to stdin
+    /// 5. Collect output, parsing for structured events
+    /// 6. Check tool approvals for any tool_call events
+    /// 7. Publish progress events to the EventBus
+    /// 8. Apply role-specific post-execution hooks
+    /// 9. Return the execution result
+    pub async fn execute_task_with_role(
+        &self,
+        task: &Task,
+        agent_config: &AgentConfig,
+        role_config: &dyn RoleConfig,
+    ) -> Result<ExecutionResult> {
+        // Apply pre-execute hook
+        let pre_hook = role_config.pre_execute(&task.title);
+        if let Some(ref preamble) = pre_hook {
+            tracing::debug!(task_id = %task.id, preamble_len = preamble.len(), "applied pre-execute hook");
+        }
+
+        // Build prompt with system prompt included
+        let system_prompt = role_config.system_prompt();
+        let base_prompt = build_prompt(task);
+        let prompt = if let Some(preamble) = pre_hook {
+            format!(
+                "System: {}\n\n{}\n\n{}",
+                system_prompt, preamble, base_prompt
+            )
+        } else {
+            format!("System: {}\n\n{}", system_prompt, base_prompt)
+        };
+
+        let result = self.execute_task_inner(task, agent_config, &prompt).await?;
+
+        // Apply post-execute hook
+        if let Some(summary) = role_config.post_execute(&result.output) {
+            tracing::info!(task_id = %task.id, summary = %summary, "post-execute hook");
+        }
+
+        Ok(result)
+    }
+
+    /// Execute a task using the given agent configuration (without role config).
     ///
     /// This will:
     /// 1. Build CLI arguments from the AgentConfig
@@ -242,6 +315,17 @@ impl AgentExecutor {
         task: &Task,
         agent_config: &AgentConfig,
     ) -> Result<ExecutionResult> {
+        let prompt = build_prompt(task);
+        self.execute_task_inner(task, agent_config, &prompt).await
+    }
+
+    /// Internal task execution implementation.
+    async fn execute_task_inner(
+        &self,
+        task: &Task,
+        agent_config: &AgentConfig,
+        prompt: &str,
+    ) -> Result<ExecutionResult> {
         let start = std::time::Instant::now();
 
         info!(
@@ -250,9 +334,6 @@ impl AgentExecutor {
             model = %agent_config.model,
             "executing task"
         );
-
-        // Build prompt
-        let prompt = build_prompt(task);
 
         // Build CLI args
         let cli_args = agent_config.to_cli_args();
@@ -284,7 +365,7 @@ impl AgentExecutor {
 
         // Send the prompt to stdin
         process
-            .send_line(&prompt)
+            .send_line(prompt)
             .map_err(|e| ExecutorError::Internal(e))?;
 
         // Collect output with timeout
@@ -382,6 +463,48 @@ impl AgentExecutor {
             duration_ms,
             exit_code: if success { Some(0) } else { None },
         })
+    }
+
+    /// Check tool approval for a tool_call event.
+    ///
+    /// When the agent output contains a tool_call event, this method checks
+    /// the approval system to determine if the tool is allowed. Returns the
+    /// approval policy so callers can decide how to proceed.
+    pub async fn check_tool_event(
+        &self,
+        event: &AgentEvent,
+        agent_role: &at_core::types::AgentRole,
+        agent_id: Uuid,
+    ) -> ApprovalPolicy {
+        if event.event_type != "tool_call" {
+            return ApprovalPolicy::AutoApprove;
+        }
+
+        let tool_name = &event.message;
+        let approval_system = self.approval_system.lock().await;
+        let policy = approval_system.check_approval(tool_name, agent_role);
+
+        match policy {
+            ApprovalPolicy::AutoApprove => {
+                tracing::debug!(tool = %tool_name, "tool auto-approved");
+            }
+            ApprovalPolicy::RequireApproval => {
+                tracing::warn!(
+                    tool = %tool_name,
+                    agent_id = %agent_id,
+                    "tool requires approval"
+                );
+            }
+            ApprovalPolicy::Deny => {
+                tracing::error!(
+                    tool = %tool_name,
+                    agent_id = %agent_id,
+                    "tool invocation DENIED by policy"
+                );
+            }
+        }
+
+        policy
     }
 
     /// Abort a running task by its ID.

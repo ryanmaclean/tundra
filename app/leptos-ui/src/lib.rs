@@ -5,6 +5,7 @@ pub mod types;
 pub mod state;
 pub mod pages;
 pub mod components;
+pub mod events;
 
 use wasm_bindgen::prelude::*;
 
@@ -15,6 +16,16 @@ pub fn App() -> impl IntoView {
     let (current_tab, set_current_tab) = signal(0usize);
     let (show_help, set_show_help) = signal(false);
     let (show_new_task, set_show_new_task) = signal(false);
+
+    // Start the event WebSocket stream
+    let (
+        _conn_state,
+        _latest_event,
+        toasts,
+        set_toasts,
+        unread_count,
+        set_unread_count,
+    ) = events::use_event_stream();
 
     let page_label = move || {
         components::nav_bar::tab_label(current_tab.get())
@@ -36,6 +47,12 @@ pub fn App() -> impl IntoView {
                         <span class="top-bar-page">{page_label}</span>
                     </div>
                     <div class="top-bar-right">
+                        <components::notification_bell::NotificationBell
+                            unread_count=unread_count
+                            set_unread_count=set_unread_count
+                            toasts=toasts
+                            set_toasts=set_toasts
+                        />
                         <button class="refresh-btn">
                             "\u{21BB} Refresh Tasks"
                         </button>

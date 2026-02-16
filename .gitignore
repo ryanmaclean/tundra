@@ -6,3 +6,4 @@
 .env.*
 /dolt/.dolt/
 /node_modules/
+app/leptos-ui/dist/

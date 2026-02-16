@@ -571,3 +571,65 @@ pub async fn send_insights_message(session_id: &str, content: &str) -> Result<Ap
     };
     post_json(&format!("{API_BASE}/api/insights/sessions/{session_id}/messages"), &body).await
 }
+
+// ── Notification types ──
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiNotification {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub message: String,
+    #[serde(default)]
+    pub level: String,
+    #[serde(default)]
+    pub source: String,
+    #[serde(default)]
+    pub created_at: String,
+    #[serde(default)]
+    pub read: bool,
+    #[serde(default)]
+    pub action_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiNotificationCount {
+    #[serde(default)]
+    pub unread: u64,
+    #[serde(default)]
+    pub total: u64,
+}
+
+// ── Notification API functions ──
+
+pub async fn fetch_notifications(unread_only: bool, limit: usize, offset: usize) -> Result<Vec<ApiNotification>, String> {
+    let unread_param = if unread_only { "&unread=true" } else { "" };
+    fetch_json(&format!(
+        "{API_BASE}/api/notifications?limit={limit}&offset={offset}{unread_param}"
+    )).await
+}
+
+pub async fn fetch_notification_count() -> Result<ApiNotificationCount, String> {
+    fetch_json(&format!("{API_BASE}/api/notifications/count")).await
+}
+
+pub async fn mark_notification_read(id: &str) -> Result<serde_json::Value, String> {
+    post_empty(&format!("{API_BASE}/api/notifications/{id}/read")).await
+}
+
+pub async fn mark_all_notifications_read() -> Result<serde_json::Value, String> {
+    post_empty(&format!("{API_BASE}/api/notifications/read-all")).await
+}
+
+pub async fn delete_notification(id: &str) -> Result<(), String> {
+    delete_request(&format!("{API_BASE}/api/notifications/{id}")).await
+}
+
+/// Return the WebSocket URL for event streaming.
+pub fn events_ws_url() -> String {
+    // Replace http:// with ws://
+    let ws_base = API_BASE.replace("http://", "ws://").replace("https://", "wss://");
+    format!("{ws_base}/api/events/ws")
+}

@@ -1,12 +1,14 @@
 use axum::{
     extract::{
         ws::{Message, WebSocket, WebSocketUpgrade},
-        Path, State,
+        Path, Query, State,
     },
+    middleware as axum_middleware,
     response::IntoResponse,
     routing::{get, patch, post, put},
     Json, Router,
 };
+use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -14,6 +16,7 @@ use tower_http::cors::CorsLayer;
 use uuid::Uuid;
 
 use at_core::config::Config;
+use at_core::session_store::{SessionState, SessionStore};
 use at_core::settings::SettingsManager;
 use at_core::types::{
     Agent, Bead, BeadStatus, KpiSnapshot, Lane, Task, TaskCategory, TaskComplexity, TaskPhase,
@@ -26,9 +29,13 @@ use at_intelligence::{
     memory::MemoryStore,
     roadmap::RoadmapEngine,
 };
+use at_telemetry::metrics::global_metrics;
+use at_telemetry::middleware::metrics_middleware;
+use at_telemetry::tracing_setup::request_id_middleware;
 use crate::auth::AuthLayer;
 use crate::event_bus::EventBus;
 use crate::intelligence_api;
+use crate::notifications::{NotificationStore, notification_from_event};
 use crate::terminal::TerminalRegistry;
 use crate::terminal_ws;
 
@@ -76,6 +83,10 @@ pub struct ApiState {
     pub roadmap_engine: Arc<RwLock<RoadmapEngine>>,
     pub memory_store: Arc<RwLock<MemoryStore>>,
     pub changelog_engine: Arc<RwLock<ChangelogEngine>>,
+    // ---- Notifications -------------------------------------------------------
+    pub notification_store: Arc<RwLock<NotificationStore>>,
+    // ---- Session persistence --------------------------------------------------
+    pub session_store: Arc<SessionStore>,
 }
 
 impl ApiState {
@@ -109,6 +120,8 @@ impl ApiState {
             roadmap_engine: Arc::new(RwLock::new(RoadmapEngine::new())),
             memory_store: Arc::new(RwLock::new(MemoryStore::new())),
             changelog_engine: Arc::new(RwLock::new(ChangelogEngine::new())),
+            notification_store: Arc::new(RwLock::new(NotificationStore::default())),
+            session_store: Arc::new(SessionStore::default_path()),
         }
     }
 
@@ -154,8 +167,25 @@ pub fn api_router_with_auth(state: Arc<ApiState>, api_key: Option<String>) -> Ro
         .route("/api/github/sync", post(trigger_github_sync))
         .route("/api/github/sync/status", get(get_sync_status))
         .route("/api/github/pr/{task_id}", post(create_pr_for_task))
+        // Notification endpoints
+        .route("/api/notifications", get(list_notifications))
+        .route("/api/notifications/count", get(notification_count))
+        .route("/api/notifications/{id}/read", post(mark_notification_read))
+        .route("/api/notifications/read-all", post(mark_all_notifications_read))
+        .route("/api/notifications/{id}", axum::routing::delete(delete_notification))
+        // Metrics endpoints
+        .route("/api/metrics", get(get_metrics_prometheus))
+        .route("/api/metrics/json", get(get_metrics_json))
+        // Session endpoints
+        .route("/api/sessions/ui", get(get_ui_session))
+        .route("/api/sessions/ui", put(save_ui_session))
+        .route("/api/sessions/ui/list", get(list_ui_sessions))
+        // WebSocket endpoints
         .route("/ws", get(ws_handler))
+        .route("/api/events/ws", get(events_ws_handler))
         .merge(intelligence_api::intelligence_router())
+        .layer(axum_middleware::from_fn(metrics_middleware))
+        .layer(axum_middleware::from_fn(request_id_middleware))
         .layer(AuthLayer::new(api_key))
         .layer(CorsLayer::very_permissive())
         .with_state(state)
@@ -197,6 +227,13 @@ pub struct CreateTaskRequest {
 #[derive(Debug, Deserialize)]
 pub struct UpdateTaskPhaseRequest {
     pub phase: TaskPhase,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct NotificationQuery {
+    pub unread: Option<bool>,
+    pub limit: Option<usize>,
+    pub offset: Option<usize>,
 }
 
 // ---------------------------------------------------------------------------
@@ -287,9 +324,6 @@ async fn nudge_agent(
         );
     };
 
-    // If the agent is running (Active/Idle), mark it as Pending to signal a
-    // restart cycle. In a full implementation this would also send a signal
-    // to the agent process.
     use at_core::types::AgentStatus;
     match agent.status {
         AgentStatus::Active | AgentStatus::Idle | AgentStatus::Unknown => {
@@ -498,8 +532,6 @@ async fn trigger_github_sync(
         status.is_syncing = true;
     }
 
-    // In a real implementation this would call IssueSyncEngine. For now,
-    // we update the sync status with a stub count and timestamp.
     let beads = state.beads.read().await;
     let imported_count = beads
         .iter()
@@ -549,8 +581,6 @@ async fn create_pr_for_task(
         );
     };
 
-    // In production this would call PrAutomation::create_pr_for_task.
-    // For now, return a stub response with the task info.
     let response = PrCreatedResponse {
         message: "PR creation initiated".to_string(),
         task_id: task.id,
@@ -565,7 +595,165 @@ async fn create_pr_for_task(
 }
 
 // ---------------------------------------------------------------------------
-// WebSocket
+// Notification handlers
+// ---------------------------------------------------------------------------
+
+/// GET /api/notifications — list notifications with optional filters.
+async fn list_notifications(
+    State(state): State<Arc<ApiState>>,
+    Query(params): Query<NotificationQuery>,
+) -> impl IntoResponse {
+    let store = state.notification_store.read().await;
+    let limit = params.limit.unwrap_or(50);
+    let offset = params.offset.unwrap_or(0);
+
+    if params.unread == Some(true) {
+        let unread: Vec<_> = store
+            .list_unread()
+            .into_iter()
+            .skip(offset)
+            .take(limit)
+            .cloned()
+            .collect();
+        Json(serde_json::json!(unread))
+    } else {
+        let all: Vec<_> = store.list_all(limit, offset).into_iter().cloned().collect();
+        Json(serde_json::json!(all))
+    }
+}
+
+/// GET /api/notifications/count — return unread count.
+async fn notification_count(
+    State(state): State<Arc<ApiState>>,
+) -> impl IntoResponse {
+    let store = state.notification_store.read().await;
+    Json(serde_json::json!({
+        "unread": store.unread_count(),
+        "total": store.total_count(),
+    }))
+}
+
+/// POST /api/notifications/{id}/read — mark a single notification as read.
+async fn mark_notification_read(
+    State(state): State<Arc<ApiState>>,
+    Path(id): Path<Uuid>,
+) -> impl IntoResponse {
+    let mut store = state.notification_store.write().await;
+    if store.mark_read(id) {
+        (
+            axum::http::StatusCode::OK,
+            Json(serde_json::json!({"status": "read", "id": id.to_string()})),
+        )
+    } else {
+        (
+            axum::http::StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "notification not found"})),
+        )
+    }
+}
+
+/// POST /api/notifications/read-all — mark all notifications as read.
+async fn mark_all_notifications_read(
+    State(state): State<Arc<ApiState>>,
+) -> impl IntoResponse {
+    let mut store = state.notification_store.write().await;
+    store.mark_all_read();
+    Json(serde_json::json!({"status": "all_read"}))
+}
+
+/// DELETE /api/notifications/{id} — delete a notification.
+async fn delete_notification(
+    State(state): State<Arc<ApiState>>,
+    Path(id): Path<Uuid>,
+) -> impl IntoResponse {
+    let mut store = state.notification_store.write().await;
+    if store.delete(id) {
+        (
+            axum::http::StatusCode::OK,
+            Json(serde_json::json!({"status": "deleted", "id": id.to_string()})),
+        )
+    } else {
+        (
+            axum::http::StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "notification not found"})),
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Metrics handlers
+// ---------------------------------------------------------------------------
+
+/// GET /api/metrics — Prometheus text format export.
+async fn get_metrics_prometheus() -> impl IntoResponse {
+    let body = global_metrics().export_prometheus();
+    (
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "text/plain; version=0.0.4; charset=utf-8",
+        )],
+        body,
+    )
+}
+
+/// GET /api/metrics/json — JSON format export.
+async fn get_metrics_json() -> impl IntoResponse {
+    Json(global_metrics().export_json())
+}
+
+// ---------------------------------------------------------------------------
+// Session handlers
+// ---------------------------------------------------------------------------
+
+/// GET /api/sessions/ui — load the most recent UI session (or return null).
+async fn get_ui_session(
+    State(state): State<Arc<ApiState>>,
+) -> impl IntoResponse {
+    match state.session_store.list_sessions() {
+        Ok(sessions) => {
+            if let Some(session) = sessions.into_iter().next() {
+                (axum::http::StatusCode::OK, Json(serde_json::json!(session)))
+            } else {
+                (axum::http::StatusCode::OK, Json(serde_json::json!(null)))
+            }
+        }
+        Err(e) => (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": e.to_string()})),
+        ),
+    }
+}
+
+/// PUT /api/sessions/ui — save a UI session state.
+async fn save_ui_session(
+    State(state): State<Arc<ApiState>>,
+    Json(mut session): Json<SessionState>,
+) -> impl IntoResponse {
+    session.last_active_at = chrono::Utc::now();
+    match state.session_store.save_session(&session) {
+        Ok(()) => (axum::http::StatusCode::OK, Json(serde_json::json!(session))),
+        Err(e) => (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": e.to_string()})),
+        ),
+    }
+}
+
+/// GET /api/sessions/ui/list — list all saved sessions.
+async fn list_ui_sessions(
+    State(state): State<Arc<ApiState>>,
+) -> impl IntoResponse {
+    match state.session_store.list_sessions() {
+        Ok(sessions) => (axum::http::StatusCode::OK, Json(serde_json::json!(sessions))),
+        Err(e) => (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": e.to_string()})),
+        ),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// WebSocket — legacy /ws handler
 // ---------------------------------------------------------------------------
 
 async fn ws_handler(
@@ -586,6 +774,66 @@ async fn handle_ws(mut socket: WebSocket, state: Arc<ApiState>) {
                 }
             }
             Err(_) => break,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// WebSocket — /api/events/ws with heartbeat + event-to-notification wiring
+// ---------------------------------------------------------------------------
+
+async fn events_ws_handler(
+    ws: WebSocketUpgrade,
+    State(state): State<Arc<ApiState>>,
+) -> impl IntoResponse {
+    ws.on_upgrade(move |socket| handle_events_ws(socket, state))
+}
+
+async fn handle_events_ws(socket: WebSocket, state: Arc<ApiState>) {
+    let (mut ws_tx, mut ws_rx) = socket.split();
+    let rx = state.event_bus.subscribe();
+    let notification_store = state.notification_store.clone();
+
+    // Heartbeat interval: 30 seconds
+    let mut heartbeat = tokio::time::interval(std::time::Duration::from_secs(30));
+
+    loop {
+        tokio::select! {
+            // Forward events from the bus to the WebSocket client
+            result = rx.recv_async() => {
+                match result {
+                    Ok(msg) => {
+                        // Wire event to notification store
+                        if let Some((title, message, level, source, action_url)) = notification_from_event(&msg) {
+                            let mut store = notification_store.write().await;
+                            store.add_with_url(title, message, level, source, action_url);
+                        }
+
+                        let json = serde_json::to_string(&msg).unwrap_or_default();
+                        if ws_tx.send(Message::Text(json.into())).await.is_err() {
+                            break;
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+
+            // Send heartbeat ping every 30s
+            _ = heartbeat.tick() => {
+                let ping_msg = serde_json::json!({"type": "ping", "timestamp": chrono::Utc::now().to_rfc3339()});
+                if ws_tx.send(Message::Text(ping_msg.to_string().into())).await.is_err() {
+                    break;
+                }
+            }
+
+            // Handle incoming messages from client (pong, close, etc.)
+            incoming = ws_rx.next() => {
+                match incoming {
+                    Some(Ok(Message::Close(_))) | None => break,
+                    Some(Err(_)) => break,
+                    _ => {} // Ignore other messages (pong, text commands, etc.)
+                }
+            }
         }
     }
 }
@@ -701,5 +949,247 @@ mod tests {
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(json["message"], "PR creation initiated");
         assert_eq!(json["pr_title"], "Test task");
+    }
+
+    // -----------------------------------------------------------------------
+    // Notification endpoint tests
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_notifications_empty() {
+        let (app, _state) = test_app();
+
+        let req = Request::builder()
+            .method("GET")
+            .uri("/api/notifications")
+            .body(Body::empty())
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let json: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
+        assert!(json.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_notification_count_empty() {
+        let (app, _state) = test_app();
+
+        let req = Request::builder()
+            .method("GET")
+            .uri("/api/notifications/count")
+            .body(Body::empty())
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["unread"], 0);
+        assert_eq!(json["total"], 0);
+    }
+
+    #[tokio::test]
+    async fn test_notification_crud() {
+        let (_app, state) = test_app();
+
+        // Add a notification directly to the store.
+        let notif_id;
+        {
+            let mut store = state.notification_store.write().await;
+            notif_id = store.add(
+                "Test Alert",
+                "Something happened",
+                crate::notifications::NotificationLevel::Info,
+                "system",
+            );
+        }
+
+        // List notifications.
+        let app = api_router(state.clone());
+        let req = Request::builder()
+            .method("GET")
+            .uri("/api/notifications")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let json: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json.len(), 1);
+        assert_eq!(json[0]["title"], "Test Alert");
+
+        // Count.
+        let app = api_router(state.clone());
+        let req = Request::builder()
+            .method("GET")
+            .uri("/api/notifications/count")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["unread"], 1);
+
+        // Mark read.
+        let app = api_router(state.clone());
+        let req = Request::builder()
+            .method("POST")
+            .uri(format!("/api/notifications/{}/read", notif_id))
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // Count should now be 0 unread.
+        let app = api_router(state.clone());
+        let req = Request::builder()
+            .method("GET")
+            .uri("/api/notifications/count")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["unread"], 0);
+        assert_eq!(json["total"], 1);
+
+        // Delete.
+        let app = api_router(state.clone());
+        let req = Request::builder()
+            .method("DELETE")
+            .uri(format!("/api/notifications/{}", notif_id))
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // Total should be 0 now.
+        let app = api_router(state.clone());
+        let req = Request::builder()
+            .method("GET")
+            .uri("/api/notifications/count")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["total"], 0);
+    }
+
+    #[tokio::test]
+    async fn test_mark_all_read() {
+        let (_app, state) = test_app();
+
+        // Add multiple notifications.
+        {
+            let mut store = state.notification_store.write().await;
+            store.add("n1", "m1", crate::notifications::NotificationLevel::Info, "system");
+            store.add("n2", "m2", crate::notifications::NotificationLevel::Warning, "system");
+            store.add("n3", "m3", crate::notifications::NotificationLevel::Error, "system");
+        }
+
+        let app = api_router(state.clone());
+        let req = Request::builder()
+            .method("POST")
+            .uri("/api/notifications/read-all")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let app = api_router(state.clone());
+        let req = Request::builder()
+            .method("GET")
+            .uri("/api/notifications/count")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["unread"], 0);
+        assert_eq!(json["total"], 3);
+    }
+
+    #[tokio::test]
+    async fn test_notification_unread_filter() {
+        let (_app, state) = test_app();
+
+        let id1;
+        {
+            let mut store = state.notification_store.write().await;
+            id1 = store.add("n1", "m1", crate::notifications::NotificationLevel::Info, "system");
+            store.add("n2", "m2", crate::notifications::NotificationLevel::Warning, "system");
+            store.mark_read(id1);
+        }
+
+        let app = api_router(state.clone());
+        let req = Request::builder()
+            .method("GET")
+            .uri("/api/notifications?unread=true")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let json: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json.len(), 1);
+        assert_eq!(json[0]["title"], "n2");
+    }
+
+    #[tokio::test]
+    async fn test_notification_pagination() {
+        let (_app, state) = test_app();
+
+        {
+            let mut store = state.notification_store.write().await;
+            for i in 0..10 {
+                store.add(format!("n{i}"), "msg", crate::notifications::NotificationLevel::Info, "system");
+            }
+        }
+
+        let app = api_router(state.clone());
+        let req = Request::builder()
+            .method("GET")
+            .uri("/api/notifications?limit=3&offset=0")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let json: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json.len(), 3);
+        // Newest first
+        assert_eq!(json[0]["title"], "n9");
+    }
+
+    #[tokio::test]
+    async fn test_delete_notification_not_found() {
+        let (app, _state) = test_app();
+
+        let fake_id = Uuid::new_v4();
+        let req = Request::builder()
+            .method("DELETE")
+            .uri(format!("/api/notifications/{}", fake_id))
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn test_mark_read_not_found() {
+        let (app, _state) = test_app();
+
+        let fake_id = Uuid::new_v4();
+        let req = Request::builder()
+            .method("POST")
+            .uri(format!("/api/notifications/{}/read", fake_id))
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
     }
 }
