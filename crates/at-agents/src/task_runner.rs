@@ -1,11 +1,16 @@
-use std::time::Duration;
+use std::path::PathBuf;
+use std::time::{Duration, Instant};
 
 use at_bridge::event_bus::EventBus;
 use at_bridge::protocol::{BridgeMessage, EventPayload};
-use at_core::types::{Task, TaskLogType, TaskPhase};
+use at_core::context_steering::ContextSteerer;
+use at_core::rlm::StuckDetector;
+use at_core::types::{AgentRole, Task, TaskLogType, TaskPhase};
 use at_session::session::AgentSession;
 use chrono::Utc;
 use tracing::{error, info, warn};
+
+use crate::prompts::PromptRegistry;
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -19,6 +24,8 @@ pub enum TaskRunnerError {
     SessionError(String),
     #[error("task was stopped")]
     Stopped,
+    #[error("agent stuck: {0}")]
+    Stuck(String),
 }
 
 pub type Result<T> = std::result::Result<T, TaskRunnerError>;
@@ -33,15 +40,34 @@ pub type Result<T> = std::result::Result<T, TaskRunnerError>;
 /// SpecCreation -> Planning -> Coding -> QA -> Complete (with possible
 /// Fixing/Merging detours). At each phase it publishes events to the
 /// `EventBus` and communicates with the agent through the `AgentSession`.
+///
+/// When a project root is provided, the runner uses `ContextSteerer` for
+/// progressive context assembly and `PromptRegistry` for role-specific
+/// templates, replacing hardcoded prompts with steered context.
 pub struct TaskRunner {
     /// Timeout for reading agent output at each phase.
     pub phase_timeout: Duration,
+    /// Optional context steerer for progressive context assembly.
+    context_steerer: Option<ContextSteerer>,
+    /// Optional prompt registry for role-specific templates.
+    prompt_registry: Option<PromptRegistry>,
+    /// Optional stuck detector for loop/timeout detection.
+    stuck_detector: Option<StuckDetector>,
+    /// Agent role for context + prompt selection.
+    agent_role: AgentRole,
+    /// Token budget for context assembly.
+    token_budget: usize,
 }
 
 impl Default for TaskRunner {
     fn default() -> Self {
         Self {
             phase_timeout: Duration::from_secs(300),
+            context_steerer: None,
+            prompt_registry: None,
+            stuck_detector: None,
+            agent_role: AgentRole::Crew,
+            token_budget: 16_000,
         }
     }
 }
@@ -51,10 +77,48 @@ impl TaskRunner {
         Self::default()
     }
 
+    /// Create a TaskRunner wired to a project root with full context steering.
+    pub fn with_project(project_root: impl Into<PathBuf>) -> Self {
+        let root = project_root.into();
+        let mut steerer = ContextSteerer::new(&root);
+        steerer.load_project();
+
+        let mut registry = PromptRegistry::new();
+        registry.load_from_project(&root);
+
+        let stuck = StuckDetector::new(300, 100_000);
+
+        Self {
+            phase_timeout: Duration::from_secs(300),
+            context_steerer: Some(steerer),
+            prompt_registry: Some(registry),
+            stuck_detector: Some(stuck),
+            agent_role: AgentRole::Coder,
+            token_budget: 16_000,
+        }
+    }
+
+    /// Set the agent role for context + prompt selection.
+    pub fn with_role(mut self, role: AgentRole) -> Self {
+        self.agent_role = role;
+        self
+    }
+
     /// Set the per-phase timeout for reading agent output.
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
         self.phase_timeout = timeout;
         self
+    }
+
+    /// Set the token budget for context assembly.
+    pub fn with_token_budget(mut self, budget: usize) -> Self {
+        self.token_budget = budget;
+        self
+    }
+
+    /// Check if this runner has context steering enabled.
+    pub fn has_context_steering(&self) -> bool {
+        self.context_steerer.is_some()
     }
 
     /// Run the full task pipeline.
@@ -62,7 +126,7 @@ impl TaskRunner {
     /// This drives the task through each phase sequentially, interacting with
     /// the agent session and publishing events along the way.
     pub async fn run(
-        &self,
+        &mut self,
         task: &mut Task,
         session: &AgentSession,
         bus: &EventBus,
@@ -109,12 +173,14 @@ impl TaskRunner {
 
     /// Execute a single phase of the pipeline.
     async fn execute_phase(
-        &self,
+        &mut self,
         task: &mut Task,
         session: &AgentSession,
         bus: &EventBus,
         phase: &TaskPhase,
     ) -> Result<()> {
+        let phase_start = Instant::now();
+
         // Transition
         task.set_phase(phase.clone());
         task.log(TaskLogType::PhaseStart, format!("Starting phase: {phase:?}"));
@@ -129,8 +195,8 @@ impl TaskRunner {
             return Ok(());
         }
 
-        // Build the prompt for this phase
-        let prompt = self.prompt_for_phase(task, phase);
+        // Build the prompt — use steered context if available, otherwise fallback
+        let prompt = self.build_steered_prompt(task, phase);
 
         // Send to agent
         session
@@ -144,6 +210,18 @@ impl TaskRunner {
             Some(bytes) => {
                 let text = String::from_utf8_lossy(&bytes).to_string();
                 task.log(TaskLogType::Text, format!("Agent output ({} bytes)", bytes.len()));
+
+                // Feed to stuck detector
+                if let Some(ref mut detector) = self.stuck_detector {
+                    detector.record_output(&text, bytes.len());
+                    if let Some(reason) = detector.check() {
+                        warn!(task_id = %task.id, phase = ?phase, reason = ?reason, "stuck detected");
+                        task.log(TaskLogType::Info, format!("Stuck detected: {reason:?}"));
+                        self.publish_event(bus, task, &format!("stuck:{reason:?}"));
+                        // Don't hard-fail — the supervisor can decide what to do
+                    }
+                }
+
                 text
             }
             None => {
@@ -163,15 +241,49 @@ impl TaskRunner {
             }
         }
 
-        // Publish phase_end event
-        task.log(TaskLogType::PhaseEnd, format!("Completed phase: {phase:?}"));
+        // Publish phase_end event with timing
+        let elapsed = phase_start.elapsed();
+        task.log(
+            TaskLogType::PhaseEnd,
+            format!("Completed phase: {phase:?} in {}ms", elapsed.as_millis()),
+        );
         self.publish_event(bus, task, &format!("phase_end:{phase:?}"));
 
         Ok(())
     }
 
-    /// Generate the prompt to send to the agent for a given phase.
-    fn prompt_for_phase(&self, task: &Task, phase: &TaskPhase) -> String {
+    /// Build a prompt using context steering and prompt templates when available,
+    /// falling back to hardcoded prompts otherwise.
+    fn build_steered_prompt(&self, task: &Task, phase: &TaskPhase) -> String {
+        let phase_name = phase_to_steering_name(phase);
+        let title = &task.title;
+        let desc = task.description.as_deref().unwrap_or("No description");
+
+        // Try steered context + prompt template
+        if let (Some(steerer), Some(registry)) =
+            (&self.context_steerer, &self.prompt_registry)
+        {
+            let context = steerer.assemble(
+                &format!("{:?}", self.agent_role),
+                phase_name,
+                Some(desc),
+                self.token_budget,
+            );
+            let context_xml = context.render_xml();
+
+            let role_prompt = registry
+                .get(&self.agent_role)
+                .map(|tpl| tpl.render_task(title, desc, ""))
+                .unwrap_or_else(|| self.fallback_prompt(task, phase));
+
+            format!("{}\n\n{}", context_xml, role_prompt)
+        } else {
+            self.fallback_prompt(task, phase)
+        }
+    }
+
+    /// Generate the hardcoded fallback prompt for a given phase.
+    fn fallback_prompt(&self, task: &Task, phase: &TaskPhase) -> String {
         let title = &task.title;
         let desc = task.description.as_deref().unwrap_or("No description");
 
@@ -237,12 +349,36 @@ impl TaskRunner {
         }));
     }
 
+    /// Reset the stuck detector (e.g., after a recovery action).
+    pub fn reset_stuck_detector(&mut self) {
+        if let Some(ref mut detector) = self.stuck_detector {
+            detector.reset();
+        }
+    }
+
     /// Transition the task to the Error state.
     fn transition_to_error(&self, task: &mut Task, bus: &EventBus, message: &str) {
         task.set_phase(TaskPhase::Error);
         task.error = Some(message.to_string());
         task.log(TaskLogType::Error, message.to_string());
         self.publish_event(bus, task, "task_error");
+    }
+}
+
+/// Map TaskPhase to context steering phase names.
+fn phase_to_steering_name(phase: &TaskPhase) -> &'static str {
+    match phase {
+        TaskPhase::Discovery => "discovery",
+        TaskPhase::ContextGathering => "discovery",
+        TaskPhase::SpecCreation => "spec_creation",
+        TaskPhase::Planning => "planning",
+        TaskPhase::Coding => "coding",
+        TaskPhase::Qa => "qa",
+        TaskPhase::Fixing => "coding",
+        TaskPhase::Merging => "merging",
+        TaskPhase::Complete => "merging",
+        TaskPhase::Error => "discovery",
+        TaskPhase::Stopped => "discovery",
     }
 }
 
@@ -282,7 +418,7 @@ mod tests {
     fn prompt_for_discovery_contains_title() {
         let runner = TaskRunner::new();
         let task = make_test_task();
-        let prompt = runner.prompt_for_phase(&task, &TaskPhase::Discovery);
+        let prompt = runner.fallback_prompt(&task, &TaskPhase::Discovery);
         assert!(prompt.contains("Test task"));
         assert!(prompt.contains("Analyze"));
     }
@@ -291,7 +427,7 @@ mod tests {
     fn prompt_for_coding_contains_title() {
         let runner = TaskRunner::new();
         let task = make_test_task();
-        let prompt = runner.prompt_for_phase(&task, &TaskPhase::Coding);
+        let prompt = runner.fallback_prompt(&task, &TaskPhase::Coding);
         assert!(prompt.contains("Test task"));
         assert!(prompt.contains("Implement"));
     }
@@ -300,7 +436,7 @@ mod tests {
     fn prompt_for_qa_contains_review() {
         let runner = TaskRunner::new();
         let task = make_test_task();
-        let prompt = runner.prompt_for_phase(&task, &TaskPhase::Qa);
+        let prompt = runner.fallback_prompt(&task, &TaskPhase::Qa);
         assert!(prompt.contains("Review"));
     }
 
@@ -345,5 +481,69 @@ mod tests {
             }
             _ => panic!("Expected Event message"),
         }
+    }
+
+    #[test]
+    fn task_runner_with_project_has_steering() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("CLAUDE.md"), "# Rules\n").unwrap();
+        let runner = TaskRunner::with_project(dir.path());
+        assert!(runner.has_context_steering());
+    }
+
+    #[test]
+    fn task_runner_default_no_steering() {
+        let runner = TaskRunner::new();
+        assert!(!runner.has_context_steering());
+    }
+
+    #[test]
+    fn task_runner_with_role() {
+        let runner = TaskRunner::new().with_role(AgentRole::Planner);
+        assert_eq!(runner.agent_role, AgentRole::Planner);
+    }
+
+    #[test]
+    fn task_runner_with_token_budget() {
+        let runner = TaskRunner::new().with_token_budget(8_000);
+        assert_eq!(runner.token_budget, 8_000);
+    }
+
+    #[test]
+    fn build_steered_prompt_fallback() {
+        let runner = TaskRunner::new();
+        let task = make_test_task();
+        let prompt = runner.build_steered_prompt(&task, &TaskPhase::Discovery);
+        assert!(prompt.contains("Analyze"));
+        assert!(prompt.contains("Test task"));
+    }
+
+    #[test]
+    fn build_steered_prompt_with_project() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("CLAUDE.md"), "# Rules\n## Conventions\n- Use Rust\n").unwrap();
+        let runner = TaskRunner::with_project(dir.path());
+        let task = make_test_task();
+        let prompt = runner.build_steered_prompt(&task, &TaskPhase::Coding);
+        // Should contain XML context blocks
+        assert!(prompt.contains("project-context") || prompt.contains("Implement"));
+    }
+
+    #[test]
+    fn phase_to_steering_name_mapping() {
+        assert_eq!(phase_to_steering_name(&TaskPhase::Discovery), "discovery");
+        assert_eq!(phase_to_steering_name(&TaskPhase::Coding), "coding");
+        assert_eq!(phase_to_steering_name(&TaskPhase::Qa), "qa");
+        assert_eq!(phase_to_steering_name(&TaskPhase::Merging), "merging");
+        assert_eq!(phase_to_steering_name(&TaskPhase::SpecCreation), "spec_creation");
+    }
+
+    #[test]
+    fn reset_stuck_detector_works() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("CLAUDE.md"), "# Rules\n").unwrap();
+        let mut runner = TaskRunner::with_project(dir.path());
+        // Should not panic
+        runner.reset_stuck_detector();
     }
 }

@@ -15,3 +15,6 @@ uuid = { workspace = true }
 reqwest = { workspace = true, features = ["json", "stream"] }
 async-trait = { workspace = true }
 futures-util = "0.3"
+
+[dev-dependencies]
+tempfile = "3"
