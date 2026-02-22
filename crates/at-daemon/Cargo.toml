@@ -33,6 +33,13 @@ tower-http = { workspace = true }
 datadog-tracing = { workspace = true }
 datadog-apm-sync = { workspace = true }
 tracing-datadog = { workspace = true }
+opentelemetry = { workspace = true }
+opentelemetry-datadog = { workspace = true }
+tracing-opentelemetry = { workspace = true }
+opentelemetry_sdk = { workspace = true }
+dotenv = "0.15"
+futures = "0.3"
+reqwest = { version = "0.12", features = ["json"] }
 tracing-subscriber.workspace = true
 
 [dev-dependencies]

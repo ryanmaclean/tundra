@@ -111,16 +111,19 @@ impl Daemon {
         &self.config
     }
 
+    /// Log the LLM profile bootstrap info.
     fn log_profile_bootstrap(&self) {
         let reg = ResilientRegistry::from_config(&self.config);
-        let best = reg
+        let total_count = reg.count();
+        let best_profile = reg
             .registry
             .best_available()
             .map(|p| format!("{} ({:?})", p.name, p.provider))
             .unwrap_or_else(|| "none".to_string());
+        
         info!(
-            total_profiles = reg.count(),
-            best_profile = %best,
+            total_profiles = total_count,
+            best_profile = %best_profile,
             "LLM profile bootstrap complete"
         );
     }
