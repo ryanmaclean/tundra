@@ -11,6 +11,7 @@ pub mod worktree;
 pub mod file_watcher;
 pub mod git_read_adapter;
 pub mod worktree_manager;
+pub mod lockfile;
 
 #[cfg(feature = "libgit2")]
 pub mod git2_ops;

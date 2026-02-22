@@ -225,7 +225,13 @@ pub fn ChangelogPage() -> impl IntoView {
         })}
 
         {move || error_msg.get().map(|msg| view! {
-            <div class="dashboard-error">{msg}</div>
+            <div class="state-banner state-banner-error">
+                <span
+                    class="state-banner-icon"
+                    inner_html=r#"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>"#
+                ></span>
+                <span>{msg}</span>
+            </div>
         })}
 
         {move || success_msg.get().map(|msg| view! {
@@ -577,7 +583,14 @@ pub fn ChangelogPage() -> impl IntoView {
         })}
 
         {move || (!loading.get() && entries.get().is_empty() && error_msg.get().is_none() && gen_step.get() == 0).then(|| view! {
-            <div class="dashboard-loading">"No changelog entries found. Click 'Generate Changelog' to create one."</div>
+            <div class="state-empty state-empty-compact">
+                <div
+                    class="state-empty-icon"
+                    inner_html=r#"<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="14" y2="17"/></svg>"#
+                ></div>
+                <div class="state-empty-title">"No changelog entries yet"</div>
+                <div class="state-empty-hint">"Generate a changelog from completed tasks or git history."</div>
+            </div>
         })}
     }
 }

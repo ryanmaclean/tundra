@@ -17477,3 +17477,174 @@ h2 .gh-icon {
     border-left-color: #00ff00;
     color: #00ff00;
 }
+
+/* ==========================================================================
+   Wave Parity Overrides: Settings + Agent Terminals + Empty/Error States
+   ========================================================================== */
+
+.settings-card-icon-svg {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-secondary);
+    line-height: 0;
+}
+
+.settings-card-option.selected .settings-card-icon-svg {
+    color: var(--text-primary);
+}
+
+.agents-page-header {
+    padding-top: 14px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid rgba(124, 58, 237, 0.16);
+}
+
+.agents-page-header-actions .terminal-count {
+    display: inline-flex;
+    align-items: center;
+    min-height: 32px;
+    padding: 0 10px;
+    border-radius: 9px;
+    border: 1px solid rgba(124, 58, 237, 0.26);
+    background: rgba(124, 58, 237, 0.1);
+    color: var(--text-secondary);
+}
+
+.terminal-command-bar-agent {
+    background: linear-gradient(
+        180deg,
+        rgba(33, 20, 55, 0.52),
+        rgba(20, 14, 34, 0.95)
+    );
+}
+
+.terminal-state-banner {
+    margin: 8px 10px 0;
+}
+
+.terminal-grid-agent {
+    gap: 8px;
+    padding-top: 10px;
+}
+
+.terminal-emulator {
+    border-color: rgba(124, 58, 237, 0.24);
+    background: linear-gradient(180deg, rgba(10, 9, 19, 0.95), rgba(8, 7, 16, 0.98));
+}
+
+.terminal-pane-header {
+    border-bottom: 1px solid rgba(124, 58, 237, 0.2);
+}
+
+.agent-terminal-content {
+    background:
+        linear-gradient(
+            180deg,
+            rgba(0, 0, 0, 0) 0%,
+            rgba(124, 58, 237, 0.05) 100%
+        ),
+        var(--bg-primary);
+}
+
+.state-banner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 38px;
+    padding: 8px 12px;
+    border-radius: 10px;
+    font-size: 13px;
+    line-height: 1.4;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.state-banner-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 0;
+    flex-shrink: 0;
+}
+
+.state-banner-error {
+    color: #fca5a5;
+    border-color: rgba(239, 68, 68, 0.45);
+    background: linear-gradient(
+        180deg,
+        rgba(127, 29, 29, 0.28),
+        rgba(71, 16, 16, 0.24)
+    );
+}
+
+.state-empty {
+    margin: 14px 0;
+    min-height: 210px;
+    border-radius: 12px;
+    border: 1px dashed rgba(124, 58, 237, 0.34);
+    background: linear-gradient(
+        180deg,
+        rgba(124, 58, 237, 0.08),
+        rgba(124, 58, 237, 0.02)
+    );
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 18px;
+    text-align: center;
+}
+
+.state-empty-compact {
+    min-height: 140px;
+}
+
+.state-empty-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #c8b6f6;
+    background: rgba(124, 58, 237, 0.14);
+    border: 1px solid rgba(124, 58, 237, 0.34);
+}
+
+.state-empty-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.state-empty-hint {
+    max-width: 480px;
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--text-secondary);
+}
+
+[data-mode="foil"] .state-empty {
+    border-color: rgba(192, 38, 211, 0.42);
+    background: linear-gradient(
+        180deg,
+        rgba(192, 38, 211, 0.1),
+        rgba(192, 38, 211, 0.03)
+    );
+}
+
+[data-mode="vt100"] .state-banner {
+    border-radius: 0;
+    border-color: rgba(0, 255, 0, 0.35);
+    background: rgba(0, 20, 0, 0.3);
+    color: #7dff7d;
+    font-family: 'JetBrains Mono', monospace;
+}
+
+[data-mode="vt100"] .state-empty {
+    border-radius: 0;
+    border-color: rgba(0, 255, 0, 0.5);
+    background: rgba(0, 22, 0, 0.26);
+}

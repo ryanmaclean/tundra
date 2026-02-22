@@ -688,7 +688,10 @@ pub fn ConfigPage(
                                         class:selected=move || appearance_mode.get() == "System"
                                         on:click=move |_| set_appearance_mode.set("System".to_string())
                                     >
-                                        <span class="settings-card-icon">"\u{1F4BB}"</span>
+                                        <span
+                                            class="settings-card-icon-svg"
+                                            inner_html=r#"<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8"/><path d="M12 16v4"/></svg>"#
+                                        ></span>
                                         <span class="settings-card-label">"System"</span>
                                     </button>
                                     <button
@@ -696,7 +699,10 @@ pub fn ConfigPage(
                                         class:selected=move || appearance_mode.get() == "Light"
                                         on:click=move |_| set_appearance_mode.set("Light".to_string())
                                     >
-                                        <span class="settings-card-icon">"\u{2600}"</span>
+                                        <span
+                                            class="settings-card-icon-svg"
+                                            inner_html=r#"<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="M4.93 4.93l1.41 1.41"/><path d="M17.66 17.66l1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="M6.34 17.66l-1.41 1.41"/><path d="M19.07 4.93l-1.41 1.41"/></svg>"#
+                                        ></span>
                                         <span class="settings-card-label">"Light"</span>
                                     </button>
                                     <button
@@ -704,7 +710,10 @@ pub fn ConfigPage(
                                         class:selected=move || appearance_mode.get() == "Dark"
                                         on:click=move |_| set_appearance_mode.set("Dark".to_string())
                                     >
-                                        <span class="settings-card-icon">"\u{263D}"</span>
+                                        <span
+                                            class="settings-card-icon-svg"
+                                            inner_html=r#"<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>"#
+                                        ></span>
                                         <span class="settings-card-label">"Dark"</span>
                                     </button>
                                 </div>

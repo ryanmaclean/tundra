@@ -364,9 +364,9 @@ pub fn AgentsPage() -> impl IntoView {
         }
     };
     view! {
-        <div class="page-header">
+        <div class="page-header agents-page-header">
             <h2>{t("agents-title")}</h2>
-            <div class="page-header-actions">
+            <div class="page-header-actions agents-page-header-actions">
                 <span class="terminal-count">
                     {move || {
                         let max = layout.get().max_panes();
@@ -610,7 +610,13 @@ pub fn AgentsPage() -> impl IntoView {
         </div>
 
         {move || error_msg.get().map(|msg| view! {
-            <div class="terminal-error">{msg}</div>
+            <div class="state-banner state-banner-error terminal-state-banner">
+                <span
+                    class="state-banner-icon"
+                    inner_html=r#"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>"#
+                ></span>
+                <span>{msg}</span>
+            </div>
         })}
 
         {move || loading.get().then(|| view! {
@@ -709,10 +715,13 @@ pub fn AgentsPage() -> impl IntoView {
         </div>
 
         {move || (!loading.get() && agents.get().is_empty() && error_msg.get().is_none()).then(|| view! {
-            <div class="terminal-empty">
-                <div class="terminal-empty-icon">"\u{1F916}"</div>
-                <div class="terminal-empty-text">"No agents running"</div>
-                <div class="terminal-empty-hint">"Agents will appear here when tasks are executing"</div>
+            <div class="state-empty terminal-empty">
+                <div
+                    class="state-empty-icon"
+                    inner_html=r#"<svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M8 9h8"/><path d="M10 13h4"/></svg>"#
+                ></div>
+                <div class="state-empty-title">"No agents running"</div>
+                <div class="state-empty-hint">"Launch agents from tasks to open terminal panes."</div>
             </div>
         })}
     }

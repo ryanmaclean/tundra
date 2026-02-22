@@ -183,7 +183,13 @@ pub fn WorktreesPage() -> impl IntoView {
         </div>
 
         {move || error_msg.get().map(|msg| view! {
-            <div class="dashboard-error">{msg}</div>
+            <div class="state-banner state-banner-error">
+                <span
+                    class="state-banner-icon"
+                    inner_html=r#"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>"#
+                ></span>
+                <span>{msg}</span>
+            </div>
         })}
 
         {move || status_msg.get().map(|msg| view! {
@@ -311,10 +317,13 @@ pub fn WorktreesPage() -> impl IntoView {
         </div>
 
         {move || (!loading.get() && worktrees.get().is_empty() && error_msg.get().is_none()).then(|| view! {
-            <div class="worktree-empty">
-                <div class="worktree-empty-icon">"\u{1F333}"</div>
-                <div class="worktree-empty-text">{move || themed(display_mode.get(), Prompt::EmptyKpi)}</div>
-                <div class="worktree-empty-hint">"Worktrees are created when agents start working on tasks."</div>
+            <div class="state-empty">
+                <div
+                    class="state-empty-icon"
+                    inner_html=r#"<svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 7h-9a2 2 0 0 0-2 2v9"/><path d="M4 7h3l2-2h5l2 2h4v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/></svg>"#
+                ></div>
+                <div class="state-empty-title">{move || themed(display_mode.get(), Prompt::EmptyKpi)}</div>
+                <div class="state-empty-hint">"Worktrees appear here when agents branch tasks."</div>
             </div>
         })}
     }

@@ -19,6 +19,7 @@ dirs = "6"
 notify = { workspace = true }
 crossbeam-channel = { workspace = true }
 git2 = { workspace = true, optional = true }
+libc = "0.2"
 
 [features]
 default = ["libgit2"]
