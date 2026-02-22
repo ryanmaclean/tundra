@@ -167,7 +167,7 @@ pub fn ChangelogPage() -> impl IntoView {
     view! {
         <div class="page-header">
             <h2>{t("changelog-title")}</h2>
-            <div class="page-header-actions">
+            <div class="page-header-actions changelog-header-actions">
                 {move || (gen_step.get() == 0).then(|| view! {
                     <button
                         class="action-btn action-start"

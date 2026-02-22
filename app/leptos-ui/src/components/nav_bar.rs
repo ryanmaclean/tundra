@@ -150,6 +150,7 @@ pub fn NavBar(
             </div>
 
             <nav class="sidebar-nav" aria-label="Page navigation">
+                <div class="sidebar-section-label" class:collapsed=(move || sidebar_collapsed.get())>"PROJECT"</div>
                 <NavItem idx=0 label="Dashboard" current_tab set_current_tab sidebar_collapsed />
                 <NavItem idx=1 label="Kanban Board" current_tab set_current_tab sidebar_collapsed />
                 <NavItem idx=2 label="Agent Terminals" current_tab set_current_tab sidebar_collapsed />

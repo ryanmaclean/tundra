@@ -1,0 +1,332 @@
+# Datadog Dashboard Configuration for at-daemon
+# Import this JSON in Datadog UI to create the monitoring dashboard
+
+{
+  "title": "Auto-Tundra Daemon Monitoring",
+  "description": "Comprehensive monitoring dashboard for the Auto-Tundra daemon service with profiling, metrics, and tracing",
+  "widgets": [
+    {
+      "id": 1,
+      "definition": {
+        "type": "timeseries",
+        "title": "Daemon Uptime",
+        "requests": [
+          {
+            "q": "avg:daemon.uptime{*}",
+            "display_type": "line"
+          }
+        ],
+        "yaxis": {
+          "min": "0",
+          "max": "auto"
+        }
+      },
+      "layout": {
+        "x": 0,
+        "y": 0,
+        "width": 4,
+        "height": 2
+      }
+    },
+    {
+      "id": 2,
+      "definition": {
+        "type": "timeseries",
+        "title": "Memory Usage (MB)",
+        "requests": [
+          {
+            "q": "avg:memory.usage_mb{*}",
+            "display_type": "area"
+          }
+        ]
+      },
+      "layout": {
+        "x": 4,
+        "y": 0,
+        "width": 4,
+        "height": 2
+      }
+    },
+    {
+      "id": 3,
+      "definition": {
+        "type": "timeseries",
+        "title": "CPU Usage (%)",
+        "requests": [
+          {
+            "q": "avg:cpu.usage_percent{*}",
+            "display_type": "area"
+          }
+        ]
+      },
+      "layout": {
+        "x": 8,
+        "y": 0,
+        "width": 4,
+        "height": 2
+      }
+    },
+    {
+      "id": 4,
+      "definition": {
+        "type": "timeseries",
+        "title": "Active Connections",
+        "requests": [
+          {
+            "q": "avg:connections.active{*}",
+            "display_type": "line"
+          }
+        ]
+      },
+      "layout": {
+        "x": 0,
+        "y": 2,
+        "width": 4,
+        "height": 2
+      }
+    },
+    {
+      "id": 5,
+      "definition": {
+        "type": "query_value",
+        "title": "Daemon Startups (Last Hour)",
+        "requests": [
+          {
+            "q": "sum:daemon.startup{*}.rollup(sum, 3600)",
+            "display_type": "number"
+          }
+        ]
+      },
+      "layout": {
+        "x": 4,
+        "y": 2,
+        "width": 2,
+        "height": 2
+      }
+    },
+    {
+      "id": 6,
+      "definition": {
+        "type": "query_value",
+        "title": "Error Rate (%)",
+        "requests": [
+          {
+            "q": "100 * sum:errors{*}.rollup(sum, 3600) / (sum:daemon.startup{*}.rollup(sum, 3600) + sum:errors{*}.rollup(sum, 3600))",
+            "display_type": "number"
+          }
+        ]
+      },
+      "layout": {
+        "x": 6,
+        "y": 2,
+        "width": 2,
+        "height": 2
+      }
+    },
+    {
+      "id": 7,
+      "definition": {
+        "type": "query_value",
+        "title": "Task Executions (Last Hour)",
+        "requests": [
+          {
+            "q": "sum:tasks.executed{*}.rollup(sum, 3600)",
+            "display_type": "number"
+          }
+        ]
+      },
+      "layout": {
+        "x": 8,
+        "y": 2,
+        "width": 2,
+        "height": 2
+      }
+    },
+    {
+      "id": 8,
+      "definition": {
+        "type": "timeseries",
+        "title": "API Request Rate",
+        "requests": [
+          {
+            "q": "sum:api.requests{*}.rollup(sum, 60)",
+            "display_type": "bars"
+          }
+        ]
+      },
+      "layout": {
+        "x": 10,
+        "y": 2,
+        "width": 2,
+        "height": 2
+      }
+    },
+    {
+      "id": 9,
+      "definition": {
+        "type": "timeseries",
+        "title": "API Request Duration (95th percentile)",
+        "requests": [
+          {
+            "q": "avg:api.request_duration_ms{*}.rollup(avg, 60)",
+            "display_type": "line"
+          }
+        ]
+      },
+      "layout": {
+        "x": 0,
+        "y": 4,
+        "width": 6,
+        "height": 2
+      }
+    },
+    {
+      "id": 10,
+      "definition": {
+        "type": "timeseries",
+        "title": "Frontend Request Rate",
+        "requests": [
+          {
+            "q": "sum:frontend.requests{*}.rollup(sum, 60)",
+            "display_type": "bars"
+          }
+        ]
+      },
+      "layout": {
+        "x": 6,
+        "y": 4,
+        "width": 6,
+        "height": 2
+      }
+    },
+    {
+      "id": 11,
+      "definition": {
+        "type": "trace",
+        "title": "Recent Traces",
+        "requests": [
+          {
+            "q": "service:at-daemon",
+            "display_type": "list"
+          }
+        ]
+      },
+      "layout": {
+        "x": 0,
+        "y": 6,
+        "width": 6,
+        "height": 4
+      }
+    },
+    {
+      "id": 12,
+      "definition": {
+        "type": "log_stream",
+        "title": "Recent Logs",
+        "requests": [
+          {
+            "q": "service:at-daemon",
+            "display_type": "list"
+          }
+        ]
+      },
+      "layout": {
+        "x": 6,
+        "y": 6,
+        "width": 6,
+        "height": 4
+      }
+    },
+    {
+      "id": 13,
+      "definition": {
+        "type": "toplist",
+        "title": "Top Error Types",
+        "requests": [
+          {
+            "q": "top:errors{*} by {error_type}",
+            "display_type": "table"
+          }
+        ]
+      },
+      "layout": {
+        "x": 0,
+        "y": 10,
+        "width": 4,
+        "height": 2
+      }
+    },
+    {
+      "id": 14,
+      "definition": {
+        "type": "toplist",
+        "title": "Task Performance",
+        "requests": [
+          {
+            "q": "avg:task.duration_ms{*} by {task_type}",
+            "display_type": "table"
+          }
+        ]
+      },
+      "layout": {
+        "x": 4,
+        "y": 10,
+        "width": 4,
+        "height": 2
+      }
+    },
+    {
+      "id": 15,
+      "definition": {
+        "type": "toplist",
+        "title": "API Endpoint Performance",
+        "requests": [
+          {
+            "q": "avg:api.request_duration_ms{*} by {endpoint}",
+            "display_type": "table"
+          }
+        ]
+      },
+      "layout": {
+        "x": 8,
+        "y": 10,
+        "width": 4,
+        "height": 2
+      }
+    },
+    {
+      "id": 16,
+      "definition": {
+        "type": "change",
+        "title": "Daemon Status",
+        "requests": [
+          {
+            "q": "avg(last_1h):sum:daemon.startup{*}",
+            "display_type": "change"
+          }
+        ]
+      },
+      "layout": {
+        "x": 10,
+        "y": 0,
+        "width": 2,
+        "height": 2
+      }
+    }
+  ],
+  "template_variables": [
+    {
+      "name": "env",
+      "default": "development",
+      "prefix": "env"
+    },
+    {
+      "name": "service",
+      "default": "at-daemon",
+      "prefix": "service"
+    }
+  ],
+  "time": {
+    "live_span": "5m"
+  }
+}

@@ -7,21 +7,45 @@ use crate::api;
 
 /// Built-in MCP server definitions
 struct McpServerDef {
-    icon: &'static str,
     name: &'static str,
     description: &'static str,
     active: bool,
 }
 
 const BUILTIN_SERVERS: &[McpServerDef] = &[
-    McpServerDef { icon: "\u{1F4DA}", name: "Context7", description: "Smart context for Markle", active: true },
-    McpServerDef { icon: "\u{1F9E0}", name: "Graphiti Memory", description: "Memory system (see Memory settings)", active: false },
-    McpServerDef { icon: "\u{1F517}", name: "Linear", description: "Require Linear integration (see Client settings)", active: false },
-    McpServerDef { icon: "\u{1F4AD}", name: "Sequential Thinking", description: "Enhanced reasoning via Claude Sonnet", active: true },
-    McpServerDef { icon: "\u{1F4C1}", name: "Filesystem", description: "File system automations for Claude Sonnet", active: true },
-    McpServerDef { icon: "\u{1F310}", name: "Puppeteer", description: "Web browser automation for testing", active: true },
-    McpServerDef { icon: "\u{2699}\u{FE0F}", name: "Tundra Tools", description: "Core built-in tools (always enabled)", active: true },
+    McpServerDef { name: "Context7", description: "Smart context for Markle", active: true },
+    McpServerDef { name: "Graphiti Memory", description: "Memory system (see Memory settings)", active: false },
+    McpServerDef { name: "Linear", description: "Require Linear integration (see Client settings)", active: false },
+    McpServerDef { name: "Sequential Thinking", description: "Enhanced reasoning via Claude Sonnet", active: true },
+    McpServerDef { name: "Filesystem", description: "File system automations for Claude Sonnet", active: true },
+    McpServerDef { name: "Puppeteer", description: "Web browser automation for testing", active: true },
+    McpServerDef { name: "Tundra Tools", description: "Core built-in tools (always enabled)", active: true },
 ];
+
+fn mcp_server_icon_svg(name: &str) -> &'static str {
+    match name {
+        "Context7" => r#"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v5H4z"/><path d="M4 9l3 11h10l3-11"/></svg>"#,
+        "Graphiti Memory" => r#"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a7 7 0 0 0-7 7c0 2 1 3.7 2.4 5A3 3 0 0 1 8.5 16H15a3 3 0 0 1 1.1-2c1.5-1.3 2.4-3 2.4-5a7 7 0 0 0-7-7z"/><path d="M9 20h6"/><path d="M10 17h4"/></svg>"#,
+        "Linear" => r#"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 4h4"/><path d="M5 12h8"/><path d="M5 20h14"/></svg>"#,
+        "Sequential Thinking" => r#"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v4"/><path d="M12 17v4"/><path d="M4.9 4.9l2.8 2.8"/><path d="M16.3 16.3l2.8 2.8"/><path d="M3 12h4"/><path d="M17 12h4"/><circle cx="12" cy="12" r="4"/></svg>"#,
+        "Filesystem" => r#"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h6l2 2h10v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>"#,
+        "Puppeteer" => r#"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a15 15 0 0 1 0 18"/><path d="M12 3a15 15 0 0 0 0 18"/></svg>"#,
+        "Tundra Tools" => r#"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0-1.4-1.4L7 11.2V14h2.8z"/><path d="M3 21h18"/></svg>"#,
+        _ => r#"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/></svg>"#,
+    }
+}
+
+fn mcp_agent_icon_svg(name: &str) -> &'static str {
+    if name.contains("Spec") {
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>"#
+    } else if name.contains("QA") {
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01A1.65 1.65 0 0 0 10 3.09V3a2 2 0 1 1 4 0v.09c0 .67.39 1.27 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06c-.47.47-.61 1.17-.33 1.82.25.61.84 1 1.51 1H21a2 2 0 1 1 0 4h-.09c-.67 0-1.27.39-1.51 1z"/></svg>"#
+    } else if name.contains("Planner") || name.contains("Coder") {
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3v12"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>"#
+    } else {
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m14.5 4.5 5 5"/><path d="m16 3 5 5"/><path d="M19 7 7 19l-4 1 1-4Z"/></svg>"#
+    }
+}
 
 /// Agent definition for display
 struct AgentDef {
@@ -117,15 +141,16 @@ pub fn McpPage() -> impl IntoView {
     };
 
     view! {
-        <div class="page-header" style="border-bottom: none; flex-wrap: wrap; gap: 8px;">
+        <div class="mcp-page">
+        <div class="page-header mcp-page-header">
             <div>
-                <h2 style="display: flex; align-items: center; gap: 8px;">
+                <h2 class="mcp-page-title">
                     "MCP Server Overview"
                     <span class="mcp-header-subtitle">" for "<em>"auto-tundra"</em></span>
                 </h2>
                 <span class="mcp-header-subtitle">"Configure which MCP servers are available for agents in this project"</span>
             </div>
-            <div style="display: flex; align-items: center; gap: 10px; margin-left: auto;">
+            <div class="mcp-page-actions">
                 <span class="mcp-enabled-badge">{move || format!("{} servers enabled", active_count())}</span>
                 <button class="refresh-btn dashboard-refresh-btn" on:click=move |_| do_refresh()>
                     "\u{21BB} Refresh"
@@ -134,11 +159,11 @@ pub fn McpPage() -> impl IntoView {
         </div>
 
         {move || error_msg.get().map(|msg| view! {
-            <div class="dashboard-error" style="margin: 0 16px 8px;">{msg}</div>
+            <div class="dashboard-error mcp-error">{msg}</div>
         })}
 
         {move || loading.get().then(|| view! {
-            <div class="dashboard-loading" style="padding: 0 16px;">{move || themed(display_mode.get(), Prompt::Loading)}</div>
+            <div class="dashboard-loading mcp-loading">{move || themed(display_mode.get(), Prompt::Loading)}</div>
         })}
 
         // ── MCP Server Configuration ──
@@ -148,24 +173,38 @@ pub fn McpPage() -> impl IntoView {
                 let name = s.name.to_string();
                 let name_toggle = name.clone();
                 let default_active = s.active;
-                let is_active = move || {
+                let name_check1 = name.clone();
+                let name_check2 = name.clone();
+                let name_check3 = name.clone();
+                let name_check4 = name.clone();
+                let is_active_btn = move || {
                     let disabled = disabled_servers.get();
-                    if disabled.contains(&name) {
-                        false
-                    } else {
-                        default_active
-                    }
+                    if disabled.contains(&name_check1) { false } else { default_active }
+                };
+                let is_active_label = move || {
+                    let disabled = disabled_servers.get();
+                    if disabled.contains(&name_check2) { false } else { default_active }
+                };
+                let is_active_text = move || {
+                    let disabled = disabled_servers.get();
+                    if disabled.contains(&name_check3) { false } else { default_active }
+                };
+                let is_active_dot = move || {
+                    let disabled = disabled_servers.get();
+                    if disabled.contains(&name_check4) { false } else { default_active }
                 };
                 view! {
                     <div class="mcp-server-item">
-                        <span class="mcp-server-icon">{s.icon}</span>
+                        <span class="mcp-server-icon mcp-server-icon-svg" inner_html=mcp_server_icon_svg(s.name)></span>
                         <div class="mcp-server-info">
                             <div class="mcp-server-name">{s.name}</div>
                             <div class="mcp-server-desc">{s.description}</div>
                         </div>
                         <button
-                            class="btn btn-sm"
-                            style="min-width: 70px; margin-left: auto; margin-right: 8px;"
+                            class=(move || {
+                                if is_active_btn() { "toggle-switch mcp-toggle-switch active" } else { "toggle-switch mcp-toggle-switch" }
+                            })
+                            type="button"
                             on:click=move |_| {
                                 let n = name_toggle.clone();
                                 set_disabled_servers.update(|set| {
@@ -176,10 +215,11 @@ pub fn McpPage() -> impl IntoView {
                                     }
                                 });
                             }
-                        >
-                            {let is_active_btn = is_active.clone(); move || if is_active_btn() { "Enabled" } else { "Disabled" }}
-                        </button>
-                        <div class=(move || if is_active() { "mcp-server-status mcp-status-active" } else { "mcp-server-status mcp-status-inactive" })></div>
+                        ><span class="toggle-knob"></span></button>
+                        <span class=(move || if is_active_label() { "mcp-status-label active" } else { "mcp-status-label" })>
+                            {move || if is_active_text() { "Enabled" } else { "Disabled" }}
+                        </span>
+                        <div class=(move || if is_active_dot() { "mcp-server-status mcp-status-active" } else { "mcp-server-status mcp-status-inactive" })></div>
                     </div>
                 }
             }).collect::<Vec<_>>()}
@@ -190,13 +230,13 @@ pub fn McpPage() -> impl IntoView {
             let api_servers = servers.get();
             (!api_servers.is_empty()).then(|| {
                 view! {
-                    <div class="mcp-server-list" style="margin-top: 8px;">
+                    <div class="mcp-server-list mcp-server-list-extra">
                         {api_servers.into_iter().map(|s| {
                             let active = s.status == "connected" || s.status == "active";
                             let status_class = if active { "mcp-server-status mcp-status-active" } else { "mcp-server-status mcp-status-inactive" };
                             view! {
                                 <div class="mcp-server-item">
-                                    <span class="mcp-server-icon">"\u{1F50C}"</span>
+                                    <span class="mcp-server-icon mcp-server-icon-svg" inner_html=mcp_server_icon_svg("api")></span>
                                     <div class="mcp-server-info">
                                         <div class="mcp-server-name">{s.name}</div>
                                         <div class="mcp-server-desc">{s.tools.join(", ")}</div>
@@ -221,16 +261,16 @@ pub fn McpPage() -> impl IntoView {
 
         // Success toast
         {move || add_success.get().map(|msg| view! {
-            <div class="dashboard-success" style="margin: 0 16px 8px; color: #3fb950; background: #0d1117; border: 1px solid #238636; border-radius: 6px; padding: 8px 12px;">
+            <div class="dashboard-success mcp-success">
                 {msg}
             </div>
         })}
 
         // Add custom server form
         {move || show_add_form.get().then(|| view! {
-            <div class="mcp-add-form" style="margin: 0 16px 16px; padding: 16px; background: var(--card-bg, #161b22); border: 1px solid var(--border-color, #30363d); border-radius: 8px;">
-                <h3 style="margin: 0 0 12px; font-size: 14px;">"Add Custom MCP Server"</h3>
-                <div style="display: flex; flex-direction: column; gap: 10px;">
+            <div class="mcp-add-form">
+                <h3 class="mcp-add-form-title">"Add Custom MCP Server"</h3>
+                <div class="mcp-add-form-fields">
                     <input
                         type="text"
                         class="form-input"
@@ -312,7 +352,8 @@ pub fn McpPage() -> impl IntoView {
         {render_agent_section("Ideation", IDEATION_AGENTS)}
 
         // Bottom spacing
-        <div style="height: 24px;"></div>
+        <div class="mcp-bottom-space"></div>
+        </div>
     }
 }
 
@@ -324,13 +365,21 @@ fn render_agent_section(title: &'static str, agents: &'static [AgentDef]) -> imp
         </div>
         <div class="mcp-agent-grid">
             {agents.iter().map(|a| {
+                let tooling = if a.mcp_count == 0 {
+                    "No MCP".to_string()
+                } else {
+                    format!("{} MCP", a.mcp_count)
+                };
                 view! {
                     <div class="mcp-agent-card">
                         <div class="mcp-agent-header">
-                            <span class="mcp-agent-name">{a.name}</span>
-                            <span class="mcp-agent-mcp-badge">{format!("{} MCP", a.mcp_count)}</span>
+                            <div class="mcp-agent-title-wrap">
+                                <span class="mcp-agent-icon mcp-server-icon-svg" inner_html=mcp_agent_icon_svg(a.name)></span>
+                                <span class="mcp-agent-name">{a.name}</span>
+                            </div>
+                            <span class=(if a.mcp_count == 0 { "mcp-agent-mcp-badge muted" } else { "mcp-agent-mcp-badge" })>{tooling}</span>
                         </div>
-                        <div class="mcp-agent-meta">
+                        <div class="mcp-agent-meta mcp-agent-meta-dense">
                             <span class="mcp-agent-model">{a.model}</span>
                             <span class="mcp-agent-thinking">{a.thinking}</span>
                         </div>

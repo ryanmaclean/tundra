@@ -1,13 +1,12 @@
 use crate::components::terminal_view::TerminalView;
 use crate::i18n::t;
+use crate::api::get_api_base;
 use leptos::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{Request, RequestInit, Response};
-
-const API_BASE: &str = "http://127.0.0.1:9090";
 
 // ---------------------------------------------------------------------------
 // API types
@@ -43,8 +42,9 @@ fn default_cursor_blink() -> bool { true }
 async fn api_create_terminal() -> Result<TerminalInfo, String> {
     let opts = RequestInit::new();
     opts.set_method("POST");
+    let api_base = get_api_base();
 
-    let request = Request::new_with_str_and_init(&format!("{API_BASE}/api/terminals"), &opts)
+    let request = Request::new_with_str_and_init(&format!("{api_base}/api/terminals"), &opts)
         .map_err(|e| format!("{e:?}"))?;
     request
         .headers()
@@ -65,8 +65,9 @@ async fn api_create_terminal() -> Result<TerminalInfo, String> {
 async fn api_list_terminals() -> Result<Vec<TerminalInfo>, String> {
     let opts = RequestInit::new();
     opts.set_method("GET");
+    let api_base = get_api_base();
 
-    let request = Request::new_with_str_and_init(&format!("{API_BASE}/api/terminals"), &opts)
+    let request = Request::new_with_str_and_init(&format!("{api_base}/api/terminals"), &opts)
         .map_err(|e| format!("{e:?}"))?;
 
     let window = web_sys::window().ok_or("no global window")?;
@@ -83,9 +84,10 @@ async fn api_list_terminals() -> Result<Vec<TerminalInfo>, String> {
 async fn api_delete_terminal(id: &str) -> Result<(), String> {
     let opts = RequestInit::new();
     opts.set_method("DELETE");
+    let api_base = get_api_base();
 
     let request =
-        Request::new_with_str_and_init(&format!("{API_BASE}/api/terminals/{id}"), &opts)
+        Request::new_with_str_and_init(&format!("{api_base}/api/terminals/{id}"), &opts)
             .map_err(|e| format!("{e:?}"))?;
 
     let window = web_sys::window().ok_or("no global window")?;
