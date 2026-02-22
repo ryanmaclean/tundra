@@ -234,7 +234,7 @@ fn TaskDetailInner(
     let status_display = format!("{}", bead.status);
     let s_cls = status_badge_class(&bead.status);
     let cat = category_label(&bead.tags);
-    let bid = bead.id.clone();
+    let _bid = bead.id.clone();
     let progress = progress_percent(&bead.progress_stage);
     let agents = bead.agent_names.clone();
     let logs = execution_log(&bead);
@@ -368,6 +368,7 @@ fn TaskDetailInner(
         BeadStatus::Failed => "progress-fill-failed",
     };
 
+    let bid_assign = bead.id.clone();
     let bid_edit = bead.id.clone();
     let title_edit = bead.title.clone();
     let desc_edit = bead.description.clone();
@@ -823,6 +824,7 @@ fn TaskDetailInner(
                     }
                 })}
             </div>
+        </div> // close td-main
 
             // ── Sidebar ──
             <div class="td-sidebar">
@@ -877,7 +879,7 @@ fn TaskDetailInner(
                         class="td-footer-assign"
                         on:click=move |_| {
                             set_assigning.set(true);
-                            let bid = bid.clone();
+                            let bid = bid_assign.clone();
                             spawn_local(async move {
                                 match crate::api::assign_agent(&bid).await {
                                     Ok(_) => {

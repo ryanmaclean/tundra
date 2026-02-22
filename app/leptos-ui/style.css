@@ -16907,3 +16907,240 @@ h2 .gh-icon {
     color: var(--text-primary, #e2e8f0);
     border-color: rgba(124, 58, 237, 0.5);
 }
+
+/* ==========================================================================
+   Wave Parity Overrides: Top Bar + Kanban + Settings
+   ========================================================================== */
+
+.top-bar {
+    min-height: 52px;
+    padding: 8px 16px;
+}
+
+.top-bar-right {
+    gap: 10px;
+}
+
+.top-bar-right > * {
+    flex-shrink: 0;
+}
+
+.assigned-tasks-badge {
+    min-height: 32px;
+    padding: 0 11px;
+    border-radius: 9px;
+    border: 1px solid rgba(124, 58, 237, 0.28);
+    background: rgba(124, 58, 237, 0.12);
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-secondary);
+}
+
+.assigned-tasks-count {
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: 999px;
+    font-size: 10px;
+}
+
+.topbar-refresh-btn,
+.topbar-help-btn,
+.top-bar-right .notification-bell-btn {
+    min-height: 32px;
+    height: 32px;
+    border-radius: 9px;
+    border: 1px solid rgba(124, 58, 237, 0.24);
+    background: rgba(124, 58, 237, 0.08);
+    color: var(--text-secondary);
+}
+
+.topbar-refresh-btn {
+    padding: 0 12px;
+    font-size: 12px;
+    gap: 6px;
+}
+
+.topbar-help-btn,
+.top-bar-right .notification-bell-btn {
+    width: 32px;
+    padding: 0;
+}
+
+.topbar-refresh-btn:hover,
+.topbar-help-btn:hover,
+.top-bar-right .notification-bell-btn:hover {
+    background: rgba(124, 58, 237, 0.18);
+    border-color: rgba(124, 58, 237, 0.5);
+    color: var(--accent-purple);
+    transform: none;
+}
+
+.top-bar-right .notification-bell-btn:active {
+    transform: none;
+}
+
+.page-toolbar .refresh-btn,
+.page-header .refresh-btn,
+.changelog-header-actions .refresh-btn {
+    min-height: 32px;
+    padding: 0 12px;
+    border-radius: 9px;
+    font-size: 12px;
+}
+
+.kanban-column h3 {
+    justify-content: flex-start;
+    gap: 8px;
+    min-height: 46px;
+    padding: 8px 10px;
+    border-left: 2px solid transparent;
+}
+
+.column-collapse-btn {
+    width: 18px;
+    height: 18px;
+    margin-right: 2px;
+    border-radius: 5px;
+    font-size: 11px;
+}
+
+.kanban-column .count {
+    min-width: 20px;
+    height: 20px;
+    padding: 0 6px;
+    border-radius: 7px;
+    font-size: 10px;
+}
+
+.column-add-btn {
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    font-size: 13px;
+    margin-left: auto;
+}
+
+.kanban-column-body {
+    padding: 6px;
+}
+
+.bead-card {
+    padding: 14px 14px 12px;
+    margin-bottom: 10px;
+}
+
+.bead-card-header {
+    margin-bottom: 8px;
+    gap: 6px;
+}
+
+.bead-card-actions .action-btn {
+    min-height: 22px;
+    height: 22px;
+    padding: 0 7px;
+    border-radius: 7px;
+    font-size: 11px;
+    line-height: 1;
+}
+
+.bead-footer {
+    align-items: center;
+    gap: 8px;
+}
+
+.bead-agents {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+}
+
+.bead-timestamp {
+    margin-left: auto;
+    margin-right: 2px;
+    line-height: 1;
+}
+
+.bead-footer .action-btn {
+    min-height: 22px;
+    height: 22px;
+    padding: 0 9px;
+    border-radius: 10px;
+    font-size: 10px;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+}
+
+.settings-modal-close {
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+    border-color: rgba(124, 58, 237, 0.35);
+    background: rgba(124, 58, 237, 0.08);
+    color: #c9afff;
+    box-shadow: inset 0 0 0 1px rgba(124, 58, 237, 0.2);
+}
+
+.settings-modal-close:hover {
+    background: rgba(124, 58, 237, 0.18);
+    border-color: rgba(124, 58, 237, 0.62);
+    color: #f5edff;
+    transform: translateY(-1px);
+}
+
+.settings-tab-sidebar {
+    width: 194px;
+    min-width: 194px;
+    padding: 10px 0;
+}
+
+.settings-sidebar-section-header {
+    padding: 12px 18px 6px;
+    letter-spacing: 0.1em;
+}
+
+.settings-tab-btn {
+    gap: 8px;
+    padding: 9px 14px 9px 18px;
+    border-left-width: 2px;
+}
+
+.settings-tab-btn-content {
+    gap: 2px;
+}
+
+.settings-tab-label {
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.2;
+}
+
+.settings-tab-hint {
+    font-size: 10px;
+    line-height: 1.25;
+}
+
+[data-mode="foil"] .settings-modal-close {
+    border-color: rgba(192, 38, 211, 0.55);
+    background: rgba(192, 38, 211, 0.14);
+    color: #f0abfc;
+    box-shadow: 0 0 14px rgba(192, 38, 211, 0.2);
+}
+
+[data-mode="vt100"] .settings-modal-close {
+    border-color: #00aa00;
+    background: rgba(0, 255, 0, 0.05);
+    color: #00ff00;
+    box-shadow: none;
+}
+
+[data-mode="vt100"] .settings-tab-btn {
+    font-family: 'JetBrains Mono', monospace;
+}
+
+[data-mode="vt100"] .settings-tab-btn.active {
+    border-left-color: #00ff00;
+    color: #00ff00;
+}

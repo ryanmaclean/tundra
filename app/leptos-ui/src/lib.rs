@@ -180,7 +180,7 @@ pub fn App() -> impl IntoView {
                             toasts=toasts
                             set_toasts=set_toasts
                         />
-                        <button class="refresh-btn" aria-label="Refresh" on:click=move |_| {
+                        <button class="refresh-btn topbar-refresh-btn" aria-label="Refresh" on:click=move |_| {
                             let set_beads = app_state.set_beads;
                             let set_agents = app_state.set_agents;
                             let set_status = app_state.set_status;
@@ -235,7 +235,7 @@ pub fn App() -> impl IntoView {
                             "\u{21BB} Refresh"
                         </button>
                         <button
-                            class="help-btn"
+                            class="help-btn topbar-help-btn"
                             aria-label="Show help"
                             on:click=move |_| set_show_help.set(true)
                         >
