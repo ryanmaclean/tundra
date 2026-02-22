@@ -8,3 +8,4 @@
 /node_modules/
 app/leptos-ui/dist/
 /app/tauri/gen/
+.playwright-cli/
