@@ -131,7 +131,7 @@ impl GridLayout {
 #[component]
 pub fn TerminalsPage() -> impl IntoView {
     let (terminals, set_terminals) = signal(Vec::<TerminalInfo>::new());
-    let (layout, set_layout) = signal(GridLayout::Double);
+    let (layout, set_layout) = signal(GridLayout::Quad);
     let (error_msg, set_error_msg) = signal(None::<String>);
 
     // Load terminals on mount.
@@ -179,25 +179,38 @@ pub fn TerminalsPage() -> impl IntoView {
     };
 
     let terminal_count = move || terminals.get().len();
+    let noop = move |_| {};
 
     view! {
         <div class="page-header">
             <h2>{t("terminals-title")}</h2>
             <div class="page-header-actions">
-                <span class="terminal-count">
+                <span class="terminal-count terminal-count-pill">
                     {move || {
                         let max = layout.get().max_panes();
                         format!("{}/{} terminals", terminal_count(), max)
                     }}
                 </span>
-                <button
-                    class="new-terminal-btn"
-                    on:click=create_terminal
-                    disabled=move || terminal_count() >= layout.get().max_panes()
-                >
-                    {format!("+ {}", t("terminals-new"))}
-                </button>
             </div>
+        </div>
+
+        <div class="terminal-command-bar">
+            <button class="terminal-cmd-btn" on:click=noop>
+                "\u{21BB} History"
+            </button>
+            <button class="terminal-cmd-btn terminal-cmd-btn-magenta" on:click=noop>
+                "\u{2699} Invoke Claude All"
+            </button>
+            <button
+                class="new-terminal-btn"
+                on:click=create_terminal
+                disabled=move || terminal_count() >= layout.get().max_panes()
+            >
+                {format!("+ {}", t("terminals-new"))}
+            </button>
+            <button class="terminal-cmd-btn" on:click=noop>
+                "\u{1F5C2} Files"
+            </button>
         </div>
 
         // Toolbar with layout selector and kill all.

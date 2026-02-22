@@ -5,6 +5,8 @@ use anyhow::{Context, Result};
 use at_core::config::Config;
 use tracing::info;
 
+mod profiling;
+
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
@@ -12,6 +14,9 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 async fn main() -> Result<()> {
     // Initialize tracing
     at_telemetry::logging::init_logging("at-daemon", "info");
+
+    // Initialize Datadog APM and profiling
+    profiling::init_datadog().context("failed to initialize Datadog profiling")?;
 
     info!("auto-tundra daemon starting");
 
@@ -84,6 +89,8 @@ fn load_config(home: &str) -> Result<Config> {
 
 /// Serve the Leptos dist/ directory as static files on port 3001.
 async fn serve_frontend() {
+    let _span = traced_span!("serve_frontend");
+    
     use axum::Router;
     use tower_http::services::{ServeDir, ServeFile};
 

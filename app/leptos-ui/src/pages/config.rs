@@ -1486,6 +1486,9 @@ pub fn ConfigPage(
                         <div class="settings-panel">
                             <h3 class="settings-panel-title">"API Profiles"</h3>
                             <p class="settings-panel-subtitle">"Configure custom Anthropic-compatible API endpoints"</p>
+                            <div class="settings-info-banner">
+                                "Local Ollama/OpenAI-compatible profile is built in. Default endpoint: http://127.0.0.1:11434, default model: qwen2.5-coder:14b. Override via providers.local_base_url and providers.local_model in config."
+                            </div>
 
                             {move || if !show_profile_form.get() {
                                 view! {

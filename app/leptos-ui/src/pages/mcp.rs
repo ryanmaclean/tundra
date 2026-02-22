@@ -33,38 +33,37 @@ struct AgentDef {
 }
 
 const SPEC_AGENTS: &[AgentDef] = &[
-    AgentDef { name: "Spec Gatherer", model: "Sonnet 4.5", thinking: "Medium", mcp_count: 4, description: "Gather requirements from issues and context" },
-    AgentDef { name: "Spec Researcher", model: "Sonnet 4.5", thinking: "Medium", mcp_count: 3, description: "Research codebase for relevant patterns" },
-    AgentDef { name: "Spec Writer", model: "Sonnet 4.5", thinking: "Medium", mcp_count: 4, description: "Create the spec and breakdown" },
-    AgentDef { name: "Spec Critic", model: "Sonnet 4.5", thinking: "Medium", mcp_count: 3, description: "Spot critique using deep analysis" },
-    AgentDef { name: "Spec Discovery", model: "Sonnet 4.5", thinking: "Medium", mcp_count: 4, description: "Discover related specs and blockers" },
-    AgentDef { name: "Spec Context", model: "Sonnet 4.5", thinking: "Medium", mcp_count: 3, description: "Enrich context from existing codebase" },
-    AgentDef { name: "Spec Validator", model: "Sonnet 4.5", thinking: "Medium", mcp_count: 3, description: "Validate spec completeness and quality" },
+    AgentDef { name: "Spec Gatherer", model: "Sonnet 4.5", thinking: "Medium", mcp_count: 0, description: "Collects initial requirements from user" },
+    AgentDef { name: "Spec Researcher", model: "Sonnet 4.5", thinking: "Medium", mcp_count: 0, description: "Validates external integrations and APIs" },
+    AgentDef { name: "Spec Writer", model: "Sonnet 4.5", thinking: "Medium", mcp_count: 0, description: "Creates the spec.md document" },
+    AgentDef { name: "Spec Critic", model: "Sonnet 4.5", thinking: "Medium", mcp_count: 0, description: "Self-critique using deep analysis" },
+    AgentDef { name: "Spec Discovery", model: "Sonnet 4.5", thinking: "Medium", mcp_count: 0, description: "Initial project discovery and analysis" },
+    AgentDef { name: "Spec Context", model: "Sonnet 4.5", thinking: "Medium", mcp_count: 0, description: "Builds context from existing codebase" },
+    AgentDef { name: "Spec Validation", model: "Sonnet 4.5", thinking: "Medium", mcp_count: 0, description: "Validates spec completeness and quality" },
 ];
 
 const BUILD_AGENTS: &[AgentDef] = &[
-    AgentDef { name: "Planner", model: "Sonnet 4.5", thinking: "Medium", mcp_count: 3, description: "Plan task in Puppeteer based on project type" },
-    AgentDef { name: "Coder", model: "Sonnet 4.5", thinking: "Medium", mcp_count: 5, description: "Write code based on spec" },
-    AgentDef { name: "QA Flash", model: "Sonnet 4.5", thinking: "Medium", mcp_count: 3, description: "Quick check: Does build + Puppeteer based on project type" },
-    AgentDef { name: "Coder2", model: "Sonnet 4.5", thinking: "Medium", mcp_count: 5, description: "Fix code if QA fails" },
+    AgentDef { name: "Planner", model: "Sonnet 4.5", thinking: "Medium", mcp_count: 3, description: "Creates implementation plan with subtasks" },
+    AgentDef { name: "Coder", model: "Sonnet 4.5", thinking: "Medium", mcp_count: 3, description: "Implements individual subtasks" },
 ];
 
 const QA_AGENTS: &[AgentDef] = &[
-    AgentDef { name: "QA Reviewer", model: "Sonnet 4.5", thinking: "Medium", mcp_count: 3, description: "Deep QA review: Static Build + Puppeteer based on project type" },
-    AgentDef { name: "QA Flash", model: "Sonnet 4.5", thinking: "Medium", mcp_count: 3, description: "Quick smoke test for build and linting" },
+    AgentDef { name: "QA Reviewer", model: "Sonnet 4.5", thinking: "Medium", mcp_count: 3, description: "Validates acceptance criteria. Uses Electron or Puppeteer based on project type." },
+    AgentDef { name: "QA Fixer", model: "Sonnet 4.5", thinking: "Medium", mcp_count: 3, description: "Fixes QA-reported issues. Uses Electron or Puppeteer based on project type." },
 ];
 
 const UTILITY_AGENTS: &[AgentDef] = &[
-    AgentDef { name: "PR Reviewer", model: "Sonnet 4.5", thinking: "Medium", mcp_count: 3, description: "Reviews GitHub pull requests" },
-    AgentDef { name: "Commit Message", model: "Haiku 4.1", thinking: "Medium", mcp_count: 2, description: "Generates commit messages" },
-    AgentDef { name: "Merge Resolver", model: "Sonnet 4.5", thinking: "Medium", mcp_count: 4, description: "Resolves merge conflicts" },
-    AgentDef { name: "Insights", model: "Sonnet 4.5", thinking: "Medium", mcp_count: 3, description: "Generates insights from data" },
-    AgentDef { name: "Analysis", model: "Sonnet 4.5", thinking: "Medium", mcp_count: 3, description: "Contextual analysis with context sorting" },
-    AgentDef { name: "Batch Analysis", model: "Sonnet 4.5", thinking: "Medium", mcp_count: 3, description: "Batch processing of issues or items" },
+    AgentDef { name: "PR Reviewer", model: "Opus 4.5", thinking: "Medium", mcp_count: 0, description: "Reviews GitHub pull requests" },
+    AgentDef { name: "Commit Message", model: "Haiku 4.5", thinking: "Low", mcp_count: 0, description: "Generates commit messages" },
+    AgentDef { name: "Merge Resolver", model: "Haiku 4.5", thinking: "Low", mcp_count: 0, description: "Resolves merge conflicts" },
+    AgentDef { name: "Insights", model: "Sonnet 4.5", thinking: "Medium", mcp_count: 0, description: "Extracts code insights" },
+    AgentDef { name: "Analysis", model: "Sonnet 4.5", thinking: "Medium", mcp_count: 0, description: "Codebase analysis with context lookup" },
+    AgentDef { name: "Batch Analysis", model: "Opus 4.5", thinking: "Medium", mcp_count: 0, description: "Batch processing of issues or items" },
 ];
 
 const IDEATION_AGENTS: &[AgentDef] = &[
-    AgentDef { name: "Roadmap Analysis", model: "Sonnet 4.5", thinking: "Medium", mcp_count: 3, description: "Analyzes roadmap and suggests next steps" },
+    AgentDef { name: "Ideation", model: "Opus 4.5", thinking: "High", mcp_count: 0, description: "Generates feature ideas" },
+    AgentDef { name: "Roadmap Discovery", model: "Opus 4.5", thinking: "High", mcp_count: 0, description: "Discovers roadmap items" },
 ];
 
 #[component]
@@ -306,7 +305,7 @@ pub fn McpPage() -> impl IntoView {
         }}
 
         // ── Agent Grids ──
-        {render_agent_section("Specs Creation", SPEC_AGENTS)}
+        {render_agent_section("Spec Creation", SPEC_AGENTS)}
         {render_agent_section("Build", BUILD_AGENTS)}
         {render_agent_section("QA", QA_AGENTS)}
         {render_agent_section("Utility", UTILITY_AGENTS)}

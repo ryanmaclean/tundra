@@ -49,6 +49,9 @@ git2 = "0.20"
 subtle = "2"
 tauri = { version = "2", features = ["devtools"] }
 tauri-build = "2"
+datadog-tracing = "0.3"
+datadog-apm-sync = "0.8"
+tracing-datadog = "0.6"
 
 # ---------------------------------------------------------------------------
 # Profiles — M-series optimized

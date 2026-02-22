@@ -6,6 +6,7 @@ publish = false
 
 [dependencies]
 at-core = { path = "../at-core" }
+at-harness = { path = "../at-harness" }
 at-integrations = { path = "../at-integrations" }
 at-intelligence = { path = "../at-intelligence" }
 at-session = { path = "../at-session" }

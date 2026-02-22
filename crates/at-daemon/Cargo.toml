@@ -30,7 +30,9 @@ async-trait = { workspace = true }
 mimalloc = { workspace = true }
 toml = "0.8"
 tower-http = { workspace = true }
-ddtrace = "0.2.1"
+datadog-tracing = { workspace = true }
+datadog-apm-sync = { workspace = true }
+tracing-datadog = { workspace = true }
 tracing-subscriber.workspace = true
 
 [dev-dependencies]

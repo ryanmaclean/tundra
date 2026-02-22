@@ -251,6 +251,7 @@ pub fn DashboardPage() -> impl IntoView {
                                         AgentStatus::Idle => "dash-agent-dot dash-dot-idle",
                                         AgentStatus::Pending => "dash-agent-dot dash-dot-pending",
                                         AgentStatus::Stopped => "dash-agent-dot dash-dot-stopped",
+                                        AgentStatus::Unknown => "dash-agent-dot dash-dot-idle",
                                     };
                                     let status_label = format!("{:?}", agent.status).to_lowercase();
                                     view! {

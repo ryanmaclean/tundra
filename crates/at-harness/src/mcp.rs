@@ -461,6 +461,27 @@ impl Default for McpToolRegistry {
     }
 }
 
+impl McpToolRegistry {
+    /// Create a new registry with built-in Tundra Tools pre-registered.
+    pub fn with_builtins() -> Self {
+        let mut reg = Self::new();
+        reg.register_builtin_tools();
+        reg
+    }
+
+    /// Register the always-enabled built-in Tundra Tools.
+    pub fn register_builtin_tools(&mut self) {
+        let tools = crate::builtin_tools::builtin_tool_definitions();
+        let server_name = crate::builtin_tools::BUILTIN_SERVER_NAME;
+        info!(
+            server = server_name,
+            count = tools.len(),
+            "registering built-in tools"
+        );
+        self.register_tools(server_name, tools);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // MCP Call/Result types
 // ---------------------------------------------------------------------------

@@ -395,6 +395,7 @@ pub fn api_router_with_auth(state: Arc<ApiState>, api_key: Option<String>) -> Ro
         .route("/api/kanban/columns", patch(patch_kanban_columns))
         // MCP servers
         .route("/api/mcp/servers", get(list_mcp_servers))
+        .route("/api/mcp/tools/call", post(call_mcp_tool))
         // Worktrees
         .route("/api/worktrees", get(list_worktrees))
         .route("/api/worktrees/{id}", axum::routing::delete(delete_worktree))
@@ -1076,6 +1077,46 @@ async fn run_pipeline_background(
         ));
     };
 
+    // Helper: record a build log line on the task and publish it over the
+    // event bus so WebSocket subscribers see it in real time.
+    let emit_build_log = |tasks_store: &Arc<RwLock<Vec<Task>>>,
+                           event_bus: &EventBus,
+                           task_id: Uuid,
+                           bead_id: Uuid,
+                           stream: BuildStream,
+                           line: String,
+                           phase: TaskPhase| {
+        let ts = tasks_store.clone();
+        let eb = event_bus.clone();
+        let stream_label = match &stream {
+            BuildStream::Stdout => "stdout",
+            BuildStream::Stderr => "stderr",
+        };
+        // Publish a build_log_line event for real-time streaming.
+        eb.publish(crate::protocol::BridgeMessage::Event(
+            crate::protocol::EventPayload {
+                event_type: "build_log_line".to_string(),
+                agent_id: None,
+                bead_id: Some(bead_id),
+                message: format!("[{}] {}", stream_label, line),
+                timestamp: chrono::Utc::now(),
+            },
+        ));
+        // Return a future that stores the entry on the task.
+        async move {
+            let mut tasks = ts.write().await;
+            if let Some(t) = tasks.iter_mut().find(|t| t.id == task_id) {
+                t.build_logs.push(BuildLogEntry {
+                    timestamp: chrono::Utc::now(),
+                    stream,
+                    line,
+                    phase,
+                });
+                t.updated_at = chrono::Utc::now();
+            }
+        }
+    };
+
     emit("pipeline_start");
 
     // -- Coding phase --
@@ -1084,12 +1125,30 @@ async fn run_pipeline_background(
     // spawning is handled by TaskOrchestrator in at-agents.
     emit("coding_phase_start");
 
+    // Record phase start as a build log entry.
+    emit_build_log(
+        &tasks_store, &event_bus, task.id, task.bead_id,
+        BuildStream::Stdout, "Coding phase started".to_string(),
+        TaskPhase::Coding,
+    ).await;
+
     if pty_pool.is_some() {
         // Real execution would use at-agents::task_orchestrator::TaskOrchestrator.
         // The bridge layer records the phase transition; callers that need full
         // PTY-based execution should use the at-agents crate directly.
         tracing::info!(task_id = %task.id, "PTY pool available; coding phase delegated to agent executor");
+        emit_build_log(
+            &tasks_store, &event_bus, task.id, task.bead_id,
+            BuildStream::Stdout, "PTY pool available; delegating to agent executor".to_string(),
+            TaskPhase::Coding,
+        ).await;
     }
+
+    emit_build_log(
+        &tasks_store, &event_bus, task.id, task.bead_id,
+        BuildStream::Stdout, "Coding phase complete".to_string(),
+        TaskPhase::Coding,
+    ).await;
 
     emit("coding_phase_complete");
 
@@ -1105,9 +1164,28 @@ async fn run_pipeline_background(
     // -- QA phase --
     emit("qa_phase_start");
 
+    emit_build_log(
+        &tasks_store, &event_bus, task.id, task.bead_id,
+        BuildStream::Stdout, "QA phase started".to_string(),
+        TaskPhase::Qa,
+    ).await;
+
     let worktree = task.worktree_path.as_deref().unwrap_or(".");
     let mut qa_runner = QaRunner::new();
     let mut report = qa_runner.run_qa_checks(task.id, &task.title, Some(worktree));
+
+    // Log QA result.
+    let qa_stream = if report.status == at_core::types::QaStatus::Passed {
+        BuildStream::Stdout
+    } else {
+        BuildStream::Stderr
+    };
+    emit_build_log(
+        &tasks_store, &event_bus, task.id, task.bead_id,
+        qa_stream,
+        format!("QA result: {:?} ({} issues)", report.status, report.issues.len()),
+        TaskPhase::Qa,
+    ).await;
 
     emit("qa_phase_complete");
 
@@ -1116,6 +1194,13 @@ async fn run_pipeline_background(
     while report.status == at_core::types::QaStatus::Failed && iterations < max_fix_iterations {
         iterations += 1;
         emit(&format!("qa_fix_iteration_{}", iterations));
+
+        emit_build_log(
+            &tasks_store, &event_bus, task.id, task.bead_id,
+            BuildStream::Stderr,
+            format!("Fix iteration {} of {}", iterations, max_fix_iterations),
+            TaskPhase::Fixing,
+        ).await;
 
         // Transition to Fixing
         {
@@ -1137,6 +1222,18 @@ async fn run_pipeline_background(
 
         let mut qa = QaRunner::new();
         report = qa.run_qa_checks(task.id, &task.title, Some(worktree));
+
+        let iter_stream = if report.status == at_core::types::QaStatus::Passed {
+            BuildStream::Stdout
+        } else {
+            BuildStream::Stderr
+        };
+        emit_build_log(
+            &tasks_store, &event_bus, task.id, task.bead_id,
+            iter_stream,
+            format!("QA re-check result: {:?} ({} issues)", report.status, report.issues.len()),
+            TaskPhase::Qa,
+        ).await;
     }
 
     // Store the QA report on the task
@@ -1152,8 +1249,18 @@ async fn run_pipeline_background(
     }
 
     if report.status == at_core::types::QaStatus::Passed {
+        emit_build_log(
+            &tasks_store, &event_bus, task.id, task.bead_id,
+            BuildStream::Stdout, "Pipeline completed successfully".to_string(),
+            TaskPhase::Complete,
+        ).await;
         emit("pipeline_complete");
     } else {
+        emit_build_log(
+            &tasks_store, &event_bus, task.id, task.bead_id,
+            BuildStream::Stderr, "Pipeline completed with failures".to_string(),
+            TaskPhase::Error,
+        ).await;
         emit("pipeline_complete_with_failures");
     }
 
@@ -2267,7 +2374,26 @@ struct McpServer {
 }
 
 async fn list_mcp_servers() -> Json<Vec<McpServer>> {
-    let servers = vec![
+    // Build a registry with built-in tools to report them dynamically.
+    let registry = at_harness::mcp::McpToolRegistry::with_builtins();
+
+    // Collect servers from the registry (currently just built-in).
+    let mut servers: Vec<McpServer> = Vec::new();
+    for server_name in registry.server_names() {
+        let tool_names: Vec<String> = registry
+            .list_tools_for_server(&server_name)
+            .iter()
+            .map(|rt| rt.tool.name.clone())
+            .collect();
+        servers.push(McpServer {
+            name: server_name.clone(),
+            status: "active".to_string(),
+            tools: tool_names,
+        });
+    }
+
+    // Also include well-known external MCP servers as stubs (inactive until configured).
+    let external_stubs = vec![
         McpServer {
             name: "Context7".into(),
             status: "active".into(),
@@ -2298,13 +2424,46 @@ async fn list_mcp_servers() -> Json<Vec<McpServer>> {
             status: "inactive".into(),
             tools: vec!["navigate".into(), "screenshot".into(), "click".into()],
         },
-        McpServer {
-            name: "Tundra Tools".into(),
-            status: "active".into(),
-            tools: vec!["run_task".into(), "list_agents".into(), "manage_beads".into()],
-        },
     ];
+    servers.extend(external_stubs);
+
     Json(servers)
+}
+
+// ---------------------------------------------------------------------------
+// MCP tool call handler
+// ---------------------------------------------------------------------------
+
+async fn call_mcp_tool(
+    State(state): State<Arc<ApiState>>,
+    Json(request): Json<at_harness::mcp::ToolCallRequest>,
+) -> impl IntoResponse {
+    let ctx = at_harness::builtin_tools::BuiltinToolContext {
+        beads: Arc::clone(&state.beads),
+        agents: Arc::clone(&state.agents),
+        tasks: Arc::clone(&state.tasks),
+    };
+
+    match at_harness::builtin_tools::execute_builtin_tool(&ctx, &request).await {
+        Some(result) => {
+            let status = if result.is_error {
+                axum::http::StatusCode::BAD_REQUEST
+            } else {
+                axum::http::StatusCode::OK
+            };
+            (status, Json(serde_json::to_value(result).unwrap()))
+        }
+        None => (
+            axum::http::StatusCode::NOT_FOUND,
+            Json(serde_json::json!({
+                "error": format!("unknown tool: {}", request.name),
+                "available_tools": at_harness::builtin_tools::builtin_tool_definitions()
+                    .iter()
+                    .map(|t| t.name.clone())
+                    .collect::<Vec<_>>()
+            })),
+        ),
+    }
 }
 
 // ---------------------------------------------------------------------------

@@ -1592,3 +1592,360 @@ async fn test_execute_pipeline_without_cli_type_defaults() {
     let body: Value = resp.json().await.unwrap();
     assert_eq!(body["status"], "started");
 }
+
+// ---------------------------------------------------------------------------
+// Build log types unit tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_build_log_entry_serialization() {
+    use at_core::types::{BuildLogEntry, BuildStream, TaskPhase};
+
+    let entry = BuildLogEntry {
+        timestamp: chrono::Utc::now(),
+        stream: BuildStream::Stdout,
+        line: "cargo build --release".to_string(),
+        phase: TaskPhase::Coding,
+    };
+
+    let json_str = serde_json::to_string(&entry).unwrap();
+    assert!(json_str.contains("\"stream\":\"stdout\""));
+    assert!(json_str.contains("\"line\":\"cargo build --release\""));
+    assert!(json_str.contains("\"phase\":\"coding\""));
+
+    // Roundtrip
+    let deserialized: BuildLogEntry = serde_json::from_str(&json_str).unwrap();
+    assert_eq!(deserialized.stream, BuildStream::Stdout);
+    assert_eq!(deserialized.line, "cargo build --release");
+    assert_eq!(deserialized.phase, TaskPhase::Coding);
+}
+
+#[test]
+fn test_build_stream_variants() {
+    use at_core::types::BuildStream;
+
+    let stdout: BuildStream = serde_json::from_str("\"stdout\"").unwrap();
+    assert_eq!(stdout, BuildStream::Stdout);
+
+    let stderr: BuildStream = serde_json::from_str("\"stderr\"").unwrap();
+    assert_eq!(stderr, BuildStream::Stderr);
+}
+
+#[test]
+fn test_task_build_logs_default_empty() {
+    let task = at_core::types::Task::new(
+        "Build log test",
+        uuid::Uuid::new_v4(),
+        at_core::types::TaskCategory::Feature,
+        at_core::types::TaskPriority::Medium,
+        at_core::types::TaskComplexity::Small,
+    );
+    assert!(task.build_logs.is_empty());
+}
+
+#[test]
+fn test_task_add_build_log() {
+    use at_core::types::BuildStream;
+
+    let mut task = at_core::types::Task::new(
+        "Build log test",
+        uuid::Uuid::new_v4(),
+        at_core::types::TaskCategory::Feature,
+        at_core::types::TaskPriority::Medium,
+        at_core::types::TaskComplexity::Small,
+    );
+
+    task.add_build_log(BuildStream::Stdout, "compiling crate-a");
+    task.add_build_log(BuildStream::Stderr, "warning: unused variable");
+    task.add_build_log(BuildStream::Stdout, "compiling crate-b");
+
+    assert_eq!(task.build_logs.len(), 3);
+    assert_eq!(task.build_logs[0].stream, BuildStream::Stdout);
+    assert_eq!(task.build_logs[0].line, "compiling crate-a");
+    assert_eq!(task.build_logs[1].stream, BuildStream::Stderr);
+    assert_eq!(task.build_logs[1].line, "warning: unused variable");
+}
+
+#[test]
+fn test_task_with_build_logs_serde_roundtrip() {
+    use at_core::types::BuildStream;
+
+    let mut task = at_core::types::Task::new(
+        "Serde test",
+        uuid::Uuid::new_v4(),
+        at_core::types::TaskCategory::Feature,
+        at_core::types::TaskPriority::Low,
+        at_core::types::TaskComplexity::Trivial,
+    );
+    task.add_build_log(BuildStream::Stdout, "hello");
+    task.add_build_log(BuildStream::Stderr, "err: oops");
+
+    let json_str = serde_json::to_string(&task).unwrap();
+    let deserialized: at_core::types::Task = serde_json::from_str(&json_str).unwrap();
+
+    assert_eq!(deserialized.build_logs.len(), 2);
+    assert_eq!(deserialized.build_logs[0].line, "hello");
+    assert_eq!(deserialized.build_logs[1].stream, BuildStream::Stderr);
+}
+
+#[test]
+fn test_task_without_build_logs_deserializes_with_default() {
+    // Simulate JSON from an older version that lacks the build_logs field.
+    let json_str = json!({
+        "id": uuid::Uuid::new_v4(),
+        "title": "Legacy task",
+        "description": null,
+        "bead_id": uuid::Uuid::new_v4(),
+        "phase": "discovery",
+        "progress_percent": 0,
+        "subtasks": [],
+        "worktree_path": null,
+        "git_branch": null,
+        "category": "feature",
+        "priority": "low",
+        "complexity": "small",
+        "impact": null,
+        "agent_profile": null,
+        "phase_configs": [],
+        "created_at": "2026-02-21T00:00:00Z",
+        "updated_at": "2026-02-21T00:00:00Z",
+        "started_at": null,
+        "completed_at": null,
+        "error": null,
+        "logs": [],
+        "qa_report": null
+    });
+
+    let task: at_core::types::Task = serde_json::from_value(json_str).unwrap();
+    assert!(task.build_logs.is_empty(), "build_logs should default to empty vec");
+}
+
+// ---------------------------------------------------------------------------
+// Build log API endpoint tests
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_get_build_logs_empty() {
+    let (base, state) = start_test_server().await;
+
+    let task_id;
+    {
+        let mut tasks = state.tasks.write().await;
+        let task = at_core::types::Task::new(
+            "Build logs test",
+            uuid::Uuid::new_v4(),
+            at_core::types::TaskCategory::Feature,
+            at_core::types::TaskPriority::Medium,
+            at_core::types::TaskComplexity::Small,
+        );
+        task_id = task.id;
+        tasks.push(task);
+    }
+
+    let resp = reqwest::get(format!("{base}/api/tasks/{task_id}/build-logs"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    let body: Vec<Value> = resp.json().await.unwrap();
+    assert!(body.is_empty());
+}
+
+#[tokio::test]
+async fn test_get_build_logs_not_found() {
+    let (base, _state) = start_test_server().await;
+
+    let fake_id = uuid::Uuid::new_v4();
+    let resp = reqwest::get(format!("{base}/api/tasks/{fake_id}/build-logs"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 404);
+}
+
+#[tokio::test]
+async fn test_get_build_logs_with_entries() {
+    let (base, state) = start_test_server().await;
+    use at_core::types::BuildStream;
+
+    let task_id;
+    {
+        let mut tasks = state.tasks.write().await;
+        let mut task = at_core::types::Task::new(
+            "Build logs populated",
+            uuid::Uuid::new_v4(),
+            at_core::types::TaskCategory::Feature,
+            at_core::types::TaskPriority::Medium,
+            at_core::types::TaskComplexity::Small,
+        );
+        task.add_build_log(BuildStream::Stdout, "Compiling at-core v0.1.0");
+        task.add_build_log(BuildStream::Stderr, "warning: unused import");
+        task.add_build_log(BuildStream::Stdout, "Finished dev profile");
+        task_id = task.id;
+        tasks.push(task);
+    }
+
+    let resp = reqwest::get(format!("{base}/api/tasks/{task_id}/build-logs"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    let body: Vec<Value> = resp.json().await.unwrap();
+    assert_eq!(body.len(), 3);
+    assert_eq!(body[0]["stream"], "stdout");
+    assert_eq!(body[0]["line"], "Compiling at-core v0.1.0");
+    assert_eq!(body[1]["stream"], "stderr");
+    assert_eq!(body[1]["line"], "warning: unused import");
+    assert_eq!(body[2]["line"], "Finished dev profile");
+}
+
+#[tokio::test]
+async fn test_get_build_logs_since_filter() {
+    let (base, state) = start_test_server().await;
+    use at_core::types::BuildStream;
+
+    let task_id;
+    let mid_timestamp;
+    {
+        let mut tasks = state.tasks.write().await;
+        let mut task = at_core::types::Task::new(
+            "Since filter test",
+            uuid::Uuid::new_v4(),
+            at_core::types::TaskCategory::Feature,
+            at_core::types::TaskPriority::Medium,
+            at_core::types::TaskComplexity::Small,
+        );
+        task.add_build_log(BuildStream::Stdout, "first line");
+        // Record a timestamp between entries.
+        // Use to_rfc3339_opts with Z suffix to avoid URL-encoding issues with '+'.
+        mid_timestamp = chrono::Utc::now()
+            .to_rfc3339_opts(chrono::SecondsFormat::Nanos, true);
+        // Small sleep to ensure timestamp difference.
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        task.add_build_log(BuildStream::Stdout, "second line");
+        task_id = task.id;
+        tasks.push(task);
+    }
+
+    let resp = reqwest::get(format!(
+        "{base}/api/tasks/{task_id}/build-logs?since={mid_timestamp}"
+    ))
+    .await
+    .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    let body: Vec<Value> = resp.json().await.unwrap();
+    assert_eq!(body.len(), 1, "only the second line should be returned");
+    assert_eq!(body[0]["line"], "second line");
+}
+
+#[tokio::test]
+async fn test_get_build_logs_invalid_since() {
+    let (base, state) = start_test_server().await;
+
+    let task_id;
+    {
+        let mut tasks = state.tasks.write().await;
+        let task = at_core::types::Task::new(
+            "Invalid since test",
+            uuid::Uuid::new_v4(),
+            at_core::types::TaskCategory::Feature,
+            at_core::types::TaskPriority::Medium,
+            at_core::types::TaskComplexity::Small,
+        );
+        task_id = task.id;
+        tasks.push(task);
+    }
+
+    let resp = reqwest::get(format!(
+        "{base}/api/tasks/{task_id}/build-logs?since=not-a-timestamp"
+    ))
+    .await
+    .unwrap();
+    assert_eq!(resp.status(), 400);
+}
+
+// ---------------------------------------------------------------------------
+// Build status endpoint tests
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_get_build_status_empty() {
+    let (base, state) = start_test_server().await;
+
+    let task_id;
+    {
+        let mut tasks = state.tasks.write().await;
+        let task = at_core::types::Task::new(
+            "Status test",
+            uuid::Uuid::new_v4(),
+            at_core::types::TaskCategory::Feature,
+            at_core::types::TaskPriority::Medium,
+            at_core::types::TaskComplexity::Small,
+        );
+        task_id = task.id;
+        tasks.push(task);
+    }
+
+    let resp = reqwest::get(format!("{base}/api/tasks/{task_id}/build-status"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    let body: Value = resp.json().await.unwrap();
+    assert_eq!(body["phase"], "discovery");
+    assert_eq!(body["total_lines"], 0);
+    assert_eq!(body["stdout_lines"], 0);
+    assert_eq!(body["stderr_lines"], 0);
+    assert_eq!(body["error_count"], 0);
+    assert!(body["last_line"].is_null());
+}
+
+#[tokio::test]
+async fn test_get_build_status_not_found() {
+    let (base, _state) = start_test_server().await;
+
+    let fake_id = uuid::Uuid::new_v4();
+    let resp = reqwest::get(format!("{base}/api/tasks/{fake_id}/build-status"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 404);
+}
+
+#[tokio::test]
+async fn test_get_build_status_with_logs() {
+    let (base, state) = start_test_server().await;
+    use at_core::types::BuildStream;
+
+    let task_id;
+    {
+        let mut tasks = state.tasks.write().await;
+        let mut task = at_core::types::Task::new(
+            "Status with logs",
+            uuid::Uuid::new_v4(),
+            at_core::types::TaskCategory::Feature,
+            at_core::types::TaskPriority::Medium,
+            at_core::types::TaskComplexity::Small,
+        );
+        task.set_phase(at_core::types::TaskPhase::Coding);
+        task.add_build_log(BuildStream::Stdout, "compiling...");
+        task.add_build_log(BuildStream::Stderr, "warn: something");
+        task.add_build_log(BuildStream::Stderr, "error: failed");
+        task.add_build_log(BuildStream::Stdout, "done");
+        task_id = task.id;
+        tasks.push(task);
+    }
+
+    let resp = reqwest::get(format!("{base}/api/tasks/{task_id}/build-status"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    let body: Value = resp.json().await.unwrap();
+    assert_eq!(body["phase"], "coding");
+    assert_eq!(body["total_lines"], 4);
+    assert_eq!(body["stdout_lines"], 2);
+    assert_eq!(body["stderr_lines"], 2);
+    assert_eq!(body["error_count"], 2);
+    assert_eq!(body["last_line"], "done");
+    assert!(body["progress_percent"].as_u64().unwrap() > 0);
+}

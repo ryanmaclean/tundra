@@ -15,16 +15,13 @@ fn next_lane_for_action(action: &str, current: &Lane) -> Option<Lane> {
         "review" => Some(Lane::AiReview),
         "approve" => Some(Lane::Done),
         "reject" => Some(Lane::InProgress),
-        // Generic forward movement
+        // Generic forward movement (5 display columns: Planning → In Progress → AI Review → Human Review → Done)
         "forward" => match current {
-            Lane::Backlog => Some(Lane::Queue),
-            Lane::Queue => Some(Lane::Planning),
-            Lane::Planning => Some(Lane::InProgress),
+            Lane::Backlog | Lane::Queue | Lane::Planning => Some(Lane::InProgress),
             Lane::InProgress => Some(Lane::AiReview),
             Lane::AiReview => Some(Lane::HumanReview),
             Lane::HumanReview => Some(Lane::Done),
-            Lane::Done => Some(Lane::PrCreated),
-            Lane::PrCreated => None,
+            Lane::Done | Lane::PrCreated => None,
         },
         _ => None,
     }
@@ -144,17 +141,14 @@ pub fn api_bead_to_bead_response(ab: &ApiBead) -> BeadResponse {
     }
 }
 
-/// Lane index for collapse state tracking.
+/// Lane index for collapse state tracking (5 display columns).
 fn lane_index(lane: &Lane) -> usize {
     match lane {
-        Lane::Backlog => 0,
-        Lane::Queue => 1,
-        Lane::Planning => 2,
-        Lane::InProgress => 3,
-        Lane::AiReview => 4,
-        Lane::HumanReview => 5,
-        Lane::Done => 6,
-        Lane::PrCreated => 7,
+        Lane::Backlog | Lane::Queue | Lane::Planning => 0,
+        Lane::InProgress => 1,
+        Lane::AiReview => 2,
+        Lane::HumanReview => 3,
+        Lane::Done | Lane::PrCreated => 4,
     }
 }
 
@@ -199,8 +193,8 @@ pub fn BeadsPage() -> impl IntoView {
     // New task modal state
     let (show_new_task_for_column, set_show_new_task_for_column) = signal(Option::<Lane>::None);
 
-    // Column collapse state: a Vec<bool> of 8 lanes, all start expanded (false = not collapsed)
-    let (collapsed, set_collapsed) = signal(vec![false; 8]);
+    // Column collapse state: a Vec<bool> of 5 display columns, all start expanded (false = not collapsed)
+    let (collapsed, set_collapsed) = signal(vec![false; 5]);
 
     let on_add_task = move |target_lane: Lane| {
         set_show_new_task_for_column.set(Some(target_lane));
@@ -219,9 +213,10 @@ pub fn BeadsPage() -> impl IntoView {
     };
 
     let lanes = vec![
-        (Lane::Backlog, "To Do"),
-        (Lane::InProgress, "In Progress"), 
-        (Lane::AiReview, "Review"),
+        (Lane::Planning, "Planning"),
+        (Lane::InProgress, "In Progress"),
+        (Lane::AiReview, "AI Review"),
+        (Lane::HumanReview, "Human Review"),
         (Lane::Done, "Done"),
     ];
 
@@ -312,7 +307,6 @@ pub fn BeadsPage() -> impl IntoView {
 
         <div class="kanban">
             {lanes.into_iter().map(|( lane, label)| {
-                let lane_for_count = lane.clone();
                 let lane_for_render = lane.clone();
                 let lane_for_drop = lane.clone();
                 let lane_for_over = lane.clone();
@@ -335,9 +329,10 @@ pub fn BeadsPage() -> impl IntoView {
                 let count = move || {
                     beads.get().into_iter()
                         .filter(|b| match lane_for_filter {
-                            Lane::Backlog => matches!(b.lane, Lane::Backlog | Lane::Queue | Lane::Planning),
+                            Lane::Planning => matches!(b.lane, Lane::Backlog | Lane::Queue | Lane::Planning),
                             Lane::InProgress => matches!(b.lane, Lane::InProgress),
-                            Lane::AiReview => matches!(b.lane, Lane::AiReview | Lane::HumanReview),
+                            Lane::AiReview => matches!(b.lane, Lane::AiReview),
+                            Lane::HumanReview => matches!(b.lane, Lane::HumanReview),
                             Lane::Done => matches!(b.lane, Lane::Done | Lane::PrCreated),
                             _ => false,
                         })
@@ -365,14 +360,8 @@ pub fn BeadsPage() -> impl IntoView {
                     if let Some(dt) = ev.data_transfer() {
                         if let Ok(bead_id) = dt.get_data("text/plain") {
                             if !bead_id.is_empty() {
-                                // Map the 4-column lane to appropriate technical lane
-                                let target_technical_lane = match lane_for_drop {
-                                    Lane::Backlog => Lane::Planning, // Default to Planning for To Do column
-                                    Lane::InProgress => Lane::InProgress,
-                                    Lane::AiReview => Lane::AiReview, // Default to AI Review for Review column  
-                                    Lane::Done => Lane::Done,
-                                    _ => lane_for_drop.clone(),
-                                };
+                                // Map display lanes directly to technical lanes
+                                let target_technical_lane = lane_for_drop.clone();
                                 move_bead_drop(bead_id, target_technical_lane);
                             }
                         }
@@ -433,9 +422,10 @@ pub fn BeadsPage() -> impl IntoView {
 
                             let filtered: Vec<BeadResponse> = beads.get().into_iter()
                                 .filter(|b| match lane_for_render {
-                                    Lane::Backlog => matches!(b.lane, Lane::Backlog | Lane::Queue | Lane::Planning),
+                                    Lane::Planning => matches!(b.lane, Lane::Backlog | Lane::Queue | Lane::Planning),
                                     Lane::InProgress => matches!(b.lane, Lane::InProgress),
-                                    Lane::AiReview => matches!(b.lane, Lane::AiReview | Lane::HumanReview),
+                                    Lane::AiReview => matches!(b.lane, Lane::AiReview),
+                                    Lane::HumanReview => matches!(b.lane, Lane::HumanReview),
                                     Lane::Done => matches!(b.lane, Lane::Done | Lane::PrCreated),
                                     _ => false,
                                 })
@@ -455,7 +445,7 @@ pub fn BeadsPage() -> impl IntoView {
                                 })
                                 .collect();
 
-                            if filtered.is_empty() && lane_for_render == Lane::Backlog {
+                            if filtered.is_empty() && lane_for_render == Lane::Planning {
                                 return vec![view! {
                                     <div class="kanban-empty-state">
                                         {themed(mode.get(), Prompt::EmptyBacklog)}
@@ -475,6 +465,22 @@ pub fn BeadsPage() -> impl IntoView {
                                         BeadStatus::HumanReview => "status-human-review",
                                         BeadStatus::Done => "status-done",
                                         BeadStatus::Failed => "status-failed",
+                                    };
+
+                                    let progress_pct: u8 = match bead.progress_stage.as_str() {
+                                        "plan" => 25,
+                                        "code" => 62,
+                                        "qa" => 82,
+                                        "done" => 100,
+                                        _ => 15,
+                                    };
+
+                                    let (plan_cls, code_cls, qa_cls) = match bead.progress_stage.as_str() {
+                                        "plan" => ("pipeline-stage active", "pipeline-stage", "pipeline-stage"),
+                                        "code" => ("pipeline-stage completed", "pipeline-stage active", "pipeline-stage"),
+                                        "qa" => ("pipeline-stage completed", "pipeline-stage completed", "pipeline-stage active"),
+                                        "done" => ("pipeline-stage completed", "pipeline-stage completed", "pipeline-stage completed"),
+                                        _ => ("pipeline-stage", "pipeline-stage", "pipeline-stage"),
                                     };
 
                                     // Priority badge
@@ -551,9 +557,9 @@ pub fn BeadsPage() -> impl IntoView {
                                             _ => "action-btn",
                                         };
                                         let label = match action.as_str() {
-                                            "start" => "Start",
-                                            "recover" => "Recover",
-                                            "resume" => "Resume",
+                                            "start" => "\u{25B6} Start",
+                                            "recover" => "\u{21BB} Recover",
+                                            "resume" => "\u{23EF} Resume",
                                             _ => "Action",
                                         };
                                         view! {
@@ -635,6 +641,7 @@ pub fn BeadsPage() -> impl IntoView {
                                                     {forward_view}
                                                 </div>
                                             </div>
+                                            <div class="bead-description">{bead.description.clone()}</div>
                                             // Badges row: priority + category
                                             <div class="bead-badges">
                                                 {priority_view}
@@ -650,9 +657,22 @@ pub fn BeadsPage() -> impl IntoView {
                                                     }
                                                 })}
                                             </div>
+                                            <div class="progress-pipeline">
+                                                <span class={plan_cls}>{"Plan"}</span>
+                                                <span class={code_cls}>{"Code"}</span>
+                                                <span class={qa_cls}>{"QA"}</span>
+                                            </div>
+                                            <div class="bead-progress">
+                                                <div class="progress-bar">
+                                                    <div class="progress-fill" style={format!("width: {}%;", progress_pct)}></div>
+                                                </div>
+                                                <span class="progress-label">{format!("{progress_pct}%")}</span>
+                                            </div>
                                             <div class="bead-footer">
                                                 <div class="bead-agents">{agents_view}</div>
-                                                <span class="bead-timestamp">{bead.timestamp.clone()}</span>
+                                                <span class="bead-timestamp">
+                                                    {if bead.timestamp.is_empty() { "just now".to_string() } else { bead.timestamp.clone() }}
+                                                </span>
                                                 {action_view}
                                             </div>
                                         </div>

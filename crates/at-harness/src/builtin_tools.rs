@@ -4,14 +4,14 @@ use tracing::info;
 use crate::mcp::{McpTool, ToolAnnotations, ToolCallRequest, ToolCallResult};
 
 // ---------------------------------------------------------------------------
-// Built-in "Auto Claude Tools" MCP server
+// Built-in "Tundra Tools" MCP server
 //
 // Always-enabled core tools: run_task, list_agents, manage_beads,
 // get_build_status, get_task_logs.
 // ---------------------------------------------------------------------------
 
 /// Server name used when registering built-in tools.
-pub const BUILTIN_SERVER_NAME: &str = "auto-claude-tools";
+pub const BUILTIN_SERVER_NAME: &str = "tundra-tools";
 
 /// Return the complete list of built-in MCP tool definitions.
 pub fn builtin_tool_definitions() -> Vec<McpTool> {
@@ -744,7 +744,7 @@ mod tests {
             bead.id,
             TaskCategory::Feature,
             TaskPriority::Low,
-            TaskComplexity::Low,
+            TaskComplexity::Small,
         );
         t2.phase = TaskPhase::Complete;
         ctx.tasks.write().await.extend(vec![t1, t2]);
@@ -769,7 +769,7 @@ mod tests {
             bead.id,
             TaskCategory::BugFix,
             TaskPriority::High,
-            TaskComplexity::Low,
+            TaskComplexity::Small,
         );
         let task_id = task.id.to_string();
         ctx.tasks.write().await.push(task);

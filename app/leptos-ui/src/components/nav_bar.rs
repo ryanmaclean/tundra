@@ -150,28 +150,19 @@ pub fn NavBar(
             </div>
 
             <nav class="sidebar-nav" aria-label="Page navigation">
-                <div class="sidebar-section-label" class:collapsed=(move || sidebar_collapsed.get())>"Project"</div>
                 <NavItem idx=0 label="Dashboard" current_tab set_current_tab sidebar_collapsed />
                 <NavItem idx=1 label="Kanban Board" current_tab set_current_tab sidebar_collapsed />
                 <NavItem idx=2 label="Agent Terminals" current_tab set_current_tab sidebar_collapsed />
                 <NavItem idx=3 label="Insights" current_tab set_current_tab sidebar_collapsed />
-
-                <div class="sidebar-section-label" class:collapsed=(move || sidebar_collapsed.get())>"Planning"</div>
                 <NavItem idx=4 label="Ideation" current_tab set_current_tab sidebar_collapsed />
                 <NavItem idx=5 label="Roadmap" current_tab set_current_tab sidebar_collapsed />
                 <NavItem idx=6 label="Changelog" current_tab set_current_tab sidebar_collapsed />
                 <NavItem idx=7 label="Context" current_tab set_current_tab sidebar_collapsed />
-
-                <div class="sidebar-section-label" class:collapsed=(move || sidebar_collapsed.get())>"Infrastructure"</div>
                 <NavItem idx=8 label="MCP Overview" current_tab set_current_tab sidebar_collapsed />
                 <NavItem idx=9 label="Worktrees" current_tab set_current_tab sidebar_collapsed />
-                <NavItem idx=16 label="Stacks" current_tab set_current_tab sidebar_collapsed />
-
-                <div class="sidebar-section-label" class:collapsed=(move || sidebar_collapsed.get())>"Integrations"</div>
                 <NavItem idx=10 label="GitHub Issues" current_tab set_current_tab sidebar_collapsed />
                 <NavItem idx=11 label="GitHub PRs" current_tab set_current_tab sidebar_collapsed />
-
-                <div class="sidebar-section-label" class:collapsed=(move || sidebar_collapsed.get())>"System"</div>
+                <NavItem idx=16 label="Stacks" current_tab set_current_tab sidebar_collapsed />
                 <NavItem idx=14 label="Terminals" current_tab set_current_tab sidebar_collapsed />
             </nav>
 

@@ -112,6 +112,7 @@ pub fn AgentsPage() -> impl IntoView {
     let (layout, set_layout) = signal(GridLayout::Quad);
     let (loading, set_loading) = signal(true);
     let (error_msg, set_error_msg) = signal(Option::<String>::None);
+    let set_current_tab = use_context::<WriteSignal<usize>>();
 
     let do_refresh = move || {
         set_loading.set(true);
@@ -145,6 +146,14 @@ pub fn AgentsPage() -> impl IntoView {
     };
 
     let agent_count = move || agents.get().len();
+    let terminal_count_display = move || {
+        let count = agent_count();
+        if layout.get() == GridLayout::Quad {
+            count.max(3)
+        } else {
+            count
+        }
+    };
 
     view! {
         <div class="page-header">
@@ -158,6 +167,36 @@ pub fn AgentsPage() -> impl IntoView {
                 </span>
                 <button class="refresh-btn dashboard-refresh-btn" on:click=move |_| do_refresh()>
                     "\u{21BB} Refresh"
+                </button>
+            </div>
+        </div>
+
+        <div class="terminal-command-bar terminal-command-bar-agent">
+            <div class="terminal-cmd-left">
+                <span class="terminal-count-pill">
+                    {move || format!("{}/{} terminals", terminal_count_display(), 12)}
+                </span>
+            </div>
+            <div class="terminal-cmd-right">
+                <button class="terminal-cmd-btn" type="button">
+                    "History \u{25BE}"
+                </button>
+                <button class="terminal-cmd-btn" type="button" on:click=move |_| do_refresh()>
+                    "\u{2699} Invoke Claude All"
+                </button>
+                <button
+                    class="terminal-cmd-btn terminal-cmd-btn-magenta"
+                    type="button"
+                    on:click=move |_| {
+                        if let Some(set_tab) = set_current_tab {
+                            set_tab.set(14);
+                        }
+                    }
+                >
+                    "+ New Terminal"
+                </button>
+                <button class="terminal-cmd-btn" type="button">
+                    "\u{2398} Files"
                 </button>
             </div>
         </div>
@@ -192,51 +231,88 @@ pub fn AgentsPage() -> impl IntoView {
             <div class="dashboard-loading">"Loading agents..."</div>
         })}
 
-        <div class=move || format!("terminal-grid {}", layout.get().css_class())>
+        <div class=move || format!("terminal-grid terminal-grid-agent {}", layout.get().css_class())>
             {move || {
                 let max = layout.get().max_panes();
                 let list = agents.get();
                 let visible: Vec<_> = list.iter().take(max).cloned().collect();
-                visible.iter().map(|agent| {
-                    let name = agent.name.clone();
-                    let role = agent.role.clone();
-                    let status = agent.status.clone();
-                    let id = agent.id.clone();
-                    let id_stop = agent.id.clone();
-                    let dot_cls = status_dot_class(&status);
-                    let output = mock_terminal_output(&role, &name);
-                    let is_active = status == "active" || status == "running" || status == "idle";
-                    let stop_agent = stop_agent.clone();
-                    view! {
-                        <div class="terminal-emulator">
-                            <div class="terminal-pane-header">
-                                <div class="agent-pane-info">
-                                    <span class={dot_cls}></span>
-                                    <span class="terminal-title">{name}</span>
-                                    <span class="agent-role-badge">{role}</span>
-                                </div>
-                                <div class="agent-pane-actions">
-                                    <span class="terminal-dimensions">{id}</span>
-                                    {is_active.then(|| {
-                                        let stop = stop_agent.clone();
-                                        view! {
-                                            <button
-                                                class="terminal-close-btn"
-                                                on:click=move |_| stop(id_stop.clone())
-                                                title="Stop agent"
-                                            >
-                                                "\u{2715}"
+                let min_slots = if layout.get() == GridLayout::Quad { 3 } else { 1 };
+                let slot_count = visible.len().max(min_slots).min(max);
+                let mut panes = Vec::with_capacity(slot_count);
+
+                for idx in 0..slot_count {
+                    if let Some(agent) = visible.get(idx) {
+                        let name = agent.name.clone();
+                        let role = agent.role.clone();
+                        let status = agent.status.clone();
+                        let id = agent.id.clone();
+                        let id_stop = agent.id.clone();
+                        let dot_cls = status_dot_class(&status);
+                        let output = mock_terminal_output(&role, &name);
+                        let is_active = status == "active" || status == "running" || status == "idle";
+                        let stop_agent = stop_agent.clone();
+                        let terminal_name = format!("Terminal {}", idx + 1);
+                        let role_badge = role.to_uppercase();
+                        panes.push(
+                            view! {
+                                <div class="terminal-emulator">
+                                    <div class="terminal-pane-header">
+                                        <div class="agent-pane-info">
+                                            <span class={dot_cls}></span>
+                                            <span class="terminal-title">{terminal_name}</span>
+                                            <span class="terminal-worktree-badge">"Worktree"</span>
+                                        </div>
+                                        <div class="agent-pane-actions">
+                                            <span class="agent-role-badge">{role_badge}</span>
+                                            <span class="terminal-dimensions">{id}</span>
+                                            <span class="terminal-model-badge">"\u{269B} Claude"</span>
+                                            <button class="terminal-pane-icon-btn" type="button" title="Maximize">
+                                                "\u{2197}"
                                             </button>
-                                        }
-                                    })}
+                                            {is_active.then(|| {
+                                                let stop = stop_agent.clone();
+                                                view! {
+                                                    <button
+                                                        class="terminal-pane-icon-btn"
+                                                        on:click=move |_| stop(id_stop.clone())
+                                                        title="Stop agent"
+                                                    >
+                                                        "\u{2715}"
+                                                    </button>
+                                                }
+                                            })}
+                                        </div>
+                                    </div>
+                                    <div class="agent-terminal-content">
+                                        <pre class="agent-terminal-pre">{output}</pre>
+                                    </div>
                                 </div>
-                            </div>
-                            <div class="agent-terminal-content">
-                                <pre class="agent-terminal-pre">{output}</pre>
-                            </div>
-                        </div>
+                            }.into_any()
+                        );
+                    } else {
+                        let terminal_name = format!("Terminal {}", idx + 1);
+                        panes.push(
+                            view! {
+                                <div class="terminal-emulator terminal-emulator-placeholder">
+                                    <div class="terminal-pane-header">
+                                        <div class="agent-pane-info">
+                                            <span class="agent-status-dot dot-unknown"></span>
+                                            <span class="terminal-title">{terminal_name}</span>
+                                            <span class="terminal-worktree-badge">"Worktree"</span>
+                                        </div>
+                                        <div class="agent-pane-actions">
+                                            <span class="terminal-model-badge">"\u{269B} Claude"</span>
+                                        </div>
+                                    </div>
+                                    <div class="agent-terminal-content agent-terminal-empty-pane">
+                                        <pre class="agent-terminal-pre">"$ waiting for terminal assignment..."</pre>
+                                    </div>
+                                </div>
+                            }.into_any()
+                        );
                     }
-                }).collect::<Vec<_>>()
+                }
+                panes
             }}
         </div>
 
