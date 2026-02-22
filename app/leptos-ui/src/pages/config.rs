@@ -666,7 +666,7 @@ pub fn ConfigPage(
                                         class:selected=move || appearance_mode.get() == "System"
                                         on:click=move |_| set_appearance_mode.set("System".to_string())
                                     >
-                                        <span class="settings-card-icon">"&#x1F4BB;"</span>
+                                        <span class="settings-card-icon">"\u{1F4BB}"</span>
                                         <span class="settings-card-label">"System"</span>
                                     </button>
                                     <button
@@ -674,7 +674,7 @@ pub fn ConfigPage(
                                         class:selected=move || appearance_mode.get() == "Light"
                                         on:click=move |_| set_appearance_mode.set("Light".to_string())
                                     >
-                                        <span class="settings-card-icon">"*"</span>
+                                        <span class="settings-card-icon">"\u{2600}"</span>
                                         <span class="settings-card-label">"Light"</span>
                                     </button>
                                     <button
@@ -682,7 +682,7 @@ pub fn ConfigPage(
                                         class:selected=move || appearance_mode.get() == "Dark"
                                         on:click=move |_| set_appearance_mode.set("Dark".to_string())
                                     >
-                                        <span class="settings-card-icon">"&#x263D;"</span>
+                                        <span class="settings-card-icon">"\u{263D}"</span>
                                         <span class="settings-card-label">"Dark"</span>
                                     </button>
                                 </div>
@@ -794,7 +794,7 @@ pub fn ConfigPage(
                                                     set_fine_scale.set(val_num);
                                                 }
                                             >
-                                                <span class="settings-card-icon">"&#x1F4BB;"</span>
+                                                <span class="settings-card-icon">"\u{1F4BB}"</span>
                                                 <span class="settings-card-label">{format!("{val}%")}</span>
                                                 <span class="settings-card-desc">{label}</span>
                                             </button>
@@ -861,7 +861,7 @@ pub fn ConfigPage(
                                             set_locale.set(Locale::En);
                                         }
                                     >
-                                        <span class="settings-card-icon">"&#x1F310;"</span>
+                                        <span class="settings-card-icon">"\u{1F310}"</span>
                                         <div class="settings-lang-text">
                                             <span class="settings-card-label">"English"</span>
                                             <span class="settings-card-desc">"English"</span>
@@ -876,7 +876,7 @@ pub fn ConfigPage(
                                             set_locale.set(Locale::Fr);
                                         }
                                     >
-                                        <span class="settings-card-icon">"&#x1F310;"</span>
+                                        <span class="settings-card-icon">"\u{1F310}"</span>
                                         <div class="settings-lang-text">
                                             <span class="settings-card-label">"Fran\u{00E7}ais"</span>
                                             <span class="settings-card-desc">"French"</span>
@@ -1490,7 +1490,7 @@ pub fn ConfigPage(
                             {move || if !show_profile_form.get() {
                                 view! {
                                     <div class="settings-empty-state">
-                                        <div class="settings-empty-icon">"&#x1F4E6;"</div>
+                                        <div class="settings-empty-icon">"\u{1F4E6}"</div>
                                         <h4>"No API profiles configured"</h4>
                                         <p>"Create a profile to configure custom API endpoints for your builds."</p>
                                         <button class="btn-primary" on:click=move |_| set_show_profile_form.set(true)>
@@ -1580,7 +1580,7 @@ pub fn ConfigPage(
                                     <span class="settings-version-number">{move || version.get()}</span>
                                     <span class="settings-version-status">"You're running the latest version."</span>
                                 </div>
-                                <span class="settings-version-check">"&#x2705;"</span>
+                                <span class="settings-version-check">"\u{2705}"</span>
                             </div>
                             <button class="btn-small settings-check-updates-btn" on:click=move |_| {
                                 set_update_status_msg.set(Some("Checking for updates...".to_string()));

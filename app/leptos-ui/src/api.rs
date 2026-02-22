@@ -1006,7 +1006,15 @@ pub async fn fetch_ideas() -> Result<Vec<ApiIdea>, String> {
 }
 
 pub async fn generate_ideas() -> Result<Vec<ApiIdea>, String> {
-    post_empty(&format!("{}/api/ideation/generate", get_api_base())).await
+    // The backend returns IdeationResult { ideas, analysis_type, generated_at }
+    // — we need to unwrap the .ideas field.
+    #[derive(Deserialize)]
+    struct IdeationResult {
+        ideas: Vec<ApiIdea>,
+    }
+    let result: IdeationResult =
+        post_empty(&format!("{}/api/ideation/generate", get_api_base())).await?;
+    Ok(result.ideas)
 }
 
 pub async fn fetch_insights_sessions() -> Result<Vec<ApiInsightsSession>, String> {

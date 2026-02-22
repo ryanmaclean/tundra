@@ -221,7 +221,7 @@ impl LinearClient {
             return Ok(issues);
         }
 
-        let query = r#"query($teamId: String, $state: String) {
+        let query = r#"query($teamId: ID, $state: String) {
             issues(filter: { team: { id: { eq: $teamId } }, state: { name: { eq: $state } } }, first: 50) {
                 nodes {
                     id

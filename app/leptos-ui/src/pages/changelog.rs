@@ -39,7 +39,14 @@ pub fn ChangelogPage() -> impl IntoView {
         set_error_msg.set(None);
         spawn_local(async move {
             match api::fetch_changelog().await {
-                Ok(data) => set_entries.set(data),
+                Ok(data) => {
+                    let is_empty = data.is_empty();
+                    set_entries.set(data);
+                    if is_empty && gen_step.get_untracked() == 0 {
+                        // Match the reference flow: show stepper immediately when no changelog exists.
+                        set_gen_step.set(1);
+                    }
+                }
                 Err(e) => set_error_msg.set(Some(format!("Failed to fetch changelog: {e}"))),
             }
             set_loading.set(false);
@@ -142,7 +149,7 @@ pub fn ChangelogPage() -> impl IntoView {
                     <button
                         class="action-btn action-recover"
                         on:click=move |_| {
-                            set_gen_step.set(0);
+                            if entries.get_untracked().is_empty() { set_gen_step.set(1); } else { set_gen_step.set(0); }
                             set_generated_result.set(None);
                         }
                     >
@@ -458,7 +465,9 @@ pub fn ChangelogPage() -> impl IntoView {
                                     >
                                         {move || if publishing.get() { "Publishing..." } else { "Publish to GitHub Release" }}
                                     </button>
-                                    <button class="btn btn-outline" on:click=move |_| set_gen_step.set(0)>"Done"</button>
+                                    <button class="btn btn-outline" on:click=move |_| {
+                                        if entries.get_untracked().is_empty() { set_gen_step.set(1); } else { set_gen_step.set(0); }
+                                    }>"Done"</button>
                                 </div>
                             </div>
                         }

@@ -52,11 +52,12 @@ RUST_LOG=debug cargo nextest run -p at-<crate> --no-capture
 # Start daemon with debug logging
 RUST_LOG=debug cargo run --bin at-daemon 2>&1 | tee /tmp/daemon.log
 
-# Check if port is in use
-lsof -i :9090
+# Check if ports are in use (API: 9090, UI: 3001)
+lsof -i :9090 -i :3001
 
-# Kill stale daemon
+# Kill stale daemon processes
 pkill -f at-daemon
+kill -9 $(lsof -t -i:9090 -i:3001) 2>/dev/null || true
 ```
 
 ### Step 5: Integration diagnostics
@@ -86,11 +87,11 @@ cargo outdated -R 2>&1 | head -30
 | Symptom | Likely Cause | Fix |
 |---------|-------------|-----|
 | `Connection refused :9090` | Daemon not running | `cargo run --bin at-daemon` |
-| `503 + env_var` in response | Missing credential | Export the named env var |
+| `503 + env_var` in response | Missing credential | Ensure variables like `GITLAB_TOKEN` are `export`ed in the shell before starting the daemon, or modify `~/.config/auto-tundra/settings.toml`. |
 | `linking with cc failed` | Missing Xcode tools | `xcode-select --install` |
 | `cannot find crate` | Missing workspace member | Check `Cargo.toml` members |
 | Test timeout | Network-dependent test | Check `#[ignore]` gate or mock |
-| `port already in use` | Stale process | `lsof -i :9090` then `kill` |
+| `port already in use` | Stale process | `lsof -i :9090 -i :3001` then `kill` |
 
 ## Rules
 1. Always start at Step 1 and work down — don't jump to Step 5.

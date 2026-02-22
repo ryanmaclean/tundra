@@ -299,3 +299,101 @@
 [ 1395948ms] [WARNING] [events] WebSocket error @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:812
 [ 1400975ms] [ERROR] WebSocket connection to 'ws://localhost:9090/api/events/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:557
 [ 1400975ms] [WARNING] [events] WebSocket error @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:812
+[ 1404262ms] [ERROR] WebSocket connection to 'ws://localhost:9090/api/events/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:557
+[ 1404262ms] [WARNING] [events] WebSocket error @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:812
+[ 1409136ms] [ERROR] WebSocket connection to 'ws://localhost:9090/api/events/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:557
+[ 1409137ms] [WARNING] [events] WebSocket error @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:812
+[ 1414970ms] [ERROR] WebSocket connection to 'ws://localhost:9090/api/events/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:557
+[ 1414970ms] [WARNING] [events] WebSocket error @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:812
+[ 1420419ms] [ERROR] WebSocket connection to 'ws://localhost:9090/api/events/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:557
+[ 1420419ms] [WARNING] [events] WebSocket error @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:812
+[ 1422429ms] [ERROR] WebSocket connection to 'ws://localhost:9090/api/events/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:557
+[ 1422429ms] [WARNING] [events] WebSocket error @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:812
+[ 1427378ms] [ERROR] WebSocket connection to 'ws://localhost:9090/api/events/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:557
+[ 1427378ms] [WARNING] [events] WebSocket error @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:812
+[ 1430579ms] [ERROR] WebSocket connection to 'ws://localhost:9090/api/events/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:557
+[ 1430579ms] [WARNING] [events] WebSocket error @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:812
+[ 1435733ms] [ERROR] WebSocket connection to 'ws://localhost:9090/api/events/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:557
+[ 1435733ms] [WARNING] [events] WebSocket error @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:812
+[ 1440795ms] [ERROR] WebSocket connection to 'ws://localhost:9090/api/events/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:557
+[ 1440795ms] [WARNING] [events] WebSocket error @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:812
+[ 1443711ms] [ERROR] WebSocket connection to 'ws://localhost:9090/api/events/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:557
+[ 1443711ms] [WARNING] [events] WebSocket error @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:812
+[ 1483011ms] [ERROR] WebSocket connection to 'ws://localhost:9090/api/events/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:557
+[ 1483012ms] [WARNING] [events] WebSocket error @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:812
+[ 1488581ms] [ERROR] WebSocket connection to 'ws://localhost:9090/api/events/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:557
+[ 1488581ms] [WARNING] [events] WebSocket error @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:812
+[ 1492148ms] [ERROR] WebSocket connection to 'ws://localhost:9090/api/events/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:557
+[ 1492148ms] [WARNING] [events] WebSocket error @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:812
+[ 1497617ms] [ERROR] WebSocket connection to 'ws://localhost:9090/api/events/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:557
+[ 1497617ms] [WARNING] [events] WebSocket error @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:812
+[ 1500351ms] [ERROR] WebSocket connection to 'ws://localhost:9090/api/events/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:557
+[ 1500351ms] [WARNING] [events] WebSocket error @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:812
+[ 1503753ms] [ERROR] WebSocket connection to 'ws://localhost:9090/api/events/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:557
+[ 1503753ms] [WARNING] [events] WebSocket error @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:812
+[ 1508911ms] [ERROR] WebSocket connection to 'ws://localhost:9090/api/events/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:557
+[ 1508911ms] [WARNING] [events] WebSocket error @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:812
+[ 1511583ms] [ERROR] WebSocket connection to 'ws://localhost:9090/api/events/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:557
+[ 1511583ms] [WARNING] [events] WebSocket error @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:812
+[ 1515634ms] [ERROR] WebSocket connection to 'ws://localhost:9090/api/events/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:557
+[ 1515634ms] [WARNING] [events] WebSocket error @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:812
+[ 1520103ms] [ERROR] WebSocket connection to 'ws://localhost:9090/api/events/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:557
+[ 1520103ms] [WARNING] [events] WebSocket error @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:812
+[ 1525747ms] [ERROR] WebSocket connection to 'ws://localhost:9090/api/events/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:557
+[ 1525747ms] [WARNING] [events] WebSocket error @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:812
+[ 1530990ms] [ERROR] WebSocket connection to 'ws://localhost:9090/api/events/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:557
+[ 1530990ms] [WARNING] [events] WebSocket error @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:812
+[ 1533670ms] [ERROR] WebSocket connection to 'ws://localhost:9090/api/events/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:557
+[ 1533670ms] [WARNING] [events] WebSocket error @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:812
+[ 1535878ms] [ERROR] WebSocket connection to 'ws://localhost:9090/api/events/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:557
+[ 1535878ms] [WARNING] [events] WebSocket error @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:812
+[ 1539483ms] [ERROR] WebSocket connection to 'ws://localhost:9090/api/events/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:557
+[ 1539483ms] [WARNING] [events] WebSocket error @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:812
+[ 1540711ms] [ERROR] WebSocket connection to 'ws://localhost:9090/api/events/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:557
+[ 1540711ms] [WARNING] [events] WebSocket error @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:812
+[ 1978739ms] [ERROR] WebSocket connection to 'ws://localhost:9090/api/events/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:557
+[ 1978739ms] [WARNING] [events] WebSocket error @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:812
+[ 1979742ms] [ERROR] WebSocket connection to 'ws://localhost:9090/api/events/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:557
+[ 1979742ms] [WARNING] [events] WebSocket error @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:812
+[ 1980744ms] [ERROR] WebSocket connection to 'ws://localhost:9090/api/events/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:557
+[ 1980744ms] [WARNING] [events] WebSocket error @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:812
+[ 1981746ms] [ERROR] WebSocket connection to 'ws://localhost:9090/api/events/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:557
+[ 1981746ms] [WARNING] [events] WebSocket error @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:812
+[ 1982750ms] [ERROR] WebSocket connection to 'ws://localhost:9090/api/events/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:557
+[ 1982750ms] [WARNING] [events] WebSocket error @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:812
+[ 1983755ms] [ERROR] WebSocket connection to 'ws://localhost:9090/api/events/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:557
+[ 1983755ms] [WARNING] [events] WebSocket error @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:812
+[ 1984766ms] [ERROR] WebSocket connection to 'ws://localhost:9090/api/events/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:557
+[ 1984766ms] [WARNING] [events] WebSocket error @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:812
+[ 1985781ms] [ERROR] WebSocket connection to 'ws://localhost:9090/api/events/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:557
+[ 1985781ms] [WARNING] [events] WebSocket error @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:812
+[ 1986813ms] [ERROR] WebSocket connection to 'ws://localhost:9090/api/events/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:557
+[ 1986813ms] [WARNING] [events] WebSocket error @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:812
+[ 1987894ms] [ERROR] WebSocket connection to 'ws://localhost:9090/api/events/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:557
+[ 1987894ms] [WARNING] [events] WebSocket error @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:812
+[ 1988954ms] [ERROR] WebSocket connection to 'ws://localhost:9090/api/events/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:557
+[ 1988954ms] [WARNING] [events] WebSocket error @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:812
+[ 1990093ms] [ERROR] WebSocket connection to 'ws://localhost:9090/api/events/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:557
+[ 1990093ms] [WARNING] [events] WebSocket error @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:812
+[ 1991541ms] [ERROR] WebSocket connection to 'ws://localhost:9090/api/events/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:557
+[ 1991541ms] [WARNING] [events] WebSocket error @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:812
+[ 1993085ms] [ERROR] WebSocket connection to 'ws://localhost:9090/api/events/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:557
+[ 1993085ms] [WARNING] [events] WebSocket error @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:812
+[ 1996488ms] [ERROR] WebSocket connection to 'ws://localhost:9090/api/events/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:557
+[ 1996488ms] [WARNING] [events] WebSocket error @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:812
+[ 1999506ms] [ERROR] WebSocket connection to 'ws://localhost:9090/api/events/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:557
+[ 1999506ms] [WARNING] [events] WebSocket error @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:812
+[ 2001614ms] [ERROR] WebSocket connection to 'ws://localhost:9090/api/events/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:557
+[ 2001614ms] [WARNING] [events] WebSocket error @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:812
+[ 2005835ms] [ERROR] WebSocket connection to 'ws://localhost:9090/api/events/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:557
+[ 2005836ms] [WARNING] [events] WebSocket error @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:812
+[ 2011202ms] [ERROR] WebSocket connection to 'ws://localhost:9090/api/events/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:557
+[ 2011202ms] [WARNING] [events] WebSocket error @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:812
+[ 2015788ms] [ERROR] WebSocket connection to 'ws://localhost:9090/api/events/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:557
+[ 2015788ms] [WARNING] [events] WebSocket error @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:812
+[ 2071649ms] [ERROR] WebSocket connection to 'ws://localhost:9090/api/events/ws' failed:  @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:557
+[ 2071649ms] [WARNING] [events] WebSocket error @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:812
+[ 2072653ms] [ERROR] WebSocket connection to 'ws://localhost:9090/api/events/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:557
+[ 2072653ms] [WARNING] [events] WebSocket error @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:812
+[ 2073655ms] [ERROR] WebSocket connection to 'ws://localhost:9090/api/events/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:557
+[ 2073655ms] [WARNING] [events] WebSocket error @ http://localhost:3001/at-leptos-ui-586d8b1e815a2f3d.js:812

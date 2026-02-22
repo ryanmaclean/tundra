@@ -227,10 +227,14 @@ pub fn InsightsPage() -> impl IntoView {
                         prop:value=move || selected_model.get()
                         on:change=move |ev| set_selected_model.set(event_target_value(&ev))
                     >
+                        <option value="auto">"Auto (Profile Default)"</option>
                         <option value="claude-sonnet">"Claude Sonnet"</option>
                         <option value="claude-opus">"Claude Opus"</option>
                         <option value="gpt-4">"GPT-4"</option>
                         <option value="gemini-pro">"Gemini Pro"</option>
+                        <option value="ollama/qwen2.5-coder:latest">"Ollama · Qwen2.5 Coder"</option>
+                        <option value="ollama/llama3.2:latest">"Ollama · Llama 3.2"</option>
+                        <option value="ollama/deepseek-coder-v2:latest">"Ollama · DeepSeek Coder V2"</option>
                     </select>
                 </div>
                 <div class="insights-session-list">

@@ -1,0 +1,16 @@
+{
+  "bead_id": "10d085ec-074f-4c6a-a22f-530be1dd922e",
+  "execute_result": {
+    "body": {
+      "error": "cannot start pipeline: task is in Discovery phase"
+    },
+    "status": 400
+  },
+  "executed": true,
+  "skills": [
+    "diagnostics",
+    "integration-hardening"
+  ],
+  "task_id": "e84603c5-0f18-45ed-8b47-11a9da3d1ee4",
+  "title": "[qa-reviewer] Audit auth edge cases"
+}

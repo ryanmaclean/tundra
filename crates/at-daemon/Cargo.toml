@@ -17,7 +17,7 @@ at-bridge = { path = "../at-bridge" }
 at-harness = { path = "../at-harness" }
 at-intelligence = { path = "../at-intelligence" }
 tokio = { workspace = true }
-tracing = { workspace = true }
+tracing.workspace = true
 thiserror = { workspace = true }
 anyhow = { workspace = true }
 uuid = { workspace = true }
@@ -30,6 +30,8 @@ async-trait = { workspace = true }
 mimalloc = { workspace = true }
 toml = "0.8"
 tower-http = { workspace = true }
+ddtrace = "0.2.1"
+tracing-subscriber.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true }

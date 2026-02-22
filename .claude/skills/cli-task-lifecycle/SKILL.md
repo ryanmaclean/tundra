@@ -12,7 +12,8 @@ Use this skill when you need to create a task, execute it, check status, or comp
 
 ## Prerequisites
 1. Daemon must be running: `cargo run --bin at-daemon` (or check with `at doctor -p .`).
-2. At least one API key must be set: `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, or `OPENAI_API_KEY`.
+2. At least one API key must be set: `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, or `OPENAI_API_KEY`. Alternatively, have **Ollama** running locally — the daemon will automatically use it as the `local-runtime` AI profile.
+3. Native CLIs (`claude`, `codex`, `opencode`) must be installed and in `$PATH` if using specific agent roles. 
 
 ## Quick Reference
 
@@ -68,11 +69,14 @@ at agent run \
 
 ### Monitor and complete
 ```bash
-at status                    # Check all beads
-at hook <bead-id>            # Start processing
-at done <bead-id>            # Mark complete
+at status                    # Check all beads and active agents
+at hook <bead-id>            # Move from Backlog -> Hooked
+at sling <bead-id>           # Move from Hooked -> Slung (Active processing)
+at review <bead-id>          # Move from Slung -> Review
+at done <bead-id>            # Move from Review -> Done
 at nudge <agent-id>          # Restart stuck agent (use sparingly)
 ```
+> **Note on State Transitions:** The event bus enforces strict transitions. A task must flow: `Backlog -> Hooked -> Slung -> Review -> Done`. You cannot jump states (e.g., Hooked directly to Done will throw a 400 Bad Request).
 
 ## Output Parsing Rules
 
