@@ -295,6 +295,27 @@ pub struct TokenMetric {
 }
 
 // ---------------------------------------------------------------------------
+// BuildStream / BuildLogEntry
+// ---------------------------------------------------------------------------
+
+/// Identifies whether a build log line came from stdout or stderr.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BuildStream {
+    Stdout,
+    Stderr,
+}
+
+/// A single captured line of build output (stdout or stderr) with metadata.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BuildLogEntry {
+    pub timestamp: DateTime<Utc>,
+    pub stream: BuildStream,
+    pub line: String,
+    pub phase: TaskPhase,
+}
+
+// ---------------------------------------------------------------------------
 // TaskPhase
 // ---------------------------------------------------------------------------
 
@@ -607,6 +628,9 @@ pub struct Task {
     /// Associated pull-request number.
     #[serde(default)]
     pub pr_number: Option<u32>,
+    /// Captured build output lines (stdout/stderr) from pipeline execution.
+    #[serde(default)]
+    pub build_logs: Vec<BuildLogEntry>,
 }
 
 impl Task {
@@ -645,6 +669,7 @@ impl Task {
             parent_task_id: None,
             stack_position: None,
             pr_number: None,
+            build_logs: Vec::new(),
         }
     }
 
@@ -656,6 +681,17 @@ impl Task {
             log_type,
             message: message.into(),
             detail: None,
+        });
+        self.updated_at = Utc::now();
+    }
+
+    /// Append a build output line captured from a pipeline command.
+    pub fn add_build_log(&mut self, stream: BuildStream, line: impl Into<String>) {
+        self.build_logs.push(BuildLogEntry {
+            timestamp: Utc::now(),
+            stream,
+            line: line.into(),
+            phase: self.phase.clone(),
         });
         self.updated_at = Utc::now();
     }

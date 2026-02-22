@@ -1,3 +1,4 @@
+pub mod builtin_tools;
 pub mod circuit_breaker;
 pub mod mcp;
 pub mod rate_limiter;

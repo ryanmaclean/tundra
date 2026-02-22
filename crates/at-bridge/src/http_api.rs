@@ -20,8 +20,9 @@ use at_core::config::{Config, CredentialProvider};
 use at_core::session_store::{SessionState, SessionStore};
 use at_core::settings::SettingsManager;
 use at_core::types::{
-    Agent, AgentProfile, Bead, BeadStatus, CliType, KpiSnapshot, Lane, PhaseConfig, Task,
-    TaskCategory, TaskComplexity, TaskImpact, TaskPhase, TaskPriority, TaskSource,
+    Agent, AgentProfile, Bead, BeadStatus, BuildLogEntry, BuildStream, CliType, KpiSnapshot,
+    Lane, PhaseConfig, Task, TaskCategory, TaskComplexity, TaskImpact, TaskPhase, TaskPriority,
+    TaskSource,
 };
 use at_integrations::github::{issues, oauth as gh_oauth, pull_requests, pr_automation::PrAutomation, sync::IssueSyncEngine};
 use at_integrations::types::{GitHubConfig, GitHubRelease, IssueState, PrState};
@@ -358,6 +359,8 @@ pub fn api_router_with_auth(state: Arc<ApiState>, api_key: Option<String>) -> Ro
         .route("/api/tasks/{id}/phase", post(update_task_phase))
         .route("/api/tasks/{id}/logs", get(get_task_logs))
         .route("/api/tasks/{id}/execute", post(execute_task_pipeline))
+        .route("/api/tasks/{id}/build-logs", get(get_build_logs))
+        .route("/api/tasks/{id}/build-status", get(get_build_status))
         .route("/api/pipeline/queue", get(get_pipeline_queue_status))
         .route("/api/terminals", get(terminal_ws::list_terminals))
         .route("/api/terminals", post(terminal_ws::create_terminal))
@@ -1160,6 +1163,107 @@ async fn run_pipeline_background(
         fix_iterations = iterations,
         "pipeline background task finished"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Build log handlers
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Default, Deserialize)]
+struct BuildLogsQuery {
+    /// ISO-8601 timestamp; only return entries newer than this.
+    #[serde(default)]
+    pub since: Option<String>,
+}
+
+/// GET /api/tasks/{id}/build-logs -- return captured build output lines.
+///
+/// Supports an optional `?since=<ISO-8601>` query parameter for incremental
+/// polling so clients only receive new lines since their last fetch.
+async fn get_build_logs(
+    State(state): State<Arc<ApiState>>,
+    Path(id): Path<Uuid>,
+    Query(q): Query<BuildLogsQuery>,
+) -> impl IntoResponse {
+    let tasks = state.tasks.read().await;
+    let Some(task) = tasks.iter().find(|t| t.id == id) else {
+        return (
+            axum::http::StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "task not found"})),
+        );
+    };
+
+    let logs: Vec<&BuildLogEntry> = if let Some(ref since_str) = q.since {
+        match chrono::DateTime::parse_from_rfc3339(since_str) {
+            Ok(since_ts) => {
+                let since_utc = since_ts.with_timezone(&chrono::Utc);
+                task.build_logs
+                    .iter()
+                    .filter(|e| e.timestamp > since_utc)
+                    .collect()
+            }
+            Err(_) => {
+                return (
+                    axum::http::StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({"error": "invalid 'since' timestamp; use ISO-8601 / RFC-3339"})),
+                );
+            }
+        }
+    } else {
+        task.build_logs.iter().collect()
+    };
+
+    (axum::http::StatusCode::OK, Json(serde_json::json!(logs)))
+}
+
+/// Summary of the current build status for a task.
+#[derive(Debug, Serialize)]
+struct BuildStatusSummary {
+    phase: TaskPhase,
+    progress_percent: u8,
+    total_lines: usize,
+    stdout_lines: usize,
+    stderr_lines: usize,
+    error_count: usize,
+    last_line: Option<String>,
+}
+
+/// GET /api/tasks/{id}/build-status -- return a summary of the build.
+async fn get_build_status(
+    State(state): State<Arc<ApiState>>,
+    Path(id): Path<Uuid>,
+) -> impl IntoResponse {
+    let tasks = state.tasks.read().await;
+    let Some(task) = tasks.iter().find(|t| t.id == id) else {
+        return (
+            axum::http::StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "task not found"})),
+        );
+    };
+
+    let stdout_lines = task
+        .build_logs
+        .iter()
+        .filter(|e| e.stream == BuildStream::Stdout)
+        .count();
+    let stderr_lines = task
+        .build_logs
+        .iter()
+        .filter(|e| e.stream == BuildStream::Stderr)
+        .count();
+    let last_line = task.build_logs.last().map(|e| e.line.clone());
+
+    let summary = BuildStatusSummary {
+        phase: task.phase.clone(),
+        progress_percent: task.progress_percent,
+        total_lines: task.build_logs.len(),
+        stdout_lines,
+        stderr_lines,
+        error_count: stderr_lines,
+        last_line,
+    };
+
+    (axum::http::StatusCode::OK, Json(serde_json::json!(summary)))
 }
 
 // ---------------------------------------------------------------------------
@@ -2195,7 +2299,7 @@ async fn list_mcp_servers() -> Json<Vec<McpServer>> {
             tools: vec!["navigate".into(), "screenshot".into(), "click".into()],
         },
         McpServer {
-            name: "Auto Claude Tools".into(),
+            name: "Tundra Tools".into(),
             status: "active".into(),
             tools: vec!["run_task".into(), "list_agents".into(), "manage_beads".into()],
         },

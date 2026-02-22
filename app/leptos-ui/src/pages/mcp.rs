@@ -20,7 +20,7 @@ const BUILTIN_SERVERS: &[McpServerDef] = &[
     McpServerDef { icon: "\u{1F4AD}", name: "Sequential Thinking", description: "Enhanced reasoning via Claude Sonnet", active: true },
     McpServerDef { icon: "\u{1F4C1}", name: "Filesystem", description: "File system automations for Claude Sonnet", active: true },
     McpServerDef { icon: "\u{1F310}", name: "Puppeteer", description: "Web browser automation for testing", active: true },
-    McpServerDef { icon: "\u{2699}\u{FE0F}", name: "Auto Claude Tools", description: "Core built-in tools (always enabled)", active: true },
+    McpServerDef { icon: "\u{2699}\u{FE0F}", name: "Tundra Tools", description: "Core built-in tools (always enabled)", active: true },
 ];
 
 /// Agent definition for display

@@ -6221,6 +6221,9 @@ code.file-path, code.branch-name {
     color: var(--text-secondary);
     cursor: pointer;
     transition: background 0.15s, color 0.15s;
+    font-size: 20px;
+    line-height: 1;
+    font-weight: 500;
 }
 
 .settings-modal-close:hover {
