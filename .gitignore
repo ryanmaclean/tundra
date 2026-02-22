@@ -7,3 +7,4 @@
 /dolt/.dolt/
 /node_modules/
 app/leptos-ui/dist/
+/app/tauri/gen/

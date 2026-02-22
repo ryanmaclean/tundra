@@ -6,6 +6,7 @@ use crate::types::{BeadResponse, BeadStatus, Lane};
 
 #[component]
 pub fn NewTaskModal(
+    target_lane: Lane,
     on_close: impl Fn(MouseEvent) + Clone + 'static,
 ) -> impl IntoView {
     let state = use_app_state();
@@ -53,18 +54,27 @@ pub fn NewTaskModal(
 
         let id = format!("bead-{}", uuid::Uuid::new_v4().to_string().split('-').next().unwrap_or("xxx"));
 
+        // Map target lane to appropriate status and action
+        let (status, progress_stage, action) = match &target_lane {
+            Lane::Backlog => (BeadStatus::Planning, "plan".to_string(), Some("start".to_string())),
+            Lane::InProgress => (BeadStatus::InProgress, "code".to_string(), None),
+            Lane::AiReview => (BeadStatus::AiReview, "qa".to_string(), None),
+            Lane::Done => (BeadStatus::Done, "done".to_string(), None),
+            _ => (BeadStatus::Planning, "plan".to_string(), Some("start".to_string())),
+        };
+
         let new_bead = BeadResponse {
             id,
             title: t,
-            status: BeadStatus::Planning,
-            lane: Lane::Backlog,
+            status,
+            lane: target_lane.clone(),
             agent_id: None,
             description: d,
             tags,
-            progress_stage: "plan".to_string(),
+            progress_stage,
             agent_names: vec![],
             timestamp: "just now".to_string(),
-            action: Some("start".to_string()),
+            action,
         };
 
         set_beads.update(|beads| {

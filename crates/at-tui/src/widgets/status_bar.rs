@@ -5,24 +5,31 @@ use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 
+use crate::app::App;
+
 /// Render the bottom status bar.
-pub fn render(frame: &mut Frame, area: Rect) {
+pub fn render(frame: &mut Frame, app: &App, area: Rect) {
     let now = Local::now().format("%Y-%m-%d %H:%M:%S");
 
+    let conn_indicator = if app.offline {
+        Span::styled(" OFFLINE ", Style::default().fg(Color::Black).bg(Color::Yellow))
+    } else if app.api_connected {
+        Span::styled(" LIVE ", Style::default().fg(Color::Black).bg(Color::Green))
+    } else {
+        Span::styled(" ... ", Style::default().fg(Color::Black).bg(Color::DarkGray))
+    };
+
     let left = vec![
-        Span::styled("[/]", Style::default().fg(Color::Yellow)),
-        Span::raw(" Search  "),
-        Span::styled("[:]", Style::default().fg(Color::Yellow)),
-        Span::raw(" Command  "),
+        conn_indicator,
+        Span::raw(" "),
+        Span::styled("[Tab]", Style::default().fg(Color::Yellow)),
+        Span::raw(" Switch  "),
         Span::styled("[?]", Style::default().fg(Color::Yellow)),
         Span::raw(" Help  "),
         Span::styled("[q]", Style::default().fg(Color::Yellow)),
         Span::raw(" Quit"),
     ];
 
-    // We render left-aligned hints and right-aligned timestamp on the same line.
-    // Ratatui doesn't natively support split alignment in a single Paragraph,
-    // so we pad the middle.
     let left_len: usize = left.iter().map(|s| s.content.len()).sum();
     let right_text = format!("{}", now);
     let total_width = area.width as usize;

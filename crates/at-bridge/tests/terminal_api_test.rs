@@ -3,7 +3,9 @@ use std::time::Duration;
 
 use at_bridge::event_bus::EventBus;
 use at_bridge::http_api::{api_router, ApiState};
-use at_bridge::terminal::{TerminalInfo, TerminalRegistry, TerminalStatus};
+use at_bridge::terminal::{
+    DisconnectBuffer, TerminalInfo, TerminalRegistry, TerminalStatus, WS_RECONNECT_GRACE,
+};
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -323,11 +325,16 @@ async fn test_terminal_resize_event() {
     use futures_util::SinkExt;
     use tokio_tungstenite::tungstenite::protocol::Message;
 
-    let (base, _state) = start_test_server().await;
+    let (base, state) = start_test_server().await;
     let client = reqwest::Client::new();
 
     let terminal = create_terminal(&client, &base).await;
     let tid = terminal["id"].as_str().unwrap();
+    let tid_uuid = Uuid::parse_str(tid).unwrap();
+
+    // Verify initial dimensions.
+    assert_eq!(terminal["cols"], 80);
+    assert_eq!(terminal["rows"], 24);
 
     let ws_url = base.replace("http://", "ws://") + &format!("/ws/terminal/{tid}");
     let (mut ws_stream, _) = tokio_tungstenite::connect_async(&ws_url)
@@ -346,6 +353,17 @@ async fn test_terminal_resize_event() {
 
     // Resize should be accepted without error.
     assert!(result.is_ok(), "resize message should be accepted");
+
+    // Give the writer task a moment to process the resize message.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // Verify that the terminal registry was updated with new dimensions.
+    {
+        let registry = state.terminal_registry.read().await;
+        let info = registry.get(&tid_uuid).expect("terminal should exist in registry");
+        assert_eq!(info.cols, 120, "cols should be updated to 120");
+        assert_eq!(info.rows, 40, "rows should be updated to 40");
+    }
 }
 
 #[tokio::test]
@@ -428,6 +446,8 @@ async fn test_terminal_output_buffer_capped() {
             Ok(Some(Ok(Message::Text(text)))) => {
                 total_bytes += text.len();
             }
+            // Skip heartbeat ping/pong frames — they're expected.
+            Ok(Some(Ok(Message::Ping(_) | Message::Pong(_)))) => continue,
             _ => break,
         }
     }
@@ -781,6 +801,11 @@ fn test_registry_register_and_list() {
         status: TerminalStatus::Active,
         cols: 80,
         rows: 24,
+        font_size: 14,
+        cursor_style: "block".to_string(),
+        cursor_blink: true,
+        auto_name: None,
+        persistent: false,
     };
     let id = info.id;
     reg.register(info);
@@ -806,6 +831,11 @@ fn test_registry_list_active_filters_correctly() {
         status: TerminalStatus::Active,
         cols: 80,
         rows: 24,
+        font_size: 14,
+        cursor_style: "block".to_string(),
+        cursor_blink: true,
+        auto_name: None,
+        persistent: false,
     };
     let idle = TerminalInfo {
         id: Uuid::new_v4(),
@@ -814,6 +844,11 @@ fn test_registry_list_active_filters_correctly() {
         status: TerminalStatus::Idle,
         cols: 80,
         rows: 24,
+        font_size: 14,
+        cursor_style: "block".to_string(),
+        cursor_blink: true,
+        auto_name: None,
+        persistent: false,
     };
     let closed = TerminalInfo {
         id: Uuid::new_v4(),
@@ -822,6 +857,11 @@ fn test_registry_list_active_filters_correctly() {
         status: TerminalStatus::Closed,
         cols: 80,
         rows: 24,
+        font_size: 14,
+        cursor_style: "block".to_string(),
+        cursor_blink: true,
+        auto_name: None,
+        persistent: false,
     };
 
     reg.register(active);
@@ -843,6 +883,11 @@ fn test_registry_update_status() {
         status: TerminalStatus::Active,
         cols: 80,
         rows: 24,
+        font_size: 14,
+        cursor_style: "block".to_string(),
+        cursor_blink: true,
+        auto_name: None,
+        persistent: false,
     };
     let id = info.id;
     reg.register(info);
@@ -935,4 +980,208 @@ async fn test_double_delete_terminal() {
         .await
         .unwrap();
     assert_eq!(resp.status(), 404);
+}
+
+// ===========================================================================
+// WebSocket Reconnection & Disconnect Buffer
+// ===========================================================================
+
+#[tokio::test]
+async fn test_reconnect_within_grace_period_replays_buffer() {
+    use futures_util::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::protocol::Message;
+
+    let (base, state) = start_test_server().await;
+    let client = reqwest::Client::new();
+
+    let terminal = create_terminal(&client, &base).await;
+    let tid = terminal["id"].as_str().unwrap();
+    let tid_uuid = Uuid::parse_str(tid).unwrap();
+
+    let ws_url = base.replace("http://", "ws://") + &format!("/ws/terminal/{tid}");
+
+    // First connection: connect and disconnect to trigger the Disconnected state.
+    {
+        let (mut ws, _) = tokio_tungstenite::connect_async(&ws_url)
+            .await
+            .expect("first connect failed");
+
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        ws.send(Message::Close(None)).await.ok();
+    }
+
+    // Wait for the disconnect handler to fire and create the buffer.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // Verify status is Disconnected.
+    {
+        let registry = state.terminal_registry.read().await;
+        let info = registry.get(&tid_uuid).expect("terminal should exist");
+        assert!(
+            matches!(info.status, TerminalStatus::Disconnected { .. }),
+            "expected Disconnected status, got {:?}",
+            info.status
+        );
+    }
+
+    // Manually inject data into the disconnect buffer to avoid timing issues.
+    {
+        let mut buffers = state.disconnect_buffers.write().await;
+        if let Some(buf) = buffers.get_mut(&tid_uuid) {
+            buf.push(b"REPLAY_MARKER_DATA");
+        } else {
+            panic!("disconnect buffer should exist for terminal");
+        }
+    }
+
+    // Reconnect within the grace period.
+    {
+        let (mut ws, _) = tokio_tungstenite::connect_async(&ws_url)
+            .await
+            .expect("reconnect failed");
+
+        // The very first message(s) should include the replayed buffer content.
+        let mut all_output = String::new();
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
+        while tokio::time::Instant::now() < deadline {
+            match tokio::time::timeout(Duration::from_millis(500), ws.next()).await {
+                Ok(Some(Ok(Message::Text(text)))) => {
+                    all_output.push_str(&text);
+                    if all_output.contains("REPLAY_MARKER_DATA") {
+                        break;
+                    }
+                }
+                Ok(Some(Ok(Message::Ping(_) | Message::Pong(_)))) => continue,
+                _ => continue,
+            }
+        }
+
+        assert!(
+            all_output.contains("REPLAY_MARKER_DATA"),
+            "expected buffered output to be replayed on reconnect, got: {all_output}"
+        );
+    }
+
+    // Verify status returned to Active after reconnect.
+    {
+        let registry = state.terminal_registry.read().await;
+        let info = registry.get(&tid_uuid).expect("terminal should exist");
+        assert_eq!(
+            info.status,
+            TerminalStatus::Active,
+            "expected Active status after reconnect"
+        );
+    }
+
+    // Verify buffer was consumed (removed).
+    {
+        let buffers = state.disconnect_buffers.read().await;
+        assert!(
+            !buffers.contains_key(&tid_uuid),
+            "disconnect buffer should be consumed after reconnect"
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_disconnect_buffer_unit_bounded() {
+    // Unit test for DisconnectBuffer bounding behavior.
+    let mut buf = DisconnectBuffer::new(16);
+
+    // Push 20 bytes into a 16-byte buffer.
+    buf.push(b"01234567890123456789");
+
+    let out = buf.drain_all();
+    assert_eq!(out.len(), 16, "buffer should be capped at max_bytes");
+    // The oldest 4 bytes should have been dropped.
+    assert_eq!(&out, b"4567890123456789");
+}
+
+#[tokio::test]
+async fn test_terminal_dead_after_grace_period() {
+    use futures_util::SinkExt;
+    use tokio_tungstenite::tungstenite::protocol::Message;
+
+    // Use a short grace period for testing. We can't easily override the const,
+    // so instead we test that the status transitions to Disconnected and the
+    // terminal registry still has the terminal during the grace period.
+    let (base, state) = start_test_server().await;
+    let client = reqwest::Client::new();
+
+    let terminal = create_terminal(&client, &base).await;
+    let tid = terminal["id"].as_str().unwrap();
+    let tid_uuid = Uuid::parse_str(tid).unwrap();
+
+    let ws_url = base.replace("http://", "ws://") + &format!("/ws/terminal/{tid}");
+
+    // Connect and immediately disconnect.
+    {
+        let (mut ws, _) = tokio_tungstenite::connect_async(&ws_url)
+            .await
+            .expect("connect failed");
+        ws.send(Message::Close(None)).await.ok();
+    }
+
+    // Wait a brief moment for the disconnect handler to run.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // Terminal should be in Disconnected state.
+    {
+        let registry = state.terminal_registry.read().await;
+        let info = registry.get(&tid_uuid).expect("terminal should still exist");
+        assert!(
+            matches!(info.status, TerminalStatus::Disconnected { .. }),
+            "expected Disconnected status, got {:?}",
+            info.status
+        );
+    }
+
+    // Verify a disconnect buffer exists.
+    {
+        let buffers = state.disconnect_buffers.read().await;
+        assert!(
+            buffers.contains_key(&tid_uuid),
+            "disconnect buffer should exist during grace period"
+        );
+    }
+
+    // Wait for grace period to expire (30s + a little buffer).
+    // NOTE: This test takes ~31 seconds to run.
+    tokio::time::sleep(WS_RECONNECT_GRACE + Duration::from_secs(2)).await;
+
+    // Terminal should now be Dead.
+    {
+        let registry = state.terminal_registry.read().await;
+        let info = registry.get(&tid_uuid).expect("terminal should still be in registry");
+        assert_eq!(
+            info.status,
+            TerminalStatus::Dead,
+            "expected Dead status after grace period"
+        );
+    }
+
+    // PTY handle should be removed.
+    {
+        let handles = state.pty_handles.read().await;
+        assert!(
+            !handles.contains_key(&tid_uuid),
+            "PTY handle should be removed after grace period"
+        );
+    }
+
+    // Disconnect buffer should be cleaned up.
+    {
+        let buffers = state.disconnect_buffers.read().await;
+        assert!(
+            !buffers.contains_key(&tid_uuid),
+            "disconnect buffer should be cleaned up after grace period"
+        );
+    }
+
+    // Attempting to reconnect to a Dead terminal should fail.
+    let result = tokio_tungstenite::connect_async(&ws_url).await;
+    assert!(
+        result.is_err(),
+        "should not be able to reconnect to a Dead terminal"
+    );
 }

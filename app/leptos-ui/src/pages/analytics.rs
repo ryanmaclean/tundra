@@ -1,7 +1,11 @@
 use leptos::prelude::*;
 use leptos::task::spawn_local;
+use crate::duckdb;
+use serde::{Deserialize, Serialize};
+
 
 use crate::api;
+use crate::i18n::t;
 
 #[component]
 pub fn AnalyticsPage() -> impl IntoView {
@@ -11,6 +15,11 @@ pub fn AnalyticsPage() -> impl IntoView {
     let (error_msg, set_error_msg) = signal(Option::<String>::None);
 
     let do_refresh = move || {
+        // Initialize DuckDB WASM in the background
+        spawn_local(async move {
+            duckdb::init_duckdb().await;
+        });
+
         set_loading.set(true);
         set_error_msg.set(None);
         spawn_local(async move {
@@ -47,9 +56,9 @@ pub fn AnalyticsPage() -> impl IntoView {
 
     view! {
         <div class="page-header">
-            <h2>"Analytics"</h2>
+            <h2>{t("analytics-title")}</h2>
             <button class="refresh-btn dashboard-refresh-btn" on:click=move |_| do_refresh()>
-                "\u{21BB} Refresh"
+                {format!("\u{21BB} {}", t("btn-refresh"))}
             </button>
         </div>
 
@@ -58,7 +67,7 @@ pub fn AnalyticsPage() -> impl IntoView {
         })}
 
         {move || loading.get().then(|| view! {
-            <div class="dashboard-loading">"Loading analytics..."</div>
+            <div class="dashboard-loading">{t("status-loading")}</div>
         })}
 
         <div class="kpi-grid">

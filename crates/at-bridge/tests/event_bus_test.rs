@@ -24,7 +24,7 @@ fn test_publish_delivers_to_subscriber() {
     bus.publish(BridgeMessage::GetStatus);
 
     let msg = rx.try_recv().expect("should receive message");
-    assert!(matches!(msg, BridgeMessage::GetStatus));
+    assert!(matches!(*msg, BridgeMessage::GetStatus));
 }
 
 #[test]
@@ -36,9 +36,9 @@ fn test_publish_delivers_to_multiple_subscribers() {
 
     bus.publish(BridgeMessage::GetKpi);
 
-    assert!(matches!(rx1.try_recv().unwrap(), BridgeMessage::GetKpi));
-    assert!(matches!(rx2.try_recv().unwrap(), BridgeMessage::GetKpi));
-    assert!(matches!(rx3.try_recv().unwrap(), BridgeMessage::GetKpi));
+    assert!(matches!(*rx1.try_recv().unwrap(), BridgeMessage::GetKpi));
+    assert!(matches!(*rx2.try_recv().unwrap(), BridgeMessage::GetKpi));
+    assert!(matches!(*rx3.try_recv().unwrap(), BridgeMessage::GetKpi));
 }
 
 #[test]
@@ -66,9 +66,9 @@ fn test_multiple_messages_ordering() {
     bus.publish(BridgeMessage::GetKpi);
     bus.publish(BridgeMessage::ListAgents);
 
-    assert!(matches!(rx.try_recv().unwrap(), BridgeMessage::GetStatus));
-    assert!(matches!(rx.try_recv().unwrap(), BridgeMessage::GetKpi));
-    assert!(matches!(rx.try_recv().unwrap(), BridgeMessage::ListAgents));
+    assert!(matches!(*rx.try_recv().unwrap(), BridgeMessage::GetStatus));
+    assert!(matches!(*rx.try_recv().unwrap(), BridgeMessage::GetKpi));
+    assert!(matches!(*rx.try_recv().unwrap(), BridgeMessage::ListAgents));
 }
 
 #[test]

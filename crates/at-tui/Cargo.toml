@@ -2,10 +2,20 @@
 name = "at-tui"
 version.workspace = true
 edition.workspace = true
+publish = false
 
 [[bin]]
 name = "at-tui"
 path = "src/main.rs"
+
+[features]
+default = []
+## Enable the wgpu GPU-accelerated backend for ratatui.
+##
+## When active, the TUI renders via the GPU at ~800 fps with support for
+## custom WGSL PostProcessor shaders. Requires a GPU and a windowed
+## environment (not plain SSH).
+gpu = ["dep:ratatui-wgpu"]
 
 [dependencies]
 at-core = { path = "../at-core" }
@@ -16,5 +26,11 @@ tokio = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 chrono = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+reqwest = { workspace = true, features = ["blocking"] }
+flume = { workspace = true }
 unicode-width = "0.2"
 dirs = "6"
+tachyonfx = "0.11"
+ratatui-wgpu = { version = "0.2", optional = true }

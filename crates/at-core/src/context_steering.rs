@@ -358,6 +358,147 @@ pub struct MemoryEntry {
     pub relevance: f64,
     /// Keywords for matching.
     pub keywords: Vec<String>,
+    /// Cortex-mem L0/L1/L2 weighting for cross-session memory prioritization.
+    #[serde(default)]
+    pub weight: MemoryWeight,
+}
+
+/// Cortex-mem inspired L0/L1/L2 memory weighting.
+///
+/// Controls how memories are prioritized during context assembly:
+/// - **L0 (Core)**: Always included — project identity, critical patterns (weight ≥ 0.9)
+/// - **L1 (Active)**: Recently accessed or frequently used (weight 0.5–0.9)
+/// - **L2 (Archive)**: Old or rarely accessed — only included when budget allows (weight < 0.5)
+///
+/// Weight decays over time based on `last_accessed` and increases with `access_count`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryWeight {
+    /// Memory tier: L0 (always), L1 (active), L2 (archive).
+    pub tier: MemoryTier,
+    /// Number of times this memory was accessed across sessions.
+    pub access_count: u32,
+    /// Timestamp of last access (ISO 8601).
+    #[serde(default = "default_timestamp")]
+    pub last_accessed: String,
+    /// Timestamp of creation (ISO 8601).
+    #[serde(default = "default_timestamp")]
+    pub created_at: String,
+    /// Computed weight (0.0–1.0). Recalculated on access.
+    pub computed_weight: f64,
+}
+
+fn default_timestamp() -> String {
+    chrono::Utc::now().to_rfc3339()
+}
+
+impl Default for MemoryWeight {
+    fn default() -> Self {
+        let now = chrono::Utc::now().to_rfc3339();
+        Self {
+            tier: MemoryTier::L1,
+            access_count: 0,
+            last_accessed: now.clone(),
+            created_at: now,
+            computed_weight: 0.7,
+        }
+    }
+}
+
+impl MemoryWeight {
+    /// Create a new L0 (core) memory weight — always included.
+    pub fn core() -> Self {
+        Self {
+            tier: MemoryTier::L0,
+            computed_weight: 1.0,
+            ..Self::default()
+        }
+    }
+
+    /// Create a new L1 (active) memory weight.
+    pub fn active() -> Self {
+        Self {
+            tier: MemoryTier::L1,
+            computed_weight: 0.7,
+            ..Self::default()
+        }
+    }
+
+    /// Create a new L2 (archive) memory weight.
+    pub fn archive() -> Self {
+        Self {
+            tier: MemoryTier::L2,
+            computed_weight: 0.3,
+            ..Self::default()
+        }
+    }
+
+    /// Record an access and recalculate weight.
+    pub fn record_access(&mut self) {
+        self.access_count += 1;
+        self.last_accessed = chrono::Utc::now().to_rfc3339();
+        self.recompute();
+    }
+
+    /// Recompute the weight based on tier, recency, and frequency.
+    ///
+    /// Formula:
+    ///   weight = tier_base + frequency_bonus + recency_bonus
+    ///
+    /// - tier_base: L0=0.9, L1=0.5, L2=0.2
+    /// - frequency_bonus: min(access_count * 0.02, 0.1)  — caps at +0.1
+    /// - recency_bonus: decays from 0.1 to 0.0 over 7 days
+    pub fn recompute(&mut self) {
+        let tier_base = match self.tier {
+            MemoryTier::L0 => 0.9,
+            MemoryTier::L1 => 0.5,
+            MemoryTier::L2 => 0.2,
+        };
+
+        let frequency_bonus = (self.access_count as f64 * 0.02).min(0.1);
+
+        let recency_bonus = if let Ok(last) = chrono::DateTime::parse_from_rfc3339(&self.last_accessed) {
+            let age_hours = (chrono::Utc::now() - last.with_timezone(&chrono::Utc))
+                .num_hours()
+                .max(0) as f64;
+            let decay_hours = 7.0 * 24.0; // 7-day half-life
+            (0.1 * (-age_hours / decay_hours).exp()).max(0.0)
+        } else {
+            0.0
+        };
+
+        self.computed_weight = (tier_base + frequency_bonus + recency_bonus).min(1.0);
+
+        // Auto-promote/demote based on computed weight
+        if self.tier != MemoryTier::L0 {
+            if self.computed_weight >= 0.8 {
+                self.tier = MemoryTier::L1; // promote to active
+            } else if self.computed_weight < 0.3 {
+                self.tier = MemoryTier::L2; // demote to archive
+            }
+        }
+    }
+
+    /// Check if this memory should be included given a remaining token budget.
+    /// L0 always included, L1 when budget > 50%, L2 only when budget > 80%.
+    pub fn should_include(&self, budget_remaining_pct: f64) -> bool {
+        match self.tier {
+            MemoryTier::L0 => true,
+            MemoryTier::L1 => budget_remaining_pct > 0.3,
+            MemoryTier::L2 => budget_remaining_pct > 0.7,
+        }
+    }
+}
+
+/// Memory tier classification.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MemoryTier {
+    /// Always included — project identity, critical patterns.
+    L0,
+    /// Active — recently accessed, frequently used.
+    L1,
+    /// Archive — old or rarely accessed.
+    L2,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -420,7 +561,7 @@ impl ContextSteerer {
         self.agent_definitions = loader.load_agent_definitions();
         self.skill_definitions = loader.load_skill_definitions();
 
-        // Load MEMORY.md if present
+        // Load MEMORY.md if present — L0 core memory (always included)
         let memory_path = self.project_root.join(".claude").join("MEMORY.md");
         if let Ok(content) = std::fs::read_to_string(&memory_path) {
             self.memories.push(MemoryEntry {
@@ -428,10 +569,11 @@ impl ContextSteerer {
                 content,
                 relevance: 0.8,
                 keywords: vec!["memory".into(), "pattern".into()],
+                weight: MemoryWeight::core(),
             });
         }
 
-        // Load project-level memories from .claude/memory/
+        // Load project-level memories from .claude/memory/ — L1 active by default
         let memory_dir = self.project_root.join(".claude").join("memory");
         if let Ok(entries) = std::fs::read_dir(&memory_dir) {
             for entry in entries.flatten() {
@@ -444,6 +586,7 @@ impl ContextSteerer {
                             content,
                             relevance: 0.6,
                             keywords: vec![name.to_string()],
+                            weight: MemoryWeight::active(),
                         });
                     }
                 }
@@ -525,21 +668,38 @@ impl ContextSteerer {
             }
         }
 
-        // L2: Memories
+        // L2: Memories — filtered by cortex-mem L0/L1/L2 tier weighting
         if profile.include_memories {
+            let budget_remaining_pct = if token_budget > 0 {
+                1.0 - (total_tokens as f64 / token_budget as f64)
+            } else {
+                0.0
+            };
+
             let mut relevant_memories: Vec<&MemoryEntry> = self
                 .memories
                 .iter()
                 .filter(|m| {
-                    // Boost memories whose keywords match the phase boost keywords
+                    // First check tier-based budget gating
+                    if !m.weight.should_include(budget_remaining_pct) {
+                        return false;
+                    }
+                    // Then check keyword relevance or high relevance/weight
                     m.keywords.iter().any(|k| {
                         profile.boost_keywords.iter().any(|bk| {
                             k.contains(bk.as_str()) || bk.contains(k.as_str())
                         })
                     }) || m.relevance > 0.7
+                      || m.weight.computed_weight > 0.8
                 })
                 .collect();
-            relevant_memories.sort_by(|a, b| b.relevance.partial_cmp(&a.relevance).unwrap());
+
+            // Sort by combined weight: computed_weight (tier+recency+frequency) + relevance
+            relevant_memories.sort_by(|a, b| {
+                let score_a = a.weight.computed_weight * 0.6 + a.relevance * 0.4;
+                let score_b = b.weight.computed_weight * 0.6 + b.relevance * 0.4;
+                score_b.partial_cmp(&score_a).unwrap()
+            });
 
             for mem in relevant_memories {
                 let block = ContextBlock::new(
@@ -1046,6 +1206,7 @@ mod tests {
             content: "Last time we had a deadlock in the pool".into(),
             relevance: 0.9,
             keywords: vec!["deadlock".into(), "pool".into()],
+            weight: MemoryWeight::active(),
         });
         assert_eq!(steerer.memory_count(), 1);
     }
@@ -1061,6 +1222,7 @@ mod tests {
             content: "The project uses a monorepo with workspace crates".into(),
             relevance: 0.9,
             keywords: vec!["architecture".into(), "structure".into()],
+            weight: MemoryWeight::core(),
         });
 
         // Discovery phase includes memories
@@ -1080,6 +1242,7 @@ mod tests {
             content: "Memory content".into(),
             relevance: 0.9,
             keywords: vec!["test".into()],
+            weight: MemoryWeight::active(),
         });
 
         // Merging phase excludes memories
@@ -1152,10 +1315,94 @@ mod tests {
             content: "test event".into(),
             relevance: 0.85,
             keywords: vec!["test".into()],
+            weight: MemoryWeight::active(),
         };
         let json = serde_json::to_string(&entry).unwrap();
         let deser: MemoryEntry = serde_json::from_str(&json).unwrap();
         assert_eq!(deser.kind, MemoryKind::Episodic);
+        assert_eq!(deser.weight.tier, MemoryTier::L1);
+    }
+
+    // -- MemoryWeight (cortex-mem L0/L1/L2) --
+
+    #[test]
+    fn memory_weight_core_always_included() {
+        let w = MemoryWeight::core();
+        assert_eq!(w.tier, MemoryTier::L0);
+        assert!(w.computed_weight >= 0.9);
+        assert!(w.should_include(0.0)); // even with no budget left
+        assert!(w.should_include(0.1));
+        assert!(w.should_include(1.0));
+    }
+
+    #[test]
+    fn memory_weight_active_needs_budget() {
+        let w = MemoryWeight::active();
+        assert_eq!(w.tier, MemoryTier::L1);
+        assert!(!w.should_include(0.2)); // insufficient budget
+        assert!(w.should_include(0.5)); // enough budget
+    }
+
+    #[test]
+    fn memory_weight_archive_needs_high_budget() {
+        let w = MemoryWeight::archive();
+        assert_eq!(w.tier, MemoryTier::L2);
+        assert!(!w.should_include(0.5)); // not enough
+        assert!(w.should_include(0.8)); // enough
+    }
+
+    #[test]
+    fn memory_weight_record_access_increases_count() {
+        let mut w = MemoryWeight::active();
+        assert_eq!(w.access_count, 0);
+        w.record_access();
+        assert_eq!(w.access_count, 1);
+        w.record_access();
+        assert_eq!(w.access_count, 2);
+        // Weight should increase with access frequency
+        assert!(w.computed_weight >= 0.5);
+    }
+
+    #[test]
+    fn memory_weight_recompute_tier_base() {
+        let mut w0 = MemoryWeight::core();
+        w0.recompute();
+        assert!(w0.computed_weight >= 0.9);
+
+        let mut w1 = MemoryWeight::active();
+        w1.recompute();
+        assert!(w1.computed_weight >= 0.5);
+
+        let mut w2 = MemoryWeight::archive();
+        w2.recompute();
+        assert!(w2.computed_weight >= 0.2);
+        assert!(w2.computed_weight < 0.5);
+    }
+
+    #[test]
+    fn memory_weight_serialization_roundtrip() {
+        let w = MemoryWeight::core();
+        let json = serde_json::to_string(&w).unwrap();
+        let deser: MemoryWeight = serde_json::from_str(&json).unwrap();
+        assert_eq!(deser.tier, MemoryTier::L0);
+        assert!(deser.computed_weight >= 0.9);
+    }
+
+    #[test]
+    fn memory_tier_serialization() {
+        let tier = MemoryTier::L2;
+        let json = serde_json::to_string(&tier).unwrap();
+        assert_eq!(json, "\"l2\"");
+        let deser: MemoryTier = serde_json::from_str(&json).unwrap();
+        assert_eq!(deser, MemoryTier::L2);
+    }
+
+    #[test]
+    fn memory_weight_default_is_l1() {
+        let w = MemoryWeight::default();
+        assert_eq!(w.tier, MemoryTier::L1);
+        assert_eq!(w.access_count, 0);
+        assert!((w.computed_weight - 0.7).abs() < f64::EPSILON);
     }
 
     // -- Phase profiles --

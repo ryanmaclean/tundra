@@ -1,9 +1,17 @@
 pub mod analytics;
 pub mod agents;
 pub mod beads;
+pub mod changelog;
 pub mod config;
+pub mod context;
 pub mod convoys;
 pub mod costs;
 pub mod dashboard;
+pub mod github_issues;
+pub mod github_prs;
+pub mod ideation;
 pub mod mcp;
+pub mod roadmap;
 pub mod sessions;
+pub mod stacks;
+pub mod worktrees;

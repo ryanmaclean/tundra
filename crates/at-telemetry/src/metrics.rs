@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use ahash::AHashMap;
 use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::sync::RwLock;
 
@@ -117,18 +117,18 @@ impl Labels {
 /// registration, `Atomic*` for values).
 #[derive(Debug)]
 pub struct MetricsCollector {
-    counters: RwLock<HashMap<(String, Labels), AtomicU64>>,
-    gauges: RwLock<HashMap<String, AtomicI64>>,
-    histograms: RwLock<HashMap<String, Histogram>>,
+    counters: RwLock<AHashMap<(String, Labels), AtomicU64>>,
+    gauges: RwLock<AHashMap<String, AtomicI64>>,
+    histograms: RwLock<AHashMap<String, Histogram>>,
 }
 
 impl MetricsCollector {
     /// Create a new empty collector.
     pub fn new() -> Self {
         Self {
-            counters: RwLock::new(HashMap::new()),
-            gauges: RwLock::new(HashMap::new()),
-            histograms: RwLock::new(HashMap::new()),
+            counters: RwLock::new(AHashMap::new()),
+            gauges: RwLock::new(AHashMap::new()),
+            histograms: RwLock::new(AHashMap::new()),
         }
     }
 
@@ -240,7 +240,7 @@ impl MetricsCollector {
         {
             let map = self.counters.read().unwrap();
             // Group by metric name for TYPE header
-            let mut grouped: HashMap<&str, Vec<(&Labels, u64)>> = HashMap::new();
+            let mut grouped: AHashMap<&str, Vec<(&Labels, u64)>> = AHashMap::new();
             for ((name, labels), val) in map.iter() {
                 let v = val.load(Ordering::Relaxed);
                 grouped

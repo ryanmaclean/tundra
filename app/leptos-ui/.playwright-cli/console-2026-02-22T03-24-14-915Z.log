@@ -1,0 +1,19 @@
+[      90ms] [WARNING] The `integrity` attribute is currently ignored for preload destinations that do not support subresource integrity. See https://crbug.com/981419 for more information @ http://localhost:3001/:8
+[     131ms] Unexpected token '<'
+[     134ms] Unexpected token '<'
+[     134ms] Unexpected token '<'
+[     135ms] Unexpected token '<'
+[     144ms] [WARNING] Failed to decode downloaded font: http://localhost:3001/fonts/inter-700.woff2 @ http://localhost:3001/:0
+[     144ms] [WARNING] OTS parsing error: invalid sfntVersion: 1008813135 @ http://localhost:3001/:0
+[     144ms] [WARNING] Failed to decode downloaded font: http://localhost:3001/fonts/inter-600.woff2 @ http://localhost:3001/:0
+[     144ms] [WARNING] OTS parsing error: invalid sfntVersion: 1008813135 @ http://localhost:3001/:0
+[     144ms] [WARNING] Failed to decode downloaded font: http://localhost:3001/fonts/jetbrains-mono-500.woff2 @ http://localhost:3001/:0
+[     144ms] [WARNING] OTS parsing error: invalid sfntVersion: 1008813135 @ http://localhost:3001/:0
+[     144ms] [WARNING] Failed to decode downloaded font: http://localhost:3001/fonts/inter-400.woff2 @ http://localhost:3001/:0
+[     144ms] [WARNING] OTS parsing error: invalid sfntVersion: 1008813135 @ http://localhost:3001/:0
+[     144ms] [WARNING] Failed to decode downloaded font: http://localhost:3001/fonts/inter-500.woff2 @ http://localhost:3001/:0
+[     144ms] [WARNING] OTS parsing error: invalid sfntVersion: 1008813135 @ http://localhost:3001/:0
+[     144ms] [WARNING] Failed to decode downloaded font: http://localhost:3001/fonts/jetbrains-mono-400.woff2 @ http://localhost:3001/:0
+[     144ms] [WARNING] OTS parsing error: invalid sfntVersion: 1008813135 @ http://localhost:3001/:0
+[    2102ms] TypeError: Cannot read properties of undefined (reading 'runAllTests')
+    at http://localhost:3001/:21:38

@@ -3,11 +3,25 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
     <title>auto-tundra</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link data-trunk rel="css" href="style.css" />
 </head>
 <body>
+    <!-- Test scripts for development -->
+    <script src="/tests/test_runner.js"></script>
+    <script src="/tests/capture_helper.js"></script>
+    <script src="/tests/theme_debug.js"></script>
+    <script src="/tests/sidebar_debug.js"></script>
+    <script>
+        // Auto-run tests in development mode
+        if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+            console.log('🧪 Development mode detected - running sidebar tests...');
+            setTimeout(() => {
+                window.sidebarTester.runAllTests();
+            }, 2000);
+        }
+    </script>
     <div id="app"></div>
 </body>
 </html>

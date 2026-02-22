@@ -23,6 +23,19 @@ pub enum BridgeMessage {
     AgentOutput { agent_id: Uuid, output: String },
     Error { code: String, message: String },
     Event(EventPayload),
+    /// Real-time task update (phase change, progress, subtasks). Subscribe on /api/events/ws.
+    TaskUpdate(at_core::types::Task),
+    /// Merge completed or conflict detected on a worktree branch.
+    MergeResult {
+        worktree_id: String,
+        branch: String,
+        status: String,
+        conflict_files: Vec<String>,
+    },
+    /// Queue reordering or priority change.
+    QueueUpdate {
+        task_ids: Vec<Uuid>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

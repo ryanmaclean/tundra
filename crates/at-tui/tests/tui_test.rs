@@ -1,20 +1,14 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
 
-// We need to reference types from the binary crate.  Since at-tui is a
-// binary-only crate we re-test through the modules directly by including
-// the source as a module path.  Alternatively, the binary's modules are
-// compiled as part of the test binary via `path` in the test harness.
-//
-// For a `[[bin]]` crate without a `[lib]` section, the idiomatic approach
-// is to put unit-style tests inside the source files themselves. However,
-// the spec asks for a separate test file, so we do a small workaround:
-// we directly include the relevant modules.
-
+// We reference types from the binary crate by including modules directly.
+#[path = "../src/api_client.rs"]
+mod api_client;
+#[path = "../src/effects.rs"]
+mod effects;
+#[path = "../src/command.rs"]
+mod command;
 #[path = "../src/app.rs"]
 mod app;
-
-// We also need the tabs & widgets modules to exist for compilation,
-// but we only test App logic here.
 #[path = "../src/tabs/mod.rs"]
 mod tabs;
 #[path = "../src/widgets/mod.rs"]
@@ -35,7 +29,7 @@ fn key(code: KeyCode) -> KeyEvent {
 
 #[test]
 fn test_app_new_creates_valid_state() {
-    let app = app::App::new();
+    let app = app::App::new(true);
     assert_eq!(app.current_tab, 0);
     assert!(!app.should_quit);
     assert!(!app.show_help);
@@ -49,7 +43,7 @@ fn test_app_new_creates_valid_state() {
 
 #[test]
 fn test_tab_navigation_1_through_9() {
-    let mut app = app::App::new();
+    let mut app = app::App::new(true);
 
     for i in 1..=9u8 {
         let c = (b'0' + i) as char;
@@ -60,7 +54,7 @@ fn test_tab_navigation_1_through_9() {
 
 #[test]
 fn test_tab_next_prev() {
-    let mut app = app::App::new();
+    let mut app = app::App::new(true);
     assert_eq!(app.current_tab, 0);
 
     app.on_key(key(KeyCode::Tab));
@@ -69,9 +63,9 @@ fn test_tab_next_prev() {
     app.on_key(key(KeyCode::BackTab));
     assert_eq!(app.current_tab, 0);
 
-    // Wrap backwards
+    // Wrap backwards (17 tabs: 0..16, wraps to 16)
     app.on_key(key(KeyCode::BackTab));
-    assert_eq!(app.current_tab, 8);
+    assert_eq!(app.current_tab, app::TAB_NAMES.len() - 1);
 
     // Wrap forwards
     app.on_key(key(KeyCode::Tab));
@@ -80,8 +74,8 @@ fn test_tab_next_prev() {
 
 #[test]
 fn test_j_k_navigation() {
-    let mut app = app::App::new();
-    // Tab 1 (agents) has items
+    let mut app = app::App::new(true);
+    // Tab 2 (agents) has items
     app.on_key(key(KeyCode::Char('2')));
     assert_eq!(app.current_tab, 1);
     assert_eq!(app.selected_index, 0);
@@ -104,7 +98,7 @@ fn test_j_k_navigation() {
 
 #[test]
 fn test_quit() {
-    let mut app = app::App::new();
+    let mut app = app::App::new(true);
     assert!(!app.should_quit);
     app.on_key(key(KeyCode::Char('q')));
     assert!(app.should_quit);
@@ -112,7 +106,7 @@ fn test_quit() {
 
 #[test]
 fn test_help_toggle() {
-    let mut app = app::App::new();
+    let mut app = app::App::new(true);
     assert!(!app.show_help);
 
     app.on_key(key(KeyCode::Char('?')));
@@ -145,7 +139,10 @@ fn test_status_glyph() {
 
 #[test]
 fn test_kanban_navigation() {
-    let mut app = app::App::new();
+    let mut app = app::App::new(true);
+    // Switch to Beads tab (tab 2) for kanban navigation
+    app.on_key(key(KeyCode::Char('3')));
+    assert_eq!(app.current_tab, 2);
     assert_eq!(app.kanban_column, 0);
 
     app.on_key(key(KeyCode::Char('l')));
@@ -176,7 +173,7 @@ fn test_kanban_navigation() {
 
 #[test]
 fn test_tab_switch_resets_selected_index() {
-    let mut app = app::App::new();
+    let mut app = app::App::new(true);
     app.on_key(key(KeyCode::Char('2')));
     app.on_key(key(KeyCode::Char('j')));
     app.on_key(key(KeyCode::Char('j')));
@@ -185,4 +182,49 @@ fn test_tab_switch_resets_selected_index() {
     // Switch tab resets index
     app.on_key(key(KeyCode::Char('1')));
     assert_eq!(app.selected_index, 0);
+}
+
+#[test]
+fn test_new_tabs_exist() {
+    let app = app::App::new(true);
+    assert!(!app.worktrees.is_empty());
+    assert!(!app.github_issues.is_empty());
+    assert!(!app.github_prs.is_empty());
+    assert!(!app.roadmap_items.is_empty());
+    assert!(!app.ideas.is_empty());
+    assert!(!app.stacks.is_empty());
+    assert!(!app.changelog.is_empty());
+    assert!(!app.memory_entries.is_empty());
+}
+
+#[test]
+fn test_letter_shortcuts_for_extended_tabs() {
+    let mut app = app::App::new(true);
+
+    // R → Roadmap (tab 9)
+    app.on_key(key(KeyCode::Char('R')));
+    assert_eq!(app.current_tab, 9);
+
+    // G → GitHub Issues (tab 12)
+    app.on_key(key(KeyCode::Char('G')));
+    assert_eq!(app.current_tab, 12);
+
+    // P → GitHub PRs (tab 13)
+    app.on_key(key(KeyCode::Char('P')));
+    assert_eq!(app.current_tab, 13);
+
+    // S → Stacks (tab 14)
+    app.on_key(key(KeyCode::Char('S')));
+    assert_eq!(app.current_tab, 14);
+
+    // L → Changelog (tab 16)
+    app.on_key(key(KeyCode::Char('L')));
+    assert_eq!(app.current_tab, 16);
+}
+
+#[test]
+fn test_0_key_goes_to_tab_10() {
+    let mut app = app::App::new(true);
+    app.on_key(key(KeyCode::Char('0')));
+    assert_eq!(app.current_tab, 9);
 }

@@ -2,11 +2,13 @@
 name = "at-agents"
 version.workspace = true
 edition.workspace = true
+publish = false
 
 [dependencies]
 at-core = { path = "../at-core" }
 at-session = { path = "../at-session" }
 at-bridge = { path = "../at-bridge" }
+at-intelligence = { path = "../at-intelligence" }
 tokio = { workspace = true }
 async-trait = { workspace = true }
 tracing = { workspace = true }
@@ -20,3 +22,5 @@ flume = { workspace = true }
 [dev-dependencies]
 tokio = { workspace = true }
 tempfile = "3"
+async-trait = { workspace = true }
+flume = { workspace = true }

@@ -118,6 +118,17 @@ impl WorktreeManager {
 
     /// List all worktrees managed under `.worktrees/` in the project.
     pub fn list_worktrees(project_dir: &str) -> Result<Vec<WorktreeInfo>> {
+        #[cfg(feature = "libgit2")]
+        {
+            if let Ok(results) = Self::list_worktrees_git2(project_dir) {
+                return Ok(results);
+            }
+        }
+
+        Self::list_worktrees_shell(project_dir)
+    }
+
+    fn list_worktrees_shell(project_dir: &str) -> Result<Vec<WorktreeInfo>> {
         let output = Command::new("git")
             .args(["worktree", "list", "--porcelain"])
             .current_dir(project_dir)
@@ -169,6 +180,51 @@ impl WorktreeManager {
             }
         }
 
+        Ok(results)
+    }
+
+    #[cfg(feature = "libgit2")]
+    fn list_worktrees_git2(project_dir: &str) -> Result<Vec<WorktreeInfo>> {
+        let repo = git2::Repository::discover(project_dir)
+            .map_err(|e| WorktreeError::GitCommand(e.message().to_string()))?;
+        let names = repo
+            .worktrees()
+            .map_err(|e| WorktreeError::GitCommand(e.message().to_string()))?;
+
+        let project_canon = Path::new(project_dir)
+            .canonicalize()
+            .unwrap_or_else(|_| PathBuf::from(project_dir));
+        let worktrees_prefix = format!("{}/.worktrees/", project_canon.display());
+
+        let mut results = Vec::new();
+        for name in names.iter().flatten() {
+            let wt = match repo.find_worktree(name) {
+                Ok(w) => w,
+                Err(_) => continue,
+            };
+            let path = wt.path().display().to_string();
+            if !(path.contains("/.worktrees/") || path.starts_with(&worktrees_prefix)) {
+                continue;
+            }
+
+            let task_name = Path::new(&path)
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
+
+            let branch = crate::git2_ops::Git2ReadOps::current_branch(Path::new(&path))
+                .unwrap_or_else(|_| format!("task/{task_name}"));
+
+            results.push(WorktreeInfo {
+                path,
+                branch,
+                base_branch: String::new(),
+                task_name,
+                created_at: Utc::now(),
+            });
+        }
+
+        results.sort_by(|a, b| a.task_name.cmp(&b.task_name));
         Ok(results)
     }
 }

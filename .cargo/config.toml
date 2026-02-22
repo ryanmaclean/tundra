@@ -1,0 +1,18 @@
+# auto-tundra build configuration
+# Optimized for M-series Apple Silicon (ARM64 + NEON + AES-NI)
+
+[target.'cfg(target_arch = "aarch64")']
+rustflags = ["-C", "target-cpu=native"]
+
+[build]
+jobs = 10
+
+# Incremental compilation for faster rebuilds (enabled by default in dev, disabled in release)
+incremental = true
+
+# WASM-specific optimizations
+[target.wasm32-unknown-unknown]
+rustflags = [
+    "-C", "opt-level=s",       # Optimize for size (WASM is size-sensitive)
+    "-C", "codegen-units=1",   # Single codegen unit for better optimization
+]

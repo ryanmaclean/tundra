@@ -1,0 +1,112 @@
+# cargo-nextest configuration
+# https://nexte.st/docs/configuration/
+
+[store]
+dir = "target/nextest"
+# Persist test list for reproducible runs and faster no-op
+archive = true
+
+# ---------------------------------------------------------------------------
+# Test groups — control concurrency for resource-heavy tests
+# ---------------------------------------------------------------------------
+[test-groups]
+# Integration tests spawn HTTP servers; cap concurrency to avoid resource exhaustion
+integration = { max-threads = 6 }
+# Worktree tests use temp dirs and git; moderate concurrency
+worktree = { max-threads = 4 }
+
+# ---------------------------------------------------------------------------
+# Default profile — fast local development
+# ---------------------------------------------------------------------------
+[profile.default]
+retries = 0
+slow-warning = "20s"
+slow-timeout = { period = "90s", terminate-after = 2 }
+leak-timeout = "10s"
+status-level = "pass"
+final-status-level = "flaky"
+fail-fast = true
+test-threads = "num-cpus"
+
+[profile.default.junit]
+path = "default-junit.xml"
+store-success-output = false
+store-failure-output = true
+
+# Integration tests (spawn servers, I/O): longer timeout, rate-limited
+[[profile.default.overrides]]
+filter = 'package(at-bridge) & kind(test)'
+test-group = "integration"
+slow-timeout = { period = "120s", terminate-after = 2 }
+leak-timeout = "15s"
+
+[[profile.default.overrides]]
+filter = 'package(at-daemon) & kind(test)'
+test-group = "integration"
+slow-timeout = { period = "90s", terminate-after = 2 }
+leak-timeout = "12s"
+
+[[profile.default.overrides]]
+filter = 'package(at-core) & test(worktree)'
+test-group = "worktree"
+slow-timeout = { period = "60s", terminate-after = 2 }
+
+# ---------------------------------------------------------------------------
+# CI profile — JUnit for Datadog, retries, see all failures
+# ---------------------------------------------------------------------------
+[profile.ci]
+inherits = "default"
+retries = { backoff = "exponential", count = 2, delay = "1s", max-delay = "10s" }
+slow-warning = "15s"
+slow-timeout = { period = "60s", terminate-after = 2 }
+fail-fast = false
+
+[profile.ci.junit]
+path = "ci-junit.xml"
+store-success-output = true
+store-failure-output = true
+
+# CI: stricter overrides for integration tests
+[[profile.ci.overrides]]
+filter = 'package(at-bridge) & kind(test)'
+test-group = "integration"
+slow-timeout = { period = "90s", terminate-after = 2 }
+
+[[profile.ci.overrides]]
+filter = 'package(at-daemon) & kind(test)'
+test-group = "integration"
+slow-timeout = { period = "75s", terminate-after = 2 }
+
+# ---------------------------------------------------------------------------
+# Release profile — full validation, more retries
+# ---------------------------------------------------------------------------
+[profile.release]
+inherits = "default"
+retries = 3
+slow-warning = "10s"
+slow-timeout = { period = "45s", terminate-after = 3 }
+fail-fast = false
+final-status-level = "all"
+
+[profile.release.junit]
+path = "release-junit.xml"
+store-success-output = true
+store-failure-output = true
+
+[[profile.release.overrides]]
+filter = 'package(at-bridge) & kind(test)'
+slow-timeout = { period = "75s", terminate-after = 3 }
+
+[[profile.release.overrides]]
+filter = 'package(at-daemon) & kind(test)'
+slow-timeout = { period = "60s", terminate-after = 3 }
+
+# ---------------------------------------------------------------------------
+# Quick profile — use for fast iteration with unit tests only.
+# Run: cargo nextest run --profile quick -E 'kind(lib)'
+# ---------------------------------------------------------------------------
+[profile.quick]
+inherits = "default"
+slow-warning = "10s"
+slow-timeout = { period = "45s", terminate-after = 1 }
+fail-fast = true

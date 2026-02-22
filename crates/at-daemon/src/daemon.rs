@@ -7,11 +7,14 @@ use at_bridge::event_bus::EventBus;
 use at_bridge::http_api::ApiState;
 use at_core::cache::CacheDb;
 use at_core::config::{Config, CredentialProvider};
+use at_intelligence::ResilientRegistry;
 use tracing::{error, info, warn};
+
+use at_harness::shutdown::ShutdownSignal;
 
 use crate::heartbeat::HeartbeatMonitor;
 use crate::kpi::KpiCollector;
-use crate::patrol::PatrolRunner;
+use crate::patrol::{PatrolRunner, reap_orphan_ptys};
 use crate::scheduler::TaskScheduler;
 
 /// Configuration for daemon loop intervals.
@@ -38,14 +41,13 @@ impl Default for DaemonIntervals {
 /// The main auto-tundra background daemon.
 ///
 /// Runs patrol loops, heartbeat monitoring, and KPI snapshots on
-/// configurable intervals. Shuts down gracefully when a signal is
-/// received via the internal flume channel.
+/// configurable intervals. Shuts down gracefully when the
+/// `ShutdownSignal` is triggered (e.g. via ctrl-c or API call).
 pub struct Daemon {
     config: Config,
     cache: Arc<CacheDb>,
     intervals: DaemonIntervals,
-    shutdown_tx: flume::Sender<()>,
-    shutdown_rx: flume::Receiver<()>,
+    shutdown: ShutdownSignal,
     event_bus: EventBus,
     api_state: Arc<ApiState>,
 }
@@ -53,7 +55,7 @@ pub struct Daemon {
 impl Daemon {
     /// Create a new daemon backed by the given cache database.
     pub fn with_cache(config: Config, cache: Arc<CacheDb>) -> Self {
-        let (shutdown_tx, shutdown_rx) = flume::bounded(1);
+        let shutdown = ShutdownSignal::new();
         let intervals = DaemonIntervals {
             heartbeat_secs: config.agents.heartbeat_interval_secs,
             ..DaemonIntervals::default()
@@ -64,8 +66,7 @@ impl Daemon {
             config,
             cache,
             intervals,
-            shutdown_tx,
-            shutdown_rx,
+            shutdown,
             event_bus,
             api_state,
         }
@@ -86,13 +87,13 @@ impl Daemon {
     }
 
     /// Returns a handle that can be used to trigger shutdown from another task.
-    pub fn shutdown_handle(&self) -> flume::Sender<()> {
-        self.shutdown_tx.clone()
+    pub fn shutdown_handle(&self) -> ShutdownSignal {
+        self.shutdown.clone()
     }
 
     /// Send the shutdown signal.
     pub fn shutdown(&self) {
-        let _ = self.shutdown_tx.try_send(());
+        self.shutdown.trigger();
     }
 
     /// Returns a reference to the event bus.
@@ -105,68 +106,123 @@ impl Daemon {
         &self.api_state
     }
 
-    /// Run the main event loop.
-    ///
-    /// This drives the patrol, heartbeat, and KPI loops concurrently using
-    /// `tokio::select!`. The loop exits when a shutdown signal is received.
-    pub async fn run(&self) -> Result<()> {
-        info!(
-            patrol_secs = self.intervals.patrol_secs,
-            heartbeat_secs = self.intervals.heartbeat_secs,
-            kpi_secs = self.intervals.kpi_secs,
-            "daemon starting event loop"
-        );
+    /// Returns a reference to the config.
+    pub fn config(&self) -> &Config {
+        &self.config
+    }
 
-        // Spawn the HTTP/WS API server.
-        // Read the daemon API key from the environment (if set).
+    fn log_profile_bootstrap(&self) {
+        let reg = ResilientRegistry::from_config(&self.config);
+        let best = reg
+            .registry
+            .best_available()
+            .map(|p| format!("{} ({:?})", p.name, p.provider))
+            .unwrap_or_else(|| "none".to_string());
+        info!(
+            total_profiles = reg.count(),
+            best_profile = %best,
+            "LLM profile bootstrap complete"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // Embedded mode — for Tauri desktop app
+    // ------------------------------------------------------------------
+
+    /// Start the daemon in embedded mode (non-blocking).
+    ///
+    /// Binds the API server to `127.0.0.1:0` (OS picks a free port),
+    /// spawns background loops, and returns the bound port immediately.
+    /// The caller owns the `Daemon` and can call `shutdown()` to stop.
+    pub async fn start_embedded(&self) -> Result<u16> {
+        self.log_profile_bootstrap();
+
         let api_key = CredentialProvider::daemon_api_key();
         if api_key.is_some() {
             info!("daemon API key found — authentication enabled");
         } else {
             warn!("AUTO_TUNDRA_API_KEY not set — running without authentication (dev mode)");
         }
-        let api_router = at_bridge::http_api::api_router_with_auth(self.api_state.clone(), api_key);
-        let listener = tokio::net::TcpListener::bind("0.0.0.0:9090").await?;
+
+        // Seed demo data so the UI is functional on first launch.
+        self.api_state.seed_demo_data().await;
+
+        let api_router = at_bridge::http_api::api_router_with_auth(
+            self.api_state.clone(),
+            api_key,
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let port = listener.local_addr()?.port();
+
         tokio::spawn(async move {
             if let Err(e) = axum::serve(listener, api_router).await {
                 error!(error = %e, "API server error");
             }
         });
-        info!("API server listening on 0.0.0.0:9090");
+        info!(port, "embedded API server listening");
 
-        let patrol_runner = PatrolRunner::new(
-            self.config.agents.heartbeat_interval_secs,
-        );
+        self.spawn_background_loops();
+        Ok(port)
+    }
+
+    /// Spawn patrol, heartbeat, and KPI loops as background tasks.
+    fn spawn_background_loops(&self) {
+        let cache = self.cache.clone();
+        let api_state = self.api_state.clone();
+        let event_bus = self.event_bus.clone();
+        let config = self.config.clone();
+        let intervals = self.intervals.clone();
+        let shutdown = self.shutdown.clone();
+
+        tokio::spawn(async move {
+            Self::run_loops(cache, api_state, event_bus, config, intervals, shutdown).await;
+        });
+    }
+
+    /// The inner event loop shared by both standalone and embedded modes.
+    async fn run_loops(
+        cache: Arc<CacheDb>,
+        api_state: Arc<ApiState>,
+        event_bus: EventBus,
+        config: Config,
+        intervals: DaemonIntervals,
+        shutdown: ShutdownSignal,
+    ) {
+        let patrol_runner = PatrolRunner::new(config.agents.heartbeat_interval_secs);
         let heartbeat_monitor = HeartbeatMonitor::new(
-            Duration::from_secs(self.config.agents.heartbeat_interval_secs * 2),
+            Duration::from_secs(config.agents.heartbeat_interval_secs * 2),
         );
         let kpi_collector = KpiCollector::new();
-        let _scheduler = TaskScheduler::new();
+        let _scheduler = TaskScheduler::new(config.agents.max_concurrent);
 
         let mut patrol_interval =
-            tokio::time::interval(Duration::from_secs(self.intervals.patrol_secs));
+            tokio::time::interval(Duration::from_secs(intervals.patrol_secs));
         let mut heartbeat_interval =
-            tokio::time::interval(Duration::from_secs(self.intervals.heartbeat_secs));
+            tokio::time::interval(Duration::from_secs(intervals.heartbeat_secs));
         let mut kpi_interval =
-            tokio::time::interval(Duration::from_secs(self.intervals.kpi_secs));
+            tokio::time::interval(Duration::from_secs(intervals.kpi_secs));
 
         // Consume the first immediate tick so loops don't all fire at t=0.
         patrol_interval.tick().await;
         heartbeat_interval.tick().await;
         kpi_interval.tick().await;
 
+        let mut shutdown_rx = shutdown.subscribe();
+
         loop {
             tokio::select! {
                 _ = patrol_interval.tick() => {
-                    match patrol_runner.run_patrol(&self.cache).await {
-                        Ok(report) => {
+                    let reaped = reap_orphan_ptys(&api_state).await;
+                    match patrol_runner.run_patrol(&cache).await {
+                        Ok(mut report) => {
+                            report.orphan_ptys = reaped;
                             info!(
                                 stale_agents = report.stale_agents,
                                 stuck_beads = report.stuck_beads,
                                 orphan_ptys = report.orphan_ptys,
                                 "patrol completed"
                             );
-                            self.event_bus.publish(
+                            event_bus.publish(
                                 at_bridge::protocol::BridgeMessage::Event(
                                     at_bridge::protocol::EventPayload {
                                         event_type: "patrol_completed".to_string(),
@@ -187,7 +243,7 @@ impl Daemon {
                     }
                 }
                 _ = heartbeat_interval.tick() => {
-                    match heartbeat_monitor.check_agents(&self.cache).await {
+                    match heartbeat_monitor.check_agents(&cache).await {
                         Ok(stale) => {
                             if !stale.is_empty() {
                                 warn!(count = stale.len(), "stale agents detected");
@@ -207,7 +263,7 @@ impl Daemon {
                     }
                 }
                 _ = kpi_interval.tick() => {
-                    match kpi_collector.collect_snapshot(&self.cache).await {
+                    match kpi_collector.collect_snapshot(&cache).await {
                         Ok(snapshot) => {
                             info!(
                                 total = snapshot.total_beads,
@@ -215,12 +271,11 @@ impl Daemon {
                                 active_agents = snapshot.active_agents,
                                 "kpi snapshot collected"
                             );
-                            // Update shared KPI state for REST endpoint.
                             {
-                                let mut kpi = self.api_state.kpi.write().await;
+                                let mut kpi = api_state.kpi.write().await;
                                 *kpi = snapshot.clone();
                             }
-                            self.event_bus.publish(
+                            event_bus.publish(
                                 at_bridge::protocol::BridgeMessage::KpiUpdate(
                                     at_bridge::protocol::KpiPayload {
                                         total_beads: snapshot.total_beads,
@@ -240,13 +295,64 @@ impl Daemon {
                         }
                     }
                 }
-                _ = self.shutdown_rx.recv_async() => {
-                    info!("shutdown signal received, stopping daemon");
+                _ = shutdown_rx.recv() => {
+                    info!("shutdown signal received, stopping background loops");
                     break;
                 }
             }
         }
+    }
 
+    // ------------------------------------------------------------------
+    // Standalone mode — for headless/server use
+    // ------------------------------------------------------------------
+
+    /// Run the daemon as a standalone server (blocking).
+    ///
+    /// Binds to the port from config (default 9090), runs until shutdown.
+    pub async fn run(&self) -> Result<()> {
+        let port = self.config.daemon.port;
+        let bind_addr = format!("{}:{}", self.config.daemon.host, port);
+
+        self.log_profile_bootstrap();
+
+        info!(
+            patrol_secs = self.intervals.patrol_secs,
+            heartbeat_secs = self.intervals.heartbeat_secs,
+            kpi_secs = self.intervals.kpi_secs,
+            "daemon starting event loop"
+        );
+
+        let api_key = CredentialProvider::daemon_api_key();
+        if api_key.is_some() {
+            info!("daemon API key found — authentication enabled");
+        } else {
+            warn!("AUTO_TUNDRA_API_KEY not set — running without authentication (dev mode)");
+        }
+        // Seed demo data so the UI is functional on first launch.
+        self.api_state.seed_demo_data().await;
+
+        let api_router = at_bridge::http_api::api_router_with_auth(self.api_state.clone(), api_key);
+        let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
+        let api_handle = tokio::spawn(async move {
+            if let Err(e) = axum::serve(listener, api_router).await {
+                error!(error = %e, "API server error");
+            }
+        });
+        info!(%bind_addr, "API server listening");
+
+        // Run loops inline (blocking) for standalone mode.
+        Self::run_loops(
+            self.cache.clone(),
+            self.api_state.clone(),
+            self.event_bus.clone(),
+            self.config.clone(),
+            self.intervals.clone(),
+            self.shutdown.clone(),
+        )
+        .await;
+
+        api_handle.abort();
         info!("daemon stopped");
         Ok(())
     }

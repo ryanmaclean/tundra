@@ -1,0 +1,145 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e4] [cursor=pointer]: auto-tundra
+    - generic [ref=e5] [cursor=pointer]: +
+  - generic [ref=e6]:
+    - complementary "Main navigation" [ref=e7]:
+      - generic [ref=e8]:
+        - button "←" [ref=e9] [cursor=pointer]:
+          - generic [ref=e10]: ←
+        - generic [ref=e11]:
+          - generic [ref=e12]: AT
+          - generic [ref=e13]:
+            - generic [ref=e14]: auto-tundra
+            - generic [ref=e15]: v0.1.0
+      - navigation "Page navigation" [ref=e16]:
+        - generic [ref=e17]: Project
+        - button "Dashboard D" [ref=e18] [cursor=pointer]:
+          - img [ref=e20]
+          - generic [ref=e25]: Dashboard
+          - generic [ref=e26]: D
+        - button "Kanban Board K" [ref=e27] [cursor=pointer]:
+          - img [ref=e29]
+          - generic [ref=e33]: Kanban Board
+          - generic [ref=e34]: K
+        - button "Agent Terminals A" [ref=e35] [cursor=pointer]:
+          - img [ref=e37]
+          - generic [ref=e39]: Agent Terminals
+          - generic [ref=e40]: A
+        - button "Insights N" [ref=e41] [cursor=pointer]:
+          - img [ref=e43]
+          - generic [ref=e44]: Insights
+          - generic [ref=e45]: "N"
+        - generic [ref=e46]: Planning
+        - button "Ideation I" [ref=e47] [cursor=pointer]:
+          - img [ref=e49]
+          - generic [ref=e51]: Ideation
+          - generic [ref=e52]: I
+        - button "Roadmap R" [ref=e53] [cursor=pointer]:
+          - img [ref=e55]
+          - generic [ref=e57]: Roadmap
+          - generic [ref=e58]: R
+        - button "Changelog L" [ref=e59] [cursor=pointer]:
+          - img [ref=e61]
+          - generic [ref=e64]: Changelog
+          - generic [ref=e65]: L
+        - button "Context C" [ref=e66] [cursor=pointer]:
+          - img [ref=e68]
+          - generic [ref=e72]: Context
+          - generic [ref=e73]: C
+        - generic [ref=e74]: Infrastructure
+        - button "MCP Overview M" [ref=e75] [cursor=pointer]:
+          - img [ref=e77]
+          - generic [ref=e79]: MCP Overview
+          - generic [ref=e80]: M
+        - button "Worktrees W" [ref=e81] [cursor=pointer]:
+          - img [ref=e83]
+          - generic [ref=e87]: Worktrees
+          - generic [ref=e88]: W
+        - button "Stacks S" [ref=e89] [cursor=pointer]:
+          - img [ref=e91]
+          - generic [ref=e95]: Stacks
+          - generic [ref=e96]: S
+        - generic [ref=e97]: Integrations
+        - button "GitHub Issues G" [ref=e98] [cursor=pointer]:
+          - img [ref=e100]
+          - generic [ref=e103]: GitHub Issues
+          - generic [ref=e104]: G
+        - button "GitHub PRs P" [ref=e105] [cursor=pointer]:
+          - img [ref=e107]
+          - generic [ref=e111]: GitHub PRs
+          - generic [ref=e112]: P
+        - generic [ref=e113]: System
+        - button "Terminals T" [ref=e114] [cursor=pointer]:
+          - img [ref=e116]
+          - generic [ref=e118]: Terminals
+          - generic [ref=e119]: T
+      - generic [ref=e120]:
+        - button "New Task" [ref=e121] [cursor=pointer]:
+          - generic [ref=e122]: +
+          - generic [ref=e123]: New Task
+        - button "Claude Code" [ref=e124] [cursor=pointer]:
+          - generic [ref=e126]: Claude Code
+        - button "Settings" [ref=e127] [cursor=pointer]:
+          - generic [ref=e129]: Settings
+          - generic "Help" [ref=e130]
+    - main [ref=e131]:
+      - generic [ref=e132]:
+        - generic [ref=e133]:
+          - generic [ref=e134]: auto-tundra
+          - generic [ref=e135]: /
+          - generic [ref=e136]: Dashboard
+        - generic [ref=e137]:
+          - generic "Assigned Tasks" [ref=e138]:
+            - text: Assigned Tasks
+            - generic [ref=e139]: "3"
+          - button "Notifications" [ref=e141] [cursor=pointer]:
+            - img [ref=e143]
+          - button "Refresh" [ref=e146] [cursor=pointer]: ↻ Refresh
+          - button "Show help" [ref=e147] [cursor=pointer]: "?"
+      - generic [ref=e148]:
+        - generic [ref=e149]:
+          - heading "Dashboard" [level=2] [ref=e150]
+          - button "↻ Refresh" [ref=e151] [cursor=pointer]
+        - generic [ref=e152]: Loading...
+        - generic [ref=e153]:
+          - generic [ref=e154]:
+            - generic [ref=e155]: Beads
+            - generic [ref=e156]: "3"
+            - generic [ref=e157]: All tracked tasks
+          - generic [ref=e158]:
+            - generic [ref=e159]: Active Agents
+            - generic [ref=e160]: "2"
+            - generic [ref=e161]: Currently running
+          - generic [ref=e162]:
+            - generic [ref=e163]: Backlog
+            - generic [ref=e164]: "2"
+            - generic [ref=e165]: Awaiting work
+          - generic [ref=e166]:
+            - generic [ref=e167]: Done
+            - generic [ref=e168]: "0"
+            - generic [ref=e169]: Completed tasks
+        - generic [ref=e170]:
+          - generic [ref=e171]:
+            - generic [ref=e172]: In Progress
+            - generic [ref=e173]: "0"
+          - generic [ref=e174]:
+            - generic [ref=e175]: Failed
+            - generic [ref=e176]: "0"
+        - generic [ref=e177]:
+          - heading "System Status" [level=3] [ref=e178]
+          - generic [ref=e179]:
+            - generic [ref=e180]: Version0.1.0
+            - generic [ref=e181]: Uptime1h 0m 21s
+            - generic [ref=e182]: Agents3
+            - generic [ref=e183]: Beads20
+      - generic [ref=e184]:
+        - generic [ref=e185]:
+          - generic [ref=e186]:
+            - img [ref=e188]
+            - text: "daemon: running"
+          - generic [ref=e191]: 3 agents active | 20 beads in pipeline | uptime 01:00:21
+          - generic [ref=e192]: DEMO
+        - generic [ref=e193]:
+          - generic [ref=e194]: "uptime: 01:00:21"
+          - generic [ref=e195] [cursor=pointer]: "? help"

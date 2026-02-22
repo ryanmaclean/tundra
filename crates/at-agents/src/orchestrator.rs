@@ -379,11 +379,13 @@ impl Orchestrator {
 
     /// Add a memory from a completed session.
     pub fn add_session_memory(&mut self, content: impl Into<String>, keywords: Vec<String>) {
+        use at_core::context_steering::MemoryWeight;
         self.context_steerer.add_memory(MemoryEntry {
             kind: MemoryKind::Episodic,
             content: content.into(),
             relevance: 0.8,
             keywords,
+            weight: MemoryWeight::active(),
         });
     }
 

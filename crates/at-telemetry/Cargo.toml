@@ -2,6 +2,7 @@
 name = "at-telemetry"
 version.workspace = true
 edition.workspace = true
+publish = false
 
 [dependencies]
 tracing = { workspace = true }
@@ -13,6 +14,7 @@ chrono = { workspace = true }
 axum = { workspace = true }
 tower = { workspace = true }
 tokio = { workspace = true }
+ahash = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }

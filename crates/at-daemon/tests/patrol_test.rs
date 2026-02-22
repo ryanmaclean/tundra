@@ -1,7 +1,13 @@
+use std::sync::Arc;
+
+use at_bridge::event_bus::EventBus;
+use at_bridge::http_api::ApiState;
+use at_bridge::terminal::{TerminalInfo, TerminalStatus};
 use at_core::cache::CacheDb;
 use at_core::types::{Bead, BeadStatus, Lane};
-use at_daemon::patrol::PatrolRunner;
+use at_daemon::patrol::{PatrolRunner, reap_orphan_ptys};
 use chrono::{Duration, Utc};
+use uuid::Uuid;
 
 #[tokio::test]
 async fn patrol_empty_cache_returns_clean_report() {
@@ -51,4 +57,91 @@ async fn patrol_ignores_non_slung_beads() {
     let report = runner.run_patrol(&cache).await.expect("patrol should succeed");
 
     assert_eq!(report.stuck_beads, 0);
+}
+
+// ---------------------------------------------------------------------------
+// Orphan PTY reaper tests
+// ---------------------------------------------------------------------------
+
+fn make_test_terminal(status: TerminalStatus) -> TerminalInfo {
+    TerminalInfo {
+        id: Uuid::new_v4(),
+        agent_id: Uuid::new_v4(),
+        title: "test terminal".to_string(),
+        status,
+        cols: 80,
+        rows: 24,
+        font_size: 14,
+        cursor_style: "block".to_string(),
+        cursor_blink: true,
+        auto_name: None,
+        persistent: false,
+    }
+}
+
+#[tokio::test]
+async fn reap_orphan_ptys_empty_state_returns_zero() {
+    let state = Arc::new(ApiState::new(EventBus::new()));
+    let reaped = reap_orphan_ptys(&state).await;
+    assert_eq!(reaped, 0);
+}
+
+#[tokio::test]
+async fn reap_orphan_ptys_detects_terminal_without_pty_handle() {
+    let state = Arc::new(ApiState::new(EventBus::new()));
+
+    // Register a terminal but do NOT insert a corresponding PTY handle.
+    let info = make_test_terminal(TerminalStatus::Active);
+    let tid = info.id;
+    {
+        let mut registry = state.terminal_registry.write().await;
+        registry.register(info);
+    }
+
+    // The terminal has no PTY handle, so it should be considered an orphan.
+    let reaped = reap_orphan_ptys(&state).await;
+    assert_eq!(reaped, 1);
+
+    // After reaping, the terminal should be removed from the registry.
+    {
+        let registry = state.terminal_registry.read().await;
+        assert!(registry.get(&tid).is_none());
+    }
+}
+
+#[tokio::test]
+async fn reap_orphan_ptys_multiple_orphans() {
+    let state = Arc::new(ApiState::new(EventBus::new()));
+
+    // Register three terminals, none with PTY handles.
+    for _ in 0..3 {
+        let info = make_test_terminal(TerminalStatus::Active);
+        let mut registry = state.terminal_registry.write().await;
+        registry.register(info);
+    }
+
+    let reaped = reap_orphan_ptys(&state).await;
+    assert_eq!(reaped, 3);
+
+    // All should be removed.
+    let registry = state.terminal_registry.read().await;
+    assert!(registry.list().is_empty());
+}
+
+#[tokio::test]
+async fn reap_orphan_ptys_idempotent_on_second_call() {
+    let state = Arc::new(ApiState::new(EventBus::new()));
+
+    let info = make_test_terminal(TerminalStatus::Active);
+    {
+        let mut registry = state.terminal_registry.write().await;
+        registry.register(info);
+    }
+
+    let first = reap_orphan_ptys(&state).await;
+    assert_eq!(first, 1);
+
+    // Second call should find nothing.
+    let second = reap_orphan_ptys(&state).await;
+    assert_eq!(second, 0);
 }

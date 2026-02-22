@@ -1,13 +1,13 @@
+use crate::components::terminal_view::TerminalView;
+use crate::i18n::t;
 use leptos::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::cell::RefCell;
-use std::rc::Rc;
-use wasm_bindgen::prelude::*;
+
+use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
-use web_sys::{MessageEvent, Request, RequestInit, Response, WebSocket};
+use web_sys::{Request, RequestInit, Response};
 
 const API_BASE: &str = "http://localhost:9090";
-const WS_BASE: &str = "ws://localhost:9090";
 
 // ---------------------------------------------------------------------------
 // API types
@@ -20,7 +20,21 @@ pub struct TerminalInfo {
     pub status: String,
     pub cols: u16,
     pub rows: u16,
+    #[serde(default = "default_font_size")]
+    pub font_size: u16,
+    #[serde(default = "default_cursor_style")]
+    pub cursor_style: String,
+    #[serde(default = "default_cursor_blink")]
+    pub cursor_blink: bool,
+    #[serde(default)]
+    pub auto_name: Option<String>,
+    #[serde(default)]
+    pub persistent: bool,
 }
+
+fn default_font_size() -> u16 { 14 }
+fn default_cursor_style() -> String { "block".to_string() }
+fn default_cursor_blink() -> bool { true }
 
 // ---------------------------------------------------------------------------
 // API helpers
@@ -82,137 +96,31 @@ async fn api_delete_terminal(id: &str) -> Result<(), String> {
 }
 
 // ---------------------------------------------------------------------------
-// Terminal Panel Component
+// Layout enum
 // ---------------------------------------------------------------------------
 
-#[component]
-fn TerminalPanel(
-    info: TerminalInfo,
-    on_close: Callback<String>,
-) -> impl IntoView {
-    let terminal_id = info.id.clone();
-    let terminal_id_for_close = info.id.clone();
-    let terminal_title = info.title.clone();
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GridLayout {
+    Single,
+    Double,
+    Quad,
+}
 
-    let (output, set_output) = signal(String::new());
-    let (connected, set_connected) = signal(false);
-    let (input_value, set_input_value) = signal(String::new());
-
-    // Use Rc<RefCell<>> for the WebSocket since JsValue is not Send+Sync.
-    let ws_ref: Rc<RefCell<Option<WebSocket>>> = Rc::new(RefCell::new(None));
-    let ws_ref_for_send = ws_ref.clone();
-
-    // Connect WebSocket.
-    let tid = terminal_id.clone();
-    Effect::new(move |_| {
-        let ws_url = format!("{WS_BASE}/ws/terminal/{tid}");
-        let ws = match WebSocket::new(&ws_url) {
-            Ok(ws) => ws,
-            Err(e) => {
-                set_output.update(|o| {
-                    o.push_str(&format!("[error] Failed to connect: {e:?}\r\n"));
-                });
-                return;
-            }
-        };
-
-        // On open.
-        let set_connected_clone = set_connected;
-        let on_open = Closure::<dyn FnMut()>::new(move || {
-            set_connected_clone.set(true);
-        });
-        ws.set_onopen(Some(on_open.as_ref().unchecked_ref()));
-        on_open.forget();
-
-        // On message.
-        let set_output_clone = set_output;
-        let on_message = Closure::<dyn FnMut(MessageEvent)>::new(move |e: MessageEvent| {
-            if let Ok(text) = e.data().dyn_into::<js_sys::JsString>() {
-                let text: String = text.into();
-                set_output_clone.update(|o| {
-                    o.push_str(&text);
-                    // Keep buffer from growing too large.
-                    if o.len() > 100_000 {
-                        let start = o.len() - 80_000;
-                        *o = o[start..].to_string();
-                    }
-                });
-            }
-        });
-        ws.set_onmessage(Some(on_message.as_ref().unchecked_ref()));
-        on_message.forget();
-
-        // On close.
-        let set_connected_close = set_connected;
-        let on_close = Closure::<dyn FnMut()>::new(move || {
-            set_connected_close.set(false);
-        });
-        ws.set_onclose(Some(on_close.as_ref().unchecked_ref()));
-        on_close.forget();
-
-        *ws_ref.borrow_mut() = Some(ws);
-    });
-
-    // Send input handler.
-    let send_input = move || {
-        let value = input_value.get_untracked();
-        if value.is_empty() {
-            return;
+impl GridLayout {
+    fn css_class(self) -> &'static str {
+        match self {
+            GridLayout::Single => "layout-1",
+            GridLayout::Double => "layout-2",
+            GridLayout::Quad => "layout-4",
         }
-        if let Some(ws) = ws_ref_for_send.borrow().as_ref() {
-            let msg = serde_json::json!({"type": "input", "data": format!("{}\n", value)});
-            let _ = ws.send_with_str(&msg.to_string());
+    }
+
+    fn max_panes(self) -> usize {
+        match self {
+            GridLayout::Single => 1,
+            GridLayout::Double => 2,
+            GridLayout::Quad => 4,
         }
-        set_input_value.set(String::new());
-    };
-
-    let send_input_clone = send_input.clone();
-
-    // Auto-scroll effect.
-    let output_ref = NodeRef::<leptos::html::Pre>::new();
-    Effect::new(move |_| {
-        let _ = output.get();
-        if let Some(el) = output_ref.get() {
-            let el: &web_sys::HtmlElement = &el;
-            el.set_scroll_top(el.scroll_height());
-        }
-    });
-
-    view! {
-        <div class="terminal-panel">
-            <div class="terminal-header">
-                <span class="terminal-title">{terminal_title}</span>
-                <span class="terminal-status" class:connected=connected>
-                    {move || if connected.get() { "connected" } else { "disconnected" }}
-                </span>
-                <button
-                    class="terminal-close-btn"
-                    on:click=move |_| on_close.run(terminal_id_for_close.clone())
-                >
-                    "\u{2715}"
-                </button>
-            </div>
-            <pre class="terminal-output" node_ref=output_ref>
-                {move || output.get()}
-            </pre>
-            <div class="terminal-input-row">
-                <span class="terminal-prompt">"$ "</span>
-                <input
-                    class="terminal-input"
-                    type="text"
-                    placeholder="Type a command..."
-                    prop:value=input_value
-                    on:input=move |ev| {
-                        set_input_value.set(event_target_value(&ev));
-                    }
-                    on:keydown=move |ev| {
-                        if ev.key() == "Enter" {
-                            send_input_clone();
-                        }
-                    }
-                />
-            </div>
-        </div>
     }
 }
 
@@ -223,7 +131,7 @@ fn TerminalPanel(
 #[component]
 pub fn TerminalsPage() -> impl IntoView {
     let (terminals, set_terminals) = signal(Vec::<TerminalInfo>::new());
-    let (_maximized, _set_maximized) = signal(None::<String>);
+    let (layout, set_layout) = signal(GridLayout::Double);
     let (error_msg, set_error_msg) = signal(None::<String>);
 
     // Load terminals on mount.
@@ -249,7 +157,7 @@ pub fn TerminalsPage() -> impl IntoView {
         });
     };
 
-    // Close terminal handler.
+    // Close single terminal.
     let close_terminal = Callback::new(move |id: String| {
         let id_clone = id.clone();
         wasm_bindgen_futures::spawn_local(async move {
@@ -258,44 +166,102 @@ pub fn TerminalsPage() -> impl IntoView {
         set_terminals.update(|list| list.retain(|t| t.id != id));
     });
 
+    // Kill all terminals.
+    let kill_all = move |_| {
+        let current = terminals.get_untracked();
+        for t in &current {
+            let id = t.id.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let _ = api_delete_terminal(&id).await;
+            });
+        }
+        set_terminals.set(Vec::new());
+    };
+
     let terminal_count = move || terminals.get().len();
 
     view! {
         <div class="page-header">
-            <h2>"Terminals"</h2>
+            <h2>{t("terminals-title")}</h2>
             <div class="page-header-actions">
                 <span class="terminal-count">
-                    {move || format!("{}/4 terminals", terminal_count())}
+                    {move || {
+                        let max = layout.get().max_panes();
+                        format!("{}/{} terminals", terminal_count(), max)
+                    }}
                 </span>
                 <button
                     class="new-terminal-btn"
                     on:click=create_terminal
-                    disabled=move || terminal_count() >= 4
+                    disabled=move || terminal_count() >= layout.get().max_panes()
                 >
-                    "+ New Terminal"
+                    {format!("+ {}", t("terminals-new"))}
                 </button>
             </div>
+        </div>
+
+        // Toolbar with layout selector and kill all.
+        <div class="terminal-toolbar">
+            <button
+                class=move || if layout.get() == GridLayout::Single { "layout-btn active" } else { "layout-btn" }
+                on:click=move |_| set_layout.set(GridLayout::Single)
+            >
+                {t("terminals-layout-single")}
+            </button>
+            <button
+                class=move || if layout.get() == GridLayout::Double { "layout-btn active" } else { "layout-btn" }
+                on:click=move |_| set_layout.set(GridLayout::Double)
+            >
+                {t("terminals-layout-double")}
+            </button>
+            <button
+                class=move || if layout.get() == GridLayout::Quad { "layout-btn active" } else { "layout-btn" }
+                on:click=move |_| set_layout.set(GridLayout::Quad)
+            >
+                {t("terminals-layout-quad")}
+            </button>
+            <div style="flex: 1;"></div>
+            <button
+                class="kill-all-btn"
+                on:click=kill_all
+                disabled=move || terminal_count() == 0
+            >
+                {t("terminals-kill-all")}
+            </button>
         </div>
 
         {move || error_msg.get().map(|msg| view! {
             <div class="terminal-error">{msg}</div>
         })}
 
-        <div class="terminal-grid">
-            {move || terminals.get().into_iter().map(|info| {
-                let on_close = close_terminal.clone();
-                view! {
-                    <TerminalPanel
-                        info=info
-                        on_close=on_close
-                    />
+        <div class=move || format!("terminal-grid {}", layout.get().css_class())>
+            <For
+                each=move || terminals.get()
+                key=|info| info.id.clone()
+                let:info
+            >
+                {
+                    let on_close = close_terminal.clone();
+                    let tid = info.id.clone();
+                    let title = info.title.clone();
+                    let c = info.cols as u32;
+                    let r = info.rows as u32;
+                    view! {
+                        <TerminalView
+                            terminal_id=tid
+                            terminal_title=title
+                            cols=c
+                            rows=r
+                            on_close=on_close
+                        />
+                    }
                 }
-            }).collect::<Vec<_>>()}
+            </For>
         </div>
 
         {move || terminals.get().is_empty().then(|| view! {
             <div class="terminal-empty">
-                <div class="terminal-empty-icon">"\u{1F5A5}\u{FE0F}"</div>
+                <div class="terminal-empty-icon">{"\u{1F5A5}\u{FE0F}"}</div>
                 <div class="terminal-empty-text">"No terminals running"</div>
                 <div class="terminal-empty-hint">"Click \"+ New Terminal\" to start a shell session"</div>
             </div>

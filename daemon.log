@@ -1,0 +1,13 @@
+warning: profile package spec `at-leptos-ui` in profile `release` did not match any packages
+    Finished `dev` profile [optimized + debuginfo] target(s) in 1.01s
+     Running `target/debug/at-daemon`
+[2m2026-02-22T04:04:34.516045Z[0m [32m INFO[0m [2mat_telemetry::logging[0m[2m:[0m [2mcrates/at-telemetry/src/logging.rs[0m[2m:[0m[2m23:[0m logging initialised (human-readable) [3mservice[0m[2m=[0m"at-daemon"
+[2m2026-02-22T04:04:34.516124Z[0m [32m INFO[0m [2mat_daemon[0m[2m:[0m [2mcrates/at-daemon/src/main.rs[0m[2m:[0m[2m16:[0m auto-tundra daemon starting
+[2m2026-02-22T04:04:34.517131Z[0m [32m INFO[0m [2mat_daemon[0m[2m:[0m [2mcrates/at-daemon/src/main.rs[0m[2m:[0m[2m120:[0m found frontend dist directory [3mpath[0m[2m=[0mapp/leptos-ui/dist
+[2m2026-02-22T04:04:34.517936Z[0m [32m INFO[0m [2mat_daemon[0m[2m:[0m [2mcrates/at-daemon/src/main.rs[0m[2m:[0m[2m105:[0m frontend server listening on http://localhost:3001
+[2m2026-02-22T04:04:34.519331Z[0m [32m INFO[0m [2mat_daemon[0m[2m:[0m [2mcrates/at-daemon/src/main.rs[0m[2m:[0m[2m58:[0m dashboard: http://localhost:3001
+[2m2026-02-22T04:04:34.519338Z[0m [32m INFO[0m [2mat_daemon[0m[2m:[0m [2mcrates/at-daemon/src/main.rs[0m[2m:[0m[2m59:[0m API server: http://localhost:9090
+[2m2026-02-22T04:04:34.519381Z[0m [32m INFO[0m [2mat_daemon::daemon[0m[2m:[0m [2mcrates/at-daemon/src/daemon.rs[0m[2m:[0m[2m121:[0m LLM profile bootstrap complete [3mtotal_profiles[0m[2m=[0m3 [3mbest_profile[0m[2m=[0mlocal-runtime (Local)
+[2m2026-02-22T04:04:34.519400Z[0m [32m INFO[0m [2mat_daemon::daemon[0m[2m:[0m [2mcrates/at-daemon/src/daemon.rs[0m[2m:[0m[2m319:[0m daemon starting event loop [3mpatrol_secs[0m[2m=[0m60 [3mheartbeat_secs[0m[2m=[0m30 [3mkpi_secs[0m[2m=[0m300
+[2m2026-02-22T04:04:34.519417Z[0m [33m WARN[0m [2mat_daemon::daemon[0m[2m:[0m [2mcrates/at-daemon/src/daemon.rs[0m[2m:[0m[2m330:[0m AUTO_TUNDRA_API_KEY not set — running without authentication (dev mode)
+[2m2026-02-22T04:04:34.520157Z[0m [32m INFO[0m [2mat_daemon::daemon[0m[2m:[0m [2mcrates/at-daemon/src/daemon.rs[0m[2m:[0m[2m342:[0m API server listening [3mbind_addr[0m[2m=[0m127.0.0.1:9090

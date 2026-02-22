@@ -274,6 +274,22 @@ at-bridge/
 └── sse.rs                # SSE event stream (for web UI live updates)
 ```
 
+#### Current state (2026-02) — actual modules vs design
+
+| Crate | Design (above) | Actual modules |
+|-------|----------------|----------------|
+| **at-core** | beads, convoy, agent_model, lanes, mail, hooks, dolt, cache | types, cache, config, context_engine, context_steering, session_store, settings, worktree, worktree_manager. Task-centric types; no Dolt/beads/convoy yet. |
+| **at-harness** | providers/, agents/, circuit_breaker, rate_limiter, security, memory | provider (LlmProvider trait), circuit_breaker, rate_limiter, security, mcp, shutdown, trace_ctx. LLM and routing live in at-intelligence. |
+| **at-intelligence** | (not in original design) | api_profiles, changelog, cost_tracker, ideation, insights, llm, memory, model_router, roadmap, runner, spec, token_cache. Spec pipeline, runners, API profiles, LETS metrics. |
+| **at-session** | pty_pool, terminal, expect, zellij_sidecar, mux, context_bridge, cli_adapters/ | pty_pool, cli_adapter, session. Zellij/mux/context_bridge not yet. |
+| **at-agents** | mayor, deacon, witness, refinery, polecat, crew, supervisor | state_machine, lifecycle, roles, supervisor, task_runner, executor, profiles, approval, registry, prompts. Roles: Mayor, Deacon, Witness, Refinery, Polecat, Crew + Spec, QA, Build, Utility, Ideation. |
+| **at-daemon** | daemon, patrol, heartbeat, metrics, kpi, cleanup | daemon, heartbeat, kpi, patrol, scheduler, orchestrator. |
+| **at-bridge** | kafka, webhook, sse | auth, event_bus, http_api, intelligence_api, ipc, notifications, protocol, terminal, terminal_ws. Full HTTP/WebSocket API; kafka not yet. |
+| **at-integrations** | (not in original design) | github, types. |
+| **at-telemetry** | otel, spans, business_metrics, kpi, openlineage, logging | logging, metrics, middleware, tracing_setup. |
+
+Persistence: config/settings to TOML on disk; credentials from env only. See `AGENTS.md` for team ownership and context-steering (AGENTS.md, SKILL.md, todo.md).
+
 ### 4.3 Tauri Backend
 
 ```

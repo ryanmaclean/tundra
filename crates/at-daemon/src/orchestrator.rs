@@ -12,6 +12,8 @@ use uuid::Uuid;
 use at_agents::executor::AgentExecutor;
 use at_agents::profiles::AgentConfig;
 use at_core::worktree_manager::{MergeResult, WorktreeManager};
+use at_intelligence::runner::{QaRunner, SpecRunner};
+use at_intelligence::spec::{PhaseMetrics, PhaseResult, PhaseStatus, SpecPhase};
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -161,6 +163,50 @@ impl TaskOrchestrator {
                 continue;
             }
 
+            // SpecCreation: run spec pipeline (at-intelligence SpecRunner) and persist phase results to task logs
+            if *phase == TaskPhase::SpecCreation {
+                run_spec_pipeline_for_task(task);
+                task.log(
+                    TaskLogType::PhaseEnd,
+                    format!("Completed phase: {phase:?}"),
+                );
+                self.publish_event(task, &format!("phase_end:{phase:?}"));
+                continue;
+            }
+
+            // QA phase: run QA checks (at-intelligence QaRunner) and attach QaReport to task
+            if *phase == TaskPhase::Qa {
+                let mut qa_runner = QaRunner::new();
+                let report = qa_runner.run_qa_checks(
+                    task.id,
+                    &task.title,
+                    task.worktree_path.as_deref(),
+                );
+                task.qa_report = Some(report.clone());
+                task.log(
+                    TaskLogType::Info,
+                    format!("QA report generated: {:?} with {} issues", report.status, report.issues.len()),
+                );
+                for issue in &report.issues {
+                    task.log(
+                        TaskLogType::Info,
+                        format!("QA issue: {:?} - {}", issue.severity, issue.description),
+                    );
+                }
+                // Advance phase based on QA status
+                let next_phase = report.next_phase();
+                task.set_phase(next_phase.clone());
+                task.log(
+                    TaskLogType::PhaseEnd,
+                    format!("QA phase completed, advancing to: {:?}", next_phase),
+                );
+                self.publish_event(task, &format!("phase_end:{phase:?}"));
+                // If QA passed, continue to Merging; if failed, go to Fixing
+                if next_phase == TaskPhase::Merging || next_phase == TaskPhase::Fixing {
+                    continue; // Skip the normal executor path
+                }
+            }
+
             // Build prompt and execute via agent
             let prompt = self.build_prompt_for_phase(task, phase.clone());
             let config = AgentConfig::default_for_phase(
@@ -174,6 +220,46 @@ impl TaskOrchestrator {
 
             match self.executor.execute_task(&exec_task, &config).await {
                 Ok(result) => {
+                    // A2: Collect executor events/output/tool_errors into task logs
+                    if !result.events.is_empty() {
+                        task.log(
+                            TaskLogType::Info,
+                            format!("Collected {} structured events", result.events.len()),
+                        );
+                        for event in &result.events {
+                            task.log(
+                                TaskLogType::Info,
+                                format!("Event: {} - {}", event.event_type, event.message),
+                            );
+                        }
+                    }
+                    if !result.output.is_empty() {
+                        // Log output in chunks if it's large
+                        let output_preview = if result.output.len() > 1000 {
+                            format!("{}... (truncated, {} bytes total)", &result.output[..1000], result.output.len())
+                        } else {
+                            result.output.clone()
+                        };
+                        task.log(TaskLogType::Info, format!("Agent output:\n{}", output_preview));
+                    }
+                    if !result.tool_errors.is_empty() {
+                        warn!(
+                            task_id = %task.id,
+                            tool_error_count = result.tool_errors.len(),
+                            "tool use errors detected"
+                        );
+                        for tool_err in &result.tool_errors {
+                            task.log(
+                                TaskLogType::Error,
+                                format!("Tool error: {} - {}", tool_err.tool_name, tool_err.error_message),
+                            );
+                        }
+                    }
+                    task.log(
+                        TaskLogType::Info,
+                        format!("Execution duration: {}ms", result.duration_ms),
+                    );
+
                     if !result.success {
                         warn!(
                             task_id = %task.id,
@@ -313,6 +399,38 @@ impl TaskOrchestrator {
             timestamp: Utc::now(),
         }));
     }
+}
+
+/// Run the spec pipeline (SpecRunner) for the task and persist phase results to task logs.
+fn run_spec_pipeline_for_task(task: &mut Task) {
+    let title = task.title.clone();
+    let mut runner = SpecRunner::new();
+    let phases = [
+        SpecPhase::Discovery,
+        SpecPhase::Requirements,
+        SpecPhase::Writing,
+        SpecPhase::Critique,
+        SpecPhase::Validation,
+    ];
+    for spec_phase in &phases {
+        let result = PhaseResult {
+            id: Uuid::new_v4(),
+            phase: *spec_phase,
+            status: PhaseStatus::Complete,
+            content: format!("[{}] Placeholder output for task: {}", spec_phase.label(), title),
+            artifacts: vec![],
+            metrics: PhaseMetrics::default(),
+            created_at: Utc::now(),
+        };
+        runner.record_result(result);
+    }
+    let combined: String = runner
+        .results()
+        .iter()
+        .map(|r| r.content.as_str())
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    task.log(TaskLogType::Info, format!("Spec pipeline completed.\n{combined}"));
 }
 
 /// Sanitize a task title for branch/directory naming.
@@ -551,8 +669,8 @@ mod tests {
         // Collect all published events
         let mut event_types = Vec::new();
         while let Ok(msg) = rx.try_recv() {
-            if let BridgeMessage::Event(payload) = msg {
-                event_types.push(payload.event_type);
+            if let BridgeMessage::Event(payload) = &*msg {
+                event_types.push(payload.event_type.clone());
             }
         }
 

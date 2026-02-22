@@ -2,6 +2,7 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 
 use crate::api;
+use crate::i18n::t;
 
 #[component]
 pub fn SessionsPage() -> impl IntoView {
@@ -34,9 +35,9 @@ pub fn SessionsPage() -> impl IntoView {
 
     view! {
         <div class="page-header">
-            <h2>"Sessions"</h2>
+            <h2>{t("nav-sessions")}</h2>
             <button class="refresh-btn dashboard-refresh-btn" on:click=move |_| do_refresh()>
-                "\u{21BB} Refresh"
+                {format!("\u{21BB} {}", t("btn-refresh"))}
             </button>
         </div>
 
@@ -45,7 +46,7 @@ pub fn SessionsPage() -> impl IntoView {
         })}
 
         {move || loading.get().then(|| view! {
-            <div class="dashboard-loading">"Loading sessions..."</div>
+            <div class="dashboard-loading">{t("status-loading")}</div>
         })}
 
         <table class="data-table">
@@ -64,7 +65,7 @@ pub fn SessionsPage() -> impl IntoView {
                     let status = s.status.clone();
                     let scls = status_class(&status);
                     let is_active = status == "active" || status == "running";
-                    let sid = s.id.clone();
+                    let _sid = s.id.clone();
                     view! {
                         <tr>
                             <td><code>{s.id}</code></td>
@@ -74,12 +75,16 @@ pub fn SessionsPage() -> impl IntoView {
                             <td>{s.duration}</td>
                             <td>
                                 {is_active.then(move || view! {
-                                    <a
+                                    <button
                                         class="action-btn action-start"
-                                        href={format!("#/terminals/{}", sid)}
+                                        on:click=move |_| {
+                                            if let Some(window) = web_sys::window() {
+                                                let _ = window.location().set_hash("terminals");
+                                            }
+                                        }
                                     >
                                         "View Terminal"
-                                    </a>
+                                    </button>
                                 })}
                             </td>
                         </tr>
@@ -89,7 +94,7 @@ pub fn SessionsPage() -> impl IntoView {
         </table>
 
         {move || (!loading.get() && sessions.get().is_empty() && error_msg.get().is_none()).then(|| view! {
-            <div class="dashboard-loading">"No sessions found."</div>
+            <div class="dashboard-loading">{t("status-empty")}</div>
         })}
     }
 }

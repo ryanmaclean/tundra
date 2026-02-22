@@ -2,10 +2,114 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 
 use crate::api;
+use crate::i18n::t;
+
+// ---------------------------------------------------------------------------
+// Layout enum (mirrors terminals page)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GridLayout {
+    Single,
+    Double,
+    Quad,
+}
+
+impl GridLayout {
+    fn css_class(self) -> &'static str {
+        match self {
+            GridLayout::Single => "layout-1",
+            GridLayout::Double => "layout-2",
+            GridLayout::Quad => "layout-4",
+        }
+    }
+
+    fn max_panes(self) -> usize {
+        match self {
+            GridLayout::Single => 1,
+            GridLayout::Double => 2,
+            GridLayout::Quad => 4,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Mock terminal output based on agent role
+// ---------------------------------------------------------------------------
+
+fn mock_terminal_output(role: &str, name: &str) -> String {
+    match role {
+        "coder" | "Coder" | "coding" => format!(
+            "$ claude --role coder --task implement\n\
+             [{name}] Analyzing codebase structure...\n\
+             [{name}] Reading src/lib.rs (245 lines)\n\
+             [{name}] Applying patch to src/handlers.rs\n\
+             [{name}]   + pub fn handle_request(req: Request) -> Response {{\n\
+             [{name}]   +     let body = req.body();\n\
+             [{name}]   +     Response::ok(body)\n\
+             [{name}]   + }}\n\
+             [{name}] Running cargo check... OK\n\
+             [{name}] 1 file changed, 4 insertions(+)"
+        ),
+        "qa" | "QA" | "reviewer" | "Reviewer" => format!(
+            "$ claude --role qa --task review\n\
+             [{name}] Starting code review pass...\n\
+             [{name}] Checking src/handlers.rs\n\
+             [{name}]   WARN: missing error handling on line 42\n\
+             [{name}]   INFO: function complexity OK (cyclomatic: 3)\n\
+             [{name}]   PASS: no unsafe blocks found\n\
+             [{name}] Checking tests/integration.rs\n\
+             [{name}]   INFO: 12/12 test cases covered\n\
+             [{name}] Review complete: 1 warning, 0 errors"
+        ),
+        "architect" | "Architect" | "planning" => format!(
+            "$ claude --role architect --task plan\n\
+             [{name}] Evaluating architecture constraints...\n\
+             [{name}] Module graph: 8 crates, 23 dependencies\n\
+             [{name}] Identifying coupling hotspots...\n\
+             [{name}]   at-core <-> at-bridge: 14 shared types\n\
+             [{name}]   at-agents -> at-intelligence: 6 calls\n\
+             [{name}] Suggested refactor: extract shared types to at-types\n\
+             [{name}] Generating design document..."
+        ),
+        "ops" | "Ops" | "devops" | "DevOps" => format!(
+            "$ claude --role ops --task deploy\n\
+             [{name}] Checking deployment prerequisites...\n\
+             [{name}] Building release artifacts...\n\
+             [{name}]   cargo build --release (2m 14s)\n\
+             [{name}] Running health checks...\n\
+             [{name}]   /health -> 200 OK (12ms)\n\
+             [{name}]   /ready  -> 200 OK (8ms)\n\
+             [{name}] Deployment staged. Awaiting approval."
+        ),
+        _ => format!(
+            "$ claude --role {role}\n\
+             [{name}] Agent initialized\n\
+             [{name}] Loading context...\n\
+             [{name}] Processing task queue...\n\
+             [{name}] Waiting for instructions..."
+        ),
+    }
+}
+
+fn status_dot_class(status: &str) -> &'static str {
+    match status {
+        "active" | "running" => "agent-status-dot dot-active",
+        "idle" => "agent-status-dot dot-idle",
+        "pending" | "starting" => "agent-status-dot dot-pending",
+        "stopped" | "dead" => "agent-status-dot dot-stopped",
+        _ => "agent-status-dot dot-unknown",
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Agents Page
+// ---------------------------------------------------------------------------
 
 #[component]
 pub fn AgentsPage() -> impl IntoView {
     let (agents, set_agents) = signal(Vec::<api::ApiAgent>::new());
+    let (layout, set_layout) = signal(GridLayout::Quad);
     let (loading, set_loading) = signal(true);
     let (error_msg, set_error_msg) = signal(Option::<String>::None);
 
@@ -28,7 +132,6 @@ pub fn AgentsPage() -> impl IntoView {
         spawn_local(async move {
             match api::stop_agent(&id).await {
                 Ok(_) => {
-                    // Refresh list after stopping
                     match api::fetch_agents().await {
                         Ok(data) => set_agents.set(data),
                         Err(_) => {}
@@ -41,77 +144,108 @@ pub fn AgentsPage() -> impl IntoView {
         });
     };
 
-    let status_badge_class = |status: &str| -> &'static str {
-        match status {
-            "active" | "running" => "glyph-active",
-            "idle" => "glyph-idle",
-            "pending" | "starting" => "glyph-pending",
-            "stopped" | "dead" => "glyph-stopped",
-            _ => "glyph-unknown",
-        }
-    };
+    let agent_count = move || agents.get().len();
 
     view! {
         <div class="page-header">
-            <h2>"Agents"</h2>
-            <button class="refresh-btn dashboard-refresh-btn" on:click=move |_| do_refresh()>
-                "\u{21BB} Refresh"
+            <h2>{t("agents-title")}</h2>
+            <div class="page-header-actions">
+                <span class="terminal-count">
+                    {move || {
+                        let max = layout.get().max_panes();
+                        format!("{}/{} agents", agent_count(), max)
+                    }}
+                </span>
+                <button class="refresh-btn dashboard-refresh-btn" on:click=move |_| do_refresh()>
+                    "\u{21BB} Refresh"
+                </button>
+            </div>
+        </div>
+
+        // Layout selector toolbar
+        <div class="terminal-toolbar">
+            <button
+                class=(move || if layout.get() == GridLayout::Single { "layout-btn active" } else { "layout-btn" })
+                on:click=move |_| set_layout.set(GridLayout::Single)
+            >
+                "Single"
+            </button>
+            <button
+                class=(move || if layout.get() == GridLayout::Double { "layout-btn active" } else { "layout-btn" })
+                on:click=move |_| set_layout.set(GridLayout::Double)
+            >
+                "Double"
+            </button>
+            <button
+                class=(move || if layout.get() == GridLayout::Quad { "layout-btn active" } else { "layout-btn" })
+                on:click=move |_| set_layout.set(GridLayout::Quad)
+            >
+                "Quad"
             </button>
         </div>
 
         {move || error_msg.get().map(|msg| view! {
-            <div class="dashboard-error">{msg}</div>
+            <div class="terminal-error">{msg}</div>
         })}
 
         {move || loading.get().then(|| view! {
             <div class="dashboard-loading">"Loading agents..."</div>
         })}
 
-        <table class="data-table">
-            <thead>
-                <tr>
-                    <th>"Name"</th>
-                    <th>"Role"</th>
-                    <th>"Status"</th>
-                    <th>"ID"</th>
-                    <th>"Actions"</th>
-                </tr>
-            </thead>
-            <tbody>
-                {move || agents.get().into_iter().map(|agent| {
+        <div class=move || format!("terminal-grid {}", layout.get().css_class())>
+            {move || {
+                let max = layout.get().max_panes();
+                let list = agents.get();
+                let visible: Vec<_> = list.iter().take(max).cloned().collect();
+                visible.iter().map(|agent| {
+                    let name = agent.name.clone();
+                    let role = agent.role.clone();
+                    let status = agent.status.clone();
                     let id = agent.id.clone();
                     let id_stop = agent.id.clone();
-                    let status = agent.status.clone();
-                    let badge_cls = status_badge_class(&status);
-                    let stop_agent = stop_agent.clone();
+                    let dot_cls = status_dot_class(&status);
+                    let output = mock_terminal_output(&role, &name);
                     let is_active = status == "active" || status == "running" || status == "idle";
+                    let stop_agent = stop_agent.clone();
                     view! {
-                        <tr>
-                            <td><strong>{agent.name}</strong></td>
-                            <td>{agent.role}</td>
-                            <td><span class={badge_cls}>{status}</span></td>
-                            <td><code>{id}</code></td>
-                            <td>
-                                {is_active.then(|| {
-                                    let stop = stop_agent.clone();
-                                    view! {
-                                        <button
-                                            class="action-btn action-recover"
-                                            on:click=move |_| stop(id_stop.clone())
-                                        >
-                                            "Stop"
-                                        </button>
-                                    }
-                                })}
-                            </td>
-                        </tr>
+                        <div class="terminal-emulator">
+                            <div class="terminal-pane-header">
+                                <div class="agent-pane-info">
+                                    <span class={dot_cls}></span>
+                                    <span class="terminal-title">{name}</span>
+                                    <span class="agent-role-badge">{role}</span>
+                                </div>
+                                <div class="agent-pane-actions">
+                                    <span class="terminal-dimensions">{id}</span>
+                                    {is_active.then(|| {
+                                        let stop = stop_agent.clone();
+                                        view! {
+                                            <button
+                                                class="terminal-close-btn"
+                                                on:click=move |_| stop(id_stop.clone())
+                                                title="Stop agent"
+                                            >
+                                                "\u{2715}"
+                                            </button>
+                                        }
+                                    })}
+                                </div>
+                            </div>
+                            <div class="agent-terminal-content">
+                                <pre class="agent-terminal-pre">{output}</pre>
+                            </div>
+                        </div>
                     }
-                }).collect::<Vec<_>>()}
-            </tbody>
-        </table>
+                }).collect::<Vec<_>>()
+            }}
+        </div>
 
         {move || (!loading.get() && agents.get().is_empty() && error_msg.get().is_none()).then(|| view! {
-            <div class="dashboard-loading">"No agents found."</div>
+            <div class="terminal-empty">
+                <div class="terminal-empty-icon">"\u{1F916}"</div>
+                <div class="terminal-empty-text">"No agents running"</div>
+                <div class="terminal-empty-hint">"Agents will appear here when tasks are executing"</div>
+            </div>
         })}
     }
 }

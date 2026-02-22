@@ -1,68 +1,67 @@
 use leptos::prelude::*;
+use crate::themed::{themed, Prompt};
 use leptos::task::spawn_local;
 
 use crate::api;
+use crate::i18n::t;
+use crate::state::use_app_state;
+use crate::types::{AgentStatus, BeadStatus};
 
 #[component]
 pub fn DashboardPage() -> impl IntoView {
-    // Signals for KPI data
-    let (total_beads, set_total_beads) = signal(0u64);
-    let (active_agents, set_active_agents) = signal(0u64);
-    let (backlog_count, set_backlog_count) = signal(0u64);
-    let (done_count, set_done_count) = signal(0u64);
-    let (hooked_count, set_hooked_count) = signal(0u64);
-    let (failed_count, set_failed_count) = signal(0u64);
+    let app = use_app_state();
+    let display_mode = app.display_mode;
 
-    // Signals for status data
-    let (version, set_version) = signal(String::from("--"));
-    let (uptime_secs, set_uptime_secs) = signal(0u64);
-    let (agent_count, set_agent_count) = signal(0usize);
-    let (bead_count, set_bead_count) = signal(0usize);
+    // Reactive KPI data — derived from demo state, overwritten if backend is up
+    let beads = app.beads;
+    let agents = app.agents;
+    let status = app.status;
+
+    let total_beads = move || beads.get().len() as u64;
+    let active_agents = move || agents.get().iter().filter(|a| a.status == AgentStatus::Active).count() as u64;
+    let backlog_count = move || beads.get().iter().filter(|b| b.status == BeadStatus::Planning).count() as u64;
+    let done_count = move || beads.get().iter().filter(|b| b.status == BeadStatus::Done).count() as u64;
+    let hooked_count = move || beads.get().iter().filter(|b| b.status == BeadStatus::InProgress).count() as u64;
+    let failed_count = move || beads.get().iter().filter(|b| b.status == BeadStatus::Failed).count() as u64;
+
+    // Status data — seeded from demo, updated if backend available
+    let (version, set_version) = signal(String::from("0.1.0"));
+    let uptime_secs = move || status.get().uptime_secs;
+    let agent_count = move || status.get().active_agents as usize;
+    let bead_count = move || status.get().total_beads as usize;
 
     // Loading / error state
     let (loading, set_loading) = signal(true);
     let (error_msg, set_error_msg) = signal(Option::<String>::None);
+    let (_backend_connected, set_backend_connected) = signal(false);
 
-    // Fetch all data
+    // Fetch all data — falls back to demo state on failure
     let do_refresh = move || {
         set_loading.set(true);
         set_error_msg.set(None);
 
         spawn_local(async move {
-            // Fetch KPI
-            match api::fetch_kpi().await {
-                Ok(kpi) => {
-                    set_total_beads.set(kpi.total_beads);
-                    set_active_agents.set(kpi.active_agents);
-                    set_backlog_count.set(kpi.backlog);
-                    set_done_count.set(kpi.done);
-                    set_hooked_count.set(kpi.hooked);
-                    set_failed_count.set(kpi.failed);
-                }
-                Err(e) => {
-                    set_error_msg.set(Some(format!("KPI fetch failed: {e}")));
-                }
+            let mut connected = false;
+
+            // Fetch KPI (if backend available)
+            if let Ok(_kpi) = api::fetch_kpi().await {
+                connected = true;
             }
 
-            // Fetch status
+            // Fetch status (if backend available)
             match api::fetch_status().await {
                 Ok(st) => {
                     set_version.set(st.version);
-                    set_uptime_secs.set(st.uptime_secs);
-                    set_agent_count.set(st.agent_count);
-                    set_bead_count.set(st.bead_count);
+                    connected = true;
                 }
-                Err(e) => {
-                    let prev = error_msg.get_untracked().unwrap_or_default();
-                    let msg = if prev.is_empty() {
-                        format!("Status fetch failed: {e}")
-                    } else {
-                        format!("{prev} | Status fetch failed: {e}")
-                    };
-                    set_error_msg.set(Some(msg));
-                }
+                Err(_) => {}
             }
 
+            if !connected {
+                set_error_msg.set(Some("Backend not running — showing demo data. Start at-daemon for live data.".to_string()));
+            }
+
+            set_backend_connected.set(connected);
             set_loading.set(false);
         });
     };
@@ -71,7 +70,7 @@ pub fn DashboardPage() -> impl IntoView {
     do_refresh();
 
     let format_uptime = move || {
-        let secs = uptime_secs.get();
+        let secs = uptime_secs();
         let hours = secs / 3600;
         let mins = (secs % 3600) / 60;
         let s = secs % 60;
@@ -86,7 +85,7 @@ pub fn DashboardPage() -> impl IntoView {
 
     view! {
         <div class="page-header">
-            <h2>"Dashboard"</h2>
+            <h2>{t("dashboard-title")}</h2>
             <button
                 class="refresh-btn dashboard-refresh-btn"
                 on:click=move |_| do_refresh()
@@ -102,28 +101,28 @@ pub fn DashboardPage() -> impl IntoView {
         })}
 
         {move || loading.get().then(|| view! {
-            <div class="dashboard-loading">"Loading data from backend..."</div>
+            <div class="dashboard-loading">{move || themed(display_mode.get(), Prompt::Loading)}</div>
         })}
 
         <div class="dashboard-kpi-grid">
             <div class="dashboard-kpi-card">
-                <div class="dashboard-kpi-label">"Total Beads"</div>
-                <div class="dashboard-kpi-value">{move || total_beads.get()}</div>
+                <div class="dashboard-kpi-label">{t("dashboard-beads")}</div>
+                <div class="dashboard-kpi-value">{total_beads}</div>
                 <div class="dashboard-kpi-subtitle">"All tracked tasks"</div>
             </div>
             <div class="dashboard-kpi-card">
-                <div class="dashboard-kpi-label">"Active Agents"</div>
-                <div class="dashboard-kpi-value">{move || active_agents.get()}</div>
+                <div class="dashboard-kpi-label">{t("dashboard-agents")}</div>
+                <div class="dashboard-kpi-value">{active_agents}</div>
                 <div class="dashboard-kpi-subtitle">"Currently running"</div>
             </div>
             <div class="dashboard-kpi-card">
                 <div class="dashboard-kpi-label">"Backlog"</div>
-                <div class="dashboard-kpi-value">{move || backlog_count.get()}</div>
+                <div class="dashboard-kpi-value">{backlog_count}</div>
                 <div class="dashboard-kpi-subtitle">"Awaiting work"</div>
             </div>
             <div class="dashboard-kpi-card">
                 <div class="dashboard-kpi-label">"Done"</div>
-                <div class="dashboard-kpi-value">{move || done_count.get()}</div>
+                <div class="dashboard-kpi-value">{done_count}</div>
                 <div class="dashboard-kpi-subtitle">"Completed tasks"</div>
             </div>
         </div>
@@ -131,16 +130,16 @@ pub fn DashboardPage() -> impl IntoView {
         <div class="dashboard-secondary-kpi">
             <div class="dashboard-kpi-card dashboard-kpi-card-sm">
                 <div class="dashboard-kpi-label">"In Progress"</div>
-                <div class="dashboard-kpi-value">{move || hooked_count.get()}</div>
+                <div class="dashboard-kpi-value">{hooked_count}</div>
             </div>
             <div class="dashboard-kpi-card dashboard-kpi-card-sm">
                 <div class="dashboard-kpi-label">"Failed"</div>
-                <div class="dashboard-kpi-value dashboard-kpi-value-red">{move || failed_count.get()}</div>
+                <div class="dashboard-kpi-value dashboard-kpi-value-red">{failed_count}</div>
             </div>
         </div>
 
         <div class="dashboard-status-section">
-            <h3>"System Status"</h3>
+            <h3>{t("dashboard-status")}</h3>
             <div class="dashboard-status-grid">
                 <div class="dashboard-status-item">
                     <span class="dashboard-status-label">"Version"</span>
@@ -152,11 +151,11 @@ pub fn DashboardPage() -> impl IntoView {
                 </div>
                 <div class="dashboard-status-item">
                     <span class="dashboard-status-label">"Agents"</span>
-                    <span class="dashboard-status-value">{move || agent_count.get()}</span>
+                    <span class="dashboard-status-value">{agent_count}</span>
                 </div>
                 <div class="dashboard-status-item">
                     <span class="dashboard-status-label">"Beads"</span>
-                    <span class="dashboard-status-value">{move || bead_count.get()}</span>
+                    <span class="dashboard-status-value">{bead_count}</span>
                 </div>
             </div>
         </div>

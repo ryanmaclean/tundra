@@ -1814,6 +1814,63 @@ git commit -m "feat(cli): add at CLI with status, sling, hook, done, nudge comma
 
 ---
 
+## Subagent assignments and next tasks
+
+Use this section to assign work to **subagents** (or agent teams). Each block is self-contained so a single agent can implement it. Reference: `docs/plans/2026-02-15-auto-claude-feature-parity.md` for ✅/🟡/❌ and team definitions.
+
+### Team Alpha: Backend execution (Tier 1.1–1.3)
+
+| Task ID | Description | Crate(s) | Acceptance |
+|--------|-------------|----------|------------|
+| A1 | Wire spec pipeline to orchestrator: on task start, run SpecRunner through phases and persist PhaseResults to task. | at-daemon, at-intelligence | **Done.** SpecCreation phase runs SpecRunner (placeholder PhaseResults), logs combined spec to task. |
+| A2 | Implement coding phase: given a task with spec, invoke executor with subtasks and collect tool/output events into task logs. | at-agents, at-daemon | **Done.** Orchestrator collects ExecutionResult events/output/tool_errors and logs them to task. |
+| A3 | QA review phase: after coding, call QA runner (or QA agent role) and attach QA report to task. | at-intelligence, at-agents | **Done.** QaRunner in at-intelligence; orchestrator runs it in QA phase, attaches QaReport to task, advances phase based on status. |
+| A4 | Worktree-per-task: ensure orchestrator creates worktree when task starts and passes worktree path to executor. | at-core, at-daemon | Each running task has dedicated worktree. |
+
+### Team Beta: API and real-time (Tier 1.4–1.5)
+
+| Task ID | Description | Crate(s) | Acceptance |
+|--------|-------------|----------|------------|
+| B1 | Emit real-time task progress events on WebSocket when phase/subtask changes. | at-bridge, at-daemon | **Done (bridge).** PUT /api/tasks/:id and POST /api/tasks/:id/phase publish `BridgeMessage::TaskUpdate(task)`; subscribers on /api/events/ws receive it. Daemon orchestrator can publish in a follow-up. |
+| B2 | Terminal: ensure PTY output is streamed to existing `/api/terminals` WebSocket and frontend can show live output. | at-bridge, app/leptos-ui | **Done (bridge).** PTY output already streamed in terminal_ws.rs; UI can consume. |
+| B3 | Add 8-column Kanban API (columns: Backlog, Queue, In Progress, …, PR Created, Error) and persist column ordering. | at-bridge, at-core | **Done.** GET/PATCH /api/kanban/columns; default 8 columns; config in ApiState. |
+
+### Team Gamma: GitHub and integrations (Tier 2.1, 3.5, 3.6)
+
+| Task ID | Description | Crate(s) | Acceptance |
+|--------|-------------|----------|------------|
+| G1 | Replace GitHub sync/PR stub with real at-integrations client: list issues, create PR from task branch. **Stacked PRs**: POST /api/github/pr/{id} accepts optional body `{"base_branch":"feature/parent"}`; defaults to `main`. | at-bridge, at-integrations | POST /api/github/sync and /api/github/pr/{id} use octocrab; response includes pr_base_branch. |
+| G2 | Add GitHub OAuth flow (or token-from-env) and store token reference in settings (env var name only). | at-bridge, app/leptos-ui | User can connect GitHub; API uses token. |
+| G3 | Issue list endpoint: GET /api/github/issues with filters (state, labels, page, per_page). | at-bridge, at-integrations | **Done.** Returns list of issues from configured repo. Query: `state=open|closed`, `labels=bug,enhancement`, `page`, `per_page`. |
+
+### Team Delta: AI features (Tier 2.2–2.5, 3.3)
+
+| Task ID | Description | Crate(s) | Acceptance |
+|--------|-------------|----------|------------|
+| D1 | Insights: wire InsightsRunner to HTTP endpoint so frontend can start a session and send messages. | at-bridge, at-intelligence | **Done.** GET/POST /api/insights/sessions, DELETE /api/insights/sessions/{id}, POST /api/insights/sessions/{id}/messages. |
+| D2 | Changelog: endpoint to generate changelog from task history (ChangelogEngine) and return markdown. | at-bridge, at-intelligence | **Done.** GET /api/changelog?source=tasks generates from completed tasks, returns markdown + entries. |
+| D3 | Context: expose ProjectContextLoader via API (e.g. GET /api/context?path=&budget=) for UI to show project index. | at-bridge, at-core | **Done.** GET /api/context?path=&budget= loads project context (CLAUDE.md, AGENTS.md, agents/skills counts). |
+
+### Team Epsilon: UI (Tier 2.6–2.7, 3.1–3.2, 3.8)
+
+| Task ID | Description | Crate(s) | Acceptance |
+|--------|-------------|----------|------------|
+| E1 | Task creation wizard: multi-step Leptos form (classification, description, optional files) calling POST /api/tasks. | app/leptos-ui | User can create task via wizard. |
+| E2 | Task detail modal: full view with tabs (Overview, Subtasks, Logs, Files) using GET /api/tasks/{id} and logs. | app/leptos-ui | Modal shows all tabs with real data. |
+| E3 | Settings UI: theme, scale, agent defaults, integration env var names (no secret values), credential status. | app/leptos-ui | Config page matches parity doc 3.2. |
+| E4 | Toast/notifications: show notifications from GET /api/notifications and mark read. | app/leptos-ui | Toasts for new notifications. |
+
+### Team Zeta: Platform and polish (Tier 3.4, 3.7, 3.9, 4.1)
+
+| Task ID | Description | Crate(s) | Acceptance |
+|--------|-------------|----------|------------|
+| Z1 | Multi-project: project selector or tabs; persist current project in UI session; API scoped by project. | at-bridge, app/leptos-ui | User can switch project; tasks filtered. |
+| Z2 | Onboarding wizard: first-run flow (auth method, IDE preference, optional first task). | app/leptos-ui | First launch shows onboarding. |
+| Z3 | i18n: add fluent-rs (or equivalent), extract strings, add English + French. | app/leptos-ui, at-core | All UI text from translation keys. |
+| Z4 | CLI adapters: implement Claude CLI adapter in at-session (spawn, send, read) using cli_adapter trait. | at-session | One CLI (e.g. Claude) works end-to-end. |
+
+---
+
 ## Verification Checklist
 
 After each phase:

@@ -1,4 +1,9 @@
+use std::sync::Arc;
+
+use tokio::sync::RwLock;
 use uuid::Uuid;
+
+use at_core::types::{Agent, Bead, BeadStatus};
 
 use crate::event_bus::EventBus;
 use crate::protocol::{BridgeMessage, KpiPayload, StatusPayload};
@@ -16,17 +21,37 @@ pub enum IpcError {
 pub type Result<T> = std::result::Result<T, IpcError>;
 
 /// Handles incoming IPC messages and produces responses.
-///
-/// This is a stub implementation. Real logic will be wired in when the Tauri
-/// frontend and the daemon backend are connected.
 pub struct IpcHandler {
     event_bus: EventBus,
+    beads: Arc<RwLock<Vec<Bead>>>,
+    agents: Arc<RwLock<Vec<Agent>>>,
+    start_time: std::time::Instant,
 }
 
 impl IpcHandler {
-    /// Create a new handler wired to the given event bus.
-    pub fn new(event_bus: EventBus) -> Self {
-        Self { event_bus }
+    /// Create a new handler wired to the given event bus with shared state.
+    pub fn new(
+        event_bus: EventBus,
+        beads: Arc<RwLock<Vec<Bead>>>,
+        agents: Arc<RwLock<Vec<Agent>>>,
+        start_time: std::time::Instant,
+    ) -> Self {
+        Self {
+            event_bus,
+            beads,
+            agents,
+            start_time,
+        }
+    }
+
+    /// Create a handler with empty state, useful for tests and bootstrapping.
+    pub fn new_stub(event_bus: EventBus) -> Self {
+        Self {
+            event_bus,
+            beads: Arc::new(RwLock::new(Vec::new())),
+            agents: Arc::new(RwLock::new(Vec::new())),
+            start_time: std::time::Instant::now(),
+        }
     }
 
     /// Return a reference to the underlying event bus.
@@ -36,11 +61,11 @@ impl IpcHandler {
 
     /// Route an incoming message to the appropriate handler and return a
     /// response message.
-    pub fn handle_message(&self, msg: BridgeMessage) -> Result<BridgeMessage> {
+    pub async fn handle_message(&self, msg: BridgeMessage) -> Result<BridgeMessage> {
         match msg {
-            BridgeMessage::GetStatus => self.handle_get_status(),
-            BridgeMessage::ListBeads { status } => self.handle_list_beads(status),
-            BridgeMessage::ListAgents => self.handle_list_agents(),
+            BridgeMessage::GetStatus => self.handle_get_status().await,
+            BridgeMessage::ListBeads { status } => self.handle_list_beads(status).await,
+            BridgeMessage::ListAgents => self.handle_list_agents().await,
             BridgeMessage::SlingBead { bead_id, agent_id } => {
                 self.handle_sling_bead(bead_id, agent_id)
             }
@@ -54,32 +79,94 @@ impl IpcHandler {
                 agent_name,
                 message,
             } => self.handle_nudge_agent(agent_name, message),
-            BridgeMessage::GetKpi => self.handle_get_kpi(),
+            BridgeMessage::GetKpi => self.handle_get_kpi().await,
             // Backend -> Frontend messages should not arrive as requests.
             _ => Err(IpcError::UnknownMessage),
         }
     }
 
     // ------------------------------------------------------------------
-    // Stub handlers – return placeholder data
+    // Handlers that read shared state
     // ------------------------------------------------------------------
 
-    fn handle_get_status(&self) -> Result<BridgeMessage> {
+    async fn handle_get_status(&self) -> Result<BridgeMessage> {
+        let agents = self.agents.read().await;
+        let beads = self.beads.read().await;
+        let beads_active = beads
+            .iter()
+            .filter(|b| !matches!(b.status, BeadStatus::Done | BeadStatus::Failed))
+            .count() as u32;
         Ok(BridgeMessage::StatusUpdate(StatusPayload {
             version: env!("CARGO_PKG_VERSION").to_string(),
-            uptime_seconds: 0,
-            agents_active: 0,
-            beads_active: 0,
+            uptime_seconds: self.start_time.elapsed().as_secs(),
+            agents_active: agents.len() as u32,
+            beads_active,
         }))
     }
 
-    fn handle_list_beads(&self, _status: Option<String>) -> Result<BridgeMessage> {
-        Ok(BridgeMessage::BeadList(Vec::new()))
+    async fn handle_list_beads(&self, status: Option<String>) -> Result<BridgeMessage> {
+        let beads = self.beads.read().await;
+        let filtered: Vec<Bead> = match status {
+            Some(ref s) => beads
+                .iter()
+                .filter(|b| {
+                    // Compare against the snake_case serde representation
+                    let bead_status_str = serde_json::to_value(&b.status)
+                        .ok()
+                        .and_then(|v| v.as_str().map(String::from))
+                        .unwrap_or_default();
+                    bead_status_str == *s
+                })
+                .cloned()
+                .collect(),
+            None => beads.clone(),
+        };
+        Ok(BridgeMessage::BeadList(filtered))
     }
 
-    fn handle_list_agents(&self) -> Result<BridgeMessage> {
-        Ok(BridgeMessage::AgentList(Vec::new()))
+    async fn handle_list_agents(&self) -> Result<BridgeMessage> {
+        let agents = self.agents.read().await;
+        Ok(BridgeMessage::AgentList(agents.clone()))
     }
+
+    async fn handle_get_kpi(&self) -> Result<BridgeMessage> {
+        let beads = self.beads.read().await;
+        let agents = self.agents.read().await;
+
+        let mut backlog: u64 = 0;
+        let mut hooked: u64 = 0;
+        let mut slung: u64 = 0;
+        let mut review: u64 = 0;
+        let mut done: u64 = 0;
+        let mut failed: u64 = 0;
+
+        for bead in beads.iter() {
+            match bead.status {
+                BeadStatus::Backlog => backlog += 1,
+                BeadStatus::Hooked => hooked += 1,
+                BeadStatus::Slung => slung += 1,
+                BeadStatus::Review => review += 1,
+                BeadStatus::Done => done += 1,
+                BeadStatus::Failed => failed += 1,
+                BeadStatus::Escalated => backlog += 1, // count escalated with backlog
+            }
+        }
+
+        Ok(BridgeMessage::KpiUpdate(KpiPayload {
+            total_beads: beads.len() as u64,
+            backlog,
+            hooked,
+            slung,
+            review,
+            done,
+            failed,
+            active_agents: agents.len() as u64,
+        }))
+    }
+
+    // ------------------------------------------------------------------
+    // Handlers that publish events (synchronous, no shared state needed)
+    // ------------------------------------------------------------------
 
     fn handle_sling_bead(&self, bead_id: Uuid, agent_id: Uuid) -> Result<BridgeMessage> {
         let msg = BridgeMessage::Event(crate::protocol::EventPayload {
@@ -132,18 +219,5 @@ impl IpcHandler {
         });
         self.event_bus.publish(msg.clone());
         Ok(msg)
-    }
-
-    fn handle_get_kpi(&self) -> Result<BridgeMessage> {
-        Ok(BridgeMessage::KpiUpdate(KpiPayload {
-            total_beads: 0,
-            backlog: 0,
-            hooked: 0,
-            slung: 0,
-            review: 0,
-            done: 0,
-            failed: 0,
-            active_agents: 0,
-        }))
     }
 }

@@ -1,0 +1,34 @@
+# Trunk configuration for auto-tundra Leptos UI
+# Optimizes WASM binary size and load time
+
+[build]
+target = "index.html"
+dist = "dist"
+
+[watch]
+watch = ["src", "style.css"]
+ignore = ["dist", "target"]
+
+[serve]
+address = "127.0.0.1"
+port = 3001
+open = false
+
+# WASM optimizations
+[wasm]
+# Enable wasm-opt for size reduction (can reduce binary by 30-50%)
+wasm_opt = true
+# Aggressive optimization level (can take longer but produces smaller binaries)
+wasm_opt_level = "z"  # "z" = optimize for size, "s" = optimize for speed, "O" = optimize for both
+# Strip debug info in release builds
+wasm_opt_args = ["--strip-debug", "--strip-producers"]
+
+# Minify HTML/CSS/JS
+[html]
+minify = true
+
+[css]
+minify = true
+
+[js]
+minify = true

@@ -23,7 +23,10 @@ pub use model_router::{ComplexityLevel, ModelRouter, RouteDecision, RoutingStrat
 pub use token_cache::{CacheStats, TokenCache, TokenCacheConfig};
 
 // Re-export API profiles for multi-provider and failover.
-pub use api_profiles::{ApiProfile, ProfileRegistry, ProfileUsage, ProviderKind};
+pub use api_profiles::{
+    ApiProfile, ProfileRegistry, ProfileUsage, ProviderKind, ProviderState, ResilientCallError,
+    ResilientRegistry,
+};
 
 use thiserror::Error;
 use uuid::Uuid;

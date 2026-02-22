@@ -8,10 +8,20 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use std::time::Duration;
 use uuid::Uuid;
 
 use crate::http_api::ApiState;
-use crate::terminal::{TerminalInfo, TerminalStatus};
+use crate::terminal::{
+    DisconnectBuffer, TerminalInfo, TerminalStatus, DISCONNECT_BUFFER_SIZE, WS_RECONNECT_GRACE,
+};
+
+/// Idle timeout for terminal WebSocket connections (5 minutes).
+const WS_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
+
+/// Heartbeat interval for terminal WebSocket connections (30 seconds).
+/// Sends a Ping frame to detect half-open TCP connections.
+const WS_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
 
 // ---------------------------------------------------------------------------
 // Request / Response types
@@ -24,6 +34,11 @@ pub struct TerminalResponse {
     pub status: String,
     pub cols: u16,
     pub rows: u16,
+    pub font_size: u16,
+    pub cursor_style: String,
+    pub cursor_blink: bool,
+    pub auto_name: Option<String>,
+    pub persistent: bool,
 }
 
 impl From<&TerminalInfo> for TerminalResponse {
@@ -31,9 +46,20 @@ impl From<&TerminalInfo> for TerminalResponse {
         Self {
             id: info.id.to_string(),
             title: info.title.clone(),
-            status: format!("{:?}", info.status).to_lowercase(),
+            status: match &info.status {
+                TerminalStatus::Active => "active".to_string(),
+                TerminalStatus::Idle => "idle".to_string(),
+                TerminalStatus::Closed => "closed".to_string(),
+                TerminalStatus::Disconnected { .. } => "disconnected".to_string(),
+                TerminalStatus::Dead => "dead".to_string(),
+            },
             cols: info.cols,
             rows: info.rows,
+            font_size: info.font_size,
+            cursor_style: info.cursor_style.clone(),
+            cursor_blink: info.cursor_blink,
+            auto_name: info.auto_name.clone(),
+            persistent: info.persistent,
         }
     }
 }
@@ -85,6 +111,11 @@ pub async fn create_terminal(
         status: TerminalStatus::Active,
         cols: 80,
         rows: 24,
+        font_size: 14,
+        cursor_style: "block".to_string(),
+        cursor_blink: true,
+        auto_name: None,
+        persistent: false,
     };
 
     let resp = TerminalResponse::from(&info);
@@ -155,10 +186,158 @@ pub async fn delete_terminal(
         pool.release(terminal_id);
     }
 
+    // Clean up any disconnect buffer.
+    {
+        let mut buffers = state.disconnect_buffers.write().await;
+        buffers.remove(&terminal_id);
+    }
+
     (
         axum::http::StatusCode::OK,
         Json(serde_json::json!({"status": "deleted", "id": id})),
     )
+}
+
+// ---------------------------------------------------------------------------
+// Rename Handlers
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+pub struct RenameRequest {
+    pub name: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AutoNameRequest {
+    pub first_message: String,
+}
+
+/// POST /api/terminals/{id}/rename — rename a terminal session.
+pub async fn rename_terminal(
+    State(state): State<Arc<ApiState>>,
+    Path(id): Path<String>,
+    Json(body): Json<RenameRequest>,
+) -> impl IntoResponse {
+    let terminal_id = match Uuid::parse_str(&id) {
+        Ok(id) => id,
+        Err(_) => {
+            return (
+                axum::http::StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": "invalid terminal ID"})),
+            );
+        }
+    };
+
+    let mut registry = state.terminal_registry.write().await;
+    if registry.rename(&terminal_id, body.name.clone()) {
+        (
+            axum::http::StatusCode::OK,
+            Json(serde_json::json!({"status": "renamed", "id": id, "name": body.name})),
+        )
+    } else {
+        (
+            axum::http::StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "terminal not found"})),
+        )
+    }
+}
+
+/// POST /api/terminals/{id}/auto-name — auto-generate a terminal name from first message.
+pub async fn auto_name_terminal(
+    State(state): State<Arc<ApiState>>,
+    Path(id): Path<String>,
+    Json(body): Json<AutoNameRequest>,
+) -> impl IntoResponse {
+    let terminal_id = match Uuid::parse_str(&id) {
+        Ok(id) => id,
+        Err(_) => {
+            return (
+                axum::http::StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": "invalid terminal ID"})),
+            );
+        }
+    };
+
+    // Extract up to 40 chars from the first message as the terminal name.
+    let name: String = body.first_message.chars().take(40).collect();
+    let name = name.trim().to_string();
+
+    let mut registry = state.terminal_registry.write().await;
+    if let Some(terminal) = registry.get_mut(&terminal_id) {
+        terminal.auto_name = Some(name.clone());
+        terminal.title = name.clone();
+        (
+            axum::http::StatusCode::OK,
+            Json(serde_json::json!({"status": "auto_named", "id": id, "name": name})),
+        )
+    } else {
+        (
+            axum::http::StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "terminal not found"})),
+        )
+    }
+}
+
+/// PATCH /api/terminals/{id}/settings — update terminal font/cursor settings.
+pub async fn update_terminal_settings(
+    State(state): State<Arc<ApiState>>,
+    Path(id): Path<String>,
+    Json(req): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let terminal_id = match Uuid::parse_str(&id) {
+        Ok(id) => id,
+        Err(_) => {
+            return (
+                axum::http::StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": "invalid terminal ID"})),
+            );
+        }
+    };
+
+    let mut registry = state.terminal_registry.write().await;
+    if let Some(terminal) = registry.get_mut(&terminal_id) {
+        if let Some(size) = req.get("font_size").and_then(|v| v.as_u64()) {
+            terminal.font_size = size as u16;
+        }
+        if let Some(style) = req.get("cursor_style").and_then(|v| v.as_str()) {
+            terminal.cursor_style = style.to_string();
+        }
+        if let Some(blink) = req.get("cursor_blink").and_then(|v| v.as_bool()) {
+            terminal.cursor_blink = blink;
+        }
+        if let Some(persistent) = req.get("persistent").and_then(|v| v.as_bool()) {
+            terminal.persistent = persistent;
+        }
+        (
+            axum::http::StatusCode::OK,
+            Json(serde_json::json!({"updated": terminal_id})),
+        )
+    } else {
+        (
+            axum::http::StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "terminal not found"})),
+        )
+    }
+}
+
+/// GET /api/terminals/persistent — list persistent terminal sessions that should survive restart.
+pub async fn list_persistent_terminals(
+    State(state): State<Arc<ApiState>>,
+) -> impl IntoResponse {
+    let registry = state.terminal_registry.read().await;
+    let persistent: Vec<serde_json::Value> = registry
+        .list_persistent()
+        .into_iter()
+        .map(|t| {
+            serde_json::json!({
+                "id": t.id,
+                "name": t.auto_name.as_deref().unwrap_or(&t.title),
+                "font_size": t.font_size,
+                "cursor_style": t.cursor_style,
+            })
+        })
+        .collect();
+    Json(persistent)
 }
 
 // ---------------------------------------------------------------------------
@@ -178,11 +357,21 @@ pub async fn terminal_ws(
         }
     };
 
-    // Check terminal exists.
+    // Check terminal exists and is not dead.
     {
         let registry = state.terminal_registry.read().await;
-        if registry.get(&terminal_id).is_none() {
-            return (axum::http::StatusCode::NOT_FOUND, "terminal not found").into_response();
+        match registry.get(&terminal_id) {
+            None => {
+                return (axum::http::StatusCode::NOT_FOUND, "terminal not found").into_response();
+            }
+            Some(info) if info.status == TerminalStatus::Dead => {
+                return (
+                    axum::http::StatusCode::GONE,
+                    "terminal is dead (grace period expired)",
+                )
+                    .into_response();
+            }
+            _ => {}
         }
     }
 
@@ -191,7 +380,38 @@ pub async fn terminal_ws(
 }
 
 async fn handle_terminal_ws(socket: WebSocket, state: Arc<ApiState>, terminal_id: Uuid) {
-    let (mut ws_sender, mut ws_receiver) = socket.split();
+    use futures_util::{SinkExt, StreamExt};
+
+    let (ws_sender, mut ws_receiver) = socket.split();
+
+    // Wrap ws_sender in Arc<Mutex> so both the reader task (PTY -> WS)
+    // and the heartbeat task (Ping frames) can send through it.
+    let ws_sender = Arc::new(tokio::sync::Mutex::new(ws_sender));
+
+    // -----------------------------------------------------------------------
+    // Replay buffered output if reconnecting to a Disconnected terminal.
+    // -----------------------------------------------------------------------
+    {
+        let mut buffers = state.disconnect_buffers.write().await;
+        if let Some(mut buf) = buffers.remove(&terminal_id) {
+            let buffered = buf.drain_all();
+            if !buffered.is_empty() {
+                let text = String::from_utf8_lossy(&buffered).into_owned();
+                tracing::info!(
+                    %terminal_id,
+                    bytes = buffered.len(),
+                    "replaying disconnect buffer on reconnect"
+                );
+                let _ = ws_sender.lock().await.send(Message::Text(text.into())).await;
+            }
+        }
+    }
+
+    // Mark the terminal as Active (covers both fresh and reconnect cases).
+    {
+        let mut registry = state.terminal_registry.write().await;
+        registry.update_status(&terminal_id, TerminalStatus::Active);
+    }
 
     // Clone the reader channel from the PTY handle.
     let pty_reader = {
@@ -210,65 +430,264 @@ async fn handle_terminal_ws(socket: WebSocket, state: Arc<ApiState>, terminal_id
         }
     };
 
-    use futures_util::{SinkExt, StreamExt};
-
-    // Task: PTY stdout -> WS
-    let reader_task = tokio::spawn(async move {
+    // Task: PTY stdout -> WS (with 5-minute idle timeout)
+    let ws_sender_reader = ws_sender.clone();
+    let reader_task_handle = tokio::spawn(async move {
         loop {
-            match pty_reader.recv_async().await {
-                Ok(data) => {
+            match tokio::time::timeout(WS_IDLE_TIMEOUT, pty_reader.recv_async()).await {
+                Ok(Ok(data)) => {
                     let text = String::from_utf8_lossy(&data).into_owned();
-                    if ws_sender.send(Message::Text(text.into())).await.is_err() {
+                    if ws_sender_reader
+                        .lock()
+                        .await
+                        .send(Message::Text(text.into()))
+                        .await
+                        .is_err()
+                    {
                         break;
                     }
                 }
-                Err(_) => break,
+                Ok(Err(_)) => {
+                    tracing::debug!("PTY reader closed");
+                    break;
+                }
+                Err(_) => {
+                    tracing::info!("terminal WebSocket idle timeout (5min), closing");
+                    break;
+                }
             }
         }
     });
 
-    // Task: WS -> PTY stdin
-    let writer_task = tokio::spawn(async move {
-        while let Some(Ok(msg)) = ws_receiver.next().await {
-            match msg {
-                Message::Text(text) => {
-                    // Try to parse as JSON command.
-                    if let Ok(cmd) = serde_json::from_str::<WsIncoming>(&text) {
-                        match cmd {
-                            WsIncoming::Input { data } => {
-                                let _ = pty_writer.send(data.into_bytes());
-                            }
-                            WsIncoming::Resize { cols, rows } => {
-                                // Update the registry with new dimensions.
-                                // Note: actual PTY resize would need the master fd,
-                                // which portable-pty handles differently. For now we
-                                // just track the dimensions.
-                                tracing::debug!(
-                                    %terminal_id, cols, rows,
-                                    "terminal resize requested"
-                                );
+    let reader_abort = reader_task_handle.abort_handle();
+
+    // Task: WS -> PTY stdin (with 5-minute idle timeout)
+    let writer_state = state.clone();
+    let writer_terminal_id = terminal_id;
+    let writer_task_handle = tokio::spawn(async move {
+        loop {
+            match tokio::time::timeout(WS_IDLE_TIMEOUT, ws_receiver.next()).await {
+                Ok(Some(Ok(msg))) => {
+                    match msg {
+                        Message::Text(text) => {
+                            // Try to parse as JSON command.
+                            if let Ok(cmd) = serde_json::from_str::<WsIncoming>(&text) {
+                                match cmd {
+                                    WsIncoming::Input { data } => {
+                                        let _ = pty_writer.send(data.into_bytes());
+                                    }
+                                    WsIncoming::Resize { cols, rows } => {
+                                        tracing::debug!(
+                                            %writer_terminal_id, cols, rows,
+                                            "terminal resize requested"
+                                        );
+
+                                        // Resize the actual PTY via the master fd.
+                                        {
+                                            let handles = writer_state.pty_handles.read().await;
+                                            if let Some(handle) = handles.get(&writer_terminal_id) {
+                                                if let Err(e) = handle.resize(cols, rows) {
+                                                    tracing::warn!(
+                                                        %writer_terminal_id,
+                                                        "PTY resize failed: {e}"
+                                                    );
+                                                }
+                                            }
+                                        }
+
+                                        // Update the terminal registry dimensions.
+                                        {
+                                            let mut registry =
+                                                writer_state.terminal_registry.write().await;
+                                            if let Some(info) = registry.get_mut(&writer_terminal_id)
+                                            {
+                                                info.cols = cols;
+                                                info.rows = rows;
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
+                                // Plain text: send directly as input.
+                                let _ = pty_writer.send(text.as_bytes().to_vec());
                             }
                         }
-                    } else {
-                        // Plain text: send directly as input.
-                        let _ = pty_writer.send(text.as_bytes().to_vec());
+                        Message::Binary(data) => {
+                            let _ = pty_writer.send(data.to_vec());
+                        }
+                        Message::Close(_) => break,
+                        _ => {}
                     }
                 }
-                Message::Binary(data) => {
-                    let _ = pty_writer.send(data.to_vec());
+                Ok(Some(Err(_))) | Ok(None) => break,
+                Err(_) => {
+                    tracing::info!("terminal WebSocket idle timeout (5min), closing");
+                    break;
                 }
-                Message::Close(_) => break,
-                _ => {}
             }
         }
     });
 
-    // Wait for either task to finish.
+    let writer_abort = writer_task_handle.abort_handle();
+
+    // Task: Heartbeat — send Ping every 30s to detect stale connections.
+    // Pong responses are handled automatically by axum/tungstenite.
+    let ws_sender_heartbeat = ws_sender.clone();
+    let heartbeat_task_handle = tokio::spawn(async move {
+        let mut interval = tokio::time::interval(WS_HEARTBEAT_INTERVAL);
+        loop {
+            interval.tick().await;
+            if ws_sender_heartbeat
+                .lock()
+                .await
+                .send(Message::Ping(vec![].into()))
+                .await
+                .is_err()
+            {
+                tracing::debug!("heartbeat ping failed, connection lost");
+                break;
+            }
+        }
+    });
+
+    let heartbeat_abort = heartbeat_task_handle.abort_handle();
+
+    // Wait for any task to finish — then the connection is done.
     tokio::select! {
-        _ = reader_task => {},
-        _ = writer_task => {},
+        _ = reader_task_handle => {},
+        _ = writer_task_handle => {},
+        _ = heartbeat_task_handle => {},
     }
+
+    // Abort all spawned tasks so they stop consuming the PTY reader channel.
+    // The reader_task must drop its Receiver clone before the background
+    // buffer task can successfully read from the channel.
+    reader_abort.abort();
+    writer_abort.abort();
+    heartbeat_abort.abort();
+    // Yield to let the runtime process the aborts and drop task state.
+    tokio::task::yield_now().await;
+
+    // -----------------------------------------------------------------------
+    // WS connection ended — enter Disconnected state and start buffering.
+    // -----------------------------------------------------------------------
+    tracing::info!(%terminal_id, "WebSocket disconnected, entering grace period");
+
+    // Set status to Disconnected.
+    {
+        let mut registry = state.terminal_registry.write().await;
+        registry.update_status(
+            &terminal_id,
+            TerminalStatus::Disconnected {
+                since: chrono::Utc::now(),
+            },
+        );
+    }
+
+    // Create a disconnect buffer.
+    {
+        let mut buffers = state.disconnect_buffers.write().await;
+        buffers.insert(terminal_id, DisconnectBuffer::new(DISCONNECT_BUFFER_SIZE));
+    }
+
+    // Clone the PTY reader again for the background buffer task.
+    let pty_reader_bg = {
+        let handles = state.pty_handles.read().await;
+        match handles.get(&terminal_id) {
+            Some(handle) => handle.reader.clone(),
+            None => return, // PTY already gone
+        }
+    };
+
+    // Spawn a background task that buffers PTY output during the grace period.
+    let bg_state = state.clone();
+    tokio::spawn(async move {
+        let deadline = tokio::time::Instant::now() + WS_RECONNECT_GRACE;
+
+        loop {
+            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+            if remaining.is_zero() {
+                break;
+            }
+
+            match tokio::time::timeout(remaining, pty_reader_bg.recv_async()).await {
+                Ok(Ok(data)) => {
+                    // Check if terminal was reconnected (buffer removed by new WS handler).
+                    let mut buffers = bg_state.disconnect_buffers.write().await;
+                    match buffers.get_mut(&terminal_id) {
+                        Some(buf) => buf.push(&data),
+                        None => {
+                            // Buffer was consumed by a reconnecting client — stop.
+                            tracing::debug!(
+                                %terminal_id,
+                                "disconnect buffer consumed, reconnect happened"
+                            );
+                            return;
+                        }
+                    }
+                }
+                Ok(Err(_)) => {
+                    // PTY closed during grace period.
+                    tracing::debug!(%terminal_id, "PTY closed during disconnect grace period");
+                    break;
+                }
+                Err(_) => {
+                    // Timeout — grace period expired.
+                    break;
+                }
+            }
+        }
+
+        // Grace period expired (or PTY closed). Check if still disconnected.
+        {
+            let registry = bg_state.terminal_registry.read().await;
+            if let Some(info) = registry.get(&terminal_id) {
+                if !matches!(info.status, TerminalStatus::Disconnected { .. }) {
+                    // Terminal was reconnected or otherwise handled — don't kill.
+                    return;
+                }
+            } else {
+                // Terminal was removed from registry.
+                return;
+            }
+        }
+
+        tracing::info!(
+            %terminal_id,
+            "reconnect grace period expired, killing terminal"
+        );
+
+        // Kill the PTY.
+        {
+            let mut handles = bg_state.pty_handles.write().await;
+            if let Some(handle) = handles.remove(&terminal_id) {
+                let _ = handle.kill();
+            }
+        }
+
+        // Release from pool.
+        if let Some(pool) = &bg_state.pty_pool {
+            pool.release(terminal_id);
+        }
+
+        // Set status to Dead.
+        {
+            let mut registry = bg_state.terminal_registry.write().await;
+            registry.update_status(&terminal_id, TerminalStatus::Dead);
+        }
+
+        // Clean up the buffer.
+        {
+            let mut buffers = bg_state.disconnect_buffers.write().await;
+            buffers.remove(&terminal_id);
+        }
+    });
 }
+
+// Routes to add to http_api.rs api_router_with_auth:
+// .route("/api/terminals/{id}/settings", patch(terminal_ws::update_terminal_settings))
+// .route("/api/terminals/{id}/auto-name", post(terminal_ws::auto_name_terminal))
+// .route("/api/terminals/persistent", get(terminal_ws::list_persistent_terminals))
 
 // ---------------------------------------------------------------------------
 // Tests

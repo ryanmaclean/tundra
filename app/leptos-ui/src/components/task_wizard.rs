@@ -46,22 +46,45 @@ pub fn TaskWizard(
         }
     };
 
+    // Submission state
+    let (is_submitting, set_is_submitting) = signal(false);
+    // Auto-close signal: set to true when async creation succeeds
+    let (wizard_done, set_wizard_done) = signal(false);
+    {
+        let on_close_done = on_close.clone();
+        Effect::new(move |_| {
+            if wizard_done.get() {
+                // Create a synthetic click event to satisfy the MouseEvent callback
+                if let Ok(evt) = web_sys::MouseEvent::new("click") {
+                    on_close_done(evt);
+                }
+            }
+        });
+    }
+
     let do_submit = move || {
         let t = title.get();
         if t.is_empty() {
             set_error_msg.set(Some("Title is required".to_string()));
             return;
         }
+        if is_submitting.get() {
+            return;
+        }
+        set_is_submitting.set(true);
+
         let d = description.get();
         let cat = category.get();
         let pri = priority.get();
+        let comp = complexity.get();
 
-        let mut tags: Vec<String> = vec![cat];
+        // Optimistic local insert
+        let mut tags: Vec<String> = vec![cat.clone()];
         if pri != "Medium" {
-            tags.push(pri);
+            tags.push(pri.clone());
         }
 
-        let id = format!(
+        let temp_id = format!(
             "bead-{}",
             uuid::Uuid::new_v4()
                 .to_string()
@@ -71,12 +94,12 @@ pub fn TaskWizard(
         );
 
         let new_bead = BeadResponse {
-            id,
-            title: t,
+            id: temp_id.clone(),
+            title: t.clone(),
             status: BeadStatus::Planning,
             lane: Lane::Backlog,
             agent_id: None,
-            description: d,
+            description: d.clone(),
             tags,
             progress_stage: "plan".to_string(),
             agent_names: vec![],
@@ -86,6 +109,50 @@ pub fn TaskWizard(
 
         set_beads.update(|beads| {
             beads.insert(0, new_bead);
+        });
+
+        // POST to API: create bead then create task
+        let set_beads = set_beads.clone();
+        leptos::task::spawn_local(async move {
+            let desc_opt = if d.is_empty() { None } else { Some(d.as_str()) };
+            match crate::api::create_bead(&t, desc_opt, Some("standard")).await {
+                Ok(api_bead) => {
+                    // Update the temp ID with the real ID from the API
+                    set_beads.update(|beads| {
+                        if let Some(b) = beads.iter_mut().find(|b| b.id == temp_id) {
+                            b.id = api_bead.id.clone();
+                        }
+                    });
+
+                    // Also create the task record
+                    match crate::api::create_task(
+                        &t,
+                        desc_opt,
+                        &api_bead.id,
+                        &pri.to_lowercase(),
+                        &comp.to_lowercase(),
+                        &cat.to_lowercase(),
+                    )
+                    .await
+                    {
+                        Ok(_) => {
+                            // Both bead and task created successfully — close the wizard
+                            set_wizard_done.set(true);
+                        }
+                        Err(e) => {
+                            set_error_msg.set(Some(format!("Bead created but task creation failed: {}", e)));
+                        }
+                    }
+                }
+                Err(e) => {
+                    set_error_msg.set(Some(format!("Failed to create task: {}", e)));
+                    // Remove the optimistic bead since API creation failed
+                    set_beads.update(|beads| {
+                        beads.retain(|b| b.id != temp_id);
+                    });
+                }
+            }
+            set_is_submitting.set(false);
         });
     };
 
@@ -405,12 +472,12 @@ pub fn TaskWizard(
             >
                 <button
                     class="btn-create"
-                    on:click=move |ev| {
+                    prop:disabled=move || is_submitting.get()
+                    on:click=move |_ev| {
                         do_submit();
-                        on_close(ev);
                     }
                 >
-                    "Create Task"
+                    {move || if is_submitting.get() { "Creating..." } else { "Create Task" }}
                 </button>
             </div>
         </div>

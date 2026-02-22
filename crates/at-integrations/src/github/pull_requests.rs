@@ -114,6 +114,36 @@ pub async fn list_pr_files(
     Ok(result)
 }
 
+/// Merge a pull request by number.
+pub async fn merge_pull_request(
+    client: &GitHubClient,
+    number: u64,
+    commit_title: Option<&str>,
+    merge_method: Option<&str>,
+) -> Result<GitHubPullRequest> {
+    // Use the REST API via octocrab's `_put` for merge
+    let route = format!(
+        "/repos/{}/{}/pulls/{}/merge",
+        client.owner, client.repo, number
+    );
+
+    let mut body = serde_json::json!({});
+    if let Some(title) = commit_title {
+        body["commit_title"] = serde_json::json!(title);
+    }
+    if let Some(method) = merge_method {
+        body["merge_method"] = serde_json::json!(method);
+    }
+
+    client
+        .octocrab
+        .put::<serde_json::Value, _, _>(route, Some(&body))
+        .await?;
+
+    // Fetch the updated PR to return current state
+    get_pull_request(client, number).await
+}
+
 // ---- internal helpers -------------------------------------------------------
 
 fn octocrab_pr_to_github_pr(pr: octocrab::models::pulls::PullRequest) -> GitHubPullRequest {

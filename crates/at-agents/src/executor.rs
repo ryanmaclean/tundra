@@ -197,12 +197,18 @@ impl SpawnedProcess {
 
     /// Check if the process is still alive.
     pub fn is_alive(&self) -> bool {
-        *self.alive.lock().expect("lock poisoned")
+        *self.alive.lock().unwrap_or_else(|e| {
+            warn!("executor lock was poisoned, recovering");
+            e.into_inner()
+        })
     }
 
     /// Mark the process as dead (for testing).
     pub fn set_dead(&self) {
-        *self.alive.lock().expect("lock poisoned") = false;
+        *self.alive.lock().unwrap_or_else(|e| {
+            warn!("executor lock was poisoned, recovering");
+            e.into_inner()
+        }) = false;
     }
 
     /// Send a line to the process stdin.
@@ -926,7 +932,7 @@ mod tests {
         let mut found_start = false;
         let mut found_complete = false;
         while let Ok(msg) = rx.try_recv() {
-            if let BridgeMessage::Event(payload) = msg {
+            if let BridgeMessage::Event(payload) = &*msg {
                 if payload.event_type == "task_execution_start" {
                     found_start = true;
                 }

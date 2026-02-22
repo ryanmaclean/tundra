@@ -12,7 +12,10 @@ pub mod github_prs;     // GitHub PRs (tab 10)
 pub mod claude_code;    // Claude Code (tab 11)
 pub mod config;         // Settings (tab 12)
 pub mod terminals;      // Terminals (tab 13)
+pub mod changelog;      // Changelog (tab 14)
+pub mod onboarding;     // Onboarding Wizard
 pub mod sessions;       // Keep for sub-navigation
 pub mod convoys;        // Keep for sub-navigation
 pub mod costs;          // Keep for sub-navigation
 pub mod dashboard;      // Keep for compatibility
+pub mod stacks;

@@ -2,27 +2,43 @@
 name = "at-tauri"
 version.workspace = true
 edition.workspace = true
+publish = false
 
 [lib]
 name = "at_tauri"
 path = "src/lib.rs"
 
+[[bin]]
+name = "auto-tundra"
+path = "src/main.rs"
+
 [dependencies]
 at-core = { path = "../../crates/at-core" }
+at-daemon = { path = "../../crates/at-daemon" }
+at-harness = { path = "../../crates/at-harness" }
 at-telemetry = { path = "../../crates/at-telemetry" }
 at-bridge = { path = "../../crates/at-bridge" }
+tauri = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
 anyhow = { workspace = true }
-uuid = { workspace = true }
-chrono = { workspace = true }
 thiserror = { workspace = true }
-flume = { workspace = true }
-tokio-rusqlite = "0.6"
+toml = "0.8"
+rodio = { version = "0.19", optional = true }
+
+[features]
+default = ["sounds"]
+sounds = ["dep:rodio"]
+
+[build-dependencies]
+tauri-build = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }
 at-agents = { path = "../../crates/at-agents" }
 at-bridge = { path = "../../crates/at-bridge" }
+at-core = { path = "../../crates/at-core" }
+at-daemon = { path = "../../crates/at-daemon" }
+reqwest = { version = "0.12", features = ["json"] }

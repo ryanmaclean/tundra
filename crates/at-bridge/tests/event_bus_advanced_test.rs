@@ -25,7 +25,7 @@ fn test_publish_event_to_subscribers() {
     bus.publish(event);
 
     let received = rx.try_recv().expect("subscriber should receive event");
-    match received {
+    match &*received {
         BridgeMessage::Event(ep) => {
             assert_eq!(ep.event_type, "bead_state_changed");
             assert_eq!(ep.message, "State changed to review");
@@ -52,7 +52,7 @@ fn test_publish_multiple_events_in_order() {
 
     for t in &types {
         let msg = rx.try_recv().expect("should receive message");
-        match msg {
+        match &*msg {
             BridgeMessage::Event(ep) => assert_eq!(ep.event_type, *t),
             other => panic!("expected Event, got {:?}", other),
         }
@@ -88,7 +88,7 @@ fn test_subscribe_returns_receiver() {
     bus.publish(BridgeMessage::GetStatus);
     let msg = rx.try_recv();
     assert!(msg.is_ok());
-    assert!(matches!(msg.unwrap(), BridgeMessage::GetStatus));
+    assert!(matches!(*msg.unwrap(), BridgeMessage::GetStatus));
 }
 
 #[test]
@@ -109,7 +109,7 @@ fn test_multiple_subscribers_all_receive() {
         let msg = rx.try_recv().unwrap_or_else(|_| {
             panic!("subscriber {} should have received the message", i)
         });
-        match msg {
+        match &*msg {
             BridgeMessage::Event(ep) => {
                 assert_eq!(ep.bead_id, Some(bead_id));
             }
@@ -159,7 +159,7 @@ fn test_event_bead_created() {
     }));
 
     let msg = rx.try_recv().unwrap();
-    match msg {
+    match &*msg {
         BridgeMessage::Event(ep) => {
             assert_eq!(ep.event_type, "bead_created");
             assert_eq!(ep.bead_id, Some(bead_id));
@@ -182,7 +182,7 @@ fn test_event_bead_state_changed() {
         timestamp: Utc::now(),
     }));
 
-    match rx.try_recv().unwrap() {
+    match &*rx.try_recv().unwrap() {
         BridgeMessage::Event(ep) => {
             assert_eq!(ep.event_type, "bead_state_change");
             assert_eq!(ep.message, "Moved to slung");
@@ -205,7 +205,7 @@ fn test_event_agent_spawned() {
         timestamp: Utc::now(),
     }));
 
-    match rx.try_recv().unwrap() {
+    match &*rx.try_recv().unwrap() {
         BridgeMessage::Event(ep) => {
             assert_eq!(ep.event_type, "agent_spawned");
             assert_eq!(ep.agent_id, Some(agent_id));
@@ -228,7 +228,7 @@ fn test_event_agent_stopped() {
         timestamp: Utc::now(),
     }));
 
-    match rx.try_recv().unwrap() {
+    match &*rx.try_recv().unwrap() {
         BridgeMessage::Event(ep) => {
             assert_eq!(ep.event_type, "agent_stopped");
             assert_eq!(ep.agent_id, Some(agent_id));
@@ -254,7 +254,7 @@ fn test_event_kpi_updated() {
         active_agents: 4,
     }));
 
-    match rx.try_recv().unwrap() {
+    match &*rx.try_recv().unwrap() {
         BridgeMessage::KpiUpdate(kpi) => {
             assert_eq!(kpi.total_beads, 100);
             assert_eq!(kpi.active_agents, 4);
@@ -433,7 +433,7 @@ fn test_bus_clone_shares_subscribers() {
     assert_eq!(bus2.subscriber_count(), 1);
 
     bus2.publish(BridgeMessage::ListAgents);
-    assert!(matches!(rx.try_recv().unwrap(), BridgeMessage::ListAgents));
+    assert!(matches!(*rx.try_recv().unwrap(), BridgeMessage::ListAgents));
 }
 
 #[test]

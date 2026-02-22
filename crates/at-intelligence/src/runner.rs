@@ -11,7 +11,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::spec::{PhaseMetrics, PhaseResult, PhaseStatus, SpecPhase};
+use crate::spec::{PhaseResult, PhaseStatus, SpecPhase};
+use at_core::types::{QaIssue, QaReport, QaSeverity, QaStatus};
 
 // ---------------------------------------------------------------------------
 // RunnerResult — common result type for all runners
@@ -255,6 +256,71 @@ impl Default for InsightsRunner {
 }
 
 // ---------------------------------------------------------------------------
+// QaRunner — runs QA checks and produces QaReport
+// ---------------------------------------------------------------------------
+
+/// Runs QA checks on a completed coding phase and produces a QaReport.
+pub struct QaRunner {
+    report: Option<QaReport>,
+}
+
+impl QaRunner {
+    pub fn new() -> Self {
+        Self { report: None }
+    }
+
+    /// Run QA checks for a task (placeholder implementation).
+    /// In a full implementation, this would:
+    /// - Analyze code changes in the worktree
+    /// - Run linters, formatters, tests
+    /// - Check for security issues, performance problems
+    /// - Generate structured QaIssue objects
+    pub fn run_qa_checks(&mut self, task_id: Uuid, _task_title: &str, worktree_path: Option<&str>) -> QaReport {
+        // Placeholder: create a basic QA report
+        // In production, this would analyze the codebase, run tests, etc.
+        let mut report = QaReport::new(task_id, QaStatus::Pending);
+        
+        // Simulate some checks
+        if let Some(worktree) = worktree_path {
+            // Placeholder: check if worktree exists and has changes
+            report.issues.push(QaIssue {
+                id: Uuid::new_v4(),
+                severity: QaSeverity::Minor,
+                description: format!("Worktree found at {}", worktree),
+                file: None,
+                line: None,
+            });
+        }
+
+        // Determine status based on issues
+        let critical_count = report.issues.iter().filter(|i| i.severity == QaSeverity::Critical).count();
+        let major_count = report.issues.iter().filter(|i| i.severity == QaSeverity::Major).count();
+        
+        report.status = if critical_count > 0 || major_count > 2 {
+            QaStatus::Failed
+        } else if report.issues.is_empty() {
+            QaStatus::Passed
+        } else {
+            QaStatus::Pending
+        };
+
+        self.report = Some(report.clone());
+        report
+    }
+
+    /// Get the generated report.
+    pub fn report(&self) -> Option<&QaReport> {
+        self.report.as_ref()
+    }
+}
+
+impl Default for QaRunner {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ---------------------------------------------------------------------------
 // RecoveryAction — handles failed sessions
 // ---------------------------------------------------------------------------
 
@@ -368,6 +434,7 @@ impl Default for RecoveryManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::spec::PhaseMetrics;
 
     // -- SpecRunner --
 

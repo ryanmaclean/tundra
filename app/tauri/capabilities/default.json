@@ -1,0 +1,13 @@
+{
+  "identifier": "default",
+  "description": "Default capability for auto-tundra desktop app",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:window:default",
+    "core:window:allow-close",
+    "core:window:allow-set-title",
+    "core:window:allow-set-size",
+    "core:window:allow-set-fullscreen"
+  ]
+}

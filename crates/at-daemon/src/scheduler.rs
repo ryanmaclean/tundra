@@ -1,9 +1,15 @@
+use std::sync::Arc;
+
 use anyhow::Result;
 use at_core::cache::CacheDb;
 use at_core::types::{Bead, BeadStatus, Lane};
 use chrono::Utc;
-use tracing::{debug, info};
+use tokio::sync::Semaphore;
+use tracing::{debug, info, warn};
 use uuid::Uuid;
+
+/// Default maximum number of concurrent agents when none is specified.
+const DEFAULT_MAX_CONCURRENT: u32 = 10;
 
 /// Assigns beads from the backlog to agents based on priority ordering.
 ///
@@ -11,12 +17,47 @@ use uuid::Uuid;
 /// 1. Critical lane first, then Standard, then Experimental.
 /// 2. Within the same lane, higher `priority` field wins.
 /// 3. Ties broken by `created_at` (oldest first).
-pub struct TaskScheduler;
+///
+/// Enforces a concurrency limit via a [`Semaphore`]. Callers must acquire a
+/// permit from [`concurrency_gate`](Self::concurrency_gate) before spawning an
+/// agent, and drop the permit when the agent reaches a terminal state.
+pub struct TaskScheduler {
+    concurrency_gate: Arc<Semaphore>,
+    max_concurrent: u32,
+}
 
 impl TaskScheduler {
-    /// Create a new task scheduler.
-    pub fn new() -> Self {
-        Self
+    /// Create a new task scheduler with the given concurrency limit.
+    pub fn new(max_concurrent: u32) -> Self {
+        let limit = if max_concurrent == 0 {
+            warn!("max_concurrent was 0, defaulting to {DEFAULT_MAX_CONCURRENT}");
+            DEFAULT_MAX_CONCURRENT
+        } else {
+            max_concurrent
+        };
+        Self {
+            concurrency_gate: Arc::new(Semaphore::new(limit as usize)),
+            max_concurrent: limit,
+        }
+    }
+
+    /// Returns a clone of the concurrency semaphore.
+    ///
+    /// External code (e.g. the orchestrator) should call
+    /// `semaphore.acquire_owned().await` before spawning an agent and hold the
+    /// resulting `OwnedSemaphorePermit` until the agent finishes.
+    pub fn concurrency_gate(&self) -> Arc<Semaphore> {
+        Arc::clone(&self.concurrency_gate)
+    }
+
+    /// Returns the number of agent slots currently available.
+    pub fn available_slots(&self) -> usize {
+        self.concurrency_gate.available_permits()
+    }
+
+    /// Returns the configured maximum concurrency.
+    pub fn max_concurrent(&self) -> u32 {
+        self.max_concurrent
     }
 
     /// Pick the highest-priority backlog bead.
@@ -103,7 +144,7 @@ impl TaskScheduler {
 
 impl Default for TaskScheduler {
     fn default() -> Self {
-        Self::new()
+        Self::new(DEFAULT_MAX_CONCURRENT)
     }
 }
 

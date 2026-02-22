@@ -455,7 +455,7 @@ mod tests {
 
         // Should have published an event
         let msg = rx.try_recv().expect("should have event");
-        match msg {
+        match &*msg {
             BridgeMessage::Event(payload) => {
                 assert_eq!(payload.event_type, "task_error");
                 assert!(payload.message.contains("Test task"));
@@ -474,7 +474,7 @@ mod tests {
         runner.publish_event(&bus, &task, "phase_start:Discovery");
 
         let msg = rx.try_recv().expect("should have event");
-        match msg {
+        match &*msg {
             BridgeMessage::Event(payload) => {
                 assert_eq!(payload.event_type, "phase_start:Discovery");
                 assert_eq!(payload.bead_id, Some(task.bead_id));

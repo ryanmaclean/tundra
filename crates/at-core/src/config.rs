@@ -32,6 +32,26 @@ pub struct Config {
     pub terminal: TerminalConfig,
     #[serde(default)]
     pub integrations: IntegrationConfig,
+    #[serde(default)]
+    pub appearance: AppearanceConfig,
+    #[serde(default)]
+    pub language: LanguageConfig,
+    #[serde(default)]
+    pub dev_tools: DevToolsConfig,
+    #[serde(default)]
+    pub agent_profile: AgentProfileConfig,
+    #[serde(default)]
+    pub paths: PathsConfig,
+    #[serde(default)]
+    pub api_profiles: ApiProfilesConfig,
+    #[serde(default)]
+    pub updates: UpdatesConfig,
+    #[serde(default)]
+    pub notifications: NotificationConfig,
+    #[serde(default)]
+    pub debug: DebugConfig,
+    #[serde(default)]
+    pub memory: MemoryConfig,
 }
 
 impl std::fmt::Debug for Config {
@@ -46,6 +66,16 @@ impl std::fmt::Debug for Config {
             .field("display", &self.display)
             .field("terminal", &self.terminal)
             .field("integrations", &self.integrations)
+            .field("appearance", &self.appearance)
+            .field("language", &self.language)
+            .field("dev_tools", &self.dev_tools)
+            .field("agent_profile", &self.agent_profile)
+            .field("paths", &self.paths)
+            .field("api_profiles", &self.api_profiles)
+            .field("updates", &self.updates)
+            .field("notifications", &self.notifications)
+            .field("debug", &self.debug)
+            .field("memory", &self.memory)
             .finish()
     }
 }
@@ -65,6 +95,16 @@ impl Default for Config {
             display: DisplayConfig::default(),
             terminal: TerminalConfig::default(),
             integrations: IntegrationConfig::default(),
+            appearance: AppearanceConfig::default(),
+            language: LanguageConfig::default(),
+            dev_tools: DevToolsConfig::default(),
+            agent_profile: AgentProfileConfig::default(),
+            paths: PathsConfig::default(),
+            api_profiles: ApiProfilesConfig::default(),
+            updates: UpdatesConfig::default(),
+            notifications: NotificationConfig::default(),
+            debug: DebugConfig::default(),
+            memory: MemoryConfig::default(),
         }
     }
 }
@@ -210,6 +250,15 @@ pub struct ProvidersConfig {
     pub openai_key_env: Option<String>,
     #[serde(default)]
     pub google_key_env: Option<String>,
+    /// Local inference server base URL (OpenAI-compatible, e.g. vllm.rs).
+    #[serde(default = "default_local_base_url")]
+    pub local_base_url: String,
+    /// Default local model alias/id.
+    #[serde(default = "default_local_model")]
+    pub local_model: String,
+    /// Optional API key env-var for local servers that require auth.
+    #[serde(default = "default_local_api_key_env")]
+    pub local_api_key_env: String,
     #[serde(default = "default_max_tokens")]
     pub default_max_tokens: u32,
 }
@@ -220,9 +269,24 @@ impl Default for ProvidersConfig {
             anthropic_key_env: None,
             openai_key_env: None,
             google_key_env: None,
+            local_base_url: default_local_base_url(),
+            local_model: default_local_model(),
+            local_api_key_env: default_local_api_key_env(),
             default_max_tokens: default_max_tokens(),
         }
     }
+}
+
+fn default_local_base_url() -> String {
+    "http://127.0.0.1:11434".into()
+}
+
+fn default_local_model() -> String {
+    "qwen2.5-coder:14b".into()
+}
+
+fn default_local_api_key_env() -> String {
+    "LOCAL_API_KEY".into()
 }
 
 fn default_max_tokens() -> u32 {
@@ -237,6 +301,9 @@ pub struct AgentsConfig {
     pub heartbeat_interval_secs: u64,
     #[serde(default)]
     pub auto_restart: bool,
+    /// When true, agents work in repo root instead of worktrees.
+    #[serde(default)]
+    pub direct_mode: bool,
 }
 
 impl Default for AgentsConfig {
@@ -245,6 +312,7 @@ impl Default for AgentsConfig {
             max_concurrent: default_max_agents(),
             heartbeat_interval_secs: default_heartbeat(),
             auto_restart: false,
+            direct_mode: false,
         }
     }
 }
@@ -460,9 +528,18 @@ pub struct IntegrationConfig {
     /// Env var name for GitLab token (default: `GITLAB_TOKEN`).
     #[serde(default = "default_gitlab_env")]
     pub gitlab_token_env: String,
+    /// GitLab project ID (numeric or `group/project` path).
+    #[serde(default)]
+    pub gitlab_project_id: Option<String>,
+    /// GitLab instance URL for self-hosted (default: `https://gitlab.com`).
+    #[serde(default)]
+    pub gitlab_url: Option<String>,
     /// Env var name for Linear API key (default: `LINEAR_API_KEY`).
     #[serde(default = "default_linear_env")]
     pub linear_api_key_env: String,
+    /// Linear team ID to scope issues.
+    #[serde(default)]
+    pub linear_team_id: Option<String>,
 }
 
 impl Default for IntegrationConfig {
@@ -472,7 +549,10 @@ impl Default for IntegrationConfig {
             github_owner: None,
             github_repo: None,
             gitlab_token_env: default_gitlab_env(),
+            gitlab_project_id: None,
+            gitlab_url: None,
             linear_api_key_env: default_linear_env(),
+            linear_team_id: None,
         }
     }
 }
@@ -480,6 +560,300 @@ impl Default for IntegrationConfig {
 fn default_github_env() -> String { "GITHUB_TOKEN".into() }
 fn default_gitlab_env() -> String { "GITLAB_TOKEN".into() }
 fn default_linear_env() -> String { "LINEAR_API_KEY".into() }
+
+// ---------------------------------------------------------------------------
+// Appearance settings (UI-facing)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AppearanceConfig {
+    #[serde(default = "default_appearance_mode")]
+    pub appearance_mode: String,
+    #[serde(default = "default_color_theme")]
+    pub color_theme: String,
+}
+
+impl Default for AppearanceConfig {
+    fn default() -> Self {
+        Self {
+            appearance_mode: default_appearance_mode(),
+            color_theme: default_color_theme(),
+        }
+    }
+}
+
+fn default_appearance_mode() -> String { "system".into() }
+fn default_color_theme() -> String { "arctic".into() }
+
+// ---------------------------------------------------------------------------
+// Language settings (UI-facing)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LanguageConfig {
+    #[serde(default = "default_interface_language")]
+    pub interface_language: String,
+}
+
+impl Default for LanguageConfig {
+    fn default() -> Self {
+        Self {
+            interface_language: default_interface_language(),
+        }
+    }
+}
+
+fn default_interface_language() -> String { "en".into() }
+
+// ---------------------------------------------------------------------------
+// Dev tools settings (UI-facing)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DevToolsConfig {
+    #[serde(default = "default_preferred_ide")]
+    pub preferred_ide: String,
+    #[serde(default = "default_preferred_terminal")]
+    pub preferred_terminal: String,
+    #[serde(default)]
+    pub auto_name_terminals: bool,
+    #[serde(default)]
+    pub yolo_mode: bool,
+    #[serde(default = "default_terminal_font_family")]
+    pub terminal_font_family: String,
+    #[serde(default = "default_terminal_font_size")]
+    pub terminal_font_size: u16,
+    #[serde(default = "default_terminal_cursor_style")]
+    pub terminal_cursor_style: String,
+    #[serde(default = "default_terminal_cursor_blink")]
+    pub terminal_cursor_blink: bool,
+    #[serde(default = "default_terminal_scrollback_lines")]
+    pub terminal_scrollback_lines: u32,
+}
+
+impl Default for DevToolsConfig {
+    fn default() -> Self {
+        Self {
+            preferred_ide: default_preferred_ide(),
+            preferred_terminal: default_preferred_terminal(),
+            auto_name_terminals: false,
+            yolo_mode: false,
+            terminal_font_family: default_terminal_font_family(),
+            terminal_font_size: default_terminal_font_size(),
+            terminal_cursor_style: default_terminal_cursor_style(),
+            terminal_cursor_blink: default_terminal_cursor_blink(),
+            terminal_scrollback_lines: default_terminal_scrollback_lines(),
+        }
+    }
+}
+
+fn default_preferred_ide() -> String { "vscode".into() }
+fn default_preferred_terminal() -> String { "default".into() }
+fn default_terminal_font_family() -> String { "JetBrains Mono, monospace".into() }
+fn default_terminal_font_size() -> u16 { 14 }
+fn default_terminal_cursor_style() -> String { "block".into() }
+fn default_terminal_cursor_blink() -> bool { true }
+fn default_terminal_scrollback_lines() -> u32 { 5000 }
+
+// ---------------------------------------------------------------------------
+// Agent profile settings (UI-facing)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentPhaseConfig {
+    #[serde(default)]
+    pub phase: String,
+    #[serde(default)]
+    pub model: String,
+    #[serde(default)]
+    pub thinking_level: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentProfileConfig {
+    #[serde(default = "default_agent_profile")]
+    pub default_profile: String,
+    #[serde(default = "default_agent_framework")]
+    pub agent_framework: String,
+    #[serde(default)]
+    pub ai_terminal_naming: bool,
+    #[serde(default)]
+    pub phase_configs: Vec<AgentPhaseConfig>,
+}
+
+impl Default for AgentProfileConfig {
+    fn default() -> Self {
+        Self {
+            default_profile: default_agent_profile(),
+            agent_framework: default_agent_framework(),
+            ai_terminal_naming: false,
+            phase_configs: Vec::new(),
+        }
+    }
+}
+
+fn default_agent_profile() -> String { "default".into() }
+fn default_agent_framework() -> String { "auto-tundra".into() }
+
+// ---------------------------------------------------------------------------
+// Paths settings (UI-facing)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PathsConfig {
+    #[serde(default)]
+    pub python_path: String,
+    #[serde(default)]
+    pub git_path: String,
+    #[serde(default)]
+    pub github_cli_path: String,
+    #[serde(default)]
+    pub claude_cli_path: String,
+    #[serde(default)]
+    pub auto_claude_path: String,
+}
+
+impl Default for PathsConfig {
+    fn default() -> Self {
+        Self {
+            python_path: String::new(),
+            git_path: String::new(),
+            github_cli_path: String::new(),
+            claude_cli_path: String::new(),
+            auto_claude_path: String::new(),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// API profiles settings (UI-facing)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiProfileEntry {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub base_url: String,
+    #[serde(default)]
+    pub api_key_env: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiProfilesConfig {
+    #[serde(default)]
+    pub profiles: Vec<ApiProfileEntry>,
+}
+
+impl Default for ApiProfilesConfig {
+    fn default() -> Self {
+        Self {
+            profiles: Vec::new(),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Updates settings (UI-facing)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdatesConfig {
+    #[serde(default)]
+    pub version: String,
+    #[serde(default)]
+    pub is_latest: bool,
+    #[serde(default)]
+    pub auto_update_projects: bool,
+    #[serde(default)]
+    pub beta_updates: bool,
+}
+
+impl Default for UpdatesConfig {
+    fn default() -> Self {
+        Self {
+            version: String::new(),
+            is_latest: false,
+            auto_update_projects: false,
+            beta_updates: false,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Notification settings (UI-facing)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NotificationConfig {
+    #[serde(default = "default_true")]
+    pub on_task_complete: bool,
+    #[serde(default = "default_true")]
+    pub on_task_failed: bool,
+    #[serde(default = "default_true")]
+    pub on_review_needed: bool,
+    #[serde(default = "default_true")]
+    pub sound_enabled: bool,
+}
+
+impl Default for NotificationConfig {
+    fn default() -> Self {
+        Self {
+            on_task_complete: true,
+            on_task_failed: true,
+            on_review_needed: true,
+            sound_enabled: true,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Debug settings (UI-facing)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DebugConfig {
+    #[serde(default)]
+    pub anonymous_error_reporting: bool,
+}
+
+impl Default for DebugConfig {
+    fn default() -> Self {
+        Self {
+            anonymous_error_reporting: false,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Memory settings (UI-facing)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryConfig {
+    #[serde(default)]
+    pub enable_memory: bool,
+    #[serde(default)]
+    pub enable_agent_memory_access: bool,
+    #[serde(default)]
+    pub graphiti_server_url: String,
+    #[serde(default)]
+    pub embedding_provider: String,
+    #[serde(default)]
+    pub embedding_model: String,
+}
+
+impl Default for MemoryConfig {
+    fn default() -> Self {
+        Self {
+            enable_memory: false,
+            enable_agent_memory_access: false,
+            graphiti_server_url: String::new(),
+            embedding_provider: String::new(),
+            embedding_model: String::new(),
+        }
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Credential provider — reads secrets from environment at runtime

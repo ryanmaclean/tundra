@@ -1,16 +1,22 @@
 use leptos::prelude::*;
+use crate::state::use_app_state;
+use crate::themed::{themed, Prompt};
 use leptos::task::spawn_local;
 
 use crate::api;
+use crate::i18n::t;
 
 #[component]
 pub fn IdeationPage() -> impl IntoView {
+    let app_state = use_app_state();
+    let display_mode = app_state.display_mode;
     let (ideas, set_ideas) = signal(Vec::<api::ApiIdea>::new());
     let (loading, set_loading) = signal(true);
     let (error_msg, set_error_msg) = signal(Option::<String>::None);
     let (filter_category, set_filter_category) = signal("All".to_string());
     let (expanded_id, set_expanded_id) = signal(Option::<String>::None);
     let (generating, set_generating) = signal(false);
+    let (convert_msg, set_convert_msg) = signal(Option::<String>::None);
 
     let do_refresh = move || {
         set_loading.set(true);
@@ -71,14 +77,14 @@ pub fn IdeationPage() -> impl IntoView {
 
     view! {
         <div class="page-header">
-            <h2>"Ideation"</h2>
+            <h2>{t("ideation-title")}</h2>
             <div class="page-header-actions">
                 <button
                     class="action-btn action-start"
                     on:click=on_generate
                     disabled=move || generating.get()
                 >
-                    {move || if generating.get() { "Generating..." } else { "Generate Ideas" }}
+                    {move || if generating.get() { "Generating...".to_string() } else { t("ideation-generate") }}
                 </button>
                 <select
                     class="filter-select"
@@ -103,8 +109,12 @@ pub fn IdeationPage() -> impl IntoView {
             <div class="dashboard-error">{msg}</div>
         })}
 
+        {move || convert_msg.get().map(|msg| view! {
+            <div class="changelog-success">{msg}</div>
+        })}
+
         {move || loading.get().then(|| view! {
-            <div class="dashboard-loading">"Loading ideas..."</div>
+            <div class="dashboard-loading">{move || themed(display_mode.get(), Prompt::Loading)}</div>
         })}
 
         <div class="ideation-grid">
@@ -113,6 +123,8 @@ pub fn IdeationPage() -> impl IntoView {
                 let iid_click = idea.id.clone();
                 let is_expanded = move || expanded_id.get().as_deref() == Some(&iid);
                 let title = idea.title.clone();
+                let convert_title = idea.title.clone();
+                let convert_desc = idea.description.clone();
                 let desc_snippet = if idea.description.len() > 120 {
                     format!("{}...", &idea.description[..120])
                 } else {
@@ -157,12 +169,28 @@ pub fn IdeationPage() -> impl IntoView {
                         <div class="ideation-card-actions">
                             <button
                                 class="action-btn action-start"
-                                on:click=move |ev| {
-                                    ev.stop_propagation();
-                                    web_sys::console::log_1(&"Convert to Task clicked".into());
+                                on:click={
+                                    let convert_title = convert_title.clone();
+                                    let convert_desc = convert_desc.clone();
+                                    move |ev: web_sys::MouseEvent| {
+                                        ev.stop_propagation();
+                                        let t = convert_title.clone();
+                                        let d = convert_desc.clone();
+                                        set_convert_msg.set(None);
+                                        spawn_local(async move {
+                                            match api::create_bead(&t, Some(&d), Some("standard")).await {
+                                                Ok(bead) => set_convert_msg.set(Some(
+                                                    format!("Created task '{}' (id: {})", bead.title, bead.id)
+                                                )),
+                                                Err(e) => set_convert_msg.set(Some(
+                                                    format!("Failed to create task: {e}")
+                                                )),
+                                            }
+                                        });
+                                    }
                                 }
                             >
-                                "Convert to Task"
+                                {t("ideation-convert-task")}
                             </button>
                         </div>
                     </div>

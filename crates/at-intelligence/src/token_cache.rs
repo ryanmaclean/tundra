@@ -7,7 +7,7 @@
 //!
 //! The cache is thread-safe and uses async RwLock for concurrent access.
 
-use std::collections::HashMap;
+use ahash::AHashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -98,9 +98,9 @@ impl CacheStats {
 pub struct TokenCache {
     config: TokenCacheConfig,
     /// Hash-based exact match cache: prompt_hash → entry.
-    hash_cache: Arc<RwLock<HashMap<u64, CacheEntry>>>,
+    hash_cache: Arc<RwLock<AHashMap<u64, CacheEntry>>>,
     /// Prefix cache: system_prompt_hash → (full_entry, user_content_hash).
-    prefix_cache: Arc<RwLock<HashMap<u64, Vec<CacheEntry>>>>,
+    prefix_cache: Arc<RwLock<AHashMap<u64, Vec<CacheEntry>>>>,
     stats: Arc<RwLock<CacheStats>>,
 }
 
@@ -108,8 +108,8 @@ impl TokenCache {
     pub fn new(config: TokenCacheConfig) -> Self {
         Self {
             config,
-            hash_cache: Arc::new(RwLock::new(HashMap::new())),
-            prefix_cache: Arc::new(RwLock::new(HashMap::new())),
+            hash_cache: Arc::new(RwLock::new(AHashMap::new())),
+            prefix_cache: Arc::new(RwLock::new(AHashMap::new())),
             stats: Arc::new(RwLock::new(CacheStats::default())),
         }
     }
@@ -234,7 +234,7 @@ impl TokenCache {
     }
 
     /// Evict the least-recently-used entries from hash cache.
-    async fn evict_hash_cache(&self, cache: &mut HashMap<u64, CacheEntry>) {
+    async fn evict_hash_cache(&self, cache: &mut AHashMap<u64, CacheEntry>) {
         // Remove expired entries first
         let ttl = Duration::from_secs(self.config.ttl_secs);
         let before = cache.len();

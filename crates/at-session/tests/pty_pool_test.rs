@@ -121,3 +121,18 @@ fn send_and_read_interactive() {
 
     handle.kill().expect("kill failed");
 }
+
+#[test]
+fn resize_pty_succeeds() {
+    let pool = PtyPool::new(4);
+    let handle = pool
+        .spawn("/bin/cat", &[], &[])
+        .expect("failed to spawn cat");
+
+    // Resize to various dimensions — should not error.
+    handle.resize(120, 40).expect("resize to 120x40 failed");
+    handle.resize(80, 24).expect("resize to 80x24 failed");
+    handle.resize(200, 60).expect("resize to 200x60 failed");
+
+    handle.kill().expect("kill failed");
+}

@@ -5,12 +5,14 @@
 
 use std::fmt;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::Duration;
 
 use async_trait::async_trait;
 use futures_util::Stream;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use tokio::sync::Semaphore;
 
 // ---------------------------------------------------------------------------
 // Error types
@@ -479,6 +481,218 @@ impl LlmProvider for OpenAiProvider {
     ) -> Result<Pin<Box<dyn Stream<Item = Result<String, LlmError>> + Send>>, LlmError> {
         Err(LlmError::Unsupported(
             "streaming not yet implemented for OpenAiProvider".into(),
+        ))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// LocalProvider — local inference via OpenAI-compatible API
+// ---------------------------------------------------------------------------
+
+/// LLM provider for local inference servers that expose an OpenAI-compatible
+/// chat completions endpoint (vllm.rs, llama.cpp, Ollama, candle-based servers,
+/// text-generation-inference, etc.).
+///
+/// The provider speaks the standard `/v1/chat/completions` protocol. Most local
+/// inference servers support this format out of the box. Authentication is
+/// optional — many local servers run without API keys.
+///
+/// # Configuration
+///
+/// - `base_url`: URL of the local server (default: `http://localhost:8000`)
+/// - `api_key`: Optional; pass empty string or `"none"` if the server doesn't
+///   require authentication
+///
+/// # Supported servers
+///
+/// - **vllm** / **vllm.rs**: `--api-key` flag optional, default port 8000
+/// - **llama.cpp server**: `--api-key` flag optional, default port 8080
+/// - **Ollama**: default port 11434, uses `/api/chat` but also supports
+///   OpenAI-compatible endpoint at `/v1/chat/completions`
+/// - **text-generation-inference (TGI)**: default port 8080
+/// - **candle** server: when run with the OpenAI-compatible wrapper
+pub struct LocalProvider {
+    client: reqwest::Client,
+    api_key: Option<String>,
+    base_url: String,
+}
+
+fn local_llm_max_concurrent() -> usize {
+    std::env::var("AT_LOCAL_LLM_MAX_CONCURRENT")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or(1)
+}
+
+fn local_llm_gate() -> Arc<Semaphore> {
+    static LOCAL_LLM_GATE: OnceLock<Arc<Semaphore>> = OnceLock::new();
+    LOCAL_LLM_GATE
+        .get_or_init(|| Arc::new(Semaphore::new(local_llm_max_concurrent())))
+        .clone()
+}
+
+impl LocalProvider {
+    /// Create a new local inference provider.
+    ///
+    /// `base_url` is the server address (e.g., `"http://localhost:8000"`).
+    /// `api_key` is optional — pass `None` for servers without auth.
+    pub fn new(base_url: impl Into<String>, api_key: Option<String>) -> Self {
+        let key = api_key.filter(|k| !k.is_empty() && k != "none");
+        Self {
+            client: reqwest::Client::builder()
+                .timeout(Duration::from_secs(120)) // local inference can be slow
+                .build()
+                .unwrap_or_else(|_| reqwest::Client::new()),
+            api_key: key,
+            base_url: base_url.into(),
+        }
+    }
+}
+
+/// Deserialize helpers for OpenAI-compatible local server responses.
+///
+/// Reuses the same JSON schema as OpenAI Chat Completions API since
+/// all supported local servers implement this format.
+#[derive(Deserialize)]
+struct LocalResponse {
+    choices: Vec<LocalChoice>,
+    model: Option<String>,
+    usage: Option<LocalUsage>,
+}
+
+#[derive(Deserialize)]
+struct LocalChoice {
+    message: LocalMessageResp,
+    finish_reason: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct LocalMessageResp {
+    content: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct LocalUsage {
+    prompt_tokens: Option<u64>,
+    completion_tokens: Option<u64>,
+}
+
+#[async_trait]
+impl LlmProvider for LocalProvider {
+    async fn complete(
+        &self,
+        messages: &[LlmMessage],
+        config: &LlmConfig,
+    ) -> Result<LlmResponse, LlmError> {
+        // Queue local inference calls to prevent model-server overload when many
+        // agent subscribers are active concurrently.
+        let _permit = local_llm_gate()
+            .acquire_owned()
+            .await
+            .map_err(|_| LlmError::HttpError("local LLM queue unavailable".into()))?;
+
+        // Build messages in OpenAI format (system messages inline).
+        let mut api_messages: Vec<serde_json::Value> = Vec::new();
+
+        if let Some(ref system) = config.system_prompt {
+            api_messages.push(serde_json::json!({
+                "role": "system",
+                "content": system,
+            }));
+        }
+
+        for msg in messages {
+            api_messages.push(serde_json::json!({
+                "role": msg.role.to_string(),
+                "content": msg.content,
+            }));
+        }
+
+        let body = serde_json::json!({
+            "model": config.model,
+            "max_tokens": config.max_tokens,
+            "temperature": config.temperature,
+            "messages": api_messages,
+        });
+
+        let url = format!("{}/v1/chat/completions", self.base_url);
+
+        let mut req = self
+            .client
+            .post(&url)
+            .header("Content-Type", "application/json")
+            .json(&body);
+
+        if let Some(ref key) = self.api_key {
+            req = req.header("Authorization", format!("Bearer {}", key));
+        }
+
+        let resp = req.send().await.map_err(|e| {
+            if e.is_timeout() {
+                LlmError::Timeout
+            } else if e.is_connect() {
+                LlmError::HttpError(format!(
+                    "cannot connect to local inference server at {}: {}",
+                    self.base_url, e
+                ))
+            } else {
+                LlmError::HttpError(e.to_string())
+            }
+        })?;
+
+        let status = resp.status().as_u16();
+
+        if status == 429 {
+            let retry_after = resp
+                .headers()
+                .get("retry-after")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|v| v.parse::<u64>().ok());
+            return Err(LlmError::RateLimited {
+                retry_after_secs: retry_after,
+            });
+        }
+
+        if !resp.status().is_success() {
+            let text = resp.text().await.unwrap_or_default();
+            return Err(LlmError::ApiError {
+                status,
+                message: text,
+            });
+        }
+
+        let api_resp: LocalResponse = resp
+            .json()
+            .await
+            .map_err(|e| LlmError::ParseError(e.to_string()))?;
+
+        let choice = api_resp
+            .choices
+            .first()
+            .ok_or_else(|| LlmError::ParseError("no choices in local response".into()))?;
+
+        let usage = api_resp.usage.as_ref();
+
+        Ok(LlmResponse {
+            content: choice.message.content.clone().unwrap_or_default(),
+            model: api_resp.model.unwrap_or_else(|| config.model.clone()),
+            input_tokens: usage.and_then(|u| u.prompt_tokens).unwrap_or(0),
+            output_tokens: usage.and_then(|u| u.completion_tokens).unwrap_or(0),
+            finish_reason: choice
+                .finish_reason
+                .clone()
+                .unwrap_or_else(|| "stop".into()),
+        })
+    }
+
+    async fn stream(
+        &self,
+        _messages: &[LlmMessage],
+        _config: &LlmConfig,
+    ) -> Result<Pin<Box<dyn Stream<Item = Result<String, LlmError>> + Send>>, LlmError> {
+        Err(LlmError::Unsupported(
+            "streaming not yet implemented for LocalProvider".into(),
         ))
     }
 }
@@ -1062,5 +1276,112 @@ mod tests {
         assert_eq!(tracker.total_output_tokens, 125);
         assert_eq!(tracker.total_requests, 2);
         assert_eq!(tracker.total_tokens(), 425);
+    }
+
+    // -- LocalProvider tests -------------------------------------------------
+
+    #[test]
+    fn local_provider_creation_with_api_key() {
+        let provider = LocalProvider::new("http://localhost:8000", Some("test-key".into()));
+        assert_eq!(provider.base_url, "http://localhost:8000");
+        assert_eq!(provider.api_key, Some("test-key".into()));
+    }
+
+    #[test]
+    fn local_provider_creation_without_api_key() {
+        let provider = LocalProvider::new("http://localhost:8000", None);
+        assert_eq!(provider.base_url, "http://localhost:8000");
+        assert!(provider.api_key.is_none());
+    }
+
+    #[test]
+    fn local_provider_empty_key_treated_as_none() {
+        let provider = LocalProvider::new("http://localhost:8000", Some("".into()));
+        assert!(provider.api_key.is_none());
+    }
+
+    #[test]
+    fn local_provider_none_key_treated_as_none() {
+        let provider = LocalProvider::new("http://localhost:8000", Some("none".into()));
+        assert!(provider.api_key.is_none());
+    }
+
+    #[tokio::test]
+    async fn local_provider_stream_returns_unsupported() {
+        let provider = LocalProvider::new("http://localhost:9999", None);
+        let config = default_config();
+        let result = provider
+            .stream(&[LlmMessage::user("Hi")], &config)
+            .await;
+        assert!(result.is_err());
+        match result {
+            Err(LlmError::Unsupported(msg)) => {
+                assert!(msg.contains("LocalProvider"));
+            }
+            _ => panic!("expected LlmError::Unsupported"),
+        }
+    }
+
+    #[tokio::test]
+    async fn local_provider_connection_refused_returns_http_error() {
+        // Connect to a port where nothing is listening.
+        let provider = LocalProvider::new("http://127.0.0.1:19999", None);
+        let config = default_config();
+        let result = provider
+            .complete(&[LlmMessage::user("Hi")], &config)
+            .await;
+        assert!(result.is_err());
+        match result {
+            Err(LlmError::HttpError(msg)) => {
+                assert!(msg.contains("cannot connect") || msg.contains("error"));
+            }
+            Err(LlmError::Timeout) => {} // also acceptable on slow CI
+            other => panic!("expected HttpError or Timeout, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn local_provider_as_trait_object_compiles() {
+        // Verify LocalProvider is object-safe for dyn LlmProvider.
+        let _: Box<dyn LlmProvider> = Box::new(
+            LocalProvider::new("http://localhost:8000", None),
+        );
+    }
+
+    #[test]
+    fn local_response_deserializes_minimal() {
+        // Minimal valid response from a local server.
+        let json = r#"{
+            "choices": [{
+                "message": {"content": "Hello!"},
+                "finish_reason": "stop"
+            }]
+        }"#;
+        let resp: LocalResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(resp.choices.len(), 1);
+        assert_eq!(resp.choices[0].message.content.as_deref(), Some("Hello!"));
+        assert!(resp.model.is_none()); // model field is optional
+        assert!(resp.usage.is_none()); // usage field is optional
+    }
+
+    #[test]
+    fn local_response_deserializes_full() {
+        // Full response with all optional fields.
+        let json = r#"{
+            "choices": [{
+                "message": {"content": "Hi there"},
+                "finish_reason": "length"
+            }],
+            "model": "llama-2-70b",
+            "usage": {
+                "prompt_tokens": 42,
+                "completion_tokens": 10
+            }
+        }"#;
+        let resp: LocalResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(resp.model.as_deref(), Some("llama-2-70b"));
+        let usage = resp.usage.unwrap();
+        assert_eq!(usage.prompt_tokens, Some(42));
+        assert_eq!(usage.completion_tokens, Some(10));
     }
 }

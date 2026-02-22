@@ -1,4 +1,6 @@
 use leptos::prelude::*;
+use std::cell::Cell;
+use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::spawn_local;
@@ -54,10 +56,17 @@ pub fn use_event_stream() -> (
     let (toasts, set_toasts) = signal(Vec::<Toast>::new());
     let (unread_count, set_unread_count) = signal(0u64);
 
+    // Track whether the component is still mounted so we skip reconnect after unmount.
+    let mounted = Rc::new(Cell::new(true));
+    // Holds the active WebSocket so on_cleanup can close it.
+    let ws_handle: Rc<Cell<Option<WebSocket>>> = Rc::new(Cell::new(None));
+
     // Start connection in a spawn_local
     let set_toasts_clone = set_toasts;
     let set_conn_state_clone = set_conn_state;
     let set_latest_event_clone = set_latest_event;
+    let mounted_clone = mounted.clone();
+    let ws_handle_clone = ws_handle.clone();
 
     spawn_local(async move {
         connect_ws(
@@ -65,7 +74,20 @@ pub fn use_event_stream() -> (
             set_latest_event_clone,
             set_toasts_clone,
             set_unread_count,
+            mounted_clone,
+            ws_handle_clone,
         );
+    });
+
+    // Cleanup: close the WebSocket and mark unmounted so reconnect is skipped.
+    // SendWrapper is needed because Rc is not Send+Sync, but WASM is single-threaded.
+    let mounted_cleanup = send_wrapper::SendWrapper::new(mounted.clone());
+    let ws_handle_cleanup = send_wrapper::SendWrapper::new(ws_handle.clone());
+    on_cleanup(move || {
+        mounted_cleanup.set(false);
+        if let Some(ws) = (*ws_handle_cleanup).take() {
+            ws.close().ok();
+        }
     });
 
     (conn_state, latest_event, toasts, set_toasts, unread_count, set_unread_count)
@@ -76,7 +98,14 @@ fn connect_ws(
     set_latest_event: WriteSignal<Option<serde_json::Value>>,
     set_toasts: WriteSignal<Vec<Toast>>,
     set_unread_count: WriteSignal<u64>,
+    mounted: Rc<Cell<bool>>,
+    ws_handle: Rc<Cell<Option<WebSocket>>>,
 ) {
+    // Don't connect if the component has already been unmounted.
+    if !mounted.get() {
+        return;
+    }
+
     let url = api::events_ws_url();
 
     set_conn_state.set(WsConnectionState::Connecting);
@@ -85,10 +114,13 @@ fn connect_ws(
         Ok(ws) => ws,
         Err(_) => {
             set_conn_state.set(WsConnectionState::Disconnected);
-            schedule_reconnect(set_conn_state, set_latest_event, set_toasts, set_unread_count, 1);
+            schedule_reconnect(set_conn_state, set_latest_event, set_toasts, set_unread_count, 1, mounted, ws_handle);
             return;
         }
     };
+
+    // Store the WebSocket so on_cleanup can close it.
+    ws_handle.set(Some(ws.clone()));
 
     // On open
     {
@@ -126,9 +158,15 @@ fn connect_ws(
                         });
                     }
 
-                    // Bump unread count for Event-type messages
+                    // Refresh unread count from the API when an event arrives,
+                    // instead of blindly incrementing (which caused 99+ drift).
                     if value.get("type").and_then(|t| t.as_str()) == Some("event") {
-                        set_unread.update(|c| *c += 1);
+                        let set_count = set_unread;
+                        wasm_bindgen_futures::spawn_local(async move {
+                            if let Ok(count) = crate::api::fetch_notification_count().await {
+                                set_count.set(count.unread);
+                            }
+                        });
                     }
                 }
             }
@@ -146,16 +184,22 @@ fn connect_ws(
         onerror.forget();
     }
 
-    // On close -- trigger reconnect with backoff
+    // On close -- trigger reconnect with backoff (only if still mounted)
     {
         let set_state = set_conn_state;
         let set_event = set_latest_event;
         let set_toasts3 = set_toasts;
         let set_unread = set_unread_count;
+        let mounted_close = mounted.clone();
+        let ws_handle_close = ws_handle.clone();
         let onclose = Closure::wrap(Box::new(move |_: CloseEvent| {
             set_state.set(WsConnectionState::Disconnected);
-            web_sys::console::log_1(&"[events] WebSocket closed, will reconnect".into());
-            schedule_reconnect(set_state, set_event, set_toasts3, set_unread, 1);
+            if mounted_close.get() {
+                web_sys::console::log_1(&"[events] WebSocket closed, will reconnect".into());
+                schedule_reconnect(set_state, set_event, set_toasts3, set_unread, 1, mounted_close.clone(), ws_handle_close.clone());
+            } else {
+                web_sys::console::log_1(&"[events] WebSocket closed (component unmounted, skipping reconnect)".into());
+            }
         }) as Box<dyn FnMut(CloseEvent)>);
         ws.set_onclose(Some(onclose.as_ref().unchecked_ref()));
         onclose.forget();
@@ -168,16 +212,28 @@ fn schedule_reconnect(
     set_toasts: WriteSignal<Vec<Toast>>,
     set_unread_count: WriteSignal<u64>,
     attempt: u32,
+    mounted: Rc<Cell<bool>>,
+    ws_handle: Rc<Cell<Option<WebSocket>>>,
 ) {
+    // Don't schedule reconnect if the component has been unmounted.
+    if !mounted.get() {
+        return;
+    }
+
     let delay_secs = std::cmp::min(2u32.pow(attempt.saturating_sub(1)), 16);
     set_conn_state.set(WsConnectionState::Reconnecting);
 
     spawn_local(async move {
         gloo_timers::future::TimeoutFuture::new(delay_secs * 1000).await;
+        // Re-check mounted after the delay — the component may have unmounted while waiting.
+        if !mounted.get() {
+            web_sys::console::log_1(&"[events] Skipping reconnect, component unmounted".into());
+            return;
+        }
         web_sys::console::log_1(
             &format!("[events] Reconnect attempt {} (delay {}s)", attempt, delay_secs).into(),
         );
-        connect_ws(set_conn_state, set_latest_event, set_toasts, set_unread_count);
+        connect_ws(set_conn_state, set_latest_event, set_toasts, set_unread_count, mounted, ws_handle);
     });
 }
 

@@ -2,6 +2,7 @@
 name = "at-session"
 version.workspace = true
 edition.workspace = true
+publish = false
 
 [dependencies]
 at-core = { path = "../at-core" }
@@ -14,6 +15,7 @@ uuid = { workspace = true }
 portable-pty = "0.8"
 serde = { workspace = true }
 serde_json = { workspace = true }
+anyhow = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }

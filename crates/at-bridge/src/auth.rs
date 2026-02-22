@@ -12,6 +12,7 @@ use axum::{
 };
 use std::sync::Arc;
 use std::task::{Context, Poll};
+use subtle::ConstantTimeEq;
 use tower::{Layer, Service};
 
 // ---------------------------------------------------------------------------
@@ -99,7 +100,9 @@ where
                 });
 
             match provided {
-                Some(ref token) if token == expected.as_str() => inner.call(req).await,
+                Some(ref token) if bool::from(token.as_bytes().ct_eq(expected.as_bytes())) => {
+                    inner.call(req).await
+                }
                 _ => {
                     let resp = (
                         StatusCode::UNAUTHORIZED,

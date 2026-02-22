@@ -1,9 +1,12 @@
+use std::sync::Arc;
+
 use anyhow::Result;
+use at_bridge::http_api::ApiState;
 use at_core::cache::CacheDb;
 use at_core::types::BeadStatus;
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use serde::{Deserialize, Serialize};
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 /// Result of a single patrol sweep.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -103,4 +106,56 @@ impl PatrolRunner {
 
         Ok(report)
     }
+}
+
+/// Reap orphaned PTY processes whose child has exited but remain in the
+/// terminal registry.
+///
+/// Iterates every entry in the `terminal_registry`, checks the corresponding
+/// `pty_handles` entry for liveness via `PtyHandle::is_alive()`, and removes
+/// dead entries from both maps. Returns the number of orphans reaped.
+pub async fn reap_orphan_ptys(state: &Arc<ApiState>) -> usize {
+    // Collect terminal IDs that have a registered PTY handle.
+    let terminal_ids: Vec<uuid::Uuid> = {
+        let registry = state.terminal_registry.read().await;
+        registry.list().iter().map(|t| t.id).collect()
+    };
+
+    let mut orphan_count = 0;
+
+    for tid in &terminal_ids {
+        let is_dead = {
+            let handles = state.pty_handles.read().await;
+            match handles.get(tid) {
+                Some(handle) => !handle.is_alive(),
+                // Terminal registered but no PTY handle at all — also an orphan.
+                None => true,
+            }
+        };
+
+        if is_dead {
+            orphan_count += 1;
+            warn!(terminal_id = %tid, "orphaned PTY detected — reaping");
+
+            // Remove from pty_handles (and kill if still present).
+            {
+                let mut handles = state.pty_handles.write().await;
+                if let Some(handle) = handles.remove(tid) {
+                    let _ = handle.kill();
+                }
+            }
+
+            // Mark as closed in the registry and remove.
+            {
+                let mut registry = state.terminal_registry.write().await;
+                registry.unregister(tid);
+            }
+        }
+    }
+
+    if orphan_count > 0 {
+        info!(orphan_count, "orphan PTY reaping complete");
+    }
+
+    orphan_count
 }

@@ -1,8 +1,10 @@
 use leptos::prelude::*;
 use web_sys::DragEvent;
 
+use crate::api::ApiBead;
 use crate::state::use_app_state;
-use crate::types::{BeadStatus, Lane};
+use crate::themed::{themed, Prompt};
+use crate::types::{BeadResponse, BeadStatus, Lane};
 
 /// Map an action to the next lane the bead should move to.
 fn next_lane_for_action(action: &str, current: &Lane) -> Option<Lane> {
@@ -67,6 +69,81 @@ fn progress_for_lane(lane: &Lane) -> String {
     }
 }
 
+/// Map a backend API status string to a Lane.
+fn lane_from_api_status(status: &str) -> Lane {
+    match status {
+        "backlog" => Lane::Backlog,
+        "hooked" => Lane::Queue,
+        "slung" => Lane::InProgress,
+        "review" => Lane::AiReview,
+        "done" => Lane::Done,
+        "failed" => Lane::Backlog,
+        "escalated" => Lane::HumanReview,
+        _ => Lane::Backlog,
+    }
+}
+
+/// Map a Lane to a backend API status string.
+fn api_status_from_lane(lane: &Lane) -> &'static str {
+    match lane {
+        Lane::Backlog => "backlog",
+        Lane::Queue => "hooked",
+        Lane::Planning => "backlog",
+        Lane::InProgress => "slung",
+        Lane::AiReview => "review",
+        Lane::HumanReview => "escalated",
+        Lane::Done => "done",
+        Lane::PrCreated => "done",
+    }
+}
+
+/// Convert an ApiBead from the API into the BeadResponse used by the UI.
+pub fn api_bead_to_bead_response(ab: &ApiBead) -> BeadResponse {
+    let lane = lane_from_api_status(&ab.status);
+    let status = status_for_lane(&lane);
+    let progress = progress_for_lane(&lane);
+    let action = action_for_lane(&lane);
+
+    // Populate tags from category and priority fields so filters work
+    let mut tags = vec![];
+    if let Some(ref cat) = ab.category {
+        if !cat.is_empty() {
+            tags.push(cat.clone());
+        }
+    }
+    if let Some(ref pri) = ab.priority_label {
+        if !pri.is_empty() {
+            tags.push(pri.clone());
+        }
+    } else {
+        // Fall back to mapping the integer priority to a label
+        let pri_label = match ab.priority {
+            4 => "Critical",
+            3 => "High",
+            2 => "Medium",
+            1 => "Low",
+            _ => "",
+        };
+        if !pri_label.is_empty() {
+            tags.push(pri_label.to_string());
+        }
+    }
+
+    BeadResponse {
+        id: ab.id.clone(),
+        title: ab.title.clone(),
+        status,
+        lane,
+        agent_id: None,
+        description: ab.description.clone().unwrap_or_default(),
+        tags,
+        progress_stage: progress,
+        agent_names: vec![],
+        timestamp: String::new(),
+        action,
+    }
+}
+
 /// Lane index for collapse state tracking.
 fn lane_index(lane: &Lane) -> usize {
     match lane {
@@ -87,6 +164,29 @@ pub fn BeadsPage() -> impl IntoView {
     let beads = state.beads;
     let set_beads = state.set_beads;
     let set_dragging = state.set_dragging_bead;
+    let dragging_bead = state.dragging_bead;
+    let mode = state.display_mode;
+
+    // Track which column is being dragged over for visual feedback
+    let (drag_over_lane, set_drag_over_lane) = signal(Option::<usize>::None);
+
+    // Fetch beads from API on mount
+    {
+        let set_beads = set_beads.clone();
+        leptos::task::spawn_local(async move {
+            match crate::api::fetch_beads().await {
+                Ok(api_beads) => {
+                    let ui_beads: Vec<BeadResponse> = api_beads.iter().map(api_bead_to_bead_response).collect();
+                    if !ui_beads.is_empty() {
+                        set_beads.set(ui_beads);
+                    }
+                }
+                Err(e) => {
+                    leptos::logging::log!("Failed to fetch beads from API: {}", e);
+                }
+            }
+        });
+    }
 
     // Filter state
     let (filter_category, set_filter_category) = signal("All".to_string());
@@ -95,9 +195,16 @@ pub fn BeadsPage() -> impl IntoView {
 
     // Task detail modal state
     let (selected_bead_id, set_selected_bead_id) = signal(Option::<String>::None);
+    
+    // New task modal state
+    let (show_new_task_for_column, set_show_new_task_for_column) = signal(Option::<Lane>::None);
 
     // Column collapse state: a Vec<bool> of 8 lanes, all start expanded (false = not collapsed)
     let (collapsed, set_collapsed) = signal(vec![false; 8]);
+
+    let on_add_task = move |target_lane: Lane| {
+        set_show_new_task_for_column.set(Some(target_lane));
+    };
 
     let clear_filters = move |_| {
         set_filter_category.set("All".to_string());
@@ -112,18 +219,18 @@ pub fn BeadsPage() -> impl IntoView {
     };
 
     let lanes = vec![
-        (Lane::Backlog, "Backlog"),
-        (Lane::Queue, "Queue"),
-        (Lane::Planning, "Planning"),
-        (Lane::InProgress, "In Progress"),
-        (Lane::AiReview, "AI Review"),
-        (Lane::HumanReview, "Human Review"),
+        (Lane::Backlog, "To Do"),
+        (Lane::InProgress, "In Progress"), 
+        (Lane::AiReview, "Review"),
         (Lane::Done, "Done"),
-        (Lane::PrCreated, "PR Created"),
     ];
 
-    // Move a bead to a target lane
+    // Move a bead to a target lane (optimistic local update + API call with rollback)
     let move_bead = move |bead_id: String, target_lane: Lane| {
+        // Snapshot for rollback
+        let prev_beads = beads.get_untracked();
+
+        // Optimistic local update
         set_beads.update(|beads_vec| {
             if let Some(bead) = beads_vec.iter_mut().find(|b| b.id == bead_id) {
                 bead.lane = target_lane.clone();
@@ -131,6 +238,17 @@ pub fn BeadsPage() -> impl IntoView {
                 bead.progress_stage = progress_for_lane(&target_lane);
                 bead.action = action_for_lane(&target_lane);
                 bead.timestamp = "just now".to_string();
+            }
+        });
+
+        // Persist to API
+        let api_status = api_status_from_lane(&target_lane).to_string();
+        let id = bead_id.clone();
+        leptos::task::spawn_local(async move {
+            if let Err(e) = crate::api::update_bead_status(&id, &api_status).await {
+                // Rollback optimistic update
+                set_beads.set(prev_beads);
+                leptos::logging::log!("Failed to update bead status via API (rolled back): {}", e);
             }
         });
     };
@@ -213,46 +331,73 @@ pub fn BeadsPage() -> impl IntoView {
                     });
                 };
 
+                let lane_for_filter = lane.clone();
                 let count = move || {
                     beads.get().into_iter()
-                        .filter(|b| b.lane == lane_for_count)
+                        .filter(|b| match lane_for_filter {
+                            Lane::Backlog => matches!(b.lane, Lane::Backlog | Lane::Queue | Lane::Planning),
+                            Lane::InProgress => matches!(b.lane, Lane::InProgress),
+                            Lane::AiReview => matches!(b.lane, Lane::AiReview | Lane::HumanReview),
+                            Lane::Done => matches!(b.lane, Lane::Done | Lane::PrCreated),
+                            _ => false,
+                        })
                         .count()
                 };
 
-                // Drag-and-drop: on_dragover -- allow drop
+                // Drag-and-drop: on_dragover -- allow drop & highlight column
                 let on_dragover = move |ev: DragEvent| {
                     ev.prevent_default();
                     let _ = &lane_for_over; // keep in scope
+                    set_drag_over_lane.set(Some(col_idx));
+                };
+
+                // Drag-and-drop: on_dragleave -- remove highlight
+                let on_dragleave = move |_ev: DragEvent| {
+                    // Only clear if this column is the current drag-over target
+                    if drag_over_lane.get() == Some(col_idx) {
+                        set_drag_over_lane.set(None);
+                    }
                 };
 
                 // Drag-and-drop: on_drop -- move bead to this lane
-                let on_drop = {
-                    let set_dragging = set_dragging.clone();
-                    move |ev: DragEvent| {
-                        ev.prevent_default();
-                        if let Some(dt) = ev.data_transfer() {
-                            if let Ok(bead_id) = dt.get_data("text/plain") {
-                                if !bead_id.is_empty() {
-                                    move_bead_drop(bead_id, lane_for_drop.clone());
-                                }
+                let on_drop = move |ev: DragEvent| {
+                    ev.prevent_default();
+                    if let Some(dt) = ev.data_transfer() {
+                        if let Ok(bead_id) = dt.get_data("text/plain") {
+                            if !bead_id.is_empty() {
+                                // Map the 4-column lane to appropriate technical lane
+                                let target_technical_lane = match lane_for_drop {
+                                    Lane::Backlog => Lane::Planning, // Default to Planning for To Do column
+                                    Lane::InProgress => Lane::InProgress,
+                                    Lane::AiReview => Lane::AiReview, // Default to AI Review for Review column  
+                                    Lane::Done => Lane::Done,
+                                    _ => lane_for_drop.clone(),
+                                };
+                                move_bead_drop(bead_id, target_technical_lane);
                             }
                         }
-                        set_dragging.set(None);
                     }
+                    set_dragging.set(None);
+                    set_drag_over_lane.set(None);
                 };
 
                 let col_class = move || {
-                    if is_collapsed() {
-                        "kanban-column kanban-column-collapsed"
-                    } else {
-                        "kanban-column"
+                    let is_over = drag_over_lane.get() == Some(col_idx) && dragging_bead.get().is_some();
+                    match (is_collapsed(), is_over) {
+                        (true, _) => "kanban-column kanban-column-collapsed".to_string(),
+                        (false, true) => "kanban-column drag-over drop-target".to_string(),
+                        (false, false) => "kanban-column drop-target".to_string(),
                     }
                 };
+
+                let lane_for_add = lane.clone();
+                let on_add_task_click = on_add_task.clone();
 
                 view! {
                     <div
                         class=col_class
                         on:dragover=on_dragover
+                        on:dragleave=on_dragleave
                         on:drop=on_drop
                     >
                         <h3>
@@ -266,36 +411,62 @@ pub fn BeadsPage() -> impl IntoView {
                             {label}
                             " "
                             <span class="count">{count}</span>
+                            <button
+                                class="column-add-btn"
+                                title="Add new task"
+                                on:click=move |_| on_add_task_click(lane_for_add.clone())
+                            >
+                                "+"
+                            </button>
                         </h3>
                         {move || {
                             if is_collapsed() {
-                                return Vec::new();
+                                return Vec::<AnyView>::new();
                             }
                             let move_bead_action = move_bead.clone();
                             let cat_filter = filter_category.get();
                             let pri_filter = filter_priority.get();
                             let search_filter = filter_search.get().to_lowercase();
 
-                            beads.get().into_iter()
-                                .filter(|b| b.lane == lane_for_render)
+                            let category_skip = ["Critical", "High", "Medium", "Low", "Stuck", "Needs Recovery", "PR Created", "Incomplete", "Needs Resume"];
+                            let priority_values = ["Critical", "High", "Medium", "Low"];
+
+                            let filtered: Vec<BeadResponse> = beads.get().into_iter()
+                                .filter(|b| match lane_for_render {
+                                    Lane::Backlog => matches!(b.lane, Lane::Backlog | Lane::Queue | Lane::Planning),
+                                    Lane::InProgress => matches!(b.lane, Lane::InProgress),
+                                    Lane::AiReview => matches!(b.lane, Lane::AiReview | Lane::HumanReview),
+                                    Lane::Done => matches!(b.lane, Lane::Done | Lane::PrCreated),
+                                    _ => false,
+                                })
                                 .filter(|b| {
                                     if cat_filter == "All" { return true; }
-                                    b.tags.iter().any(|t| *t == cat_filter)
+                                    // Match category: first tag that is NOT a priority/status keyword
+                                    b.tags.iter().any(|t| !category_skip.contains(&t.as_str()) && *t == cat_filter)
                                 })
                                 .filter(|b| {
                                     if pri_filter == "All" { return true; }
-                                    b.tags.iter().any(|t| *t == pri_filter)
+                                    // Match priority: first tag that IS a priority keyword
+                                    b.tags.iter().any(|t| priority_values.contains(&t.as_str()) && *t == pri_filter)
                                 })
                                 .filter(|b| {
                                     if search_filter.is_empty() { return true; }
                                     b.title.to_lowercase().contains(&search_filter)
                                 })
+                                .collect();
+
+                            if filtered.is_empty() && lane_for_render == Lane::Backlog {
+                                return vec![view! {
+                                    <div class="kanban-empty-state">
+                                        {themed(mode.get(), Prompt::EmptyBacklog)}
+                                    </div>
+                                }.into_any()];
+                            }
+
+                            filtered.into_iter()
                                 .map(|bead| {
                                     let bead_id = bead.id.clone();
-                                    let bead_id_click = bead.id.clone();
                                     let bead_id_drag = bead.id.clone();
-                                    let set_dragging_start = set_dragging.clone();
-                                    let set_dragging_end = set_dragging.clone();
 
                                     let status_class = match bead.status {
                                         BeadStatus::Planning => "status-planning",
@@ -306,33 +477,36 @@ pub fn BeadsPage() -> impl IntoView {
                                         BeadStatus::Failed => "status-failed",
                                     };
 
-                                    let progress_stages = ["plan", "code", "qa", "done"];
-                                    let current_stage = bead.progress_stage.clone();
-                                    let pipeline_view = progress_stages.iter().map(|stage| {
-                                        let is_active = *stage == current_stage.as_str();
-                                        let is_past = progress_stages.iter().position(|s| *s == current_stage.as_str())
-                                            .map(|current_pos| progress_stages.iter().position(|s| s == stage).map(|pos| pos <= current_pos).unwrap_or(false))
-                                            .unwrap_or(false);
-                                        let cls = if is_active {
-                                            "pipeline-stage active"
-                                        } else if is_past {
-                                            "pipeline-stage completed"
-                                        } else {
-                                            "pipeline-stage"
+                                    // Priority badge
+                                    let priority_badge = bead.tags.iter().find(|t| matches!(t.as_str(), "Critical" | "High" | "Low")).cloned();
+                                    let priority_view = priority_badge.map(|p| {
+                                        let cls = match p.as_str() {
+                                            "Critical" => "card-badge badge-critical",
+                                            "High" => "card-badge badge-high",
+                                            "Low" => "card-badge badge-low",
+                                            _ => "card-badge badge-medium",
                                         };
-                                        let label = match *stage {
-                                            "plan" => "Plan",
-                                            "code" => "Code",
-                                            "qa" => "QA",
-                                            "done" => "Done",
-                                            _ => stage,
-                                        };
-                                        view! {
-                                            <span class={cls}>{label}</span>
-                                        }
-                                    }).collect::<Vec<_>>();
+                                        view! { <span class={cls}>{p}</span> }
+                                    });
 
-                                    let tags_view = bead.tags.iter().map(|tag| {
+                                    // Category badge
+                                    let category_skip = ["Critical", "High", "Medium", "Low", "Stuck", "Needs Recovery", "PR Created", "Incomplete", "Needs Resume"];
+                                    let category_badge = bead.tags.iter().find(|t| !category_skip.contains(&t.as_str())).cloned();
+                                    let category_view = category_badge.map(|c| {
+                                        let cls = match c.as_str() {
+                                            "Feature" => "card-badge badge-feature",
+                                            "Refactoring" => "card-badge badge-refactor",
+                                            "Bug" | "Bug Fix" => "card-badge badge-bug",
+                                            "Security" => "card-badge badge-security",
+                                            _ => "card-badge badge-default",
+                                        };
+                                        view! { <span class={cls}>{c}</span> }
+                                    });
+
+                                    // Agent indicator
+                                    let has_agent = !bead.agent_names.is_empty();
+
+                                    let _tags_view = bead.tags.iter().map(|tag| {
                                         let tag_class = match tag.as_str() {
                                             "High" => "tag tag-high",
                                             "Stuck" => "tag tag-stuck",
@@ -425,21 +599,31 @@ pub fn BeadsPage() -> impl IntoView {
                                             let _ = dt.set_data("text/plain", &bead_id_drag);
                                             let _ = dt.set_drop_effect("move");
                                         }
-                                        set_dragging_start.set(Some(bead_id_drag.clone()));
+                                        set_dragging.set(Some(bead_id_drag.clone()));
                                     };
 
                                     let on_dragend = move |_ev: DragEvent| {
-                                        set_dragging_end.set(None);
+                                        set_dragging.set(None);
                                     };
+
+                                    let bead_id_for_class = bead_id.clone();
 
                                     // Click handler to open task detail
                                     let on_card_click = move |_| {
-                                        set_selected_bead_id.set(Some(bead_id_click.clone()));
+                                        set_selected_bead_id.set(Some(bead_id.clone()));
+                                    };
+                                    let card_class = move || {
+                                        let is_dragging = dragging_bead.get().as_deref() == Some(bead_id_for_class.as_str());
+                                        if is_dragging {
+                                            format!("bead-card {} dragging", status_class)
+                                        } else {
+                                            format!("bead-card {}", status_class)
+                                        }
                                     };
 
                                     view! {
                                         <div
-                                            class={format!("bead-card {}", status_class)}
+                                            class=card_class
                                             draggable="true"
                                             on:dragstart=on_dragstart
                                             on:dragend=on_dragend
@@ -451,17 +635,28 @@ pub fn BeadsPage() -> impl IntoView {
                                                     {forward_view}
                                                 </div>
                                             </div>
-                                            <div class="bead-id">{bead.id.clone()}</div>
-                                            <div class="bead-description">{bead.description.clone()}</div>
-                                            <div class="bead-tags">{tags_view}</div>
-                                            <div class="progress-pipeline">{pipeline_view}</div>
+                                            // Badges row: priority + category
+                                            <div class="bead-badges">
+                                                {priority_view}
+                                                {category_view}
+                                                // Agent indicator
+                                                {has_agent.then(|| {
+                                                    let agent_label = bead.agent_names.first().cloned().unwrap_or_default();
+                                                    let initial = agent_label.chars().next().unwrap_or('?').to_uppercase().to_string();
+                                                    view! {
+                                                        <span class="card-badge badge-agent" title={agent_label}>
+                                                            {initial}
+                                                        </span>
+                                                    }
+                                                })}
+                                            </div>
                                             <div class="bead-footer">
                                                 <div class="bead-agents">{agents_view}</div>
                                                 <span class="bead-timestamp">{bead.timestamp.clone()}</span>
                                                 {action_view}
                                             </div>
                                         </div>
-                                    }
+                                    }.into_any()
                                 }).collect::<Vec<_>>()
                         }}
                     </div>
@@ -475,6 +670,16 @@ pub fn BeadsPage() -> impl IntoView {
                 <crate::components::task_detail::TaskDetail
                     bead_id=id
                     on_close=move |_| set_selected_bead_id.set(None)
+                />
+            }
+        })}
+
+        // New task modal for column-specific creation
+        {move || show_new_task_for_column.get().map(|target_lane| {
+            view! {
+                <crate::components::new_task_modal::NewTaskModal
+                    target_lane=target_lane
+                    on_close=move |_| set_show_new_task_for_column.set(None)
                 />
             }
         })}

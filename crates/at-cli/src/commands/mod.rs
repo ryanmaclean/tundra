@@ -1,6 +1,10 @@
 pub mod done;
+pub mod doctor;
+pub mod agent;
 pub mod hook;
 pub mod nudge;
+pub mod run_task;
+pub mod skill;
 pub mod sling;
 pub mod status;
 

@@ -1,13 +1,18 @@
 use leptos::prelude::*;
+use crate::state::use_app_state;
+use crate::themed::{themed, Prompt};
 use leptos::task::spawn_local;
 
 use crate::api;
 
 #[component]
 pub fn ClaudeCodePage() -> impl IntoView {
+    let app_state = use_app_state();
+    let display_mode = app_state.display_mode;
     let (agents, set_agents) = signal(Vec::<api::ApiAgent>::new());
     let (loading, set_loading) = signal(true);
     let (error_msg, set_error_msg) = signal(Option::<String>::None);
+    let (selected_agent, set_selected_agent) = signal(Option::<api::ApiAgent>::None);
 
     let do_refresh = move || {
         set_loading.set(true);
@@ -54,7 +59,7 @@ pub fn ClaudeCodePage() -> impl IntoView {
         })}
 
         {move || loading.get().then(|| view! {
-            <div class="dashboard-loading">"Loading Claude Code status..."</div>
+            <div class="dashboard-loading">{move || themed(display_mode.get(), Prompt::Loading)}</div>
         })}
 
         <div class="section">
@@ -112,7 +117,13 @@ pub fn ClaudeCodePage() -> impl IntoView {
                             </div>
                         </div>
                         <div class="session-actions">
-                            <button class="action-btn">"View Output"</button>
+                            <button
+                                class="action-btn"
+                                on:click={
+                                    let agent_clone = agent.clone();
+                                    move |_| set_selected_agent.set(Some(agent_clone.clone()))
+                                }
+                            >"View Output"</button>
                         </div>
                     </div>
                 }
@@ -126,6 +137,54 @@ pub fn ClaudeCodePage() -> impl IntoView {
                     "No agents with the claude_code role are currently registered. Launch a Claude Code agent to see it here."
                 </p>
             </div>
+        })}
+
+        // Agent output modal
+        {move || selected_agent.get().map(|agent| {
+            let agent_name = agent.name.clone();
+            let agent_id = agent.id.clone();
+            let agent_role = agent.role.clone();
+            let agent_status = agent.status.clone();
+            let glyph = match agent_status.as_str() {
+                "active" | "running" => "glyph-active",
+                "idle" => "glyph-idle",
+                _ => "glyph-stopped",
+            };
+            view! {
+                <div class="modal-overlay" on:click=move |_| set_selected_agent.set(None)>
+                    <div class="modal-content" style="max-width: 520px;" on:click=move |ev| ev.stop_propagation()>
+                        <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center;">
+                            <h3 style="margin: 0;">"Agent Output"</h3>
+                            <button
+                                class="btn btn-xs"
+                                on:click=move |_| set_selected_agent.set(None)
+                                style="background: none; border: none; font-size: 18px; cursor: pointer; color: #8b949e;"
+                            >"\u{2715}"</button>
+                        </div>
+                        <div style="padding: 16px 0;">
+                            <div style="margin-bottom: 12px;">
+                                <span style="color: #8b949e; font-size: 12px;">"Name"</span>
+                                <div style="font-weight: 600; font-size: 16px;">{agent_name}</div>
+                            </div>
+                            <div style="margin-bottom: 12px;">
+                                <span style="color: #8b949e; font-size: 12px;">"ID"</span>
+                                <div><code style="font-size: 13px;">{agent_id}</code></div>
+                            </div>
+                            <div style="margin-bottom: 12px;">
+                                <span style="color: #8b949e; font-size: 12px;">"Role"</span>
+                                <div>{agent_role}</div>
+                            </div>
+                            <div style="margin-bottom: 12px;">
+                                <span style="color: #8b949e; font-size: 12px;">"Status"</span>
+                                <div><span class={glyph}>{agent_status}</span></div>
+                            </div>
+                            <p style="color: #8b949e; font-size: 13px; margin-top: 16px;">
+                                "Terminal output is available on the Terminals page."
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            }
         })}
     }
 }

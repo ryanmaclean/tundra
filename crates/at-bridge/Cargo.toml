@@ -2,9 +2,11 @@
 name = "at-bridge"
 version.workspace = true
 edition.workspace = true
+publish = false
 
 [dependencies]
 at-core = { path = "../at-core" }
+at-integrations = { path = "../at-integrations" }
 at-intelligence = { path = "../at-intelligence" }
 at-session = { path = "../at-session" }
 at-telemetry = { path = "../at-telemetry" }
@@ -21,9 +23,16 @@ tower = { workspace = true }
 tower-http = { workspace = true }
 async-trait = { workspace = true }
 futures-util = "0.3"
+ahash = { workspace = true }
+subtle = { workspace = true }
+
+[features]
+default = ["libgit2"]
+libgit2 = ["at-core/libgit2"]
 
 [dev-dependencies]
 tokio = { workspace = true }
 reqwest = { version = "0.12", features = ["json"] }
 tokio-tungstenite = "0.28"
 futures-util = "0.3"
+chrono = { workspace = true }

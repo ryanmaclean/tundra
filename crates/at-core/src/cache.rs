@@ -51,6 +51,14 @@ impl CacheDb {
             .call(|conn| {
                 conn.execute_batch(
                     "
+                    -- M-series unified memory optimizations
+                    PRAGMA journal_mode=WAL;
+                    PRAGMA synchronous=NORMAL;
+                    PRAGMA cache_size=-64000;
+                    PRAGMA mmap_size=268435456;
+                    PRAGMA temp_store=MEMORY;
+                    PRAGMA busy_timeout=5000;
+
                     CREATE TABLE IF NOT EXISTS beads (
                         id          TEXT PRIMARY KEY,
                         title       TEXT NOT NULL,

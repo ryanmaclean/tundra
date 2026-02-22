@@ -1,0 +1,86 @@
+# cargo-deny configuration
+# https://embarkstudios.github.io/cargo-deny/
+#
+# Provides:
+#   SCA  — vulnerability scanning against RustSec advisory DB
+#   License policy — enforce allowed licenses, block copyleft
+#   Ban list — block known-bad or unwanted crates
+#   Source policy — restrict dependency sources
+
+[graph]
+targets = []
+all-features = false
+no-default-features = false
+
+# ---------------------------------------------------------------------------
+# [advisories] — SCA: scan for known vulnerabilities (RustSec)
+# ---------------------------------------------------------------------------
+[advisories]
+db-urls = ["https://github.com/rustsec/advisory-db"]
+yanked = "warn"
+unmaintained = "workspace"          # warn only for direct deps
+unsound = "all"                     # deny unsound for all deps
+ignore = [
+    # lru 0.12 unsound issue — pinned by ratatui 0.29; upgrade when ratatui bumps
+    "RUSTSEC-2026-0002",
+]
+
+# ---------------------------------------------------------------------------
+# [licenses] — enforce allowed licenses, block copyleft/unknown
+# ---------------------------------------------------------------------------
+[licenses]
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "MPL-2.0",
+    "Unlicense",
+    "LGPL-2.1-or-later",       # r-efi (Windows-only, header-only, no linking risk)
+]
+confidence-threshold = 0.8
+
+# Workspace crates have no license yet — mark them private
+[licenses.private]
+ignore = true
+registries = []
+
+[[licenses.clarify]]
+name = "ring"
+expression = "MIT AND ISC AND OpenSSL"
+license-files = [{ path = "LICENSE", hash = 0xbd0eed23 }]
+
+[[licenses.clarify]]
+name = "encoding_rs"
+expression = "(Apache-2.0 OR MIT) AND BSD-3-Clause"
+license-files = [{ path = "COPYRIGHT", hash = 0x39f8ad31 }]
+
+# ---------------------------------------------------------------------------
+# [bans] — block unwanted or duplicate crates
+# ---------------------------------------------------------------------------
+[bans]
+multiple-versions = "warn"     # warn on duplicate versions of same crate
+wildcards = "allow"            # allow wildcard deps (workspace uses them)
+highlight = "lowest-version"
+allow = []
+deny = [
+    # Block crates with known supply-chain concerns
+    { crate = "openssl-src" },          # prefer vendored or system openssl
+]
+skip = []
+skip-tree = []
+
+# ---------------------------------------------------------------------------
+# [sources] — restrict where dependencies can come from
+# ---------------------------------------------------------------------------
+[sources]
+unknown-registry = "deny"
+unknown-git = "warn"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

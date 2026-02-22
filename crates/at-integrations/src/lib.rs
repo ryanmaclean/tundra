@@ -1,4 +1,6 @@
 pub mod github;
+pub mod gitlab;
+pub mod linear;
 pub mod types;
 
 #[cfg(test)]

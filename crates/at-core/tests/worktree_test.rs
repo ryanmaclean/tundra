@@ -184,15 +184,15 @@ async fn test_delete_worktree() {
 #[tokio::test]
 async fn test_worktree_has_unique_path() {
     let cache = make_cache().await;
-    let tmp = std::env::temp_dir().join("at-wt-test-unique");
-    let _ = std::fs::remove_dir_all(&tmp);
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let tmp_path = tmp.path().to_path_buf();
 
     // Pre-create the directory to simulate an existing worktree
-    let wt_dir = tmp.join(".worktrees").join("unique-task");
-    std::fs::create_dir_all(&wt_dir).unwrap();
+    let wt_dir = tmp_path.join(".worktrees").join("unique-task");
+    std::fs::create_dir_all(&wt_dir).expect("create_dir_all");
 
     let git = Box::new(MockGitRunner::new(vec![]));
-    let manager = WorktreeManager::with_git_runner(tmp.clone(), cache, git);
+    let manager = WorktreeManager::with_git_runner(tmp_path.clone(), cache, git);
     let task = make_test_task("Unique Task");
 
     let result = manager.create_for_task(&task).await;
@@ -202,8 +202,6 @@ async fn test_worktree_has_unique_path() {
         Err(WorktreeManagerError::Worktree(WorktreeError::AlreadyExists(_))) => {}
         other => panic!("Expected AlreadyExists, got {:?}", other),
     }
-
-    let _ = std::fs::remove_dir_all(&tmp);
 }
 
 // ===========================================================================

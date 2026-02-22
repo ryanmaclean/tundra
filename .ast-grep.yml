@@ -1,0 +1,112 @@
+# ast-grep configuration for Rust security scanning
+# MIT licensed - https://github.com/ast-grep/ast-grep
+
+rules:
+  # -----------------------------------------------------------------------
+  # unsafe code — require justification comment
+  # -----------------------------------------------------------------------
+  - id: unsafe-block-without-safety-comment
+    language: Rust
+    message: >
+      Unsafe block without a `// SAFETY: ...` comment explaining why it is sound.
+      Add a safety justification above the unsafe block.
+    severity: warning
+    rule:
+      all:
+        - pattern: unsafe { $$$ }
+        - not:
+            precedes:
+              pattern: // SAFETY: $_
+              stopBy: neighbor
+    metadata:
+      category: security
+      cwe: CWE-676
+
+  # -----------------------------------------------------------------------
+  # Panic in library code — prefer Result
+  # Note: This rule flags unwrap/expect but doesn't exclude test files.
+  # Run ast-grep with --exclude '**/test*.rs' or similar to filter tests.
+  # -----------------------------------------------------------------------
+  - id: unwrap-in-lib
+    language: Rust
+    message: >
+      Avoid `.unwrap()` / `.expect()` in library code — propagate errors with `?` instead.
+      Panics in library code can crash the entire application.
+    severity: warning
+    rule:
+      all:
+        - any:
+            - pattern: $X.unwrap()
+            - pattern: $X.expect($ARG)
+        - not:
+            inside:
+              pattern: mod tests { $$$ }
+              stopBy: end
+        - not:
+            inside:
+              pattern: #[cfg(test)]
+              stopBy: end
+    metadata:
+      category: correctness
+      cwe: CWE-248
+
+  # -----------------------------------------------------------------------
+  # Command injection — shell commands with user input
+  # -----------------------------------------------------------------------
+  - id: command-injection-risk
+    language: Rust
+    message: >
+      Possible command injection: using `sh` or `bash` with arguments. Prefer running
+      commands directly without a shell intermediary.
+    severity: error
+    rule:
+      all:
+        - pattern: std::process::Command::new($CMD)
+        - has:
+            pattern: .arg($ARG)
+            stopBy: end
+        - has:
+            regex: '^"sh"$|^"bash"$|^\'sh\'$|^\'bash\'$'
+            stopBy: end
+    metadata:
+      category: security
+      cwe: CWE-78
+
+  # -----------------------------------------------------------------------
+  # Path traversal — joining user input to paths
+  # -----------------------------------------------------------------------
+  - id: path-join-unsanitized
+    language: Rust
+    message: >
+      Joining unsanitized input to a path may allow path traversal.
+      Validate that the result stays within the intended directory.
+    severity: warning
+    rule:
+      pattern: std::path::Path::new($BASE).join($USER_INPUT)
+    metadata:
+      category: security
+      cwe: CWE-22
+
+  # -----------------------------------------------------------------------
+  # Hardcoded secrets
+  # -----------------------------------------------------------------------
+  - id: hardcoded-secret
+    language: Rust
+    message: >
+      Possible hardcoded secret/token. Use environment variables instead.
+    severity: error
+    rule:
+      all:
+        - pattern: let $VAR = $VAL;
+        - has:
+            any:
+              - regex: '^"sk-[^"]*"$'
+              - regex: '^"ghp_[^"]*"$'
+              - regex: '^"Bearer [^"]*"$'
+              - regex: "^'sk-[^']*'$"
+              - regex: "^'ghp_[^']*'$"
+              - regex: "^'Bearer [^']*'$"
+            stopBy: end
+    metadata:
+      category: security
+      cwe: CWE-798

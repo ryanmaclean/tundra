@@ -174,7 +174,7 @@ async fn make_orchestrator(
 async fn make_orchestrator_with_bus(
     spawner_output: Vec<u8>,
     git_responses: Vec<GitOutput>,
-) -> (TaskOrchestrator, flume::Receiver<BridgeMessage>) {
+) -> (TaskOrchestrator, flume::Receiver<Arc<BridgeMessage>>) {
     let bus = EventBus::new();
     let rx = bus.subscribe();
     let cache = Arc::new(CacheDb::new_in_memory().await.unwrap());
@@ -203,11 +203,11 @@ async fn make_failing_orchestrator(git_responses: Vec<GitOutput>) -> TaskOrchest
     TaskOrchestrator::new(executor, worktree_manager, cache, bus)
 }
 
-fn collect_events(rx: &flume::Receiver<BridgeMessage>) -> Vec<String> {
+fn collect_events(rx: &flume::Receiver<Arc<BridgeMessage>>) -> Vec<String> {
     let mut event_types = Vec::new();
     while let Ok(msg) = rx.try_recv() {
-        if let BridgeMessage::Event(payload) = msg {
-            event_types.push(payload.event_type);
+        if let BridgeMessage::Event(payload) = &*msg {
+            event_types.push(payload.event_type.clone());
         }
     }
     event_types
@@ -495,7 +495,7 @@ async fn test_scheduler_enqueue_task() {
     let bead_id = bead.id;
     cache.upsert_bead(&bead).await.unwrap();
 
-    let scheduler = TaskScheduler::new();
+    let scheduler = TaskScheduler::default();
     let next = scheduler.next_bead(&cache).await;
     assert!(next.is_some());
     assert_eq!(next.unwrap().id, bead_id);
@@ -512,7 +512,7 @@ async fn test_scheduler_dequeue_next_task() {
     let bead2 = Bead::new("task-2", Lane::Standard);
     cache.upsert_bead(&bead2).await.unwrap();
 
-    let scheduler = TaskScheduler::new();
+    let scheduler = TaskScheduler::default();
 
     // First dequeue returns a bead.
     let next = scheduler.next_bead(&cache).await;
@@ -545,7 +545,7 @@ async fn test_scheduler_priority_ordering() {
     let critical_id = critical.id;
     cache.upsert_bead(&critical).await.unwrap();
 
-    let scheduler = TaskScheduler::new();
+    let scheduler = TaskScheduler::default();
     let next = scheduler.next_bead(&cache).await.unwrap();
 
     // Critical lane always wins over Standard, regardless of priority.
@@ -555,7 +555,7 @@ async fn test_scheduler_priority_ordering() {
 #[tokio::test]
 async fn test_scheduler_empty_queue_returns_none() {
     let cache = CacheDb::new_in_memory().await.unwrap();
-    let scheduler = TaskScheduler::new();
+    let scheduler = TaskScheduler::default();
 
     let next = scheduler.next_bead(&cache).await;
     assert!(next.is_none(), "empty backlog should return None");
@@ -583,7 +583,7 @@ async fn test_scheduler_concurrent_enqueue() {
         ids.push(h.await.unwrap());
     }
 
-    let scheduler = TaskScheduler::new();
+    let scheduler = TaskScheduler::default();
 
     // All beads should be retrievable.
     let next = scheduler.next_bead(&cache).await;
@@ -621,13 +621,12 @@ async fn test_daemon_graceful_shutdown() {
 
     let shutdown_handle = daemon.shutdown_handle();
 
-    // Send shutdown immediately so the run loop exits.
-    let _ = shutdown_handle.try_send(());
+    // Trigger shutdown immediately so the run loop would exit.
+    shutdown_handle.trigger();
 
     // Daemon.run() will bind to port 9090, which may conflict in CI.
     // Instead we verify the shutdown mechanism works by checking the signal.
-    // The shutdown handle should have been consumed.
-    daemon.shutdown();
+    assert!(shutdown_handle.is_shutting_down());
     // If we get here without hanging, graceful shutdown signaling works.
 }
 
@@ -761,9 +760,9 @@ async fn test_pipeline_emits_agent_events() {
     // The events were collected. Let's check for phase events which are
     // published by the orchestrator.
     while let Ok(msg) = rx.try_recv() {
-        match msg {
+        match &*msg {
             BridgeMessage::AgentOutput { .. } => agent_outputs.push(true),
-            BridgeMessage::Event(payload) => bridge_events.push(payload.event_type),
+            BridgeMessage::Event(payload) => bridge_events.push(payload.event_type.clone()),
             _ => {}
         }
     }
@@ -859,7 +858,7 @@ async fn test_scheduler_assign_bead_rejects_invalid_transition() {
     bead.status = BeadStatus::Done;
     cache.upsert_bead(&bead).await.unwrap();
 
-    let scheduler = TaskScheduler::new();
+    let scheduler = TaskScheduler::default();
     let result = scheduler.assign_bead(&cache, bead.id, Uuid::new_v4()).await;
     assert!(result.is_err(), "should reject Done -> Hooked transition");
 }
@@ -876,7 +875,7 @@ async fn test_scheduler_assign_bead_sets_hooked_fields() {
     let agent_id = agent.id;
     cache.upsert_agent(&agent).await.unwrap();
 
-    let scheduler = TaskScheduler::new();
+    let scheduler = TaskScheduler::default();
     scheduler.assign_bead(&cache, bead_id, agent_id).await.unwrap();
 
     let updated = cache.get_bead(bead_id).await.unwrap().unwrap();

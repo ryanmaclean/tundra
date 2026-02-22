@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "sequential-thinking": {
-      "command": "/opt/homebrew/bin/npx",
-      "args": ["-y", "@anthropic/sequential-thinking"]
-    }
-  }
-}

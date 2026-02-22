@@ -2,6 +2,11 @@
 name = "at-daemon"
 version.workspace = true
 edition.workspace = true
+publish = false
+
+[[bin]]
+name = "at-daemon"
+path = "src/main.rs"
 
 [dependencies]
 at-core = { path = "../at-core" }
@@ -9,6 +14,8 @@ at-telemetry = { path = "../at-telemetry" }
 at-session = { path = "../at-session" }
 at-agents = { path = "../at-agents" }
 at-bridge = { path = "../at-bridge" }
+at-harness = { path = "../at-harness" }
+at-intelligence = { path = "../at-intelligence" }
 tokio = { workspace = true }
 tracing = { workspace = true }
 thiserror = { workspace = true }
@@ -20,6 +27,12 @@ serde_json = { workspace = true }
 flume = { workspace = true }
 axum = { workspace = true }
 async-trait = { workspace = true }
+mimalloc = { workspace = true }
+toml = "0.8"
+tower-http = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }
+reqwest = { version = "0.12", features = ["json"] }
+tokio-tungstenite = "0.28"
+futures-util = "0.3"

@@ -9,3 +9,6 @@ pub mod approval;
 pub mod registry;
 pub mod prompts;
 pub mod orchestrator;
+pub mod task_orchestrator;
+pub mod claude_session;
+pub mod claude_runtime;

@@ -553,6 +553,22 @@ pub struct TaskLogEntry {
 }
 
 // ---------------------------------------------------------------------------
+// TaskSource
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskSource {
+    Manual,
+    GithubIssue { issue_number: u32 },
+    GithubPr { pr_number: u32 },
+    GitlabIssue { iid: u32 },
+    LinearIssue { identifier: String },
+    Import,
+    Ideation { idea_id: String },
+}
+
+// ---------------------------------------------------------------------------
 // Task
 // ---------------------------------------------------------------------------
 
@@ -579,6 +595,18 @@ pub struct Task {
     pub completed_at: Option<DateTime<Utc>>,
     pub error: Option<String>,
     pub logs: Vec<TaskLogEntry>,
+    pub qa_report: Option<QaReport>,
+    #[serde(default)]
+    pub source: Option<TaskSource>,
+    /// Parent task ID for stacked diffs (None = root or standalone).
+    #[serde(default)]
+    pub parent_task_id: Option<Uuid>,
+    /// Position within the stack (0 = first child).
+    #[serde(default)]
+    pub stack_position: Option<u32>,
+    /// Associated pull-request number.
+    #[serde(default)]
+    pub pr_number: Option<u32>,
 }
 
 impl Task {
@@ -612,6 +640,11 @@ impl Task {
             completed_at: None,
             error: None,
             logs: Vec::new(),
+            qa_report: None,
+            source: None,
+            parent_task_id: None,
+            stack_position: None,
+            pr_number: None,
         }
     }
 

@@ -41,6 +41,7 @@ pub struct PtyHandle {
     pub reader: flume::Receiver<Vec<u8>>,
     pub writer: flume::Sender<Vec<u8>>,
     child: Arc<Mutex<Box<dyn portable_pty::Child + Send + Sync>>>,
+    master: Arc<Mutex<Box<dyn portable_pty::MasterPty + Send>>>,
     _reader_thread: Option<std::thread::JoinHandle<()>>,
     _writer_thread: Option<std::thread::JoinHandle<()>>,
 }
@@ -48,7 +49,10 @@ pub struct PtyHandle {
 impl PtyHandle {
     /// Check whether the underlying child process is still running.
     pub fn is_alive(&self) -> bool {
-        let mut child = self.child.lock().expect("child lock poisoned");
+        let mut child = self.child.lock().unwrap_or_else(|e| {
+            warn!("child lock was poisoned, recovering");
+            e.into_inner()
+        });
         match child.try_wait() {
             Ok(Some(_status)) => false,
             Ok(None) => true,
@@ -58,7 +62,10 @@ impl PtyHandle {
 
     /// Kill the child process.
     pub fn kill(&self) -> Result<()> {
-        let mut child = self.child.lock().expect("child lock poisoned");
+        let mut child = self.child.lock().unwrap_or_else(|e| {
+            warn!("child lock was poisoned, recovering");
+            e.into_inner()
+        });
         child.kill().map_err(|e| PtyError::Internal(e.to_string()))?;
         Ok(())
     }
@@ -97,6 +104,24 @@ impl PtyHandle {
         data.push(b'\n');
         self.send(&data)
     }
+
+    /// Resize the PTY to the given dimensions.
+    pub fn resize(&self, cols: u16, rows: u16) -> Result<()> {
+        let master = self.master.lock().unwrap_or_else(|e| {
+            warn!("master lock was poisoned, recovering");
+            e.into_inner()
+        });
+        master
+            .resize(PtySize {
+                rows,
+                cols,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .map_err(|e| PtyError::Internal(format!("resize failed: {e}")))?;
+        debug!(cols, rows, "PTY resized");
+        Ok(())
+    }
 }
 
 impl std::fmt::Debug for PtyHandle {
@@ -130,7 +155,10 @@ impl PtyPool {
 
     /// Number of currently active PTY sessions tracked by this pool.
     pub fn active_count(&self) -> usize {
-        self.handles.lock().expect("lock poisoned").len()
+        self.handles.lock().unwrap_or_else(|e| {
+            warn!("PtyPool lock was poisoned, recovering");
+            e.into_inner()
+        }).len()
     }
 
     /// Maximum capacity of the pool.
@@ -150,7 +178,10 @@ impl PtyPool {
     ) -> Result<PtyHandle> {
         // Capacity check
         {
-            let handles = self.handles.lock().expect("lock poisoned");
+            let handles = self.handles.lock().unwrap_or_else(|e| {
+                warn!("PtyPool lock was poisoned, recovering");
+                e.into_inner()
+            });
             if handles.len() >= self.max_ptys {
                 return Err(PtyError::AtCapacity { max: self.max_ptys });
             }
@@ -229,7 +260,10 @@ impl PtyPool {
 
         // Track in pool
         {
-            let mut handles = self.handles.lock().expect("lock poisoned");
+            let mut handles = self.handles.lock().unwrap_or_else(|e| {
+                warn!("PtyPool lock was poisoned, recovering");
+                e.into_inner()
+            });
             handles.insert(handle_id, ());
         }
 
@@ -238,6 +272,7 @@ impl PtyPool {
             reader: read_rx,
             writer: write_tx,
             child,
+            master: Arc::new(Mutex::new(pair.master)),
             _reader_thread: Some(reader_thread),
             _writer_thread: Some(writer_thread),
         })
@@ -245,7 +280,10 @@ impl PtyPool {
 
     /// Kill a PTY session by handle ID and remove it from the pool.
     pub fn kill(&self, handle_id: Uuid) -> Result<()> {
-        let mut handles = self.handles.lock().expect("lock poisoned");
+        let mut handles = self.handles.lock().unwrap_or_else(|e| {
+            warn!("PtyPool lock was poisoned, recovering");
+            e.into_inner()
+        });
         if handles.remove(&handle_id).is_some() {
             info!(%handle_id, "removed PTY handle from pool");
             Ok(())
@@ -257,7 +295,10 @@ impl PtyPool {
 
     /// Remove a handle from the pool tracking (e.g. after the process exits).
     pub fn release(&self, handle_id: Uuid) {
-        let mut handles = self.handles.lock().expect("lock poisoned");
+        let mut handles = self.handles.lock().unwrap_or_else(|e| {
+            warn!("PtyPool lock was poisoned, recovering");
+            e.into_inner()
+        });
         handles.remove(&handle_id);
         debug!(%handle_id, "released PTY handle from pool");
     }

@@ -1,0 +1,9 @@
+Total messages: 20 (Errors: 5, Warnings: 13)
+Returning 5 messages for level "error"
+
+Unexpected token '<'
+Unexpected token '<'
+Unexpected token '<'
+Unexpected token '<'
+TypeError: Cannot read properties of undefined (reading 'runAllTests')
+    at http://localhost:3001/:21:38

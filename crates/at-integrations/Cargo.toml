@@ -2,6 +2,7 @@
 name = "at-integrations"
 version.workspace = true
 edition.workspace = true
+publish = false
 
 [dependencies]
 at-core = { path = "../at-core" }
@@ -14,6 +15,7 @@ tracing = { workspace = true }
 chrono = { workspace = true }
 uuid = { workspace = true }
 octocrab = { workspace = true }
+urlencoding = "2"
 
 [dev-dependencies]
 tokio = { workspace = true }

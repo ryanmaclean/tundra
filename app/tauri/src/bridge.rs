@@ -1,33 +1,24 @@
-use at_bridge::event_bus::EventBus;
-use at_bridge::protocol::BridgeMessage;
+//! Constructs a fully-wired [`IpcHandler`] from the daemon's shared state.
+//!
+//! This replaces the previous `IpcHandler::new_stub()` bootstrap path so
+//! that Tauri IPC commands operate on the same bead/agent vectors that the
+//! HTTP API and patrol loops use.
 
-use crate::error::TauriError;
+use at_bridge::ipc::IpcHandler;
+use at_daemon::daemon::Daemon;
 
-/// Manages the connection between Tauri commands and the at-bridge EventBus.
-pub struct BridgeManager {
-    bus: EventBus,
-}
-
-impl BridgeManager {
-    /// Wrap an existing `EventBus`.
-    pub fn new(bus: EventBus) -> Self {
-        Self { bus }
-    }
-
-    /// Create a new subscription. The returned receiver will get every message
-    /// published to the bus from this point forward.
-    pub fn subscribe(&self) -> flume::Receiver<BridgeMessage> {
-        self.bus.subscribe()
-    }
-
-    /// Publish a message to all current subscribers.
-    pub fn publish(&self, msg: BridgeMessage) -> Result<(), TauriError> {
-        self.bus.publish(msg);
-        Ok(())
-    }
-
-    /// Return the number of active subscribers.
-    pub fn subscriber_count(&self) -> usize {
-        self.bus.subscriber_count()
-    }
+/// Build an [`IpcHandler`] that shares the daemon's event bus, bead list,
+/// and agent list.  `start_time` is the instant the application started —
+/// it drives the `uptime_seconds` field returned by `GetStatus`.
+pub fn ipc_handler_from_daemon(
+    daemon: &Daemon,
+    start_time: std::time::Instant,
+) -> IpcHandler {
+    let api_state = daemon.api_state();
+    IpcHandler::new(
+        api_state.event_bus.clone(),
+        api_state.beads.clone(),
+        api_state.agents.clone(),
+        start_time,
+    )
 }
