@@ -276,8 +276,14 @@ pub fn InsightsPage() -> impl IntoView {
             // Left sidebar: Chat History
             <div class=move || if sidebar_collapsed.get() { "insights-sidebar collapsed" } else { "insights-sidebar" }>
                 <div class="insights-sidebar-header">
-                    <h3>{t("insights-history")}</h3>
-                    <button class="btn btn-xs btn-outline" on:click=move |_| set_sidebar_collapsed.set(!sidebar_collapsed.get())>
+                    <h3>
+                        <span
+                            class="insights-history-icon"
+                            inner_html=r#"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8v5l3 3"/><path d="M3.05 11a9 9 0 1 1 .5 4"/><path d="M3 4v7h7"/></svg>"#
+                        ></span>
+                        <span>{t("insights-history")}</span>
+                    </h3>
+                    <button class="insights-collapse-btn" on:click=move |_| set_sidebar_collapsed.set(!sidebar_collapsed.get())>
                         {move || if sidebar_collapsed.get() { ">" } else { "<" }}
                     </button>
                 </div>
@@ -344,6 +350,9 @@ pub fn InsightsPage() -> impl IntoView {
                                     view! {
                                         <div class={bubble_class}>
                                             <div class="chat-bubble-header">
+                                                <span class=if is_user { "chat-avatar chat-avatar-user" } else { "chat-avatar chat-avatar-assistant" }>
+                                                    {if is_user { "Y" } else { "C" }}
+                                                </span>
                                                 <span class="chat-bubble-role">{role_label}</span>
                                             </div>
                                             <div class="chat-bubble-content">
@@ -373,7 +382,15 @@ pub fn InsightsPage() -> impl IntoView {
                                     on:click=on_send
                                     disabled=move || sending.get() || input_text.get().trim().is_empty()
                                 >
-                                    {move || if sending.get() { "Sending...".to_string() } else { t("insights-send") }}
+                                    {move || if sending.get() {
+                                        "Sending...".to_string()
+                                    } else {
+                                        "Send".to_string()
+                                    }}
+                                    <span
+                                        class="send-icon"
+                                        inner_html=r#"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2 11 13"/><path d="m22 2-7 20-4-9-9-4z"/></svg>"#
+                                    ></span>
                                 </button>
                             </div>
                         }.into_any()
@@ -381,7 +398,10 @@ pub fn InsightsPage() -> impl IntoView {
 
                     None => view! {
                         <div class="insights-empty-state">
-                            <div class="placeholder-icon">"--"</div>
+                            <div
+                                class="placeholder-icon insights-empty-icon-svg"
+                                inner_html=r#"<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M8 9h8"/><path d="M8 13h5"/></svg>"#
+                            ></div>
                             <h3>"Select or create a chat session"</h3>
                             <p>"Start a new insights session to chat about your codebase"</p>
                         </div>

@@ -16909,6 +16909,339 @@ h2 .gh-icon {
 }
 
 /* ==========================================================================
+   Wave Parity Overrides: Insights + MCP + Worktrees + PRs + Kanban
+   ========================================================================== */
+
+.top-bar-right {
+    gap: 8px;
+}
+
+.assigned-tasks-badge {
+    letter-spacing: 0.01em;
+}
+
+.insights-header {
+    align-items: baseline;
+}
+
+.insights-subtitle {
+    margin: 0;
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.insights-layout {
+    height: calc(100vh - 166px);
+    border-top: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.insights-sidebar {
+    width: 256px;
+    min-width: 256px;
+    background: linear-gradient(180deg, rgba(34, 20, 58, 0.62), rgba(14, 10, 29, 0.95));
+    border-right: 1px solid rgba(124, 58, 237, 0.2);
+}
+
+.insights-sidebar-header {
+    padding: 10px 12px;
+    border-bottom-color: rgba(124, 58, 237, 0.2);
+}
+
+.insights-collapse-btn {
+    width: 26px;
+    height: 22px;
+    border-radius: 6px;
+    border: 1px solid rgba(124, 58, 237, 0.28);
+    background: rgba(124, 58, 237, 0.08);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.insights-collapse-btn:hover {
+    border-color: rgba(124, 58, 237, 0.55);
+    background: rgba(124, 58, 237, 0.16);
+    color: var(--text-primary);
+}
+
+.insights-sidebar-actions {
+    padding: 8px 0 4px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.insights-new-session-btn {
+    min-height: 36px;
+    border-radius: 10px;
+    box-shadow: 0 6px 14px rgba(124, 58, 237, 0.25);
+}
+
+.insights-session-list {
+    padding: 6px 0;
+}
+
+.insights-session-item {
+    border: 1px solid transparent;
+    border-radius: 8px;
+}
+
+.insights-session-item.active {
+    border-color: rgba(124, 58, 237, 0.42);
+    box-shadow: inset 0 0 0 1px rgba(124, 58, 237, 0.18);
+}
+
+.insights-chat-area {
+    background: linear-gradient(180deg, rgba(12, 10, 24, 0.94), rgba(10, 7, 19, 0.99));
+}
+
+.chat-bubble {
+    max-width: 74%;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.chat-bubble-user {
+    border-color: rgba(124, 58, 237, 0.45);
+    box-shadow: 0 4px 12px rgba(124, 58, 237, 0.18);
+}
+
+.chat-bubble-role {
+    font-size: 11px;
+    letter-spacing: 0.03em;
+}
+
+.insights-send-btn {
+    min-width: 96px;
+    justify-content: center;
+}
+
+.insights-empty-state {
+    gap: 10px;
+}
+
+.insights-empty-icon-svg {
+    color: #8c6cc7;
+    opacity: 0.65;
+}
+
+.mcp-page-header {
+    padding-bottom: 6px;
+    border-bottom: 1px solid rgba(124, 58, 237, 0.16);
+}
+
+.mcp-page-title {
+    font-size: 34px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+}
+
+.mcp-header-subtitle {
+    font-size: 13px;
+}
+
+.mcp-enabled-badge {
+    min-height: 28px;
+    padding: 0 11px;
+    border-radius: 999px;
+}
+
+.mcp-section-title {
+    padding: 14px 16px 8px;
+}
+
+.mcp-server-list {
+    border-radius: 10px;
+    border-color: rgba(124, 58, 237, 0.24);
+}
+
+.mcp-server-item {
+    min-height: 50px;
+    padding: 11px 16px;
+}
+
+.mcp-agent-section {
+    margin-top: 12px;
+    border-top-color: rgba(124, 58, 237, 0.28);
+}
+
+.mcp-agents-section-title {
+    padding: 0 0 10px;
+}
+
+.mcp-agent-grid {
+    gap: 10px;
+}
+
+.mcp-agent-card {
+    border-radius: 12px;
+    border-color: rgba(124, 58, 237, 0.32);
+    background: linear-gradient(160deg, rgba(124, 58, 237, 0.13), rgba(22, 14, 38, 0.96));
+}
+
+.mcp-agent-card:hover {
+    border-color: rgba(124, 58, 237, 0.5);
+    box-shadow: 0 0 0 1px rgba(124, 58, 237, 0.2) inset;
+}
+
+.worktrees-page-header {
+    padding-bottom: 8px;
+    border-bottom: 1px solid rgba(124, 58, 237, 0.18);
+}
+
+.worktree-count-badge {
+    min-height: 28px;
+    border-radius: 999px;
+    padding: 0 10px;
+}
+
+.worktree-cards {
+    gap: 12px;
+}
+
+.worktree-card {
+    border-radius: 12px;
+    border-color: rgba(124, 58, 237, 0.26);
+    background: linear-gradient(160deg, rgba(45, 24, 72, 0.5), rgba(19, 13, 34, 0.94));
+}
+
+.worktree-card:hover {
+    border-color: rgba(124, 58, 237, 0.44);
+}
+
+.worktree-actions .wt-btn {
+    min-height: 30px;
+    border-radius: 8px;
+    padding: 0 12px;
+}
+
+.worktree-path-hint {
+    margin-top: 10px;
+}
+
+.prs-controls {
+    margin-bottom: 10px;
+}
+
+.prs-sub-tabs {
+    gap: 6px;
+}
+
+.prs-sub-tab {
+    min-height: 30px;
+    border-radius: 9px;
+}
+
+.prs-two-pane {
+    height: calc(100vh - 256px);
+    border-radius: 10px;
+    border-color: rgba(124, 58, 237, 0.2);
+}
+
+.prs-list-pane {
+    background: linear-gradient(180deg, rgba(36, 20, 57, 0.55), rgba(17, 11, 32, 0.96));
+}
+
+.pr-list-item {
+    min-height: 70px;
+    padding: 10px 12px;
+    border-bottom-color: rgba(124, 58, 237, 0.16);
+}
+
+.pr-list-item.selected {
+    border-left-width: 2px;
+    border-left-color: rgba(124, 58, 237, 0.8);
+}
+
+.pr-title-text {
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.pr-branch-pill {
+    border-color: rgba(124, 58, 237, 0.45);
+    background: rgba(124, 58, 237, 0.2);
+}
+
+.pr-comments {
+    color: #9882bc;
+}
+
+.kanban {
+    gap: 12px;
+}
+
+.kanban-column {
+    border-color: rgba(124, 58, 237, 0.18);
+    background: linear-gradient(180deg, rgba(33, 29, 44, 0.9), rgba(26, 24, 35, 0.92));
+}
+
+.kanban-column h3 {
+    border-bottom-color: rgba(124, 58, 237, 0.2);
+}
+
+.bead-description {
+    color: #b7accf;
+    line-height: 1.45;
+    margin-top: 6px;
+    margin-bottom: 8px;
+}
+
+.card-badge {
+    border-width: 1px;
+    border-style: solid;
+}
+
+.badge-critical {
+    background: rgba(239, 68, 68, 0.2);
+    border-color: rgba(239, 68, 68, 0.55);
+    color: #fca5a5;
+}
+
+.badge-high {
+    background: rgba(249, 115, 22, 0.2);
+    border-color: rgba(249, 115, 22, 0.55);
+    color: #fdba74;
+}
+
+.badge-medium {
+    background: rgba(234, 179, 8, 0.2);
+    border-color: rgba(234, 179, 8, 0.55);
+    color: #fde68a;
+}
+
+.badge-low {
+    background: rgba(59, 130, 246, 0.2);
+    border-color: rgba(59, 130, 246, 0.55);
+    color: #93c5fd;
+}
+
+.bead-progress {
+    margin: 8px 0 6px;
+    gap: 10px;
+}
+
+.bead-progress .progress-bar {
+    height: 6px;
+    background: rgba(124, 58, 237, 0.16);
+    border-radius: 999px;
+    overflow: hidden;
+}
+
+.bead-progress .progress-fill {
+    border-radius: 999px;
+    box-shadow: 0 0 8px rgba(124, 58, 237, 0.2);
+}
+
+.bead-footer {
+    margin-top: 10px;
+    padding-top: 2px;
+}
+
+.bead-footer .action-btn {
+    font-weight: 700;
+    letter-spacing: 0.01em;
+}
+
+/* ==========================================================================
    Wave Parity Overrides: Top Bar + Kanban + Settings
    ========================================================================== */
 
