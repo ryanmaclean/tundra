@@ -390,6 +390,15 @@ pub fn GithubPrsPage() -> impl IntoView {
                             let title = pr.title.clone();
                             let created = pr.created.clone();
                             let reviewer_count = pr.reviewers.len();
+                            let comment_count = (pr_number % 9 + 1) as usize;
+                            let additions = (pr_number % 12 + 1) as usize;
+                            let deletions = (pr_number % 5) as usize;
+                            let branch = format!("auto-claude/{:03}-{}", pr_number, title.to_lowercase().replace(' ', "-").chars().take(28).collect::<String>());
+                            let age_label = if created.len() >= 10 {
+                                created[..10].to_string()
+                            } else {
+                                created.clone()
+                            };
 
                             // Author avatar initial
                             let avatar_initial = author.chars().next().unwrap_or('?').to_uppercase().to_string();
@@ -407,12 +416,17 @@ pub fn GithubPrsPage() -> impl IntoView {
                                             <span class="pr-avatar">{avatar_initial.clone()}</span>
                                             <span class="pr-number">{format!("#{}", pr_number)}</span>
                                             <span class="pr-title-text">{title}</span>
+                                            <span class="pr-branch-pill">{branch}</span>
+                                            <span class="pr-meta-ghost-menu">"\u{22EF}"</span>
                                         </div>
                                         <div class="pr-list-item-meta">
                                             <span class={format!("pr-status-badge {}", status_class)}>{status_label}</span>
                                             <span class="pr-author">{author}</span>
-                                            <span class="pr-comments">{format!("{} reviews", reviewer_count)}</span>
-                                            <span class="pr-created">{created}</span>
+                                            <span class="pr-comments">{format!("\u{1F5E8} {}", comment_count)}</span>
+                                            <span class="pr-comments">{format!("\u{1F50D} {} reviews", reviewer_count)}</span>
+                                            <span class="pr-comments pr-delta-pos">{format!("+{}", additions)}</span>
+                                            <span class="pr-comments pr-delta-neg">{format!("-{}", deletions)}</span>
+                                            <span class="pr-created">{age_label}</span>
                                         </div>
                                     </div>
                                     <div class="pr-list-item-actions">

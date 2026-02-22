@@ -516,6 +516,23 @@ pub struct ApiSettings {
     pub memory: ApiMemorySettings,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiLocalProviderSettings {
+    pub base_url: String,
+    pub model: String,
+    pub api_key_env: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiLocalProviderProbe {
+    pub endpoint: String,
+    pub flavor: String,
+    pub reachable: bool,
+    pub model_count: usize,
+    pub sample_models: Vec<String>,
+    pub message: String,
+}
+
 // ── Public API functions ──
 
 pub async fn fetch_beads() -> Result<Vec<ApiBead>, String> {
@@ -650,6 +667,93 @@ pub async fn update_bead_status(id: &str, status: &str) -> Result<ApiBead, Strin
 
 pub async fn fetch_settings() -> Result<ApiSettings, String> {
     fetch_json(&format!("{}/api/settings", get_api_base())).await
+}
+
+pub async fn fetch_local_provider_settings() -> Result<ApiLocalProviderSettings, String> {
+    let raw: serde_json::Value = fetch_json(&format!("{}/api/settings", get_api_base())).await?;
+    let providers = raw.get("providers").cloned().unwrap_or_default();
+
+    let base_url = providers
+        .get("local_base_url")
+        .and_then(|v| v.as_str())
+        .unwrap_or("http://127.0.0.1:11434")
+        .to_string();
+    let model = providers
+        .get("local_model")
+        .and_then(|v| v.as_str())
+        .unwrap_or("qwen2.5-coder:14b")
+        .to_string();
+    let api_key_env = providers
+        .get("local_api_key_env")
+        .and_then(|v| v.as_str())
+        .unwrap_or("LOCAL_API_KEY")
+        .to_string();
+
+    Ok(ApiLocalProviderSettings {
+        base_url,
+        model,
+        api_key_env,
+    })
+}
+
+pub async fn probe_local_provider(base_url: &str) -> Result<ApiLocalProviderProbe, String> {
+    let base = base_url.trim_end_matches('/').to_string();
+
+    // Ollama native API: GET /api/tags => { models: [{ name, ... }] }
+    if let Ok(tags) = fetch_json::<serde_json::Value>(&format!("{base}/api/tags")).await {
+        let names = tags
+            .get("models")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|m| m.get("name").and_then(|n| n.as_str()).map(|s| s.to_string()))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let model_count = names.len();
+        let sample_models = names.into_iter().take(5).collect::<Vec<_>>();
+        return Ok(ApiLocalProviderProbe {
+            endpoint: base,
+            flavor: "ollama".to_string(),
+            reachable: true,
+            model_count,
+            sample_models,
+            message: if model_count > 0 {
+                format!("Connected to Ollama. Found {model_count} model(s).")
+            } else {
+                "Connected to Ollama, but no local models are installed.".to_string()
+            },
+        });
+    }
+
+    // OpenAI-compatible local APIs: GET /v1/models => { data: [{ id, ... }] }
+    if let Ok(models) = fetch_json::<serde_json::Value>(&format!("{base}/v1/models")).await {
+        let ids = models
+            .get("data")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|m| m.get("id").and_then(|n| n.as_str()).map(|s| s.to_string()))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let model_count = ids.len();
+        let sample_models = ids.into_iter().take(5).collect::<Vec<_>>();
+        return Ok(ApiLocalProviderProbe {
+            endpoint: base,
+            flavor: "openai-compatible".to_string(),
+            reachable: true,
+            model_count,
+            sample_models,
+            message: if model_count > 0 {
+                format!("Connected to OpenAI-compatible local provider. Found {model_count} model(s).")
+            } else {
+                "Connected to local provider, but no models were listed.".to_string()
+            },
+        });
+    }
+
+    Err("Failed to connect to local provider endpoint. Tried /api/tags and /v1/models.".to_string())
 }
 
 pub async fn save_settings(settings: &ApiSettings) -> Result<ApiSettings, String> {

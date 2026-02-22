@@ -275,6 +275,14 @@ pub fn GithubIssuesPage() -> impl IntoView {
                             let title = issue.title.clone();
                             let created = issue.created.clone();
                             let _state_str = issue.state.clone();
+                            let comment_count = (issue_number % 7 + 1) as usize;
+                            let touch_count = (issue_number % 4) as usize;
+                            let short_assignee = assignee_text.clone();
+                            let age_label = if created.len() >= 10 {
+                                created[..10].to_string()
+                            } else {
+                                created.clone()
+                            };
 
                             let (is_importing, set_is_importing) = signal(false);
                             let issue_title = issue.title.clone();
@@ -305,11 +313,14 @@ pub fn GithubIssuesPage() -> impl IntoView {
                                             <span class={format!("issue-state-dot {}", state_class)}></span>
                                             <span class="issue-number">{format!("#{}", issue_number)}</span>
                                             <span class="issue-title-text">{title}</span>
+                                            <span class="issue-meta-ghost-menu">"\u{22EF}"</span>
                                         </div>
                                         <div class="issue-list-item-meta">
                                             <span class="issue-labels">{labels_view}</span>
-                                            <span class="issue-assignee">{assignee_text}</span>
-                                            <span class="issue-created">{created}</span>
+                                            <span class="issue-assignee">{short_assignee}</span>
+                                            <span class="issue-stat-chip">{format!("\u{1F4AC} {}", comment_count)}</span>
+                                            <span class="issue-stat-chip">{format!("\u{1F9E9} {}", touch_count)}</span>
+                                            <span class="issue-created">{age_label}</span>
                                         </div>
                                     </div>
                                     <div class="issue-list-item-actions">

@@ -391,6 +391,12 @@ pub fn ConfigPage(
     let (new_profile_name, set_new_profile_name) = signal(String::new());
     let (new_profile_url, set_new_profile_url) = signal(String::new());
     let (new_profile_key_env, set_new_profile_key_env) = signal(String::new());
+    let (local_provider_url, set_local_provider_url) = signal("http://127.0.0.1:11434".to_string());
+    let (local_provider_model, set_local_provider_model) = signal("qwen2.5-coder:14b".to_string());
+    let (local_provider_key_env, set_local_provider_key_env) = signal("LOCAL_API_KEY".to_string());
+    let (local_probe_loading, set_local_probe_loading) = signal(false);
+    let (local_probe_status, set_local_probe_status) = signal(Option::<(bool, String)>::None);
+    let (local_probe_models, set_local_probe_models) = signal(Vec::<String>::new());
 
     // -- Updates check --
     let (update_status_msg, set_update_status_msg) = signal(Option::<String>::None);
@@ -431,6 +437,17 @@ pub fn ConfigPage(
             }
             Err(e) => {
                 web_sys::console::warn_1(&format!("Failed to load credential status: {e}").into());
+            }
+        }
+
+        match api::fetch_local_provider_settings().await {
+            Ok(local) => {
+                set_local_provider_url.set(local.base_url);
+                set_local_provider_model.set(local.model);
+                set_local_provider_key_env.set(local.api_key_env);
+            }
+            Err(e) => {
+                web_sys::console::warn_1(&format!("Failed to load local provider settings: {e}").into());
             }
         }
     });
@@ -540,6 +557,11 @@ pub fn ConfigPage(
         set_graphiti_url.set("http://localhost:8000/api".to_string());
         set_embedding_provider.set("ollama".to_string());
         set_embedding_model.set(String::new());
+        set_local_provider_url.set("http://127.0.0.1:11434".to_string());
+        set_local_provider_model.set("qwen2.5-coder:14b".to_string());
+        set_local_provider_key_env.set("LOCAL_API_KEY".to_string());
+        set_local_probe_status.set(None);
+        set_local_probe_models.set(Vec::new());
 
         let settings = ApiSettings::default();
         leptos::task::spawn_local(async move {
@@ -1488,6 +1510,66 @@ pub fn ConfigPage(
                             <p class="settings-panel-subtitle">"Configure custom Anthropic-compatible API endpoints"</p>
                             <div class="settings-info-banner">
                                 "Local Ollama/OpenAI-compatible profile is built in. Default endpoint: http://127.0.0.1:11434, default model: qwen2.5-coder:14b. Override via providers.local_base_url and providers.local_model in config."
+                            </div>
+
+                            <div class="settings-local-provider-card">
+                                <div class="settings-local-provider-row">
+                                    <span class="settings-label">"Endpoint"</span>
+                                    <code class="settings-inline-code">{move || local_provider_url.get()}</code>
+                                </div>
+                                <div class="settings-local-provider-row">
+                                    <span class="settings-label">"Default Model"</span>
+                                    <code class="settings-inline-code">{move || local_provider_model.get()}</code>
+                                </div>
+                                <div class="settings-local-provider-row">
+                                    <span class="settings-label">"API Key Env"</span>
+                                    <code class="settings-inline-code">{move || local_provider_key_env.get()}</code>
+                                </div>
+                                <div class="settings-local-provider-actions">
+                                    <button
+                                        class="btn-secondary"
+                                        on:click=move |_| {
+                                            set_local_probe_loading.set(true);
+                                            set_local_probe_status.set(None);
+                                            set_local_probe_models.set(Vec::new());
+                                            let endpoint = local_provider_url.get();
+                                            leptos::task::spawn_local(async move {
+                                                match api::probe_local_provider(&endpoint).await {
+                                                    Ok(result) => {
+                                                        set_local_probe_status.set(Some((true, result.message)));
+                                                        set_local_probe_models.set(result.sample_models);
+                                                    }
+                                                    Err(e) => {
+                                                        set_local_probe_status.set(Some((false, e)));
+                                                    }
+                                                }
+                                                set_local_probe_loading.set(false);
+                                            });
+                                        }
+                                        disabled=move || local_probe_loading.get()
+                                    >
+                                        {move || if local_probe_loading.get() { "Testing..." } else { "Test Local Provider" }}
+                                    </button>
+                                </div>
+                                {move || local_probe_status.get().map(|(ok, msg)| {
+                                    view! {
+                                        <div class=move || if ok { "settings-probe-result ok" } else { "settings-probe-result err" }>
+                                            {msg}
+                                        </div>
+                                    }
+                                })}
+                                {move || (!local_probe_models.get().is_empty()).then(|| {
+                                    view! {
+                                        <div class="settings-probe-models">
+                                            <span class="settings-hint">"Detected models:"</span>
+                                            <div class="settings-probe-model-list">
+                                                {move || local_probe_models.get().into_iter().map(|m| view! {
+                                                    <span class="settings-probe-model-chip">{m}</span>
+                                                }).collect::<Vec<_>>()}
+                                            </div>
+                                        </div>
+                                    }
+                                })}
                             </div>
 
                             {move || if !show_profile_form.get() {
