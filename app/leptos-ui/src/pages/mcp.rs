@@ -359,34 +359,36 @@ pub fn McpPage() -> impl IntoView {
 
 fn render_agent_section(title: &'static str, agents: &'static [AgentDef]) -> impl IntoView {
     view! {
-        <div class="mcp-agents-section-title">
-            {title}
-            <span class="count">{format!("{} agents", agents.len())}</span>
-        </div>
-        <div class="mcp-agent-grid">
-            {agents.iter().map(|a| {
-                let tooling = if a.mcp_count == 0 {
-                    "No MCP".to_string()
-                } else {
-                    format!("{} MCP", a.mcp_count)
-                };
-                view! {
-                    <div class="mcp-agent-card">
-                        <div class="mcp-agent-header">
-                            <div class="mcp-agent-title-wrap">
-                                <span class="mcp-agent-icon mcp-server-icon-svg" inner_html=mcp_agent_icon_svg(a.name)></span>
-                                <span class="mcp-agent-name">{a.name}</span>
+        <section class="mcp-agent-section">
+            <div class="mcp-agents-section-title">
+                {title}
+                <span class="count">{format!("{} agents", agents.len())}</span>
+            </div>
+            <div class="mcp-agent-grid">
+                {agents.iter().map(|a| {
+                    let tooling = if a.mcp_count == 0 {
+                        "No MCP".to_string()
+                    } else {
+                        format!("{} MCP", a.mcp_count)
+                    };
+                    view! {
+                        <div class="mcp-agent-card">
+                            <div class="mcp-agent-header">
+                                <div class="mcp-agent-title-wrap">
+                                    <span class="mcp-agent-icon mcp-server-icon-svg" inner_html=mcp_agent_icon_svg(a.name)></span>
+                                    <span class="mcp-agent-name">{a.name}</span>
+                                </div>
+                                <span class=(if a.mcp_count == 0 { "mcp-agent-mcp-badge muted" } else { "mcp-agent-mcp-badge" })>{tooling}</span>
                             </div>
-                            <span class=(if a.mcp_count == 0 { "mcp-agent-mcp-badge muted" } else { "mcp-agent-mcp-badge" })>{tooling}</span>
+                            <div class="mcp-agent-meta mcp-agent-meta-dense">
+                                <span class="mcp-agent-model">{a.model}</span>
+                                <span class="mcp-agent-thinking">{a.thinking}</span>
+                            </div>
+                            <div class="mcp-agent-desc">{a.description}</div>
                         </div>
-                        <div class="mcp-agent-meta mcp-agent-meta-dense">
-                            <span class="mcp-agent-model">{a.model}</span>
-                            <span class="mcp-agent-thinking">{a.thinking}</span>
-                        </div>
-                        <div class="mcp-agent-desc">{a.description}</div>
-                    </div>
-                }
-            }).collect::<Vec<_>>()}
-        </div>
+                    }
+                }).collect::<Vec<_>>()}
+            </div>
+        </section>
     }
 }

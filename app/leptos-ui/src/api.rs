@@ -1033,6 +1033,10 @@ pub async fn stop_agent(id: &str) -> Result<ApiAgent, String> {
     post_empty(&format!("{}/api/agents/{id}/stop", get_api_base())).await
 }
 
+pub async fn assign_agent(task_id: &str) -> Result<serde_json::Value, String> {
+    post_empty(&format!("{}/api/tasks/{task_id}/assign", get_api_base())).await
+}
+
 pub async fn fetch_sessions() -> Result<Vec<ApiSession>, String> {
     fetch_json(&format!("{}/api/sessions", get_api_base())).await
 }

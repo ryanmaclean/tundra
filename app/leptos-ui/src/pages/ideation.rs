@@ -17,6 +17,8 @@ pub fn IdeationPage() -> impl IntoView {
     let (expanded_id, set_expanded_id) = signal(Option::<String>::None);
     let (generating, set_generating) = signal(false);
     let (convert_msg, set_convert_msg) = signal(Option::<String>::None);
+    let (sort_by, set_sort_by) = signal("Impact".to_string());
+    let (sort_asc, set_sort_asc) = signal(false);
 
     let do_refresh = move || {
         set_loading.set(true);
@@ -75,9 +77,25 @@ pub fn IdeationPage() -> impl IntoView {
         }
     };
 
+    let categories: Vec<(&str, &str)> = vec![
+        ("All", "All"),
+        ("CodeImprovement", "Code Improvement"),
+        ("Quality", "Quality"),
+        ("Documentation", "Documentation"),
+        ("Performance", "Performance"),
+        ("Security", "Security"),
+        ("UiUx", "UI/UX"),
+    ];
+
     view! {
         <div class="page-header">
-            <h2>{t("ideation-title")}</h2>
+            <div class="page-header-title-row">
+                <h2>{t("ideation-title")}</h2>
+                <span class="ideation-count-badge">
+                    {move || format!("{} ideas", ideas.get().len())}
+                </span>
+            </div>
+            <p class="ideation-subtitle">"Generate ideas for your project"</p>
             <div class="page-header-actions">
                 <button
                     class="action-btn action-start"
@@ -86,23 +104,53 @@ pub fn IdeationPage() -> impl IntoView {
                 >
                     {move || if generating.get() { "Generating...".to_string() } else { t("ideation-generate") }}
                 </button>
-                <select
-                    class="filter-select"
-                    prop:value=move || filter_category.get()
-                    on:change=move |ev| set_filter_category.set(event_target_value(&ev))
-                >
-                    <option value="All">"All Categories"</option>
-                    <option value="CodeImprovement">"Code Improvement"</option>
-                    <option value="Quality">"Quality"</option>
-                    <option value="Documentation">"Documentation"</option>
-                    <option value="Performance">"Performance"</option>
-                    <option value="Security">"Security"</option>
-                    <option value="UiUx">"UI/UX"</option>
-                </select>
                 <button class="refresh-btn dashboard-refresh-btn" on:click=move |_| do_refresh()>
                     "\u{21BB} Refresh"
                 </button>
             </div>
+        </div>
+
+        <div class="ideation-filter-pills">
+            {categories.into_iter().map(|(value, label)| {
+                let value_str = value.to_string();
+                let value_click = value.to_string();
+                let label_str = label.to_string();
+                let pill_class = value.to_lowercase().replace(" ", "");
+                view! {
+                    <button
+                        class=(move || {
+                            let base = format!("ideation-filter-pill pill-{}", pill_class);
+                            if filter_category.get() == value_str {
+                                format!("{} active", base)
+                            } else {
+                                base
+                            }
+                        })
+                        on:click=move |_| set_filter_category.set(value_click.clone())
+                    >
+                        {label_str}
+                    </button>
+                }
+            }).collect::<Vec<_>>()}
+        </div>
+
+        <div class="ideation-sort-controls">
+            <span class="ideation-sort-label">"Sort:"</span>
+            <select
+                class="ideation-sort-select"
+                prop:value=move || sort_by.get()
+                on:change=move |ev| set_sort_by.set(event_target_value(&ev))
+            >
+                <option value="Impact">"Impact"</option>
+                <option value="Effort">"Effort"</option>
+                <option value="Category">"Category"</option>
+            </select>
+            <button
+                class="ideation-sort-dir-btn"
+                on:click=move |_| set_sort_asc.set(!sort_asc.get())
+            >
+                {move || if sort_asc.get() { "\u{2191}" } else { "\u{2193}" }}
+            </button>
         </div>
 
         {move || error_msg.get().map(|msg| view! {

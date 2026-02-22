@@ -83,7 +83,7 @@ tasks-archive = Archive
 tasks-unarchive = Unarchive
 
 # Agents
-agents-title = Agents
+agents-title = Agent Terminals
 agents-active = Active
 agents-idle = Idle
 agents-stopped = Stopped
@@ -141,7 +141,7 @@ context-add-memory = Add Memory
 # GitHub
 github-issues-title = GitHub Issues
 github-issues-import = Import Issues
-github-issues-analyze = Analyze Issues
+github-issues-analyze = Analyze & Group Issues
 github-issues-filter = Filter Issues
 github-prs-title = Pull Requests
 github-prs-review = Review PR

@@ -843,7 +843,63 @@ fn TaskDetailInner(
                 </div>
             </div>
         </div>
-    </div>
+
+            // ── Footer ──
+            <div class="td-footer">
+                <div class="td-footer-left">
+                    {show_delete.then(|| {
+                        view! {
+                            <button class="td-footer-delete" on:click=move |ev| delete_action(ev)>
+                                "Delete Task"
+                            </button>
+                        }
+                    })}
+                    <button
+                        class="td-footer-discard"
+                        on:click=move |_| set_show_discard.set(true)
+                    >
+                        "Discard"
+                    </button>
+                </div>
+                <div class="td-footer-right">
+                    <button class="td-footer-close" on:click=move |ev| close_bottom(ev)>
+                        "Close"
+                    </button>
+                    {show_resume.then(|| {
+                        let resume_footer = resume_action.clone();
+                        view! {
+                            <button class="td-footer-resume" on:click=move |ev| resume_footer(ev)>
+                                "Resume Task"
+                            </button>
+                        }
+                    })}
+                    <button
+                        class="td-footer-assign"
+                        on:click=move |_| {
+                            set_assigning.set(true);
+                            let bid = bid.clone();
+                            spawn_local(async move {
+                                match crate::api::assign_agent(&bid).await {
+                                    Ok(_) => {
+                                        set_assign_msg.set(Some((true, "Agent assigned".to_string())));
+                                    }
+                                    Err(e) => {
+                                        set_assign_msg.set(Some((false, format!("Failed: {}", e))));
+                                    }
+                                }
+                                set_assigning.set(false);
+                            });
+                        }
+                        disabled=move || assigning.get()
+                    >
+                        {move || if assigning.get() { "Assigning..." } else { "Assign Agent" }}
+                    </button>
+                </div>
+            </div>
+            {move || assign_msg.get().map(|(ok, msg)| {
+                let cls = if ok { "td-assign-msg td-assign-ok" } else { "td-assign-msg td-assign-err" };
+                view! { <div class={cls}>{msg}</div> }
+            })}
     </div>
     },
 

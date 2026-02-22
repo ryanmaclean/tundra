@@ -24,6 +24,9 @@ pub fn RoadmapPage() -> impl IntoView {
     // Task creation feedback
     let (task_created_msg, set_task_created_msg) = signal(Option::<String>::None);
 
+    // Project header expand toggle
+    let (show_more_desc, set_show_more_desc) = signal(false);
+
     // View mode: "kanban", "all", "priority"
     let (view_mode, set_view_mode) = signal("kanban".to_string());
 
@@ -154,6 +157,57 @@ pub fn RoadmapPage() -> impl IntoView {
                 <button class="refresh-btn dashboard-refresh-btn" on:click=move |_| do_refresh()>
                     "Refresh"
                 </button>
+            </div>
+        </div>
+
+        // Project description header
+        <div class="roadmap-project-header">
+            <div class="roadmap-project-title-row">
+                <span class="roadmap-project-icon">{"\u{25b6}"}</span>
+                <span class="roadmap-project-name">"auto-tundra"</span>
+                <span class="roadmap-project-badges">
+                    <span class="roadmap-badge-mvp">"MVP"</span>
+                    <span class="roadmap-badge-rust">"Rust"</span>
+                </span>
+            </div>
+            <p class="roadmap-project-desc">
+                "AI-powered development platform with autonomous agent orchestration, multi-provider intelligence, and full development lifecycle management."
+            </p>
+            {move || show_more_desc.get().then(|| view! {
+                <p class="roadmap-project-desc roadmap-project-desc-more">
+                    "Built with Leptos, Axum, and a modular crate architecture. Features include kanban-based roadmap tracking, stacked diffs, multi-project support, context-steered agents, and comprehensive telemetry. Targets near-complete parity with Auto Claude workflows."
+                </p>
+            })}
+            <a
+                class="roadmap-project-show-more"
+                href="#"
+                on:click=move |ev: web_sys::MouseEvent| {
+                    ev.prevent_default();
+                    set_show_more_desc.set(!show_more_desc.get());
+                }
+            >
+                {move || if show_more_desc.get() { "Show less" } else { "Show more..." }}
+            </a>
+            <div class="roadmap-summary-stats">
+                {move || {
+                    let all = features.get();
+                    let total = all.len();
+                    let review = all.iter().filter(|f| matches!(f.status.as_str(), "Under Review" | "under_review" | "review" | "proposed")).count();
+                    let planned = all.iter().filter(|f| matches!(f.status.as_str(), "Planned" | "planned")).count();
+                    let in_progress = all.iter().filter(|f| matches!(f.status.as_str(), "InProgress" | "in_progress" | "In Progress")).count();
+                    let done = all.iter().filter(|f| matches!(f.status.as_str(), "Done" | "done" | "completed")).count();
+                    view! {
+                        <span class="roadmap-stat-total">{format!("{} features", total)}</span>
+                        <span class="roadmap-stat-sep">","</span>
+                        <span class="roadmap-stat-review">{format!("{} Under Review", review)}</span>
+                        <span class="roadmap-stat-sep">","</span>
+                        <span class="roadmap-stat-planned">{format!("{} Planned", planned)}</span>
+                        <span class="roadmap-stat-sep">","</span>
+                        <span class="roadmap-stat-inprogress">{format!("{} In Progress", in_progress)}</span>
+                        <span class="roadmap-stat-sep">","</span>
+                        <span class="roadmap-stat-done">{format!("{} Done", done)}</span>
+                    }
+                }}
             </div>
         </div>
 
