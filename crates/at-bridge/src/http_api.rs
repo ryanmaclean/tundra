@@ -2216,6 +2216,23 @@ struct WorktreeEntry {
     status: String,
 }
 
+fn stable_worktree_id(path: &str, branch: &str) -> String {
+    let raw = if branch.is_empty() {
+        format!("path:{path}")
+    } else {
+        format!("branch:{branch}")
+    };
+    raw.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
 async fn list_worktrees() -> impl IntoResponse {
     let output = match tokio::process::Command::new("git")
         .args(["worktree", "list", "--porcelain"])
@@ -2252,7 +2269,7 @@ async fn list_worktrees() -> impl IntoResponse {
             current_branch = branch.to_string();
         } else if line.is_empty() && !current_path.is_empty() {
             worktrees.push(WorktreeEntry {
-                id: Uuid::new_v4().to_string(),
+                id: stable_worktree_id(&current_path, &current_branch),
                 path: current_path.clone(),
                 branch: current_branch.clone(),
                 bead_id: String::new(),
@@ -2265,7 +2282,7 @@ async fn list_worktrees() -> impl IntoResponse {
     // Handle last entry if stdout doesn't end with empty line
     if !current_path.is_empty() {
         worktrees.push(WorktreeEntry {
-            id: Uuid::new_v4().to_string(),
+            id: stable_worktree_id(&current_path, &current_branch),
             path: current_path,
             branch: current_branch,
             bead_id: String::new(),
@@ -2312,8 +2329,9 @@ async fn merge_worktree(
         } else if let Some(branch) = line.strip_prefix("branch refs/heads/") {
             current_branch = branch.to_string();
         } else if line.is_empty() && !current_path.is_empty() {
-            // Match by branch name containing the id, or path containing the id
-            if current_branch.contains(&id) || current_path.contains(&id) {
+            let candidate_id = stable_worktree_id(&current_path, &current_branch);
+            // Match exact stable id first, then keep legacy contains fallback.
+            if candidate_id == id || current_branch.contains(&id) || current_path.contains(&id) {
                 found_branch = Some(current_branch.clone());
             }
             current_path = String::new();
@@ -2322,7 +2340,8 @@ async fn merge_worktree(
     }
     // Handle last entry
     if found_branch.is_none() && !current_path.is_empty() {
-        if current_branch.contains(&id) || current_path.contains(&id) {
+        let candidate_id = stable_worktree_id(&current_path, &current_branch);
+        if candidate_id == id || current_branch.contains(&id) || current_path.contains(&id) {
             found_branch = Some(current_branch);
         }
     }
@@ -2825,17 +2844,86 @@ fn detect_cli_binary(name: &str) -> (bool, Option<String>) {
 
 /// DELETE /api/worktrees/{id} — remove a git worktree by path.
 async fn delete_worktree(Path(id): Path<String>) -> impl IntoResponse {
-    // The `id` here is an opaque UUID assigned during listing. Since we cannot
-    // map it back to the actual path without state, we attempt to interpret it
-    // as a worktree path. In practice the frontend passes the id from the list
-    // response. We simply acknowledge the deletion request.
-    //
-    // A production implementation would maintain a mapping in ApiState. For now
-    // we return success to satisfy the API contract.
-    (
-        axum::http::StatusCode::OK,
-        Json(serde_json::json!({"status": "deleted", "id": id})),
-    )
+    let output = match tokio::process::Command::new("git")
+        .args(["worktree", "list", "--porcelain"])
+        .output()
+        .await
+    {
+        Ok(o) => o,
+        Err(e) => {
+            return (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": e.to_string()})),
+            );
+        }
+    };
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        return (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": stderr})),
+        );
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut current_path = String::new();
+    let mut current_branch = String::new();
+    let mut found_path: Option<String> = None;
+
+    for line in stdout.lines() {
+        if let Some(path) = line.strip_prefix("worktree ") {
+            current_path = path.to_string();
+            current_branch = String::new();
+        } else if let Some(branch) = line.strip_prefix("branch refs/heads/") {
+            current_branch = branch.to_string();
+        } else if line.is_empty() && !current_path.is_empty() {
+            let candidate_id = stable_worktree_id(&current_path, &current_branch);
+            if candidate_id == id || current_branch.contains(&id) || current_path.contains(&id) {
+                found_path = Some(current_path.clone());
+                break;
+            }
+            current_path.clear();
+            current_branch.clear();
+        }
+    }
+    if found_path.is_none() && !current_path.is_empty() {
+        let candidate_id = stable_worktree_id(&current_path, &current_branch);
+        if candidate_id == id || current_branch.contains(&id) || current_path.contains(&id) {
+            found_path = Some(current_path);
+        }
+    }
+
+    let Some(path) = found_path else {
+        return (
+            axum::http::StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "worktree not found", "id": id})),
+        );
+    };
+
+    let rm = tokio::process::Command::new("git")
+        .args(["worktree", "remove", "--force", &path])
+        .output()
+        .await;
+
+    match rm {
+        Ok(o) if o.status.success() => (
+            axum::http::StatusCode::OK,
+            Json(serde_json::json!({"status": "deleted", "id": id, "path": path})),
+        ),
+        Ok(o) => (
+            axum::http::StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": String::from_utf8_lossy(&o.stderr).to_string(),
+                "id": id,
+                "path": path
+            })),
+        ),
+        Err(e) => (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": e.to_string(), "id": id, "path": path})),
+        ),
+    }
 }
 
 // ---------------------------------------------------------------------------

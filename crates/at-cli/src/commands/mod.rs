@@ -26,3 +26,4 @@ pub fn friendly_error(err: reqwest::Error) -> anyhow::Error {
         anyhow::anyhow!("API request failed: {err}")
     }
 }
+pub mod ideation;

@@ -4,7 +4,8 @@ use wasm_bindgen_futures::JsFuture;
 use web_sys::{Request, RequestInit, Response};
 
 /// Default API base when not running in Tauri (standalone web dev).
-const DEFAULT_API_BASE: &str = "http://localhost:9090";
+// Use IPv4 loopback by default to avoid localhost IPv6 resolution mismatches in browsers.
+const DEFAULT_API_BASE: &str = "http://127.0.0.1:9090";
 
 /// Get the API base URL at runtime. In Tauri, reads `window.__TUNDRA_API_PORT__` (injected by
 /// the desktop app). In standalone web mode, uses DEFAULT_API_BASE. Allows dynamic ports — no

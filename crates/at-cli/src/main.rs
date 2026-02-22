@@ -122,7 +122,44 @@ enum Commands {
         #[arg(short = 'o', long = "out")]
         out: Option<String>,
     },
+
+    /// Ideation and feature discovery.
+    Ideation {
+        #[command(subcommand)]
+        command: IdeationCommands,
+    },
 }
+
+#[derive(Subcommand)]
+pub enum IdeationCommands {
+    /// List all generated ideas
+    List {
+        /// Output JSON.
+        #[arg(short = 'j', long, default_value_t = false)]
+        json: bool,
+    },
+    /// Generate new ideas
+    Generate {
+        /// Category of ideas (e.g. code-improvement, quality, ui-ux)
+        #[arg(short = 'c', long, default_value = "code-improvement")]
+        category: String,
+        /// Context for ideation (e.g. codebase focus area)
+        #[arg(short = 'C', long)]
+        context: String,
+        /// Output JSON.
+        #[arg(short = 'j', long, default_value_t = false)]
+        json: bool,
+    },
+    /// Convert an idea into an executable task bead
+    Convert {
+        /// The UUID of the idea to convert
+        idea_id: String,
+        /// Output JSON.
+        #[arg(short = 'j', long, default_value_t = false)]
+        json: bool,
+    },
+}
+
 
 #[derive(Subcommand)]
 enum SkillCommands {
@@ -314,6 +351,17 @@ async fn main() -> anyhow::Result<()> {
         }) => {
             commands::doctor::run(&api_url, &project_path, strict, json, out.as_deref()).await?;
         }
+        Some(Commands::Ideation { command }) => match command {
+            IdeationCommands::List { .. } => {
+                commands::ideation::list(&api_url).await?;
+            }
+            IdeationCommands::Generate { category, context, .. } => {
+                commands::ideation::generate(&api_url, &category, &context).await?;
+            }
+            IdeationCommands::Convert { idea_id, .. } => {
+                commands::ideation::convert(&api_url, &idea_id).await?;
+            }
+        },
     }
 
     Ok(())

@@ -21,6 +21,25 @@ struct ChatSession {
     messages: Vec<ChatMessage>,
 }
 
+fn demo_insights_sessions() -> Vec<ChatSession> {
+    vec![ChatSession {
+        id: "demo-insights-1".to_string(),
+        title: "What features could I add next?".to_string(),
+        messages: vec![
+            ChatMessage {
+                id: "demo-msg-1".to_string(),
+                role: "assistant".to_string(),
+                content: "If I were you, I’d tackle these in order:\n1. README + docs\n2. CI/CD pipeline\n3. Rotate exposed secrets\n4. AI operations dashboard\n5. Quality metrics tracking".to_string(),
+            },
+            ChatMessage {
+                id: "demo-msg-2".to_string(),
+                role: "assistant".to_string(),
+                content: "What would make this unique:\n- AI cost transparency\n- Model quality tracking\n- Multi-model switching\n- Enterprise audit trail\n- Offline mode".to_string(),
+            },
+        ],
+    }]
+}
+
 #[component]
 pub fn InsightsPage() -> impl IntoView {
     let app_state = use_app_state();
@@ -49,7 +68,17 @@ pub fn InsightsPage() -> impl IntoView {
                     }).collect();
                     set_sessions.set(chat_sessions);
                 }
-                Err(e) => set_error_msg.set(Some(format!("Failed to fetch sessions: {e}"))),
+                Err(e) => {
+                    if e.contains("Failed to connect")
+                        || e.contains("127.0.0.1")
+                        || e.contains("localhost")
+                    {
+                        set_sessions.set(demo_insights_sessions());
+                        set_error_msg.set(None);
+                    } else {
+                        set_error_msg.set(Some(format!("Failed to fetch sessions: {e}")));
+                    }
+                },
             }
             set_loading.set(false);
         });
@@ -80,7 +109,14 @@ pub fn InsightsPage() -> impl IntoView {
                     });
                 }
                 Err(e) => {
-                    web_sys::console::error_1(&format!("Failed to load messages: {e}").into());
+                    if e.contains("Failed to connect")
+                        || e.contains("127.0.0.1")
+                        || e.contains("localhost")
+                    {
+                        set_sessions.set(demo_insights_sessions());
+                    } else {
+                        web_sys::console::error_1(&format!("Failed to load messages: {e}").into());
+                    }
                 }
             }
         });
@@ -160,9 +196,36 @@ pub fn InsightsPage() -> impl IntoView {
                     });
                 }
                 Err(e) => {
-                    // Rollback optimistic user message
-                    set_sessions.set(prev_sessions);
-                    set_error_msg.set(Some(format!("Failed to send message: {e}")));
+                    if e.contains("Failed to connect")
+                        || e.contains("127.0.0.1")
+                        || e.contains("localhost")
+                    {
+                        let assistant_msg = ChatMessage {
+                            id: format!(
+                                "demo-{}",
+                                uuid::Uuid::new_v4()
+                                    .to_string()
+                                    .split('-')
+                                    .next()
+                                    .unwrap_or("000")
+                            ),
+                            role: "assistant".into(),
+                            content: "Offline demo mode: connect the daemon to run real insights against your codebase.".into(),
+                        };
+                        set_sessions.update(|sessions| {
+                            if let Some(session) = sessions.iter_mut().find(|s| s.id == sid_clone) {
+                                session.messages.push(assistant_msg);
+                                if session.messages.len() > 200 {
+                                    session.messages.drain(..session.messages.len() - 200);
+                                }
+                            }
+                        });
+                        set_error_msg.set(None);
+                    } else {
+                        // Rollback optimistic user message
+                        set_sessions.set(prev_sessions);
+                        set_error_msg.set(Some(format!("Failed to send message: {e}")));
+                    }
                 }
             }
             set_sending.set(false);

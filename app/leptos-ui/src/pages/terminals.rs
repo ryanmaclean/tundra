@@ -7,7 +7,7 @@ use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{Request, RequestInit, Response};
 
-const API_BASE: &str = "http://localhost:9090";
+const API_BASE: &str = "http://127.0.0.1:9090";
 
 // ---------------------------------------------------------------------------
 // API types

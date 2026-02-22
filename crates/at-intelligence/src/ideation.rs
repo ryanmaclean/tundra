@@ -106,6 +106,7 @@ struct LlmIdeasResponseJson {
 pub struct IdeationEngine {
     ideas: Vec<Idea>,
     provider: Option<Arc<dyn LlmProvider>>,
+    default_model: String,
 }
 
 impl std::fmt::Debug for IdeationEngine {
@@ -122,14 +123,16 @@ impl IdeationEngine {
         Self {
             ideas: Vec::new(),
             provider: None,
+            default_model: "claude-sonnet-4-20250514".into(),
         }
     }
 
     /// Create an engine **with** an LLM provider for AI-powered ideation.
-    pub fn with_provider(provider: Arc<dyn LlmProvider>) -> Self {
+    pub fn with_provider(provider: Arc<dyn LlmProvider>, default_model: impl Into<String>) -> Self {
         Self {
             ideas: Vec::new(),
             provider: Some(provider),
+            default_model: default_model.into(),
         }
     }
 
@@ -221,7 +224,7 @@ impl IdeationEngine {
         ];
 
         let config = LlmConfig {
-            model: "claude-sonnet-4-20250514".to_string(),
+            model: self.default_model.clone(),
             max_tokens: 1024,
             temperature: 0.7,
             system_prompt: None,
@@ -440,7 +443,7 @@ mod tests {
         ]}"#;
 
         let mock = Arc::new(MockProvider::new(json_response));
-        let mut engine = IdeationEngine::with_provider(mock.clone());
+        let mut engine = IdeationEngine::with_provider(mock.clone(), "mock");
 
         let result = engine
             .generate_ideas_with_ai(&IdeaCategory::Performance, "slow DB queries")
@@ -473,7 +476,7 @@ mod tests {
         let text_response = "- Refactor the auth module\n- Add unit tests for login flow\n";
 
         let mock = Arc::new(MockProvider::new(text_response));
-        let mut engine = IdeationEngine::with_provider(mock);
+        let mut engine = IdeationEngine::with_provider(mock, "mock-model");
 
         let result = engine
             .generate_ideas_with_ai(&IdeaCategory::CodeImprovement, "auth code")
@@ -493,7 +496,7 @@ mod tests {
         let fenced = "```json\n{\"ideas\":[{\"title\":\"Improve caching\",\"description\":\"Add Redis.\",\"impact\":\"high\",\"effort\":\"medium\"}]}\n```";
 
         let mock = Arc::new(MockProvider::new(fenced));
-        let mut engine = IdeationEngine::with_provider(mock);
+        let mut engine = IdeationEngine::with_provider(mock, "mock");
 
         let result = engine
             .generate_ideas_with_ai(&IdeaCategory::Performance, "caching")
