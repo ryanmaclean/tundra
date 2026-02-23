@@ -281,10 +281,32 @@ impl CacheDb {
     pub async fn compute_kpi_snapshot(&self) -> Result<KpiSnapshot, tokio_rusqlite::Error> {
         self.conn
             .call(|conn| {
-                let count = |status: &str| -> rusqlite::Result<u64> {
-                    let mut stmt = conn.prepare("SELECT COUNT(*) FROM beads WHERE status = ?1")?;
-                    stmt.query_row(rusqlite::params![status], |r| r.get::<_, u64>(0))
-                };
+                // Use GROUP BY to get all status counts in a single query
+                let mut stmt = conn.prepare("SELECT status, COUNT(*) FROM beads GROUP BY status")?;
+                let mut rows = stmt.query([])?;
+
+                let mut backlog = 0u64;
+                let mut hooked = 0u64;
+                let mut slung = 0u64;
+                let mut review = 0u64;
+                let mut done = 0u64;
+                let mut failed = 0u64;
+                let mut escalated = 0u64;
+
+                while let Some(row) = rows.next()? {
+                    let status: String = row.get(0)?;
+                    let count: u64 = row.get(1)?;
+                    match status.as_str() {
+                        "backlog" => backlog = count,
+                        "hooked" => hooked = count,
+                        "slung" => slung = count,
+                        "review" => review = count,
+                        "done" => done = count,
+                        "failed" => failed = count,
+                        "escalated" => escalated = count,
+                        _ => {}
+                    }
+                }
 
                 let total: u64 = conn
                     .prepare("SELECT COUNT(*) FROM beads")?
@@ -296,13 +318,13 @@ impl CacheDb {
 
                 Ok(KpiSnapshot {
                     total_beads: total,
-                    backlog: count("backlog")?,
-                    hooked: count("hooked")?,
-                    slung: count("slung")?,
-                    review: count("review")?,
-                    done: count("done")?,
-                    failed: count("failed")?,
-                    escalated: count("escalated")?,
+                    backlog,
+                    hooked,
+                    slung,
+                    review,
+                    done,
+                    failed,
+                    escalated,
                     active_agents,
                     timestamp: Utc::now(),
                 })
