@@ -291,6 +291,7 @@ dependencies = [
  "flume",
  "futures",
  "futures-util",
+ "libc",
  "mimalloc",
  "opentelemetry",
  "opentelemetry-datadog",

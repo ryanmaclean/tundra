@@ -63,14 +63,29 @@ async fn main() -> Result<()> {
     }
 
     // --- Startup guard: check if a daemon is already running ---
+    let replace_mode = std::env::args().any(|a| a == "--replace" || a == "-r");
     if let Some(existing) = DaemonLockfile::read_valid() {
-        eprintln!(
-            "auto-tundra daemon already running (pid={}, api={}, frontend={})",
-            existing.pid,
-            existing.api_url(),
-            existing.frontend_url(),
-        );
-        std::process::exit(1);
+        if replace_mode {
+            info!(pid = existing.pid, "replacing existing daemon (--replace)");
+            #[cfg(unix)]
+            unsafe {
+                libc::kill(existing.pid as i32, libc::SIGTERM);
+            }
+            // Give old daemon a moment to clean up, then force-remove stale lockfile.
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            DaemonLockfile::remove();
+        } else {
+            eprintln!(
+                "auto-tundra daemon already running (pid={}, api={}, frontend={})\n\
+                 \n  Dashboard: {}\n\
+                 \n  Hint: use --replace to restart it.",
+                existing.pid,
+                existing.api_url(),
+                existing.frontend_url(),
+                existing.frontend_url(),
+            );
+            std::process::exit(1);
+        }
     }
 
     // --- Bind API listener ---
@@ -197,6 +212,9 @@ fn load_config(home: &str) -> Result<Config> {
 /// Injects `<script>window.__TUNDRA_API_PORT__={api_port};</script>` into
 /// index.html so the WASM frontend discovers the API server automatically.
 /// Sends the bound port back to main via the oneshot channel.
+///
+/// **Hot-reload friendly**: index.html is read from disk on every request so
+/// that `trunk build` takes effect immediately without restarting the daemon.
 async fn serve_frontend(api_port: u16, port_tx: tokio::sync::oneshot::Sender<u16>) {
     let _span = traced_span!("serve_frontend", component = "http_server");
 
@@ -211,40 +229,40 @@ async fn serve_frontend(api_port: u16, port_tx: tokio::sync::oneshot::Sender<u16
 
     profiling::add_span_tags(&[("dist_dir", dist_dir.to_str().unwrap_or("unknown"))]);
 
-    // Read and patch index.html with API port injection.
-    let index_path = dist_dir.join("index.html");
-    let index_html = match std::fs::read_to_string(&index_path) {
-        Ok(html) => html.replace(
-            "</head>",
-            &format!("<script>window.__TUNDRA_API_PORT__={api_port};</script></head>"),
-        ),
-        Err(e) => {
-            tracing::warn!(error = %e, "could not read index.html, using fallback");
-            format!(
-                "<html><head><script>window.__TUNDRA_API_PORT__={api_port};</script></head>\
-                 <body>frontend not built — run <code>cd app/leptos-ui && trunk build</code></body></html>"
-            )
+    // Helper: read index.html from disk on each request and inject the API port.
+    // This means `trunk build` takes effect immediately without daemon restart.
+    let make_index_handler = {
+        let dist = dist_dir.clone();
+        move |port: u16| {
+            let dist = dist.clone();
+            move || {
+                let dist = dist.clone();
+                async move {
+                    let index_path = dist.join("index.html");
+                    let html = match std::fs::read_to_string(&index_path) {
+                        Ok(raw) => raw.replace(
+                            "</head>",
+                            &format!(
+                                "<script>window.__TUNDRA_API_PORT__={port};</script></head>"
+                            ),
+                        ),
+                        Err(_) => format!(
+                            "<html><head><script>window.__TUNDRA_API_PORT__={port};</script></head>\
+                             <body>frontend not built — run <code>cd app/leptos-ui && trunk build</code></body></html>"
+                        ),
+                    };
+                    Html(html)
+                }
+            }
         }
     };
 
-    // Serve patched index.html for root and SPA fallback; ServeDir for all other assets.
-    let index_for_handler = index_html.clone();
+    // Serve live index.html for root and SPA fallback; ServeDir for all other assets.
     let app = Router::new()
-        .route(
-            "/",
-            get({
-                let html = index_for_handler.clone();
-                move || {
-                    let html = html.clone();
-                    async move { Html(html) }
-                }
-            }),
-        )
+        .route("/", get(make_index_handler(api_port)))
         .fallback_service(
-            ServeDir::new(&dist_dir).fallback(axum::routing::get(move || {
-                let html = index_html.clone();
-                async move { Html(html) }
-            })),
+            ServeDir::new(&dist_dir)
+                .fallback(axum::routing::get(make_index_handler(api_port))),
         );
 
     // Bind to port 0 — OS assigns an ephemeral port.

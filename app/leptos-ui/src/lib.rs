@@ -89,6 +89,13 @@ pub fn App() -> impl IntoView {
                             return;
                         }
                         let key = ev.key();
+                        // Agents page has local command-bar shortcuts:
+                        // H=History, I=Invoke, N=New Terminal, F=Files.
+                        if current_tab.get_untracked() == 2
+                            && matches!(key.as_str(), "h" | "H" | "i" | "I" | "n" | "N" | "f" | "F")
+                        {
+                            return;
+                        }
                         let tab_idx = match key.as_str() {
                             "d" | "D" => Some(0),  // Dashboard
                             "k" | "K" => Some(1),  // Kanban Board

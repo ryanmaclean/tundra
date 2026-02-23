@@ -1,3 +1,5 @@
+use leptos::ev;
+use leptos::leptos_dom::helpers::window_event_listener;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use std::cell::RefCell;
@@ -304,8 +306,7 @@ pub fn AgentsPage() -> impl IntoView {
 
     // Command bar keyboard shortcuts:
     // H=History, I=Invoke Claude All, N=New Terminal, F=Files drawer.
-    if let Some(window) = web_sys::window() {
-        let keydown = Closure::wrap(Box::new(move |event: web_sys::KeyboardEvent| {
+    let keydown_handle = window_event_listener(ev::keydown, move |event: web_sys::KeyboardEvent| {
             if should_skip_terminal_shortcut(&event) {
                 return;
             }
@@ -313,11 +314,13 @@ pub fn AgentsPage() -> impl IntoView {
             match event.key().as_str() {
                 "h" | "H" => {
                     event.prevent_default();
+                    event.stop_propagation();
                     set_show_history_menu.update(|v| *v = !*v);
                     set_show_files_drawer.set(false);
                 }
                 "i" | "I" => {
                     event.prevent_default();
+                    event.stop_propagation();
                     do_refresh();
                     append_history(format!(
                         "{} Invoked terminal command bar refresh",
@@ -326,12 +329,14 @@ pub fn AgentsPage() -> impl IntoView {
                 }
                 "n" | "N" => {
                     event.prevent_default();
+                    event.stop_propagation();
                     if let Some(set_tab) = set_current_tab {
                         set_tab.set(14);
                     }
                 }
                 "f" | "F" => {
                     event.prevent_default();
+                    event.stop_propagation();
                     let opening = !show_files_drawer.get_untracked();
                     set_show_files_drawer.set(opening);
                     set_show_history_menu.set(false);
@@ -345,18 +350,8 @@ pub fn AgentsPage() -> impl IntoView {
                 }
                 _ => {}
             }
-        }) as Box<dyn FnMut(web_sys::KeyboardEvent)>);
-
-        let _ = window.add_event_listener_with_callback("keydown", keydown.as_ref().unchecked_ref());
-        on_cleanup(move || {
-            if let Some(window) = web_sys::window() {
-                let _ = window.remove_event_listener_with_callback(
-                    "keydown",
-                    keydown.as_ref().unchecked_ref(),
-                );
-            }
         });
-    }
+    on_cleanup(move || keydown_handle.remove());
 
     // Initial fetch
     do_refresh();
