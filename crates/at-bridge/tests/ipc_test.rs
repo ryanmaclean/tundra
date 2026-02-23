@@ -152,6 +152,34 @@ async fn test_backend_message_returns_error() {
 }
 
 #[tokio::test]
+async fn test_bead_created_message_returns_error() {
+    use at_core::types::{Bead, Lane};
+
+    let handler = make_handler();
+
+    // BeadCreated is a backend-to-frontend message and should not be handled as incoming request.
+    let bead = Bead::new("test-bead", Lane::Standard);
+    let result = handler
+        .handle_message(BridgeMessage::BeadCreated(bead))
+        .await;
+    assert!(result.is_err());
+}
+
+#[tokio::test]
+async fn test_bead_updated_message_returns_error() {
+    use at_core::types::{Bead, Lane};
+
+    let handler = make_handler();
+
+    // BeadUpdated is a backend-to-frontend message and should not be handled as incoming request.
+    let bead = Bead::new("test-bead", Lane::Standard);
+    let result = handler
+        .handle_message(BridgeMessage::BeadUpdated(bead))
+        .await;
+    assert!(result.is_err());
+}
+
+#[tokio::test]
 async fn test_handle_list_beads_with_populated_data() {
     use at_core::types::{Bead, BeadStatus, Lane};
     use std::sync::Arc;
