@@ -2172,6 +2172,45 @@ struct ListGitLabIssuesQuery {
     pub per_page: Option<u32>,
 }
 
+/// GET /api/gitlab/issues -- retrieve issues from a GitLab project.
+///
+/// Fetches issues from the configured GitLab instance. Requires a GitLab API token
+/// to be set via environment variable (configured in settings.integrations.gitlab_token_env).
+///
+/// **Query Parameters:**
+/// - `project_id` (optional): GitLab project ID or path (e.g., "myorg/myproject"). Falls back to settings.integrations.gitlab_project_id.
+/// - `state` (optional): Filter by issue state - "opened", "closed", or omit for all states.
+/// - `page` (optional): Page number for pagination (default: 1).
+/// - `per_page` (optional): Number of issues per page (default: 20).
+///
+/// **Response:** 200 OK with array of GitLab issue objects, 400 if project_id is missing,
+/// 503 if GitLab token is not configured.
+///
+/// **Example Request:**
+/// ```
+/// GET /api/gitlab/issues?project_id=myorg/myproject&state=opened&page=1&per_page=10
+/// ```
+///
+/// **Example Response:**
+/// ```json
+/// [
+///   {
+///     "id": 42,
+///     "iid": 12,
+///     "title": "Fix authentication bug",
+///     "description": "Users cannot log in with SSO",
+///     "state": "opened",
+///     "created_at": "2026-02-20T10:30:00Z",
+///     "updated_at": "2026-02-23T14:20:00Z",
+///     "author": {
+///       "username": "alice",
+///       "name": "Alice Developer"
+///     },
+///     "labels": ["bug", "priority::high"],
+///     "web_url": "https://gitlab.com/myorg/myproject/-/issues/12"
+///   }
+/// ]
+/// ```
 async fn list_gitlab_issues(
     State(state): State<Arc<ApiState>>,
     Query(q): Query<ListGitLabIssuesQuery>,
@@ -2251,6 +2290,47 @@ struct ListGitLabMrsQuery {
     pub per_page: Option<u32>,
 }
 
+/// GET /api/gitlab/merge-requests -- retrieve merge requests from a GitLab project.
+///
+/// Fetches merge requests from the configured GitLab instance. Requires a GitLab API token
+/// to be set via environment variable (configured in settings.integrations.gitlab_token_env).
+///
+/// **Query Parameters:**
+/// - `project_id` (optional): GitLab project ID or path (e.g., "myorg/myproject"). Falls back to settings.integrations.gitlab_project_id.
+/// - `state` (optional): Filter by MR state - "opened", "merged", "closed", or omit for all states.
+/// - `page` (optional): Page number for pagination (default: 1).
+/// - `per_page` (optional): Number of merge requests per page (default: 20).
+///
+/// **Response:** 200 OK with array of GitLab merge request objects, 400 if project_id is missing,
+/// 503 if GitLab token is not configured.
+///
+/// **Example Request:**
+/// ```
+/// GET /api/gitlab/merge-requests?project_id=myorg/myproject&state=opened&page=1&per_page=5
+/// ```
+///
+/// **Example Response:**
+/// ```json
+/// [
+///   {
+///     "id": 123,
+///     "iid": 45,
+///     "title": "Add user authentication feature",
+///     "description": "Implements JWT-based authentication",
+///     "state": "opened",
+///     "created_at": "2026-02-22T09:15:00Z",
+///     "updated_at": "2026-02-23T11:30:00Z",
+///     "author": {
+///       "username": "bob",
+///       "name": "Bob Engineer"
+///     },
+///     "source_branch": "feature/auth",
+///     "target_branch": "main",
+///     "merge_status": "can_be_merged",
+///     "web_url": "https://gitlab.com/myorg/myproject/-/merge_requests/45"
+///   }
+/// ]
+/// ```
 async fn list_gitlab_merge_requests(
     State(state): State<Arc<ApiState>>,
     Query(q): Query<ListGitLabMrsQuery>,
@@ -2330,6 +2410,69 @@ struct ReviewGitLabMrBody {
     pub auto_approve: Option<bool>,
 }
 
+/// POST /api/gitlab/merge-requests/{iid}/review -- perform automated code review on a GitLab merge request.
+///
+/// Analyzes a GitLab merge request and provides automated code review feedback including
+/// security issues, code quality concerns, and best practice violations. Requires a GitLab
+/// API token to be set via environment variable (configured in settings.integrations.gitlab_token_env).
+///
+/// **Path Parameters:**
+/// - `iid`: GitLab merge request internal ID (IID) to review.
+///
+/// **Request Body:** Optional ReviewGitLabMrBody JSON object with review configuration.
+/// - `project_id` (optional): GitLab project ID or path. Falls back to settings.integrations.gitlab_project_id.
+/// - `severity_threshold` (optional): Minimum severity level to report - "low", "medium", "high", "critical".
+/// - `max_findings` (optional): Maximum number of findings to report (default: unlimited).
+/// - `auto_approve` (optional): Automatically approve MR if no critical issues found (default: false).
+///
+/// **Response:** 200 OK with MR review result containing findings and recommendations,
+/// 400 if project_id is missing, 503 if GitLab token is not configured.
+///
+/// **Example Request:**
+/// ```json
+/// POST /api/gitlab/merge-requests/45/review
+/// {
+///   "project_id": "myorg/myproject",
+///   "severity_threshold": "medium",
+///   "max_findings": 10,
+///   "auto_approve": false
+/// }
+/// ```
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "mr_iid": 45,
+///   "project_id": "myorg/myproject",
+///   "review_status": "completed",
+///   "findings": [
+///     {
+///       "severity": "high",
+///       "category": "security",
+///       "message": "Potential SQL injection vulnerability detected",
+///       "file": "src/database/queries.rs",
+///       "line": 42,
+///       "suggestion": "Use parameterized queries instead of string concatenation"
+///     },
+///     {
+///       "severity": "medium",
+///       "category": "code_quality",
+///       "message": "Function complexity exceeds threshold",
+///       "file": "src/handlers/auth.rs",
+///       "line": 128,
+///       "suggestion": "Consider breaking this function into smaller units"
+///     }
+///   ],
+///   "summary": {
+///     "total_findings": 2,
+///     "critical": 0,
+///     "high": 1,
+///     "medium": 1,
+///     "low": 0
+///   },
+///   "approved": false
+/// }
+/// ```
 async fn review_gitlab_merge_request(
     State(state): State<Arc<ApiState>>,
     Path(iid): Path<u32>,
