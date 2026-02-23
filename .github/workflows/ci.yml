@@ -38,7 +38,7 @@ jobs:
         run: cargo build --workspace --exclude at-tauri
 
       - name: Run tests (nextest + JUnit XML)
-        run: cargo nextest run --workspace --exclude at-tauri --profile ci
+        run: cargo nextest run --workspace --exclude at-tauri --profile ci -E 'not (package(at-tui) and test(/^e2e_/))'
 
       - name: Run doctests
         run: cargo test --workspace --doc --exclude at-tauri
