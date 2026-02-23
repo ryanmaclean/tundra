@@ -135,6 +135,18 @@ fn test_event_roundtrip() {
 }
 
 #[test]
+fn test_bead_created_roundtrip() {
+    let bead = at_core::types::Bead::new("New task", at_core::types::Lane::Standard);
+    roundtrip(&BridgeMessage::BeadCreated(bead));
+}
+
+#[test]
+fn test_bead_updated_roundtrip() {
+    let bead = at_core::types::Bead::new("Updated task", at_core::types::Lane::Critical);
+    roundtrip(&BridgeMessage::BeadUpdated(bead));
+}
+
+#[test]
 fn test_json_uses_snake_case_tags() {
     let json = serde_json::to_value(&BridgeMessage::GetStatus).unwrap();
     assert_eq!(json["type"], "get_status");
