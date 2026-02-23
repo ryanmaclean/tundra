@@ -5,6 +5,20 @@ use leptos::task::spawn_local;
 
 use crate::api;
 
+fn worktrees_title_icon_svg() -> &'static str {
+    r#"<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h7"/><path d="M14 2h7v7"/><path d="m10 14 11-11"/></svg>"#
+}
+
+fn worktree_stat_icon_svg(kind: &str) -> &'static str {
+    match kind {
+        "files" => r#"<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>"#,
+        "ahead" => r#"<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m5 12 4 4 10-10"/></svg>"#,
+        "added" => r#"<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14"/><path d="M5 12h14"/></svg>"#,
+        "removed" => r#"<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/></svg>"#,
+        _ => "",
+    }
+}
+
 /// Worktree display wrapper (wraps API data)
 #[derive(Clone)]
 struct WorktreeDisplay {
@@ -153,7 +167,8 @@ pub fn WorktreesPage() -> impl IntoView {
         <div class="page-header worktrees-page-header">
             <div>
                 <h2 class="worktrees-title-row">
-                    "\u{1F9F7} Worktrees"
+                    <span class="worktrees-title-icon" inner_html=worktrees_title_icon_svg()></span>
+                    <span>"Worktrees"</span>
                     <span class="worktree-count-badge">{move || format!("{} Total Worktrees", worktree_count())}</span>
                 </h2>
                 <span class="worktree-header-desc">"Manage isolated workspaces for your Auto Claude tasks"</span>
@@ -247,17 +262,29 @@ pub fn WorktreesPage() -> impl IntoView {
                                         }
                                     }
                                 />
-                                <span class={status_class} style="font-size: 10px;">"\u{25CF} "</span>
+                                <span class=format!("worktree-status-dot {}", status_class)></span>
                                 <span class="worktree-branch-name">{branch}</span>
                             </div>
                             <span class="worktree-bead-link">{branch_badge_top}</span>
                         </div>
                         <div class="worktree-task-title">{task_title}</div>
                         <div class="worktree-stats">
-                            <span class="worktree-stat-item">"\u{1F4C4} 0 files changed"</span>
-                            <span class="worktree-stat-item">{format!("\u{203A} {} commits ahead", ahead)}</span>
-                            <span class="worktree-stat-item worktree-stat-added">"+ 0"</span>
-                            <span class="worktree-stat-item worktree-stat-removed">"\u{2212} 0"</span>
+                            <span class="worktree-stat-item">
+                                <span class="worktree-stat-icon" inner_html=worktree_stat_icon_svg("files")></span>
+                                <span>"0 files changed"</span>
+                            </span>
+                            <span class="worktree-stat-item">
+                                <span class="worktree-stat-icon" inner_html=worktree_stat_icon_svg("ahead")></span>
+                                <span>{format!("{} commits ahead", ahead)}</span>
+                            </span>
+                            <span class="worktree-stat-item worktree-stat-added">
+                                <span class="worktree-stat-icon" inner_html=worktree_stat_icon_svg("added")></span>
+                                <span>"+ 0"</span>
+                            </span>
+                            <span class="worktree-stat-item worktree-stat-removed">
+                                <span class="worktree-stat-icon" inner_html=worktree_stat_icon_svg("removed")></span>
+                                <span>"- 0"</span>
+                            </span>
                         </div>
                         <div class="worktree-breadcrumb-row">
                             <span class="worktree-breadcrumb-main">"main"</span>

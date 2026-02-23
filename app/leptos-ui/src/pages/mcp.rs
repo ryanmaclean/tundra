@@ -19,7 +19,7 @@ const BUILTIN_SERVERS: &[McpServerDef] = &[
     McpServerDef { name: "Sequential Thinking", description: "Enhanced reasoning via Claude Sonnet", active: true },
     McpServerDef { name: "Filesystem", description: "File system automations for Claude Sonnet", active: true },
     McpServerDef { name: "Puppeteer", description: "Web browser automation for testing", active: true },
-    McpServerDef { name: "Tundra Tools", description: "Core built-in tools (always enabled)", active: true },
+    McpServerDef { name: "Auto Claude Tools", description: "Core built-in tools (always enabled)", active: true },
 ];
 
 fn mcp_server_icon_svg(name: &str) -> &'static str {
@@ -30,7 +30,7 @@ fn mcp_server_icon_svg(name: &str) -> &'static str {
         "Sequential Thinking" => r#"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v4"/><path d="M12 17v4"/><path d="M4.9 4.9l2.8 2.8"/><path d="M16.3 16.3l2.8 2.8"/><path d="M3 12h4"/><path d="M17 12h4"/><circle cx="12" cy="12" r="4"/></svg>"#,
         "Filesystem" => r#"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h6l2 2h10v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>"#,
         "Puppeteer" => r#"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a15 15 0 0 1 0 18"/><path d="M12 3a15 15 0 0 0 0 18"/></svg>"#,
-        "Tundra Tools" => r#"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0-1.4-1.4L7 11.2V14h2.8z"/><path d="M3 21h18"/></svg>"#,
+        "Auto Claude Tools" => r#"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0-1.4-1.4L7 11.2V14h2.8z"/><path d="M3 21h18"/></svg>"#,
         _ => r#"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/></svg>"#,
     }
 }
@@ -44,6 +44,17 @@ fn mcp_agent_icon_svg(name: &str) -> &'static str {
         r#"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3v12"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>"#
     } else {
         r#"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m14.5 4.5 5 5"/><path d="m16 3 5 5"/><path d="M19 7 7 19l-4 1 1-4Z"/></svg>"#
+    }
+}
+
+fn mcp_section_icon_svg(title: &str) -> &'static str {
+    match title {
+        "Spec Creation" => r#"<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>"#,
+        "Build" => r#"<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>"#,
+        "QA" => r#"<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01A1.65 1.65 0 0 0 10 3.09V3a2 2 0 1 1 4 0v.09c0 .67.39 1.27 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06c-.47.47-.61 1.17-.33 1.82.25.61.84 1 1.51 1H21a2 2 0 1 1 0 4h-.09c-.67 0-1.27.39-1.51 1z"/></svg>"#,
+        "Utility" => r#"<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m14.7 6.3-2.4 2.4"/><path d="m5 19 3.6-1 9.2-9.2a2.1 2.1 0 0 0-3-3L5.6 15z"/><path d="M3 21h18"/></svg>"#,
+        "Ideation" => r#"<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.8V16a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-1.2A7 7 0 0 0 12 2z"/></svg>"#,
+        _ => r#"<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/></svg>"#,
     }
 }
 
@@ -145,6 +156,10 @@ pub fn McpPage() -> impl IntoView {
         <div class="page-header mcp-page-header">
             <div>
                 <h2 class="mcp-page-title">
+                    <span
+                        class="mcp-page-title-icon"
+                        inner_html=r#"<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="6" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/><line x1="7" y1="7" x2="7" y2="7"/><line x1="7" y1="17" x2="7" y2="17"/></svg>"#
+                    ></span>
                     "MCP Server Overview"
                     <span class="mcp-header-subtitle">" for "<em>"auto-tundra"</em></span>
                 </h2>
@@ -159,7 +174,13 @@ pub fn McpPage() -> impl IntoView {
         </div>
 
         {move || error_msg.get().map(|msg| view! {
-            <div class="dashboard-error mcp-error">{msg}</div>
+            <div class="state-banner state-banner-error mcp-error">
+                <span
+                    class="state-banner-icon"
+                    inner_html=r#"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>"#
+                ></span>
+                <span>{msg}</span>
+            </div>
         })}
 
         {move || loading.get().then(|| view! {
@@ -336,7 +357,11 @@ pub fn McpPage() -> impl IntoView {
             if api_custom.is_empty() && !show_add_form.get() {
                 Some(view! {
                     <div class="mcp-custom-empty">
-                        "No custom servers configured. Add one to use with your agents."
+                        <span
+                            class="mcp-custom-empty-icon"
+                            inner_html=r#"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>"#
+                        ></span>
+                        <span>"No custom servers configured. Add one to use with your agents."</span>
                     </div>
                 })
             } else {
@@ -361,7 +386,10 @@ fn render_agent_section(title: &'static str, agents: &'static [AgentDef]) -> imp
     view! {
         <section class="mcp-agent-section">
             <div class="mcp-agents-section-title">
-                {title}
+                <span class="mcp-agent-section-label">
+                    <span class="mcp-agent-section-icon-svg" inner_html=mcp_section_icon_svg(title)></span>
+                    <span>{title}</span>
+                </span>
                 <span class="count">{format!("{} agents", agents.len())}</span>
             </div>
             <div class="mcp-agent-grid">
@@ -378,7 +406,10 @@ fn render_agent_section(title: &'static str, agents: &'static [AgentDef]) -> imp
                                     <span class="mcp-agent-icon mcp-server-icon-svg" inner_html=mcp_agent_icon_svg(a.name)></span>
                                     <span class="mcp-agent-name">{a.name}</span>
                                 </div>
-                                <span class=(if a.mcp_count == 0 { "mcp-agent-mcp-badge muted" } else { "mcp-agent-mcp-badge" })>{tooling}</span>
+                                <div class="mcp-agent-header-right">
+                                    <span class=(if a.mcp_count == 0 { "mcp-agent-mcp-badge muted" } else { "mcp-agent-mcp-badge" })>{tooling}</span>
+                                    <span class="mcp-agent-chevron">"\u{203A}"</span>
+                                </div>
                             </div>
                             <div class="mcp-agent-meta mcp-agent-meta-dense">
                                 <span class="mcp-agent-model">{a.model}</span>

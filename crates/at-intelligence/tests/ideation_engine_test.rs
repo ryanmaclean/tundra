@@ -217,7 +217,7 @@ async fn test_generate_ideas_with_ai_json_response() {
     ]}"#;
 
     let mock = Arc::new(MockProvider::new(json_response));
-    let mut engine = IdeationEngine::with_provider(mock.clone());
+    let mut engine = IdeationEngine::with_provider(mock.clone(), "test-model");
 
     let result = engine
         .generate_ideas_with_ai(&IdeaCategory::Performance, "slow DB queries")
@@ -252,7 +252,7 @@ async fn test_generate_ideas_with_ai_text_fallback() {
     let text_response = "- Refactor the auth module\n- Add unit tests for login flow\n";
 
     let mock = Arc::new(MockProvider::new(text_response));
-    let mut engine = IdeationEngine::with_provider(mock);
+    let mut engine = IdeationEngine::with_provider(mock, "test-model");
 
     let result = engine
         .generate_ideas_with_ai(&IdeaCategory::CodeImprovement, "auth code")
@@ -273,7 +273,7 @@ async fn test_generate_ideas_with_ai_markdown_fenced() {
     let fenced = "```json\n{\"ideas\":[{\"title\":\"Improve caching\",\"description\":\"Add Redis.\",\"impact\":\"high\",\"effort\":\"medium\"}]}\n```";
 
     let mock = Arc::new(MockProvider::new(fenced));
-    let mut engine = IdeationEngine::with_provider(mock);
+    let mut engine = IdeationEngine::with_provider(mock, "test-model");
 
     let result = engine
         .generate_ideas_with_ai(&IdeaCategory::Performance, "caching")
@@ -521,7 +521,7 @@ async fn test_ai_ideas_stored_in_engine() {
     ]}"#;
 
     let mock = Arc::new(MockProvider::new(json_response));
-    let mut engine = IdeationEngine::with_provider(mock);
+    let mut engine = IdeationEngine::with_provider(mock, "test-model");
 
     engine
         .generate_ideas_with_ai(&IdeaCategory::Quality, "ctx")
@@ -549,7 +549,7 @@ async fn test_ai_ideas_impact_effort_parsing() {
     ]}"#;
 
     let mock = Arc::new(MockProvider::new(json_response));
-    let mut engine = IdeationEngine::with_provider(mock);
+    let mut engine = IdeationEngine::with_provider(mock, "test-model");
 
     let result = engine
         .generate_ideas_with_ai(&IdeaCategory::Performance, "ctx")

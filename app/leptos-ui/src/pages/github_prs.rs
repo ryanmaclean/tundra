@@ -6,6 +6,14 @@ use crate::i18n::t;
 use crate::state::use_app_state;
 use crate::types::GithubPr;
 
+fn pr_placeholder_icon_svg(kind: &str) -> &'static str {
+    match kind {
+        "releases" => r#"<svg xmlns="http://www.w3.org/2000/svg" width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8a2 2 0 0 0-2-2h-3.5l-1-2h-5l-1 2H5a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2Z"/><path d="M9 13h6"/><path d="M12 10v6"/></svg>"#,
+        "detail" => r#"<svg xmlns="http://www.w3.org/2000/svg" width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="6" r="1.5"/><circle cx="8" cy="12" r="1.5"/><circle cx="8" cy="18" r="1.5"/><path d="M11 6h8"/><path d="M11 12h8"/><path d="M11 18h8"/></svg>"#,
+        _ => r#"<svg xmlns="http://www.w3.org/2000/svg" width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="12" r="2"/><path d="M8 7.5l8 3"/><path d="M8 16.5l8-3"/></svg>"#,
+    }
+}
+
 #[component]
 pub fn GithubPrsPage() -> impl IntoView {
     let app_state = use_app_state();
@@ -194,9 +202,9 @@ pub fn GithubPrsPage() -> impl IntoView {
                         let pr_count = all_prs.iter().filter(|p| p.author == author).count();
                         let initial = author.chars().next().unwrap_or('?').to_uppercase().to_string();
                         view! {
-                            <div class="contributor-row" style="display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border);">
+                            <div class="contributor-row">
                                 <span class="pr-avatar">{initial}</span>
-                                <span style="flex: 1;">{author}</span>
+                                <span class="contributor-name">{author}</span>
                                 <span class="issue-count-badge">{format!("{} PRs", pr_count)}</span>
                             </div>
                         }
@@ -211,7 +219,7 @@ pub fn GithubPrsPage() -> impl IntoView {
             if rels.is_empty() {
                 view! {
                     <div class="issues-empty-state">
-                        <div class="placeholder-icon">"--"</div>
+                        <div class="placeholder-icon placeholder-icon-svg" inner_html=pr_placeholder_icon_svg("releases")></div>
                         <p>{move || themed(display_mode.get(), Prompt::EmptyKpi)}</p>
                     </div>
                 }.into_any()
@@ -220,10 +228,10 @@ pub fn GithubPrsPage() -> impl IntoView {
                     <div class="prs-releases-list">
                         {rels.into_iter().map(|rel| {
                             view! {
-                                <div class="release-row" style="padding: 12px 0; border-bottom: 1px solid var(--border);">
-                                    <div style="display: flex; align-items: center; gap: 8px;">
+                                <div class="release-row">
+                                    <div class="release-row-main">
                                         <span class="issue-count-badge">{rel.tag_name.clone()}</span>
-                                        <span style="font-weight: 500;">{rel.name.clone()}</span>
+                                        <span class="release-row-title">{rel.name.clone()}</span>
                                     </div>
                                 </div>
                             }
@@ -286,7 +294,7 @@ pub fn GithubPrsPage() -> impl IntoView {
                     {if mrs.is_empty() {
                         view! {
                             <div class="issues-empty-state">
-                                <div class="placeholder-icon">"--"</div>
+                                <div class="placeholder-icon placeholder-icon-svg" inner_html=pr_placeholder_icon_svg("list")></div>
                                 <p>"No merge requests loaded. Set project ID (if needed) and refresh."</p>
                             </div>
                         }.into_any()
@@ -359,7 +367,7 @@ pub fn GithubPrsPage() -> impl IntoView {
             <div class="prs-list-pane">
                 {move || filtered_prs().is_empty().then(|| view! {
                     <div class="issues-empty-state">
-                        <div class="placeholder-icon">"--"</div>
+                        <div class="placeholder-icon placeholder-icon-svg" inner_html=pr_placeholder_icon_svg("list")></div>
                         <p>{move || themed(display_mode.get(), Prompt::EmptyKpi)}</p>
                     </div>
                 })}
@@ -547,7 +555,7 @@ pub fn GithubPrsPage() -> impl IntoView {
                     }
                     None => view! {
                         <div class="issues-empty-state">
-                            <div class="placeholder-icon">"--"</div>
+                            <div class="placeholder-icon placeholder-icon-svg" inner_html=pr_placeholder_icon_svg("detail")></div>
                             <p>"Select a pull request to view details"</p>
                         </div>
                     }.into_any(),

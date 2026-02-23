@@ -17648,3 +17648,108 @@ h2 .gh-icon {
     border-color: rgba(0, 255, 0, 0.5);
     background: rgba(0, 22, 0, 0.26);
 }
+
+/* Wave: MCP + PR + Worktrees parity refinements */
+.mcp-page-title-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--accent-magenta);
+    line-height: 0;
+}
+
+.mcp-custom-empty {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+.mcp-custom-empty-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--accent-purple);
+    opacity: 0.8;
+    line-height: 0;
+}
+
+.mcp-agent-section-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.mcp-agent-section-icon-svg {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--accent-purple);
+    line-height: 0;
+}
+
+.mcp-agent-header-right {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
+}
+
+.placeholder-icon-svg {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #8f74c6;
+    opacity: 0.7;
+    line-height: 0;
+}
+
+.contributor-name {
+    flex: 1;
+    min-width: 0;
+}
+
+.prs-releases-list {
+    margin: 0 16px 16px;
+    background: var(--bg-card);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+.release-row {
+    padding: 12px 14px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.release-row:last-child {
+    border-bottom: none;
+}
+
+.release-row-main {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.release-row-title {
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.worktrees-title-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--accent-cyan);
+    line-height: 0;
+}
+
+.worktree-status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: currentColor;
+    flex-shrink: 0;
+    box-shadow: 0 0 8px currentColor;
+}
