@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 mod api_client;
 mod app;
 mod command;

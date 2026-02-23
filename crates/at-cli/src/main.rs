@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
