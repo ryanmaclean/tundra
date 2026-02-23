@@ -257,6 +257,21 @@ pub fn notification_from_event(
             // We intentionally don't auto-notify on every list refresh.
             None
         }
+        // Handle new enum variants for bead creation and updates.
+        BridgeMessage::BeadCreated(bead) => Some((
+            "Bead Created".to_string(),
+            format!("Created bead: {}", bead.title),
+            NotificationLevel::Success,
+            "system".to_string(),
+            Some(format!("/beads/{}", bead.id)),
+        )),
+        BridgeMessage::BeadUpdated(bead) => Some((
+            "Bead Updated".to_string(),
+            format!("Updated bead: {}", bead.title),
+            NotificationLevel::Info,
+            "system".to_string(),
+            Some(format!("/beads/{}", bead.id)),
+        )),
         _ => None,
     }
 }
