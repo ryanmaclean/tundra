@@ -1,3 +1,16 @@
+//! External platform integrations for auto-tundra.
+//!
+//! This crate provides unified clients and data models for importing tasks,
+//! issues, pull requests, and other artifacts from third-party platforms:
+//! - GitHub: issues, PRs, releases, and code review automation
+//! - GitLab: project synchronization and CI/CD integration
+//! - Linear: issue tracking and project management
+//!
+//! Each integration exposes:
+//! - A typed client for authenticated API access
+//! - Conversion utilities to map external entities to auto-tundra beads
+//! - Serializable configuration structures
+
 pub mod github;
 pub mod gitlab;
 pub mod linear;
