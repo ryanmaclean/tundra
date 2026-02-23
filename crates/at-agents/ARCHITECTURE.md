@@ -1882,6 +1882,408 @@ let pty_pool = Arc::new(PtyPool::new(16));
 let executor = AgentExecutor::new(pty_pool, event_bus, cache);
 ```
 
+### Claude SDK Integration
+
+**Session Management:**
+- `ClaudeSessionManager` manages multi-turn Claude conversations
+- Each session maintains message history, configuration, and metadata
+- Sessions provide conversation state without external SDK dependency
+
+**Architecture:**
+
+```
+ClaudeSessionManager
+  ├── sessions: HashMap<SessionId, ClaudeSession>
+  └── provider: AnthropicProvider (from at-intelligence)
+
+ClaudeSession
+  ├── id: Uuid
+  ├── messages: Vec<LlmMessage>  (conversation history)
+  ├── config: LlmConfig          (model, temp, max_tokens)
+  └── metadata: SessionMetadata   (created_at, turn_count, tokens_used)
+```
+
+#### ClaudeSessionManager Responsibilities
+
+The `ClaudeSessionManager` provides the foundational layer for managing Claude-backed agent conversations:
+
+1. **Session Lifecycle Management**
+   - Create new sessions with configurable models and parameters
+   - List all active sessions
+   - Remove sessions when agents terminate
+   - Track session metadata (creation time, usage stats)
+
+2. **Message History Management**
+   - Maintains conversation history per session
+   - Automatically trims history to stay within context limits
+   - Supports clearing history while preserving session identity
+
+3. **Token Tracking**
+   - Records input and output tokens per turn
+   - Cumulative token usage across session lifetime
+   - Enables cost monitoring and budget enforcement
+
+4. **Provider Integration**
+   - Wraps `AnthropicProvider` from `at-intelligence`
+   - Single shared provider instance across all sessions
+   - Supports custom base URLs for testing/proxies
+
+#### Session Lifecycle
+
+Sessions progress through a simple lifecycle:
+
+```
+Create → Active → Remove
+  │        │
+  │        └─► Send messages (multi-turn)
+  │            ├─► Add user message
+  │            ├─► Generate response
+  │            └─► Add assistant message
+  │
+  └─► Configure:
+      - model (e.g., "claude-sonnet-4-20250514")
+      - system_prompt
+      - max_tokens
+      - temperature
+      - max_history_messages
+```
+
+**Lifecycle Operations:**
+
+```rust
+// 1. Create session
+let session_id = manager.create_session(SessionConfig {
+    model: "claude-sonnet-4-20250514".to_string(),
+    system_prompt: Some("You are a coding assistant.".to_string()),
+    max_tokens: 4096,
+    temperature: 0.3,
+    max_history_messages: 50,
+});
+
+// 2. Send message (multi-turn conversation)
+let response = manager.send_message(&session_id, "Implement a binary search").await?;
+println!("Response: {}", response.content);
+println!("Tokens: {} in, {} out", response.input_tokens, response.output_tokens);
+
+// 3. List active sessions
+let sessions = manager.list_sessions();
+for id in sessions {
+    if let Some(session) = manager.get_session(&id) {
+        println!("Session {}: {} messages, {} total tokens",
+            id, session.message_count(), session.metadata.total_tokens());
+    }
+}
+
+// 4. Remove session
+manager.remove_session(&session_id);
+```
+
+#### ClaudeRuntime Integration
+
+The `ClaudeRuntime` trait provides an abstraction layer for future Claude SDK transport wiring:
+
+```rust
+#[async_trait]
+pub trait ClaudeRuntime: Send + Sync {
+    async fn start_session(&self, config: SessionConfig) -> Result<SessionId, SessionError>;
+    async fn send(&self, session_id: SessionId, message: String) -> Result<LlmResponse, SessionError>;
+    async fn close_session(&self, session_id: SessionId) -> bool;
+    async fn list_sessions(&self) -> Vec<SessionId>;
+}
+```
+
+**Design Philosophy:**
+
+The trait enables **swappable implementations** while the orchestration layer depends on a stable interface:
+
+```
+┌──────────────────┐
+│  Orchestrator    │
+│   TaskRunner     │ ◄─── Depends on ClaudeRuntime trait
+│   Executor       │
+└────────┬─────────┘
+         │
+         ▼
+┌────────────────────────────┐
+│   ClaudeRuntime (trait)    │ ◄─── Stable interface
+└────────┬───────────────────┘
+         │
+         ├──► ManagerClaudeRuntime    (current: backed by ClaudeSessionManager)
+         ├──► SdkClaudeRuntime        (future: backed by claude-sdk-rs)
+         └──► MockClaudeRuntime       (testing: in-memory responses)
+```
+
+**Current Implementation:**
+
+`ManagerClaudeRuntime` wraps `ClaudeSessionManager` behind the trait:
+
+```rust
+pub struct ManagerClaudeRuntime {
+    manager: Mutex<ClaudeSessionManager>,
+}
+
+impl ManagerClaudeRuntime {
+    pub fn new(api_key: impl Into<String>) -> Self {
+        Self {
+            manager: Mutex::new(ClaudeSessionManager::new(api_key)),
+        }
+    }
+}
+
+#[async_trait]
+impl ClaudeRuntime for ManagerClaudeRuntime {
+    async fn start_session(&self, config: SessionConfig) -> Result<SessionId, SessionError> {
+        let mut mgr = self.manager.lock().await;
+        Ok(mgr.create_session(config))
+    }
+
+    async fn send(&self, session_id: SessionId, message: String) -> Result<LlmResponse, SessionError> {
+        let mut mgr = self.manager.lock().await;
+        mgr.send_message(&session_id, message).await
+    }
+
+    async fn close_session(&self, session_id: SessionId) -> bool {
+        let mut mgr = self.manager.lock().await;
+        mgr.remove_session(&session_id).is_some()
+    }
+
+    async fn list_sessions(&self) -> Vec<SessionId> {
+        let mgr = self.manager.lock().await;
+        mgr.list_sessions()
+    }
+}
+```
+
+**Benefits:**
+
+1. **Decoupling** — Orchestration code doesn't depend on specific session implementation
+2. **Testability** — Mock implementations for unit tests without API calls
+3. **Future-Proofing** — Easy migration to `claude-sdk-rs` when available
+4. **Flexibility** — Different runtimes for different environments (dev, staging, prod)
+
+#### PTY Session Mapping
+
+Agent PTY processes map to Claude sessions for conversational continuity:
+
+```
+┌───────────────────────────────────────────────────────────┐
+│                    Agent Execution                        │
+│                                                           │
+│  ┌──────────────────────────────────────────────────┐   │
+│  │  1. Executor spawns PTY process                  │   │
+│  │     • Agent CLI starts                           │   │
+│  │     • Awaits initial prompt                      │   │
+│  └────────────────┬─────────────────────────────────┘   │
+│                   │                                       │
+│  ┌────────────────▼─────────────────────────────────┐   │
+│  │  2. TaskRunner creates Claude session            │   │
+│  │     • SessionId = PTY process ID or Task ID      │   │
+│  │     • Session persists across multiple turns     │   │
+│  └────────────────┬─────────────────────────────────┘   │
+│                   │                                       │
+│  ┌────────────────▼─────────────────────────────────┐   │
+│  │  3. Multi-turn conversation loop                 │   │
+│  │     • User message: Task prompt + context        │   │
+│  │     • Assistant response: Agent output           │   │
+│  │     • User message: Follow-up or clarification   │   │
+│  │     • Assistant response: Continued work         │   │
+│  │     • History preserved for context continuity   │   │
+│  └────────────────┬─────────────────────────────────┘   │
+│                   │                                       │
+│  ┌────────────────▼─────────────────────────────────┐   │
+│  │  4. Session cleanup on task completion           │   │
+│  │     • PTY process exits                          │   │
+│  │     • ClaudeRuntime.close_session() called       │   │
+│  │     • Session removed from manager               │   │
+│  └──────────────────────────────────────────────────┘   │
+└───────────────────────────────────────────────────────────┘
+```
+
+**Session Lifecycle Mapping:**
+
+| Agent Lifecycle Event | Claude Session Action |
+|-----------------------|-----------------------|
+| `Idle → Spawning` | No session yet |
+| `Spawning → Active` | `start_session()` — Create new session |
+| `Active` (executing task) | `send()` — Multi-turn conversation |
+| `Active → Paused` | Session persists, no new messages |
+| `Paused → Active` | Session resumes, history intact |
+| `Active → Stopping` | No action yet |
+| `Stopping → Stopped` | `close_session()` — Remove session |
+| `Failed → Idle` (recovery) | Old session discarded, new one created on re-spawn |
+
+**Session Reuse Strategies:**
+
+1. **Per-Task Sessions** (default)
+   - One session per task execution
+   - Fresh context for each task
+   - Sessions removed immediately after task completes
+
+2. **Per-Agent Sessions** (future)
+   - One session per agent instance
+   - Session persists across multiple tasks
+   - Enables long-term memory and learning
+
+3. **Pooled Sessions** (future)
+   - Pre-warmed session pool for low-latency starts
+   - Sessions recycled by clearing history
+   - Reduces cold-start overhead
+
+#### Integration with Executor and TaskRunner
+
+The executor and task runner use Claude sessions through the `ClaudeRuntime` trait:
+
+**Executor Integration:**
+
+```rust
+impl AgentExecutor {
+    pub async fn execute_task(
+        &self,
+        task: &Task,
+        agent_config: &AgentConfig,
+        runtime: &dyn ClaudeRuntime,
+    ) -> Result<ExecutionResult> {
+        // 1. Start Claude session
+        let session_id = runtime.start_session(SessionConfig {
+            model: agent_config.model.clone(),
+            system_prompt: Some(agent_config.system_prompt.clone()),
+            max_tokens: agent_config.max_tokens,
+            temperature: agent_config.temperature,
+            max_history_messages: 50,
+        }).await?;
+
+        // 2. Send initial prompt
+        let initial_prompt = self.build_task_prompt(task)?;
+        let response = runtime.send(session_id, initial_prompt).await?;
+
+        // 3. Process agent output and handle tool invocations
+        let mut output = response.content;
+        while !self.is_task_complete(&output) {
+            // Parse output for tool uses, events, errors
+            let events = self.parse_agent_output(&output)?;
+
+            // Handle tool approvals if needed
+            for event in events {
+                if let OutputEvent::ToolUse { tool_name, arguments } = event {
+                    // Tool approval flow (see Tool Approval System section)
+                    let tool_result = self.handle_tool_use(tool_name, arguments).await?;
+
+                    // Send tool result back to agent
+                    let follow_up = format!("Tool result: {}", tool_result);
+                    let response = runtime.send(session_id, follow_up).await?;
+                    output.push_str(&response.content);
+                }
+            }
+        }
+
+        // 4. Close session on completion
+        runtime.close_session(session_id).await;
+
+        Ok(ExecutionResult {
+            task_id: task.id,
+            success: true,
+            output,
+            duration_ms: response.duration_ms,
+            ..Default::default()
+        })
+    }
+}
+```
+
+**TaskRunner Integration:**
+
+```rust
+impl TaskRunner {
+    pub async fn run_phase(
+        &mut self,
+        task: &mut Task,
+        runtime: &dyn ClaudeRuntime,
+        bus: &EventBus,
+    ) -> Result<()> {
+        // Assemble context for current phase
+        let context = self.steerer.assemble_context(&task.phase)?;
+
+        // Select prompt template for phase
+        let prompt_template = self.prompts.get_for_phase(&task.phase)?;
+
+        // Build full prompt with context
+        let prompt = prompt_template.render(&context)?;
+
+        // Execute via Claude runtime (delegates to executor)
+        let result = self.executor.execute_task(task, &self.agent_config, runtime).await?;
+
+        // Publish phase completion event
+        bus.publish(Event::PhaseComplete {
+            task_id: task.id,
+            phase: task.phase,
+            success: result.success,
+        }).await?;
+
+        Ok(())
+    }
+}
+```
+
+**Key Integration Points:**
+
+1. **Session Creation**
+   - Executor or TaskRunner calls `runtime.start_session()`
+   - Configuration derived from agent role and task requirements
+   - System prompt includes role-specific instructions
+
+2. **Message Sending**
+   - TaskRunner assembles context and prompt
+   - Executor sends via `runtime.send()`
+   - Response contains generated content and token usage
+
+3. **History Management**
+   - ClaudeSessionManager automatically maintains history
+   - Subsequent `send()` calls include prior context
+   - History trimmed automatically to respect `max_history_messages`
+
+4. **Session Cleanup**
+   - Executor calls `runtime.close_session()` after task
+   - Session removed from manager to free resources
+   - Token usage recorded in task execution record
+
+5. **Error Handling**
+   - Session errors propagate to executor
+   - Executor can retry with new session on transient failures
+   - Permanent failures transition agent to `Failed` state
+
+**Token Budget Enforcement:**
+
+```rust
+impl TaskRunner {
+    pub async fn run_with_budget(
+        &mut self,
+        task: &mut Task,
+        runtime: &dyn ClaudeRuntime,
+        max_tokens: u64,
+    ) -> Result<()> {
+        let session_id = runtime.start_session(self.session_config()).await?;
+
+        let mut total_tokens = 0u64;
+
+        for phase in task.phases() {
+            let prompt = self.build_phase_prompt(task, phase)?;
+            let response = runtime.send(session_id, prompt).await?;
+
+            total_tokens += response.input_tokens + response.output_tokens;
+
+            if total_tokens > max_tokens {
+                // Budget exceeded - trigger stuck detection
+                self.handle_token_budget_exceeded(task, total_tokens).await?;
+                break;
+            }
+        }
+
+        runtime.close_session(session_id).await;
+        Ok(())
+    }
+}
+```
+
 ### at-bridge Integration
 
 **Event Publishing:**
