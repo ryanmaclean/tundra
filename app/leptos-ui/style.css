@@ -17753,3 +17753,25 @@ h2 .gh-icon {
     flex-shrink: 0;
     box-shadow: 0 0 8px currentColor;
 }
+
+/* ======================================================
+   Missing utility classes
+   ====================================================== */
+
+/* Success banner (consistent with changelog-success) */
+.dashboard-success {
+    background: rgba(35, 134, 54, 0.15);
+    color: #3fb950;
+    border: 1px solid rgba(35, 134, 54, 0.4);
+    border-radius: 8px;
+    padding: 10px 16px;
+    margin: 0 0 12px;
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+/* Muted text helper */
+.text-muted {
+    color: var(--text-muted, #8b949e);
+    font-size: 0.85em;
+}

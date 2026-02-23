@@ -194,7 +194,17 @@ settings-security = Sécurité
 settings-api-profiles = Profils d'API
 settings-general = Général
 
+# Stacks
+stacks-title = Diffs empilés
+
+# Worktrees
+worktrees-title = Arborescences
+
+# MCP
+mcp-title = Aperçu des serveurs MCP
+
 # Kanban
+kanban-title = Tableau Kanban
 kanban-columns = Colonnes
 kanban-lock-column = Verrouiller la colonne
 kanban-drag-hint = Glisser pour réordonner

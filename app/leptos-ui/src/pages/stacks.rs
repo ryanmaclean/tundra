@@ -1,6 +1,7 @@
 use leptos::prelude::*;
 use crate::themed::{themed, Prompt};
 use crate::state::use_app_state;
+use crate::i18n::t;
 
 #[component]
 pub fn StacksPage() -> impl IntoView {
@@ -47,13 +48,13 @@ pub fn StacksPage() -> impl IntoView {
         <div class="page-content stacks-page">
             <div class="page-header">
                 <div class="page-header-left">
-                    <h2>"Stacked Diffs"</h2>
+                    <h2>{t("stacks-title")}</h2>
                     <span class="issue-count-badge">{move || format!("{} stacks", stack_count())}</span>
                     <span class="issue-count-badge badge-secondary">{move || format!("{} tasks", total_tasks())}</span>
                 </div>
                 <div class="page-header-right">
-                    <button class="action-btn" on:click=refresh>
-                        <span>"\u{21BB} Refresh"</span>
+                    <button class="refresh-btn dashboard-refresh-btn" on:click=refresh>
+                        "\u{21BB} Refresh"
                     </button>
                 </div>
             </div>
@@ -61,7 +62,13 @@ pub fn StacksPage() -> impl IntoView {
             // Error message
             {move || error_msg.get().map(|msg| {
                 view! {
-                    <div class="status-banner status-error">{msg}</div>
+                    <div class="state-banner state-banner-error">
+                        <span
+                            class="state-banner-icon"
+                            inner_html=r#"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>"#
+                        ></span>
+                        <span>{msg}</span>
+                    </div>
                 }
             })}
 
@@ -75,11 +82,13 @@ pub fn StacksPage() -> impl IntoView {
             // Empty state
             {move || (!loading.get() && stacks.get().is_empty()).then(|| {
                 view! {
-                    <div class="empty-state">
-                        <span class="empty-state-icon" inner_html=r##"<svg width="64" height="64" viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="1.5" class="empty-state-svg"><path d="M32 8L8 20l24 12 24-12L32 8z" opacity="0.3"><animate attributeName="opacity" values="0.3;0.5;0.3" dur="3s" repeatCount="indefinite"/></path><path d="M8 32l24 12 24-12" opacity="0.5"><animate attributeName="opacity" values="0.5;0.7;0.5" dur="3s" begin="0.3s" repeatCount="indefinite"/></path><path d="M8 44l24 12 24-12" opacity="0.7"><animate attributeName="opacity" values="0.7;0.9;0.7" dur="3s" begin="0.6s" repeatCount="indefinite"/></path></svg>"##></span>
-                        <h3>"No Stacked Diffs"</h3>
-                        <p>"Create parent-child task relationships to build stacked diffs."</p>
-                        <p class="text-muted">"Stacked diffs let you break large changes into reviewable incremental PRs."</p>
+                    <div class="state-empty">
+                        <div
+                            class="state-empty-icon"
+                            inner_html=r##"<svg width="64" height="64" viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="1.5" class="empty-state-svg"><path d="M32 8L8 20l24 12 24-12L32 8z" opacity="0.3"><animate attributeName="opacity" values="0.3;0.5;0.3" dur="3s" repeatCount="indefinite"/></path><path d="M8 32l24 12 24-12" opacity="0.5"><animate attributeName="opacity" values="0.5;0.7;0.5" dur="3s" begin="0.3s" repeatCount="indefinite"/></path><path d="M8 44l24 12 24-12" opacity="0.7"><animate attributeName="opacity" values="0.7;0.9;0.7" dur="3s" begin="0.6s" repeatCount="indefinite"/></path></svg>"##
+                        ></div>
+                        <div class="state-empty-title">"No Stacked Diffs"</div>
+                        <div class="state-empty-hint">"Create parent-child task relationships to build stacked diffs. Stacked diffs let you break large changes into reviewable incremental PRs."</div>
                     </div>
                 }
             })}

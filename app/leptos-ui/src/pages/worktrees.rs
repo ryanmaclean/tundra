@@ -1,4 +1,5 @@
 use leptos::prelude::*;
+use crate::i18n::t;
 use crate::state::use_app_state;
 use crate::themed::{themed, Prompt};
 use leptos::task::spawn_local;
@@ -168,7 +169,7 @@ pub fn WorktreesPage() -> impl IntoView {
             <div>
                 <h2 class="worktrees-title-row">
                     <span class="worktrees-title-icon" inner_html=worktrees_title_icon_svg()></span>
-                    <span>"Worktrees"</span>
+                    <span>{t("worktrees-title")}</span>
                     <span class="worktree-count-badge">{move || format!("{} Total Worktrees", worktree_count())}</span>
                 </h2>
                 <span class="worktree-header-desc">"Manage isolated workspaces for your Auto Claude tasks"</span>

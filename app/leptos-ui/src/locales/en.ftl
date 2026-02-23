@@ -194,7 +194,17 @@ settings-security = Security
 settings-api-profiles = API Profiles
 settings-general = General
 
+# Stacks
+stacks-title = Stacked Diffs
+
+# Worktrees
+worktrees-title = Worktrees
+
+# MCP
+mcp-title = MCP Server Overview
+
 # Kanban
+kanban-title = Kanban Board
 kanban-columns = Columns
 kanban-lock-column = Lock Column
 kanban-drag-hint = Drag to reorder

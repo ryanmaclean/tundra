@@ -2,6 +2,7 @@ use leptos::prelude::*;
 use web_sys::DragEvent;
 
 use crate::api::ApiBead;
+use crate::i18n::t;
 use crate::state::use_app_state;
 use crate::themed::{themed, Prompt};
 use crate::types::{BeadResponse, BeadStatus, Lane};
@@ -250,7 +251,7 @@ pub fn BeadsPage() -> impl IntoView {
 
     view! {
         <div class="page-header">
-            <h2>"Kanban Board"</h2>
+            <h2>{t("kanban-title")}</h2>
         </div>
 
         // Filter bar

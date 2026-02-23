@@ -228,11 +228,17 @@ pub fn RoadmapPage() -> impl IntoView {
         </div>
 
         {move || error_msg.get().map(|msg| view! {
-            <div class="dashboard-error">{msg}</div>
+            <div class="state-banner state-banner-error">
+                <span
+                    class="state-banner-icon"
+                    inner_html=r#"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>"#
+                ></span>
+                <span>{msg}</span>
+            </div>
         })}
 
         {move || task_created_msg.get().map(|msg| view! {
-            <div class="dashboard-success" style="color: #3fb950; background: #0d1117; border: 1px solid #238636; border-radius: 6px; padding: 8px 12px; margin-bottom: 8px;">
+            <div class="changelog-success">
                 {msg}
             </div>
         })}
