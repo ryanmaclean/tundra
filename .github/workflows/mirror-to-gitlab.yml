@@ -16,11 +16,6 @@ jobs:
   mirror:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout full history
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
       - name: Mirror refs to GitLab
         env:
           GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}
@@ -32,11 +27,13 @@ jobs:
             exit 1
           fi
 
-          # Ensure local clone has all refs before mirroring.
-          git fetch --prune origin '+refs/*:refs/*'
+          workdir="$(mktemp -d)"
+          trap 'rm -rf "$workdir"' EXIT
+          mirror_dir="$workdir/mirror.git"
 
+          git clone --mirror https://github.com/ryanmaclean/tundra.git "$mirror_dir"
           AUTH_URL="https://oauth2:${GITLAB_TOKEN}@${GITLAB_MIRROR_URL#https://}"
-          git push --mirror "${AUTH_URL}"
+          git -C "$mirror_dir" push --mirror "${AUTH_URL}"
 
       - name: Verify ref parity
         run: |
