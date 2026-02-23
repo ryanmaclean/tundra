@@ -764,11 +764,80 @@ async fn get_status(State(state): State<Arc<ApiState>>) -> Json<StatusResponse> 
     })
 }
 
+/// GET /api/beads -- retrieve all beads in the system.
+///
+/// Returns a JSON array of all beads with their current status, lane assignment,
+/// timestamps, and metadata. Beads represent high-level features or epics that
+/// contain multiple tasks.
+///
+/// **Response:** 200 OK with array of Bead objects.
+///
+/// **Example Response:**
+/// ```json
+/// [
+///   {
+///     "id": "550e8400-e29b-41d4-a716-446655440000",
+///     "title": "User Authentication System",
+///     "description": "OAuth2 and JWT-based auth",
+///     "status": "InProgress",
+///     "lane": "Standard",
+///     "priority": 10,
+///     "agent_id": null,
+///     "convoy_id": null,
+///     "created_at": "2026-02-23T10:00:00Z",
+///     "updated_at": "2026-02-23T10:30:00Z",
+///     "hooked_at": "2026-02-23T10:05:00Z",
+///     "slung_at": null,
+///     "done_at": null,
+///     "git_branch": "feature/auth-system",
+///     "metadata": {"tags": ["security", "backend"]}
+///   }
+/// ]
+/// ```
 async fn list_beads(State(state): State<Arc<ApiState>>) -> Json<Vec<Bead>> {
     let beads = state.beads.read().await;
     Json(beads.clone())
 }
 
+/// POST /api/beads -- create a new bead (feature/epic).
+///
+/// Creates a new bead with the specified title, optional description, lane assignment,
+/// and tags. The bead is initialized with Pending status and current timestamps.
+/// After creation, broadcasts an updated bead list via the event bus.
+///
+/// **Request Body:** CreateBeadRequest JSON object.
+/// **Response:** 201 Created with the newly created Bead object.
+///
+/// **Example Request:**
+/// ```json
+/// {
+///   "title": "User Authentication System",
+///   "description": "OAuth2 and JWT-based auth",
+///   "lane": "Standard",
+///   "tags": ["security", "backend"]
+/// }
+/// ```
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "id": "550e8400-e29b-41d4-a716-446655440000",
+///   "title": "User Authentication System",
+///   "description": "OAuth2 and JWT-based auth",
+///   "status": "Pending",
+///   "lane": "Standard",
+///   "priority": 0,
+///   "agent_id": null,
+///   "convoy_id": null,
+///   "created_at": "2026-02-23T10:00:00Z",
+///   "updated_at": "2026-02-23T10:00:00Z",
+///   "hooked_at": null,
+///   "slung_at": null,
+///   "done_at": null,
+///   "git_branch": null,
+///   "metadata": {"tags": ["security", "backend"]}
+/// }
+/// ```
 async fn create_bead(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<CreateBeadRequest>,
@@ -791,6 +860,58 @@ async fn create_bead(
     (axum::http::StatusCode::CREATED, Json(bead))
 }
 
+/// POST /api/beads/{id}/status -- update a bead's status.
+///
+/// Transitions a bead to a new status if the transition is valid according to
+/// the bead lifecycle (Pending → InProgress → Done, etc.). Updates the bead's
+/// `updated_at` timestamp and relevant lifecycle timestamps (hooked_at, slung_at,
+/// done_at) based on the new status.
+///
+/// **Path Parameters:** `id` - UUID of the bead to update.
+/// **Request Body:** UpdateBeadStatusRequest JSON object.
+/// **Response:** 200 OK with updated Bead, 404 if not found, 400 if invalid transition.
+///
+/// **Example Request:**
+/// ```json
+/// {
+///   "status": "InProgress"
+/// }
+/// ```
+///
+/// **Example Response (Success):**
+/// ```json
+/// {
+///   "id": "550e8400-e29b-41d4-a716-446655440000",
+///   "title": "User Authentication System",
+///   "description": "OAuth2 and JWT-based auth",
+///   "status": "InProgress",
+///   "lane": "Standard",
+///   "priority": 10,
+///   "agent_id": null,
+///   "convoy_id": null,
+///   "created_at": "2026-02-23T10:00:00Z",
+///   "updated_at": "2026-02-23T10:30:00Z",
+///   "hooked_at": "2026-02-23T10:30:00Z",
+///   "slung_at": null,
+///   "done_at": null,
+///   "git_branch": "feature/auth-system",
+///   "metadata": {"tags": ["security", "backend"]}
+/// }
+/// ```
+///
+/// **Example Response (Error - Not Found):**
+/// ```json
+/// {
+///   "error": "bead not found"
+/// }
+/// ```
+///
+/// **Example Response (Error - Invalid Transition):**
+/// ```json
+/// {
+///   "error": "invalid transition from Pending to Done"
+/// }
+/// ```
 async fn update_bead_status(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
