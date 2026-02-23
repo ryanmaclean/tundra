@@ -24,7 +24,7 @@
 use std::time::Duration;
 
 use ratatui::{buffer::Buffer, layout::Rect, style::Color};
-use tachyonfx::{fx, Effect, EffectManager as TachyonManager, Interpolation, Motion, Shader};
+use tachyonfx::{fx, Effect, EffectManager as TachyonManager, Interpolation, Motion};
 
 // ---------------------------------------------------------------------------
 // Direction type re-exported for callers
