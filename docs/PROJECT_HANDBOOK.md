@@ -213,7 +213,45 @@ See [§2 CLI Guide](#2-cli-guide) for full reference.
 
 Real-time bead board visualization, agent monitoring. Built with ratatui + crossterm.
 
-## 1.4 Data Flow
+## 1.4 Agent Lifecycle & Execution
+
+**[→ Detailed Architecture Documentation](../crates/at-agents/ARCHITECTURE.md)**
+
+The `at-agents` crate implements a robust agent execution system with deterministic lifecycle management. Agents progress through a **7-state state machine** with 11 valid transitions:
+
+```
+Idle → Spawning → Active → Stopping → Stopped
+           ↓          ↓         ↓
+         Failed ← ← ← ← ← (recoverable)
+           ↓
+         Idle (via Recover transition)
+```
+
+**Key Components:**
+
+- **AgentSupervisor** — Spawns agents, manages state transitions, monitors health
+- **AgentStateMachine** — Enforces valid state transitions with complete history tracking
+- **Orchestrator** — High-level task decomposition, context steering, stuck detection
+- **TaskRunner** — Multi-phase pipeline (Discovery → Planning → Coding → QA → Complete)
+- **AgentExecutor** — PTY process spawning, output parsing, tool approval enforcement
+- **ToolApprovalSystem** — Security gates for tool invocations with role-based policies
+
+**Agent Lifecycle Flow:**
+
+1. **Creation** — `Supervisor::spawn_agent()` creates agent in `Idle` state
+2. **Spawning** — Transition to `Spawning`, call `on_start()`, allocate resources
+3. **Active** — Transition to `Active`, agent ready to receive and execute tasks
+4. **Task Execution** — Multi-turn conversation with Claude via `ClaudeRuntime`
+5. **Completion** — Transition to `Stopping`, call `on_stop()`, clean up resources
+6. **Termination** — Final transition to `Stopped` state
+
+**Failure Recovery:**
+
+When an agent fails, it enters the `Failed` state and can be recovered via the `Recover` transition, which moves it back to `Idle` for a fresh restart. This enables resilient agent management without losing task context.
+
+For comprehensive details on state transitions, component relationships, task execution pipeline, and tool approval policies, see the [at-agents ARCHITECTURE.md](../crates/at-agents/ARCHITECTURE.md).
+
+## 1.5 Data Flow
 
 ```
  1. User creates task        →  at sling "Fix bug"
@@ -232,7 +270,7 @@ Real-time bead board visualization, agent monitoring. Built with ratatui + cross
 14. User marks complete      →  at done bead_001
 ```
 
-## 1.5 Context Engine & Progressive Disclosure
+## 1.6 Context Engine & Progressive Disclosure
 
 Context is loaded incrementally based on token budget:
 
@@ -242,7 +280,7 @@ let context = engine.collect_context("task-123", 8000)?;
 // Returns: most relevant context within budget
 ```
 
-## 1.6 Multi-Provider Failover
+## 1.7 Multi-Provider Failover
 
 ```
 Primary (Anthropic) → Secondary (OpenRouter) → Tertiary (OpenAI)
@@ -250,7 +288,7 @@ Primary (Anthropic) → Secondary (OpenRouter) → Tertiary (OpenAI)
 
 Each step is attempted only when the previous provider is rate-limited or errors.
 
-## 1.7 Extension Points
+## 1.8 Extension Points
 
 **Adding a new agent role:**
 1. Define variant in `at-core/src/types.rs` → `AgentRole::NewRole`
