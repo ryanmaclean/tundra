@@ -44,10 +44,12 @@ jobs:
         run: cargo test --workspace --doc --exclude at-tauri
 
       - name: Upload JUnit XML to Datadog
-        if: always() && secrets.DATADOG_API_KEY != ''
+        if: always() && env.DATADOG_API_KEY != ''
+        env:
+          DATADOG_API_KEY: ${{ secrets.DATADOG_API_KEY }}
         uses: DataDog/junit-upload-github-action@v2
         with:
-          api_key: ${{ secrets.DATADOG_API_KEY }}
+          api_key: ${{ env.DATADOG_API_KEY }}
           service: auto-tundra
           files: target/nextest/ci/ci-junit.xml
           env: ci
