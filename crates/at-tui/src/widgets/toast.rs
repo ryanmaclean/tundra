@@ -9,6 +9,7 @@ use ratatui::Frame;
 
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub enum ToastLevel {
     Info,
     Success,
