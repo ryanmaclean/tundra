@@ -173,6 +173,26 @@ pub fn notification_from_event(
         }) => {
             let etype = event_type.as_str();
             match etype {
+                "bead_created" => {
+                    let url = bead_id.map(|id| format!("/beads/{}", id));
+                    Some((
+                        "Bead Created".to_string(),
+                        message.clone(),
+                        NotificationLevel::Success,
+                        "system".to_string(),
+                        url,
+                    ))
+                }
+                "bead_updated" => {
+                    let url = bead_id.map(|id| format!("/beads/{}", id));
+                    Some((
+                        "Bead Updated".to_string(),
+                        message.clone(),
+                        NotificationLevel::Info,
+                        "system".to_string(),
+                        url,
+                    ))
+                }
                 "bead_state_change" => {
                     let url = bead_id.map(|id| format!("/beads/{}", id));
                     Some((
