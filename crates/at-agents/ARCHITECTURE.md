@@ -222,6 +222,454 @@ The agent system is composed of interconnected modules with clear responsibiliti
 | `prompts.rs` | Prompt template registry | `PromptRegistry`, `PromptTemplate` |
 | `registry.rs` | Agent and skill registration | `AgentRegistry`, `SkillRegistry` |
 
+### Component Hierarchy
+
+The agent execution system follows a **layered architecture** with clear separation of concerns:
+
+```
+┌──────────────────────────────────────────────────────────┐
+│ Layer 1: Strategic Planning (The "Brain")               │
+│ ┌──────────────────────────────────────────────────────┐ │
+│ │              ORCHESTRATOR                            │ │
+│ │  • Task decomposition (RLM patterns)                 │ │
+│ │  • Progressive refinement                            │ │
+│ │  • Stuck detection & recovery                        │ │
+│ │  • Context steering coordination                     │ │
+│ │  • Prompt selection strategy                         │ │
+│ └──────────────────────────────────────────────────────┘ │
+└──────────────────────┬───────────────────────────────────┘
+                       │ Delegates phase execution
+                       ▼
+┌──────────────────────────────────────────────────────────┐
+│ Layer 2: Phase Orchestration                            │
+│ ┌──────────────────────────────────────────────────────┐ │
+│ │              TASK RUNNER                             │ │
+│ │  • Phase progression pipeline                        │ │
+│ │  • Context assembly per phase                        │ │
+│ │  • Prompt template application                       │ │
+│ │  • Event publishing (EventBus)                       │ │
+│ │  • AgentSession communication                        │ │
+│ └──────────────────────────────────────────────────────┘ │
+└──────────────────────┬───────────────────────────────────┘
+                       │ Spawns agents & executes tasks
+                       ▼
+┌──────────────────────────────────────────────────────────┐
+│ Layer 3: Process Execution                              │
+│ ┌──────────────────────────────────────────────────────┐ │
+│ │              EXECUTOR                                │ │
+│ │  • PTY process spawning                              │ │
+│ │  • stdout/stderr capture & parsing                   │ │
+│ │  • Tool approval enforcement                         │ │
+│ │  • Timeout & abort handling                          │ │
+│ │  • Error recovery (tool fallbacks)                   │ │
+│ └──────────────────────────────────────────────────────┘ │
+└──────────────────────┬───────────────────────────────────┘
+                       │
+                       │ Reports state changes
+                       ▼
+┌──────────────────────────────────────────────────────────┐
+│ Layer 0: State & Lifecycle (Foundation)                 │
+│ ┌──────────────────────────────────────────────────────┐ │
+│ │              SUPERVISOR                              │ │
+│ │  • Agent spawning & termination                      │ │
+│ │  • State machine management                          │ │
+│ │  • Health monitoring (heartbeats)                    │ │
+│ │  • Failure detection & recovery                      │ │
+│ │  • Lifecycle hook invocation                         │ │
+│ └──────────────────────────────────────────────────────┘ │
+└──────────────────────────────────────────────────────────┘
+```
+
+### Orchestrator: The "Brain"
+
+The **Orchestrator** is the high-level decision-making component that sits at the top of the execution hierarchy. It is responsible for:
+
+**Core Responsibilities:**
+
+1. **Task Decomposition** — Uses RLM (Recursive Learning Model) patterns to break complex tasks into subtasks
+2. **Context Steering** — Coordinates with `ContextSteerer` to assemble relevant context for each execution phase
+3. **Prompt Selection** — Interfaces with `PromptRegistry` to select role-specific and phase-specific prompt templates
+4. **Stuck Detection** — Monitors task execution for infinite loops, repeated failures, or excessive token usage
+5. **Recovery Strategies** — Implements progressive refinement and synthesis strategies when tasks get stuck
+6. **Insight Extraction** — Captures session insights (discoveries, gotchas, patterns) for future learning
+
+**Key Data Structures:**
+
+- `TaskExecution` — Tracks execution state, phase history, token usage, recoveries
+- `OrchestratorConfig` — Configuration for token budgets, recursion depth, confidence thresholds
+- `PhaseRecord` — Records outcome, duration, and tokens used for each phase
+- `RecoveryEvent` — Documents stuck detection reasons and actions taken
+
+**Example Flow:**
+
+```rust
+// Start a new task execution
+let exec_id = orchestrator.start_task(
+    "Implement user authentication",
+    "Add JWT-based authentication to the API",
+    AgentRole::Coder
+);
+
+// Assemble context for the current phase
+let context = orchestrator.assemble_context(&exec_id, "planning")?;
+
+// Select appropriate prompt
+let prompt = orchestrator.select_prompt(&exec_id, "planning")?;
+
+// Check if task is stuck
+if orchestrator.is_stuck(&exec_id)? {
+    orchestrator.attempt_recovery(&exec_id)?;
+}
+```
+
+**Decision-Making Authority:**
+
+The Orchestrator makes strategic decisions about:
+- When to decompose tasks into subtasks
+- Which context to include (via token budget management)
+- Which recovery strategy to apply when stuck
+- When to finalize execution (confidence threshold)
+- Whether to enable progressive refinement
+
+### TaskRunner: Phase Pipeline Orchestration
+
+The **TaskRunner** implements the multi-phase task execution pipeline, driving tasks from discovery through completion.
+
+**Core Responsibilities:**
+
+1. **Phase Progression** — Executes the standard pipeline: Discovery → ContextGathering → SpecCreation → Planning → Coding → QA → Merging → Complete
+2. **Context Assembly** — Uses `ContextSteerer` to build phase-specific context with token budgets
+3. **Prompt Application** — Applies templates from `PromptRegistry` for the current role and phase
+4. **Event Publishing** — Publishes `phase_start`, `phase_complete`, `task_complete` events to `EventBus`
+5. **Session Communication** — Sends prompts to and receives output from `AgentSession`
+6. **Error Handling** — Transitions tasks to `Error` state on phase failures
+
+**Phase Pipeline:**
+
+```
+Discovery           → Understand the task, identify requirements
+ContextGathering    → Collect relevant files, docs, patterns
+SpecCreation        → Generate structured specification
+Planning            → Create implementation plan with subtasks
+Coding              → Execute implementation
+QA                  → Validate correctness, run tests
+Merging             → Integrate changes (if needed)
+Complete            → Finalize and mark done
+```
+
+**Key Operations:**
+
+```rust
+// Create a TaskRunner with project context
+let mut runner = TaskRunner::with_project("/path/to/project")
+    .with_role(AgentRole::Coder)
+    .with_timeout(Duration::from_secs(300))
+    .with_token_budget(16_000);
+
+// Run the full pipeline
+runner.run(&mut task, &session, &bus).await?;
+```
+
+**Phase Execution Logic:**
+
+For each phase, the TaskRunner:
+1. Transitions the task to the new phase
+2. Logs phase start and publishes `phase_start` event
+3. Assembles context using `ContextSteerer` (if enabled)
+4. Selects prompt template from `PromptRegistry` (if enabled)
+5. Sends prompt to agent via `AgentSession`
+6. Reads agent output with timeout
+7. Parses output for completion markers or errors
+8. Updates task logs and publishes `phase_complete` event
+9. Proceeds to next phase or transitions to `Error` on failure
+
+**Stuck Detection:**
+
+The TaskRunner integrates with `StuckDetector` to identify:
+- Infinite loops (repeated tool calls)
+- Timeout violations (phase exceeds time limit)
+- Token budget exhaustion (excessive context usage)
+
+### Executor: Low-Level Agent Process Management
+
+The **Executor** handles the actual spawning of agent processes and real-time interaction with them.
+
+**Core Responsibilities:**
+
+1. **Process Spawning** — Spawns CLI agent processes via PTY (pseudo-terminal) with configurable commands
+2. **Output Capture** — Reads stdout/stderr from agent processes in real-time
+3. **Output Parsing** — Extracts structured events, progress markers, and tool errors from agent output
+4. **Tool Approval** — Enforces tool usage policies via `ToolApprovalSystem` before allowing execution
+5. **Timeout Handling** — Aborts tasks that exceed configured execution time
+6. **Error Recovery** — Implements tool fallback strategies when agents request unavailable tools
+
+**Execution Flow:**
+
+```
+1. Executor receives task from TaskRunner
+2. Spawns PTY process with agent CLI command
+3. Sends initial prompt to agent's stdin
+4. Enters output reading loop:
+   a. Read line from agent stdout
+   b. Parse for JSON events (e.g., {"event": "phase_complete"})
+   c. Parse for tool_use_errors
+   d. Check for completion markers
+   e. Enforce timeout
+5. On tool_use_error:
+   a. Check ToolFallbackMap for alternatives
+   b. Inject hint or skip based on policy
+6. On completion or timeout:
+   a. Capture final output
+   b. Build ExecutionResult
+   c. Return to TaskRunner
+```
+
+**Key Data Structures:**
+
+- `ExecutionResult` — Contains task_id, success, output, events, tool_errors, duration, exit_code
+- `AgentEvent` — Structured event parsed from agent output (event_type, message, data)
+- `ToolUseError` — Records unavailable tool requests (tool_name, error_message, raw XML)
+- `ToolFallbackMap` — Maps unavailable tools to available alternatives
+
+**Tool Error Recovery:**
+
+The Executor implements intelligent tool fallback:
+
+```rust
+// Example: Agent requests unavailable "Bash" tool
+// Executor checks fallback map
+let alternatives = fallback_map.suggest_alternatives("Bash");
+// Returns: ["bash", "shell", "execute_command"]
+
+// If "bash" is available, inject hint:
+// "The tool 'Bash' is not available. Use 'bash' instead."
+```
+
+**Timeout and Abort:**
+
+```rust
+let result = executor.execute_task(
+    task,
+    agent_config,
+    timeout_secs
+).await?;
+
+// Result includes:
+// - success: bool
+// - duration_ms: u64
+// - tool_errors: Vec<ToolUseError>
+// - exit_code: Option<i32>
+```
+
+### Supervisor: Agent Lifecycle and Health Monitoring
+
+The **Supervisor** is the foundational component responsible for managing agent lifecycle, state transitions, and health monitoring.
+
+**Core Responsibilities:**
+
+1. **Agent Spawning** — Creates new agents with specified role and CLI type, transitions through `Idle → Spawning → Active`
+2. **State Management** — Enforces state machine transitions via `AgentStateMachine`
+3. **Lifecycle Hooks** — Invokes `AgentLifecycle` callbacks (`on_start`, `on_stop`, `on_heartbeat`, etc.)
+4. **Health Monitoring** — Tracks `last_seen` timestamps and sends periodic heartbeats
+5. **Failure Recovery** — Detects failed agents and restarts them via `Recover` transition
+6. **Agent Registry** — Maintains list of all managed agents with their current state
+
+**Agent Management Operations:**
+
+```rust
+let supervisor = AgentSupervisor::new();
+
+// Spawn a new agent
+let agent_id = supervisor.spawn_agent(
+    "coder-1",
+    AgentRole::Coder,
+    CliType::ClaudeCode
+).await?;
+
+// List all agents
+let agents = supervisor.list_agents().await;
+for agent in agents {
+    println!("{}: {:?} ({})", agent.name, agent.state, agent.role);
+}
+
+// Send heartbeat to all active agents
+supervisor.send_heartbeat_all().await?;
+
+// Restart failed agents
+let restarted = supervisor.restart_failed().await?;
+
+// Stop an agent
+supervisor.stop_agent(agent_id).await?;
+```
+
+**State Transition Flow:**
+
+When spawning an agent, the Supervisor:
+1. Generates unique `Uuid` for agent
+2. Creates `AgentStateMachine` in `Idle` state
+3. Transitions `Idle → Spawning` via `Start` event
+4. Instantiates `AgentLifecycle` implementation for the role
+5. Calls `lifecycle.on_start()` to allocate resources
+6. Transitions `Spawning → Active` via `Spawned` event
+7. Registers agent in internal `Vec<ManagedAgent>`
+
+**Health Monitoring:**
+
+The Supervisor tracks agent health via:
+- `last_seen: DateTime<Utc>` — Updated on heartbeat and state changes
+- `on_heartbeat()` — Periodic callback to check agent responsiveness
+- State inspection — Identifies `Failed` or unresponsive agents
+
+**Failure Recovery:**
+
+When an agent fails:
+1. State transitions to `Failed`
+2. `restart_failed()` identifies all agents in `Failed` state
+3. For each failed agent:
+   - Transition `Failed → Idle` via `Recover` event
+   - Transition `Idle → Spawning` via `Start` event
+   - Call `on_start()` to re-initialize
+   - Transition `Spawning → Active` via `Spawned` event
+
+### Data Flow Between Components
+
+The components communicate through well-defined interfaces and data structures.
+
+**Downward Flow (Orchestrator → TaskRunner → Executor):**
+
+```
+┌─────────────────┐
+│  Orchestrator   │
+└────────┬────────┘
+         │ 1. TaskExecution context
+         │ 2. AssembledContext (from ContextSteerer)
+         │ 3. PromptTemplate (from PromptRegistry)
+         ▼
+┌─────────────────┐
+│   TaskRunner    │
+└────────┬────────┘
+         │ 4. Task + AgentConfig
+         │ 5. Prompt string
+         │ 6. Timeout duration
+         ▼
+┌─────────────────┐
+│    Executor     │
+└─────────────────┘
+```
+
+**Upward Flow (Executor → TaskRunner → Orchestrator):**
+
+```
+┌─────────────────┐
+│    Executor     │ ExecutionResult:
+└────────┬────────┘   - success: bool
+         │            - output: String
+         │            - events: Vec<AgentEvent>
+         │            - tool_errors: Vec<ToolUseError>
+         │            - duration_ms: u64
+         ▼
+┌─────────────────┐
+│   TaskRunner    │ Phase completion:
+└────────┬────────┘   - phase outcome
+         │            - logs
+         │            - next phase decision
+         ▼
+┌─────────────────┐
+│  Orchestrator   │ Updates:
+└─────────────────┘   - PhaseRecord
+                      - RecoveryEvent (if stuck)
+                      - TaskExecution state
+```
+
+**Supervisor Integration (Horizontal Flow):**
+
+```
+┌─────────────────┐          ┌─────────────────┐
+│   Supervisor    │◄────────►│    Executor     │
+└────────┬────────┘          └─────────────────┘
+         │                    Reports state changes
+         │ Provides:          (spawned, active, failed)
+         │ - Agent ID
+         │ - State transitions
+         │ - Lifecycle hooks
+         ▼
+┌──────────────────┐
+│ AgentStateMachine│
+└──────────────────┘
+```
+
+**Event Bus Communication (Broadcast):**
+
+```
+TaskRunner ──┐
+             │
+Executor ────┼──► EventBus ──► Subscribers
+             │                  (UI, logging, metrics)
+Supervisor ──┘
+```
+
+Events published:
+- `phase_start:<phase>` — TaskRunner publishes when entering a phase
+- `phase_complete:<phase>` — TaskRunner publishes when phase succeeds
+- `task_complete` — TaskRunner publishes when task finishes
+- `agent_spawned` — Supervisor publishes when agent becomes active
+- `agent_failed` — Supervisor publishes when agent enters Failed state
+- `tool_approval_pending` — Executor publishes when tool needs approval
+
+**Context Steering Integration:**
+
+```
+Orchestrator ─────► ContextSteerer ─────► AssembledContext
+     │                    ▲                      │
+     │                    │                      │
+     │                    │ load_project()       │
+     │                    │                      ▼
+     └────────────────────┴──────────────► TaskRunner
+                                                 │
+                                                 ▼
+                                           Agent prompt
+```
+
+**Complete Request Flow Example:**
+
+```
+1. at-daemon creates a new bead (task request)
+   └─► Orchestrator.start_task()
+
+2. Orchestrator decomposes task (if complex)
+   └─► RLM decomposition patterns
+
+3. Orchestrator delegates to TaskRunner
+   └─► TaskRunner.run(task, session, bus)
+
+4. TaskRunner enters Discovery phase
+   ├─► Assembles context via ContextSteerer
+   ├─► Selects prompt via PromptRegistry
+   └─► Sends prompt to AgentSession
+
+5. AgentSession forwards to Executor
+   └─► Executor.execute_task()
+
+6. Executor spawns PTY process
+   ├─► Supervisor tracks agent state (Spawning → Active)
+   ├─► Reads agent output
+   ├─► Parses events and tool errors
+   └─► Returns ExecutionResult
+
+7. TaskRunner processes result
+   ├─► Publishes events to EventBus
+   ├─► Transitions to next phase
+   └─► Repeats 4-6 for each phase
+
+8. Orchestrator monitors for stuck detection
+   └─► Triggers recovery if needed
+
+9. Task completes
+   ├─► TaskRunner publishes task_complete
+   ├─► Supervisor stops agent (Active → Stopping → Stopped)
+   └─► Orchestrator finalizes TaskExecution
+```
+
 ---
 
 ## 4. Agent State Machine
