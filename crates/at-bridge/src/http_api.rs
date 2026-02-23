@@ -2732,6 +2732,7 @@ struct ListLinearIssuesQuery {
     pub state: Option<String>,
 }
 
+/// GET /api/linear/issues — list Linear issues for a team.
 async fn list_linear_issues(
     State(state): State<Arc<ApiState>>,
     Query(q): Query<ListLinearIssuesQuery>,
@@ -2785,6 +2786,7 @@ struct ImportLinearBody {
     pub issue_ids: Vec<String>,
 }
 
+/// POST /api/linear/import — import Linear issues by IDs and create tasks.
 async fn import_linear_issues(
     State(state): State<Arc<ApiState>>,
     Json(body): Json<ImportLinearBody>,
@@ -3685,6 +3687,7 @@ fn stable_worktree_id(path: &str, branch: &str) -> String {
         .collect()
 }
 
+/// GET /api/worktrees — list all git worktrees with path and branch info.
 async fn list_worktrees() -> impl IntoResponse {
     let output = match tokio::process::Command::new("git")
         .args(["worktree", "list", "--porcelain"])
@@ -4732,6 +4735,7 @@ struct AgentSessionEntry {
     duration: String,
 }
 
+/// GET /api/sessions — list all active agent sessions.
 async fn list_agent_sessions(State(state): State<Arc<ApiState>>) -> Json<Vec<AgentSessionEntry>> {
     let agents = state.agents.read().await;
     let sessions: Vec<AgentSessionEntry> = agents
