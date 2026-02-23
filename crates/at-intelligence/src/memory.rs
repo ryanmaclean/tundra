@@ -235,7 +235,7 @@ impl MemoryStore {
                     let last_modified = dir_entry
                         .metadata()
                         .and_then(|m| m.modified())
-                        .map(|t| DateTime::<Utc>::from(t))
+                        .map(DateTime::<Utc>::from)
                         .unwrap_or_else(|_| Utc::now());
 
                     files.push(FileInfo {
@@ -636,7 +636,7 @@ impl GraphMemory {
     /// Save to a file path.
     pub fn save_to_file(&self, path: &str) -> std::io::Result<()> {
         let json = serde_json::to_string_pretty(self)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+            .map_err(std::io::Error::other)?;
         if let Some(parent) = std::path::Path::new(path).parent() {
             std::fs::create_dir_all(parent)?;
         }

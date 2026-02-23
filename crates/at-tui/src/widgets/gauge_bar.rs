@@ -10,6 +10,7 @@ use ratatui::Frame;
 ///
 /// The filled portion uses `color`; the empty portion is rendered in dark gray.
 /// The label is left-aligned and the percentage is right-aligned.
+#[allow(dead_code)]
 pub fn render_gauge(frame: &mut Frame, area: Rect, label: &str, progress: u16, color: Color) {
     let progress = progress.min(100);
     let pct_text = format!(" {}%", progress);

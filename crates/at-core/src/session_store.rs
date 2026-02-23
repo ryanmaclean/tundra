@@ -209,11 +209,10 @@ impl SessionStore {
         let sessions = self.list_sessions().await?;
         let mut removed = 0;
         for session in sessions {
-            if session.last_active_at < cutoff {
-                if self.delete_session(&session.id).await? {
+            if session.last_active_at < cutoff
+                && self.delete_session(&session.id).await? {
                     removed += 1;
                 }
-            }
         }
         Ok(removed)
     }

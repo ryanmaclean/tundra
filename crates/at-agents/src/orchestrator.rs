@@ -214,8 +214,8 @@ impl Orchestrator {
             .map(|tpl| tpl.render_task(&exec.task_title, &exec.task_description, ""))
             .unwrap_or_else(|| {
                 format!(
-                    "You are a {} agent working on: {}\n\n{}",
-                    format!("{:?}", exec.agent_role),
+                    "You are a {:?} agent working on: {}\n\n{}",
+                    exec.agent_role,
                     exec.task_title,
                     exec.task_description,
                 )

@@ -24,7 +24,7 @@
 use std::time::Duration;
 
 use ratatui::{buffer::Buffer, layout::Rect, style::Color};
-use tachyonfx::{fx, Effect, EffectManager as TachyonManager, Interpolation, Motion, Shader};
+use tachyonfx::{fx, Effect, EffectManager as TachyonManager, Interpolation, Motion};
 
 // ---------------------------------------------------------------------------
 // Direction type re-exported for callers
@@ -67,6 +67,7 @@ pub fn fade_in() -> Effect {
 /// Dissolve effect: cells scatter and disappear over 400 ms.
 ///
 /// Use this when a panel is removed from the layout.
+#[allow(dead_code)]
 pub fn dissolve() -> Effect {
     fx::dissolve((400, Interpolation::Linear))
 }
@@ -74,6 +75,7 @@ pub fn dissolve() -> Effect {
 /// Sweep-in effect: content sweeps in from `direction` over 300 ms.
 ///
 /// A thin gradient (length 10) with slight randomness (3) gives a fluid look.
+#[allow(dead_code)]
 pub fn sweep_in(direction: SweepDirection) -> Effect {
     fx::sweep_in(
         direction.into(), // Motion
@@ -88,6 +90,7 @@ pub fn sweep_in(direction: SweepDirection) -> Effect {
 ///
 /// Runs indefinitely — wrap with [`tachyonfx::fx::with_duration`] or call
 /// [`EffectManager::remove_all`] to cancel.
+#[allow(dead_code)]
 pub fn glow_pulse() -> Effect {
     // Oscillate hue ±30° on the foreground to simulate a glow.
     let shift_forward = fx::hsl_shift_fg([30.0, 0.2, 0.15], (500, Interpolation::SineInOut));
@@ -99,6 +102,7 @@ pub fn glow_pulse() -> Effect {
 /// particles flying outward and snapping back, lasting ~600 ms total.
 ///
 /// Use this to celebrate task completion events.
+#[allow(dead_code)]
 pub fn particle_burst() -> Effect {
     let out = fx::dissolve((200, Interpolation::QuadOut));
     let back = fx::coalesce((400, Interpolation::BounceOut));
@@ -132,6 +136,7 @@ impl EffectManager {
 
     /// Add a named (unique) effect.  If an effect with the same `key` is
     /// already running it is cancelled and replaced.
+    #[allow(dead_code)]
     pub fn add_named(&mut self, key: &str, effect: Effect) {
         self.inner.add_unique_effect(key.to_string(), effect);
     }
@@ -145,11 +150,13 @@ impl EffectManager {
     }
 
     /// Remove all active effects immediately.
+    #[allow(dead_code)]
     pub fn remove_all(&mut self) {
         self.inner = TachyonManager::default();
     }
 
     /// Returns `true` when there are no active effects remaining.
+    #[allow(dead_code)]
     pub fn is_idle(&self) -> bool {
         false
     }

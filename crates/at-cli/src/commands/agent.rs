@@ -21,6 +21,7 @@ pub(crate) fn category_for_role(role: &str) -> String {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn run(
     api_url: &str,
     role: &str,

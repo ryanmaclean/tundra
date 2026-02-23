@@ -96,7 +96,7 @@ impl PromptRegistry {
         if let Ok(entries) = std::fs::read_dir(&prompts_dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
-                if path.extension().map_or(false, |e| e == "md") {
+                if path.extension().is_some_and(|e| e == "md") {
                     if let Ok(content) = std::fs::read_to_string(&path) {
                         let name = path
                             .file_stem()
