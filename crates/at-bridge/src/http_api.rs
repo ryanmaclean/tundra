@@ -5295,6 +5295,21 @@ async fn list_releases(State(state): State<Arc<ApiState>>) -> impl IntoResponse 
 // Task Archival
 // ---------------------------------------------------------------------------
 
+/// POST /api/tasks/{id}/archive -- archive a task to remove it from active views.
+///
+/// Marks a task as archived by adding its ID to the archived tasks list. Archived tasks
+/// are hidden from the main task list and Kanban board but remain accessible via the
+/// archived tasks endpoint. This is useful for completed or cancelled tasks that should
+/// be retained for historical reference but removed from day-to-day workflows.
+///
+/// **Response:** 200 OK with confirmation object.
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "archived": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+/// }
+/// ```
 async fn archive_task(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
@@ -5309,6 +5324,21 @@ async fn archive_task(
     )
 }
 
+/// POST /api/tasks/{id}/unarchive -- restore an archived task to active views.
+///
+/// Removes a task from the archived tasks list, making it visible again in the main
+/// task list and Kanban board. This is useful when an archived task needs to be
+/// reopened or reviewed. If the task is not currently archived, this operation has
+/// no effect but still returns success.
+///
+/// **Response:** 200 OK with confirmation object.
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "unarchived": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+/// }
+/// ```
 async fn unarchive_task(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
@@ -5321,6 +5351,22 @@ async fn unarchive_task(
     )
 }
 
+/// GET /api/tasks/archived -- retrieve all archived task IDs.
+///
+/// Returns an array of task IDs that have been archived. These IDs can be used to
+/// fetch the full task details from the main tasks endpoint if needed. This endpoint
+/// is useful for building an archive view or allowing users to browse and restore
+/// previously archived tasks.
+///
+/// **Response:** 200 OK with array of UUID strings.
+///
+/// **Example Response:**
+/// ```json
+/// [
+///   "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+///   "b2c3d4e5-f6a7-8901-bcde-f12345678901"
+/// ]
+/// ```
 async fn list_archived_tasks(State(state): State<Arc<ApiState>>) -> Json<Vec<Uuid>> {
     let archived = state.archived_tasks.read().await;
     Json(archived.clone())
@@ -5330,6 +5376,28 @@ async fn list_archived_tasks(State(state): State<Arc<ApiState>>) -> Json<Vec<Uui
 // Attachment handlers
 // ---------------------------------------------------------------------------
 
+/// GET /api/tasks/{task_id}/attachments -- list all attachments for a specific task.
+///
+/// Returns an array of attachment metadata for all files associated with the specified task.
+/// Each attachment includes metadata such as filename, content type, size, and upload timestamp.
+/// The actual file content is not included; this endpoint only returns metadata stubs for
+/// UI display and management purposes.
+///
+/// **Response:** 200 OK with array of Attachment objects.
+///
+/// **Example Response:**
+/// ```json
+/// [
+///   {
+///     "id": "d4e5f6a7-b8c9-0123-def4-567890abcdef",
+///     "task_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+///     "filename": "screenshot.png",
+///     "content_type": "image/png",
+///     "size_bytes": 524288,
+///     "uploaded_at": "2026-02-23T10:15:30Z"
+///   }
+/// ]
+/// ```
 async fn list_attachments(
     State(state): State<Arc<ApiState>>,
     Path(task_id): Path<Uuid>,
@@ -5343,6 +5411,37 @@ async fn list_attachments(
     Json(filtered)
 }
 
+/// POST /api/tasks/{task_id}/attachments -- add a new attachment to a task.
+///
+/// Creates a new attachment metadata record for a file associated with the specified task.
+/// This endpoint stores the attachment metadata (filename, content type, size) but does not
+/// handle actual file upload or storage. The caller is responsible for managing the file
+/// content separately. Useful for tracking screenshots, documents, or other files related
+/// to a task.
+///
+/// **Request Body:** JSON object with filename, content_type, and size_bytes fields.
+/// **Response:** 201 Created with the newly created Attachment object.
+///
+/// **Example Request:**
+/// ```json
+/// {
+///   "filename": "screenshot.png",
+///   "content_type": "image/png",
+///   "size_bytes": 524288
+/// }
+/// ```
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "id": "d4e5f6a7-b8c9-0123-def4-567890abcdef",
+///   "task_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+///   "filename": "screenshot.png",
+///   "content_type": "image/png",
+///   "size_bytes": 524288,
+///   "uploaded_at": "2026-02-23T10:15:30Z"
+/// }
+/// ```
 async fn add_attachment(
     State(state): State<Arc<ApiState>>,
     Path(task_id): Path<Uuid>,
@@ -5372,6 +5471,27 @@ async fn add_attachment(
     )
 }
 
+/// DELETE /api/tasks/{task_id}/attachments/{id} -- delete an attachment from a task.
+///
+/// Removes the attachment metadata record for the specified attachment ID. This does not
+/// delete the actual file content (if it exists); it only removes the metadata tracking
+/// record from the system. Returns 404 if the attachment ID does not exist.
+///
+/// **Response:** 200 OK with confirmation object, or 404 Not Found if attachment doesn't exist.
+///
+/// **Example Success Response:**
+/// ```json
+/// {
+///   "deleted": "d4e5f6a7-b8c9-0123-def4-567890abcdef"
+/// }
+/// ```
+///
+/// **Example Error Response:**
+/// ```json
+/// {
+///   "error": "attachment not found"
+/// }
+/// ```
 async fn delete_attachment(
     State(state): State<Arc<ApiState>>,
     Path((_task_id, attachment_id)): Path<(Uuid, Uuid)>,
@@ -5396,6 +5516,41 @@ async fn delete_attachment(
 // Task draft handlers
 // ---------------------------------------------------------------------------
 
+/// POST /api/tasks/drafts -- save or update a task draft for auto-save functionality.
+///
+/// Creates or updates a task draft with the provided content. Drafts are useful for
+/// auto-saving task creation forms so users don't lose work if they navigate away or
+/// close their browser. The draft ID should be provided by the client and remains stable
+/// across multiple saves of the same draft. The updated_at timestamp is automatically
+/// set to the current time on each save.
+///
+/// **Request Body:** TaskDraft JSON object with id, title, description, and optional fields.
+/// **Response:** 200 OK with the saved TaskDraft object including updated timestamp.
+///
+/// **Example Request:**
+/// ```json
+/// {
+///   "id": "e5f6a7b8-c9d0-1234-efab-cdef01234567",
+///   "title": "Implement user authentication",
+///   "description": "Add login and registration flow with JWT tokens",
+///   "category": "Backend",
+///   "priority": "High",
+///   "files": ["src/auth.rs", "src/routes.rs"]
+/// }
+/// ```
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "id": "e5f6a7b8-c9d0-1234-efab-cdef01234567",
+///   "title": "Implement user authentication",
+///   "description": "Add login and registration flow with JWT tokens",
+///   "category": "Backend",
+///   "priority": "High",
+///   "files": ["src/auth.rs", "src/routes.rs"],
+///   "updated_at": "2026-02-23T10:20:15Z"
+/// }
+/// ```
 async fn save_task_draft(
     State(state): State<Arc<ApiState>>,
     Json(mut draft): Json<TaskDraft>,
@@ -5406,6 +5561,33 @@ async fn save_task_draft(
     (axum::http::StatusCode::OK, Json(serde_json::json!(draft)))
 }
 
+/// GET /api/tasks/drafts/{id} -- retrieve a specific task draft by ID.
+///
+/// Fetches a previously saved task draft by its ID. This is useful for restoring draft
+/// content when a user returns to a task creation form. Returns 404 if no draft exists
+/// with the specified ID.
+///
+/// **Response:** 200 OK with TaskDraft object, or 404 Not Found if draft doesn't exist.
+///
+/// **Example Success Response:**
+/// ```json
+/// {
+///   "id": "e5f6a7b8-c9d0-1234-efab-cdef01234567",
+///   "title": "Implement user authentication",
+///   "description": "Add login and registration flow with JWT tokens",
+///   "category": "Backend",
+///   "priority": "High",
+///   "files": ["src/auth.rs", "src/routes.rs"],
+///   "updated_at": "2026-02-23T10:20:15Z"
+/// }
+/// ```
+///
+/// **Example Error Response:**
+/// ```json
+/// {
+///   "error": "draft not found"
+/// }
+/// ```
 async fn get_task_draft(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
@@ -5420,6 +5602,28 @@ async fn get_task_draft(
     }
 }
 
+/// DELETE /api/tasks/drafts/{id} -- delete a task draft.
+///
+/// Removes a task draft from storage. This is typically called when a user completes
+/// task creation (converting the draft to a real task) or explicitly discards a draft.
+/// Returns 404 if the draft doesn't exist, but this is not considered an error condition
+/// since the desired end state (draft not existing) is achieved.
+///
+/// **Response:** 200 OK with confirmation object, or 404 Not Found if draft doesn't exist.
+///
+/// **Example Success Response:**
+/// ```json
+/// {
+///   "deleted": "e5f6a7b8-c9d0-1234-efab-cdef01234567"
+/// }
+/// ```
+///
+/// **Example Error Response:**
+/// ```json
+/// {
+///   "error": "draft not found"
+/// }
+/// ```
 async fn delete_task_draft(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
@@ -5438,6 +5642,37 @@ async fn delete_task_draft(
     }
 }
 
+/// GET /api/tasks/drafts -- retrieve all saved task drafts.
+///
+/// Returns an array of all task drafts currently stored in the system. This is useful for
+/// showing users a list of their incomplete task creations so they can resume work on any
+/// of them. Drafts are ordered by their storage order (not necessarily by updated_at).
+///
+/// **Response:** 200 OK with array of TaskDraft objects.
+///
+/// **Example Response:**
+/// ```json
+/// [
+///   {
+///     "id": "e5f6a7b8-c9d0-1234-efab-cdef01234567",
+///     "title": "Implement user authentication",
+///     "description": "Add login and registration flow with JWT tokens",
+///     "category": "Backend",
+///     "priority": "High",
+///     "files": ["src/auth.rs", "src/routes.rs"],
+///     "updated_at": "2026-02-23T10:20:15Z"
+///   },
+///   {
+///     "id": "f6a7b8c9-d0e1-2345-fabc-def012345678",
+///     "title": "Fix CSS layout bug",
+///     "description": "Header alignment issue on mobile",
+///     "category": "Frontend",
+///     "priority": "Medium",
+///     "files": ["styles/header.css"],
+///     "updated_at": "2026-02-23T09:45:22Z"
+///   }
+/// ]
+/// ```
 async fn list_task_drafts(State(state): State<Arc<ApiState>>) -> Json<Vec<TaskDraft>> {
     let drafts = state.task_drafts.read().await;
     Json(drafts.values().cloned().collect())
