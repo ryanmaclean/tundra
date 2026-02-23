@@ -3171,6 +3171,44 @@ async fn create_pr_for_task(
 // ---------------------------------------------------------------------------
 
 /// GET /api/notifications — list notifications with optional filters.
+/// GET /api/notifications -- retrieve notifications with optional filtering.
+///
+/// Returns a paginated list of notifications, optionally filtered to show only unread items.
+/// Supports pagination via limit/offset query parameters. Notifications track system events,
+/// task status changes, agent activity, and GitHub integration events.
+///
+/// **Query Parameters:**
+/// - `unread` (optional bool): If true, return only unread notifications
+/// - `limit` (optional usize): Maximum number of results (default: 50)
+/// - `offset` (optional usize): Number of results to skip (default: 0)
+///
+/// **Response:** 200 OK with array of Notification objects.
+///
+/// **Example Response:**
+/// ```json
+/// [
+///   {
+///     "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+///     "title": "Task Completed",
+///     "message": "Task 'Implement JWT auth' has been completed successfully",
+///     "level": "Success",
+///     "source": "TaskEngine",
+///     "created_at": "2026-02-23T10:15:30Z",
+///     "read": false,
+///     "action_url": "/tasks/550e8400-e29b-41d4-a716-446655440000"
+///   },
+///   {
+///     "id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+///     "title": "Agent Error",
+///     "message": "Agent backend-001 encountered an error during execution",
+///     "level": "Error",
+///     "source": "AgentMonitor",
+///     "created_at": "2026-02-23T10:10:15Z",
+///     "read": true,
+///     "action_url": null
+///   }
+/// ]
+/// ```
 async fn list_notifications(
     State(state): State<Arc<ApiState>>,
     Query(params): Query<NotificationQuery>,
@@ -3194,7 +3232,20 @@ async fn list_notifications(
     }
 }
 
-/// GET /api/notifications/count — return unread count.
+/// GET /api/notifications/count -- retrieve notification counts.
+///
+/// Returns the count of unread and total notifications in the system. Used for
+/// badge indicators and notification summary displays in the UI.
+///
+/// **Response:** 200 OK with count summary object.
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "unread": 3,
+///   "total": 42
+/// }
+/// ```
 async fn notification_count(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     let store = state.notification_store.read().await;
     Json(serde_json::json!({
@@ -3203,7 +3254,31 @@ async fn notification_count(State(state): State<Arc<ApiState>>) -> impl IntoResp
     }))
 }
 
-/// POST /api/notifications/{id}/read — mark a single notification as read.
+/// POST /api/notifications/{id}/read -- mark a single notification as read.
+///
+/// Marks the specified notification as read by its UUID. Used when a user views
+/// or acknowledges a notification. The read status persists until the notification
+/// is deleted or the store is cleared.
+///
+/// **Path Parameters:**
+/// - `id` (UUID): The unique identifier of the notification to mark as read
+///
+/// **Response:** 200 OK if successful, 404 Not Found if notification doesn't exist.
+///
+/// **Example Success Response:**
+/// ```json
+/// {
+///   "status": "read",
+///   "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+/// }
+/// ```
+///
+/// **Example Error Response:**
+/// ```json
+/// {
+///   "error": "notification not found"
+/// }
+/// ```
 async fn mark_notification_read(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
@@ -3222,14 +3297,51 @@ async fn mark_notification_read(
     }
 }
 
-/// POST /api/notifications/read-all — mark all notifications as read.
+/// POST /api/notifications/read-all -- mark all notifications as read.
+///
+/// Marks all notifications in the system as read in a single operation. Used for
+/// "mark all as read" bulk actions in the UI. This affects all notifications
+/// regardless of their current read status.
+///
+/// **Response:** 200 OK with status confirmation.
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "status": "all_read"
+/// }
+/// ```
 async fn mark_all_notifications_read(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     let mut store = state.notification_store.write().await;
     store.mark_all_read();
     Json(serde_json::json!({"status": "all_read"}))
 }
 
-/// DELETE /api/notifications/{id} — delete a notification.
+/// DELETE /api/notifications/{id} -- delete a notification.
+///
+/// Permanently removes the specified notification from the system by its UUID.
+/// Once deleted, the notification cannot be recovered. This is typically used
+/// when a user dismisses a notification they no longer need.
+///
+/// **Path Parameters:**
+/// - `id` (UUID): The unique identifier of the notification to delete
+///
+/// **Response:** 200 OK if successful, 404 Not Found if notification doesn't exist.
+///
+/// **Example Success Response:**
+/// ```json
+/// {
+///   "status": "deleted",
+///   "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+/// }
+/// ```
+///
+/// **Example Error Response:**
+/// ```json
+/// {
+///   "error": "notification not found"
+/// }
+/// ```
 async fn delete_notification(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
