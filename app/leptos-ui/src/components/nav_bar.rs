@@ -177,7 +177,7 @@ pub fn NavBar(
                 <div class="sidebar-brand" class:collapsed=(move || sidebar_collapsed.get())>
                     <div class="sidebar-brand-icon" aria-hidden="true">"AT"</div>
                     <div class:collapsed=(move || sidebar_collapsed.get())>
-                        <div class="sidebar-brand-name">"auto-tundra"</div>
+                        <div class="sidebar-brand-name">{move || crate::state::use_app_state().project_name.get()}</div>
                         <div class="sidebar-brand-badge">"v0.1.0"</div>
                     </div>
                 </div>

@@ -194,6 +194,13 @@ pub fn provide_app_state() {
         if saw_live_data {
             set_is_demo.set(false);
         }
+
+        // Fetch active project name for breadcrumb / sidebar
+        if let Ok(projects) = crate::api::fetch_projects().await {
+            if let Some(active) = projects.iter().find(|p| p.is_active) {
+                set_project_name.set(active.name.clone());
+            }
+        }
     });
 }
 
