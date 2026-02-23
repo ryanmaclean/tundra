@@ -23,6 +23,10 @@ unsound = "all"                     # deny unsound for all deps
 ignore = [
     # lru 0.12 unsound issue — pinned by ratatui 0.29; upgrade when ratatui bumps
     "RUSTSEC-2026-0002",
+    # dotenv is used for local/dev bootstrap in at-daemon.
+    "RUSTSEC-2021-0141",
+    # glib advisory appears through tauri Linux dependency graph in CI.
+    "RUSTSEC-2024-0429",
 ]
 
 # ---------------------------------------------------------------------------
@@ -40,8 +44,10 @@ allow = [
     "Zlib",
     "Unicode-3.0",
     "Unicode-DFS-2016",
+    "CDLA-Permissive-2.0",
     "MPL-2.0",
     "Unlicense",
+    "CC0-1.0",
     "LGPL-2.1-or-later",       # r-efi (Windows-only, header-only, no linking risk)
 ]
 confidence-threshold = 0.8

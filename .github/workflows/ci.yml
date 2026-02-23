@@ -34,20 +34,20 @@ jobs:
       - name: Install cargo-nextest
         uses: taiki-e/install-action@nextest
 
-      - name: Build
-        run: cargo build --all-targets
+      - name: Build (exclude tauri on Linux CI)
+        run: cargo build --workspace --exclude at-tauri
 
       - name: Run tests (nextest + JUnit XML)
-        run: cargo nextest run --profile ci
+        run: cargo nextest run --profile ci -E 'not package(at-tauri)'
 
       - name: Run doctests
-        run: cargo test --doc
+        run: cargo test --workspace --doc --exclude at-tauri
 
       - name: Upload JUnit XML to Datadog
-        if: always()
+        if: always() && secrets.DATADOG_API_KEY != ''
         uses: DataDog/junit-upload-github-action@v2
         with:
-          api-key: ${{ secrets.DATADOG_API_KEY }}
+          api_key: ${{ secrets.DATADOG_API_KEY }}
           service: auto-tundra
           files: target/nextest/ci/ci-junit.xml
           env: ci

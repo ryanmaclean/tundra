@@ -261,8 +261,7 @@ async fn serve_frontend(api_port: u16, port_tx: tokio::sync::oneshot::Sender<u16
     let app = Router::new()
         .route("/", get(make_index_handler(api_port)))
         .fallback_service(
-            ServeDir::new(&dist_dir)
-                .fallback(axum::routing::get(make_index_handler(api_port))),
+            ServeDir::new(&dist_dir).fallback(axum::routing::get(make_index_handler(api_port))),
         );
 
     // Bind to port 0 — OS assigns an ephemeral port.
