@@ -63,10 +63,11 @@ impl CommandHandler for CreateBeadHandler {
             .map_err(|e| CommandError::ExecutionFailed(e.to_string()))?;
 
         let mut beads = self.0.beads.write().await;
+        let bead_clone = bead.clone();
         beads.push(bead);
         self.0
             .event_bus
-            .publish(BridgeMessage::BeadList(beads.clone()));
+            .publish(BridgeMessage::BeadCreated(bead_clone));
 
         Ok(CommandOutput::ok_data(bead_json))
     }
