@@ -282,7 +282,8 @@ impl CacheDb {
         self.conn
             .call(|conn| {
                 // Use GROUP BY to get all status counts in a single query
-                let mut stmt = conn.prepare("SELECT status, COUNT(*) FROM beads GROUP BY status")?;
+                let mut stmt =
+                    conn.prepare("SELECT status, COUNT(*) FROM beads GROUP BY status")?;
                 let mut rows = stmt.query([])?;
 
                 let mut backlog = 0u64;

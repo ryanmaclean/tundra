@@ -158,10 +158,9 @@ impl SessionStore {
         let sessions = self.list_sessions()?;
         let mut removed = 0;
         for session in sessions {
-            if session.last_active_at < cutoff
-                && self.delete_session(&session.id)? {
-                    removed += 1;
-                }
+            if session.last_active_at < cutoff && self.delete_session(&session.id)? {
+                removed += 1;
+            }
         }
         Ok(removed)
     }

@@ -92,26 +92,25 @@ impl Git2ReadOps {
             let path = entry.path().unwrap_or("").to_string();
             let st = entry.status();
 
-            let status = if st.contains(git2::Status::WT_NEW)
-                || st.contains(git2::Status::INDEX_NEW)
-            {
-                DiffStatus::Added
-            } else if st.contains(git2::Status::WT_DELETED)
-                || st.contains(git2::Status::INDEX_DELETED)
-            {
-                DiffStatus::Deleted
-            } else if st.contains(git2::Status::WT_RENAMED)
-                || st.contains(git2::Status::INDEX_RENAMED)
-            {
-                DiffStatus::Renamed
-            } else if st.contains(git2::Status::WT_MODIFIED)
-                || st.contains(git2::Status::INDEX_MODIFIED)
-                || st.intersects(git2::Status::WT_TYPECHANGE | git2::Status::INDEX_TYPECHANGE)
-            {
-                DiffStatus::Modified
-            } else {
-                DiffStatus::Untracked
-            };
+            let status =
+                if st.contains(git2::Status::WT_NEW) || st.contains(git2::Status::INDEX_NEW) {
+                    DiffStatus::Added
+                } else if st.contains(git2::Status::WT_DELETED)
+                    || st.contains(git2::Status::INDEX_DELETED)
+                {
+                    DiffStatus::Deleted
+                } else if st.contains(git2::Status::WT_RENAMED)
+                    || st.contains(git2::Status::INDEX_RENAMED)
+                {
+                    DiffStatus::Renamed
+                } else if st.contains(git2::Status::WT_MODIFIED)
+                    || st.contains(git2::Status::INDEX_MODIFIED)
+                    || st.intersects(git2::Status::WT_TYPECHANGE | git2::Status::INDEX_TYPECHANGE)
+                {
+                    DiffStatus::Modified
+                } else {
+                    DiffStatus::Untracked
+                };
 
             entries.push(DiffEntry {
                 path,
