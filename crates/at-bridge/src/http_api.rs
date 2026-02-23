@@ -271,8 +271,8 @@ impl ApiState {
 
         Self {
             event_bus,
-            beads: Arc::new(RwLock::new(Vec::new())),
-            agents: Arc::new(RwLock::new(Vec::new())),
+            beads: Arc::new(RwLock::new(std::collections::HashMap::new())),
+            agents: Arc::new(RwLock::new(std::collections::HashMap::new())),
             kpi: Arc::new(RwLock::new(KpiSnapshot {
                 total_beads: 0,
                 backlog: 0,
@@ -285,7 +285,7 @@ impl ApiState {
                 active_agents: 0,
                 timestamp: chrono::Utc::now(),
             })),
-            tasks: Arc::new(RwLock::new(Vec::new())),
+            tasks: Arc::new(RwLock::new(std::collections::HashMap::new())),
             pipeline_semaphore: Arc::new(Semaphore::new(pipeline_max_concurrent)),
             pipeline_max_concurrent,
             pipeline_waiting: Arc::new(AtomicUsize::new(0)),
