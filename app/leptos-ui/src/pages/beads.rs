@@ -561,11 +561,12 @@ pub fn BeadsPage() -> impl IntoView {
                                     };
 
                                     // Priority badge
-                                    let priority_badge = bead.tags.iter().find(|t| matches!(t.as_str(), "Critical" | "High" | "Low")).cloned();
+                                    let priority_badge = bead.tags.iter().find(|t| matches!(t.as_str(), "Critical" | "High" | "Medium" | "Low")).cloned();
                                     let priority_view = priority_badge.map(|p| {
                                         let cls = match p.as_str() {
                                             "Critical" => "card-badge badge-critical",
                                             "High" => "card-badge badge-high",
+                                            "Medium" => "card-badge badge-medium",
                                             "Low" => "card-badge badge-low",
                                             _ => "card-badge badge-medium",
                                         };

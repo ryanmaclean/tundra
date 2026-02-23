@@ -18130,6 +18130,14 @@ h2 .gh-icon {
 .insights-suggestion-item span {
     color: var(--text-muted);
 }
+.insights-task-prompt {
+    margin-top: 1.2rem;
+    text-align: center;
+    color: var(--accent-primary);
+    font-weight: 600;
+    font-size: 0.95rem;
+    opacity: 0.9;
+}
 
 /* ==========================================================================
    Wave Parity: MCP + Worktrees + GitHub Issues/PRs (final pass)

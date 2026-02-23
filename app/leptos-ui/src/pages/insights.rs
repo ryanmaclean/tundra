@@ -446,44 +446,45 @@ pub fn InsightsPage() -> impl IntoView {
                                 </button>
 
                                 <div class="insights-feature-suggestions">
-                                    <h4>"Try asking about..."</h4>
+                                    <h4>"What Would Make Your Project Unique?"</h4>
                                     <ul class="insights-suggestion-list">
                                         <li class="insights-suggestion-item">
-                                            <span class="insights-suggestion-icon">"\u{1F50D}"</span>
+                                            <span class="insights-suggestion-icon">"\u{1F4B0}"</span>
                                             <div>
-                                                <strong>"Code architecture"</strong>
-                                                <span>" - Explore module dependencies and design patterns"</span>
+                                                <strong>"AI cost transparency"</strong>
+                                                <span>" - Track spend per task and model usage"</span>
                                             </div>
                                         </li>
                                         <li class="insights-suggestion-item">
-                                            <span class="insights-suggestion-icon">"\u{1F41B}"</span>
+                                            <span class="insights-suggestion-icon">"\u{1F4CA}"</span>
                                             <div>
-                                                <strong>"Bug analysis"</strong>
-                                                <span>" - Identify potential issues and anti-patterns"</span>
+                                                <strong>"Model quality tracking"</strong>
+                                                <span>" - Compare output quality across providers"</span>
                                             </div>
                                         </li>
                                         <li class="insights-suggestion-item">
-                                            <span class="insights-suggestion-icon">"\u{1F680}"</span>
+                                            <span class="insights-suggestion-icon">"\u{1F500}"</span>
                                             <div>
-                                                <strong>"Performance hotspots"</strong>
-                                                <span>" - Find optimization opportunities"</span>
+                                                <strong>"Multi-model switching"</strong>
+                                                <span>" - Route tasks to the best model dynamically"</span>
                                             </div>
                                         </li>
                                         <li class="insights-suggestion-item">
-                                            <span class="insights-suggestion-icon">"\u{1F4DD}"</span>
+                                            <span class="insights-suggestion-icon">"\u{1F50F}"</span>
                                             <div>
-                                                <strong>"Documentation gaps"</strong>
-                                                <span>" - Discover undocumented public APIs"</span>
+                                                <strong>"Enterprise audit trail"</strong>
+                                                <span>" - Full provenance for every AI-generated change"</span>
                                             </div>
                                         </li>
                                         <li class="insights-suggestion-item">
-                                            <span class="insights-suggestion-icon">"\u{2728}"</span>
+                                            <span class="insights-suggestion-icon">"\u{1F4E1}"</span>
                                             <div>
-                                                <strong>"Feature ideas"</strong>
-                                                <span>" - Get suggestions for next features to build"</span>
+                                                <strong>"Offline mode"</strong>
+                                                <span>" - Local inference with no cloud dependency"</span>
                                             </div>
                                         </li>
                                     </ul>
+                                    <p class="insights-task-prompt">"Want me to create a task for any of these?"</p>
                                 </div>
                             </div>
                         }.into_any()
