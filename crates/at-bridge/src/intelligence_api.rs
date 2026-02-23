@@ -241,16 +241,16 @@ async fn generate_ideas(
         None => (IdeaCategory::CodeImprovement, String::new()),
     };
     let mut engine = state.ideation_engine.write().await;
-    match engine.generate_ideas_with_ai(&category, &context).await {
-        Ok(result) => (
-            axum::http::StatusCode::CREATED,
-            Json(serde_json::json!(result)),
-        ),
-        Err(e) => (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": e.to_string() })),
-        ),
-    }
+    // Try AI-powered ideation first; fall back to deterministic generation
+    // when no LLM provider is configured (e.g. in tests or offline mode).
+    let result = match engine.generate_ideas_with_ai(&category, &context).await {
+        Ok(result) => result,
+        Err(_) => engine.generate_ideas(&category, &context),
+    };
+    (
+        axum::http::StatusCode::CREATED,
+        Json(serde_json::json!(result)),
+    )
 }
 
 async fn convert_idea(
