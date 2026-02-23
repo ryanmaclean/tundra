@@ -7435,7 +7435,7 @@ mod tests {
             TaskComplexity::Small,
         );
         let task_id = task.id;
-        state.tasks.write().await.push(task);
+        state.tasks.write().await.insert(task_id, task);
 
         let req = Request::builder()
             .method("POST")
@@ -7461,7 +7461,7 @@ mod tests {
         );
         task.set_phase(TaskPhase::Planning);
         let task_id = task.id;
-        state.tasks.write().await.push(task);
+        state.tasks.write().await.insert(task_id, task);
 
         let req = Request::builder()
             .method("POST")

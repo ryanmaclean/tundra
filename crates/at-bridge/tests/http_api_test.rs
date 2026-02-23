@@ -790,7 +790,7 @@ async fn test_stop_agent_success() {
     let agent_id = agent.id;
     {
         let mut agents = state.agents.write().await;
-        agents.push(agent);
+        agents.insert(agent_id, agent);
     }
 
     let resp = client
@@ -819,7 +819,7 @@ async fn test_stop_agent_already_stopped() {
     let agent_id = agent.id;
     {
         let mut agents = state.agents.write().await;
-        agents.push(agent);
+        agents.insert(agent_id, agent);
     }
 
     // Stopping an already stopped agent should still succeed
@@ -848,7 +848,7 @@ async fn test_stop_agent_changes_status_from_active() {
     let agent_id = agent.id;
     {
         let mut agents = state.agents.write().await;
-        agents.push(agent);
+        agents.insert(agent_id, agent);
     }
 
     let resp = client
@@ -933,8 +933,8 @@ async fn test_list_agent_sessions_with_agents() {
             at_core::types::AgentRole::Mayor,
             at_core::types::CliType::Codex,
         );
-        agents.push(agent1);
-        agents.push(agent2);
+        agents.insert(agent1.id, agent1);
+        agents.insert(agent2.id, agent2);
     }
 
     let resp = reqwest::get(format!("{base}/api/sessions")).await.unwrap();
@@ -956,7 +956,7 @@ async fn test_list_agent_sessions_response_structure() {
             at_core::types::CliType::Claude,
         );
         agent.session_id = Some("test-session-123".to_string());
-        agents.push(agent);
+        agents.insert(agent.id, agent);
     }
 
     let resp = reqwest::get(format!("{base}/api/sessions")).await.unwrap();
@@ -1212,9 +1212,9 @@ async fn test_list_queue_with_tasks() {
             at_core::types::TaskPriority::High,
             at_core::types::TaskComplexity::Small,
         );
-        tasks.push(t1);
-        tasks.push(t2);
-        tasks.push(t3);
+        tasks.insert(t1.id, t1);
+        tasks.insert(t2.id, t2);
+        tasks.insert(t3.id, t3);
     }
 
     let resp = reqwest::get(format!("{base}/api/queue")).await.unwrap();
@@ -1246,7 +1246,7 @@ async fn test_list_queue_excludes_started_tasks() {
             at_core::types::TaskComplexity::Small,
         );
         started_task.started_at = Some(chrono::Utc::now());
-        tasks.push(started_task);
+        tasks.insert(started_task.id, started_task);
 
         let queued_task = at_core::types::Task::new(
             "Queued task",
@@ -1255,7 +1255,7 @@ async fn test_list_queue_excludes_started_tasks() {
             at_core::types::TaskPriority::Medium,
             at_core::types::TaskComplexity::Small,
         );
-        tasks.push(queued_task);
+        tasks.insert(queued_task.id, queued_task);
     }
 
     let resp = reqwest::get(format!("{base}/api/queue")).await.unwrap();
@@ -1317,8 +1317,8 @@ async fn test_reorder_queue_success() {
         );
         id1 = t1.id;
         id2 = t2.id;
-        tasks.push(t1);
-        tasks.push(t2);
+        tasks.insert(id1, t1);
+        tasks.insert(id2, t2);
     }
 
     let resp = client
@@ -1364,7 +1364,7 @@ async fn test_prioritize_task_success() {
             at_core::types::TaskComplexity::Small,
         );
         task_id = task.id;
-        tasks.push(task);
+        tasks.insert(task_id, task);
     }
 
     let resp = client
@@ -1606,7 +1606,7 @@ async fn test_execute_pipeline_accepts_cli_type_param() {
         task.set_phase(at_core::types::TaskPhase::SpecCreation);
         task.set_phase(at_core::types::TaskPhase::Planning);
         task_id = task.id;
-        tasks.push(task);
+        tasks.insert(task_id, task);
     }
 
     // Execute with cli_type = codex -- should return 202 Accepted
@@ -1641,7 +1641,7 @@ async fn test_execute_pipeline_without_cli_type_defaults() {
         task.set_phase(at_core::types::TaskPhase::SpecCreation);
         task.set_phase(at_core::types::TaskPhase::Planning);
         task_id = task.id;
-        tasks.push(task);
+        tasks.insert(task_id, task);
     }
 
     // Execute without body -- should still return 202 (defaults to Claude)
@@ -1805,7 +1805,7 @@ async fn test_get_build_logs_empty() {
             at_core::types::TaskComplexity::Small,
         );
         task_id = task.id;
-        tasks.push(task);
+        tasks.insert(task_id, task);
     }
 
     let resp = reqwest::get(format!("{base}/api/tasks/{task_id}/build-logs"))
@@ -1847,7 +1847,7 @@ async fn test_get_build_logs_with_entries() {
         task.add_build_log(BuildStream::Stderr, "warning: unused import");
         task.add_build_log(BuildStream::Stdout, "Finished dev profile");
         task_id = task.id;
-        tasks.push(task);
+        tasks.insert(task_id, task);
     }
 
     let resp = reqwest::get(format!("{base}/api/tasks/{task_id}/build-logs"))
@@ -1888,7 +1888,7 @@ async fn test_get_build_logs_since_filter() {
         std::thread::sleep(std::time::Duration::from_millis(10));
         task.add_build_log(BuildStream::Stdout, "second line");
         task_id = task.id;
-        tasks.push(task);
+        tasks.insert(task_id, task);
     }
 
     let resp = reqwest::get(format!(
@@ -1918,7 +1918,7 @@ async fn test_get_build_logs_invalid_since() {
             at_core::types::TaskComplexity::Small,
         );
         task_id = task.id;
-        tasks.push(task);
+        tasks.insert(task_id, task);
     }
 
     let resp = reqwest::get(format!(
@@ -1948,7 +1948,7 @@ async fn test_get_build_status_empty() {
             at_core::types::TaskComplexity::Small,
         );
         task_id = task.id;
-        tasks.push(task);
+        tasks.insert(task_id, task);
     }
 
     let resp = reqwest::get(format!("{base}/api/tasks/{task_id}/build-status"))
@@ -1997,7 +1997,7 @@ async fn test_get_build_status_with_logs() {
         task.add_build_log(BuildStream::Stderr, "error: failed");
         task.add_build_log(BuildStream::Stdout, "done");
         task_id = task.id;
-        tasks.push(task);
+        tasks.insert(task_id, task);
     }
 
     let resp = reqwest::get(format!("{base}/api/tasks/{task_id}/build-status"))
