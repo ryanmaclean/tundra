@@ -1,8 +1,8 @@
-use fluent_bundle::{FluentBundle, FluentResource, FluentArgs};
-use unic_langid::LanguageIdentifier;
+use fluent_bundle::{FluentArgs, FluentBundle, FluentResource};
 use leptos::prelude::*;
 use reactive_graph::owner::LocalStorage;
 use std::collections::HashMap;
+use unic_langid::LanguageIdentifier;
 
 const EN_FTL: &str = include_str!("locales/en.ftl");
 const FR_FTL: &str = include_str!("locales/fr.ftl");
@@ -139,21 +139,21 @@ pub fn provide_i18n() {
 ///
 /// Must be called inside a component tree where `provide_i18n()` has been invoked.
 pub fn t(key: &str) -> String {
-    let locale: ReadSignal<Locale> = use_context().expect("i18n locale not provided — ensure provide_i18n() is called");
-    let i18n: I18nStore = use_context().expect("i18n store not provided — ensure provide_i18n() is called");
+    let locale: ReadSignal<Locale> =
+        use_context().expect("i18n locale not provided — ensure provide_i18n() is called");
+    let i18n: I18nStore =
+        use_context().expect("i18n store not provided — ensure provide_i18n() is called");
     // Read locale to create a reactive dependency so re-renders happen on locale change.
     let current = locale.get();
-    i18n.with_value(|i| {
-        i.t_with_locale(current, key)
-    })
+    i18n.with_value(|i| i.t_with_locale(current, key))
 }
 
 /// Get a translated string with interpolation arguments.
 pub fn t_args(key: &str, args: &FluentArgs) -> String {
-    let locale: ReadSignal<Locale> = use_context().expect("i18n locale not provided — ensure provide_i18n() is called");
-    let i18n: I18nStore = use_context().expect("i18n store not provided — ensure provide_i18n() is called");
+    let locale: ReadSignal<Locale> =
+        use_context().expect("i18n locale not provided — ensure provide_i18n() is called");
+    let i18n: I18nStore =
+        use_context().expect("i18n store not provided — ensure provide_i18n() is called");
     let current = locale.get();
-    i18n.with_value(|i| {
-        i.t_args_with_locale(current, key, args)
-    })
+    i18n.with_value(|i| i.t_args_with_locale(current, key, args))
 }

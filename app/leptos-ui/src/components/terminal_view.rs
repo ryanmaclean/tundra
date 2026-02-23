@@ -32,7 +32,9 @@ pub fn TerminalView(
     // Connect WebSocket on mount.
     Effect::new(move |_| {
         let base = api::get_api_base();
-        let ws_base = base.replace("http://", "ws://").replace("https://", "wss://");
+        let ws_base = base
+            .replace("http://", "ws://")
+            .replace("https://", "wss://");
         let ws_url = format!("{ws_base}/ws/terminal/{terminal_id_ws}");
         let ws = match WebSocket::new(&ws_url) {
             Ok(ws) => ws,

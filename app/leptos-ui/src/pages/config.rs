@@ -1,14 +1,77 @@
-use leptos::prelude::*;
-use crate::state::{use_app_state, DisplayMode};
-use crate::i18n::Locale;
 use crate::api::{
-    self, ApiSettings, ApiGeneralSettings, ApiDisplaySettings, ApiAgentsSettings,
-    ApiTerminalSettings, ApiSecuritySettings, ApiIntegrationSettings,
-    ApiAppearanceSettings, ApiLanguageSettings, ApiDevToolsSettings,
-    ApiAgentProfileSettings, ApiPhaseConfig, ApiPathsSettings,
-    ApiApiProfilesSettings, ApiUpdatesSettings,
-    ApiNotificationSettings, ApiDebugSettings, ApiMemorySettings,
+    self, ApiAgentProfileSettings, ApiAgentsSettings, ApiApiProfilesSettings,
+    ApiAppearanceSettings, ApiDebugSettings, ApiDevToolsSettings, ApiDisplaySettings,
+    ApiGeneralSettings, ApiIntegrationSettings, ApiLanguageSettings, ApiMemorySettings,
+    ApiNotificationSettings, ApiPathsSettings, ApiPhaseConfig, ApiSecuritySettings, ApiSettings,
+    ApiTerminalSettings, ApiUpdatesSettings,
 };
+use crate::i18n::Locale;
+use crate::state::{use_app_state, DisplayMode};
+use leptos::prelude::*;
+
+fn settings_tab_icon_svg(label: &str) -> &'static str {
+    match label {
+        "Appearance" => {
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/></svg>"#
+        }
+        "Display" => {
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8"/><path d="M12 16v4"/></svg>"#
+        }
+        "Language" => {
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a15 15 0 0 1 0 18"/><path d="M12 3a15 15 0 0 0 0 18"/></svg>"#
+        }
+        "Developer Tools" => {
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>"#
+        }
+        "Agent Settings" => {
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8V4H8"/><rect x="3" y="8" width="18" height="12" rx="2"/><path d="M7 12h.01"/><path d="M12 12h.01"/><path d="M17 12h.01"/></svg>"#
+        }
+        "Paths" => {
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l2.92-2.92a5 5 0 0 0-7.07-7.07L11.7 5.22"/><path d="M14 11a5 5 0 0 0-7.54-.54L3.54 13.4a5 5 0 0 0 7.07 7.07l1.67-1.67"/></svg>"#
+        }
+        "Integrations" => {
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 3h5v5"/><path d="m8 16 13-13"/><path d="M21 14v7h-7"/><path d="m3 3 7 7"/><path d="m14 21-7-7"/></svg>"#
+        }
+        "API Profiles" => {
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 3h5v5"/><path d="m8 16 13-13"/><path d="M3 7h5v5"/><path d="m8 7-5 5"/></svg>"#
+        }
+        "Updates" => {
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>"#
+        }
+        "Notifications" => {
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a2 2 0 0 0 3.4 0"/></svg>"#
+        }
+        "Debug & Logs" => {
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M7 20h10"/><path d="M9 16v4"/><path d="M15 16v4"/></svg>"#
+        }
+        "Memory" => {
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a7 7 0 0 0-7 7c0 2 1 3.7 2.4 5A3 3 0 0 1 8.5 16H15a3 3 0 0 1 1.1-2c1.5-1.3 2.4-3 2.4-5a7 7 0 0 0-7-7z"/><path d="M9 20h6"/></svg>"#
+        }
+        "Re-run Wizard" => {
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>"#
+        }
+        _ => {
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/></svg>"#
+        }
+    }
+}
+
+fn api_profiles_icon_svg(kind: &str) -> &'static str {
+    match kind {
+        "local" => {
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/></svg>"#
+        }
+        "test" => {
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3h6"/><path d="M12 3v4"/><path d="M10 7h4"/><path d="M7 21h10"/><path d="M9 16l-2 5"/><path d="M15 16l2 5"/><rect x="7" y="7" width="10" height="9" rx="2"/></svg>"#
+        }
+        "empty" => {
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="15" rx="2"/><path d="M7 9h10"/><path d="M7 13h6"/></svg>"#
+        }
+        _ => {
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/></svg>"#
+        }
+    }
+}
 
 /// Helper to populate all signal setters from an `ApiSettings` struct.
 fn apply_settings_to_signals(
@@ -62,27 +125,59 @@ fn apply_settings_to_signals(
     set_embedding_model: WriteSignal<String>,
 ) {
     // Appearance
-    let mode = if s.appearance.appearance_mode.is_empty() { "Dark".to_string() } else { s.appearance.appearance_mode.clone() };
+    let mode = if s.appearance.appearance_mode.is_empty() {
+        "Dark".to_string()
+    } else {
+        s.appearance.appearance_mode.clone()
+    };
     set_appearance_mode.set(mode);
-    let theme = if s.appearance.color_theme.is_empty() { "Neo".to_string() } else { s.appearance.color_theme.clone() };
+    let theme = if s.appearance.color_theme.is_empty() {
+        "Neo".to_string()
+    } else {
+        s.appearance.color_theme.clone()
+    };
     set_color_theme.set(theme);
     // Display
     set_scale_preset.set("100".to_string());
-    set_fine_scale.set(if s.display.font_size > 0 { (s.display.font_size as u32) * 100 / 14 } else { 100 });
+    set_fine_scale.set(if s.display.font_size > 0 {
+        (s.display.font_size as u32) * 100 / 14
+    } else {
+        100
+    });
     // Language
-    let lang = if s.language.interface_language.is_empty() { "en".to_string() } else { s.language.interface_language.clone() };
+    let lang = if s.language.interface_language.is_empty() {
+        "en".to_string()
+    } else {
+        s.language.interface_language.clone()
+    };
     set_interface_language.set(lang);
     // Dev Tools
-    let ide = if s.dev_tools.preferred_ide.is_empty() { "vscode".to_string() } else { s.dev_tools.preferred_ide.clone() };
+    let ide = if s.dev_tools.preferred_ide.is_empty() {
+        "vscode".to_string()
+    } else {
+        s.dev_tools.preferred_ide.clone()
+    };
     set_preferred_ide.set(ide);
-    let term = if s.dev_tools.preferred_terminal.is_empty() { "system".to_string() } else { s.dev_tools.preferred_terminal.clone() };
+    let term = if s.dev_tools.preferred_terminal.is_empty() {
+        "system".to_string()
+    } else {
+        s.dev_tools.preferred_terminal.clone()
+    };
     set_preferred_terminal.set(term);
     set_auto_name_terminals.set(s.dev_tools.auto_name_terminals);
     set_yolo_mode.set(s.dev_tools.yolo_mode);
     // Agent Settings
-    let prof = if s.agent_profile.default_profile.is_empty() { "auto".to_string() } else { s.agent_profile.default_profile.clone() };
+    let prof = if s.agent_profile.default_profile.is_empty() {
+        "auto".to_string()
+    } else {
+        s.agent_profile.default_profile.clone()
+    };
     set_default_profile.set(prof);
-    let fw = if s.agent_profile.agent_framework.is_empty() { "Auto Claude".to_string() } else { s.agent_profile.agent_framework.clone() };
+    let fw = if s.agent_profile.agent_framework.is_empty() {
+        "Auto Claude".to_string()
+    } else {
+        s.agent_profile.agent_framework.clone()
+    };
     set_agent_framework.set(fw);
     set_ai_terminal_naming.set(s.agent_profile.ai_terminal_naming);
     // Paths
@@ -99,7 +194,11 @@ fn apply_settings_to_signals(
     set_linear_team_id.set(s.integrations.linear_team_id.clone().unwrap_or_default());
     set_openai_api_key_env.set(s.integrations.openai_api_key_env.clone());
     // Updates
-    let ver = if s.updates.version.is_empty() { "0.1.0".to_string() } else { s.updates.version.clone() };
+    let ver = if s.updates.version.is_empty() {
+        "0.1.0".to_string()
+    } else {
+        s.updates.version.clone()
+    };
     set_version.set(ver);
     set_auto_update_projects.set(s.updates.auto_update_projects);
     set_beta_updates.set(s.updates.beta_updates);
@@ -113,9 +212,17 @@ fn apply_settings_to_signals(
     // Memory
     set_enable_memory.set(s.memory.enable_memory);
     set_enable_agent_memory.set(s.memory.enable_agent_memory_access);
-    let gurl = if s.memory.graphiti_server_url.is_empty() { "http://localhost:8000/api".to_string() } else { s.memory.graphiti_server_url.clone() };
+    let gurl = if s.memory.graphiti_server_url.is_empty() {
+        "http://localhost:8000/api".to_string()
+    } else {
+        s.memory.graphiti_server_url.clone()
+    };
     set_graphiti_url.set(gurl);
-    let ep = if s.memory.embedding_provider.is_empty() { "ollama".to_string() } else { s.memory.embedding_provider.clone() };
+    let ep = if s.memory.embedding_provider.is_empty() {
+        "ollama".to_string()
+    } else {
+        s.memory.embedding_provider.clone()
+    };
     set_embedding_provider.set(ep);
     set_embedding_model.set(s.memory.embedding_model.clone());
 }
@@ -156,12 +263,18 @@ fn build_settings_from_signals(
     embedding_provider: &ReadSignal<String>,
     embedding_model: &ReadSignal<String>,
     // Phase config signals
-    spec_model: &ReadSignal<String>, spec_thinking: &ReadSignal<String>,
-    ideation_model: &ReadSignal<String>, ideation_thinking: &ReadSignal<String>,
-    roadmap_model: &ReadSignal<String>, roadmap_thinking: &ReadSignal<String>,
-    gh_issues_model: &ReadSignal<String>, gh_issues_thinking: &ReadSignal<String>,
-    gh_pr_model: &ReadSignal<String>, gh_pr_thinking: &ReadSignal<String>,
-    utility_model: &ReadSignal<String>, utility_thinking: &ReadSignal<String>,
+    spec_model: &ReadSignal<String>,
+    spec_thinking: &ReadSignal<String>,
+    ideation_model: &ReadSignal<String>,
+    ideation_thinking: &ReadSignal<String>,
+    roadmap_model: &ReadSignal<String>,
+    roadmap_thinking: &ReadSignal<String>,
+    gh_issues_model: &ReadSignal<String>,
+    gh_issues_thinking: &ReadSignal<String>,
+    gh_pr_model: &ReadSignal<String>,
+    gh_pr_thinking: &ReadSignal<String>,
+    utility_model: &ReadSignal<String>,
+    utility_thinking: &ReadSignal<String>,
 ) -> ApiSettings {
     let gh_owner = github_owner.get();
     let gh_repo = github_repo.get();
@@ -198,11 +311,26 @@ fn build_settings_from_signals(
         },
         integrations: ApiIntegrationSettings {
             github_token_env: github_token_env.get(),
-            github_owner: if gh_owner.is_empty() { None } else { Some(gh_owner) },
-            github_repo: if gh_repo.is_empty() { None } else { Some(gh_repo) },
+            github_owner: if gh_owner.is_empty() {
+                None
+            } else {
+                Some(gh_owner)
+            },
+            github_repo: if gh_repo.is_empty() {
+                None
+            } else {
+                Some(gh_repo)
+            },
             gitlab_token_env: gitlab_token_env.get(),
             linear_api_key_env: linear_api_key_env.get(),
-            linear_team_id: { let t = linear_team_id.get(); if t.is_empty() { None } else { Some(t) } },
+            linear_team_id: {
+                let t = linear_team_id.get();
+                if t.is_empty() {
+                    None
+                } else {
+                    Some(t)
+                }
+            },
             openai_api_key_env: openai_api_key_env.get(),
         },
         appearance: ApiAppearanceSettings {
@@ -223,12 +351,36 @@ fn build_settings_from_signals(
             agent_framework: agent_framework.get(),
             ai_terminal_naming: ai_terminal_naming.get(),
             phase_configs: vec![
-                ApiPhaseConfig { phase: "Spec Creation".to_string(), model: spec_model.get(), thinking_level: spec_thinking.get() },
-                ApiPhaseConfig { phase: "Ideation".to_string(), model: ideation_model.get(), thinking_level: ideation_thinking.get() },
-                ApiPhaseConfig { phase: "Roadmap".to_string(), model: roadmap_model.get(), thinking_level: roadmap_thinking.get() },
-                ApiPhaseConfig { phase: "GitHub Issues".to_string(), model: gh_issues_model.get(), thinking_level: gh_issues_thinking.get() },
-                ApiPhaseConfig { phase: "GitHub PR Review".to_string(), model: gh_pr_model.get(), thinking_level: gh_pr_thinking.get() },
-                ApiPhaseConfig { phase: "Utility".to_string(), model: utility_model.get(), thinking_level: utility_thinking.get() },
+                ApiPhaseConfig {
+                    phase: "Spec Creation".to_string(),
+                    model: spec_model.get(),
+                    thinking_level: spec_thinking.get(),
+                },
+                ApiPhaseConfig {
+                    phase: "Ideation".to_string(),
+                    model: ideation_model.get(),
+                    thinking_level: ideation_thinking.get(),
+                },
+                ApiPhaseConfig {
+                    phase: "Roadmap".to_string(),
+                    model: roadmap_model.get(),
+                    thinking_level: roadmap_thinking.get(),
+                },
+                ApiPhaseConfig {
+                    phase: "GitHub Issues".to_string(),
+                    model: gh_issues_model.get(),
+                    thinking_level: gh_issues_thinking.get(),
+                },
+                ApiPhaseConfig {
+                    phase: "GitHub PR Review".to_string(),
+                    model: gh_pr_model.get(),
+                    thinking_level: gh_pr_thinking.get(),
+                },
+                ApiPhaseConfig {
+                    phase: "Utility".to_string(),
+                    model: utility_model.get(),
+                    thinking_level: utility_thinking.get(),
+                },
             ],
         },
         paths: ApiPathsSettings {
@@ -238,7 +390,9 @@ fn build_settings_from_signals(
             claude_cli_path: claude_cli_path.get(),
             auto_claude_path: String::new(),
         },
-        api_profiles: ApiApiProfilesSettings { profiles: Vec::new() },
+        api_profiles: ApiApiProfilesSettings {
+            profiles: Vec::new(),
+        },
         updates: ApiUpdatesSettings {
             version: "0.1.0".to_string(),
             is_latest: true,
@@ -265,9 +419,7 @@ fn build_settings_from_signals(
 }
 
 #[component]
-pub fn ConfigPage(
-    #[prop(optional)] on_close: Option<Callback<()>>,
-) -> impl IntoView {
+pub fn ConfigPage(#[prop(optional)] on_close: Option<Callback<()>>) -> impl IntoView {
     // App-level display mode state
     let app_state = use_app_state();
 
@@ -411,19 +563,42 @@ pub fn ConfigPage(
             Ok(s) => {
                 apply_settings_to_signals(
                     &s,
-                    set_appearance_mode, set_color_theme,
-                    set_scale_preset, set_fine_scale,
+                    set_appearance_mode,
+                    set_color_theme,
+                    set_scale_preset,
+                    set_fine_scale,
                     set_interface_language,
-                    set_preferred_ide, set_preferred_terminal, set_auto_name_terminals, set_yolo_mode,
-                    set_default_profile, set_agent_framework, set_ai_terminal_naming,
-                    set_python_path, set_git_path, set_github_cli_path, set_claude_cli_path,
-                    set_github_token_env, set_github_owner, set_github_repo,
-                    set_gitlab_token_env, set_linear_api_key_env, set_linear_team_id, set_openai_api_key_env,
-                    set_version, set_auto_update_projects, set_beta_updates,
-                    set_on_task_complete, set_on_task_failed, set_on_review_needed, set_sound_enabled,
+                    set_preferred_ide,
+                    set_preferred_terminal,
+                    set_auto_name_terminals,
+                    set_yolo_mode,
+                    set_default_profile,
+                    set_agent_framework,
+                    set_ai_terminal_naming,
+                    set_python_path,
+                    set_git_path,
+                    set_github_cli_path,
+                    set_claude_cli_path,
+                    set_github_token_env,
+                    set_github_owner,
+                    set_github_repo,
+                    set_gitlab_token_env,
+                    set_linear_api_key_env,
+                    set_linear_team_id,
+                    set_openai_api_key_env,
+                    set_version,
+                    set_auto_update_projects,
+                    set_beta_updates,
+                    set_on_task_complete,
+                    set_on_task_failed,
+                    set_on_review_needed,
+                    set_sound_enabled,
                     set_anonymous_reporting,
-                    set_enable_memory, set_enable_agent_memory, set_graphiti_url,
-                    set_embedding_provider, set_embedding_model,
+                    set_enable_memory,
+                    set_enable_agent_memory,
+                    set_graphiti_url,
+                    set_embedding_provider,
+                    set_embedding_model,
                 );
             }
             Err(e) => {
@@ -447,7 +622,9 @@ pub fn ConfigPage(
                 set_local_provider_key_env.set(local.api_key_env);
             }
             Err(e) => {
-                web_sys::console::warn_1(&format!("Failed to load local provider settings: {e}").into());
+                web_sys::console::warn_1(
+                    &format!("Failed to load local provider settings: {e}").into(),
+                );
             }
         }
     });
@@ -464,25 +641,52 @@ pub fn ConfigPage(
 
     let on_save = move |_| {
         let settings = build_settings_from_signals(
-            &appearance_mode, &color_theme, &fine_scale,
+            &appearance_mode,
+            &color_theme,
+            &fine_scale,
             &interface_language,
-            &preferred_ide, &preferred_terminal, &auto_name_terminals, &yolo_mode,
-            &default_profile, &agent_framework, &ai_terminal_naming,
-            &python_path, &git_path, &github_cli_path, &claude_cli_path,
-            &github_token_env, &github_owner, &github_repo,
-            &gitlab_token_env, &linear_api_key_env, &linear_team_id,
+            &preferred_ide,
+            &preferred_terminal,
+            &auto_name_terminals,
+            &yolo_mode,
+            &default_profile,
+            &agent_framework,
+            &ai_terminal_naming,
+            &python_path,
+            &git_path,
+            &github_cli_path,
+            &claude_cli_path,
+            &github_token_env,
+            &github_owner,
+            &github_repo,
+            &gitlab_token_env,
+            &linear_api_key_env,
+            &linear_team_id,
             &openai_api_key_env,
-            &auto_update_projects, &beta_updates,
-            &on_task_complete, &on_task_failed, &on_review_needed, &sound_enabled,
+            &auto_update_projects,
+            &beta_updates,
+            &on_task_complete,
+            &on_task_failed,
+            &on_review_needed,
+            &sound_enabled,
             &anonymous_reporting,
-            &enable_memory, &enable_agent_memory, &graphiti_url,
-            &embedding_provider, &embedding_model,
-            &spec_model, &spec_thinking,
-            &ideation_model, &ideation_thinking,
-            &roadmap_model, &roadmap_thinking,
-            &gh_issues_model, &gh_issues_thinking,
-            &gh_pr_model, &gh_pr_thinking,
-            &utility_model, &utility_thinking,
+            &enable_memory,
+            &enable_agent_memory,
+            &graphiti_url,
+            &embedding_provider,
+            &embedding_model,
+            &spec_model,
+            &spec_thinking,
+            &ideation_model,
+            &ideation_thinking,
+            &roadmap_model,
+            &roadmap_thinking,
+            &gh_issues_model,
+            &gh_issues_thinking,
+            &gh_pr_model,
+            &gh_pr_thinking,
+            &utility_model,
+            &utility_thinking,
         );
         leptos::task::spawn_local(async move {
             match api::save_settings(&settings).await {
@@ -590,11 +794,26 @@ pub fn ConfigPage(
 
     // Sidebar items: (label, hint, is_section_header, is_button)
     let sidebar_items: Vec<(&str, &str, bool, bool)> = vec![
-        ("Appearance", "Customize how Auto Tundra looks", false, false),
+        (
+            "Appearance",
+            "Customize how Auto Tundra looks",
+            false,
+            false,
+        ),
         ("Display", "Adjust the size of UI elements", false, false),
         ("Language", "Choose your preferred language", false, false),
-        ("Developer Tools", "IDE and terminal preferences", false, false),
-        ("Agent Settings", "Default model and framework", false, false),
+        (
+            "Developer Tools",
+            "IDE and terminal preferences",
+            false,
+            false,
+        ),
+        (
+            "Agent Settings",
+            "Default model and framework",
+            false,
+            false,
+        ),
         ("Paths", "CLI tools and framework paths", false, false),
         ("Integrations", "API keys & Claude accounts", false, false),
         ("API Profiles", "Custom API endpoint profiles", false, false),
@@ -646,6 +865,10 @@ pub fn ConfigPage(
                                     }
                                 }
                             >
+                                <span
+                                    class="settings-tab-icon settings-tab-icon-svg"
+                                    inner_html=settings_tab_icon_svg(label)
+                                ></span>
                                 <div class="settings-tab-btn-content">
                                     <span class="settings-tab-label">{label}</span>
                                     <span class="settings-tab-hint">{hint}</span>
@@ -659,6 +882,10 @@ pub fn ConfigPage(
                                 class:active=move || active_tab.get() == i
                                 on:click=move |_| set_active_tab.set(i)
                             >
+                                <span
+                                    class="settings-tab-icon settings-tab-icon-svg"
+                                    inner_html=settings_tab_icon_svg(label)
+                                ></span>
                                 <div class="settings-tab-btn-content">
                                     <span class="settings-tab-label">{label}</span>
                                     <span class="settings-tab-hint">{hint}</span>
@@ -1517,8 +1744,11 @@ pub fn ConfigPage(
                         <div class="settings-panel">
                             <h3 class="settings-panel-title">"API Profiles"</h3>
                             <p class="settings-panel-subtitle">"Configure custom Anthropic-compatible API endpoints"</p>
-                            <div class="settings-info-banner">
-                                "Local Ollama/OpenAI-compatible profile is built in. Default endpoint: http://127.0.0.1:11434, default model: qwen2.5-coder:14b. Override via providers.local_base_url and providers.local_model in config."
+                            <div class="settings-info-banner settings-api-info-banner">
+                                <span class="settings-api-info-icon" inner_html=api_profiles_icon_svg("local")></span>
+                                <span>
+                                    "Local Ollama/OpenAI-compatible profile is built in. Default endpoint: http://127.0.0.1:11434, default model: qwen2.5-coder:14b. Override via providers.local_base_url and providers.local_model in config."
+                                </span>
                             </div>
 
                             <div class="settings-local-provider-card">
@@ -1536,7 +1766,7 @@ pub fn ConfigPage(
                                 </div>
                                 <div class="settings-local-provider-actions">
                                     <button
-                                        class="btn-secondary"
+                                        class="btn-secondary settings-probe-btn"
                                         on:click=move |_| {
                                             set_local_probe_loading.set(true);
                                             set_local_probe_status.set(None);
@@ -1557,7 +1787,8 @@ pub fn ConfigPage(
                                         }
                                         disabled=move || local_probe_loading.get()
                                     >
-                                        {move || if local_probe_loading.get() { "Testing..." } else { "Test Local Provider" }}
+                                        <span class="settings-probe-btn-icon" inner_html=api_profiles_icon_svg("test")></span>
+                                        <span>{move || if local_probe_loading.get() { "Testing..." } else { "Test Local Provider" }}</span>
                                     </button>
                                 </div>
                                 {move || local_probe_status.get().map(|(ok, msg)| {
@@ -1584,7 +1815,7 @@ pub fn ConfigPage(
                             {move || if !show_profile_form.get() {
                                 view! {
                                     <div class="settings-empty-state">
-                                        <div class="settings-empty-icon">"\u{1F4E6}"</div>
+                                        <div class="settings-empty-icon settings-empty-icon-svg" inner_html=api_profiles_icon_svg("empty")></div>
                                         <h4>"No API profiles configured"</h4>
                                         <p>"Create a profile to configure custom API endpoints for your builds."</p>
                                         <button class="btn-primary" on:click=move |_| set_show_profile_form.set(true)>

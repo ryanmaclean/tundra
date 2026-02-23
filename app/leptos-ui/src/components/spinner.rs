@@ -4,10 +4,8 @@ use leptos::prelude::*;
 /// Sizes: "sm" (16px), "md" (24px), "lg" (32px)
 #[component]
 pub fn Spinner(
-    #[prop(default = "md")]
-    size: &'static str,
-    #[prop(default = "")]
-    label: &'static str,
+    #[prop(default = "md")] size: &'static str,
+    #[prop(default = "")] label: &'static str,
 ) -> impl IntoView {
     let (w, h) = match size {
         "sm" => (16, 16),

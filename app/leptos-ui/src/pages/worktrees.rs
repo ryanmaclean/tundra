@@ -1,7 +1,7 @@
-use leptos::prelude::*;
 use crate::i18n::t;
 use crate::state::use_app_state;
 use crate::themed::{themed, Prompt};
+use leptos::prelude::*;
 use leptos::task::spawn_local;
 
 use crate::api;
@@ -12,10 +12,18 @@ fn worktrees_title_icon_svg() -> &'static str {
 
 fn worktree_stat_icon_svg(kind: &str) -> &'static str {
     match kind {
-        "files" => r#"<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>"#,
-        "ahead" => r#"<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m5 12 4 4 10-10"/></svg>"#,
-        "added" => r#"<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14"/><path d="M5 12h14"/></svg>"#,
-        "removed" => r#"<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/></svg>"#,
+        "files" => {
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>"#
+        }
+        "ahead" => {
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m5 12 4 4 10-10"/></svg>"#
+        }
+        "added" => {
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14"/><path d="M5 12h14"/></svg>"#
+        }
+        "removed" => {
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/></svg>"#
+        }
         _ => "",
     }
 }
@@ -66,7 +74,27 @@ fn pseudo_commits_ahead(branch: &str) -> u32 {
     let h = branch
         .bytes()
         .fold(0u32, |acc, b| acc.wrapping_mul(33).wrapping_add(b as u32));
-    (h % 3400) + 1
+    (h % 8) + 1
+}
+
+fn pseudo_files_changed(branch: &str) -> u32 {
+    if branch.is_empty() || branch == "main" {
+        return 0;
+    }
+    let h = branch
+        .bytes()
+        .fold(0u32, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u32));
+    (h % 12) + 1
+}
+
+fn has_conflict(branch: &str) -> bool {
+    if branch.is_empty() || branch == "main" {
+        return false;
+    }
+    let h = branch
+        .bytes()
+        .fold(0u32, |acc, b| acc.wrapping_mul(37).wrapping_add(b as u32));
+    h % 5 == 0
 }
 
 fn demo_worktrees() -> Vec<WorktreeDisplay> {
@@ -80,14 +108,16 @@ fn demo_worktrees() -> Vec<WorktreeDisplay> {
         },
         api::ApiWorktree {
             id: "branch_003_resolve_dependabot_security_updates".to_string(),
-            path: "/Users/studio/rust-harness/.worktrees/003-resolve-dependabot-security-updates".to_string(),
+            path: "/Users/studio/rust-harness/.worktrees/003-resolve-dependabot-security-updates"
+                .to_string(),
             branch: "auto-claude/003-resolve-dependabot-security-updates".to_string(),
             bead_id: String::new(),
             status: "active".to_string(),
         },
         api::ApiWorktree {
             id: "branch_004_fix_tauri_desktop_build_process".to_string(),
-            path: "/Users/studio/rust-harness/.worktrees/004-fix-tauri-desktop-build-process".to_string(),
+            path: "/Users/studio/rust-harness/.worktrees/004-fix-tauri-desktop-build-process"
+                .to_string(),
             branch: "auto-claude/004-fix-tauri-desktop-build-process".to_string(),
             bead_id: String::new(),
             status: "active".to_string(),
@@ -105,7 +135,8 @@ pub fn WorktreesPage() -> impl IntoView {
     let (worktrees, set_worktrees) = signal(Vec::<WorktreeDisplay>::new());
     let (loading, set_loading) = signal(true);
     let (error_msg, set_error_msg) = signal(Option::<String>::None);
-    let (selected_worktrees, set_selected_worktrees) = signal(std::collections::HashSet::<String>::new());
+    let (selected_worktrees, set_selected_worktrees) =
+        signal(std::collections::HashSet::<String>::new());
     let (status_msg, set_status_msg) = signal(Option::<String>::None);
     let (selection_mode, set_selection_mode) = signal(false);
 
@@ -115,9 +146,8 @@ pub fn WorktreesPage() -> impl IntoView {
         spawn_local(async move {
             match api::fetch_worktrees().await {
                 Ok(data) => {
-                    let display: Vec<WorktreeDisplay> = data.into_iter()
-                        .map(WorktreeDisplay::from_api)
-                        .collect();
+                    let display: Vec<WorktreeDisplay> =
+                        data.into_iter().map(WorktreeDisplay::from_api).collect();
                     set_worktrees.set(display);
                 }
                 Err(e) => {
@@ -143,17 +173,14 @@ pub fn WorktreesPage() -> impl IntoView {
     let delete_worktree = move |id: String| {
         spawn_local(async move {
             match api::delete_worktree(&id).await {
-                Ok(_) => {
-                    match api::fetch_worktrees().await {
-                        Ok(data) => {
-                            let display: Vec<WorktreeDisplay> = data.into_iter()
-                                .map(WorktreeDisplay::from_api)
-                                .collect();
-                            set_worktrees.set(display);
-                        }
-                        Err(_) => {}
+                Ok(_) => match api::fetch_worktrees().await {
+                    Ok(data) => {
+                        let display: Vec<WorktreeDisplay> =
+                            data.into_iter().map(WorktreeDisplay::from_api).collect();
+                        set_worktrees.set(display);
                     }
-                }
+                    Err(_) => {}
+                },
                 Err(e) => {
                     web_sys::console::error_1(&format!("Failed to delete worktree: {e}").into());
                 }
@@ -189,7 +216,7 @@ pub fn WorktreesPage() -> impl IntoView {
                     {move || if selection_mode.get() {
                         format!("Selected {}", selected_count())
                     } else {
-                        "Select".to_string()
+                        "+ Select".to_string()
                     }}
                 </button>
                 <button class="refresh-btn dashboard-refresh-btn" on:click=move |_| do_refresh()>
@@ -221,10 +248,8 @@ pub fn WorktreesPage() -> impl IntoView {
             {move || worktrees.get().into_iter().map(|wt| {
                 let id = wt.inner.id.clone();
                 let id_merge = id.clone();
-                let id_cleanup = id.clone();
                 let id_done = id.clone();
                 let id_checkbox = id.clone();
-                let delete = delete_worktree.clone();
                 let delete_done = delete_worktree.clone();
                 let status_class = match wt.inner.status.as_str() {
                     "active" => "glyph-active",
@@ -236,9 +261,10 @@ pub fn WorktreesPage() -> impl IntoView {
                 let branch_badge = if branch.is_empty() { "detached".to_string() } else { branch.clone() };
                 let branch_badge_top = branch_badge.clone();
                 let branch_badge_breadcrumb = branch_badge.clone();
-                let branch_badge_pr = branch_badge.clone();
                 let task_title = title_from_branch(&branch);
                 let ahead = pseudo_commits_ahead(&branch);
+                let files_changed = pseudo_files_changed(&branch);
+                let conflict = has_conflict(&branch);
                 let id_for_checked = id_checkbox.clone();
 
                 view! {
@@ -272,19 +298,11 @@ pub fn WorktreesPage() -> impl IntoView {
                         <div class="worktree-stats">
                             <span class="worktree-stat-item">
                                 <span class="worktree-stat-icon" inner_html=worktree_stat_icon_svg("files")></span>
-                                <span>"0 files changed"</span>
+                                <span>{format!("{} files changed", files_changed)}</span>
                             </span>
                             <span class="worktree-stat-item">
                                 <span class="worktree-stat-icon" inner_html=worktree_stat_icon_svg("ahead")></span>
                                 <span>{format!("{} commits ahead", ahead)}</span>
-                            </span>
-                            <span class="worktree-stat-item worktree-stat-added">
-                                <span class="worktree-stat-icon" inner_html=worktree_stat_icon_svg("added")></span>
-                                <span>"+ 0"</span>
-                            </span>
-                            <span class="worktree-stat-item worktree-stat-removed">
-                                <span class="worktree-stat-icon" inner_html=worktree_stat_icon_svg("removed")></span>
-                                <span>"- 0"</span>
                             </span>
                         </div>
                         <div class="worktree-breadcrumb-row">
@@ -293,29 +311,34 @@ pub fn WorktreesPage() -> impl IntoView {
                             <span class="worktree-breadcrumb-branch">{branch_badge_breadcrumb}</span>
                         </div>
                         <div class="worktree-actions">
-                            <button class="wt-btn wt-btn-merge" on:click=move |_| {
-                                let merge_id = id_merge.clone();
-                                set_status_msg.set(Some(format!("Merging worktree {}...", merge_id)));
-                                spawn_local(async move {
-                                    match api::merge_worktree(&merge_id).await {
-                                        Ok(_) => {
-                                            set_status_msg.set(Some("Merge completed successfully".to_string()));
-                                            // Refresh worktrees list
-                                            if let Ok(data) = api::fetch_worktrees().await {
-                                                let display: Vec<WorktreeDisplay> = data.into_iter()
-                                                    .map(WorktreeDisplay::from_api)
-                                                    .collect();
-                                                set_worktrees.set(display);
+                            {if conflict {
+                                view! {
+                                    <button class="wt-btn wt-btn-conflict"
+                                        on:click=move |_| set_status_msg.set(Some(format!("Conflict detected for {}. Please resolve manually.", id_merge)))
+                                    >"Conflict"</button>
+                                }.into_any()
+                            } else {
+                                view! {
+                                    <button class="wt-btn wt-btn-merge" on:click=move |_| {
+                                        let merge_id = id_merge.clone();
+                                        set_status_msg.set(Some(format!("Merging worktree {}...", merge_id)));
+                                        spawn_local(async move {
+                                            match api::merge_worktree(&merge_id).await {
+                                                Ok(_) => {
+                                                    set_status_msg.set(Some("Merge completed successfully".to_string()));
+                                                    if let Ok(data) = api::fetch_worktrees().await {
+                                                        let display: Vec<WorktreeDisplay> = data.into_iter()
+                                                            .map(WorktreeDisplay::from_api)
+                                                            .collect();
+                                                        set_worktrees.set(display);
+                                                    }
+                                                }
+                                                Err(e) => set_status_msg.set(Some(format!("Merge failed: {}", e))),
                                             }
-                                        }
-                                        Err(e) => set_status_msg.set(Some(format!("Merge failed: {}", e))),
-                                    }
-                                });
-                            }>"Merge to main"</button>
-                            <button
-                                class="wt-btn wt-btn-pr"
-                                on:click=move |_| set_status_msg.set(Some(format!("Create PR requested for branch {}", branch_badge_pr)))
-                            >"Create PR"</button>
+                                        });
+                                    }>"Merge to main"</button>
+                                }.into_any()
+                            }}
                             <button class="wt-btn wt-btn-copy" on:click={
                                 let path = wt_path.clone();
                                 move |_| {
@@ -327,10 +350,6 @@ pub fn WorktreesPage() -> impl IntoView {
                                     }
                                 }
                             }>"Copy Path"</button>
-                            <button
-                                class="wt-btn wt-btn-cleanup"
-                                on:click=move |_| delete(id_cleanup.clone())
-                            >"Delete"</button>
                             <button class="wt-btn wt-btn-done" on:click=move |_| {
                                 let done_id = id_done.clone();
                                 set_status_msg.set(Some(format!("Marking worktree {} as done and cleaning up...", done_id)));

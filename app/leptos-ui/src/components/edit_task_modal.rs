@@ -1,5 +1,5 @@
-use leptos::prelude::*;
 use leptos::ev::MouseEvent;
+use leptos::prelude::*;
 use leptos::task::spawn_local;
 
 use crate::state::use_app_state;
@@ -24,14 +24,26 @@ pub fn EditTaskModal(
 
     // Derive initial category/priority from tags
     let initial_category = {
-        let skip = ["Critical", "High", "Medium", "Low", "Stuck", "Needs Recovery", "PR Created", "Incomplete", "Needs Resume"];
-        initial_tags.iter()
+        let skip = [
+            "Critical",
+            "High",
+            "Medium",
+            "Low",
+            "Stuck",
+            "Needs Recovery",
+            "PR Created",
+            "Incomplete",
+            "Needs Resume",
+        ];
+        initial_tags
+            .iter()
             .find(|t| !skip.contains(&t.as_str()))
             .cloned()
             .unwrap_or_else(|| "Feature".to_string())
     };
     let initial_priority = {
-        initial_tags.iter()
+        initial_tags
+            .iter()
             .find(|t| matches!(t.as_str(), "Critical" | "High" | "Low"))
             .cloned()
             .unwrap_or_else(|| "Medium".to_string())
@@ -76,7 +88,6 @@ pub fn EditTaskModal(
             impact: Some(new_impact.clone()),
             effort: Some(new_effort.clone()),
             metadata: None,
-
         };
 
         let async_id = id.clone();
@@ -84,7 +95,6 @@ pub fn EditTaskModal(
             let id_clone = async_id.clone();
             let _ = crate::api::update_bead(&id_clone, &req).await;
         });
-
 
         // Build tags including all classification fields
         let mut new_tags: Vec<String> = vec![new_cat.clone()];
@@ -101,7 +111,10 @@ pub fn EditTaskModal(
                 // Preserve special tags
                 let mut tags = new_tags.clone();
                 for tag in &b.tags {
-                    if matches!(tag.as_str(), "Stuck" | "Needs Recovery" | "PR Created" | "Incomplete" | "Needs Resume") {
+                    if matches!(
+                        tag.as_str(),
+                        "Stuck" | "Needs Recovery" | "PR Created" | "Incomplete" | "Needs Resume"
+                    ) {
                         tags.push(tag.clone());
                     }
                 }
@@ -136,8 +149,16 @@ pub fn EditTaskModal(
                 model: Some(new_model),
                 thinking_level: Some(new_thinking),
                 complexity: Some(new_complexity),
-                impact: if new_impact.is_empty() { None } else { Some(new_impact) },
-                effort: if new_effort.is_empty() { None } else { Some(new_effort) },
+                impact: if new_impact.is_empty() {
+                    None
+                } else {
+                    Some(new_impact)
+                },
+                effort: if new_effort.is_empty() {
+                    None
+                } else {
+                    Some(new_effort)
+                },
                 metadata: None,
             };
             let _ = crate::api::update_bead(&api_id, &payload).await;

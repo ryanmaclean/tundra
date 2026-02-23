@@ -1,6 +1,6 @@
-use leptos::prelude::*;
 use crate::state::use_app_state;
 use crate::themed::{themed, Prompt};
+use leptos::prelude::*;
 use leptos::task::spawn_local;
 
 use crate::api;
@@ -21,8 +21,13 @@ pub fn ClaudeCodePage() -> impl IntoView {
             match api::fetch_agents().await {
                 Ok(data) => {
                     // Filter to only claude_code role agents
-                    let filtered: Vec<_> = data.into_iter()
-                        .filter(|a| a.role == "claude_code" || a.role == "claude-code" || a.role.contains("claude"))
+                    let filtered: Vec<_> = data
+                        .into_iter()
+                        .filter(|a| {
+                            a.role == "claude_code"
+                                || a.role == "claude-code"
+                                || a.role.contains("claude")
+                        })
                         .collect();
                     set_agents.set(filtered);
                 }
@@ -35,15 +40,27 @@ pub fn ClaudeCodePage() -> impl IntoView {
     do_refresh();
 
     let active_count = move || {
-        agents.get().iter().filter(|a| a.status == "active" || a.status == "running").count()
+        agents
+            .get()
+            .iter()
+            .filter(|a| a.status == "active" || a.status == "running")
+            .count()
     };
     let total_count = move || agents.get().len();
 
     let integration_status = move || {
-        if total_count() > 0 { "Connected" } else { "No Claude Code agents" }
+        if total_count() > 0 {
+            "Connected"
+        } else {
+            "No Claude Code agents"
+        }
     };
     let integration_class = move || {
-        if total_count() > 0 { "glyph-active" } else { "glyph-stopped" }
+        if total_count() > 0 {
+            "glyph-active"
+        } else {
+            "glyph-stopped"
+        }
     };
 
     view! {

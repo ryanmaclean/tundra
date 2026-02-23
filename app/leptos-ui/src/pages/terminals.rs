@@ -1,6 +1,6 @@
+use crate::api::get_api_base;
 use crate::components::terminal_view::TerminalView;
 use crate::i18n::t;
-use crate::api::get_api_base;
 use leptos::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -31,9 +31,15 @@ pub struct TerminalInfo {
     pub persistent: bool,
 }
 
-fn default_font_size() -> u16 { 14 }
-fn default_cursor_style() -> String { "block".to_string() }
-fn default_cursor_blink() -> bool { true }
+fn default_font_size() -> u16 {
+    14
+}
+fn default_cursor_style() -> String {
+    "block".to_string()
+}
+fn default_cursor_blink() -> bool {
+    true
+}
 
 // ---------------------------------------------------------------------------
 // API helpers
@@ -86,9 +92,8 @@ async fn api_delete_terminal(id: &str) -> Result<(), String> {
     opts.set_method("DELETE");
     let api_base = get_api_base();
 
-    let request =
-        Request::new_with_str_and_init(&format!("{api_base}/api/terminals/{id}"), &opts)
-            .map_err(|e| format!("{e:?}"))?;
+    let request = Request::new_with_str_and_init(&format!("{api_base}/api/terminals/{id}"), &opts)
+        .map_err(|e| format!("{e:?}"))?;
 
     let window = web_sys::window().ok_or("no global window")?;
     JsFuture::from(window.fetch_with_request(&request))

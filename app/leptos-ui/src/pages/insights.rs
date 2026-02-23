@@ -1,11 +1,15 @@
-use leptos::prelude::*;
 use crate::state::use_app_state;
 use crate::themed::{themed, Prompt};
+use leptos::prelude::*;
 use leptos::task::spawn_local;
 use serde::{Deserialize, Serialize};
 
 use crate::api;
 use crate::i18n::t;
+
+fn insights_title_icon_svg() -> &'static str {
+    r#"<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v3"/><path d="M18.36 5.64l-2.12 2.12"/><path d="M21 12h-3"/><path d="M18.36 18.36l-2.12-2.12"/><path d="M12 21v-3"/><path d="M5.64 18.36l2.12-2.12"/><path d="M3 12h3"/><path d="M5.64 5.64l2.12 2.12"/><circle cx="12" cy="12" r="3"/></svg>"#
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct ChatMessage {
@@ -59,13 +63,14 @@ pub fn InsightsPage() -> impl IntoView {
         spawn_local(async move {
             match api::fetch_insights_sessions().await {
                 Ok(data) => {
-                    let chat_sessions: Vec<ChatSession> = data.into_iter().map(|s| {
-                        ChatSession {
+                    let chat_sessions: Vec<ChatSession> = data
+                        .into_iter()
+                        .map(|s| ChatSession {
                             id: s.id,
                             title: s.title,
                             messages: vec![],
-                        }
-                    }).collect();
+                        })
+                        .collect();
                     set_sessions.set(chat_sessions);
                 }
                 Err(e) => {
@@ -78,7 +83,7 @@ pub fn InsightsPage() -> impl IntoView {
                     } else {
                         set_error_msg.set(Some(format!("Failed to fetch sessions: {e}")));
                     }
-                },
+                }
             }
             set_loading.set(false);
         });
@@ -92,13 +97,14 @@ pub fn InsightsPage() -> impl IntoView {
         spawn_local(async move {
             match api::fetch_insights_messages(&session_id).await {
                 Ok(msgs) => {
-                    let chat_msgs: Vec<ChatMessage> = msgs.into_iter().map(|m| {
-                        ChatMessage {
+                    let chat_msgs: Vec<ChatMessage> = msgs
+                        .into_iter()
+                        .map(|m| ChatMessage {
                             id: m.id,
                             role: m.role,
                             content: m.content,
-                        }
-                    }).collect();
+                        })
+                        .collect();
                     set_sessions.update(|sessions| {
                         if let Some(session) = sessions.iter_mut().find(|s| s.id == session_id) {
                             session.messages = chat_msgs;
@@ -124,13 +130,18 @@ pub fn InsightsPage() -> impl IntoView {
 
     let active_session = move || {
         let sid = active_session_id.get();
-        sid.and_then(|id| {
-            sessions.get().into_iter().find(|s| s.id == id)
-        })
+        sid.and_then(|id| sessions.get().into_iter().find(|s| s.id == id))
     };
 
     let on_new_session = move |_| {
-        let new_id = format!("isess-{}", uuid::Uuid::new_v4().to_string().split('-').next().unwrap_or("000"));
+        let new_id = format!(
+            "isess-{}",
+            uuid::Uuid::new_v4()
+                .to_string()
+                .split('-')
+                .next()
+                .unwrap_or("000")
+        );
         let session = ChatSession {
             id: new_id.clone(),
             title: "New Chat".into(),
@@ -160,7 +171,14 @@ pub fn InsightsPage() -> impl IntoView {
 
         // Add user message locally (optimistic)
         let user_msg = ChatMessage {
-            id: format!("msg-{}", uuid::Uuid::new_v4().to_string().split('-').next().unwrap_or("000")),
+            id: format!(
+                "msg-{}",
+                uuid::Uuid::new_v4()
+                    .to_string()
+                    .split('-')
+                    .next()
+                    .unwrap_or("000")
+            ),
             role: "user".into(),
             content: text.clone(),
         };
@@ -238,30 +256,41 @@ pub fn InsightsPage() -> impl IntoView {
 
     /// Render message content with basic formatting
     fn render_content(content: &str) -> Vec<AnyView> {
-        content.lines().map(|line| {
-            if line.starts_with("- ") || line.starts_with("* ") {
-                let text = line.trim_start_matches("- ").trim_start_matches("* ");
-                view! { <li class="chat-list-item">{text.to_string()}</li> }.into_any()
-            } else if line.starts_with("```") {
-                view! { <div class="chat-code-fence">{line.to_string()}</div> }.into_any()
-            } else if line.starts_with("## ") {
-                let text = line.trim_start_matches("## ");
-                view! { <h4 class="chat-heading">{text.to_string()}</h4> }.into_any()
-            } else if line.starts_with("# ") {
-                let text = line.trim_start_matches("# ");
-                view! { <h3 class="chat-heading">{text.to_string()}</h3> }.into_any()
-            } else if line.trim().is_empty() {
-                view! { <br /> }.into_any()
-            } else {
-                view! { <p class="chat-paragraph">{line.to_string()}</p> }.into_any()
-            }
-        }).collect()
+        content
+            .lines()
+            .map(|line| {
+                if line.starts_with("- ") || line.starts_with("* ") {
+                    let text = line.trim_start_matches("- ").trim_start_matches("* ");
+                    view! { <li class="chat-list-item">{text.to_string()}</li> }.into_any()
+                } else if line.starts_with("```") {
+                    view! { <div class="chat-code-fence">{line.to_string()}</div> }.into_any()
+                } else if line.starts_with("## ") {
+                    let text = line.trim_start_matches("## ");
+                    view! { <h4 class="chat-heading">{text.to_string()}</h4> }.into_any()
+                } else if line.starts_with("# ") {
+                    let text = line.trim_start_matches("# ");
+                    view! { <h3 class="chat-heading">{text.to_string()}</h3> }.into_any()
+                } else if line.trim().is_empty() {
+                    view! { <br /> }.into_any()
+                } else {
+                    view! { <p class="chat-paragraph">{line.to_string()}</p> }.into_any()
+                }
+            })
+            .collect()
     }
 
     view! {
         <div class="page-header insights-header">
-            <h2>{t("insights-title")}</h2>
-            <p class="insights-subtitle">"Ask questions about your codebase"</p>
+            <div class="insights-header-main">
+                <h2 class="insights-title-row">
+                    <span
+                        class="insights-title-icon"
+                        inner_html=insights_title_icon_svg()
+                    ></span>
+                    <span>{t("insights-title")}</span>
+                </h2>
+                <p class="insights-subtitle">"Ask questions about your codebase"</p>
+            </div>
         </div>
 
         {move || error_msg.get().map(|msg| view! {
@@ -402,16 +431,63 @@ pub fn InsightsPage() -> impl IntoView {
                         }.into_any()
                     }
 
-                    None => view! {
-                        <div class="insights-empty-state">
-                            <div
-                                class="placeholder-icon insights-empty-icon-svg"
-                                inner_html=r#"<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M8 9h8"/><path d="M8 13h5"/></svg>"#
-                            ></div>
-                            <h3>"Select or create a chat session"</h3>
-                            <p>"Start a new insights session to chat about your codebase"</p>
-                        </div>
-                    }.into_any(),
+                    None => {
+                        let on_start_chat = on_new_session.clone();
+                        view! {
+                            <div class="insights-empty-state">
+                                <div
+                                    class="placeholder-icon insights-empty-icon-svg"
+                                    inner_html=r#"<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M8 9h8"/><path d="M8 13h5"/></svg>"#
+                                ></div>
+                                <h3>"Select or create a chat session"</h3>
+                                <p>"Start a new insights session to chat about your codebase"</p>
+                                <button class="insights-start-chat-btn" on:click=on_start_chat>
+                                    "Start Chat"
+                                </button>
+
+                                <div class="insights-feature-suggestions">
+                                    <h4>"Try asking about..."</h4>
+                                    <ul class="insights-suggestion-list">
+                                        <li class="insights-suggestion-item">
+                                            <span class="insights-suggestion-icon">"\u{1F50D}"</span>
+                                            <div>
+                                                <strong>"Code architecture"</strong>
+                                                <span>" - Explore module dependencies and design patterns"</span>
+                                            </div>
+                                        </li>
+                                        <li class="insights-suggestion-item">
+                                            <span class="insights-suggestion-icon">"\u{1F41B}"</span>
+                                            <div>
+                                                <strong>"Bug analysis"</strong>
+                                                <span>" - Identify potential issues and anti-patterns"</span>
+                                            </div>
+                                        </li>
+                                        <li class="insights-suggestion-item">
+                                            <span class="insights-suggestion-icon">"\u{1F680}"</span>
+                                            <div>
+                                                <strong>"Performance hotspots"</strong>
+                                                <span>" - Find optimization opportunities"</span>
+                                            </div>
+                                        </li>
+                                        <li class="insights-suggestion-item">
+                                            <span class="insights-suggestion-icon">"\u{1F4DD}"</span>
+                                            <div>
+                                                <strong>"Documentation gaps"</strong>
+                                                <span>" - Discover undocumented public APIs"</span>
+                                            </div>
+                                        </li>
+                                        <li class="insights-suggestion-item">
+                                            <span class="insights-suggestion-icon">"\u{2728}"</span>
+                                            <div>
+                                                <strong>"Feature ideas"</strong>
+                                                <span>" - Get suggestions for next features to build"</span>
+                                            </div>
+                                        </li>
+                                    </ul>
+                                </div>
+                            </div>
+                        }.into_any()
+                    },
                 }}
             </div>
         </div>

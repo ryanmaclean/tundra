@@ -80,28 +80,17 @@ fn relative_time(iso_timestamp: &str) -> String {
 pub fn BeadCard(
     id: String,
     title: String,
-    #[prop(default = String::new())]
-    description: String,
-    #[prop(default = String::new())]
-    status: String,
-    #[prop(default = Vec::new())]
-    tags: Vec<String>,
-    #[prop(default = String::from("plan"))]
-    progress_stage: String,
-    #[prop(default = Vec::new())]
-    agent_names: Vec<String>,
-    #[prop(default = String::new())]
-    timestamp: String,
-    #[prop(default = None)]
-    action: Option<String>,
-    #[prop(default = String::new())]
-    lane: String,
-    #[prop(default = String::new())]
-    priority: String,
-    #[prop(default = String::new())]
-    updated_at: String,
-    #[prop(optional)]
-    on_action: Option<Callback<(String, String)>>,
+    #[prop(default = String::new())] description: String,
+    #[prop(default = String::new())] status: String,
+    #[prop(default = Vec::new())] tags: Vec<String>,
+    #[prop(default = String::from("plan"))] progress_stage: String,
+    #[prop(default = Vec::new())] agent_names: Vec<String>,
+    #[prop(default = String::new())] timestamp: String,
+    #[prop(default = None)] action: Option<String>,
+    #[prop(default = String::new())] lane: String,
+    #[prop(default = String::new())] priority: String,
+    #[prop(default = String::new())] updated_at: String,
+    #[prop(optional)] on_action: Option<Callback<(String, String)>>,
 ) -> impl IntoView {
     let show_pipeline = !progress_stage.is_empty();
     let has_tags = !tags.is_empty();
@@ -121,17 +110,24 @@ pub fn BeadCard(
     let visible_tags = tags.iter().take(2).cloned().collect::<Vec<_>>();
     let overflow_count = tags.len().saturating_sub(2);
 
-    let tag_views = visible_tags.into_iter().map(|t| {
-        let cls = tag_class(&t);
-        view! { <span class={cls}>{t}</span> }
-    }).collect::<Vec<_>>();
+    let tag_views = visible_tags
+        .into_iter()
+        .map(|t| {
+            let cls = tag_class(&t);
+            view! { <span class={cls}>{t}</span> }
+        })
+        .collect::<Vec<_>>();
 
     // Agent initials badges instead of dots
-    let agent_views = agent_names.into_iter().enumerate().map(|(i, name)| {
-        let initials = agent_initials(&name);
-        let color_cls = format!("agent-badge color-{}", i % 6);
-        view! { <span class={color_cls} title={name}>{initials}</span> }
-    }).collect::<Vec<_>>();
+    let agent_views = agent_names
+        .into_iter()
+        .enumerate()
+        .map(|(i, name)| {
+            let initials = agent_initials(&name);
+            let color_cls = format!("agent-badge color-{}", i % 6);
+            view! { <span class={color_cls} title={name}>{initials}</span> }
+        })
+        .collect::<Vec<_>>();
 
     // Time-in-status from updated_at
     let time_display = relative_time(&updated_at);

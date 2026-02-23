@@ -52,9 +52,15 @@ pub fn themed(mode: DisplayMode, prompt: Prompt) -> &'static str {
         (DisplayMode::Standard, Prompt::StatusUptime) => "uptime",
 
         // Empty states
-        (DisplayMode::Standard, Prompt::EmptyBacklog) => "No beads in backlog. Create a task to get started.",
-        (DisplayMode::Standard, Prompt::EmptyAgents) => "No agents are running. Start a bead to spawn one.",
-        (DisplayMode::Standard, Prompt::EmptyTerminals) => "No terminal sessions. Open one to get started.",
+        (DisplayMode::Standard, Prompt::EmptyBacklog) => {
+            "No beads in backlog. Create a task to get started."
+        }
+        (DisplayMode::Standard, Prompt::EmptyAgents) => {
+            "No agents are running. Start a bead to spawn one."
+        }
+        (DisplayMode::Standard, Prompt::EmptyTerminals) => {
+            "No terminal sessions. Open one to get started."
+        }
         (DisplayMode::Standard, Prompt::EmptyKpi) => "No metrics available yet.",
 
         // Actions
@@ -92,7 +98,9 @@ pub fn themed(mode: DisplayMode, prompt: Prompt) -> &'static str {
         // Empty states
         (DisplayMode::Foil, Prompt::EmptyBacklog) => "The deck is empty. Deal a new hand.",
         (DisplayMode::Foil, Prompt::EmptyAgents) => "No players at the table. Ante up!",
-        (DisplayMode::Foil, Prompt::EmptyTerminals) => "No consoles active. Insert coin to continue.",
+        (DisplayMode::Foil, Prompt::EmptyTerminals) => {
+            "No consoles active. Insert coin to continue."
+        }
         (DisplayMode::Foil, Prompt::EmptyKpi) => "No score yet. Play a round to see your stats.",
 
         // Actions
@@ -161,28 +169,62 @@ pub fn themed(mode: DisplayMode, prompt: Prompt) -> &'static str {
 pub fn format_status(mode: DisplayMode, agents: usize, beads: usize) -> String {
     match mode {
         DisplayMode::Standard => {
-            format!("{} {} | {} {}", agents, themed(mode, Prompt::StatusAgentsActive), beads, themed(mode, Prompt::StatusBeadsInPipeline))
+            format!(
+                "{} {} | {} {}",
+                agents,
+                themed(mode, Prompt::StatusAgentsActive),
+                beads,
+                themed(mode, Prompt::StatusBeadsInPipeline)
+            )
         }
         DisplayMode::Foil => {
-            format!("{} {} | {} {}", agents, themed(mode, Prompt::StatusAgentsActive), beads, themed(mode, Prompt::StatusBeadsInPipeline))
+            format!(
+                "{} {} | {} {}",
+                agents,
+                themed(mode, Prompt::StatusAgentsActive),
+                beads,
+                themed(mode, Prompt::StatusBeadsInPipeline)
+            )
         }
         DisplayMode::Vt100 => {
-            format!("SYS: {} {} | {} {}", agents, themed(mode, Prompt::StatusAgentsActive), beads, themed(mode, Prompt::StatusBeadsInPipeline))
+            format!(
+                "SYS: {} {} | {} {}",
+                agents,
+                themed(mode, Prompt::StatusAgentsActive),
+                beads,
+                themed(mode, Prompt::StatusBeadsInPipeline)
+            )
         }
     }
 }
 
 /// Format a status line with uptime.
-pub fn format_status_full(mode: DisplayMode, agents: usize, beads: usize, uptime_str: &str) -> String {
+pub fn format_status_full(
+    mode: DisplayMode,
+    agents: usize,
+    beads: usize,
+    uptime_str: &str,
+) -> String {
     match mode {
         DisplayMode::Standard => {
-            format!("{} agents active | {} beads in pipeline | uptime {}", agents, beads, uptime_str)
+            format!(
+                "{} agents active | {} beads in pipeline | uptime {}",
+                agents, beads, uptime_str
+            )
         }
         DisplayMode::Foil => {
-            format!("{} agents dealt | {} cards in play | session {}", agents, beads, uptime_str)
+            format!(
+                "{} agents dealt | {} cards in play | session {}",
+                agents, beads, uptime_str
+            )
         }
         DisplayMode::Vt100 => {
-            format!("SYS: {} PROC ACTIVE | {} JOBS QUEUED | UPTIME {}", agents, beads, uptime_str.to_uppercase())
+            format!(
+                "SYS: {} PROC ACTIVE | {} JOBS QUEUED | UPTIME {}",
+                agents,
+                beads,
+                uptime_str.to_uppercase()
+            )
         }
     }
 }

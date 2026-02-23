@@ -46,7 +46,7 @@ pub struct AgentResponse {
 
 // ── Bead ──
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum BeadStatus {
     Planning,
     InProgress,
@@ -675,10 +675,22 @@ pub fn demo_beads() -> Vec<BeadResponse> {
 
 pub fn demo_kpis() -> Vec<KpiResponse> {
     vec![
-        KpiResponse { label: "Active Agents".into(), value: "3".into() },
-        KpiResponse { label: "Total Beads".into(), value: "20".into() },
-        KpiResponse { label: "Convoys".into(), value: "2".into() },
-        KpiResponse { label: "Total Cost".into(), value: "$2.95".into() },
+        KpiResponse {
+            label: "Active Agents".into(),
+            value: "3".into(),
+        },
+        KpiResponse {
+            label: "Total Beads".into(),
+            value: "20".into(),
+        },
+        KpiResponse {
+            label: "Convoys".into(),
+            value: "2".into(),
+        },
+        KpiResponse {
+            label: "Total Cost".into(),
+            value: "$2.95".into(),
+        },
     ]
 }
 
@@ -724,19 +736,59 @@ pub fn demo_convoys() -> Vec<ConvoyResponse> {
 
 pub fn demo_costs() -> Vec<CostEntry> {
     vec![
-        CostEntry { agent_name: "Architect".into(), model: "claude-opus-4".into(), tokens: 45_230, cost_usd: 1.23 },
-        CostEntry { agent_name: "Coder-A".into(), model: "claude-sonnet-4".into(), tokens: 128_400, cost_usd: 0.89 },
-        CostEntry { agent_name: "Coder-B".into(), model: "claude-sonnet-4".into(), tokens: 67_100, cost_usd: 0.47 },
-        CostEntry { agent_name: "Reviewer".into(), model: "claude-opus-4".into(), tokens: 12_050, cost_usd: 0.34 },
-        CostEntry { agent_name: "Tester".into(), model: "claude-haiku-3".into(), tokens: 8_200, cost_usd: 0.02 },
+        CostEntry {
+            agent_name: "Architect".into(),
+            model: "claude-opus-4".into(),
+            tokens: 45_230,
+            cost_usd: 1.23,
+        },
+        CostEntry {
+            agent_name: "Coder-A".into(),
+            model: "claude-sonnet-4".into(),
+            tokens: 128_400,
+            cost_usd: 0.89,
+        },
+        CostEntry {
+            agent_name: "Coder-B".into(),
+            model: "claude-sonnet-4".into(),
+            tokens: 67_100,
+            cost_usd: 0.47,
+        },
+        CostEntry {
+            agent_name: "Reviewer".into(),
+            model: "claude-opus-4".into(),
+            tokens: 12_050,
+            cost_usd: 0.34,
+        },
+        CostEntry {
+            agent_name: "Tester".into(),
+            model: "claude-haiku-3".into(),
+            tokens: 8_200,
+            cost_usd: 0.02,
+        },
     ]
 }
 
 pub fn demo_mcp_servers() -> Vec<McpServerEntry> {
     vec![
-        McpServerEntry { name: "filesystem".into(), endpoint: "stdio://mcp-fs".into(), status: "connected".into(), tools_count: 12 },
-        McpServerEntry { name: "git".into(), endpoint: "stdio://mcp-git".into(), status: "connected".into(), tools_count: 8 },
-        McpServerEntry { name: "web-search".into(), endpoint: "http://localhost:3100".into(), status: "disconnected".into(), tools_count: 3 },
+        McpServerEntry {
+            name: "filesystem".into(),
+            endpoint: "stdio://mcp-fs".into(),
+            status: "connected".into(),
+            tools_count: 12,
+        },
+        McpServerEntry {
+            name: "git".into(),
+            endpoint: "stdio://mcp-git".into(),
+            status: "connected".into(),
+            tools_count: 8,
+        },
+        McpServerEntry {
+            name: "web-search".into(),
+            endpoint: "http://localhost:3100".into(),
+            status: "disconnected".into(),
+            tools_count: 3,
+        },
     ]
 }
 

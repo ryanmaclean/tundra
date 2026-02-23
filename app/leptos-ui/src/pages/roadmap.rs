@@ -1,6 +1,6 @@
-use leptos::prelude::*;
 use crate::state::use_app_state;
 use crate::themed::{themed, Prompt};
+use leptos::prelude::*;
 use leptos::task::spawn_local;
 use web_sys::DragEvent;
 
@@ -72,7 +72,9 @@ pub fn RoadmapPage() -> impl IntoView {
         set_adding.set(true);
         set_error_msg.set(None);
         spawn_local(async move {
-            match api::add_roadmap_feature(&title, &desc, "proposed", &priority.to_lowercase()).await {
+            match api::add_roadmap_feature(&title, &desc, "proposed", &priority.to_lowercase())
+                .await
+            {
                 Ok(feature) => {
                     set_features.update(|f| {
                         f.push(feature);
@@ -87,7 +89,14 @@ pub fn RoadmapPage() -> impl IntoView {
                 }
                 Err(e) => {
                     let feature = api::ApiRoadmapItem {
-                        id: format!("feat-{}", uuid::Uuid::new_v4().to_string().split('-').next().unwrap_or("000")),
+                        id: format!(
+                            "feat-{}",
+                            uuid::Uuid::new_v4()
+                                .to_string()
+                                .split('-')
+                                .next()
+                                .unwrap_or("000")
+                        ),
                         title,
                         description: desc,
                         status: "Planned".to_string(),
@@ -131,9 +140,15 @@ pub fn RoadmapPage() -> impl IntoView {
 
     // Kanban columns for roadmap
     let kanban_columns = vec![
-        (t("roadmap-columns-review"), vec!["Under Review", "under_review", "review", "proposed"]),
+        (
+            t("roadmap-columns-review"),
+            vec!["Under Review", "under_review", "review", "proposed"],
+        ),
         (t("roadmap-columns-planned"), vec!["Planned", "planned"]),
-        (t("roadmap-columns-progress"), vec!["InProgress", "in_progress", "In Progress"]),
+        (
+            t("roadmap-columns-progress"),
+            vec!["InProgress", "in_progress", "In Progress"],
+        ),
         (t("roadmap-columns-done"), vec!["Done", "done", "completed"]),
     ];
 

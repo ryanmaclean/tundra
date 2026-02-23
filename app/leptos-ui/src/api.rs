@@ -31,7 +31,10 @@ pub fn get_api_base() -> String {
 fn js_err(e: JsValue) -> String {
     // Try to get the .message property (TypeError, Error, etc.)
     if let Some(err) = e.dyn_ref::<js_sys::Error>() {
-        return err.message().as_string().unwrap_or_else(|| "Unknown error".to_string());
+        return err
+            .message()
+            .as_string()
+            .unwrap_or_else(|| "Unknown error".to_string());
     }
     // Try .toString()
     if let Some(s) = e.as_string() {
@@ -44,8 +47,7 @@ async fn fetch_json<T: for<'de> Deserialize<'de>>(url: &str) -> Result<T, String
     let opts = RequestInit::new();
     opts.set_method("GET");
 
-    let request =
-        Request::new_with_str_and_init(url, &opts).map_err(js_err)?;
+    let request = Request::new_with_str_and_init(url, &opts).map_err(js_err)?;
     request
         .headers()
         .set("Accept", "application/json")
@@ -77,8 +79,7 @@ async fn post_json<T: Serialize, R: for<'de> Deserialize<'de>>(
     opts.set_method("POST");
     opts.set_body(&JsValue::from_str(&body_str));
 
-    let request =
-        Request::new_with_str_and_init(url, &opts).map_err(js_err)?;
+    let request = Request::new_with_str_and_init(url, &opts).map_err(js_err)?;
     request
         .headers()
         .set("Content-Type", "application/json")
@@ -237,8 +238,7 @@ async fn put_json<T: Serialize, R: for<'de> Deserialize<'de>>(
     opts.set_method("PUT");
     opts.set_body(&JsValue::from_str(&body_str));
 
-    let request =
-        Request::new_with_str_and_init(url, &opts).map_err(js_err)?;
+    let request = Request::new_with_str_and_init(url, &opts).map_err(js_err)?;
     request
         .headers()
         .set("Content-Type", "application/json")
@@ -601,16 +601,14 @@ fn demo_stacks() -> Vec<ApiStack> {
                 pr_number: Some(39),
                 stack_position: 0,
             },
-            children: vec![
-                ApiStackNode {
-                    id: "bead-014".into(),
-                    title: "Security audit: API auth".into(),
-                    phase: "Human Review".into(),
-                    git_branch: Some("feat/api-auth-audit".into()),
-                    pr_number: None,
-                    stack_position: 1,
-                },
-            ],
+            children: vec![ApiStackNode {
+                id: "bead-014".into(),
+                title: "Security audit: API auth".into(),
+                phase: "Human Review".into(),
+                git_branch: Some("feat/api-auth-audit".into()),
+                pr_number: None,
+                stack_position: 1,
+            }],
             total: 2,
         },
         ApiStack {
@@ -706,7 +704,11 @@ pub async fn probe_local_provider(base_url: &str) -> Result<ApiLocalProviderProb
             .and_then(|v| v.as_array())
             .map(|arr| {
                 arr.iter()
-                    .filter_map(|m| m.get("name").and_then(|n| n.as_str()).map(|s| s.to_string()))
+                    .filter_map(|m| {
+                        m.get("name")
+                            .and_then(|n| n.as_str())
+                            .map(|s| s.to_string())
+                    })
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
@@ -746,7 +748,9 @@ pub async fn probe_local_provider(base_url: &str) -> Result<ApiLocalProviderProb
             model_count,
             sample_models,
             message: if model_count > 0 {
-                format!("Connected to OpenAI-compatible local provider. Found {model_count} model(s).")
+                format!(
+                    "Connected to OpenAI-compatible local provider. Found {model_count} model(s)."
+                )
             } else {
                 "Connected to local provider, but no models were listed.".to_string()
             },
@@ -770,8 +774,7 @@ async fn delete_request(url: &str) -> Result<(), String> {
     let opts = RequestInit::new();
     opts.set_method("DELETE");
 
-    let request =
-        Request::new_with_str_and_init(url, &opts).map_err(js_err)?;
+    let request = Request::new_with_str_and_init(url, &opts).map_err(js_err)?;
     request
         .headers()
         .set("Accept", "application/json")
@@ -794,8 +797,7 @@ async fn post_empty<R: for<'de> Deserialize<'de>>(url: &str) -> Result<R, String
     let opts = RequestInit::new();
     opts.set_method("POST");
 
-    let request =
-        Request::new_with_str_and_init(url, &opts).map_err(js_err)?;
+    let request = Request::new_with_str_and_init(url, &opts).map_err(js_err)?;
     request
         .headers()
         .set("Accept", "application/json")
@@ -1092,7 +1094,11 @@ pub async fn search_memory(query: &str) -> Result<Vec<ApiMemoryEntry>, String> {
 
 pub async fn add_memory(category: &str, content: &str) -> Result<ApiMemoryEntry, String> {
     let body = AddMemoryRequest {
-        key: content.split_whitespace().take(5).collect::<Vec<_>>().join("_"),
+        key: content
+            .split_whitespace()
+            .take(5)
+            .collect::<Vec<_>>()
+            .join("_"),
         value: content.to_string(),
         category: category.to_string(),
         source: "ui".to_string(),
@@ -1106,7 +1112,8 @@ pub async fn fetch_roadmap() -> Result<Vec<ApiRoadmapItem>, String> {
 }
 
 pub async fn generate_roadmap() -> Result<Vec<ApiRoadmapItem>, String> {
-    let roadmap: ApiRoadmap = post_empty(&format!("{}/api/roadmap/generate", get_api_base())).await?;
+    let roadmap: ApiRoadmap =
+        post_empty(&format!("{}/api/roadmap/generate", get_api_base())).await?;
     Ok(flatten_roadmaps(vec![roadmap]))
 }
 
@@ -1131,15 +1138,25 @@ pub async fn fetch_insights_sessions() -> Result<Vec<ApiInsightsSession>, String
 }
 
 pub async fn fetch_insights_messages(session_id: &str) -> Result<Vec<ApiInsightsMessage>, String> {
-    fetch_json(&format!("{}/api/insights/sessions/{session_id}/messages", get_api_base())).await
+    fetch_json(&format!(
+        "{}/api/insights/sessions/{session_id}/messages",
+        get_api_base()
+    ))
+    .await
 }
 
-pub async fn send_insights_message(session_id: &str, content: &str) -> Result<ApiInsightsMessage, String> {
+pub async fn send_insights_message(
+    session_id: &str,
+    content: &str,
+) -> Result<ApiInsightsMessage, String> {
     let body = SendInsightsMessageRequest {
         content: content.to_string(),
     };
     let _: serde_json::Value = post_json(
-        &format!("{}/api/insights/sessions/{session_id}/messages", get_api_base()),
+        &format!(
+            "{}/api/insights/sessions/{session_id}/messages",
+            get_api_base()
+        ),
         &body,
     )
     .await?;
@@ -1191,11 +1208,17 @@ pub struct ApiNotificationCount {
 
 // ── Notification API functions ──
 
-pub async fn fetch_notifications(unread_only: bool, limit: usize, offset: usize) -> Result<Vec<ApiNotification>, String> {
+pub async fn fetch_notifications(
+    unread_only: bool,
+    limit: usize,
+    offset: usize,
+) -> Result<Vec<ApiNotification>, String> {
     let unread_param = if unread_only { "&unread=true" } else { "" };
     fetch_json(&format!(
-        "{}/api/notifications?limit={limit}&offset={offset}{unread_param}"
-    , get_api_base())).await
+        "{}/api/notifications?limit={limit}&offset={offset}{unread_param}",
+        get_api_base()
+    ))
+    .await
 }
 
 pub async fn fetch_notification_count() -> Result<ApiNotificationCount, String> {
@@ -1418,10 +1441,7 @@ pub async fn review_gitlab_merge_request(
             .map(|s| s.to_string()),
     };
     post_json(
-        &format!(
-            "{}/api/gitlab/merge-requests/{iid}/review",
-            get_api_base()
-        ),
+        &format!("{}/api/gitlab/merge-requests/{iid}/review", get_api_base()),
         &body,
     )
     .await
@@ -1432,7 +1452,11 @@ pub async fn sync_github() -> Result<serde_json::Value, String> {
 }
 
 pub async fn import_issue_as_bead(issue_number: u32) -> Result<ApiBead, String> {
-    post_empty(&format!("{}/api/github/issues/{issue_number}/import", get_api_base())).await
+    post_empty(&format!(
+        "{}/api/github/issues/{issue_number}/import",
+        get_api_base()
+    ))
+    .await
 }
 
 // ── Task API functions ──
@@ -1558,7 +1582,8 @@ pub async fn add_roadmap_feature(
         status: status.to_string(),
         priority: priority.to_string(),
     };
-    let feature: ApiRoadmapFeature = post_json(&format!("{}/api/roadmap/features", get_api_base()), &body).await?;
+    let feature: ApiRoadmapFeature =
+        post_json(&format!("{}/api/roadmap/features", get_api_base()), &body).await?;
     Ok(ApiRoadmapItem {
         id: feature.id,
         title: feature.title,
@@ -1576,7 +1601,11 @@ pub async fn update_roadmap_feature_status(id: &str, status: &str) -> Result<(),
     let body = UpdateStatusRequest {
         status: status.to_string(),
     };
-    let _: serde_json::Value = put_json(&format!("{}/api/roadmap/features/{id}/status", get_api_base()), &body).await?;
+    let _: serde_json::Value = put_json(
+        &format!("{}/api/roadmap/features/{id}/status", get_api_base()),
+        &body,
+    )
+    .await?;
     Ok(())
 }
 
@@ -1615,12 +1644,14 @@ pub async fn fetch_file_tree() -> Result<Vec<ApiFileNode>, String> {
                 is_dir: val.is_object() || val.is_array(),
                 children: if let Some(arr) = val.as_array() {
                     arr.iter()
-                        .filter_map(|v| v.as_str().map(|s| ApiFileNode {
-                            name: s.to_string(),
-                            path: s.to_string(),
-                            is_dir: false,
-                            children: Vec::new(),
-                        }))
+                        .filter_map(|v| {
+                            v.as_str().map(|s| ApiFileNode {
+                                name: s.to_string(),
+                                path: s.to_string(),
+                                is_dir: false,
+                                children: Vec::new(),
+                            })
+                        })
                         .collect()
                 } else {
                     vec![ApiFileNode {
@@ -1705,7 +1736,10 @@ pub async fn send_insights_message_with_model(
         model: model.map(|s| s.to_string()),
     };
     let _: serde_json::Value = post_json(
-        &format!("{}/api/insights/sessions/{session_id}/messages", get_api_base()),
+        &format!(
+            "{}/api/insights/sessions/{session_id}/messages",
+            get_api_base()
+        ),
         &body,
     )
     .await?;
@@ -1726,7 +1760,9 @@ pub async fn send_insights_message_with_model(
 /// Return the WebSocket URL for event streaming.
 pub fn events_ws_url() -> String {
     let base = get_api_base();
-    let ws_base = base.replace("http://", "ws://").replace("https://", "wss://");
+    let ws_base = base
+        .replace("http://", "ws://")
+        .replace("https://", "wss://");
     format!("{ws_base}/api/events/ws")
 }
 
@@ -1774,7 +1810,11 @@ pub async fn create_project(name: &str, path: &str) -> Result<ApiProject, String
     post_json(&format!("{}/api/projects", get_api_base()), &body).await
 }
 
-pub async fn update_project(id: &str, name: Option<&str>, path: Option<&str>) -> Result<ApiProject, String> {
+pub async fn update_project(
+    id: &str,
+    name: Option<&str>,
+    path: Option<&str>,
+) -> Result<ApiProject, String> {
     let body = UpdateProjectRequest {
         name: name.map(|s| s.to_string()),
         path: path.map(|s| s.to_string()),
@@ -1805,15 +1845,27 @@ pub async fn execute_task(id: &str) -> Result<serde_json::Value, String> {
 // ── GitHub PR action functions ──
 
 pub async fn checkout_pr_branch(pr_number: u64) -> Result<serde_json::Value, String> {
-    post_empty(&format!("{}/api/github/prs/{pr_number}/checkout", get_api_base())).await
+    post_empty(&format!(
+        "{}/api/github/prs/{pr_number}/checkout",
+        get_api_base()
+    ))
+    .await
 }
 
 pub async fn review_pr(pr_number: u64) -> Result<serde_json::Value, String> {
-    post_empty(&format!("{}/api/github/prs/{pr_number}/review", get_api_base())).await
+    post_empty(&format!(
+        "{}/api/github/prs/{pr_number}/review",
+        get_api_base()
+    ))
+    .await
 }
 
 pub async fn merge_pr(pr_number: u64) -> Result<serde_json::Value, String> {
-    post_empty(&format!("{}/api/github/prs/{pr_number}/merge", get_api_base())).await
+    post_empty(&format!(
+        "{}/api/github/prs/{pr_number}/merge",
+        get_api_base()
+    ))
+    .await
 }
 
 pub async fn fetch_github_releases() -> Result<Vec<ApiGithubRelease>, String> {

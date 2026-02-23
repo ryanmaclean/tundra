@@ -124,6 +124,32 @@ fn status_dot_class(status: &str) -> &'static str {
     }
 }
 
+fn agents_icon_svg(kind: &str) -> &'static str {
+    match kind {
+        "history" => {
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v6h6"/></svg>"#
+        }
+        "invoke" => {
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4"/><path d="M12 18v4"/><path d="M4.93 4.93l2.83 2.83"/><path d="M16.24 16.24l2.83 2.83"/><path d="M2 12h4"/><path d="M18 12h4"/><path d="M4.93 19.07l2.83-2.83"/><path d="M16.24 7.76l2.83-2.83"/></svg>"#
+        }
+        "plus" => {
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>"#
+        }
+        "files" => {
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h16"/></svg>"#
+        }
+        "maximize" => {
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/></svg>"#
+        }
+        "close" => {
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18"/><path d="M6 6l12 12"/></svg>"#
+        }
+        _ => {
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/></svg>"#
+        }
+    }
+}
+
 const TERMINAL_HISTORY_KEY: &str = "tundra_terminal_history_v1";
 const TERMINAL_HISTORY_LIMIT: usize = 80;
 
@@ -206,7 +232,8 @@ pub fn AgentsPage() -> impl IntoView {
     let (worktrees, set_worktrees) = signal(Vec::<api::ApiWorktree>::new());
     let (files_loading, set_files_loading) = signal(false);
     let (files_error, set_files_error) = signal(Option::<String>::None);
-    let status_snapshot: Rc<RefCell<HashMap<String, String>>> = Rc::new(RefCell::new(HashMap::new()));
+    let status_snapshot: Rc<RefCell<HashMap<String, String>>> =
+        Rc::new(RefCell::new(HashMap::new()));
 
     let append_history = move |entry: String| {
         set_history_entries.update(|entries| {
@@ -333,18 +360,19 @@ pub fn AgentsPage() -> impl IntoView {
     let stop_agent = move |id: String| {
         spawn_local(async move {
             match api::stop_agent(&id).await {
-                Ok(_) => {
-                    match api::fetch_agents().await {
-                        Ok(data) => set_agents.set(data),
-                        Err(_) => {}
-                    }
-                }
+                Ok(_) => match api::fetch_agents().await {
+                    Ok(data) => set_agents.set(data),
+                    Err(_) => {}
+                },
                 Err(e) => {
                     web_sys::console::error_1(&format!("Failed to stop agent: {e}").into());
                 }
             }
         });
     };
+
+    // Track which terminal tab is active (by index)
+    let (active_terminal_idx, set_active_terminal_idx) = signal(0usize);
 
     let agent_count = move || agents.get().len();
     let terminal_count_display = move || {
@@ -395,6 +423,7 @@ pub fn AgentsPage() -> impl IntoView {
                             set_show_files_drawer.set(false);
                         }
                     >
+                        <span class="terminal-cmd-icon" inner_html=agents_icon_svg("history")></span>
                         "History \u{25BE}"
                     </button>
                     {move || show_history_menu.get().then(|| view! {
@@ -444,7 +473,8 @@ pub fn AgentsPage() -> impl IntoView {
                     })}
                 </div>
                 <button class="terminal-cmd-btn" type="button" on:click=move |_| do_refresh()>
-                    "\u{2699} Invoke Claude All"
+                    <span class="terminal-cmd-icon" inner_html=agents_icon_svg("invoke")></span>
+                    "Invoke Claude All"
                 </button>
                 <button
                     class="terminal-cmd-btn terminal-cmd-btn-magenta"
@@ -455,6 +485,7 @@ pub fn AgentsPage() -> impl IntoView {
                         }
                     }
                 >
+                    <span class="terminal-cmd-icon" inner_html=agents_icon_svg("plus")></span>
                     "+ New Terminal"
                 </button>
                 <button
@@ -476,7 +507,8 @@ pub fn AgentsPage() -> impl IntoView {
                         }
                     }
                 >
-                    "\u{2398} Files"
+                    <span class="terminal-cmd-icon" inner_html=agents_icon_svg("files")></span>
+                    "Files"
                 </button>
             </div>
         </div>
@@ -644,9 +676,26 @@ pub fn AgentsPage() -> impl IntoView {
                         let stop_agent = stop_agent.clone();
                         let terminal_name = format!("Terminal {}", idx + 1);
                         let role_badge = role.to_uppercase();
+                        let pane_idx = idx;
+                        let tab_class = move || {
+                            if active_terminal_idx.get() == pane_idx {
+                                "terminal-tab terminal-tab-active"
+                            } else {
+                                "terminal-tab"
+                            }
+                        };
                         panes.push(
                             view! {
                                 <div class="terminal-emulator">
+                                    <div class="terminal-tab-bar">
+                                        <button
+                                            class=tab_class
+                                            on:click=move |_| set_active_terminal_idx.set(pane_idx)
+                                        >
+                                            {terminal_name.clone()}
+                                        </button>
+                                        <span class="terminal-worktree-label">"main"</span>
+                                    </div>
                                     <div class="terminal-pane-header">
                                         <div class="agent-pane-info">
                                             <span class={dot_cls}></span>
@@ -658,7 +707,7 @@ pub fn AgentsPage() -> impl IntoView {
                                             <span class="terminal-dimensions">{id}</span>
                                             <span class="terminal-model-badge">"\u{269B} Claude"</span>
                                             <button class="terminal-pane-icon-btn" type="button" title="Maximize">
-                                                "\u{2197}"
+                                                <span inner_html=agents_icon_svg("maximize")></span>
                                             </button>
                                             {is_active.then(|| {
                                                 let stop = stop_agent.clone();
@@ -668,7 +717,7 @@ pub fn AgentsPage() -> impl IntoView {
                                                         on:click=move |_| stop(id_stop.clone())
                                                         title="Stop agent"
                                                     >
-                                                        "\u{2715}"
+                                                        <span inner_html=agents_icon_svg("close")></span>
                                                     </button>
                                                 }
                                             })}
@@ -689,9 +738,26 @@ pub fn AgentsPage() -> impl IntoView {
                         );
                     } else {
                         let terminal_name = format!("Terminal {}", idx + 1);
+                        let pane_idx = idx;
+                        let tab_class_empty = move || {
+                            if active_terminal_idx.get() == pane_idx {
+                                "terminal-tab terminal-tab-active"
+                            } else {
+                                "terminal-tab"
+                            }
+                        };
                         panes.push(
                             view! {
                                 <div class="terminal-emulator terminal-emulator-placeholder">
+                                    <div class="terminal-tab-bar">
+                                        <button
+                                            class=tab_class_empty
+                                            on:click=move |_| set_active_terminal_idx.set(pane_idx)
+                                        >
+                                            {terminal_name.clone()}
+                                        </button>
+                                        <span class="terminal-worktree-label">"main"</span>
+                                    </div>
                                     <div class="terminal-pane-header">
                                         <div class="agent-pane-info">
                                             <span class="agent-status-dot dot-unknown"></span>

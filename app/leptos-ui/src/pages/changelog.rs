@@ -1,10 +1,27 @@
-use leptos::prelude::*;
 use crate::state::use_app_state;
 use crate::themed::{themed, Prompt};
+use leptos::prelude::*;
 use leptos::task::spawn_local;
 
 use crate::api;
 use crate::i18n::t;
+
+fn changelog_source_icon_svg(kind: &str) -> &'static str {
+    match kind {
+        "completed_tasks" => {
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="m9 15 2 2 4-4"/></svg>"#
+        }
+        "git_history" => {
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="2"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="12" r="2"/><path d="M8 7.5 16 11"/><path d="M8 16.5 16 13"/></svg>"#
+        }
+        "branch_comparison" => {
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3v12"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>"#
+        }
+        _ => {
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/></svg>"#
+        }
+    }
+}
 
 #[component]
 pub fn ChangelogPage() -> impl IntoView {
@@ -70,7 +87,9 @@ pub fn ChangelogPage() -> impl IntoView {
         let version = gen_version.get();
         let commits = gen_commits.get();
         if commits.trim().is_empty() {
-            set_error_msg.set(Some("Please enter commits to generate changelog from.".to_string()));
+            set_error_msg.set(Some(
+                "Please enter commits to generate changelog from.".to_string(),
+            ));
             return;
         }
         set_generating.set(true);
@@ -80,7 +99,10 @@ pub fn ChangelogPage() -> impl IntoView {
         spawn_local(async move {
             match api::generate_changelog(&commits, &version).await {
                 Ok(entry) => {
-                    set_success_msg.set(Some(format!("Changelog generated for version {}", entry.version)));
+                    set_success_msg.set(Some(format!(
+                        "Changelog generated for version {}",
+                        entry.version
+                    )));
                     set_generated_result.set(Some(entry.clone()));
                     set_entries.update(|e| e.insert(0, entry));
                     set_gen_step.set(3); // Move to release step
@@ -92,7 +114,8 @@ pub fn ChangelogPage() -> impl IntoView {
     };
 
     // Completed tasks loaded from API
-    let (completed_tasks, set_completed_tasks) = signal(Vec::<(String, String, String, bool)>::new());
+    let (completed_tasks, set_completed_tasks) =
+        signal(Vec::<(String, String, String, bool)>::new());
     let (tasks_loading, set_tasks_loading) = signal(false);
 
     // Load completed tasks from API on mount
@@ -103,7 +126,9 @@ pub fn ChangelogPage() -> impl IntoView {
                 Ok(beads) => {
                     let done: Vec<(String, String, String, bool)> = beads
                         .into_iter()
-                        .filter(|b| b.status == "done" || b.status == "completed" || b.lane == "done")
+                        .filter(|b| {
+                            b.status == "done" || b.status == "completed" || b.lane == "done"
+                        })
                         .map(|b| {
                             let desc = b.description.clone().unwrap_or_default();
                             let has_specs = !desc.is_empty();
@@ -253,7 +278,7 @@ pub fn ChangelogPage() -> impl IntoView {
                             class=move || if changelog_source.get() == "completed_tasks" { "changelog-source-card selected" } else { "changelog-source-card" }
                             on:click=move |_| set_changelog_source.set("completed_tasks".to_string())
                         >
-                            <div class="changelog-source-icon">"*"</div>
+                            <div class="changelog-source-icon" inner_html=changelog_source_icon_svg("completed_tasks")></div>
                             <div class="changelog-source-info">
                                 <strong>"Completed Tasks"</strong>
                                 <span class="changelog-source-badge">{move || format!("{}", completed_tasks.get().len())}</span>
@@ -264,7 +289,7 @@ pub fn ChangelogPage() -> impl IntoView {
                             class=move || if changelog_source.get() == "git_history" { "changelog-source-card selected" } else { "changelog-source-card" }
                             on:click=move |_| set_changelog_source.set("git_history".to_string())
                         >
-                            <div class="changelog-source-icon">"G"</div>
+                            <div class="changelog-source-icon" inner_html=changelog_source_icon_svg("git_history")></div>
                             <div class="changelog-source-info">
                                 <strong>"Git History"</strong>
                             </div>
@@ -274,7 +299,7 @@ pub fn ChangelogPage() -> impl IntoView {
                             class=move || if changelog_source.get() == "branch_comparison" { "changelog-source-card selected" } else { "changelog-source-card" }
                             on:click=move |_| set_changelog_source.set("branch_comparison".to_string())
                         >
-                            <div class="changelog-source-icon">"B"</div>
+                            <div class="changelog-source-icon" inner_html=changelog_source_icon_svg("branch_comparison")></div>
                             <div class="changelog-source-info">
                                 <strong>"Branch Comparison"</strong>
                             </div>
@@ -375,7 +400,7 @@ pub fn ChangelogPage() -> impl IntoView {
                                 set_gen_step.set(2);
                             }
                         >
-                            "Continue"
+                            "Continue \u{2192}"
                         </button>
                     </div>
                 </div>

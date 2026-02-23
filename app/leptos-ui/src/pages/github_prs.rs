@@ -1,16 +1,26 @@
-use leptos::prelude::*;
 use crate::themed::{themed, Prompt};
+use leptos::prelude::*;
 
 use crate::api;
 use crate::i18n::t;
 use crate::state::use_app_state;
 use crate::types::GithubPr;
 
+fn search_icon_svg() -> &'static str {
+    r#"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>"#
+}
+
 fn pr_placeholder_icon_svg(kind: &str) -> &'static str {
     match kind {
-        "releases" => r#"<svg xmlns="http://www.w3.org/2000/svg" width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8a2 2 0 0 0-2-2h-3.5l-1-2h-5l-1 2H5a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2Z"/><path d="M9 13h6"/><path d="M12 10v6"/></svg>"#,
-        "detail" => r#"<svg xmlns="http://www.w3.org/2000/svg" width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="6" r="1.5"/><circle cx="8" cy="12" r="1.5"/><circle cx="8" cy="18" r="1.5"/><path d="M11 6h8"/><path d="M11 12h8"/><path d="M11 18h8"/></svg>"#,
-        _ => r#"<svg xmlns="http://www.w3.org/2000/svg" width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="12" r="2"/><path d="M8 7.5l8 3"/><path d="M8 16.5l8-3"/></svg>"#,
+        "releases" => {
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8a2 2 0 0 0-2-2h-3.5l-1-2h-5l-1 2H5a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2Z"/><path d="M9 13h6"/><path d="M12 10v6"/></svg>"#
+        }
+        "detail" => {
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="6" r="1.5"/><circle cx="8" cy="12" r="1.5"/><circle cx="8" cy="18" r="1.5"/><path d="M11 6h8"/><path d="M11 12h8"/><path d="M11 18h8"/></svg>"#
+        }
+        _ => {
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="12" r="2"/><path d="M8 7.5l8 3"/><path d="M8 16.5l8-3"/></svg>"#
+        }
     }
 }
 
@@ -71,15 +81,21 @@ pub fn GithubPrsPage() -> impl IntoView {
     }
 
     let open_count = move || {
-        prs.get().iter().filter(|p| p.status == "open" || p.status == "draft").count()
+        prs.get()
+            .iter()
+            .filter(|p| p.status == "open" || p.status == "draft")
+            .count()
     };
 
     let filtered_prs = move || {
         let query = search_query.get().to_lowercase();
-        prs.get().into_iter()
+        prs.get()
+            .into_iter()
             .filter(|p| {
-                if !query.is_empty() && !p.title.to_lowercase().contains(&query)
-                    && !p.author.to_lowercase().contains(&query) {
+                if !query.is_empty()
+                    && !p.title.to_lowercase().contains(&query)
+                    && !p.author.to_lowercase().contains(&query)
+                {
                     return false;
                 }
                 true
@@ -88,16 +104,16 @@ pub fn GithubPrsPage() -> impl IntoView {
     };
 
     let selected_pr_data = move || {
-        selected_pr.get().and_then(|num| {
-            prs.get().into_iter().find(|p| p.number == num)
-        })
+        selected_pr
+            .get()
+            .and_then(|num| prs.get().into_iter().find(|p| p.number == num))
     };
 
     view! {
         <div class="page-header github-prs-header">
             <div class="page-header-left">
                 <h2>{t("github-prs-title")}</h2>
-                <span class="repo-name">"auto-tundra/rust-harness"</span>
+                <span class="repo-name">"ryanmaclean/vibecode-webgui"</span>
                 <span class="issue-count-badge">{move || format!("{} open", open_count())}</span>
             </div>
             <div class="page-header-right">
@@ -133,9 +149,10 @@ pub fn GithubPrsPage() -> impl IntoView {
         // Sub-tabs: PRs | Contributors | All Releases
         <div class="prs-controls">
             <div class="prs-search-wrapper">
+                <span class="search-icon" inner_html=search_icon_svg()></span>
                 <input
                     type="text"
-                    class="prs-search-input"
+                    class="prs-search-input has-icon"
                     placeholder="Search PRs..."
                     prop:value=move || search_query.get()
                     on:input=move |ev| set_search_query.set(event_target_value(&ev))
@@ -394,11 +411,20 @@ pub fn GithubPrsPage() -> impl IntoView {
                                 _ => "Unknown",
                             };
 
+                            // Colored left border class based on PR status
+                            let border_class = match pr.status.as_str() {
+                                "open" => "pr-border-open",
+                                "merged" => "pr-border-merged",
+                                "draft" => "pr-border-draft",
+                                "closed" => "pr-border-closed",
+                                _ => "",
+                            };
+
                             let author = pr.author.clone();
                             let title = pr.title.clone();
                             let created = pr.created.clone();
-                            let reviewer_count = pr.reviewers.len();
-                            let comment_count = (pr_number % 9 + 1) as usize;
+                            let commit_count = (pr_number % 6 + 1) as usize;
+                            let file_count = (pr_number % 8 + 1) as usize;
                             let additions = (pr_number % 12 + 1) as usize;
                             let deletions = (pr_number % 5) as usize;
                             let branch = format!("auto-claude/{:03}-{}", pr_number, title.to_lowercase().replace(' ', "-").chars().take(28).collect::<String>());
@@ -413,7 +439,10 @@ pub fn GithubPrsPage() -> impl IntoView {
 
                             view! {
                                 <div
-                                    class=move || if is_selected() { "pr-list-item selected" } else { "pr-list-item" }
+                                    class=move || {
+                                        let base = format!("pr-list-item {}", border_class);
+                                        if is_selected() { format!("{} selected", base) } else { base }
+                                    }
                                     on:click=move |_| {
                                         set_selected_pr.set(Some(pr_number));
                                         set_claude_dropdown_pr.set(None);
@@ -429,11 +458,11 @@ pub fn GithubPrsPage() -> impl IntoView {
                                         </div>
                                         <div class="pr-list-item-meta">
                                             <span class={format!("pr-status-badge {}", status_class)}>{status_label}</span>
-                                            <span class="pr-author">{author}</span>
-                                            <span class="pr-comments">{format!("\u{1F5E8} {}", comment_count)}</span>
-                                            <span class="pr-comments">{format!("\u{1F50D} {} reviews", reviewer_count)}</span>
+                                            <span class="pr-stat-chip">{format!("{} commits", commit_count)}</span>
+                                            <span class="pr-stat-chip">{format!("{} files", file_count)}</span>
                                             <span class="pr-comments pr-delta-pos">{format!("+{}", additions)}</span>
                                             <span class="pr-comments pr-delta-neg">{format!("-{}", deletions)}</span>
+                                            <span class="pr-author">{author}</span>
                                             <span class="pr-created">{age_label}</span>
                                         </div>
                                     </div>

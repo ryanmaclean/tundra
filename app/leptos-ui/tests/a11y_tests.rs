@@ -84,13 +84,20 @@ mod status_a11y {
 
     #[wasm_bindgen_test]
     fn status_response_has_human_readable_fields() {
-        let json = r#"{"version": "0.1.0", "uptime_secs": 3621, "agent_count": 3, "bead_count": 20}"#;
+        let json =
+            r#"{"version": "0.1.0", "uptime_secs": 3621, "agent_count": 3, "bead_count": 20}"#;
         let status: at_leptos_ui::api::ApiStatus =
             serde_json::from_str(json).expect("ApiStatus parse failed");
         // Version should be readable as text
-        assert!(!status.version.is_empty(), "Version must be non-empty for display");
+        assert!(
+            !status.version.is_empty(),
+            "Version must be non-empty for display"
+        );
         // Uptime should be > 0 for meaningful display
-        assert!(status.uptime_secs > 0, "Uptime should be positive for display");
+        assert!(
+            status.uptime_secs > 0,
+            "Uptime should be positive for display"
+        );
     }
 }
 
@@ -115,7 +122,10 @@ mod css_a11y {
         // Set and read data-mode attribute — used for theme switching
         let _ = body.set_attribute("data-mode", "standard");
         let mode = body.get_attribute("data-mode").unwrap_or_default();
-        assert_eq!(mode, "standard", "data-mode attribute must be settable for theme switching");
+        assert_eq!(
+            mode, "standard",
+            "data-mode attribute must be settable for theme switching"
+        );
     }
 
     #[wasm_bindgen_test]

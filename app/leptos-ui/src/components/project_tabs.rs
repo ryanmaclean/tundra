@@ -18,9 +18,7 @@ pub fn ProjectTabs() -> impl IntoView {
             match api::fetch_projects().await {
                 Ok(list) => set_projects.set(list),
                 Err(e) => {
-                    web_sys::console::warn_1(
-                        &format!("Failed to fetch projects: {e}").into(),
-                    );
+                    web_sys::console::warn_1(&format!("Failed to fetch projects: {e}").into());
                 }
             }
         });
@@ -40,9 +38,7 @@ pub fn ProjectTabs() -> impl IntoView {
                     }
                 }
                 Err(e) => {
-                    web_sys::console::warn_1(
-                        &format!("Failed to activate project: {e}").into(),
-                    );
+                    web_sys::console::warn_1(&format!("Failed to activate project: {e}").into());
                 }
             }
         });
@@ -51,16 +47,12 @@ pub fn ProjectTabs() -> impl IntoView {
     let on_delete = move |id: String| {
         spawn_local(async move {
             match api::delete_project(&id).await {
-                Ok(_) => {
-                    match api::fetch_projects().await {
-                        Ok(list) => set_projects.set(list),
-                        Err(_) => {}
-                    }
-                }
+                Ok(_) => match api::fetch_projects().await {
+                    Ok(list) => set_projects.set(list),
+                    Err(_) => {}
+                },
                 Err(e) => {
-                    web_sys::console::warn_1(
-                        &format!("Failed to delete project: {e}").into(),
-                    );
+                    web_sys::console::warn_1(&format!("Failed to delete project: {e}").into());
                 }
             }
         });
@@ -85,9 +77,7 @@ pub fn ProjectTabs() -> impl IntoView {
                     }
                 }
                 Err(e) => {
-                    web_sys::console::warn_1(
-                        &format!("Failed to create project: {e}").into(),
-                    );
+                    web_sys::console::warn_1(&format!("Failed to create project: {e}").into());
                 }
             }
             set_loading.set(false);

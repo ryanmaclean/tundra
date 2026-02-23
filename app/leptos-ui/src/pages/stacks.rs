@@ -1,7 +1,7 @@
-use leptos::prelude::*;
-use crate::themed::{themed, Prompt};
-use crate::state::use_app_state;
 use crate::i18n::t;
+use crate::state::use_app_state;
+use crate::themed::{themed, Prompt};
+use leptos::prelude::*;
 
 #[component]
 pub fn StacksPage() -> impl IntoView {

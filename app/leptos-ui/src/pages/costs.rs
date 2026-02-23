@@ -1,8 +1,7 @@
+use crate::duckdb;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
-use crate::duckdb;
 use serde::{Deserialize, Serialize};
-
 
 use crate::api;
 use crate::i18n::t;
@@ -38,7 +37,9 @@ pub fn CostsPage() -> impl IntoView {
                                 sessions: vec![],
                             }));
                         }
-                        Err(e) => set_error_msg.set(Some(format!("Failed to fetch cost data: {e}"))),
+                        Err(e) => {
+                            set_error_msg.set(Some(format!("Failed to fetch cost data: {e}")))
+                        }
                     }
                 }
             }

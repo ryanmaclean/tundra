@@ -1,5 +1,5 @@
-use leptos::prelude::*;
 use leptos::ev::MouseEvent;
+use leptos::prelude::*;
 
 const HELP_ITEMS: &[(&str, &str)] = &[
     ("Show help", "?"),
@@ -18,9 +18,7 @@ const HELP_ITEMS: &[(&str, &str)] = &[
 ];
 
 #[component]
-pub fn HelpModal(
-    on_close: impl Fn(MouseEvent) + 'static,
-) -> impl IntoView {
+pub fn HelpModal(on_close: impl Fn(MouseEvent) + 'static) -> impl IntoView {
     view! {
         <div class="help-overlay" on:click=on_close>
         </div>

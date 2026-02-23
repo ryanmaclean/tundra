@@ -1,6 +1,6 @@
-use leptos::prelude::*;
 use crate::state::use_app_state;
 use crate::themed::{themed, Prompt};
+use leptos::prelude::*;
 use leptos::task::spawn_local;
 
 use crate::api;
@@ -8,14 +8,30 @@ use crate::i18n::t;
 
 fn context_tab_icon_svg(kind: &str) -> &'static str {
     match kind {
-        "project" => r#"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h18"/><path d="M6 3h12l2 4H4z"/><path d="M5 7l1 14h12l1-14"/></svg>"#,
-        "memory" => r#"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3a4 4 0 0 0-4 4v1a4 4 0 0 0-2 3.5A3.5 3.5 0 0 0 9.5 15H10v2a2 2 0 1 0 4 0v-2h.5a3.5 3.5 0 0 0 3.5-3.5A4 4 0 0 0 16 8V7a4 4 0 0 0-4-4z"/></svg>"#,
-        "memory-status" => r#"<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a7 7 0 0 0-7 7c0 2.1.9 3.8 2.4 5A3 3 0 0 1 8.5 16H15a3 3 0 0 1 1.1-2c1.5-1.2 2.4-3 2.4-5a7 7 0 0 0-7-7z"/><path d="M9 20h6"/><path d="M10 17h4"/></svg>"#,
-        "search" => r#"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.3-4.3"/></svg>"#,
-        "empty-search" => r#"<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/><path d="M9 11h4"/></svg>"#,
-        "empty-filter" => r#"<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 5h18"/><path d="M6 12h12"/><path d="M10 19h4"/></svg>"#,
-        "empty-error" => r#"<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 8v5"/><path d="M12 16h.01"/></svg>"#,
-        "empty" => r#"<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2a7 7 0 0 0-7 7c0 2.1.9 3.8 2.4 5A3 3 0 0 1 8.5 16H15a3 3 0 0 1 1.1-2c1.5-1.2 2.4-3 2.4-5a7 7 0 0 0-7-7z"/><path d="M9 20h6"/><path d="M10 17h4"/></svg>"#,
+        "project" => {
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h18"/><path d="M6 3h12l2 4H4z"/><path d="M5 7l1 14h12l1-14"/></svg>"#
+        }
+        "memory" => {
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3a4 4 0 0 0-4 4v1a4 4 0 0 0-2 3.5A3.5 3.5 0 0 0 9.5 15H10v2a2 2 0 1 0 4 0v-2h.5a3.5 3.5 0 0 0 3.5-3.5A4 4 0 0 0 16 8V7a4 4 0 0 0-4-4z"/></svg>"#
+        }
+        "memory-status" => {
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a7 7 0 0 0-7 7c0 2.1.9 3.8 2.4 5A3 3 0 0 1 8.5 16H15a3 3 0 0 1 1.1-2c1.5-1.2 2.4-3 2.4-5a7 7 0 0 0-7-7z"/><path d="M9 20h6"/><path d="M10 17h4"/></svg>"#
+        }
+        "search" => {
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.3-4.3"/></svg>"#
+        }
+        "empty-search" => {
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/><path d="M9 11h4"/></svg>"#
+        }
+        "empty-filter" => {
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 5h18"/><path d="M6 12h12"/><path d="M10 19h4"/></svg>"#
+        }
+        "empty-error" => {
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 8v5"/><path d="M12 16h.01"/></svg>"#
+        }
+        "empty" => {
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2a7 7 0 0 0-7 7c0 2.1.9 3.8 2.4 5A3 3 0 0 1 8.5 16H15a3 3 0 0 1 1.1-2c1.5-1.2 2.4-3 2.4-5a7 7 0 0 0-7-7z"/><path d="M9 20h6"/><path d="M10 17h4"/></svg>"#
+        }
         _ => "",
     }
 }
@@ -65,7 +81,10 @@ pub fn ContextPage() -> impl IntoView {
     spawn_local(async move {
         match api::fetch_settings().await {
             Ok(s) => {
-                let path = s.general.workspace_root.unwrap_or_else(|| s.general.project_name.clone());
+                let path = s
+                    .general
+                    .workspace_root
+                    .unwrap_or_else(|| s.general.project_name.clone());
                 if path.is_empty() {
                     set_project_path.set("/Users/studio/rust-harness".to_string());
                 } else {
@@ -161,7 +180,11 @@ pub fn ContextPage() -> impl IntoView {
                     match filter.as_str() {
                         "PR Reviews" => cat.contains("pr") || cat.contains("review"),
                         "Sessions" => cat.contains("session"),
-                        "Codebase" => cat.contains("codebase") || cat.contains("code") || cat.contains("architecture"),
+                        "Codebase" => {
+                            cat.contains("codebase")
+                                || cat.contains("code")
+                                || cat.contains("architecture")
+                        }
                         "Patterns" => cat.contains("pattern"),
                         "Gotchas" => cat.contains("gotcha") || cat.contains("warning"),
                         _ => true,

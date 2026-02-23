@@ -12,16 +12,8 @@ fn models_for_provider(provider: &str) -> Vec<&'static str> {
             "claude-sonnet-4-0-20250514",
             "claude-3-5-haiku-20241022",
         ],
-        "openai" => vec![
-            "gpt-4o",
-            "gpt-4o-mini",
-            "o3-mini",
-        ],
-        "google" => vec![
-            "gemini-2.0-flash",
-            "gemini-2.0-pro",
-            "gemini-1.5-pro",
-        ],
+        "openai" => vec!["gpt-4o", "gpt-4o-mini", "o3-mini"],
+        "google" => vec!["gemini-2.0-flash", "gemini-2.0-pro", "gemini-1.5-pro"],
         _ => vec![],
     }
 }
@@ -34,7 +26,8 @@ pub fn OnboardingPage() -> impl IntoView {
     // Step 2: Auth
     let (auth_method, set_auth_method) = signal("env".to_string());
     let (cred_checking, set_cred_checking) = signal(false);
-    let (cred_result, set_cred_result) = signal(Option::<Result<api::ApiCredentialStatus, String>>::None);
+    let (cred_result, set_cred_result) =
+        signal(Option::<Result<api::ApiCredentialStatus, String>>::None);
 
     // Step 3: Tool/IDE Preferences
     let (ide, set_ide) = signal("vscode".to_string());
@@ -96,13 +89,11 @@ pub fn OnboardingPage() -> impl IntoView {
                     settings.memory.enable_memory = memory_val;
                     settings.memory.embedding_model = embed_val;
                     // Store model + thinking in phase_configs
-                    settings.agent_profile.phase_configs = vec![
-                        api::ApiPhaseConfig {
-                            phase: "default".to_string(),
-                            model: model_val,
-                            thinking_level: thinking_val,
-                        },
-                    ];
+                    settings.agent_profile.phase_configs = vec![api::ApiPhaseConfig {
+                        phase: "default".to_string(),
+                        model: model_val,
+                        thinking_level: thinking_val,
+                    }];
                     if graphiti_val && settings.memory.graphiti_server_url.is_empty() {
                         settings.memory.graphiti_server_url = "http://localhost:8000".to_string();
                     }
@@ -133,17 +124,16 @@ pub fn OnboardingPage() -> impl IntoView {
         set_error_msg.set(None);
         spawn_local(async move {
             // Create a bead first, then a task linked to it
-            let desc_opt = if desc.trim().is_empty() { None } else { Some(desc.as_str()) };
+            let desc_opt = if desc.trim().is_empty() {
+                None
+            } else {
+                Some(desc.as_str())
+            };
             match api::create_bead(&title, desc_opt, Some("backlog")).await {
                 Ok(bead) => {
-                    let _ = api::create_task(
-                        &title,
-                        desc_opt,
-                        &bead.id,
-                        "medium",
-                        "medium",
-                        "feature",
-                    ).await;
+                    let _ =
+                        api::create_task(&title, desc_opt, &bead.id, "medium", "medium", "feature")
+                            .await;
                     set_step.set(7);
                 }
                 Err(e) => {

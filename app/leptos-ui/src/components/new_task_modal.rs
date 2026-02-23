@@ -1,5 +1,5 @@
-use leptos::prelude::*;
 use leptos::ev::MouseEvent;
+use leptos::prelude::*;
 
 use crate::state::use_app_state;
 use crate::types::{BeadResponse, BeadStatus, Lane};
@@ -41,7 +41,8 @@ pub fn NewTaskModal(
         let cat = category.get();
         let pri = priority.get();
 
-        let mut tags: Vec<String> = tags_input.get()
+        let mut tags: Vec<String> = tags_input
+            .get()
             .split(',')
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
@@ -52,15 +53,30 @@ pub fn NewTaskModal(
             tags.push(pri);
         }
 
-        let id = format!("bead-{}", uuid::Uuid::new_v4().to_string().split('-').next().unwrap_or("xxx"));
+        let id = format!(
+            "bead-{}",
+            uuid::Uuid::new_v4()
+                .to_string()
+                .split('-')
+                .next()
+                .unwrap_or("xxx")
+        );
 
         // Map target lane to appropriate status and action
         let (status, progress_stage, action) = match &target_lane {
-            Lane::Backlog => (BeadStatus::Planning, "plan".to_string(), Some("start".to_string())),
+            Lane::Backlog => (
+                BeadStatus::Planning,
+                "plan".to_string(),
+                Some("start".to_string()),
+            ),
             Lane::InProgress => (BeadStatus::InProgress, "code".to_string(), None),
             Lane::AiReview => (BeadStatus::AiReview, "qa".to_string(), None),
             Lane::Done => (BeadStatus::Done, "done".to_string(), None),
-            _ => (BeadStatus::Planning, "plan".to_string(), Some("start".to_string())),
+            _ => (
+                BeadStatus::Planning,
+                "plan".to_string(),
+                Some("start".to_string()),
+            ),
         };
 
         let new_bead = BeadResponse {

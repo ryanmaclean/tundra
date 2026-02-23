@@ -1,12 +1,10 @@
 use leptos::prelude::*;
 
 use crate::state::use_app_state;
-use crate::themed::{themed, Prompt, format_status_full};
+use crate::themed::{format_status_full, themed, Prompt};
 
 #[component]
-pub fn StatusBar(
-    #[prop(into)] on_help: Callback<()>,
-) -> impl IntoView {
+pub fn StatusBar(#[prop(into)] on_help: Callback<()>) -> impl IntoView {
     let state = use_app_state();
     let status = state.status;
     let mode = state.display_mode;

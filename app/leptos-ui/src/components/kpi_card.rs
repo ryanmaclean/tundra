@@ -4,8 +4,7 @@ use leptos::prelude::*;
 pub fn KpiCard(
     label: String,
     value: String,
-    #[prop(default = String::new())]
-    icon: String,
+    #[prop(default = String::new())] icon: String,
 ) -> impl IntoView {
     let has_icon = !icon.is_empty();
     view! {

@@ -1,13 +1,11 @@
-use leptos::prelude::*;
 use leptos::ev::MouseEvent;
+use leptos::prelude::*;
 
 use crate::state::use_app_state;
 use crate::types::{BeadResponse, BeadStatus, Lane};
 
 #[component]
-pub fn TaskWizard(
-    on_close: impl Fn(MouseEvent) + Clone + 'static,
-) -> impl IntoView {
+pub fn TaskWizard(on_close: impl Fn(MouseEvent) + Clone + 'static) -> impl IntoView {
     let state = use_app_state();
     let set_beads = state.set_beads;
 
@@ -140,7 +138,10 @@ pub fn TaskWizard(
                             set_wizard_done.set(true);
                         }
                         Err(e) => {
-                            set_error_msg.set(Some(format!("Bead created but task creation failed: {}", e)));
+                            set_error_msg.set(Some(format!(
+                                "Bead created but task creation failed: {}",
+                                e
+                            )));
                         }
                     }
                 }

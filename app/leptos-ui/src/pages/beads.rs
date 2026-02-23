@@ -1,4 +1,5 @@
 use leptos::prelude::*;
+use wasm_bindgen::JsCast;
 use web_sys::DragEvent;
 
 use crate::api::ApiBead;
@@ -171,7 +172,8 @@ pub fn BeadsPage() -> impl IntoView {
         leptos::task::spawn_local(async move {
             match crate::api::fetch_beads().await {
                 Ok(api_beads) => {
-                    let ui_beads: Vec<BeadResponse> = api_beads.iter().map(api_bead_to_bead_response).collect();
+                    let ui_beads: Vec<BeadResponse> =
+                        api_beads.iter().map(api_bead_to_bead_response).collect();
                     if !ui_beads.is_empty() {
                         set_beads.set(ui_beads);
                     }
@@ -190,7 +192,7 @@ pub fn BeadsPage() -> impl IntoView {
 
     // Task detail modal state
     let (selected_bead_id, set_selected_bead_id) = signal(Option::<String>::None);
-    
+
     // New task modal state
     let (show_new_task_for_column, set_show_new_task_for_column) = signal(Option::<Lane>::None);
 
@@ -249,9 +251,83 @@ pub fn BeadsPage() -> impl IntoView {
         });
     };
 
+    // Auto-refresh interval state
+    let (auto_refresh_secs, set_auto_refresh_secs) = signal(0u32); // 0 = off
+
+    // Refresh handler
+    let do_refresh = {
+        let set_beads = set_beads.clone();
+        move || {
+            let set_beads = set_beads.clone();
+            leptos::task::spawn_local(async move {
+                match crate::api::fetch_beads().await {
+                    Ok(api_beads) => {
+                        let ui_beads: Vec<BeadResponse> =
+                            api_beads.iter().map(api_bead_to_bead_response).collect();
+                        set_beads.set(ui_beads);
+                    }
+                    Err(e) => {
+                        leptos::logging::log!("Failed to refresh beads: {}", e);
+                    }
+                }
+            });
+        }
+    };
+
+    // Auto-refresh interval timer
+    {
+        let do_refresh_interval = do_refresh.clone();
+        Effect::new(move |prev_handle: Option<Option<i32>>| {
+            // Clear any previous interval
+            if let Some(Some(handle)) = prev_handle {
+                if let Some(window) = web_sys::window() {
+                    window.clear_interval_with_handle(handle);
+                }
+            }
+            let secs = auto_refresh_secs.get();
+            if secs == 0 {
+                return None;
+            }
+            let refresh = do_refresh_interval.clone();
+            let cb = wasm_bindgen::closure::Closure::wrap(Box::new(move || {
+                refresh();
+            }) as Box<dyn FnMut()>);
+            let handle = web_sys::window().and_then(|w| {
+                w.set_interval_with_callback_and_timeout_and_arguments_0(
+                    cb.as_ref().unchecked_ref(),
+                    (secs * 1000) as i32,
+                )
+                .ok()
+            });
+            cb.forget();
+            handle
+        });
+    }
+
+    let do_refresh_click = do_refresh.clone();
+
     view! {
         <div class="page-header">
             <h2>{t("kanban-title")}</h2>
+            <div class="page-header-actions">
+                <button class="refresh-btn" on:click=move |_| do_refresh_click()>
+                    "\u{21BB} Refresh"
+                </button>
+                <select
+                    class="interval-select"
+                    prop:value=move || auto_refresh_secs.get().to_string()
+                    on:change=move |ev| {
+                        let val: u32 = event_target_value(&ev).parse().unwrap_or(0);
+                        set_auto_refresh_secs.set(val);
+                    }
+                >
+                    <option value="0">"Interval: Off"</option>
+                    <option value="5">"5s"</option>
+                    <option value="10">"10s"</option>
+                    <option value="30">"30s"</option>
+                    <option value="60">"60s"</option>
+                </select>
+            </div>
         </div>
 
         // Filter bar

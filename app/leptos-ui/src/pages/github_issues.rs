@@ -1,14 +1,40 @@
 use leptos::prelude::*;
-use crate::themed::{themed, Prompt};
 
 use crate::i18n::t;
 use crate::state::use_app_state;
 use crate::types::GithubIssue;
 
+/// SVG icon helpers for the GitHub Issues page
+fn gh_icon_svg() -> &'static str {
+    r#"<svg class="gh-icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/></svg>"#
+}
+
+fn search_icon_svg() -> &'static str {
+    r#"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>"#
+}
+
+fn funnel_icon_svg() -> &'static str {
+    r#"<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>"#
+}
+
+fn analyze_icon_svg() -> &'static str {
+    r#"<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96.44 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24 2.5 2.5 0 0 1 1.98-3A2.5 2.5 0 0 1 9.5 2Z"/><path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96.44 2.5 2.5 0 0 0 2.96-3.08 3 3 0 0 0 .34-5.58 2.5 2.5 0 0 0-1.32-4.24 2.5 2.5 0 0 0-1.98-3A2.5 2.5 0 0 0 14.5 2Z"/></svg>"#
+}
+
+fn wand_icon_svg() -> &'static str {
+    r#"<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 4V2"/><path d="M15 16v-2"/><path d="M8 9h2"/><path d="M20 9h2"/><path d="M17.8 11.8 19 13"/><path d="M15 9h.01"/><path d="M17.8 6.2 19 5"/><path d="m3 21 9-9"/><path d="M12.2 6.2 11 5"/></svg>"#
+}
+
+fn issues_empty_icon_svg() -> &'static str {
+    r#"<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>"#
+}
+
+fn detail_empty_icon_svg() -> &'static str {
+    r#"<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>"#
+}
+
 #[component]
 pub fn GithubIssuesPage() -> impl IntoView {
-    let app_state = use_app_state();
-    let display_mode = app_state.display_mode;
     let state = use_app_state();
     let issues = state.github_issues;
     let set_issues = state.set_github_issues;
@@ -78,7 +104,10 @@ pub fn GithubIssuesPage() -> impl IntoView {
                                     labels: i.labels.clone(),
                                     assignee: i.assignee.clone(),
                                     state: i.state.clone(),
-                                    created: i.created_at.clone().unwrap_or_else(|| i.created.clone()),
+                                    created: i
+                                        .created_at
+                                        .clone()
+                                        .unwrap_or_else(|| i.created.clone()),
                                 })
                                 .collect();
                             // Auto-import open issues as beads when auto-fix is enabled
@@ -92,7 +121,8 @@ pub fn GithubIssuesPage() -> impl IntoView {
                             set_last_synced.set(Some("just now".to_string()));
                         }
                         Err(e) => {
-                            set_error_msg.set(Some(format!("Sync succeeded but failed to refresh: {}", e)));
+                            set_error_msg
+                                .set(Some(format!("Sync succeeded but failed to refresh: {}", e)));
                         }
                     }
                 }
@@ -138,7 +168,9 @@ pub fn GithubIssuesPage() -> impl IntoView {
     let filtered_issues = move || {
         let query = search_query.get().to_lowercase();
         let state_f = state_filter.get();
-        issues.get().into_iter()
+        issues
+            .get()
+            .into_iter()
             .filter(|i| {
                 if state_f != "all" && i.state != state_f {
                     return false;
@@ -151,31 +183,32 @@ pub fn GithubIssuesPage() -> impl IntoView {
             .collect::<Vec<_>>()
     };
 
-    let open_count = move || {
-        issues.get().iter().filter(|i| i.state == "open").count()
-    };
+    let open_count = move || issues.get().iter().filter(|i| i.state == "open").count();
 
     // Get selected issue data
     let selected_issue_data = move || {
-        selected_issue.get().and_then(|num| {
-            issues.get().into_iter().find(|i| i.number == num)
-        })
+        selected_issue
+            .get()
+            .and_then(|num| issues.get().into_iter().find(|i| i.number == num))
     };
 
     view! {
         <div class="page-header github-issues-header">
             <div class="page-header-left">
-                <h2>{t("github-issues-title")}</h2>
-                <span class="repo-name">"auto-tundra/rust-harness"</span>
+                <h2>
+                    <span class="btn-icon" inner_html=gh_icon_svg()></span>
+                    {t("github-issues-title")}
+                </h2>
+                <span class="repo-name">"ryanmaclean/vibecode-webgui"</span>
+                <span class="issue-count-badge">{move || format!("{} open", open_count())}</span>
             </div>
             <div class="page-header-right">
-                <span class="issue-count-badge">{move || format!("{} open", open_count())}</span>
                 <button
                     class="btn btn-sm btn-outline"
                     on:click=trigger_sync
                     disabled=move || is_syncing.get()
                 >
-                    {move || if is_syncing.get() { "Syncing..." } else { "Sync" }}
+                    {move || if is_syncing.get() { "Syncing..." } else { "Refresh" }}
                 </button>
             </div>
         </div>
@@ -196,15 +229,17 @@ pub fn GithubIssuesPage() -> impl IntoView {
             on:click=on_analyze
             disabled=move || is_analyzing.get()
         >
+            <span class="btn-icon" inner_html=analyze_icon_svg()></span>
             {move || if is_analyzing.get() { "Analyzing...".to_string() } else { t("github-issues-analyze") }}
         </button>
 
         // Controls row: search, auto-fix toggle, state filter
         <div class="issues-controls">
             <div class="issues-search-wrapper">
+                <span class="search-icon" inner_html=search_icon_svg()></span>
                 <input
                     type="text"
-                    class="issues-search-input"
+                    class="issues-search-input has-icon"
                     placeholder="Search issues..."
                     prop:value=move || search_query.get()
                     on:input=move |ev| set_search_query.set(event_target_value(&ev))
@@ -212,6 +247,7 @@ pub fn GithubIssuesPage() -> impl IntoView {
             </div>
             <div class="issues-controls-right">
                 <label class="auto-fix-toggle">
+                    <span class="btn-icon" inner_html=wand_icon_svg()></span>
                     <span class="auto-fix-label">"Auto-Fix New"</span>
                     <button
                         class=move || if auto_fix.get() { "toggle-switch active" } else { "toggle-switch" }
@@ -232,6 +268,7 @@ pub fn GithubIssuesPage() -> impl IntoView {
                         <span class="toggle-knob"></span>
                     </button>
                 </label>
+                <span class="filter-icon" inner_html=funnel_icon_svg()></span>
                 <select
                     class="form-select issues-state-filter"
                     prop:value=move || state_filter.get()
@@ -250,8 +287,8 @@ pub fn GithubIssuesPage() -> impl IntoView {
             <div class="issues-list-pane">
                 {move || filtered_issues().is_empty().then(|| view! {
                     <div class="issues-empty-state">
-                        <div class="placeholder-icon">"--"</div>
-                        <p>{move || themed(display_mode.get(), Prompt::EmptyKpi)}</p>
+                        <div class="placeholder-icon placeholder-icon-svg" inner_html=issues_empty_icon_svg()></div>
+                        <p>"No issues found"</p>
                     </div>
                 })}
                 {move || {
@@ -390,7 +427,7 @@ pub fn GithubIssuesPage() -> impl IntoView {
                     }
                     None => view! {
                         <div class="issues-empty-state">
-                            <div class="placeholder-icon">"--"</div>
+                            <div class="placeholder-icon placeholder-icon-svg" inner_html=detail_empty_icon_svg()></div>
                             <p>"Select an issue to view details"</p>
                         </div>
                     }.into_any(),

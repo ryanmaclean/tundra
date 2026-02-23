@@ -1,8 +1,7 @@
+use crate::duckdb;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
-use crate::duckdb;
 use serde::{Deserialize, Serialize};
-
 
 use crate::api;
 use crate::i18n::t;
@@ -47,11 +46,19 @@ pub fn AnalyticsPage() -> impl IntoView {
 
     let completion_pct = move || {
         let t = total_beads();
-        if t > 0 { (done_count() as f64 / t as f64 * 100.0) as u64 } else { 0 }
+        if t > 0 {
+            (done_count() as f64 / t as f64 * 100.0) as u64
+        } else {
+            0
+        }
     };
     let utilization_pct = move || {
         let total_agents = agents.get().len() as u64;
-        if total_agents > 0 { (active_agents() as f64 / total_agents as f64 * 100.0) as u64 } else { 0 }
+        if total_agents > 0 {
+            (active_agents() as f64 / total_agents as f64 * 100.0) as u64
+        } else {
+            0
+        }
     };
 
     view! {

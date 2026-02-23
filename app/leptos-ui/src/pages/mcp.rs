@@ -1,6 +1,6 @@
-use leptos::prelude::*;
 use crate::state::use_app_state;
 use crate::themed::{themed, Prompt};
+use leptos::prelude::*;
 use leptos::task::spawn_local;
 
 use crate::api;
@@ -13,25 +13,53 @@ struct McpServerDef {
 }
 
 const BUILTIN_SERVERS: &[McpServerDef] = &[
-    McpServerDef { name: "Context7", description: "Smart context for Markle", active: true },
-    McpServerDef { name: "Graphiti Memory", description: "Memory system (see Memory settings)", active: false },
-    McpServerDef { name: "Linear", description: "Require Linear integration (see Client settings)", active: false },
-    McpServerDef { name: "Sequential Thinking", description: "Enhanced reasoning via Claude Sonnet", active: true },
-    McpServerDef { name: "Filesystem", description: "File system automations for Claude Sonnet", active: true },
-    McpServerDef { name: "Puppeteer", description: "Web browser automation for testing", active: true },
-    McpServerDef { name: "Auto Claude Tools", description: "Core built-in tools (always enabled)", active: true },
+    McpServerDef {
+        name: "Context",
+        description: "Project context and codebase indexing",
+        active: true,
+    },
+    McpServerDef {
+        name: "Graphiti Memory",
+        description: "Graph memory system (requires OpenAI API key)",
+        active: false,
+    },
+    McpServerDef {
+        name: "Linear",
+        description: "Linear integration for issue tracking (see Client settings)",
+        active: false,
+    },
+    McpServerDef {
+        name: "Playwright",
+        description: "Browser automation for testing and QA",
+        active: true,
+    },
+    McpServerDef {
+        name: "Auto Claude Tools",
+        description: "Core built-in tools (always enabled)",
+        active: true,
+    },
 ];
 
 fn mcp_server_icon_svg(name: &str) -> &'static str {
     match name {
-        "Context7" => r#"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v5H4z"/><path d="M4 9l3 11h10l3-11"/></svg>"#,
-        "Graphiti Memory" => r#"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a7 7 0 0 0-7 7c0 2 1 3.7 2.4 5A3 3 0 0 1 8.5 16H15a3 3 0 0 1 1.1-2c1.5-1.3 2.4-3 2.4-5a7 7 0 0 0-7-7z"/><path d="M9 20h6"/><path d="M10 17h4"/></svg>"#,
-        "Linear" => r#"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 4h4"/><path d="M5 12h8"/><path d="M5 20h14"/></svg>"#,
-        "Sequential Thinking" => r#"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v4"/><path d="M12 17v4"/><path d="M4.9 4.9l2.8 2.8"/><path d="M16.3 16.3l2.8 2.8"/><path d="M3 12h4"/><path d="M17 12h4"/><circle cx="12" cy="12" r="4"/></svg>"#,
-        "Filesystem" => r#"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h6l2 2h10v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>"#,
-        "Puppeteer" => r#"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a15 15 0 0 1 0 18"/><path d="M12 3a15 15 0 0 0 0 18"/></svg>"#,
-        "Auto Claude Tools" => r#"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0-1.4-1.4L7 11.2V14h2.8z"/><path d="M3 21h18"/></svg>"#,
-        _ => r#"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/></svg>"#,
+        "Context" => {
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v5H4z"/><path d="M4 9l3 11h10l3-11"/></svg>"#
+        }
+        "Graphiti Memory" => {
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a7 7 0 0 0-7 7c0 2 1 3.7 2.4 5A3 3 0 0 1 8.5 16H15a3 3 0 0 1 1.1-2c1.5-1.3 2.4-3 2.4-5a7 7 0 0 0-7-7z"/><path d="M9 20h6"/><path d="M10 17h4"/></svg>"#
+        }
+        "Linear" => {
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 4h4"/><path d="M5 12h8"/><path d="M5 20h14"/></svg>"#
+        }
+        "Playwright" => {
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a15 15 0 0 1 0 18"/><path d="M12 3a15 15 0 0 0 0 18"/></svg>"#
+        }
+        "Auto Claude Tools" => {
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0-1.4-1.4L7 11.2V14h2.8z"/><path d="M3 21h18"/></svg>"#
+        }
+        _ => {
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/></svg>"#
+        }
     }
 }
 
@@ -49,12 +77,24 @@ fn mcp_agent_icon_svg(name: &str) -> &'static str {
 
 fn mcp_section_icon_svg(title: &str) -> &'static str {
     match title {
-        "Spec Creation" => r#"<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>"#,
-        "Build" => r#"<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>"#,
-        "QA" => r#"<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01A1.65 1.65 0 0 0 10 3.09V3a2 2 0 1 1 4 0v.09c0 .67.39 1.27 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06c-.47.47-.61 1.17-.33 1.82.25.61.84 1 1.51 1H21a2 2 0 1 1 0 4h-.09c-.67 0-1.27.39-1.51 1z"/></svg>"#,
-        "Utility" => r#"<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m14.7 6.3-2.4 2.4"/><path d="m5 19 3.6-1 9.2-9.2a2.1 2.1 0 0 0-3-3L5.6 15z"/><path d="M3 21h18"/></svg>"#,
-        "Ideation" => r#"<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.8V16a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-1.2A7 7 0 0 0 12 2z"/></svg>"#,
-        _ => r#"<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/></svg>"#,
+        "Specs Creation" => {
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>"#
+        }
+        "Build" => {
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>"#
+        }
+        "QA" => {
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01A1.65 1.65 0 0 0 10 3.09V3a2 2 0 1 1 4 0v.09c0 .67.39 1.27 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06c-.47.47-.61 1.17-.33 1.82.25.61.84 1 1.51 1H21a2 2 0 1 1 0 4h-.09c-.67 0-1.27.39-1.51 1z"/></svg>"#
+        }
+        "Utility" => {
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m14.7 6.3-2.4 2.4"/><path d="m5 19 3.6-1 9.2-9.2a2.1 2.1 0 0 0-3-3L5.6 15z"/><path d="M3 21h18"/></svg>"#
+        }
+        "Ideation" => {
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.8V16a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-1.2A7 7 0 0 0 12 2z"/></svg>"#
+        }
+        _ => {
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/></svg>"#
+        }
     }
 }
 
@@ -68,37 +108,131 @@ struct AgentDef {
 }
 
 const SPEC_AGENTS: &[AgentDef] = &[
-    AgentDef { name: "Spec Gatherer", model: "Sonnet 4.5", thinking: "Medium", mcp_count: 0, description: "Collects initial requirements from user" },
-    AgentDef { name: "Spec Researcher", model: "Sonnet 4.5", thinking: "Medium", mcp_count: 0, description: "Validates external integrations and APIs" },
-    AgentDef { name: "Spec Writer", model: "Sonnet 4.5", thinking: "Medium", mcp_count: 0, description: "Creates the spec.md document" },
-    AgentDef { name: "Spec Critic", model: "Sonnet 4.5", thinking: "Medium", mcp_count: 0, description: "Self-critique using deep analysis" },
-    AgentDef { name: "Spec Discovery", model: "Sonnet 4.5", thinking: "Medium", mcp_count: 0, description: "Initial project discovery and analysis" },
-    AgentDef { name: "Spec Context", model: "Sonnet 4.5", thinking: "Medium", mcp_count: 0, description: "Builds context from existing codebase" },
-    AgentDef { name: "Spec Validation", model: "Sonnet 4.5", thinking: "Medium", mcp_count: 0, description: "Validates spec completeness and quality" },
+    AgentDef {
+        name: "Spec Gatherer",
+        model: "Sonnet 4.5",
+        thinking: "Medium",
+        mcp_count: 0,
+        description: "Collects initial requirements from user",
+    },
+    AgentDef {
+        name: "Spec Researcher",
+        model: "Sonnet 4.5",
+        thinking: "Medium",
+        mcp_count: 0,
+        description: "Validates external integrations and APIs",
+    },
+    AgentDef {
+        name: "Spec Writer",
+        model: "Sonnet 4.5",
+        thinking: "Medium",
+        mcp_count: 0,
+        description: "Creates the spec.md document",
+    },
+    AgentDef {
+        name: "Spec Critic",
+        model: "Sonnet 4.5",
+        thinking: "Medium",
+        mcp_count: 0,
+        description: "Self-critique using deep analysis",
+    },
+    AgentDef {
+        name: "Spec Discovery",
+        model: "Sonnet 4.5",
+        thinking: "Medium",
+        mcp_count: 0,
+        description: "Initial project discovery and analysis",
+    },
+    AgentDef {
+        name: "Spec Validation",
+        model: "Sonnet 4.5",
+        thinking: "Medium",
+        mcp_count: 0,
+        description: "Validates spec completeness and quality",
+    },
 ];
 
 const BUILD_AGENTS: &[AgentDef] = &[
-    AgentDef { name: "Planner", model: "Sonnet 4.5", thinking: "Medium", mcp_count: 3, description: "Creates implementation plan with subtasks" },
-    AgentDef { name: "Coder", model: "Sonnet 4.5", thinking: "Medium", mcp_count: 3, description: "Implements individual subtasks" },
+    AgentDef {
+        name: "Planner",
+        model: "Sonnet 4.5",
+        thinking: "Medium",
+        mcp_count: 3,
+        description: "Creates implementation plan with subtasks",
+    },
+    AgentDef {
+        name: "Coder",
+        model: "Sonnet 4.5",
+        thinking: "Medium",
+        mcp_count: 3,
+        description: "Implements individual subtasks",
+    },
 ];
 
 const QA_AGENTS: &[AgentDef] = &[
-    AgentDef { name: "QA Reviewer", model: "Sonnet 4.5", thinking: "Medium", mcp_count: 3, description: "Validates acceptance criteria. Uses Electron or Puppeteer based on project type." },
-    AgentDef { name: "QA Fixer", model: "Sonnet 4.5", thinking: "Medium", mcp_count: 3, description: "Fixes QA-reported issues. Uses Electron or Puppeteer based on project type." },
+    AgentDef {
+        name: "QA Reviewer",
+        model: "Sonnet 4.5",
+        thinking: "Medium",
+        mcp_count: 3,
+        description:
+            "Validates acceptance criteria. Uses Electron or Puppeteer based on project type.",
+    },
+    AgentDef {
+        name: "QA Fixer",
+        model: "Sonnet 4.5",
+        thinking: "Medium",
+        mcp_count: 3,
+        description: "Fixes QA-reported issues. Uses Electron or Puppeteer based on project type.",
+    },
 ];
 
 const UTILITY_AGENTS: &[AgentDef] = &[
-    AgentDef { name: "PR Reviewer", model: "Opus 4.5", thinking: "Medium", mcp_count: 0, description: "Reviews GitHub pull requests" },
-    AgentDef { name: "Commit Message", model: "Haiku 4.5", thinking: "Low", mcp_count: 0, description: "Generates commit messages" },
-    AgentDef { name: "Merge Resolver", model: "Haiku 4.5", thinking: "Low", mcp_count: 0, description: "Resolves merge conflicts" },
-    AgentDef { name: "Insights", model: "Sonnet 4.5", thinking: "Medium", mcp_count: 0, description: "Extracts code insights" },
-    AgentDef { name: "Analysis", model: "Sonnet 4.5", thinking: "Medium", mcp_count: 0, description: "Codebase analysis with context lookup" },
-    AgentDef { name: "Batch Analysis", model: "Opus 4.5", thinking: "Medium", mcp_count: 0, description: "Batch processing of issues or items" },
+    AgentDef {
+        name: "PR Reviewer",
+        model: "Opus 4.5",
+        thinking: "Medium",
+        mcp_count: 0,
+        description: "Reviews GitHub pull requests",
+    },
+    AgentDef {
+        name: "Commit Message",
+        model: "Haiku 4.5",
+        thinking: "Low",
+        mcp_count: 0,
+        description: "Generates commit messages",
+    },
+    AgentDef {
+        name: "Merge Resolver",
+        model: "Haiku 4.5",
+        thinking: "Low",
+        mcp_count: 0,
+        description: "Resolves merge conflicts",
+    },
+    AgentDef {
+        name: "Insights",
+        model: "Sonnet 4.5",
+        thinking: "Medium",
+        mcp_count: 0,
+        description: "Extracts code insights and analysis",
+    },
 ];
 
 const IDEATION_AGENTS: &[AgentDef] = &[
-    AgentDef { name: "Ideation", model: "Opus 4.5", thinking: "High", mcp_count: 0, description: "Generates feature ideas" },
-    AgentDef { name: "Roadmap Discovery", model: "Opus 4.5", thinking: "High", mcp_count: 0, description: "Discovers roadmap items" },
+    AgentDef {
+        name: "Ideation",
+        model: "Opus 4.5",
+        thinking: "High",
+        mcp_count: 0,
+        description: "Generates feature ideas",
+    },
+    AgentDef {
+        name: "Roadmap Discovery",
+        model: "Opus 4.5",
+        thinking: "High",
+        mcp_count: 0,
+        description: "Discovers roadmap items",
+    },
 ];
 
 #[component]
@@ -141,14 +275,22 @@ pub fn McpPage() -> impl IntoView {
     do_refresh();
 
     // Track locally disabled built-in servers
-    let (disabled_servers, set_disabled_servers) = signal(std::collections::HashSet::<String>::new());
+    let (disabled_servers, set_disabled_servers) =
+        signal(std::collections::HashSet::<String>::new());
 
     let active_count = move || {
         let disabled = disabled_servers.get();
-        BUILTIN_SERVERS.iter().filter(|s| {
-            let name = s.name.to_string();
-            if disabled.contains(&name) { false } else { s.active }
-        }).count()
+        BUILTIN_SERVERS
+            .iter()
+            .filter(|s| {
+                let name = s.name.to_string();
+                if disabled.contains(&name) {
+                    false
+                } else {
+                    s.active
+                }
+            })
+            .count()
     };
 
     view! {
@@ -370,7 +512,7 @@ pub fn McpPage() -> impl IntoView {
         }}
 
         // ── Agent Grids ──
-        {render_agent_section("Spec Creation", SPEC_AGENTS)}
+        {render_agent_section("Specs Creation", SPEC_AGENTS)}
         {render_agent_section("Build", BUILD_AGENTS)}
         {render_agent_section("QA", QA_AGENTS)}
         {render_agent_section("Utility", UTILITY_AGENTS)}

@@ -18,13 +18,11 @@ impl DisplayMode {
 }
 
 use crate::types::{
-    AgentResponse, BeadResponse, ClaudeSession, ContextEntry, ConvoyResponse, CostEntry,
-    GithubIssue, GithubPr, IdeaResponse, KpiResponse, McpServerEntry, RoadmapPhase,
-    SessionResponse, StatusResponse, WorktreeEntry,
-    demo_agents, demo_beads, demo_claude_sessions, demo_context_entries, demo_convoys,
-
-    demo_costs, demo_github_issues, demo_github_prs, demo_ideas, demo_kpis, demo_mcp_servers,
-    demo_roadmap, demo_sessions, demo_worktrees,
+    demo_agents, demo_beads, demo_claude_sessions, demo_context_entries, demo_convoys, demo_costs,
+    demo_github_issues, demo_github_prs, demo_ideas, demo_kpis, demo_mcp_servers, demo_roadmap,
+    demo_sessions, demo_worktrees, AgentResponse, BeadResponse, ClaudeSession, ContextEntry,
+    ConvoyResponse, CostEntry, GithubIssue, GithubPr, IdeaResponse, KpiResponse, McpServerEntry,
+    RoadmapPhase, SessionResponse, StatusResponse, WorktreeEntry,
 };
 
 #[derive(Clone)]
@@ -76,7 +74,6 @@ pub fn provide_app_state() {
     let (costs, _) = signal(demo_costs());
     let (mcp_servers, _) = signal(demo_mcp_servers());
     let (status, set_status) = signal(StatusResponse {
-
         daemon_running: true,
         active_agents: 3,
         total_beads: 20,
@@ -194,5 +191,7 @@ pub fn provide_app_state() {
 }
 
 pub fn use_app_state() -> AppState {
-    use_context::<AppState>().expect("AppState not provided — ensure provide_app_state() is called in a parent component")
+    use_context::<AppState>().expect(
+        "AppState not provided — ensure provide_app_state() is called in a parent component",
+    )
 }

@@ -5,13 +5,13 @@
 use leptos::prelude::*;
 
 pub mod api;
-pub mod types;
-pub mod state;
-pub mod pages;
 pub mod components;
 pub mod events;
 pub mod i18n;
+pub mod pages;
+pub mod state;
 pub mod themed;
+pub mod types;
 
 pub use themed::{themed, Prompt};
 
@@ -47,14 +47,8 @@ pub fn App() -> impl IntoView {
     let (show_settings, set_show_settings) = signal(false);
 
     // Start the event WebSocket stream
-    let (
-        _conn_state,
-        _latest_event,
-        toasts,
-        set_toasts,
-        unread_count,
-        set_unread_count,
-    ) = events::use_event_stream();
+    let (_conn_state, _latest_event, toasts, set_toasts, unread_count, set_unread_count) =
+        events::use_event_stream();
 
     // Fetch notification count on startup so the bell shows the real unread count.
     {
@@ -66,9 +60,7 @@ pub fn App() -> impl IntoView {
         });
     }
 
-    let page_label = move || {
-        components::nav_bar::tab_label(current_tab.get())
-    };
+    let page_label = move || components::nav_bar::tab_label(current_tab.get());
 
     // Global keyboard shortcuts: pressing a letter key (D, K, A, N, etc.)
     // navigates to the corresponding tab, matching the sidebar shortcut badges.
@@ -77,51 +69,51 @@ pub fn App() -> impl IntoView {
         Effect::new(move |_| {
             use wasm_bindgen::closure::Closure;
             if let Some(window) = web_sys::window() {
-                let handler = Closure::<dyn Fn(web_sys::KeyboardEvent)>::new(move |ev: web_sys::KeyboardEvent| {
-                    // Don't trigger shortcuts when typing in an input/textarea/select
-                    if let Some(target) = ev.target() {
-                        if let Ok(el) = target.dyn_into::<web_sys::HtmlElement>() {
-                            let tag = el.tag_name().to_uppercase();
-                            if tag == "INPUT" || tag == "TEXTAREA" || tag == "SELECT" {
-                                return;
-                            }
-                            // Also skip if contenteditable
-                            if el.is_content_editable() {
-                                return;
+                let handler = Closure::<dyn Fn(web_sys::KeyboardEvent)>::new(
+                    move |ev: web_sys::KeyboardEvent| {
+                        // Don't trigger shortcuts when typing in an input/textarea/select
+                        if let Some(target) = ev.target() {
+                            if let Ok(el) = target.dyn_into::<web_sys::HtmlElement>() {
+                                let tag = el.tag_name().to_uppercase();
+                                if tag == "INPUT" || tag == "TEXTAREA" || tag == "SELECT" {
+                                    return;
+                                }
+                                // Also skip if contenteditable
+                                if el.is_content_editable() {
+                                    return;
+                                }
                             }
                         }
-                    }
-                    // Skip if any modifier key is held (Ctrl, Alt, Meta, Shift)
-                    if ev.ctrl_key() || ev.alt_key() || ev.meta_key() || ev.shift_key() {
-                        return;
-                    }
-                    let key = ev.key();
-                    let tab_idx = match key.as_str() {
-                        "d" | "D" => Some(0),   // Dashboard
-                        "k" | "K" => Some(1),   // Kanban Board
-                        "a" | "A" => Some(2),   // Agent Terminals
-                        "n" | "N" => Some(3),   // Insights
-                        "i" | "I" => Some(4),   // Ideation
-                        "r" | "R" => Some(5),   // Roadmap
-                        "l" | "L" => Some(6),   // Changelog
-                        "c" | "C" => Some(7),   // Context
-                        "m" | "M" => Some(8),   // MCP Overview
-                        "w" | "W" => Some(9),   // Worktrees
-                        "g" | "G" => Some(10),  // GitHub Issues
-                        "p" | "P" => Some(11),  // GitHub PRs
-                        "t" | "T" => Some(14),  // Terminals
-                        "s" | "S" => Some(16),  // Stacks
-                        _ => None,
-                    };
-                    if let Some(idx) = tab_idx {
-                        set_tab.set(idx);
-                        ev.prevent_default();
-                    }
-                });
-                let _ = window.add_event_listener_with_callback(
-                    "keydown",
-                    handler.as_ref().unchecked_ref(),
+                        // Skip if any modifier key is held (Ctrl, Alt, Meta, Shift)
+                        if ev.ctrl_key() || ev.alt_key() || ev.meta_key() || ev.shift_key() {
+                            return;
+                        }
+                        let key = ev.key();
+                        let tab_idx = match key.as_str() {
+                            "d" | "D" => Some(0),  // Dashboard
+                            "k" | "K" => Some(1),  // Kanban Board
+                            "a" | "A" => Some(2),  // Agent Terminals
+                            "n" | "N" => Some(3),  // Insights
+                            "i" | "I" => Some(4),  // Ideation
+                            "r" | "R" => Some(5),  // Roadmap
+                            "l" | "L" => Some(6),  // Changelog
+                            "c" | "C" => Some(7),  // Context
+                            "m" | "M" => Some(8),  // MCP Overview
+                            "w" | "W" => Some(9),  // Worktrees
+                            "g" | "G" => Some(10), // GitHub Issues
+                            "p" | "P" => Some(11), // GitHub PRs
+                            "t" | "T" => Some(14), // Terminals
+                            "s" | "S" => Some(16), // Stacks
+                            _ => None,
+                        };
+                        if let Some(idx) = tab_idx {
+                            set_tab.set(idx);
+                            ev.prevent_default();
+                        }
+                    },
                 );
+                let _ = window
+                    .add_event_listener_with_callback("keydown", handler.as_ref().unchecked_ref());
                 // Leak the closure so it lives for the lifetime of the app
                 handler.forget();
             }
@@ -155,7 +147,7 @@ pub fn App() -> impl IntoView {
                 <div class="particle"></div>
                 <div class="particle"></div>
             </div>
-            
+
             <components::nav_bar::NavBar
                 current_tab=current_tab
                 set_current_tab=set_current_tab

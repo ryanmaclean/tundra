@@ -51,7 +51,8 @@ mod api_deserialization {
             "status": "Backlog",
             "lane": "Standard"
         }"#;
-        let bead: ApiBead = serde_json::from_str(json).expect("ApiBead minimal deserialization failed");
+        let bead: ApiBead =
+            serde_json::from_str(json).expect("ApiBead minimal deserialization failed");
         assert_eq!(bead.id, "xyz");
         assert_eq!(bead.description, None);
         assert_eq!(bead.priority, 0); // default
@@ -122,7 +123,8 @@ mod api_deserialization {
             "agent_count": 5,
             "bead_count": 42
         }"#;
-        let status: ApiStatus = serde_json::from_str(json).expect("ApiStatus deserialization failed");
+        let status: ApiStatus =
+            serde_json::from_str(json).expect("ApiStatus deserialization failed");
         assert_eq!(status.version, "0.1.0");
         assert_eq!(status.uptime_secs, 3600);
         assert_eq!(status.agent_count, 5);
@@ -249,14 +251,18 @@ mod settings_deserialization {
         let json_str = serde_json::to_string(&settings).expect("Settings serialization failed");
 
         // Deserialize back
-        let restored: ApiSettings = serde_json::from_str(&json_str).expect("Settings roundtrip failed");
+        let restored: ApiSettings =
+            serde_json::from_str(&json_str).expect("Settings roundtrip failed");
 
         assert_eq!(restored.general.project_name, "auto-tundra");
         assert_eq!(restored.display.theme, "dark");
         assert_eq!(restored.agents.max_concurrent, 5);
         assert_eq!(restored.terminal.font_family, "JetBrains Mono");
         assert_eq!(restored.security.sandbox, true);
-        assert_eq!(restored.integrations.github_owner, Some("owner".to_string()));
+        assert_eq!(
+            restored.integrations.github_owner,
+            Some("owner".to_string())
+        );
         assert_eq!(restored.appearance.color_theme, "tokyo-night");
         assert_eq!(restored.language.interface_language, "en");
         assert_eq!(restored.dev_tools.preferred_ide, "vscode");
@@ -272,7 +278,8 @@ mod settings_deserialization {
     #[wasm_bindgen_test]
     fn test_api_settings_deserialize_empty_json() {
         let json = r#"{}"#;
-        let settings: ApiSettings = serde_json::from_str(json).expect("Empty settings should deserialize with defaults");
+        let settings: ApiSettings =
+            serde_json::from_str(json).expect("Empty settings should deserialize with defaults");
         assert_eq!(settings.general.project_name, "");
         assert_eq!(settings.display.font_size, 0);
         assert_eq!(settings.agents.max_concurrent, 0);
@@ -284,7 +291,8 @@ mod settings_deserialization {
     #[wasm_bindgen_test]
     fn test_api_settings_partial_json() {
         let json = r#"{"general": {"project_name": "my-project"}, "display": {"theme": "light"}}"#;
-        let settings: ApiSettings = serde_json::from_str(json).expect("Partial settings should work");
+        let settings: ApiSettings =
+            serde_json::from_str(json).expect("Partial settings should work");
         assert_eq!(settings.general.project_name, "my-project");
         assert_eq!(settings.display.theme, "light");
         // Everything else should be default
@@ -437,7 +445,8 @@ mod additional_api_types {
     #[wasm_bindgen_test]
     fn test_api_notification_count_deserialize() {
         let json = r#"{"unread": 5, "total": 20}"#;
-        let count: ApiNotificationCount = serde_json::from_str(json).expect("ApiNotificationCount failed");
+        let count: ApiNotificationCount =
+            serde_json::from_str(json).expect("ApiNotificationCount failed");
         assert_eq!(count.unread, 5);
         assert_eq!(count.total, 20);
     }
@@ -453,7 +462,8 @@ mod additional_api_types {
                 {"category": "fix", "items": ["Fixed login bug"]}
             ]
         }"#;
-        let entry: ApiChangelogEntry = serde_json::from_str(json).expect("ApiChangelogEntry failed");
+        let entry: ApiChangelogEntry =
+            serde_json::from_str(json).expect("ApiChangelogEntry failed");
         assert_eq!(entry.version, "0.2.0");
         assert_eq!(entry.sections.len(), 2);
         assert_eq!(entry.sections[0].category, "feat");
@@ -488,14 +498,16 @@ mod additional_api_types {
     #[wasm_bindgen_test]
     fn test_api_insights_session_deserialize() {
         let json = r#"{"id": "is-1", "title": "Architecture Review"}"#;
-        let session: ApiInsightsSession = serde_json::from_str(json).expect("ApiInsightsSession failed");
+        let session: ApiInsightsSession =
+            serde_json::from_str(json).expect("ApiInsightsSession failed");
         assert_eq!(session.title, "Architecture Review");
     }
 
     #[wasm_bindgen_test]
     fn test_api_insights_message_deserialize() {
         let json = r#"{"id": "msg-1", "role": "user", "content": "What is the best approach?"}"#;
-        let msg: ApiInsightsMessage = serde_json::from_str(json).expect("ApiInsightsMessage failed");
+        let msg: ApiInsightsMessage =
+            serde_json::from_str(json).expect("ApiInsightsMessage failed");
         assert_eq!(msg.role, "user");
     }
 
@@ -517,7 +529,8 @@ mod additional_api_types {
     #[wasm_bindgen_test]
     fn test_api_credential_status_deserialize() {
         let json = r#"{"providers": ["ANTHROPIC_API_KEY", "GITHUB_TOKEN"], "daemon_auth": true}"#;
-        let status: ApiCredentialStatus = serde_json::from_str(json).expect("ApiCredentialStatus failed");
+        let status: ApiCredentialStatus =
+            serde_json::from_str(json).expect("ApiCredentialStatus failed");
         assert_eq!(status.providers.len(), 2);
         assert!(status.daemon_auth);
     }
@@ -554,8 +567,12 @@ mod navigation_logic {
         ];
         for (idx, label) in expected {
             assert_eq!(
-                tab_label(idx), label,
-                "Tab {} should be '{}' but got '{}'", idx, label, tab_label(idx)
+                tab_label(idx),
+                label,
+                "Tab {} should be '{}' but got '{}'",
+                idx,
+                label,
+                tab_label(idx)
             );
         }
     }
@@ -584,9 +601,21 @@ mod event_stream {
     #[wasm_bindgen_test]
     fn test_events_ws_url_format() {
         let url = events_ws_url();
-        assert!(url.starts_with("ws://"), "WS URL should start with ws://, got: {}", url);
-        assert!(url.ends_with("/api/events/ws"), "WS URL should end with /api/events/ws, got: {}", url);
-        assert!(url.contains("localhost"), "WS URL should contain localhost, got: {}", url);
+        assert!(
+            url.starts_with("ws://"),
+            "WS URL should start with ws://, got: {}",
+            url
+        );
+        assert!(
+            url.ends_with("/api/events/ws"),
+            "WS URL should end with /api/events/ws, got: {}",
+            url
+        );
+        assert!(
+            url.contains("localhost"),
+            "WS URL should contain localhost, got: {}",
+            url
+        );
     }
 }
 
@@ -718,8 +747,8 @@ mod serialization_edge_cases {
 
 mod phase_icon_svg {
     use super::*;
+    use at_leptos_ui::pages::beads::{phase_status_class, phase_status_icon_svg};
     use at_leptos_ui::types::{BeadResponse, BeadStatus, Lane};
-    use at_leptos_ui::pages::beads::{phase_status_icon_svg, phase_status_class};
 
     fn make_bead(status: BeadStatus, tags: Vec<String>) -> BeadResponse {
         BeadResponse {
@@ -742,25 +771,40 @@ mod phase_icon_svg {
         let bead = make_bead(BeadStatus::Planning, vec![]);
         let svg = phase_status_icon_svg(&bead);
         assert!(svg.contains("<svg"), "Should be an SVG element");
-        assert!(svg.contains("phase-icon-plan"), "Should have planning CSS class");
+        assert!(
+            svg.contains("phase-icon-plan"),
+            "Should have planning CSS class"
+        );
         assert!(svg.contains("<path"), "Diamond uses a path element");
-        assert!(!svg.contains("animate"), "Planning icon should not have animations (Auto Claude pattern)");
+        assert!(
+            !svg.contains("animate"),
+            "Planning icon should not have animations (Auto Claude pattern)"
+        );
     }
 
     #[wasm_bindgen_test]
     fn test_in_progress_icon_is_play_svg() {
         let bead = make_bead(BeadStatus::InProgress, vec![]);
         let svg = phase_status_icon_svg(&bead);
-        assert!(svg.contains("phase-icon-active"), "Should have active CSS class");
+        assert!(
+            svg.contains("phase-icon-active"),
+            "Should have active CSS class"
+        );
         assert!(svg.contains("<polygon"), "Play icon uses a polygon element");
-        assert!(!svg.contains("animate"), "InProgress icon should not loop (Auto Claude: no looping animations)");
+        assert!(
+            !svg.contains("animate"),
+            "InProgress icon should not loop (Auto Claude: no looping animations)"
+        );
     }
 
     #[wasm_bindgen_test]
     fn test_ai_review_icon_is_eye_svg() {
         let bead = make_bead(BeadStatus::AiReview, vec![]);
         let svg = phase_status_icon_svg(&bead);
-        assert!(svg.contains("phase-icon-review"), "Should have review CSS class");
+        assert!(
+            svg.contains("phase-icon-review"),
+            "Should have review CSS class"
+        );
         assert!(svg.contains("<circle"), "Eye icon has circle element");
         assert!(!svg.contains("animate"), "AiReview icon should not loop");
     }
@@ -777,20 +821,41 @@ mod phase_icon_svg {
     fn test_done_icon_has_checkmark_draw_animation() {
         let bead = make_bead(BeadStatus::Done, vec![]);
         let svg = phase_status_icon_svg(&bead);
-        assert!(svg.contains("phase-icon-done"), "Should have done CSS class");
+        assert!(
+            svg.contains("phase-icon-done"),
+            "Should have done CSS class"
+        );
         assert!(svg.contains("<polyline"), "Checkmark uses a polyline");
-        assert!(svg.contains("stroke-dasharray"), "Should use stroke-dasharray for draw effect");
-        assert!(svg.contains("stroke-dashoffset"), "Should use stroke-dashoffset for draw effect");
-        assert!(svg.contains(r#"fill="freeze"#), "Draw animation should run once (fill=freeze), not loop");
-        assert!(svg.contains("animate"), "Done checkmark should have draw-once animation");
-        assert!(!svg.contains("indefinite"), "Done checkmark should NOT loop indefinitely");
+        assert!(
+            svg.contains("stroke-dasharray"),
+            "Should use stroke-dasharray for draw effect"
+        );
+        assert!(
+            svg.contains("stroke-dashoffset"),
+            "Should use stroke-dashoffset for draw effect"
+        );
+        assert!(
+            svg.contains(r#"fill="freeze"#),
+            "Draw animation should run once (fill=freeze), not loop"
+        );
+        assert!(
+            svg.contains("animate"),
+            "Done checkmark should have draw-once animation"
+        );
+        assert!(
+            !svg.contains("indefinite"),
+            "Done checkmark should NOT loop indefinitely"
+        );
     }
 
     #[wasm_bindgen_test]
     fn test_failed_icon_is_x_svg() {
         let bead = make_bead(BeadStatus::Failed, vec![]);
         let svg = phase_status_icon_svg(&bead);
-        assert!(svg.contains("phase-icon-fail"), "Should have fail CSS class");
+        assert!(
+            svg.contains("phase-icon-fail"),
+            "Should have fail CSS class"
+        );
         assert!(svg.contains("<line"), "X icon uses line elements");
     }
 
@@ -798,15 +863,24 @@ mod phase_icon_svg {
     fn test_stuck_tag_overrides_to_warning_icon() {
         let bead = make_bead(BeadStatus::InProgress, vec!["stuck".to_string()]);
         let svg = phase_status_icon_svg(&bead);
-        assert!(svg.contains("phase-icon-warn"), "Stuck tag should force warning icon");
-        assert!(!svg.contains("phase-icon-active"), "Should not show InProgress icon when stuck");
+        assert!(
+            svg.contains("phase-icon-warn"),
+            "Stuck tag should force warning icon"
+        );
+        assert!(
+            !svg.contains("phase-icon-active"),
+            "Should not show InProgress icon when stuck"
+        );
     }
 
     #[wasm_bindgen_test]
     fn test_recovery_tag_overrides_to_warning_icon() {
         let bead = make_bead(BeadStatus::Planning, vec!["recovery".to_string()]);
         let svg = phase_status_icon_svg(&bead);
-        assert!(svg.contains("phase-icon-warn"), "Recovery tag should force warning icon");
+        assert!(
+            svg.contains("phase-icon-warn"),
+            "Recovery tag should force warning icon"
+        );
     }
 
     #[wasm_bindgen_test]
@@ -814,7 +888,10 @@ mod phase_icon_svg {
         // Failed status should also show warning icon (not the X)
         let bead = make_bead(BeadStatus::Failed, vec!["stuck".to_string()]);
         let svg = phase_status_icon_svg(&bead);
-        assert!(svg.contains("phase-icon-warn"), "Failed + stuck should show warning");
+        assert!(
+            svg.contains("phase-icon-warn"),
+            "Failed + stuck should show warning"
+        );
     }
 
     #[wasm_bindgen_test]
@@ -832,26 +909,38 @@ mod phase_icon_svg {
             let svg = phase_status_icon_svg(&bead);
             assert!(svg.contains(r#"width="14""#), "Icon should be 14px wide");
             assert!(svg.contains(r#"height="14""#), "Icon should be 14px tall");
-            assert!(svg.contains("viewBox=\"0 0 24 24\""), "Icon should use 24x24 viewBox");
+            assert!(
+                svg.contains("viewBox=\"0 0 24 24\""),
+                "Icon should use 24x24 viewBox"
+            );
         }
     }
 
     #[wasm_bindgen_test]
     fn test_phase_status_class_planning() {
         let bead = make_bead(BeadStatus::Planning, vec![]);
-        assert_eq!(phase_status_class(&bead), "bead-phase-status bead-phase-planning");
+        assert_eq!(
+            phase_status_class(&bead),
+            "bead-phase-status bead-phase-planning"
+        );
     }
 
     #[wasm_bindgen_test]
     fn test_phase_status_class_stuck_overrides() {
         let bead = make_bead(BeadStatus::InProgress, vec!["stuck".to_string()]);
-        assert_eq!(phase_status_class(&bead), "bead-phase-status bead-phase-interrupted");
+        assert_eq!(
+            phase_status_class(&bead),
+            "bead-phase-status bead-phase-interrupted"
+        );
     }
 
     #[wasm_bindgen_test]
     fn test_phase_status_class_done() {
         let bead = make_bead(BeadStatus::Done, vec![]);
-        assert_eq!(phase_status_class(&bead), "bead-phase-status bead-phase-complete");
+        assert_eq!(
+            phase_status_class(&bead),
+            "bead-phase-status bead-phase-complete"
+        );
     }
 }
 
@@ -861,7 +950,7 @@ mod phase_icon_svg {
 
 mod bead_helpers {
     use super::*;
-    use at_leptos_ui::pages::beads::{agent_initials, stage_class, bead_tag_class};
+    use at_leptos_ui::pages::beads::{agent_initials, bead_tag_class, stage_class};
 
     #[wasm_bindgen_test]
     fn test_agent_initials_known_roles() {

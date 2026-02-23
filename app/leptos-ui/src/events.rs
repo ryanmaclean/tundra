@@ -48,8 +48,8 @@ pub fn use_event_stream() -> (
     ReadSignal<Option<serde_json::Value>>,
     ReadSignal<Vec<Toast>>,
     WriteSignal<Vec<Toast>>,
-    ReadSignal<u64>,          // unread notification count
-    WriteSignal<u64>,         // setter for unread count
+    ReadSignal<u64>,  // unread notification count
+    WriteSignal<u64>, // setter for unread count
 ) {
     let (conn_state, set_conn_state) = signal(WsConnectionState::Disconnected);
     let (latest_event, set_latest_event) = signal(None::<serde_json::Value>);
@@ -90,7 +90,14 @@ pub fn use_event_stream() -> (
         }
     });
 
-    (conn_state, latest_event, toasts, set_toasts, unread_count, set_unread_count)
+    (
+        conn_state,
+        latest_event,
+        toasts,
+        set_toasts,
+        unread_count,
+        set_unread_count,
+    )
 }
 
 fn connect_ws(
@@ -114,7 +121,15 @@ fn connect_ws(
         Ok(ws) => ws,
         Err(_) => {
             set_conn_state.set(WsConnectionState::Disconnected);
-            schedule_reconnect(set_conn_state, set_latest_event, set_toasts, set_unread_count, 1, mounted, ws_handle);
+            schedule_reconnect(
+                set_conn_state,
+                set_latest_event,
+                set_toasts,
+                set_unread_count,
+                1,
+                mounted,
+                ws_handle,
+            );
             return;
         }
     };
@@ -196,9 +211,19 @@ fn connect_ws(
             set_state.set(WsConnectionState::Disconnected);
             if mounted_close.get() {
                 web_sys::console::log_1(&"[events] WebSocket closed, will reconnect".into());
-                schedule_reconnect(set_state, set_event, set_toasts3, set_unread, 1, mounted_close.clone(), ws_handle_close.clone());
+                schedule_reconnect(
+                    set_state,
+                    set_event,
+                    set_toasts3,
+                    set_unread,
+                    1,
+                    mounted_close.clone(),
+                    ws_handle_close.clone(),
+                );
             } else {
-                web_sys::console::log_1(&"[events] WebSocket closed (component unmounted, skipping reconnect)".into());
+                web_sys::console::log_1(
+                    &"[events] WebSocket closed (component unmounted, skipping reconnect)".into(),
+                );
             }
         }) as Box<dyn FnMut(CloseEvent)>);
         ws.set_onclose(Some(onclose.as_ref().unchecked_ref()));
@@ -231,9 +256,20 @@ fn schedule_reconnect(
             return;
         }
         web_sys::console::log_1(
-            &format!("[events] Reconnect attempt {} (delay {}s)", attempt, delay_secs).into(),
+            &format!(
+                "[events] Reconnect attempt {} (delay {}s)",
+                attempt, delay_secs
+            )
+            .into(),
         );
-        connect_ws(set_conn_state, set_latest_event, set_toasts, set_unread_count, mounted, ws_handle);
+        connect_ws(
+            set_conn_state,
+            set_latest_event,
+            set_toasts,
+            set_unread_count,
+            mounted,
+            ws_handle,
+        );
     });
 }
 

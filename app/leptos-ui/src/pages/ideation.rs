@@ -1,6 +1,6 @@
-use leptos::prelude::*;
 use crate::state::use_app_state;
 use crate::themed::{themed, Prompt};
+use leptos::prelude::*;
 use leptos::task::spawn_local;
 
 use crate::api;
@@ -52,7 +52,10 @@ pub fn IdeationPage() -> impl IntoView {
         if cat == "All" {
             all_ideas
         } else {
-            all_ideas.into_iter().filter(|i| i.category == cat).collect()
+            all_ideas
+                .into_iter()
+                .filter(|i| i.category == cat)
+                .collect()
         }
     };
 
