@@ -257,6 +257,7 @@ dependencies = [
  "dirs",
  "git2",
  "libc",
+ "lru",
  "notify",
  "rusqlite",
  "serde",

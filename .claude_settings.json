@@ -1,0 +1,39 @@
+{
+  "sandbox": {
+    "enabled": true,
+    "autoAllowBashIfSandboxed": true
+  },
+  "permissions": {
+    "defaultMode": "acceptEdits",
+    "allow": [
+      "Read(./**)",
+      "Write(./**)",
+      "Edit(./**)",
+      "Glob(./**)",
+      "Grep(./**)",
+      "Read(/Users/studio/rust-harness/.auto-claude/worktrees/tasks/025-use-sessionstore-async-i-o-and-add-in-memory-lru-c/**)",
+      "Write(/Users/studio/rust-harness/.auto-claude/worktrees/tasks/025-use-sessionstore-async-i-o-and-add-in-memory-lru-c/**)",
+      "Edit(/Users/studio/rust-harness/.auto-claude/worktrees/tasks/025-use-sessionstore-async-i-o-and-add-in-memory-lru-c/**)",
+      "Glob(/Users/studio/rust-harness/.auto-claude/worktrees/tasks/025-use-sessionstore-async-i-o-and-add-in-memory-lru-c/**)",
+      "Grep(/Users/studio/rust-harness/.auto-claude/worktrees/tasks/025-use-sessionstore-async-i-o-and-add-in-memory-lru-c/**)",
+      "Read(/Users/studio/rust-harness/.auto-claude/worktrees/tasks/025-use-sessionstore-async-i-o-and-add-in-memory-lru-c/.auto-claude/specs/025-use-sessionstore-async-i-o-and-add-in-memory-lru-c/**)",
+      "Write(/Users/studio/rust-harness/.auto-claude/worktrees/tasks/025-use-sessionstore-async-i-o-and-add-in-memory-lru-c/.auto-claude/specs/025-use-sessionstore-async-i-o-and-add-in-memory-lru-c/**)",
+      "Edit(/Users/studio/rust-harness/.auto-claude/worktrees/tasks/025-use-sessionstore-async-i-o-and-add-in-memory-lru-c/.auto-claude/specs/025-use-sessionstore-async-i-o-and-add-in-memory-lru-c/**)",
+      "Read(/Users/studio/rust-harness/.auto-claude/**)",
+      "Write(/Users/studio/rust-harness/.auto-claude/**)",
+      "Edit(/Users/studio/rust-harness/.auto-claude/**)",
+      "Glob(/Users/studio/rust-harness/.auto-claude/**)",
+      "Grep(/Users/studio/rust-harness/.auto-claude/**)",
+      "Bash(*)",
+      "WebFetch(*)",
+      "WebSearch(*)",
+      "mcp__context7__resolve-library-id(*)",
+      "mcp__context7__query-docs(*)",
+      "mcp__graphiti-memory__search_nodes(*)",
+      "mcp__graphiti-memory__search_facts(*)",
+      "mcp__graphiti-memory__add_episode(*)",
+      "mcp__graphiti-memory__get_episodes(*)",
+      "mcp__graphiti-memory__get_entity_edge(*)"
+    ]
+  }
+}
