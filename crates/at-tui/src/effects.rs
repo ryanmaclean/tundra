@@ -32,7 +32,7 @@ use tachyonfx::{fx, Effect, EffectManager as TachyonManager, Interpolation, Moti
 
 /// The direction from which a sweep or slide effect enters the screen.
 ///
-/// Maps 1-to-1 onto [`tachyonfx::fx::Motion`].
+/// Maps 1-to-1 onto [`tachyonfx::Motion`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SweepDirection {
     LeftToRight,
