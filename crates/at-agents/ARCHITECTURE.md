@@ -598,107 +598,784 @@ The `Orchestrator` uses `StuckDetector` to identify agents that are:
 
 ## 6. Tool Approval System
 
-The approval system controls which tools agents can invoke, providing security and human oversight.
+The approval system controls which tools agents can invoke, providing security and human oversight. It sits between the agent executor and the tools layer, intercepting tool invocations and enforcing policies based on tool type and agent role.
+
+### Overview
+
+The `ToolApprovalSystem` manages:
+- **Default policies** for each tool (safe reads, dangerous writes, forbidden operations)
+- **Role-based overrides** allowing trusted agents elevated privileges
+- **Pending approval requests** awaiting human decision
+- **Approval history** for auditing and debugging
+
+**Key Design Principle:** Security by default with opt-in trust escalation.
+
+---
 
 ### Approval Policies
 
+Three policies govern tool invocations:
+
 ```rust
 pub enum ApprovalPolicy {
-    AutoApprove,      // Trusted, no approval needed
-    RequireApproval,  // Needs human approval
-    Deny,             // Never allowed
+    AutoApprove,      // Trusted tool, always allowed without human intervention
+    RequireApproval,  // Potentially dangerous, requires explicit human approval
+    Deny,             // Never allowed under any circumstances
 }
 ```
 
-### Default Policies
+#### 1. AutoApprove
 
-**Auto-Approved (Safe Read Operations):**
-- `file_read`, `list_directory`, `search_files`
-- `git_diff`, `git_log`, `git_blame`
-- `task_status`
+**Purpose:** Allow safe, read-only operations without human intervention.
 
-**Require Approval (Write Operations):**
-- `file_write`, `file_delete`
-- `git_commit`, `git_push`
-- `run_command` (arbitrary shell commands)
+**Use Cases:**
+- Reading files, searching code, listing directories
+- Git inspection commands (diff, log, blame)
+- Querying task status and system state
 
-**Denied (Dangerous Operations):**
-- `rm -rf` patterns
-- System modifications outside project root
-- Network operations to unapproved hosts
+**Security Model:** These tools cannot modify state or leak sensitive data.
 
-### Per-Role Overrides
+**Default Auto-Approved Tools:**
+```rust
+file_read, list_directory, search_files
+git_diff, git_log, git_blame
+task_status
+```
 
-Different agent roles have different trust levels:
+**Behavior:** Tool executes immediately when invoked by any agent role.
+
+---
+
+#### 2. RequireApproval
+
+**Purpose:** Gate dangerous operations that modify state or execute arbitrary code.
+
+**Use Cases:**
+- Writing files, committing code, pushing to git
+- Executing shell commands
+- Spawning or stopping agents
+- Task assignment and orchestration
+
+**Security Model:** Human must review arguments and approve before execution.
+
+**Default Require-Approval Tools:**
+```rust
+file_write, shell_execute
+git_add, git_commit, git_push
+task_assign, agent_spawn, agent_stop
+```
+
+**Behavior:**
+1. Agent invokes tool
+2. Executor creates `PendingApproval` request
+3. Agent pauses execution
+4. Human reviews request (CLI, API, or WebSocket)
+5. Human approves or denies
+6. Agent resumes with result
+
+**Unknown Tools:** Any tool not explicitly configured defaults to `RequireApproval` for safety.
+
+---
+
+#### 3. Deny
+
+**Purpose:** Prevent catastrophic operations that should never be allowed.
+
+**Use Cases:**
+- Destructive file operations outside project scope
+- Force-pushing to protected branches
+- System-level modifications
+
+**Security Model:** Hard block, no human override possible.
+
+**Default Denied Tools:**
+```rust
+delete, file_delete, force_push
+```
+
+**Behavior:** Tool invocation immediately fails with `ApprovalError::Denied`.
+
+---
+
+### Approval Statuses
+
+Every approval request progresses through a lifecycle tracked by `ApprovalStatus`:
 
 ```rust
-// Example: Mayor agents can auto-approve git commits
-approval_system.add_role_override(
+pub enum ApprovalStatus {
+    Pending,   // Awaiting human decision
+    Approved,  // Human granted permission
+    Denied,    // Human rejected request
+}
+```
+
+#### Status Lifecycle
+
+```
+┌─────────────────────────────────────────┐
+│  ToolApprovalSystem::request_approval() │
+│  Creates PendingApproval                │
+└──────────────────┬──────────────────────┘
+                   │
+                   ▼
+            ┌─────────────┐
+            │   PENDING   │ ◄────────┐
+            └──────┬──────┘          │
+                   │                 │
+         Human     │                 │ Already Resolved?
+         Decision  │                 │ (Error)
+                   │                 │
+       ┌───────────┴───────────┐     │
+       │                       │     │
+       ▼                       ▼     │
+┌────────────┐          ┌───────────┐│
+│  APPROVED  │          │  DENIED   ││
+└────────────┘          └───────────┘│
+       │                       │     │
+       │                       │     │
+       └───────────┬───────────┘     │
+                   │                 │
+                   ▼                 │
+              ┌─────────┐            │
+              │ Resolved│────────────┘
+              │ (Final) │
+              └─────────┘
+```
+
+#### 1. Pending Status
+
+**Meaning:** Request awaiting human review.
+
+**Properties:**
+- `status`: `ApprovalStatus::Pending`
+- `resolved_at`: `None`
+- Agent execution is paused
+- Request visible in approval queue
+
+**Duration:** Indefinite (until human acts or timeout).
+
+**Queries:**
+```rust
+// List all pending approvals
+let pending = approval_system.list_pending();
+
+// Check specific approval
+if let Some(approval) = approval_system.get_approval(id) {
+    assert_eq!(approval.status, ApprovalStatus::Pending);
+}
+```
+
+---
+
+#### 2. Approved Status
+
+**Meaning:** Human granted permission to proceed.
+
+**Properties:**
+- `status`: `ApprovalStatus::Approved`
+- `resolved_at`: `Some(timestamp)`
+- Tool execution proceeds
+- Request removed from pending queue
+
+**API:**
+```rust
+approval_system.approve(approval_id)?;
+assert!(approval_system.is_approved(approval_id));
+```
+
+**Error Handling:** Attempting to approve an already-resolved request returns `ApprovalError::AlreadyResolved`.
+
+---
+
+#### 3. Denied Status
+
+**Meaning:** Human rejected the request.
+
+**Properties:**
+- `status`: `ApprovalStatus::Denied`
+- `resolved_at`: `Some(timestamp)`
+- Tool execution aborted
+- Agent receives error response
+
+**API:**
+```rust
+approval_system.deny(approval_id)?;
+```
+
+**Agent Impact:** Agent's tool invocation fails, must handle error and adjust strategy.
+
+---
+
+### End-to-End Approval Workflow
+
+Complete flow from tool invocation to execution:
+
+#### Step 1: Agent Invokes Tool
+
+Agent's LLM output includes tool invocation:
+
+```json
+{
+  "type": "tool_use",
+  "tool": "file_write",
+  "arguments": {
+    "path": "src/main.rs",
+    "content": "fn main() { println!(\"Hello\"); }"
+  }
+}
+```
+
+#### Step 2: Executor Detects Tool Use
+
+`AgentExecutor` parses agent output and detects tool invocation:
+
+```rust
+impl AgentExecutor {
+    async fn handle_output_event(&mut self, event: OutputEvent) -> Result<()> {
+        match event {
+            OutputEvent::ToolUse { tool_name, arguments } => {
+                self.check_and_execute_tool(tool_name, arguments).await?;
+            }
+            // ... other events
+        }
+        Ok(())
+    }
+}
+```
+
+#### Step 3: Policy Resolution
+
+Executor queries `ToolApprovalSystem` with tool name and agent role:
+
+```rust
+let policy = approval_system.check_approval(&tool_name, &agent_role);
+```
+
+**Resolution Order:**
+1. **Role-specific override** (if configured)
+2. **Default tool policy** (if known tool)
+3. **RequireApproval** (fallback for unknown tools)
+
+**Example:**
+```rust
+// Crew agent invoking file_write
+approval_system.check_approval("file_write", &AgentRole::Crew)
+// Returns: ApprovalPolicy::RequireApproval
+
+// Mayor agent with override
+approval_system.set_role_override(
+    "file_write",
+    AgentRole::Mayor,
+    ApprovalPolicy::AutoApprove,
+);
+approval_system.check_approval("file_write", &AgentRole::Mayor)
+// Returns: ApprovalPolicy::AutoApprove
+```
+
+#### Step 4: Policy Enforcement
+
+Based on resolved policy:
+
+##### 4a. AutoApprove Path
+
+```rust
+match policy {
+    ApprovalPolicy::AutoApprove => {
+        // Execute immediately
+        let result = tools.execute(&tool_name, &arguments).await?;
+        return Ok(result);
+    }
+    // ...
+}
+```
+
+##### 4b. RequireApproval Path
+
+```rust
+ApprovalPolicy::RequireApproval => {
+    // Create pending approval
+    let pending = approval_system.request_approval(
+        agent_id,
+        tool_name,
+        arguments.clone(),
+    );
+
+    // Publish event to notify human
+    event_bus.publish(Event::ApprovalRequested {
+        approval_id: pending.id,
+        agent_id,
+        tool_name: pending.tool_name.clone(),
+        arguments: pending.arguments.clone(),
+    }).await?;
+
+    // Pause agent execution and wait
+    self.await_approval(pending.id).await?;
+
+    // Check result
+    if approval_system.is_approved(pending.id) {
+        let result = tools.execute(&tool_name, &arguments).await?;
+        Ok(result)
+    } else {
+        Err(Error::ApprovalDenied(pending.id))
+    }
+}
+```
+
+##### 4c. Deny Path
+
+```rust
+ApprovalPolicy::Deny => {
+    Err(ApprovalError::Denied(tool_name.to_string()))
+}
+```
+
+#### Step 5: Human Review
+
+Human receives approval request via:
+
+**CLI:**
+```bash
+$ at-cli approvals list
+[1] Agent crew-42 requests: file_write
+    Arguments: {"path": "src/main.rs", ...}
+    Time: 2026-02-23 14:30:00 UTC
+
+$ at-cli approvals approve 1
+✓ Approval granted
+```
+
+**API:**
+```bash
+GET /api/approvals
+[
+  {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "agent_id": "...",
+    "tool_name": "file_write",
+    "arguments": {...},
+    "status": "pending"
+  }
+]
+
+POST /api/approvals/550e8400-e29b-41d4-a716-446655440000/approve
+{"status": "approved"}
+```
+
+**WebSocket Event:**
+```json
+{
+  "type": "approval_requested",
+  "approval_id": "550e8400-e29b-41d4-a716-446655440000",
+  "agent_id": "crew-42",
+  "tool_name": "file_write",
+  "arguments": {"path": "src/main.rs", ...}
+}
+```
+
+#### Step 6: Resolution
+
+Human approves or denies:
+
+```rust
+// Approve
+approval_system.approve(approval_id)?;
+
+// Deny
+approval_system.deny(approval_id)?;
+```
+
+**Validation:** Cannot resolve already-resolved requests (error: `ApprovalError::AlreadyResolved`).
+
+#### Step 7: Agent Resumes
+
+Agent unblocks and receives result:
+- **Approved:** Tool executes, agent receives tool output
+- **Denied:** Agent receives error, must adjust strategy
+
+---
+
+### Role-Based Policy Overrides
+
+Different agent roles have different trust levels. The system supports per-role policy overrides.
+
+#### Trust Hierarchy
+
+```
+Mayor (highest trust) — Can auto-approve orchestration tools
+  │
+Deacon                — Can auto-approve task management
+  │
+Crew                  — Standard permissions
+  │
+Witness (lowest)      — Read-only, strict approval requirements
+```
+
+#### Configuring Overrides
+
+```rust
+// Mayor can auto-approve git commits
+approval_system.set_role_override(
     "git_commit",
     AgentRole::Mayor,
     ApprovalPolicy::AutoApprove,
 );
+
+// Deacon can auto-approve task assignment
+approval_system.set_role_override(
+    "task_assign",
+    AgentRole::Deacon,
+    ApprovalPolicy::AutoApprove,
+);
+
+// Witness cannot write files even with approval
+approval_system.set_role_override(
+    "file_write",
+    AgentRole::Witness,
+    ApprovalPolicy::Deny,
+);
 ```
 
-### Approval Flow
+#### Policy Resolution Order
 
-```
-┌──────────────────────────────────────────────────────────┐
-│  Agent invokes tool (detected in output parsing)        │
-└──────────────────────┬───────────────────────────────────┘
-                       │
-                       ▼
-┌──────────────────────────────────────────────────────────┐
-│  Executor.check_tool_event()                             │
-│  - Extract tool name from event                          │
-│  - Query ToolApprovalSystem                              │
-└──────────────────────┬───────────────────────────────────┘
-                       │
-            ┌──────────┴──────────┐
-            │                     │
-            ▼                     ▼
-     ┌─────────────┐       ┌─────────────┐
-     │ AutoApprove │       │  Require    │
-     │             │       │  Approval   │
-     └──────┬──────┘       └──────┬──────┘
-            │                     │
-            ▼                     ▼
-     ┌─────────────┐       ┌─────────────────────┐
-     │   Execute   │       │ Create PendingApproval│
-     │   tool      │       │ Wait for human input │
-     └─────────────┘       └──────┬──────────────┘
-                                  │
-                        ┌─────────┴─────────┐
-                        │                   │
-                        ▼                   ▼
-                  ┌──────────┐       ┌──────────┐
-                  │ Approved │       │  Denied  │
-                  └─────┬────┘       └─────┬────┘
-                        │                  │
-                        ▼                  ▼
-                  ┌──────────┐       ┌──────────┐
-                  │ Execute  │       │  Abort   │
-                  └──────────┘       └──────────┘
-```
-
-### PendingApproval
+When checking approval, the system resolves in this order:
 
 ```rust
-pub struct PendingApproval {
-    pub id: Uuid,
-    pub agent_id: Uuid,
-    pub tool_name: String,
-    pub arguments: serde_json::Value,
-    pub requested_at: DateTime<Utc>,
-    pub status: ApprovalStatus,  // Pending, Approved, Denied
-    pub resolved_at: Option<DateTime<Utc>>,
+pub fn check_approval(&self, tool_name: &str, agent_role: &AgentRole) -> ApprovalPolicy {
+    // 1. Check role-specific override first (highest priority)
+    if let Some((_, _, policy)) = self
+        .role_overrides
+        .iter()
+        .find(|(t, r, _)| t == tool_name && r == agent_role)
+    {
+        return *policy;
+    }
+
+    // 2. Fall back to default tool policy (medium priority)
+    if let Some(policy) = self.policies.get(tool_name) {
+        return *policy;
+    }
+
+    // 3. Unknown tools require approval by default (lowest priority)
+    ApprovalPolicy::RequireApproval
 }
 ```
 
-Approvals are stored in the system and can be queried via:
-- CLI: `at-cli approvals list`
-- API: `GET /api/approvals`
-- Bridge: WebSocket events
+**Example Resolution:**
+
+```rust
+// Setup
+approval_system.set_policy("file_write", ApprovalPolicy::RequireApproval);
+approval_system.set_role_override(
+    "file_write",
+    AgentRole::Mayor,
+    ApprovalPolicy::AutoApprove,
+);
+
+// Resolution
+approval_system.check_approval("file_write", &AgentRole::Crew)
+// → RequireApproval (default policy)
+
+approval_system.check_approval("file_write", &AgentRole::Mayor)
+// → AutoApprove (role override takes precedence)
+
+approval_system.check_approval("unknown_tool", &AgentRole::Crew)
+// → RequireApproval (safe default for unknown tools)
+```
+
+---
+
+### Integration with Executor
+
+The `AgentExecutor` integrates approval checks into its execution pipeline.
+
+#### Executor Architecture
+
+```
+┌────────────────────────────────────────────┐
+│           AgentExecutor                    │
+│                                            │
+│  ┌──────────────────────────────────────┐ │
+│  │  1. Parse agent output               │ │
+│  └──────────┬───────────────────────────┘ │
+│             │                              │
+│  ┌──────────▼───────────────────────────┐ │
+│  │  2. Detect tool_use events           │ │
+│  └──────────┬───────────────────────────┘ │
+│             │                              │
+│  ┌──────────▼───────────────────────────┐ │
+│  │  3. Query ToolApprovalSystem         │ │──────► ToolApprovalSystem
+│  └──────────┬───────────────────────────┘ │
+│             │                              │
+│  ┌──────────▼───────────────────────────┐ │
+│  │  4. Enforce policy                   │ │
+│  │     - AutoApprove → Execute          │ │
+│  │     - RequireApproval → Wait         │ │
+│  │     - Deny → Error                   │ │
+│  └──────────┬───────────────────────────┘ │
+│             │                              │
+│  ┌──────────▼───────────────────────────┐ │
+│  │  5. Execute tool (if approved)       │ │──────► Tools Layer
+│  └──────────┬───────────────────────────┘ │
+│             │                              │
+│  ┌──────────▼───────────────────────────┐ │
+│  │  6. Return result to agent           │ │
+│  └──────────────────────────────────────┘ │
+└────────────────────────────────────────────┘
+```
+
+#### Executor Implementation
+
+```rust
+impl AgentExecutor {
+    pub async fn execute_task(
+        &self,
+        task: &Task,
+        agent_config: &AgentConfig,
+        approval_system: &mut ToolApprovalSystem,
+    ) -> Result<ExecutionResult> {
+        // Spawn agent process
+        let mut pty = self.pty_pool.acquire().await?;
+        pty.spawn(&agent_config.cli_args).await?;
+
+        // Send task prompt
+        pty.write(task.prompt.as_bytes()).await?;
+
+        // Collect and process output
+        loop {
+            let output = pty.read().await?;
+            let events = self.parse_output(&output)?;
+
+            for event in events {
+                match event {
+                    OutputEvent::ToolUse { tool_name, arguments } => {
+                        // Check approval
+                        let policy = approval_system.check_approval(
+                            &tool_name,
+                            &agent_config.role,
+                        );
+
+                        match policy {
+                            ApprovalPolicy::AutoApprove => {
+                                // Execute immediately
+                                let result = self.tools.execute(
+                                    &tool_name,
+                                    &arguments,
+                                ).await?;
+                                self.send_tool_result(&mut pty, result).await?;
+                            }
+
+                            ApprovalPolicy::RequireApproval => {
+                                // Create approval request
+                                let pending = approval_system.request_approval(
+                                    agent_config.agent_id,
+                                    tool_name.clone(),
+                                    arguments.clone(),
+                                );
+
+                                // Notify human
+                                self.event_bus.publish(Event::ApprovalRequested {
+                                    approval_id: pending.id,
+                                    agent_id: agent_config.agent_id,
+                                    tool_name,
+                                    arguments,
+                                }).await?;
+
+                                // Wait for resolution
+                                self.await_approval(pending.id, approval_system).await?;
+
+                                // Check result and execute if approved
+                                if approval_system.is_approved(pending.id) {
+                                    let result = self.tools.execute(
+                                        &tool_name,
+                                        &arguments,
+                                    ).await?;
+                                    self.send_tool_result(&mut pty, result).await?;
+                                } else {
+                                    // Send denial to agent
+                                    self.send_tool_error(
+                                        &mut pty,
+                                        "Tool use denied by human",
+                                    ).await?;
+                                }
+                            }
+
+                            ApprovalPolicy::Deny => {
+                                // Immediate rejection
+                                self.send_tool_error(
+                                    &mut pty,
+                                    format!("Tool '{}' is denied by policy", tool_name),
+                                ).await?;
+                            }
+                        }
+                    }
+
+                    OutputEvent::TaskComplete => break,
+                    _ => { /* handle other events */ }
+                }
+            }
+        }
+
+        Ok(ExecutionResult { /* ... */ })
+    }
+
+    async fn await_approval(
+        &self,
+        approval_id: Uuid,
+        approval_system: &ToolApprovalSystem,
+    ) -> Result<()> {
+        // Poll until resolved or timeout
+        let timeout = Duration::from_secs(300); // 5 minutes
+        let start = Instant::now();
+
+        loop {
+            if let Some(approval) = approval_system.get_approval(approval_id) {
+                if approval.status != ApprovalStatus::Pending {
+                    return Ok(());
+                }
+            }
+
+            if start.elapsed() > timeout {
+                return Err(Error::ApprovalTimeout(approval_id));
+            }
+
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    }
+}
+```
+
+#### Error Handling
+
+```rust
+#[derive(Debug, thiserror::Error)]
+pub enum ApprovalError {
+    #[error("approval request not found: {0}")]
+    NotFound(Uuid),
+
+    #[error("approval request already resolved: {0}")]
+    AlreadyResolved(Uuid),
+
+    #[error("tool denied by policy: {0}")]
+    Denied(String),
+}
+```
+
+**Agent Impact:**
+- `NotFound`: Internal error, should not happen in normal operation
+- `AlreadyResolved`: Attempt to approve/deny twice, returns error
+- `Denied`: Tool invocation fails, agent must handle gracefully
+
+---
+
+### API Reference
+
+#### ToolApprovalSystem Methods
+
+```rust
+impl ToolApprovalSystem {
+    /// Create system with default policies
+    pub fn new() -> Self;
+
+    /// Create permissive system (testing only)
+    pub fn permissive() -> Self;
+
+    /// Set default policy for a tool
+    pub fn set_policy(&mut self, tool_name: impl Into<String>, policy: ApprovalPolicy);
+
+    /// Set role-specific override
+    pub fn set_role_override(
+        &mut self,
+        tool_name: impl Into<String>,
+        role: AgentRole,
+        policy: ApprovalPolicy,
+    );
+
+    /// Check policy for tool invocation by role
+    pub fn check_approval(&self, tool_name: &str, agent_role: &AgentRole) -> ApprovalPolicy;
+
+    /// Create pending approval request
+    pub fn request_approval(
+        &mut self,
+        agent_id: Uuid,
+        tool_name: impl Into<String>,
+        arguments: serde_json::Value,
+    ) -> &PendingApproval;
+
+    /// Approve pending request
+    pub fn approve(&mut self, approval_id: Uuid) -> Result<()>;
+
+    /// Deny pending request
+    pub fn deny(&mut self, approval_id: Uuid) -> Result<()>;
+
+    /// List pending approvals
+    pub fn list_pending(&self) -> Vec<&PendingApproval>;
+
+    /// List all approvals (including resolved)
+    pub fn list_all(&self) -> &[PendingApproval];
+
+    /// Get specific approval by ID
+    pub fn get_approval(&self, id: Uuid) -> Option<&PendingApproval>;
+
+    /// Check if approval is approved
+    pub fn is_approved(&self, approval_id: Uuid) -> bool;
+}
+```
+
+#### PendingApproval Structure
+
+```rust
+pub struct PendingApproval {
+    pub id: Uuid,                         // Unique approval ID
+    pub agent_id: Uuid,                   // Agent requesting approval
+    pub tool_name: String,                // Tool being invoked
+    pub arguments: serde_json::Value,     // Tool arguments for review
+    pub requested_at: DateTime<Utc>,      // When request was created
+    pub status: ApprovalStatus,           // Current status (Pending/Approved/Denied)
+    pub resolved_at: Option<DateTime<Utc>>, // When resolved (None if pending)
+}
+```
+
+---
+
+### Usage Examples
+
+#### Querying Approvals
+
+```bash
+# CLI
+$ at-cli approvals list
+$ at-cli approvals approve <id>
+$ at-cli approvals deny <id>
+
+# API
+GET /api/approvals
+GET /api/approvals/<id>
+POST /api/approvals/<id>/approve
+POST /api/approvals/<id>/deny
+
+# WebSocket (subscribe to events)
+{
+  "type": "subscribe",
+  "events": ["approval_requested", "approval_resolved"]
+}
+```
+
+---
+
+### Security Considerations
+
+**Defense in Depth:**
+1. **Default deny for unknown tools** — Safe fallback
+2. **Explicit policy configuration** — No implicit trust
+3. **Role-based overrides** — Granular privilege escalation
+4. **Immutable resolved approvals** — Cannot change decision after resolution
+5. **Audit trail** — All approvals logged with timestamps
+
+**Best Practices:**
+- Review approval arguments carefully before approving
+- Use role overrides sparingly for trusted automation
+- Monitor approval patterns for anomalies
+- Set timeouts for pending approvals to prevent agent deadlock
 
 ---
 
