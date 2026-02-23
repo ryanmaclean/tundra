@@ -256,6 +256,7 @@ dependencies = [
  "crossbeam-channel",
  "dirs",
  "git2",
+ "libc",
  "notify",
  "rusqlite",
  "serde",

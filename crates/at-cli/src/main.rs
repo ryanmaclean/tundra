@@ -10,8 +10,8 @@ use clap::{Parser, Subcommand};
 #[command(name = "at", version, about)]
 struct Cli {
     /// Base URL for the auto-tundra API daemon.
-    #[arg(short = 'u', long, global = true, default_value = "http://localhost:9090")]
-    api_url: String,
+    #[arg(short = 'u', long, global = true)]
+    api_url: Option<String>,
 
     #[command(subcommand)]
     command: Option<Commands>,
@@ -241,7 +241,15 @@ enum AgentCommands {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
-    let api_url = cli.api_url.trim_end_matches('/').to_string();
+    let api_url = cli.api_url.unwrap_or_else(|| {
+        at_core::lockfile::DaemonLockfile::read_valid()
+            .map(|lock| lock.api_url())
+            .unwrap_or_else(|| {
+                eprintln!("warning: no running daemon found, trying http://127.0.0.1:9090");
+                "http://127.0.0.1:9090".to_string()
+            })
+    });
+    let api_url = api_url.trim_end_matches('/').to_string();
 
     match cli.command {
         None | Some(Commands::Status) => {

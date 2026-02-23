@@ -3,6 +3,7 @@
 
 use anyhow::{Context, Result};
 use at_core::config::Config;
+use at_core::lockfile::DaemonLockfile;
 use tracing::info;
 
 mod profiling;
@@ -16,15 +17,15 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let _main_span = traced_span!("main_execution", 
+    let _main_span = traced_span!("main_execution",
         binary = "at-daemon",
         version = env!("CARGO_PKG_VERSION"),
         pid = std::process::id()
     );
-    
+
     // Load environment configuration
     environment::configure_app().context("failed to configure application environment")?;
-    
+
     // Initialize tracing
     at_telemetry::logging::init_logging("at-daemon", "info");
 
@@ -57,19 +58,61 @@ async fn main() -> Result<()> {
         config.cache.path = config.cache.path.replacen("~", &home, 1);
     }
 
-    // Standalone mode: use port 9090 (unless overridden in config.toml)
-    if config.daemon.port == 9876 {
-        // Default was never overridden — use the canonical standalone port.
-        config.daemon.port = 9090;
+    // --- Startup guard: check if a daemon is already running ---
+    if let Some(existing) = DaemonLockfile::read_valid() {
+        eprintln!(
+            "auto-tundra daemon already running (pid={}, api={}, frontend={})",
+            existing.pid,
+            existing.api_url(),
+            existing.frontend_url(),
+        );
+        std::process::exit(1);
     }
-    let api_port = config.daemon.port;
 
-    // Spawn the Leptos static file server on port 3001
-    let frontend_handle = tokio::spawn(serve_frontend());
+    // --- Bind API listener ---
+    // If the config port is the default sentinel (9876), use port 0 for OS-assigned.
+    // Otherwise honor the explicit config value.
+    let api_bind_addr = if config.daemon.port == 9876 {
+        format!("{}:0", config.daemon.host)
+    } else {
+        format!("{}:{}", config.daemon.host, config.daemon.port)
+    };
+    let api_listener = tokio::net::TcpListener::bind(&api_bind_addr)
+        .await
+        .with_context(|| format!("failed to bind API listener on {api_bind_addr}"))?;
+    let api_port = api_listener.local_addr()?.port();
+    info!(api_port, "API listener bound");
+
+    // --- Spawn the frontend server with dynamic port ---
+    let (frontend_port_tx, frontend_port_rx) = tokio::sync::oneshot::channel::<u16>();
+    let frontend_handle = tokio::spawn(serve_frontend(api_port, frontend_port_tx));
+
+    // Wait for the frontend to report its bound port.
+    let frontend_port = frontend_port_rx
+        .await
+        .context("frontend server failed to report its port")?;
+
+    // --- Write lockfile after both ports are known ---
+    let lockfile = DaemonLockfile {
+        pid: std::process::id(),
+        api_port,
+        frontend_port,
+        host: config.daemon.host.clone(),
+        started_at: chrono::Utc::now().to_rfc3339(),
+        project_path: std::env::current_dir()
+            .ok()
+            .map(|p| p.to_string_lossy().into_owned()),
+        version: env!("CARGO_PKG_VERSION").to_string(),
+    };
+    if let Err(msg) = lockfile.acquire_or_fail() {
+        eprintln!("failed to acquire lockfile: {msg}");
+        std::process::exit(1);
+    }
+    info!("lockfile written to {}", DaemonLockfile::path().display());
 
     // Create and run the daemon
     let daemon = profile_async!("daemon_initialization", at_daemon::daemon::Daemon::new(config)).await?;
-    
+
     // Record LLM profile bootstrap metrics after daemon creation
     let reg = at_intelligence::ResilientRegistry::from_config(&daemon.config());
     let total_count = reg.count();
@@ -81,13 +124,13 @@ async fn main() -> Result<()> {
             &provider_name
         ).await;
     }
-    
+
     let shutdown = daemon.shutdown_handle();
 
-    // Wire ctrl-c to trigger graceful shutdown.
+    // Wire ctrl-c to trigger graceful shutdown + remove lockfile.
     tokio::spawn(async move {
         let _span = traced_span!("signal_handler", signal = "ctrl_c");
-        
+
         if let Err(e) = tokio::signal::ctrl_c().await {
             tracing::error!(error = %e, "failed to listen for ctrl-c");
             profiling::record_event("signal_handler_error", &[("error", &e.to_string())]);
@@ -95,23 +138,26 @@ async fn main() -> Result<()> {
         }
         info!("ctrl-c received, initiating shutdown");
         profiling::record_event("shutdown_triggered", &[("signal", "ctrl_c")]);
+        DaemonLockfile::remove();
         shutdown.trigger();
     });
 
-    info!("dashboard: http://localhost:3001");
+    info!("dashboard: http://localhost:{frontend_port}");
     info!("API server: http://localhost:{api_port}");
     profiling::record_event("daemon_ready", &[
-        ("frontend_port", "3001"),
+        ("frontend_port", &frontend_port.to_string()),
         ("api_port", &api_port.to_string())
     ]);
-    
-    if let Err(e) = profile_async!("daemon_main_loop", daemon.run()).await {
+
+    if let Err(e) = profile_async!("daemon_main_loop", daemon.run_with_listener(api_listener)).await {
         tracing::error!(error = %e, "daemon execution failed");
         profiling::record_event("daemon_execution_error", &[("error", &e.to_string())]);
+        DaemonLockfile::remove();
         return Err(e);
     }
 
-    // After daemon stops, abort frontend server.
+    // After daemon stops, clean up.
+    DaemonLockfile::remove();
     frontend_handle.abort();
     info!("frontend server stopped");
     profiling::record_event("daemon_shutdown_complete", &[]);
@@ -138,45 +184,87 @@ fn load_config(home: &str) -> Result<Config> {
     }
 }
 
-/// Serve the Leptos dist/ directory as static files on port 3001.
-async fn serve_frontend() {
-    let _span = traced_span!("serve_frontend", 
-        port = 3001,
+/// Serve the Leptos dist/ directory as static files on a dynamic port.
+///
+/// Injects `<script>window.__TUNDRA_API_PORT__={api_port};</script>` into
+/// index.html so the WASM frontend discovers the API server automatically.
+/// Sends the bound port back to main via the oneshot channel.
+async fn serve_frontend(api_port: u16, port_tx: tokio::sync::oneshot::Sender<u16>) {
+    let _span = traced_span!("serve_frontend",
         component = "http_server"
     );
-    
-    profiling::record_event("frontend_server_start", &[("port", "3001")]);
-    
+
+    profiling::record_event("frontend_server_start", &[]);
+
     use axum::Router;
-    use tower_http::services::{ServeDir, ServeFile};
+    use axum::routing::get;
+    use axum::response::Html;
+    use tower_http::services::ServeDir;
 
     let dist_dir = find_dist_dir();
-    
+
     profiling::add_span_tags(&[("dist_dir", dist_dir.to_str().unwrap_or("unknown"))]);
 
-    let app = Router::new().fallback_service(
-        ServeDir::new(&dist_dir).fallback(ServeFile::new(dist_dir.join("index.html"))),
-    );
+    // Read and patch index.html with API port injection.
+    let index_path = dist_dir.join("index.html");
+    let index_html = match std::fs::read_to_string(&index_path) {
+        Ok(html) => html.replace(
+            "</head>",
+            &format!(
+                "<script>window.__TUNDRA_API_PORT__={api_port};</script></head>"
+            ),
+        ),
+        Err(e) => {
+            tracing::warn!(error = %e, "could not read index.html, using fallback");
+            format!(
+                "<html><head><script>window.__TUNDRA_API_PORT__={api_port};</script></head>\
+                 <body>frontend not built — run <code>cd app/leptos-ui && trunk build</code></body></html>"
+            )
+        }
+    };
 
-    // Bind to IPv6 wildcard — on macOS dual-stack accepts both IPv4 and IPv6
-    let listener = match tokio::net::TcpListener::bind("[::]:3001").await {
+    // Serve patched index.html for root and SPA fallback; ServeDir for all other assets.
+    let index_for_handler = index_html.clone();
+    let app = Router::new()
+        .route("/", get({
+            let html = index_for_handler.clone();
+            move || {
+                let html = html.clone();
+                async move { Html(html) }
+            }
+        }))
+        .fallback_service(
+            ServeDir::new(&dist_dir)
+                .fallback(axum::routing::get(move || {
+                    let html = index_html.clone();
+                    async move { Html(html) }
+                })),
+        );
+
+    // Bind to port 0 — OS assigns an ephemeral port.
+    let listener = match tokio::net::TcpListener::bind("[::]:0").await {
         Ok(l) => l,
         Err(e) => {
-            tracing::error!(error = %e, "failed to bind frontend on port 3001");
+            tracing::error!(error = %e, "failed to bind frontend server");
             profiling::record_event("frontend_server_bind_error", &[
                 ("error", &e.to_string()),
-                ("port", "3001")
             ]);
+            // Signal failure — drop the sender so the receiver gets an error.
+            drop(port_tx);
             return;
         }
     };
 
-    info!("frontend server listening on http://localhost:3001");
+    let port = listener.local_addr().map(|a| a.port()).unwrap_or(0);
+    // Send the bound port back to main.
+    let _ = port_tx.send(port);
+
+    info!(port, "frontend server listening");
     profiling::record_event("frontend_server_listening", &[
-        ("port", "3001"),
+        ("port", &port.to_string()),
         ("protocol", "http")
     ]);
-    
+
     if let Err(e) = profile_async!("serve_frontend_requests", axum::serve(listener, app)).await {
         tracing::error!(error = %e, "frontend server error");
         profiling::record_event("frontend_server_error", &[
@@ -187,7 +275,7 @@ async fn serve_frontend() {
 
 fn find_dist_dir() -> std::path::PathBuf {
     let _span = traced_span!("find_dist_dir");
-    
+
     let candidates = [
         std::path::PathBuf::from("app/leptos-ui/dist"),
         std::path::PathBuf::from("../app/leptos-ui/dist"),

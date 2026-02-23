@@ -310,6 +310,72 @@ impl Daemon {
     // Standalone mode — for headless/server use
     // ------------------------------------------------------------------
 
+    /// Run the daemon as a standalone server using a pre-bound listener (blocking).
+    ///
+    /// The caller is responsible for binding the `TcpListener` (e.g. to port 0
+    /// for OS-assigned ports). This enables dynamic port allocation in `main.rs`.
+    pub async fn run_with_listener(&self, listener: tokio::net::TcpListener) -> Result<()> {
+        self.log_profile_bootstrap();
+        let reg = at_intelligence::ResilientRegistry::from_config(&self.config);
+        if let Some(p) = reg.registry.best_available() {
+            let api_key = std::env::var(&p.api_key_env).ok().filter(|s| !s.is_empty());
+            let provider: Arc<dyn at_intelligence::llm::LlmProvider> = match p.provider {
+                at_intelligence::ProviderKind::Local => {
+                    Arc::new(at_intelligence::llm::LocalProvider::new(&p.base_url, api_key))
+                }
+                at_intelligence::ProviderKind::Anthropic => {
+                    Arc::new(at_intelligence::llm::AnthropicProvider::new(api_key.unwrap_or_default()))
+                }
+                at_intelligence::ProviderKind::OpenAi => {
+                    Arc::new(at_intelligence::llm::OpenAiProvider::new(api_key.unwrap_or_default()))
+                }
+                _ => Arc::new(at_intelligence::llm::LocalProvider::new(&p.base_url, api_key)),
+            };
+            let mut engine = self.api_state.ideation_engine.write().await;
+            *engine = at_intelligence::ideation::IdeationEngine::with_provider(provider, p.default_model.clone());
+        }
+
+        info!(
+            patrol_secs = self.intervals.patrol_secs,
+            heartbeat_secs = self.intervals.heartbeat_secs,
+            kpi_secs = self.intervals.kpi_secs,
+            "daemon starting event loop"
+        );
+
+        let api_key = CredentialProvider::daemon_api_key();
+        if api_key.is_some() {
+            info!("daemon API key found — authentication enabled");
+        } else {
+            warn!("AUTO_TUNDRA_API_KEY not set — running without authentication (dev mode)");
+        }
+        // Seed demo data so the UI is functional on first launch.
+        self.api_state.seed_demo_data().await;
+
+        let api_router = at_bridge::http_api::api_router_with_auth(self.api_state.clone(), api_key);
+        let bind_addr = listener.local_addr()?;
+        let api_handle = tokio::spawn(async move {
+            if let Err(e) = axum::serve(listener, api_router).await {
+                error!(error = %e, "API server error");
+            }
+        });
+        info!(%bind_addr, "API server listening");
+
+        // Run loops inline (blocking) for standalone mode.
+        Self::run_loops(
+            self.cache.clone(),
+            self.api_state.clone(),
+            self.event_bus.clone(),
+            self.config.clone(),
+            self.intervals.clone(),
+            self.shutdown.clone(),
+        )
+        .await;
+
+        api_handle.abort();
+        info!("daemon stopped");
+        Ok(())
+    }
+
     /// Run the daemon as a standalone server (blocking).
     ///
     /// Binds to the port from config (default 9090), runs until shutdown.

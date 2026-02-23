@@ -21,9 +21,6 @@ use ratatui::backend::CrosstermBackend;
 
 use crate::app::App;
 
-/// Default API base URL (at-bridge daemon).
-const DEFAULT_API_BASE: &str = "http://localhost:9090";
-
 fn main() -> Result<()> {
     // Parse CLI args (simple, no clap dependency).
     let args: Vec<String> = std::env::args().collect();
@@ -34,7 +31,14 @@ fn main() -> Result<()> {
         .position(|a| a == "--api")
         .and_then(|i| args.get(i + 1))
         .cloned()
-        .unwrap_or_else(|| DEFAULT_API_BASE.to_string());
+        .unwrap_or_else(|| {
+            at_core::lockfile::DaemonLockfile::read_valid()
+                .map(|lock| lock.api_url())
+                .unwrap_or_else(|| {
+                    eprintln!("warning: no running daemon found, trying http://127.0.0.1:9090");
+                    "http://127.0.0.1:9090".to_string()
+                })
+        });
 
     at_telemetry::logging::init_logging("at-tui", "warn");
 
