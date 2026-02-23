@@ -1,15 +1,52 @@
+//! Terminal session management for agent communication.
+//!
+//! This module provides types and utilities for managing PTY-backed terminal sessions
+//! that enable real-time interaction with agents via WebSocket. The registry tracks all
+//! terminal instances, handles disconnection/reconnection scenarios, and maintains
+//! buffered output during temporary connection loss.
+//!
+//! ## Key Components
+//!
+//! * [`TerminalInfo`] — Metadata for a single terminal session (dimensions, status, etc.)
+//! * [`TerminalStatus`] — Lifecycle states including `Disconnected` with grace period
+//! * [`TerminalEvent`] — WebSocket-friendly messages (output, resize, close, title)
+//! * [`DisconnectBuffer`] — Ring buffer that captures PTY output while WebSocket is down
+//! * [`TerminalRegistry`] — Thread-safe lookup and status tracking for all terminals
+//!
+//! ## Disconnection Flow
+//!
+//! When a WebSocket drops, the terminal transitions to `TerminalStatus::Disconnected`
+//! and a [`DisconnectBuffer`] is allocated to capture PTY output. If the client reconnects
+//! within [`WS_RECONNECT_GRACE`] (30 seconds), the buffered data is flushed and the
+//! terminal resumes normally. Otherwise, the PTY is killed and the terminal moves to
+//! `TerminalStatus::Dead`.
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use uuid::Uuid;
 
+// ---------------------------------------------------------------------------
+// Terminal Types
+// ---------------------------------------------------------------------------
+
+/// Metadata and configuration for a single terminal session.
+///
+/// Each terminal is backed by a PTY and associated with an agent. The `status`
+/// field tracks lifecycle (active, idle, closed, disconnected, dead).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TerminalInfo {
+    /// Unique identifier for this terminal session.
     pub id: Uuid,
+    /// Agent this terminal belongs to.
     pub agent_id: Uuid,
+    /// Human-readable name or title (can be updated dynamically).
     pub title: String,
+    /// Current lifecycle state (active, idle, closed, disconnected, dead).
     pub status: TerminalStatus,
+    /// Terminal width in columns.
     pub cols: u16,
+    /// Terminal height in rows.
     pub rows: u16,
     /// Font size for this terminal (default 14).
     pub font_size: u16,
@@ -23,14 +60,26 @@ pub struct TerminalInfo {
     pub persistent: bool,
 }
 
+/// Lifecycle state of a terminal session.
+///
+/// Terminals can transition between states as the PTY and WebSocket connection
+/// status change. The `Disconnected` state includes a timestamp to enforce the
+/// reconnection grace period.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TerminalStatus {
+    /// Terminal is actively processing commands and connected.
     Active,
+    /// Terminal is idle (no recent activity) but still connected.
     Idle,
+    /// Terminal has been explicitly closed by the user.
     Closed,
     /// WebSocket disconnected but PTY still running; awaiting reconnect.
+    ///
+    /// If the WebSocket does not reconnect within [`WS_RECONNECT_GRACE`],
+    /// the PTY will be killed and the terminal moved to `Dead`.
     Disconnected {
+        /// Timestamp when the disconnection occurred.
         #[serde(with = "chrono::serde::ts_milliseconds")]
         since: DateTime<Utc>,
     },
@@ -38,23 +87,39 @@ pub enum TerminalStatus {
     Dead,
 }
 
+/// Events emitted by terminals and sent over WebSocket.
+///
+/// These messages are JSON-serialized with a `type` field discriminator.
+/// Clients subscribe to terminal events to receive real-time updates.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum TerminalEvent {
+    /// PTY output data (stdout/stderr combined).
     Output {
+        /// Terminal that produced this output.
         terminal_id: Uuid,
+        /// Raw UTF-8 data from the PTY.
         data: String,
     },
+    /// Terminal dimensions have changed (e.g., window resized).
     Resize {
+        /// Terminal being resized.
         terminal_id: Uuid,
+        /// New width in columns.
         cols: u16,
+        /// New height in rows.
         rows: u16,
     },
+    /// Terminal has been closed (PTY exited or user-initiated close).
     Close {
+        /// Terminal that was closed.
         terminal_id: Uuid,
     },
+    /// Terminal title has been updated (e.g., via ANSI escape codes).
     Title {
+        /// Terminal whose title changed.
         terminal_id: Uuid,
+        /// New title text.
         title: String,
     },
 }
@@ -64,22 +129,48 @@ pub enum TerminalEvent {
 // ---------------------------------------------------------------------------
 
 /// Grace period for reconnection after a WebSocket disconnect.
+///
+/// If a client does not reconnect within this duration, the PTY is killed and
+/// the terminal transitions to `TerminalStatus::Dead`. Currently set to 30 seconds.
 pub const WS_RECONNECT_GRACE: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// Maximum bytes buffered per terminal while disconnected (64 KB).
+///
+/// This limit prevents unbounded memory growth if a PTY produces output faster
+/// than it can be consumed during a prolonged disconnection.
 pub const DISCONNECT_BUFFER_SIZE: usize = 65536;
 
 /// Ring buffer that captures PTY output while a terminal is disconnected.
-/// When `max_bytes` is reached the oldest bytes are dropped.
+///
+/// When a WebSocket drops, we allocate a [`DisconnectBuffer`] and continue reading
+/// from the PTY. If the buffer reaches `max_bytes`, the oldest data is discarded
+/// (FIFO). Upon reconnection, the entire buffer is flushed to the client.
+///
+/// # Example
+///
+/// ```ignore
+/// use at_bridge::terminal::{DisconnectBuffer, DISCONNECT_BUFFER_SIZE};
+///
+/// let mut buf = DisconnectBuffer::new(DISCONNECT_BUFFER_SIZE);
+/// buf.push(b"some output");
+/// let data = buf.drain_all(); // Vec<u8> ready to send
+/// ```
 #[derive(Debug)]
 pub struct DisconnectBuffer {
+    /// Ring buffer of raw bytes from the PTY.
     pub data: VecDeque<u8>,
+    /// Maximum capacity; oldest bytes are dropped when exceeded.
     pub max_bytes: usize,
+    /// Timestamp when disconnection occurred, used for grace period check.
     pub disconnected_at: DateTime<Utc>,
 }
 
 impl DisconnectBuffer {
     /// Create a new buffer with the given capacity and the current time.
+    ///
+    /// # Parameters
+    ///
+    /// * `max_bytes` — Maximum number of bytes to buffer before dropping oldest data.
     pub fn new(max_bytes: usize) -> Self {
         Self {
             data: VecDeque::with_capacity(max_bytes),
@@ -89,6 +180,13 @@ impl DisconnectBuffer {
     }
 
     /// Append bytes, dropping the oldest if capacity is exceeded.
+    ///
+    /// This is the core ring-buffer logic: if we're at capacity, remove one byte
+    /// from the front before pushing a new byte to the back.
+    ///
+    /// # Parameters
+    ///
+    /// * `bytes` — Slice of data to append (typically from a PTY read).
     pub fn push(&mut self, bytes: &[u8]) {
         for &b in bytes {
             if self.data.len() >= self.max_bytes {
@@ -99,11 +197,17 @@ impl DisconnectBuffer {
     }
 
     /// Drain all buffered bytes into a `Vec<u8>`.
+    ///
+    /// After this call, the internal buffer is empty and can be reused or dropped.
+    /// Typically called when a WebSocket reconnects and we need to flush the backlog.
     pub fn drain_all(&mut self) -> Vec<u8> {
         self.data.drain(..).collect()
     }
 
     /// Whether the grace period has expired.
+    ///
+    /// Returns `true` if the elapsed time since `disconnected_at` exceeds
+    /// [`WS_RECONNECT_GRACE`]. This signals that the PTY should be killed.
     pub fn grace_expired(&self) -> bool {
         let elapsed = Utc::now()
             .signed_duration_since(self.disconnected_at)
@@ -117,39 +221,115 @@ impl DisconnectBuffer {
 // Terminal Registry
 // ---------------------------------------------------------------------------
 
+/// Central registry for all active terminal sessions.
+///
+/// The registry provides a thread-safe (when wrapped in `Arc<Mutex<...>>`) lookup
+/// table for terminal metadata. It supports querying by ID, listing by status,
+/// and updating terminal state (status, title) in place.
+///
+/// # Example
+///
+/// ```ignore
+/// use at_bridge::terminal::{TerminalRegistry, TerminalInfo, TerminalStatus};
+/// use uuid::Uuid;
+///
+/// let mut registry = TerminalRegistry::new();
+/// let info = TerminalInfo {
+///     id: Uuid::new_v4(),
+///     agent_id: Uuid::new_v4(),
+///     title: "My Terminal".into(),
+///     status: TerminalStatus::Active,
+///     cols: 80,
+///     rows: 24,
+///     font_size: 14,
+///     cursor_style: "block".into(),
+///     cursor_blink: true,
+///     auto_name: None,
+///     persistent: false,
+/// };
+/// registry.register(info);
+/// ```
 pub struct TerminalRegistry {
+    /// Map from terminal ID to metadata.
     terminals: HashMap<Uuid, TerminalInfo>,
 }
 
 impl TerminalRegistry {
+    /// Create a new, empty registry.
     pub fn new() -> Self {
         Self {
             terminals: HashMap::new(),
         }
     }
 
+    /// Register a new terminal session.
+    ///
+    /// # Parameters
+    ///
+    /// * `info` — Terminal metadata to insert.
+    ///
+    /// # Returns
+    ///
+    /// The terminal's ID (copied from `info.id`), for convenience.
     pub fn register(&mut self, info: TerminalInfo) -> Uuid {
         let id = info.id;
         self.terminals.insert(id, info);
         id
     }
 
+    /// Remove a terminal from the registry.
+    ///
+    /// # Parameters
+    ///
+    /// * `id` — The terminal ID to remove.
+    ///
+    /// # Returns
+    ///
+    /// The removed [`TerminalInfo`], or `None` if not found.
     pub fn unregister(&mut self, id: &Uuid) -> Option<TerminalInfo> {
         self.terminals.remove(id)
     }
 
+    /// Retrieve an immutable reference to a terminal by ID.
+    ///
+    /// # Parameters
+    ///
+    /// * `id` — The terminal ID to look up.
+    ///
+    /// # Returns
+    ///
+    /// `Some(&TerminalInfo)` if found, otherwise `None`.
     pub fn get(&self, id: &Uuid) -> Option<&TerminalInfo> {
         self.terminals.get(id)
     }
 
+    /// Retrieve a mutable reference to a terminal by ID.
+    ///
+    /// # Parameters
+    ///
+    /// * `id` — The terminal ID to look up.
+    ///
+    /// # Returns
+    ///
+    /// `Some(&mut TerminalInfo)` if found, otherwise `None`.
     pub fn get_mut(&mut self, id: &Uuid) -> Option<&mut TerminalInfo> {
         self.terminals.get_mut(id)
     }
 
+    /// List all terminals in the registry.
+    ///
+    /// # Returns
+    ///
+    /// A vector of immutable references to all registered terminals.
     pub fn list(&self) -> Vec<&TerminalInfo> {
         self.terminals.values().collect()
     }
 
+    /// List only terminals with `status == Active`.
+    ///
+    /// # Returns
+    ///
+    /// A vector of immutable references to active terminals.
     pub fn list_active(&self) -> Vec<&TerminalInfo> {
         self.terminals
             .values()
@@ -157,10 +337,25 @@ impl TerminalRegistry {
             .collect()
     }
 
+    /// List only terminals with `persistent == true`.
+    ///
+    /// # Returns
+    ///
+    /// A vector of immutable references to persistent terminals.
     pub fn list_persistent(&self) -> Vec<&TerminalInfo> {
         self.terminals.values().filter(|t| t.persistent).collect()
     }
 
+    /// Update the status of a terminal in place.
+    ///
+    /// # Parameters
+    ///
+    /// * `id` — The terminal ID to update.
+    /// * `status` — The new [`TerminalStatus`] to set.
+    ///
+    /// # Returns
+    ///
+    /// `true` if the terminal was found and updated, `false` otherwise.
     pub fn update_status(&mut self, id: &Uuid, status: TerminalStatus) -> bool {
         if let Some(t) = self.terminals.get_mut(id) {
             t.status = status;
@@ -170,6 +365,16 @@ impl TerminalRegistry {
         }
     }
 
+    /// Rename a terminal (update its `title` field).
+    ///
+    /// # Parameters
+    ///
+    /// * `id` — The terminal ID to rename.
+    /// * `title` — The new title string.
+    ///
+    /// # Returns
+    ///
+    /// `true` if the terminal was found and renamed, `false` otherwise.
     pub fn rename(&mut self, id: &Uuid, title: String) -> bool {
         if let Some(t) = self.terminals.get_mut(id) {
             t.title = title;
