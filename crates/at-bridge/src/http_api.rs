@@ -4244,7 +4244,7 @@ async fn get_metrics_json() -> impl IntoResponse {
 
 /// GET /api/sessions/ui — load the most recent UI session (or return null).
 async fn get_ui_session(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
-    match state.session_store.list_sessions() {
+    match state.session_store.list_sessions().await {
         Ok(sessions) => {
             if let Some(session) = sessions.into_iter().next() {
                 (axum::http::StatusCode::OK, Json(serde_json::json!(session)))
@@ -4265,7 +4265,7 @@ async fn save_ui_session(
     Json(mut session): Json<SessionState>,
 ) -> impl IntoResponse {
     session.last_active_at = chrono::Utc::now();
-    match state.session_store.save_session(&session) {
+    match state.session_store.save_session(&session).await {
         Ok(()) => (axum::http::StatusCode::OK, Json(serde_json::json!(session))),
         Err(e) => (
             axum::http::StatusCode::INTERNAL_SERVER_ERROR,
@@ -4276,7 +4276,7 @@ async fn save_ui_session(
 
 /// GET /api/sessions/ui/list — list all saved sessions.
 async fn list_ui_sessions(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
-    match state.session_store.list_sessions() {
+    match state.session_store.list_sessions().await {
         Ok(sessions) => (
             axum::http::StatusCode::OK,
             Json(serde_json::json!(sessions)),
