@@ -1,0 +1,2033 @@
+warning: profile package spec `at-leptos-ui` in profile `release` did not match any packages
+warning: unused import: `tracing::info`
+ --> crates/at-daemon/src/metrics.rs:5:5
+  |
+5 | use tracing::info;
+  |     ^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `total_events`
+   --> crates/at-daemon/src/benchmarks.rs:212:13
+    |
+212 |         let total_events = events_per_second * duration_seconds;
+    |             ^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_total_events`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: struct `PerformanceBenchmarks` is never constructed
+ --> crates/at-daemon/src/benchmarks.rs:7:12
+  |
+7 | pub struct PerformanceBenchmarks;
+  |            ^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: multiple associated functions are never used
+   --> crates/at-daemon/src/benchmarks.rs:11:18
+    |
+  9 | impl PerformanceBenchmarks {
+    | -------------------------- associated functions in this implementation
+ 10 |     /// Benchmark 1: Span creation overhead
+ 11 |     pub async fn benchmark_span_creation() -> Result<()> {
+    |                  ^^^^^^^^^^^^^^^^^^^^^^^
+...
+ 45 |     pub async fn benchmark_metrics_recording() -> Result<()> {
+    |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+ 87 |     pub async fn benchmark_concurrent_operations() -> Result<()> {
+    |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+155 |     pub async fn benchmark_memory_usage() -> Result<()> {
+    |                  ^^^^^^^^^^^^^^^^^^^^^^
+...
+207 |     pub async fn benchmark_datadog_throughput() -> Result<()> {
+    |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+262 |     fn get_memory_usage() -> u64 {
+    |        ^^^^^^^^^^^^^^^^
+...
+284 |     pub async fn run_all_benchmarks() -> Result<()> {
+    |                  ^^^^^^^^^^^^^^^^^^
+
+warning: field `histograms` is never read
+  --> crates/at-daemon/src/metrics.rs:12:5
+   |
+ 9 | pub struct MetricsCollector {
+   |            ---------------- field in this struct
+...
+12 |     histograms: Arc<RwLock<HashMap<String, Vec<f64>>>>,
+   |     ^^^^^^^^^^
+   |
+   = note: `MetricsCollector` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+
+warning: methods `record_histogram`, `get_metrics_snapshot`, and `reset` are never used
+  --> crates/at-daemon/src/metrics.rs:51:18
+   |
+15 | impl MetricsCollector {
+   | --------------------- methods in this implementation
+...
+51 |     pub async fn record_histogram(&self, name: &str, value: f64, tags: &[(&str, &str)]) {
+   |                  ^^^^^^^^^^^^^^^^
+...
+66 |     pub async fn get_metrics_snapshot(&self) -> MetricsSnapshot {
+   |                  ^^^^^^^^^^^^^^^^^^^^
+...
+93 |     pub async fn reset(&self) {
+   |                  ^^^^^
+
+warning: struct `MetricsSnapshot` is never constructed
+   --> crates/at-daemon/src/metrics.rs:102:12
+    |
+102 | pub struct MetricsSnapshot {
+    |            ^^^^^^^^^^^^^^^
+
+warning: method `histogram_stats` is never used
+   --> crates/at-daemon/src/metrics.rs:110:12
+    |
+108 | impl MetricsSnapshot {
+    | -------------------- method in this implementation
+109 |     /// Calculate histogram statistics
+110 |     pub fn histogram_stats(&self, key: &str) -> Option<HistogramStats> {
+    |            ^^^^^^^^^^^^^^^
+
+warning: struct `HistogramStats` is never constructed
+   --> crates/at-daemon/src/metrics.rs:144:12
+    |
+144 | pub struct HistogramStats {
+    |            ^^^^^^^^^^^^^^
+
+warning: multiple associated functions are never used
+   --> crates/at-daemon/src/metrics.rs:210:18
+    |
+197 | impl AppMetrics {
+    | --------------- associated functions in this implementation
+...
+210 |     pub async fn api_request(method: &str, endpoint: &str, status: u16, duration_ms: f64) {
+    |                  ^^^^^^^^^^^
+...
+226 |     pub async fn frontend_request(path: &str, status: u16, duration_ms: f64) {
+    |                  ^^^^^^^^^^^^^^^^
+...
+236 |     pub async fn task_executed(task_type: &str, success: bool, duration_ms: f64) {
+    |                  ^^^^^^^^^^^^^
+...
+246 |     pub async fn llm_request(
+    |                  ^^^^^^^^^^^
+...
+292 |     pub async fn llm_agent_execution(
+    |                  ^^^^^^^^^^^^^^^^^^^
+...
+313 |     pub async fn memory_usage_mb(usage_mb: f64) {
+    |                  ^^^^^^^^^^^^^^^
+...
+318 |     pub async fn cpu_usage_percent(percent: f64) {
+    |                  ^^^^^^^^^^^^^^^^^
+...
+323 |     pub async fn active_connections(count: u64) {
+    |                  ^^^^^^^^^^^^^^^^^^
+...
+328 |     pub async fn error_occurred(error_type: &str, component: &str) {
+    |                  ^^^^^^^^^^^^^^
+
+warning: function `profile_function` is never used
+  --> crates/at-daemon/src/profiling.rs:89:8
+   |
+89 | pub fn profile_function<F, R>(name: &str, f: F) -> R
+   |        ^^^^^^^^^^^^^^^^
+
+warning: struct `ProfilingTests` is never constructed
+  --> crates/at-daemon/src/profiling_tests.rs:10:12
+   |
+10 | pub struct ProfilingTests;
+   |            ^^^^^^^^^^^^^^
+
+warning: multiple associated functions are never used
+   --> crates/at-daemon/src/profiling_tests.rs:14:18
+    |
+ 12 | impl ProfilingTests {
+    | ------------------- associated functions in this implementation
+ 13 |     /// Test 1: Basic profiling functionality
+ 14 |     pub async fn test_basic_profiling() -> Result<()> {
+    |                  ^^^^^^^^^^^^^^^^^^^^
+...
+ 38 |     pub async fn test_llm_observability() -> Result<()> {
+    |                  ^^^^^^^^^^^^^^^^^^^^^^
+...
+ 56 |     pub async fn test_performance_load() -> Result<()> {
+    |                  ^^^^^^^^^^^^^^^^^^^^^
+...
+ 82 |     pub async fn test_error_handling() -> Result<()> {
+    |                  ^^^^^^^^^^^^^^^^^^^
+...
+105 |     pub async fn test_concurrent_operations() -> Result<()> {
+    |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+145 |     pub async fn test_resource_usage() -> Result<()> {
+    |                  ^^^^^^^^^^^^^^^^^^^
+...
+174 |     pub async fn test_datadog_integration() -> Result<()> {
+    |                  ^^^^^^^^^^^^^^^^^^^^^^^^
+...
+227 |     pub async fn run_all_tests() -> Result<()> {
+    |                  ^^^^^^^^^^^^^
+
+warning: unused variable: `span`
+   --> crates/at-daemon/src/profiling.rs:137:13
+    |
+137 |         let span = traced_span!("test_operation", user_id = "123", action = "test");
+    |             ^^^^ help: if this is intentional, prefix it with an underscore: `_span`
+
+warning: method `reset` is never used
+  --> crates/at-daemon/src/metrics.rs:93:18
+   |
+15 | impl MetricsCollector {
+   | --------------------- method in this implementation
+...
+93 |     pub async fn reset(&self) {
+   |                  ^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: fields `p95` and `p99` are never read
+   --> crates/at-daemon/src/metrics.rs:150:9
+    |
+144 | pub struct HistogramStats {
+    |            -------------- fields in this struct
+...
+150 |     pub p95: f64,
+    |         ^^^
+151 |     pub p99: f64,
+    |         ^^^
+    |
+    = note: `HistogramStats` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: unused `SemaphorePermit` that must be used
+   --> crates/at-daemon/tests/scheduler_test.rs:212:9
+    |
+212 |         gate2.acquire().await.expect("acquire permit");
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(unused_must_use)]` (part of `#[warn(unused)]`) on by default
+help: use `let _ = ...` to ignore the resulting value
+    |
+212 |         let _ = gate2.acquire().await.expect("acquire permit");
+    |         +++++++
+
+warning: unused import: `std::sync::Arc`
+ --> crates/at-daemon/tests/task_lifecycle_test.rs:6:5
+  |
+6 | use std::sync::Arc;
+  |     ^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `at-daemon` (bin "at-daemon") generated 13 warnings (run `cargo fix --bin "at-daemon"` to apply 1 suggestion)
+warning: `at-daemon` (bin "at-daemon" test) generated 5 warnings (2 duplicates)
+warning: `at-daemon` (test "scheduler_test") generated 1 warning
+warning: `at-daemon` (test "task_lifecycle_test") generated 1 warning (run `cargo fix --test "task_lifecycle_test"` to apply 1 suggestion)
+warning: unused import: `Shader`
+  --> crates/at-tui/src/effects.rs:27:85
+   |
+27 | use tachyonfx::{fx, Effect, EffectManager as TachyonManager, Interpolation, Motion, Shader};
+   |                                                                                     ^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `id` is never read
+  --> crates/at-tui/src/api_client.rs:19:9
+   |
+17 | pub struct ApiAgent {
+   |            -------- field in this struct
+18 |     #[serde(default)]
+19 |     pub id: String,
+   |         ^^
+   |
+   = note: `ApiAgent` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: fields `priority` and `category` are never read
+  --> crates/at-tui/src/api_client.rs:39:9
+   |
+29 | pub struct ApiBead {
+   |            ------- fields in this struct
+...
+39 |     pub priority: i32,
+   |         ^^^^^^^^
+40 |     #[serde(default)]
+41 |     pub category: Option<String>,
+   |         ^^^^^^^^
+   |
+   = note: `ApiBead` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: fields `backlog`, `hooked`, `slung`, `review`, `done`, and `failed` are never read
+  --> crates/at-tui/src/api_client.rs:49:9
+   |
+45 | pub struct ApiKpi {
+   |            ------ fields in this struct
+...
+49 |     pub backlog: u64,
+   |         ^^^^^^^
+50 |     #[serde(default)]
+51 |     pub hooked: u64,
+   |         ^^^^^^
+52 |     #[serde(default)]
+53 |     pub slung: u64,
+   |         ^^^^^
+54 |     #[serde(default)]
+55 |     pub review: u64,
+   |         ^^^^^^
+56 |     #[serde(default)]
+57 |     pub done: u64,
+   |         ^^^^
+58 |     #[serde(default)]
+59 |     pub failed: u64,
+   |         ^^^^^^
+   |
+   = note: `ApiKpi` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: fields `id` and `bead_ids` are never read
+  --> crates/at-tui/src/api_client.rs:81:9
+   |
+79 | pub struct ApiConvoy {
+   |            --------- fields in this struct
+80 |     #[serde(default)]
+81 |     pub id: String,
+   |         ^^
+...
+89 |     pub bead_ids: Vec<String>,
+   |         ^^^^^^^^
+   |
+   = note: `ApiConvoy` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: fields `input_tokens` and `output_tokens` are never read
+  --> crates/at-tui/src/api_client.rs:95:9
+   |
+93 | pub struct ApiCosts {
+   |            -------- fields in this struct
+94 |     #[serde(default)]
+95 |     pub input_tokens: u64,
+   |         ^^^^^^^^^^^^
+96 |     #[serde(default)]
+97 |     pub output_tokens: u64,
+   |         ^^^^^^^^^^^^^
+   |
+   = note: `ApiCosts` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: fields `session_id` and `agent_name` are never read
+   --> crates/at-tui/src/api_client.rs:105:9
+    |
+103 | pub struct ApiCostSession {
+    |            -------------- fields in this struct
+104 |     #[serde(default)]
+105 |     pub session_id: String,
+    |         ^^^^^^^^^^
+106 |     #[serde(default)]
+107 |     pub agent_name: String,
+    |         ^^^^^^^^^^
+    |
+    = note: `ApiCostSession` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: fields `id` and `name` are never read
+   --> crates/at-tui/src/api_client.rs:187:9
+    |
+185 | pub struct ApiRoadmap {
+    |            ---------- fields in this struct
+186 |     #[serde(default)]
+187 |     pub id: String,
+    |         ^^
+188 |     #[serde(default)]
+189 |     pub name: String,
+    |         ^^^^
+    |
+    = note: `ApiRoadmap` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: field `stack_position` is never read
+   --> crates/at-tui/src/api_client.rs:232:9
+    |
+220 | pub struct ApiStackNode {
+    |            ------------ field in this struct
+...
+232 |     pub stack_position: u32,
+    |         ^^^^^^^^^^^^^^
+    |
+    = note: `ApiStackNode` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: field `total` is never read
+   --> crates/at-tui/src/api_client.rs:241:9
+    |
+236 | pub struct ApiStack {
+    |            -------- field in this struct
+...
+241 |     pub total: u32,
+    |         ^^^^^
+    |
+    = note: `ApiStack` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: field `id` is never read
+   --> crates/at-tui/src/api_client.rs:255:9
+    |
+253 | pub struct ApiChangelogEntry {
+    |            ----------------- field in this struct
+254 |     #[serde(default)]
+255 |     pub id: String,
+    |         ^^
+    |
+    = note: `ApiChangelogEntry` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: function `status_glyph` is never used
+   --> crates/at-tui/src/app.rs:689:8
+    |
+689 | pub fn status_glyph(status: &str) -> &'static str {
+    |        ^^^^^^^^^^^^
+
+warning: function `dissolve` is never used
+  --> crates/at-tui/src/effects.rs:70:8
+   |
+70 | pub fn dissolve() -> Effect {
+   |        ^^^^^^^^
+
+warning: function `sweep_in` is never used
+  --> crates/at-tui/src/effects.rs:77:8
+   |
+77 | pub fn sweep_in(direction: SweepDirection) -> Effect {
+   |        ^^^^^^^^
+
+warning: function `glow_pulse` is never used
+  --> crates/at-tui/src/effects.rs:91:8
+   |
+91 | pub fn glow_pulse() -> Effect {
+   |        ^^^^^^^^^^
+
+warning: function `particle_burst` is never used
+   --> crates/at-tui/src/effects.rs:102:8
+    |
+102 | pub fn particle_burst() -> Effect {
+    |        ^^^^^^^^^^^^^^
+
+warning: methods `add_named`, `remove_all`, and `is_idle` are never used
+   --> crates/at-tui/src/effects.rs:135:12
+    |
+120 | impl EffectManager {
+    | ------------------ methods in this implementation
+...
+135 |     pub fn add_named(&mut self, key: &str, effect: Effect) {
+    |            ^^^^^^^^^
+...
+148 |     pub fn remove_all(&mut self) {
+    |            ^^^^^^^^^^
+...
+153 |     pub fn is_idle(&self) -> bool {
+    |            ^^^^^^^
+
+warning: function `render_gauge` is never used
+  --> crates/at-tui/src/widgets/gauge_bar.rs:13:8
+   |
+13 | pub fn render_gauge(frame: &mut Frame, area: Rect, label: &str, progress: u16, color: Color) {
+   |        ^^^^^^^^^^^^
+
+warning: variants `Info`, `Success`, `Warning`, and `Error` are never constructed
+  --> crates/at-tui/src/widgets/toast.rs:11:5
+   |
+10 | pub enum ToastLevel {
+   |          ---------- variants in this enum
+11 |     Info,
+   |     ^^^^
+12 |     Success,
+   |     ^^^^^^^
+13 |     Warning,
+   |     ^^^^^^^
+14 |     Error,
+   |     ^^^^^
+   |
+   = note: `ToastLevel` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: associated items `new` and `with_duration` are never used
+  --> crates/at-tui/src/widgets/toast.rs:46:12
+   |
+45 | impl Toast {
+   | ---------- associated items in this implementation
+46 |     pub fn new(message: impl Into<String>, level: ToastLevel) -> Self {
+   |            ^^^
+...
+55 |     pub fn with_duration(mut self, duration: Duration) -> Self {
+   |            ^^^^^^^^^^^^^
+
+warning: constant `MAX_TOASTS` is never used
+  --> crates/at-tui/src/widgets/toast.rs:75:7
+   |
+75 | const MAX_TOASTS: usize = 5;
+   |       ^^^^^^^^^^
+
+warning: methods `push`, `len`, and `is_empty` are never used
+   --> crates/at-tui/src/widgets/toast.rs:90:12
+    |
+ 84 | impl ToastManager {
+    | ----------------- methods in this implementation
+...
+ 90 |     pub fn push(&mut self, toast: Toast) {
+    |            ^^^^
+...
+103 |     pub fn len(&self) -> usize {
+    |            ^^^
+...
+108 |     pub fn is_empty(&self) -> bool {
+    |            ^^^^^^^^
+
+warning: variable does not need to be mutable
+   --> crates/at-tui/src/effects.rs:190:13
+    |
+190 |         let mut effect = fade_in();
+    |             ----^^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+   --> crates/at-tui/src/effects.rs:198:13
+    |
+198 |         let mut effect = dissolve();
+    |             ----^^^^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> crates/at-tui/src/effects.rs:211:17
+    |
+211 |             let mut effect = sweep_in(dir);
+    |                 ----^^^^^^
+    |                 |
+    |                 help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> crates/at-tui/src/effects.rs:222:13
+    |
+222 |         let mut effect = glow_pulse();
+    |             ----^^^^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> crates/at-tui/src/effects.rs:231:13
+    |
+231 |         let mut effect = particle_burst();
+    |             ----^^^^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: variant `Warning` is never constructed
+  --> crates/at-tui/src/widgets/toast.rs:13:5
+   |
+10 | pub enum ToastLevel {
+   |          ---------- variant in this enum
+...
+13 |     Warning,
+   |     ^^^^^^^
+   |
+   = note: `ToastLevel` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: method `is_empty` is never used
+   --> crates/at-tui/src/widgets/toast.rs:108:12
+    |
+ 84 | impl ToastManager {
+    | ----------------- method in this implementation
+...
+108 |     pub fn is_empty(&self) -> bool {
+    |            ^^^^^^^^
+
+warning: field `status` is never read
+  --> crates/at-tui/tests/../src/api_client.rs:25:9
+   |
+17 | pub struct ApiAgent {
+   |            -------- field in this struct
+...
+25 |     pub status: String,
+   |         ^^^^^^
+   |
+   = note: `ApiAgent` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: fields `lane`, `priority`, and `category` are never read
+  --> crates/at-tui/tests/../src/api_client.rs:37:9
+   |
+29 | pub struct ApiBead {
+   |            ------- fields in this struct
+...
+37 |     pub lane: String,
+   |         ^^^^
+38 |     #[serde(default)]
+39 |     pub priority: i32,
+   |         ^^^^^^^^
+40 |     #[serde(default)]
+41 |     pub category: Option<String>,
+   |         ^^^^^^^^
+   |
+   = note: `ApiBead` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: field `active_agents` is never read
+  --> crates/at-tui/tests/../src/api_client.rs:61:9
+   |
+45 | pub struct ApiKpi {
+   |            ------ field in this struct
+...
+61 |     pub active_agents: u64,
+   |         ^^^^^^^^^^^^^
+   |
+   = note: `ApiKpi` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: fields `cli_type` and `status` are never read
+  --> crates/at-tui/tests/../src/api_client.rs:71:9
+   |
+65 | pub struct ApiSession {
+   |            ---------- fields in this struct
+...
+71 |     pub cli_type: String,
+   |         ^^^^^^^^
+72 |     #[serde(default)]
+73 |     pub status: String,
+   |         ^^^^^^
+   |
+   = note: `ApiSession` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: fields `id`, `name`, `bead_count`, `status`, and `bead_ids` are never read
+  --> crates/at-tui/tests/../src/api_client.rs:81:9
+   |
+79 | pub struct ApiConvoy {
+   |            --------- fields in this struct
+80 |     #[serde(default)]
+81 |     pub id: String,
+   |         ^^
+82 |     #[serde(default)]
+83 |     pub name: String,
+   |         ^^^^
+84 |     #[serde(default)]
+85 |     pub bead_count: u32,
+   |         ^^^^^^^^^^
+86 |     #[serde(default)]
+87 |     pub status: String,
+   |         ^^^^^^
+88 |     #[serde(default)]
+89 |     pub bead_ids: Vec<String>,
+   |         ^^^^^^^^
+   |
+   = note: `ApiConvoy` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: field `sessions` is never read
+  --> crates/at-tui/tests/../src/api_client.rs:99:9
+   |
+93 | pub struct ApiCosts {
+   |            -------- field in this struct
+...
+99 |     pub sessions: Vec<ApiCostSession>,
+   |         ^^^^^^^^
+   |
+   = note: `ApiCosts` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: fields `session_id`, `agent_name`, `input_tokens`, and `output_tokens` are never read
+   --> crates/at-tui/tests/../src/api_client.rs:105:9
+    |
+103 | pub struct ApiCostSession {
+    |            -------------- fields in this struct
+104 |     #[serde(default)]
+105 |     pub session_id: String,
+    |         ^^^^^^^^^^
+106 |     #[serde(default)]
+107 |     pub agent_name: String,
+    |         ^^^^^^^^^^
+108 |     #[serde(default)]
+109 |     pub input_tokens: u64,
+    |         ^^^^^^^^^^^^
+110 |     #[serde(default)]
+111 |     pub output_tokens: u64,
+    |         ^^^^^^^^^^^^^
+    |
+    = note: `ApiCostSession` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: fields `name`, `status`, and `tools` are never read
+   --> crates/at-tui/tests/../src/api_client.rs:117:9
+    |
+115 | pub struct ApiMcpServer {
+    |            ------------ fields in this struct
+116 |     #[serde(default)]
+117 |     pub name: String,
+    |         ^^^^
+118 |     #[serde(default)]
+119 |     pub status: String,
+    |         ^^^^^^
+120 |     #[serde(default)]
+121 |     pub tools: Vec<String>,
+    |         ^^^^^
+    |
+    = note: `ApiMcpServer` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: fields `id`, `path`, `branch`, `bead_id`, and `status` are never read
+   --> crates/at-tui/tests/../src/api_client.rs:127:9
+    |
+125 | pub struct ApiWorktree {
+    |            ----------- fields in this struct
+126 |     #[serde(default)]
+127 |     pub id: String,
+    |         ^^
+128 |     #[serde(default)]
+129 |     pub path: String,
+    |         ^^^^
+130 |     #[serde(default)]
+131 |     pub branch: String,
+    |         ^^^^^^
+132 |     #[serde(default)]
+133 |     pub bead_id: String,
+    |         ^^^^^^^
+134 |     #[serde(default)]
+135 |     pub status: String,
+    |         ^^^^^^
+    |
+    = note: `ApiWorktree` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: fields `labels`, `assignee`, `state`, and `created` are never read
+   --> crates/at-tui/tests/../src/api_client.rs:145:9
+    |
+139 | pub struct ApiGithubIssue {
+    |            -------------- fields in this struct
+...
+145 |     pub labels: Vec<String>,
+    |         ^^^^^^
+146 |     #[serde(default)]
+147 |     pub assignee: Option<String>,
+    |         ^^^^^^^^
+148 |     #[serde(default)]
+149 |     pub state: String,
+    |         ^^^^^
+150 |     #[serde(default)]
+151 |     pub created: String,
+    |         ^^^^^^^
+    |
+    = note: `ApiGithubIssue` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: fields `author`, `status`, `reviewers`, and `created` are never read
+   --> crates/at-tui/tests/../src/api_client.rs:161:9
+    |
+155 | pub struct ApiGithubPr {
+    |            ----------- fields in this struct
+...
+161 |     pub author: String,
+    |         ^^^^^^
+162 |     #[serde(default)]
+163 |     pub status: String,
+    |         ^^^^^^
+164 |     #[serde(default)]
+165 |     pub reviewers: Vec<String>,
+    |         ^^^^^^^^^
+166 |     #[serde(default)]
+167 |     pub created: String,
+    |         ^^^^^^^
+    |
+    = note: `ApiGithubPr` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: fields `id` and `name` are never read
+   --> crates/at-tui/tests/../src/api_client.rs:187:9
+    |
+185 | pub struct ApiRoadmap {
+    |            ---------- fields in this struct
+186 |     #[serde(default)]
+187 |     pub id: String,
+    |         ^^
+188 |     #[serde(default)]
+189 |     pub name: String,
+    |         ^^^^
+    |
+    = note: `ApiRoadmap` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: fields `id`, `title`, `description`, `status`, and `priority` are never read
+   --> crates/at-tui/tests/../src/api_client.rs:196:9
+    |
+195 | pub struct ApiRoadmapItem {
+    |            -------------- fields in this struct
+196 |     pub id: String,
+    |         ^^
+197 |     pub title: String,
+    |         ^^^^^
+198 |     pub description: String,
+    |         ^^^^^^^^^^^
+199 |     pub status: String,
+    |         ^^^^^^
+200 |     pub priority: String,
+    |         ^^^^^^^^
+    |
+    = note: `ApiRoadmapItem` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: fields `id`, `title`, `description`, `category`, `impact`, and `effort` are never read
+   --> crates/at-tui/tests/../src/api_client.rs:206:9
+    |
+204 | pub struct ApiIdea {
+    |            ------- fields in this struct
+205 |     #[serde(default)]
+206 |     pub id: String,
+    |         ^^
+207 |     #[serde(default)]
+208 |     pub title: String,
+    |         ^^^^^
+209 |     #[serde(default)]
+210 |     pub description: String,
+    |         ^^^^^^^^^^^
+211 |     #[serde(default)]
+212 |     pub category: String,
+    |         ^^^^^^^^
+213 |     #[serde(default)]
+214 |     pub impact: String,
+    |         ^^^^^^
+215 |     #[serde(default)]
+216 |     pub effort: String,
+    |         ^^^^^^
+    |
+    = note: `ApiIdea` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: fields `id`, `title`, `phase`, `git_branch`, `pr_number`, and `stack_position` are never read
+   --> crates/at-tui/tests/../src/api_client.rs:222:9
+    |
+220 | pub struct ApiStackNode {
+    |            ------------ fields in this struct
+221 |     #[serde(default)]
+222 |     pub id: String,
+    |         ^^
+223 |     #[serde(default)]
+224 |     pub title: String,
+    |         ^^^^^
+225 |     #[serde(default)]
+226 |     pub phase: String,
+    |         ^^^^^
+227 |     #[serde(default)]
+228 |     pub git_branch: Option<String>,
+    |         ^^^^^^^^^^
+229 |     #[serde(default)]
+230 |     pub pr_number: Option<u32>,
+    |         ^^^^^^^^^
+231 |     #[serde(default)]
+232 |     pub stack_position: u32,
+    |         ^^^^^^^^^^^^^^
+    |
+    = note: `ApiStackNode` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: fields `root`, `children`, and `total` are never read
+   --> crates/at-tui/tests/../src/api_client.rs:237:9
+    |
+236 | pub struct ApiStack {
+    |            -------- fields in this struct
+237 |     pub root: ApiStackNode,
+    |         ^^^^
+238 |     #[serde(default)]
+239 |     pub children: Vec<ApiStackNode>,
+    |         ^^^^^^^^
+240 |     #[serde(default)]
+241 |     pub total: u32,
+    |         ^^^^^
+    |
+    = note: `ApiStack` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: fields `category` and `items` are never read
+   --> crates/at-tui/tests/../src/api_client.rs:247:9
+    |
+245 | pub struct ApiChangelogSection {
+    |            ------------------- fields in this struct
+246 |     #[serde(default)]
+247 |     pub category: String,
+    |         ^^^^^^^^
+248 |     #[serde(default)]
+249 |     pub items: Vec<String>,
+    |         ^^^^^
+    |
+    = note: `ApiChangelogSection` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: fields `id`, `version`, `date`, and `sections` are never read
+   --> crates/at-tui/tests/../src/api_client.rs:255:9
+    |
+253 | pub struct ApiChangelogEntry {
+    |            ----------------- fields in this struct
+254 |     #[serde(default)]
+255 |     pub id: String,
+    |         ^^
+256 |     #[serde(default)]
+257 |     pub version: String,
+    |         ^^^^^^^
+258 |     #[serde(default)]
+259 |     pub date: String,
+    |         ^^^^
+260 |     #[serde(default)]
+261 |     pub sections: Vec<ApiChangelogSection>,
+    |         ^^^^^^^^
+    |
+    = note: `ApiChangelogEntry` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: fields `id`, `category`, `content`, and `created_at` are never read
+   --> crates/at-tui/tests/../src/api_client.rs:267:9
+    |
+265 | pub struct ApiMemoryEntry {
+    |            -------------- fields in this struct
+266 |     #[serde(default)]
+267 |     pub id: String,
+    |         ^^
+268 |     #[serde(default)]
+269 |     pub category: String,
+    |         ^^^^^^^^
+270 |     #[serde(default)]
+271 |     pub content: String,
+    |         ^^^^^^^
+272 |     #[serde(default)]
+273 |     pub created_at: String,
+    |         ^^^^^^^^^^
+    |
+    = note: `ApiMemoryEntry` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: fields `kpi` and `costs` are never read
+   --> crates/at-tui/tests/../src/api_client.rs:282:9
+    |
+279 | pub struct AppData {
+    |            ------- fields in this struct
+...
+282 |     pub kpi: ApiKpi,
+    |         ^^^
+...
+285 |     pub costs: ApiCosts,
+    |         ^^^^^
+    |
+    = note: `AppData` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: comparison is useless due to type limits
+   --> crates/at-tui/tests/e2e_test.rs:257:13
+    |
+257 |     assert!(costs.input_tokens >= 0);
+    |             ^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(unused_comparisons)]` on by default
+
+warning: comparison is useless due to type limits
+   --> crates/at-tui/tests/e2e_test.rs:258:13
+    |
+258 |     assert!(costs.output_tokens >= 0);
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `layout::Rect`
+ --> crates/at-tui/tests/render_test.rs:9:53
+  |
+9 | use ratatui::{backend::TestBackend, buffer::Buffer, layout::Rect, Terminal};
+  |                                                     ^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+   --> crates/at-tui/tests/../src/effects.rs:190:13
+    |
+190 |         let mut effect = fade_in();
+    |             ----^^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+   --> crates/at-tui/tests/../src/effects.rs:198:13
+    |
+198 |         let mut effect = dissolve();
+    |             ----^^^^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> crates/at-tui/tests/../src/effects.rs:211:17
+    |
+211 |             let mut effect = sweep_in(dir);
+    |                 ----^^^^^^
+    |                 |
+    |                 help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> crates/at-tui/tests/../src/effects.rs:222:13
+    |
+222 |         let mut effect = glow_pulse();
+    |             ----^^^^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> crates/at-tui/tests/../src/effects.rs:231:13
+    |
+231 |         let mut effect = particle_burst();
+    |             ----^^^^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: struct `ApiClient` is never constructed
+ --> crates/at-tui/tests/../src/api_client.rs:9:12
+  |
+9 | pub struct ApiClient {
+  |            ^^^^^^^^^
+  |
+  = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: struct `ApiAgent` is never constructed
+  --> crates/at-tui/tests/../src/api_client.rs:17:12
+   |
+17 | pub struct ApiAgent {
+   |            ^^^^^^^^
+
+warning: struct `ApiBead` is never constructed
+  --> crates/at-tui/tests/../src/api_client.rs:29:12
+   |
+29 | pub struct ApiBead {
+   |            ^^^^^^^
+
+warning: struct `ApiKpi` is never constructed
+  --> crates/at-tui/tests/../src/api_client.rs:45:12
+   |
+45 | pub struct ApiKpi {
+   |            ^^^^^^
+
+warning: struct `ApiSession` is never constructed
+  --> crates/at-tui/tests/../src/api_client.rs:65:12
+   |
+65 | pub struct ApiSession {
+   |            ^^^^^^^^^^
+
+warning: struct `ApiConvoy` is never constructed
+  --> crates/at-tui/tests/../src/api_client.rs:79:12
+   |
+79 | pub struct ApiConvoy {
+   |            ^^^^^^^^^
+
+warning: struct `ApiCosts` is never constructed
+  --> crates/at-tui/tests/../src/api_client.rs:93:12
+   |
+93 | pub struct ApiCosts {
+   |            ^^^^^^^^
+
+warning: struct `ApiCostSession` is never constructed
+   --> crates/at-tui/tests/../src/api_client.rs:103:12
+    |
+103 | pub struct ApiCostSession {
+    |            ^^^^^^^^^^^^^^
+
+warning: struct `ApiMcpServer` is never constructed
+   --> crates/at-tui/tests/../src/api_client.rs:115:12
+    |
+115 | pub struct ApiMcpServer {
+    |            ^^^^^^^^^^^^
+
+warning: struct `ApiWorktree` is never constructed
+   --> crates/at-tui/tests/../src/api_client.rs:125:12
+    |
+125 | pub struct ApiWorktree {
+    |            ^^^^^^^^^^^
+
+warning: struct `ApiGithubIssue` is never constructed
+   --> crates/at-tui/tests/../src/api_client.rs:139:12
+    |
+139 | pub struct ApiGithubIssue {
+    |            ^^^^^^^^^^^^^^
+
+warning: struct `ApiGithubPr` is never constructed
+   --> crates/at-tui/tests/../src/api_client.rs:155:12
+    |
+155 | pub struct ApiGithubPr {
+    |            ^^^^^^^^^^^
+
+warning: struct `ApiRoadmapFeature` is never constructed
+   --> crates/at-tui/tests/../src/api_client.rs:171:12
+    |
+171 | pub struct ApiRoadmapFeature {
+    |            ^^^^^^^^^^^^^^^^^
+
+warning: struct `ApiRoadmap` is never constructed
+   --> crates/at-tui/tests/../src/api_client.rs:185:12
+    |
+185 | pub struct ApiRoadmap {
+    |            ^^^^^^^^^^
+
+warning: struct `ApiRoadmapItem` is never constructed
+   --> crates/at-tui/tests/../src/api_client.rs:195:12
+    |
+195 | pub struct ApiRoadmapItem {
+    |            ^^^^^^^^^^^^^^
+
+warning: struct `ApiIdea` is never constructed
+   --> crates/at-tui/tests/../src/api_client.rs:204:12
+    |
+204 | pub struct ApiIdea {
+    |            ^^^^^^^
+
+warning: struct `ApiStackNode` is never constructed
+   --> crates/at-tui/tests/../src/api_client.rs:220:12
+    |
+220 | pub struct ApiStackNode {
+    |            ^^^^^^^^^^^^
+
+warning: struct `ApiStack` is never constructed
+   --> crates/at-tui/tests/../src/api_client.rs:236:12
+    |
+236 | pub struct ApiStack {
+    |            ^^^^^^^^
+
+warning: struct `ApiChangelogSection` is never constructed
+   --> crates/at-tui/tests/../src/api_client.rs:245:12
+    |
+245 | pub struct ApiChangelogSection {
+    |            ^^^^^^^^^^^^^^^^^^^
+
+warning: struct `ApiChangelogEntry` is never constructed
+   --> crates/at-tui/tests/../src/api_client.rs:253:12
+    |
+253 | pub struct ApiChangelogEntry {
+    |            ^^^^^^^^^^^^^^^^^
+
+warning: struct `ApiMemoryEntry` is never constructed
+   --> crates/at-tui/tests/../src/api_client.rs:265:12
+    |
+265 | pub struct ApiMemoryEntry {
+    |            ^^^^^^^^^^^^^^
+
+warning: struct `AppData` is never constructed
+   --> crates/at-tui/tests/../src/api_client.rs:279:12
+    |
+279 | pub struct AppData {
+    |            ^^^^^^^
+
+warning: multiple associated items are never used
+   --> crates/at-tui/tests/../src/api_client.rs:298:12
+    |
+297 | impl ApiClient {
+    | -------------- associated items in this implementation
+298 |     pub fn new(base: &str) -> Self {
+    |            ^^^
+...
+309 |     fn get<T: for<'de> Deserialize<'de>>(&self, path: &str) -> Result<T, String> {
+    |        ^^^
+...
+324 |     pub fn fetch_agents(&self) -> Result<Vec<ApiAgent>, String> {
+    |            ^^^^^^^^^^^^
+...
+328 |     pub fn fetch_beads(&self) -> Result<Vec<ApiBead>, String> {
+    |            ^^^^^^^^^^^
+...
+332 |     pub fn fetch_kpi(&self) -> Result<ApiKpi, String> {
+    |            ^^^^^^^^^
+...
+336 |     pub fn fetch_sessions(&self) -> Result<Vec<ApiSession>, String> {
+    |            ^^^^^^^^^^^^^^
+...
+340 |     pub fn fetch_convoys(&self) -> Result<Vec<ApiConvoy>, String> {
+    |            ^^^^^^^^^^^^^
+...
+344 |     pub fn fetch_costs(&self) -> Result<ApiCosts, String> {
+    |            ^^^^^^^^^^^
+...
+348 |     pub fn fetch_mcp_servers(&self) -> Result<Vec<ApiMcpServer>, String> {
+    |            ^^^^^^^^^^^^^^^^^
+...
+352 |     pub fn fetch_worktrees(&self) -> Result<Vec<ApiWorktree>, String> {
+    |            ^^^^^^^^^^^^^^^
+...
+356 |     pub fn fetch_github_issues(&self) -> Result<Vec<ApiGithubIssue>, String> {
+    |            ^^^^^^^^^^^^^^^^^^^
+...
+360 |     pub fn fetch_github_prs(&self) -> Result<Vec<ApiGithubPr>, String> {
+    |            ^^^^^^^^^^^^^^^^
+...
+364 |     pub fn fetch_roadmap(&self) -> Result<Vec<ApiRoadmapItem>, String> {
+    |            ^^^^^^^^^^^^^
+...
+369 |     pub fn fetch_ideas(&self) -> Result<Vec<ApiIdea>, String> {
+    |            ^^^^^^^^^^^
+...
+373 |     pub fn fetch_stacks(&self) -> Result<Vec<ApiStack>, String> {
+    |            ^^^^^^^^^^^^
+...
+377 |     pub fn fetch_changelog(&self) -> Result<Vec<ApiChangelogEntry>, String> {
+    |            ^^^^^^^^^^^^^^^
+...
+381 |     pub fn fetch_memory(&self) -> Result<Vec<ApiMemoryEntry>, String> {
+    |            ^^^^^^^^^^^^
+...
+387 |     pub fn fetch_all(&self) -> AppData {
+    |            ^^^^^^^^^
+
+warning: function `flatten_roadmaps` is never used
+   --> crates/at-tui/tests/../src/api_client.rs:421:4
+    |
+421 | fn flatten_roadmaps(roadmaps: Vec<ApiRoadmap>) -> Vec<ApiRoadmapItem> {
+    |    ^^^^^^^^^^^^^^^^
+
+warning: method `apply_data` is never used
+   --> crates/at-tui/tests/../src/app.rs:271:12
+    |
+231 | impl App {
+    | -------- method in this implementation
+...
+271 |     pub fn apply_data(&mut self, data: api_client::AppData) {
+    |            ^^^^^^^^^^
+
+warning: function `status_glyph` is never used
+   --> crates/at-tui/tests/../src/app.rs:689:8
+    |
+689 | pub fn status_glyph(status: &str) -> &'static str {
+    |        ^^^^^^^^^^^^
+
+warning: function `parse_role` is never used
+   --> crates/at-tui/tests/../src/app.rs:704:4
+    |
+704 | fn parse_role(s: &str) -> AgentRole {
+    |    ^^^^^^^^^^
+
+warning: function `parse_agent_status` is never used
+   --> crates/at-tui/tests/../src/app.rs:717:4
+    |
+717 | fn parse_agent_status(s: &str) -> AgentStatus {
+    |    ^^^^^^^^^^^^^^^^^^
+
+warning: function `parse_bead_status` is never used
+   --> crates/at-tui/tests/../src/app.rs:727:4
+    |
+727 | fn parse_bead_status(s: &str) -> BeadStatus {
+    |    ^^^^^^^^^^^^^^^^^
+
+warning: function `parse_lane` is never used
+   --> crates/at-tui/tests/../src/app.rs:738:4
+    |
+738 | fn parse_lane(s: &str) -> Lane {
+    |    ^^^^^^^^^^
+
+warning: function `parse_cli_type` is never used
+   --> crates/at-tui/tests/../src/app.rs:746:4
+    |
+746 | fn parse_cli_type(s: &str) -> CliType {
+    |    ^^^^^^^^^^^^^^
+
+warning: function `parse_convoy_status` is never used
+   --> crates/at-tui/tests/../src/app.rs:755:4
+    |
+755 | fn parse_convoy_status(s: &str) -> ConvoyStatus {
+    |    ^^^^^^^^^^^^^^^^^^^
+
+warning: variant `Warning` is never constructed
+  --> crates/at-tui/tests/../src/widgets/toast.rs:13:5
+   |
+10 | pub enum ToastLevel {
+   |          ---------- variant in this enum
+...
+13 |     Warning,
+   |     ^^^^^^^
+   |
+   = note: `ToastLevel` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: method `is_empty` is never used
+   --> crates/at-tui/tests/../src/widgets/toast.rs:108:12
+    |
+ 84 | impl ToastManager {
+    | ----------------- method in this implementation
+...
+108 |     pub fn is_empty(&self) -> bool {
+    |            ^^^^^^^^
+
+warning: fields `timestamp` and `message` are never read
+  --> crates/at-tui/tests/../src/app.rs:88:9
+   |
+87 | pub struct ActivityEntry {
+   |            ------------- fields in this struct
+88 |     pub timestamp: DateTime<Utc>,
+   |         ^^^^^^^^^
+89 |     pub message: String,
+   |         ^^^^^^^
+   |
+   = note: `ActivityEntry` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: fields `active_agents`, `total_beads`, `active_convoys`, and `total_cost` are never read
+   --> crates/at-tui/tests/../src/app.rs:172:9
+    |
+171 | pub struct KpiView {
+    |            ------- fields in this struct
+172 |     pub active_agents: u64,
+    |         ^^^^^^^^^^^^^
+173 |     pub total_beads: u64,
+    |         ^^^^^^^^^^^
+174 |     pub active_convoys: u64,
+    |         ^^^^^^^^^^^^^^
+175 |     pub total_cost: f64,
+    |         ^^^^^^^^^^
+    |
+    = note: `KpiView` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: fields `activity`, `kpi`, `effects`, `last_tick`, and `toasts` are never read
+   --> crates/at-tui/tests/../src/app.rs:201:9
+    |
+182 | pub struct App {
+    |            --- fields in this struct
+...
+201 |     pub activity: Vec<ActivityEntry>,
+    |         ^^^^^^^^
+202 |     pub kpi: KpiView,
+    |         ^^^
+203 |     pub config_text: String,
+204 |     pub effects: crate::effects::EffectManager,
+    |         ^^^^^^^
+205 |     pub last_tick: std::time::Instant,
+    |         ^^^^^^^^^
+...
+228 |     pub toasts: crate::widgets::toast::ToastManager,
+    |         ^^^^^^
+
+warning: function `render` is never used
+ --> crates/at-tui/tests/../src/tabs/agents.rs:9:8
+  |
+9 | pub fn render(frame: &mut Frame, app: &App, area: Rect) {
+  |        ^^^^^^
+
+warning: function `render` is never used
+  --> crates/at-tui/tests/../src/tabs/analytics.rs:10:8
+   |
+10 | pub fn render(frame: &mut Frame, _app: &App, area: Rect) {
+   |        ^^^^^^
+
+warning: function `render` is never used
+  --> crates/at-tui/tests/../src/tabs/beads.rs:10:8
+   |
+10 | pub fn render(frame: &mut Frame, app: &App, area: Rect) {
+   |        ^^^^^^
+
+warning: function `render` is never used
+ --> crates/at-tui/tests/../src/tabs/changelog.rs:9:8
+  |
+9 | pub fn render(frame: &mut Frame, app: &App, area: Rect) {
+  |        ^^^^^^
+
+warning: function `render` is never used
+  --> crates/at-tui/tests/../src/tabs/config.rs:10:8
+   |
+10 | pub fn render(frame: &mut Frame, app: &App, area: Rect) {
+   |        ^^^^^^
+
+warning: function `render` is never used
+ --> crates/at-tui/tests/../src/tabs/context.rs:9:8
+  |
+9 | pub fn render(frame: &mut Frame, app: &App, area: Rect) {
+  |        ^^^^^^
+
+warning: function `render_index` is never used
+  --> crates/at-tui/tests/../src/tabs/context.rs:43:4
+   |
+43 | fn render_index(frame: &mut Frame, _app: &App, area: Rect) {
+   |    ^^^^^^^^^^^^
+
+warning: function `render_memory` is never used
+  --> crates/at-tui/tests/../src/tabs/context.rs:90:4
+   |
+90 | fn render_memory(frame: &mut Frame, app: &App, area: Rect) {
+   |    ^^^^^^^^^^^^^
+
+warning: function `render` is never used
+  --> crates/at-tui/tests/../src/tabs/convoys.rs:10:8
+   |
+10 | pub fn render(frame: &mut Frame, app: &App, area: Rect) {
+   |        ^^^^^^
+
+warning: function `render` is never used
+  --> crates/at-tui/tests/../src/tabs/costs.rs:10:8
+   |
+10 | pub fn render(frame: &mut Frame, app: &App, area: Rect) {
+   |        ^^^^^^
+
+warning: function `render` is never used
+  --> crates/at-tui/tests/../src/tabs/dashboard.rs:10:8
+   |
+10 | pub fn render(frame: &mut Frame, app: &App, area: Rect) {
+   |        ^^^^^^
+
+warning: function `render_kpi_cards` is never used
+  --> crates/at-tui/tests/../src/tabs/dashboard.rs:30:4
+   |
+30 | fn render_kpi_cards(frame: &mut Frame, app: &App, area: Rect) {
+   |    ^^^^^^^^^^^^^^^^
+
+warning: function `render_agent_summary` is never used
+  --> crates/at-tui/tests/../src/tabs/dashboard.rs:71:4
+   |
+71 | fn render_agent_summary(frame: &mut Frame, app: &App, area: Rect) {
+   |    ^^^^^^^^^^^^^^^^^^^^
+
+warning: function `render_activity_feed` is never used
+  --> crates/at-tui/tests/../src/tabs/dashboard.rs:92:4
+   |
+92 | fn render_activity_feed(frame: &mut Frame, app: &App, area: Rect) {
+   |    ^^^^^^^^^^^^^^^^^^^^
+
+warning: function `glyph_color` is never used
+   --> crates/at-tui/tests/../src/tabs/dashboard.rs:109:4
+    |
+109 | fn glyph_color(glyph: &str) -> Color {
+    |    ^^^^^^^^^^^
+
+warning: function `format_role` is never used
+   --> crates/at-tui/tests/../src/tabs/dashboard.rs:120:4
+    |
+120 | fn format_role(role: &at_core::types::AgentRole) -> &'static str {
+    |    ^^^^^^^^^^^
+
+warning: function `render` is never used
+ --> crates/at-tui/tests/../src/tabs/github_issues.rs:9:8
+  |
+9 | pub fn render(frame: &mut Frame, app: &App, area: Rect) {
+  |        ^^^^^^
+
+warning: function `render` is never used
+ --> crates/at-tui/tests/../src/tabs/github_prs.rs:9:8
+  |
+9 | pub fn render(frame: &mut Frame, app: &App, area: Rect) {
+  |        ^^^^^^
+
+warning: function `render` is never used
+ --> crates/at-tui/tests/../src/tabs/ideation.rs:9:8
+  |
+9 | pub fn render(frame: &mut Frame, app: &App, area: Rect) {
+  |        ^^^^^^
+
+warning: function `render` is never used
+ --> crates/at-tui/tests/../src/tabs/mcp.rs:9:8
+  |
+9 | pub fn render(frame: &mut Frame, app: &App, area: Rect) {
+  |        ^^^^^^
+
+warning: function `render` is never used
+ --> crates/at-tui/tests/../src/tabs/roadmap.rs:9:8
+  |
+9 | pub fn render(frame: &mut Frame, app: &App, area: Rect) {
+  |        ^^^^^^
+
+warning: function `render` is never used
+ --> crates/at-tui/tests/../src/tabs/sessions.rs:9:8
+  |
+9 | pub fn render(frame: &mut Frame, app: &App, area: Rect) {
+  |        ^^^^^^
+
+warning: function `render` is never used
+ --> crates/at-tui/tests/../src/tabs/stacks.rs:9:8
+  |
+9 | pub fn render(frame: &mut Frame, app: &App, area: Rect) {
+  |        ^^^^^^
+
+warning: function `render` is never used
+ --> crates/at-tui/tests/../src/tabs/worktrees.rs:9:8
+  |
+9 | pub fn render(frame: &mut Frame, app: &App, area: Rect) {
+  |        ^^^^^^
+
+warning: function `render` is never used
+  --> crates/at-tui/tests/../src/ui.rs:12:8
+   |
+12 | pub fn render(frame: &mut Frame, app: &mut App) {
+   |        ^^^^^^
+
+warning: function `render_command_bar` is never used
+  --> crates/at-tui/tests/../src/ui.rs:60:4
+   |
+60 | fn render_command_bar(frame: &mut Frame, app: &App, area: Rect) {
+   |    ^^^^^^^^^^^^^^^^^^
+
+warning: function `render_tab_bar` is never used
+  --> crates/at-tui/tests/../src/ui.rs:90:4
+   |
+90 | fn render_tab_bar(frame: &mut Frame, app: &App, area: Rect) {
+   |    ^^^^^^^^^^^^^^
+
+warning: function `tab_count` is never used
+   --> crates/at-tui/tests/../src/ui.rs:145:4
+    |
+145 | fn tab_count(app: &App, tab: usize) -> usize {
+    |    ^^^^^^^^^
+
+warning: function `render_content` is never used
+   --> crates/at-tui/tests/../src/ui.rs:163:4
+    |
+163 | fn render_content(frame: &mut Frame, app: &App, area: Rect) {
+    |    ^^^^^^^^^^^^^^
+
+warning: function `render` is never used
+ --> crates/at-tui/tests/../src/widgets/help_modal.rs:8:8
+  |
+8 | pub fn render(frame: &mut Frame) {
+  |        ^^^^^^
+
+warning: function `help_line` is never used
+  --> crates/at-tui/tests/../src/widgets/help_modal.rs:50:4
+   |
+50 | fn help_line(key: &str, desc: &str) -> Line<'static> {
+   |    ^^^^^^^^^
+
+warning: function `centered_rect` is never used
+  --> crates/at-tui/tests/../src/widgets/help_modal.rs:64:4
+   |
+64 | fn centered_rect(percent_x: u16, percent_y: u16, parent: Rect) -> Rect {
+   |    ^^^^^^^^^^^^^
+
+warning: function `render` is never used
+  --> crates/at-tui/tests/../src/widgets/status_bar.rs:11:8
+   |
+11 | pub fn render(frame: &mut Frame, app: &App, area: Rect) {
+   |        ^^^^^^
+
+warning: methods `color` and `icon` are never used
+  --> crates/at-tui/tests/../src/widgets/toast.rs:18:8
+   |
+17 | impl ToastLevel {
+   | --------------- methods in this implementation
+18 |     fn color(&self) -> Color {
+   |        ^^^^^
+...
+27 |     fn icon(&self) -> &'static str {
+   |        ^^^^
+
+warning: fields `message` and `level` are never read
+  --> crates/at-tui/tests/../src/widgets/toast.rs:39:9
+   |
+38 | pub struct Toast {
+   |            ----- fields in this struct
+39 |     pub message: String,
+   |         ^^^^^^^
+40 |     pub level: ToastLevel,
+   |         ^^^^^
+   |
+   = note: `Toast` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: method `remaining_fraction` is never used
+  --> crates/at-tui/tests/../src/widgets/toast.rs:65:8
+   |
+45 | impl Toast {
+   | ---------- method in this implementation
+...
+65 |     fn remaining_fraction(&self) -> f64 {
+   |        ^^^^^^^^^^^^^^^^^^
+
+warning: constant `TOAST_WIDTH` is never used
+  --> crates/at-tui/tests/../src/widgets/toast.rs:76:7
+   |
+76 | const TOAST_WIDTH: u16 = 40;
+   |       ^^^^^^^^^^^
+
+warning: constant `TOAST_HEIGHT` is never used
+  --> crates/at-tui/tests/../src/widgets/toast.rs:77:7
+   |
+77 | const TOAST_HEIGHT: u16 = 3;
+   |       ^^^^^^^^^^^^
+
+warning: methods `is_empty` and `render` are never used
+   --> crates/at-tui/tests/../src/widgets/toast.rs:108:12
+    |
+ 84 | impl ToastManager {
+    | ----------------- methods in this implementation
+...
+108 |     pub fn is_empty(&self) -> bool {
+    |            ^^^^^^^^
+...
+113 |     pub fn render(&self, frame: &mut Frame, area: Rect) {
+    |            ^^^^^^
+
+warning: `at-tui` (bin "at-tui") generated 22 warnings (run `cargo fix --bin "at-tui"` to apply 1 suggestion)
+warning: `at-tui` (bin "at-tui" test) generated 18 warnings (11 duplicates) (run `cargo fix --bin "at-tui" --tests` to apply 5 suggestions)
+warning: `at-tui` (test "e2e_test") generated 22 warnings
+warning: `at-tui` (test "render_test") generated 40 warnings (run `cargo fix --test "render_test"` to apply 6 suggestions)
+warning: `at-tui` (test "tui_test") generated 79 warnings (37 duplicates)
+warning: unused import: `AgentStatus`
+  --> crates/at-bridge/tests/api_integration_test.rs:14:40
+   |
+14 | use at_core::types::{Agent, AgentRole, AgentStatus, CliType};
+   |                                        ^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `at-bridge` (test "api_integration_test") generated 1 warning (run `cargo fix --test "api_integration_test"` to apply 1 suggestion)
+warning: unused import: `chrono::Utc`
+  --> crates/at-integrations/tests/gitlab_integration_test.rs:16:5
+   |
+16 | use chrono::Utc;
+   |     ^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `at-integrations` (test "gitlab_integration_test") generated 1 warning (run `cargo fix --test "gitlab_integration_test"` to apply 1 suggestion)
+warning: unused import: `LlmResponse`
+   --> crates/at-intelligence/src/model_router.rs:335:34
+    |
+335 |     use crate::llm::{LlmMessage, LlmResponse, MockProvider};
+    |                                  ^^^^^^^^^^^
+    |
+    = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `LlmRole`
+   --> crates/at-intelligence/src/token_cache.rs:318:58
+    |
+318 |     use crate::llm::{LlmConfig, LlmMessage, LlmResponse, LlmRole};
+    |                                                          ^^^^^^^
+
+warning: `at-intelligence` (lib test) generated 2 warnings (run `cargo fix --lib -p at-intelligence --tests` to apply 2 suggestions)
+    Finished `test` profile [optimized + debuginfo] target(s) in 0.36s
+     Running unittests src/lib.rs (target/debug/deps/at_agents-6bb6b334950f2404)
+
+running 134 tests
+test approval::tests::default_policies_file_write_require_approval ... ok
+test approval::tests::default_policies_delete_deny ... ok
+test approval::tests::default_policies_file_read_auto_approve ... ok
+test approval::tests::custom_policy_override ... ok
+test approval::tests::approve_nonexistent_returns_error ... ok
+test approval::tests::default_policies_git_push_require_approval ... ok
+test approval::tests::default_policies_shell_execute_require_approval ... ok
+test approval::tests::permissive_system_defaults_to_require_approval_for_unknown ... ok
+test approval::tests::multiple_pending_approvals ... ok
+test approval::tests::request_approve_flow ... ok
+test approval::tests::request_deny_flow ... ok
+test approval::tests::role_override_takes_precedence ... ok
+test approval::tests::unknown_tool_requires_approval ... ok
+test claude_session::tests::session_add_messages ... ok
+test claude_session::tests::session_clear_history ... ok
+test claude_session::tests::session_config_default ... ok
+test claude_session::tests::session_creation ... ok
+test claude_session::tests::session_llm_config ... ok
+test claude_session::tests::session_error_display ... ok
+test claude_session::tests::session_metadata_recording ... ok
+test claude_session::tests::session_trim_history ... ok
+test claude_session::tests::session_trim_history_unlimited ... ok
+test claude_session::tests::session_serialization_roundtrip ... ok
+test executor::tests::build_prompt_includes_task_info ... ok
+test executor::tests::abort_task_removes_from_active ... ok
+test executor::tests::execute_task_detects_tool_use_errors ... ok
+test executor::tests::execute_task_parses_json_events ... ok
+test executor::tests::execute_task_parses_progress_markers ... ok
+test executor::tests::parse_agent_event_error ... ok
+test executor::tests::execute_task_produces_result_with_output ... ok
+test executor::tests::parse_agent_event_json ... ok
+test executor::tests::parse_agent_event_plain_text_returns_none ... ok
+test executor::tests::parse_agent_event_progress ... ok
+test executor::tests::parse_tool_use_error_multiple ... ok
+test executor::tests::parse_tool_use_error_no_such_tool ... ok
+test executor::tests::execute_task_publishes_events_to_bus ... ok
+test executor::tests::parse_tool_use_error_none ... ok
+test executor::tests::parse_tool_use_error_tool_quoted ... ok
+test executor::tests::parse_tool_use_error_unclosed_tag ... ok
+test executor::tests::tool_fallback_map_custom_fallback ... ok
+test executor::tests::tool_fallback_map_recover_no_available ... ok
+test executor::tests::tool_fallback_map_recover_with_available ... ok
+test executor::tests::tool_fallback_map_suggests_alternatives ... ok
+test executor::tests::tool_fallback_map_unknown_tool ... ok
+test orchestrator::tests::orchestrator_assemble_context ... ok
+test orchestrator::tests::orchestrator_complete_task ... ok
+test orchestrator::tests::orchestrator_build_prompt ... ok
+test orchestrator::tests::orchestrator_config_defaults ... ok
+test orchestrator::tests::orchestrator_config_serialization ... ok
+test orchestrator::tests::orchestrator_nonexistent_execution ... ok
+test orchestrator::tests::orchestrator_execution_summary ... ok
+test orchestrator::tests::orchestrator_record_phase ... ok
+test orchestrator::tests::orchestrator_record_output_stuck ... ok
+test orchestrator::tests::orchestrator_decompose ... ok
+test orchestrator::tests::orchestrator_recovery ... ok
+test orchestrator::tests::orchestrator_rlm_disabled ... ok
+test orchestrator::tests::orchestrator_refinement ... ok
+test orchestrator::tests::orchestrator_start_task ... ok
+test orchestrator::tests::orchestrator_session_memory ... ok
+test orchestrator::tests::task_execution_serialization ... ok
+test profiles::tests::agent_config_serialization_roundtrip ... ok
+test profiles::tests::binary_name_matches_cli_type ... ok
+test profiles::tests::claude_cli_args_with_thinking ... ok
+test profiles::tests::claude_cli_args_without_thinking ... ok
+test profiles::tests::codex_cli_args ... ok
+test profiles::tests::default_for_coding_phase_has_high_thinking ... ok
+test profiles::tests::default_for_discovery_phase_has_low_thinking ... ok
+test profiles::tests::default_for_phase_uses_correct_model ... ok
+test profiles::tests::gemini_cli_args ... ok
+test profiles::tests::opencode_cli_args ... ok
+test profiles::tests::thinking_level_budget_none_returns_none ... ok
+test profiles::tests::thinking_level_budget_values ... ok
+test prompts::tests::built_in_templates_not_empty ... ok
+test prompts::tests::prompt_registry_has_defaults ... ok
+test prompts::tests::prompt_registry_override ... ok
+test prompts::tests::prompt_registry_roles_list ... ok
+test prompts::tests::prompt_render_preserves_unknown_vars ... ok
+test prompts::tests::prompt_registry_load_from_project ... ok
+test prompts::tests::prompt_registry_ignores_unknown_files ... ok
+test prompts::tests::prompt_template_render ... ok
+test prompts::tests::prompt_template_render_with_context ... ok
+test prompts::tests::role_from_prompt_name_mapping ... ok
+test prompts::tests::prompt_template_serialization ... ok
+test registry::tests::agent_names_list ... ok
+test registry::tests::clone_agent_missing ... ok
+test registry::tests::clone_agent_registered ... ok
+test registry::tests::context_summary_empty_registry ... ok
+test registry::tests::context_summary_includes_agents_and_skills ... ok
+test registry::tests::default_registry_is_empty ... ok
+test registry::tests::get_missing_agent_returns_none ... ok
+test registry::tests::get_missing_skill_returns_none ... ok
+test registry::tests::load_from_empty_project ... ok
+test registry::tests::load_from_project_with_agents ... ok
+test registry::tests::load_from_project_with_skills ... ok
+test registry::tests::load_result_total ... ok
+test registry::tests::plugin_agent_implements_role_config ... ok
+test registry::tests::plugin_skill_to_prompt ... ok
+test registry::tests::register_and_get_agent ... ok
+test registry::tests::register_and_get_skill ... ok
+test registry::tests::register_duplicate_agent_fails ... ok
+test registry::tests::load_from_project_with_both ... ok
+test registry::tests::register_duplicate_skill_fails ... ok
+test registry::tests::skill_names_list ... ok
+test registry::tests::unregister_skill ... ok
+test registry::tests::unregister_agent ... ok
+test registry::tests::load_skips_duplicates_on_reload ... ok
+test task_orchestrator::tests::coding_phase_with_subtasks ... ok
+test task_orchestrator::tests::coding_phase_produces_result ... ok
+test task_orchestrator::tests::pipeline_result_serializable ... ok
+test task_orchestrator::tests::full_pipeline_emits_events ... ok
+test task_runner::tests::build_steered_prompt_fallback ... ok
+test task_runner::tests::build_steered_prompt_with_project ... ok
+test task_runner::tests::phase_events_published ... ok
+test task_runner::tests::phase_to_steering_name_mapping ... ok
+test task_orchestrator::tests::qa_phase_returns_report ... ok
+test task_orchestrator::tests::qa_fix_loop_terminates_at_max_iterations ... ok
+test task_runner::tests::prompt_for_coding_contains_title ... ok
+test task_runner::tests::prompt_for_discovery_contains_title ... ok
+test task_runner::tests::prompt_for_qa_contains_review ... ok
+test task_runner::tests::task_runner_custom_timeout ... ok
+test task_runner::tests::task_runner_default_no_steering ... ok
+test task_runner::tests::task_runner_default_timeout ... ok
+test task_runner::tests::task_runner_with_role ... ok
+test task_runner::tests::task_runner_with_token_budget ... ok
+test task_runner::tests::transition_to_error_sets_state ... ok
+test task_runner::tests::reset_stuck_detector_works ... ok
+test task_runner::tests::task_runner_with_project_has_steering ... ok
+test claude_session::tests::manager_with_base_url ... ok
+test claude_session::tests::manager_remove_session ... ok
+test claude_session::tests::manager_remove_nonexistent ... ok
+test claude_runtime::tests::manager_runtime_starts_and_lists_sessions ... ok
+test claude_runtime::tests::manager_runtime_close_session ... ok
+test claude_session::tests::manager_list_sessions ... ok
+test claude_session::tests::manager_create_and_get_session ... ok
+
+test result: ok. 134 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+
+     Running tests/agent_profiles_test.rs (target/debug/deps/agent_profiles_test-294492ebf4f25a8d)
+
+running 63 tests
+test test_agent_defaults ... ok
+test test_agent_state_can_transition ... ok
+test test_agent_event_display ... ok
+test test_agent_state_failure_and_recovery ... ok
+test test_agent_state_display ... ok
+test test_agent_state_history_tracking ... ok
+test test_agent_state_idle_to_spawning ... ok
+test test_agent_state_invalid_transition ... ok
+test test_agent_state_pause_resume_cycle ... ok
+test test_agent_state_running_to_stopped ... ok
+test test_agent_state_serialization_roundtrip ... ok
+test test_agent_state_spawning_to_running ... ok
+test test_agent_supervisor_spawn ... ok
+test test_agent_supervisor_stop ... ok
+test test_agent_supervisor_list ... ok
+test test_agent_supervisor_spawn_all_roles ... ok
+test test_agent_supervisor_heartbeat ... ok
+test test_agent_supervisor_stop_nonexistent ... ok
+test test_all_roles_have_preferred_model ... ok
+test test_all_six_roles_defined ... ok
+test test_approval_check_returns_correct_action ... ok
+test test_approval_nonexistent_id ... ok
+test test_approval_multiple_pending ... ok
+test test_approval_deny_flow ... ok
+test test_approval_policy_serialization_roundtrip ... ok
+test test_approval_policies_per_role ... ok
+test test_approval_store_records_decisions ... ok
+test test_auto_approve_policy ... ok
+test test_crew_allowed_tools_include_write_and_git ... ok
+test test_deacon_allowed_tools_include_git_review ... ok
+test test_deacon_post_execute_reports_issues ... ok
+test test_deacon_role_has_system_prompt ... ok
+test test_default_profile_is_auto_optimized ... ok
+test test_deny_policy ... ok
+test test_mayor_allowed_tools_include_orchestration ... ok
+test test_mayor_pre_execute_contains_task ... ok
+test test_mayor_role_has_system_prompt ... ok
+test test_permissive_approval_system ... ok
+test test_phase_config_binary_names ... ok
+test test_phase_config_cli_args_generation ... ok
+test test_phase_config_has_code_review ... ok
+test test_phase_config_has_implementation ... ok
+test test_phase_config_has_open_creation ... ok
+test test_phase_config_model_per_phase ... ok
+test test_phase_config_thinking_level_per_phase ... ok
+test test_polecat_allowed_tools_include_security_scanning ... ok
+test test_polecat_post_execute_detects_critical ... ok
+test test_profile_balanced_exists ... ok
+test test_profile_complex_tasks_exists ... ok
+test test_profile_has_model_config ... ok
+test test_profile_has_thinking_level ... ok
+test test_profile_quick_edits_exists ... ok
+test test_refinery_allowed_tools_include_write_and_shell ... ok
+test test_profile_serialization_roundtrip ... ok
+test test_refinery_role_has_system_prompt ... ok
+test test_role_display_names ... ok
+test test_role_max_turns_vary_by_role ... ok
+test test_require_approval_policy ... ok
+test test_role_serialization_roundtrip ... ok
+test test_thinking_level_serialization_roundtrip ... ok
+test test_witness_allowed_tools_include_shell_execute ... ok
+test test_witness_post_execute_detects_failures ... ok
+test test_witness_role_has_system_prompt ... ok
+
+test result: ok. 63 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/roles_and_approval_test.rs (target/debug/deps/roles_and_approval_test-e1bf38462fb8be09)
+
+running 26 tests
+test all_roles_have_positive_max_turns ... ok
+test all_roles_have_preferred_model ... ok
+test approval_deny_prevents_execution ... ok
+test crew_has_full_dev_tools ... ok
+test approval_full_lifecycle ... ok
+test approval_system_default_policies_match_spec ... ok
+test crew_has_nonempty_system_prompt ... ok
+test crew_pre_execute_returns_preamble ... ok
+test deacon_cannot_write_files ... ok
+test deacon_has_nonempty_system_prompt ... ok
+test deacon_post_execute_reports_clean ... ok
+test deacon_post_execute_reports_issues ... ok
+test executor_build_prompt_includes_system_prompt ... ok
+test mayor_cannot_write_files ... ok
+test mayor_has_highest_turn_limit ... ok
+test mayor_has_nonempty_system_prompt ... ok
+test mayor_pre_execute_returns_preamble ... ok
+test polecat_cannot_write_files ... ok
+test polecat_has_nonempty_system_prompt ... ok
+test refinery_can_read_and_write ... ok
+test refinery_has_nonempty_system_prompt ... ok
+test role_config_for_returns_correct_prompts ... ok
+test witness_can_execute_shell ... ok
+test witness_has_nonempty_system_prompt ... ok
+test witness_post_execute_detects_failures ... ok
+test witness_post_execute_detects_success ... ok
+
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/state_machine_test.rs (target/debug/deps/state_machine_test-46350d62cda1d238)
+
+running 8 tests
+test can_transition_checks ... ok
+test pause_and_resume ... ok
+test invalid_idle_to_active ... ok
+test paused_stop_goes_to_stopping ... ok
+test valid_idle_to_spawning_to_active ... ok
+test spawning_fail_goes_to_failed ... ok
+test full_lifecycle_idle_to_stopped ... ok
+test failure_and_recovery ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/supervisor_test.rs (target/debug/deps/supervisor_test-b414262f75beb269)
+
+running 5 tests
+test spawn_all_roles ... ok
+test stop_nonexistent_agent_errors ... ok
+test heartbeat_all ... ok
+test stop_agent ... ok
+test spawn_and_list ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/task_orchestrator_test.rs (target/debug/deps/task_orchestrator_test-5c4ae56530a51efd)
+
+running 9 tests
+test cli_type_selection_uses_configured_type ... ok
+test full_pipeline_with_subtasks ... ok
+test qa_phase_produces_report_with_task_id ... ok
+test event_bus_receives_phase_transition_events ... ok
+test pipeline_phases_transition_correctly ... ok
+test direct_mode_defaults_to_false ... ok
+test cli_type_defaults_to_claude ... ok
+test qa_fix_loop_respects_max_iterations ... ok
+test direct_mode_skips_worktree_requirement ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src/lib.rs (target/debug/deps/at_bridge-22348d52bed1b293)
+
+running 115 tests
+test command_registry::tests::command_category_display ... ok
+test command_registry::tests::command_context_params ... ok
+test command_registry::tests::by_category ... ok
+test command_registry::tests::available_from_filter ... ok
+test command_registry::tests::command_output_constructors ... ok
+test command_registry::tests::command_not_found ... ok
+test command_registry::tests::command_source_display ... ok
+test command_registry::tests::disabled_command_rejected ... ok
+test command_registry::tests::keybinding_lookup ... ok
+test command_registry::tests::has_and_get_descriptor ... ok
+test command_registry::tests::list_commands ... ok
+test command_registry::tests::register_and_execute ... ok
+test command_registry::tests::search_commands ... ok
+test command_registry::tests::source_restriction ... ok
+test auth::tests::valid_x_api_key_header ... ok
+test auth::tests::valid_bearer_token ... ok
+test auth::tests::no_key_configured_allows_all ... ok
+test auth::tests::wrong_bearer_returns_401 ... ok
+test auth::tests::missing_key_returns_401 ... ok
+test auth::tests::wrong_key_returns_401 ... ok
+test commands::tests::create_bead_missing_title ... ok
+test commands::tests::list_agents_empty ... ok
+test commands::tests::list_beads_empty ... ok
+test commands::tests::stop_agent_not_found ... ok
+test commands::tests::create_bead_via_command ... ok
+test commands::tests::get_kpi_command ... ok
+test event_bus::tests::agent_specific_subscription ... ok
+test event_bus::tests::disconnected_filtered_subscribers_are_pruned ... ok
+test event_bus::tests::disconnected_unfiltered_subscribers_are_pruned ... ok
+test event_bus::tests::existing_subscribe_still_works ... ok
+test event_bus::tests::filtered_subscriber_only_gets_matching ... ok
+test event_bus::tests::mixed_filtered_and_unfiltered ... ok
+test event_bus::tests::unfiltered_subscriber_gets_all_messages ... ok
+test http_api::tests::test_delete_notification_not_found ... ok
+test http_api::tests::test_create_pr_for_existing_task_no_branch ... ok
+test http_api::tests::test_execute_pipeline_accepts_from_planning ... ok
+test http_api::tests::test_execute_pipeline_wrong_phase ... ok
+test http_api::tests::test_competitor_analysis ... ok
+test http_api::tests::test_execute_pipeline_task_not_found ... ok
+test http_api::tests::test_create_pr_task_not_found ... ok
+test http_api::tests::test_app_update_check ... ok
+test http_api::tests::test_get_sync_status_default ... ok
+test http_api::tests::test_list_drafts ... ok
+test http_api::tests::test_list_attachments_empty ... ok
+test http_api::tests::test_create_pr_for_existing_task_with_branch_no_token ... ok
+test http_api::tests::test_mark_read_not_found ... ok
+test http_api::tests::test_file_watch ... ok
+test http_api::tests::test_lock_column ... ok
+test http_api::tests::test_notification_count_empty ... ok
+test http_api::tests::test_list_github_issues_accepts_query_params ... FAILED
+test http_api::tests::test_list_github_issues_requires_config ... FAILED
+test http_api::tests::test_create_pr_stacked_base_branch_accepted ... FAILED
+test http_api::tests::test_notifications_empty ... ok
+test http_api::tests::test_notification_pagination ... ok
+test http_api::tests::test_pipeline_queue_status_endpoint ... ok
+test http_api::tests::test_mark_all_read ... ok
+test http_api::tests::test_save_task_ordering ... ok
+test intelligence_api::tests::test_api_state_has_intelligence_engines ... ok
+test intelligence_api::tests::test_changelog_generate_empty_commits ... ok
+test http_api::tests::test_notification_unread_filter ... ok
+test intelligence_api::tests::test_roadmap_generate_empty_input ... ok
+test intelligence_api::tests::test_changelog_generate_from_commits ... ok
+test http_api::tests::test_save_and_get_draft ... ok
+test intelligence_api::tests::test_roadmap_generate_from_codebase ... ok
+test notifications::tests::test_add_and_list ... ok
+test notifications::tests::test_add_with_url ... ok
+test notifications::tests::test_delete ... ok
+test notifications::tests::test_delete_not_found ... ok
+test notifications::tests::test_list_unread ... ok
+test notifications::tests::test_mark_all_read ... ok
+test notifications::tests::test_mark_read ... ok
+test notifications::tests::test_mark_read_not_found ... ok
+test notifications::tests::test_notification_from_event_agent_crashed ... ok
+test notifications::tests::test_notification_from_event_bead_state ... ok
+test notifications::tests::test_notification_from_event_unknown_type ... ok
+test notifications::tests::test_notification_from_event_task_completed ... ok
+test notifications::tests::test_notification_from_non_event ... ok
+test notifications::tests::test_ring_buffer_overflow ... ok
+test notifications::tests::test_unread_count ... ok
+test notifications::tests::test_pagination ... ok
+test terminal::tests::test_auto_naming ... ok
+test terminal::tests::test_dead_status_variant ... ok
+test terminal::tests::test_disconnect_buffer_bounded ... ok
+test terminal::tests::test_default_font_settings ... ok
+test terminal::tests::test_disconnect_buffer_drain_empties ... ok
+test terminal::tests::test_disconnect_buffer_push_and_drain ... ok
+test terminal::tests::test_get_mut ... ok
+test terminal::tests::test_disconnected_status_variant ... ok
+test terminal::tests::test_get ... ok
+test terminal::tests::test_list_active ... ok
+test terminal::tests::test_list ... ok
+test terminal::tests::test_persistent_flag ... ok
+test terminal::tests::test_register ... ok
+test terminal::tests::test_unregister ... ok
+test http_api::tests::test_trigger_sync_returns_ok ... FAILED
+test terminal::tests::test_serde_roundtrip ... ok
+test terminal::tests::test_unregister_not_found ... ok
+test terminal::tests::test_update_status_not_found ... ok
+test terminal::tests::test_update_status ... ok
+test transport::tests::in_process_bidirectional ... ok
+test transport::tests::in_process_connect_errors_when_connected ... ok
+test terminal_ws::tests::test_delete_terminal_not_found ... ok
+test http_api::tests::test_notification_crud ... ok
+test transport::tests::router_metrics_tracking ... ok
+test transport::tests::in_process_disconnect_prevents_send ... ok
+test transport::tests::router_sessions_list ... ok
+test transport::tests::router_register_and_broadcast ... ok
+test transport::tests::in_process_pair_send_recv ... ok
+test transport::tests::router_unregister ... ok
+test terminal_ws::tests::test_list_terminals_empty ... ok
+test transport::tests::transport_kind_display_and_serialize ... ok
+test transport::tests::transport_metrics_default ... ok
+test terminal_ws::tests::test_create_terminal ... FAILED
+test terminal_ws::tests::test_create_then_list_terminals ... FAILED
+test terminal_ws::tests::test_create_then_delete_terminal ... FAILED
+
+failures:
+
+---- http_api::tests::test_list_github_issues_accepts_query_params stdout ----
+
+thread 'http_api::tests::test_list_github_issues_accepts_query_params' (25480200) panicked at crates/at-bridge/src/http_api.rs:4519:9:
+assertion `left == right` failed
+  left: 400
+ right: 503
+
+---- http_api::tests::test_list_github_issues_requires_config stdout ----
+
+thread 'http_api::tests::test_list_github_issues_requires_config' (25480201) panicked at crates/at-bridge/src/http_api.rs:4507:9:
+assertion `left == right` failed
+  left: 400
+ right: 503
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- http_api::tests::test_create_pr_stacked_base_branch_accepted stdout ----
+
+thread 'http_api::tests::test_create_pr_stacked_base_branch_accepted' (25480190) panicked at crates/at-bridge/src/http_api.rs:4655:9:
+assertion `left == right` failed
+  left: 400
+ right: 503
+
+---- http_api::tests::test_trigger_sync_returns_ok stdout ----
+
+thread 'http_api::tests::test_trigger_sync_returns_ok' (25480213) panicked at crates/at-bridge/src/http_api.rs:4489:9:
+assertion `left == right` failed
+  left: 400
+ right: 503
+
+---- terminal_ws::tests::test_create_terminal stdout ----
+
+thread 'terminal_ws::tests::test_create_terminal' (25480253) panicked at crates/at-bridge/src/terminal_ws.rs:754:9:
+assertion `left == right` failed
+  left: 500
+ right: 201
+
+---- terminal_ws::tests::test_create_then_list_terminals stdout ----
+
+thread 'terminal_ws::tests::test_create_then_list_terminals' (25480255) panicked at crates/at-bridge/src/terminal_ws.rs:793:9:
+assertion `left == right` failed
+  left: 500
+ right: 201
+
+---- terminal_ws::tests::test_create_then_delete_terminal stdout ----
+
+thread 'terminal_ws::tests::test_create_then_delete_terminal' (25480254) panicked at crates/at-bridge/src/terminal_ws.rs:825:9:
+assertion `left == right` failed
+  left: 500
+ right: 201
+
+
+failures:
+    http_api::tests::test_create_pr_stacked_base_branch_accepted
+    http_api::tests::test_list_github_issues_accepts_query_params
+    http_api::tests::test_list_github_issues_requires_config
+    http_api::tests::test_trigger_sync_returns_ok
+    terminal_ws::tests::test_create_terminal
+    terminal_ws::tests::test_create_then_delete_terminal
+    terminal_ws::tests::test_create_then_list_terminals
+
+test result: FAILED. 108 passed; 7 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `-p at-bridge --lib`
