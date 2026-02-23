@@ -3462,6 +3462,23 @@ async fn list_ui_sessions(State(state): State<Arc<ApiState>>) -> impl IntoRespon
 // WebSocket — legacy /ws handler
 // ---------------------------------------------------------------------------
 
+/// WebSocket /ws -- legacy real-time event streaming endpoint.
+///
+/// Upgrades HTTP connection to WebSocket and streams all events from the event bus
+/// to the connected client. This is the original WebSocket endpoint maintained for
+/// backward compatibility. New clients should use `/api/events/ws` instead.
+///
+/// **Response:** 101 Switching Protocols, then continuous event stream.
+///
+/// **Example Event Message:**
+/// ```json
+/// {
+///   "type": "TaskUpdate",
+///   "task_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+///   "phase": "InProgress",
+///   "timestamp": "2026-02-23T10:15:00Z"
+/// }
+/// ```
 async fn ws_handler(ws: WebSocketUpgrade, State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     ws.on_upgrade(move |socket| handle_ws(socket, state))
 }
@@ -3485,6 +3502,37 @@ async fn handle_ws(mut socket: WebSocket, state: Arc<ApiState>) {
 // WebSocket — /api/events/ws with heartbeat + event-to-notification wiring
 // ---------------------------------------------------------------------------
 
+/// WebSocket /api/events/ws -- real-time event streaming with heartbeat.
+///
+/// Upgrades HTTP connection to WebSocket and provides bidirectional communication:
+/// - Server sends all event bus events as JSON messages to the client
+/// - Server sends heartbeat ping every 30 seconds to keep connection alive
+/// - Client can send messages including pong responses and close frames
+/// - Events are automatically converted to notifications and stored
+///
+/// This is the recommended WebSocket endpoint for new clients as it provides
+/// better connection management and automatic notification creation.
+///
+/// **Response:** 101 Switching Protocols, then continuous event stream.
+///
+/// **Example Event Message:**
+/// ```json
+/// {
+///   "type": "BuildUpdate",
+///   "task_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+///   "phase": "Building",
+///   "message": "Running cargo build",
+///   "timestamp": "2026-02-23T10:15:00Z"
+/// }
+/// ```
+///
+/// **Example Heartbeat Message:**
+/// ```json
+/// {
+///   "type": "ping",
+///   "timestamp": "2026-02-23T10:15:30Z"
+/// }
+/// ```
 async fn events_ws_handler(
     ws: WebSocketUpgrade,
     State(state): State<Arc<ApiState>>,
@@ -5780,6 +5828,30 @@ async fn save_task_ordering(
 // File watching
 // ---------------------------------------------------------------------------
 
+/// POST /api/files/watch -- start watching a file or directory for changes.
+///
+/// Initiates file system monitoring for the specified path. When files change,
+/// events will be published to the event bus for subscribers. This is useful for
+/// detecting external file modifications and triggering rebuilds or refreshes.
+///
+/// **Request Body:** FileWatchRequest with path and recursive flag.
+/// **Response:** 200 OK with watch confirmation.
+///
+/// **Example Request:**
+/// ```json
+/// {
+///   "path": "/path/to/project/src",
+///   "recursive": true
+/// }
+/// ```
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "watching": "/path/to/project/src",
+///   "recursive": true
+/// }
+/// ```
 async fn start_file_watch(
     State(_state): State<Arc<ApiState>>,
     Json(req): Json<FileWatchRequest>,
@@ -5794,6 +5866,29 @@ async fn start_file_watch(
     )
 }
 
+/// POST /api/files/unwatch -- stop watching a file or directory.
+///
+/// Stops file system monitoring for the specified path that was previously
+/// started with `/api/files/watch`. No more change events will be published
+/// for this path.
+///
+/// **Request Body:** FileWatchRequest with path to stop watching.
+/// **Response:** 200 OK with confirmation.
+///
+/// **Example Request:**
+/// ```json
+/// {
+///   "path": "/path/to/project/src",
+///   "recursive": true
+/// }
+/// ```
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "stopped": "/path/to/project/src"
+/// }
+/// ```
 async fn stop_file_watch(
     State(_state): State<Arc<ApiState>>,
     Json(req): Json<FileWatchRequest>,
@@ -5810,6 +5905,42 @@ async fn stop_file_watch(
 // Competitor analysis
 // ---------------------------------------------------------------------------
 
+/// POST /api/roadmap/competitor-analysis -- analyze a competitor's product.
+///
+/// Performs SWOT analysis (Strengths, Weaknesses, Opportunities, Threats) for
+/// a specified competitor. This helps inform roadmap planning by understanding
+/// the competitive landscape and identifying differentiation opportunities.
+///
+/// **Request Body:** CompetitorAnalysisRequest with competitor name and optional URL.
+/// **Response:** 200 OK with CompetitorAnalysisResult containing SWOT analysis.
+///
+/// **Example Request:**
+/// ```json
+/// {
+///   "competitor_name": "CompetitorX",
+///   "competitor_url": "https://competitor.com"
+/// }
+/// ```
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "competitor_name": "CompetitorX",
+///   "strengths": [
+///     "CompetitorX has strong market presence",
+///     "Large community and ecosystem"
+///   ],
+///   "weaknesses": [
+///     "Limited customization options",
+///     "Higher pricing tier"
+///   ],
+///   "opportunities": [
+///     "Underserved enterprise segment",
+///     "Better developer experience possible"
+///   ],
+///   "analyzed_at": "2026-02-23T10:15:00Z"
+/// }
+/// ```
 async fn run_competitor_analysis(
     State(_state): State<Arc<ApiState>>,
     Json(req): Json<CompetitorAnalysisRequest>,
