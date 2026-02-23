@@ -211,8 +211,10 @@ pub struct SearchHit {
 pub struct Decomposition {
     pub id: Uuid,
     pub task_description: String,
-    /// Sub-tasks at this level.
-    pub subtasks: Vec<SubTask>,
+    /// Sub-tasks at this level, indexed by ID for O(1) lookup.
+    pub subtasks: HashMap<Uuid, SubTask>,
+    /// Next sequence number for maintaining insertion order.
+    next_sequence: usize,
     /// Synthesis strategy for combining sub-task results.
     pub synthesis: SynthesisStrategy,
     /// Maximum recursion depth.
@@ -227,6 +229,8 @@ pub struct SubTask {
     pub id: Uuid,
     pub description: String,
     pub status: SubTaskStatus,
+    /// Sequence number for maintaining insertion order.
+    pub sequence: usize,
     /// Context slice for this sub-task (reference into a ContextFold).
     pub context_fold_id: Option<Uuid>,
     pub context_slice: Option<(usize, usize)>,
@@ -269,7 +273,8 @@ impl Decomposition {
         Self {
             id: Uuid::new_v4(),
             task_description: task.into(),
-            subtasks: Vec::new(),
+            subtasks: HashMap::new(),
+            next_sequence: 0,
             synthesis: SynthesisStrategy::Concatenate,
             max_depth,
             depth: 0,
@@ -282,6 +287,7 @@ impl Decomposition {
             id: Uuid::new_v4(),
             description: description.into(),
             status: SubTaskStatus::Pending,
+            sequence: self.next_sequence,
             context_fold_id: None,
             context_slice: None,
             result: None,
@@ -289,14 +295,15 @@ impl Decomposition {
             parallelizable: true,
         };
         let id = subtask.id;
-        self.subtasks.push(subtask);
+        self.next_sequence += 1;
+        self.subtasks.insert(id, subtask);
         id
     }
 
     /// Get pending sub-tasks ready for dispatch.
     pub fn pending_subtasks(&self) -> Vec<&SubTask> {
         self.subtasks
-            .iter()
+            .values()
             .filter(|s| s.status == SubTaskStatus::Pending)
             .collect()
     }
@@ -304,14 +311,14 @@ impl Decomposition {
     /// Get parallelizable pending sub-tasks.
     pub fn parallel_batch(&self) -> Vec<&SubTask> {
         self.subtasks
-            .iter()
+            .values()
             .filter(|s| s.status == SubTaskStatus::Pending && s.parallelizable)
             .collect()
     }
 
     /// Record a sub-task result.
     pub fn record_result(&mut self, subtask_id: &Uuid, result: impl Into<String>) -> bool {
-        if let Some(st) = self.subtasks.iter_mut().find(|s| s.id == *subtask_id) {
+        if let Some(st) = self.subtasks.get_mut(subtask_id) {
             st.result = Some(result.into());
             st.status = SubTaskStatus::Complete;
             true
@@ -322,7 +329,7 @@ impl Decomposition {
 
     /// Mark a sub-task as failed.
     pub fn mark_failed(&mut self, subtask_id: &Uuid) -> bool {
-        if let Some(st) = self.subtasks.iter_mut().find(|s| s.id == *subtask_id) {
+        if let Some(st) = self.subtasks.get_mut(subtask_id) {
             st.status = SubTaskStatus::Failed;
             true
         } else {
@@ -335,31 +342,34 @@ impl Decomposition {
         !self.subtasks.is_empty()
             && self
                 .subtasks
-                .iter()
+                .values()
                 .all(|s| s.status == SubTaskStatus::Complete || s.status == SubTaskStatus::Skipped)
     }
 
     /// Check if any sub-task failed.
     pub fn has_failures(&self) -> bool {
         self.subtasks
-            .iter()
+            .values()
             .any(|s| s.status == SubTaskStatus::Failed)
     }
 
     /// Synthesize results from completed sub-tasks.
     pub fn synthesize(&self) -> String {
-        let completed: Vec<&str> = self
+        // Collect subtasks with results and sort by sequence to maintain order
+        let mut completed: Vec<_> = self
             .subtasks
-            .iter()
-            .filter_map(|s| s.result.as_deref())
+            .values()
+            .filter_map(|s| s.result.as_ref().map(|r| (s.sequence, r.as_str())))
             .collect();
+        completed.sort_by_key(|(seq, _)| *seq);
+        let results: Vec<&str> = completed.iter().map(|(_, r)| *r).collect();
 
         match self.synthesis {
-            SynthesisStrategy::Concatenate => completed.join("\n\n---\n\n"),
-            SynthesisStrategy::BestOf => completed.last().copied().unwrap_or("").to_string(),
-            SynthesisStrategy::Refine => completed.last().copied().unwrap_or("").to_string(),
+            SynthesisStrategy::Concatenate => results.join("\n\n---\n\n"),
+            SynthesisStrategy::BestOf => results.last().copied().unwrap_or("").to_string(),
+            SynthesisStrategy::Refine => results.last().copied().unwrap_or("").to_string(),
             // LlmMerge and Vote require actual LLM calls — return concat as fallback
-            SynthesisStrategy::LlmMerge | SynthesisStrategy::Vote => completed.join("\n\n---\n\n"),
+            SynthesisStrategy::LlmMerge | SynthesisStrategy::Vote => results.join("\n\n---\n\n"),
         }
     }
 
@@ -373,7 +383,8 @@ impl Decomposition {
         Self {
             id: Uuid::new_v4(),
             task_description: task.into(),
-            subtasks: Vec::new(),
+            subtasks: HashMap::new(),
+            next_sequence: 0,
             synthesis: self.synthesis,
             max_depth: self.max_depth,
             depth: self.depth + 1,
@@ -699,7 +710,7 @@ mod tests {
         let mut dec = Decomposition::new("task", 3);
         let id = dec.add_subtask("sub");
         assert!(dec.record_result(&id, "done"));
-        assert_eq!(dec.subtasks[0].status, SubTaskStatus::Complete);
+        assert_eq!(dec.subtasks.get(&id).unwrap().status, SubTaskStatus::Complete);
         assert!(!dec.record_result(&Uuid::new_v4(), "nope"));
     }
 
@@ -756,8 +767,7 @@ mod tests {
         dec.add_subtask("par 1");
         let id2 = dec.add_subtask("seq");
         dec.subtasks
-            .iter_mut()
-            .find(|s| s.id == id2)
+            .get_mut(&id2)
             .unwrap()
             .parallelizable = false;
 
