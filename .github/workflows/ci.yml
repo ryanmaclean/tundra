@@ -125,8 +125,9 @@ jobs:
         run: ast-grep scan --config .ast-grep.yml --format sarif crates/ > ast-grep-results.sarif
 
       - name: Upload ast-grep results to Datadog
-        if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && secrets.DATADOG_API_KEY != ''
+        if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && env.DATADOG_API_KEY != ''
         env:
+          DATADOG_API_KEY: ${{ secrets.DATADOG_API_KEY }}
           DD_API_KEY: ${{ secrets.DATADOG_API_KEY }}
           DD_APP_KEY: ${{ secrets.DATADOG_APP_KEY }}
           DD_SITE: ${{ secrets.DATADOG_SITE || 'datadoghq.com' }}
