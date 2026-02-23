@@ -15,7 +15,7 @@
 //! Key insight: "Context management matters more than context length."
 //! Instead of cramming 10M tokens into one call, fold context recursively.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -490,7 +490,7 @@ pub struct StuckDetector {
     /// Maximum number of identical consecutive outputs before declaring stuck.
     pub max_repeats: usize,
     /// Recent outputs for loop detection.
-    recent_outputs: Vec<String>,
+    recent_outputs: VecDeque<String>,
     /// Timestamp of last meaningful progress.
     last_progress: DateTime<Utc>,
     /// Total tokens consumed.
@@ -514,7 +514,7 @@ impl StuckDetector {
         Self {
             timeout_secs,
             max_repeats: 3,
-            recent_outputs: Vec::new(),
+            recent_outputs: VecDeque::new(),
             last_progress: Utc::now(),
             tokens_consumed: 0,
             token_budget,
@@ -524,16 +524,16 @@ impl StuckDetector {
     /// Record an agent output.
     pub fn record_output(&mut self, output: &str, tokens: usize) {
         self.tokens_consumed += tokens;
-        self.recent_outputs.push(output.to_string());
+        self.recent_outputs.push_back(output.to_string());
 
         // Keep only last N outputs for loop detection
         if self.recent_outputs.len() > self.max_repeats + 1 {
-            self.recent_outputs.remove(0);
+            self.recent_outputs.pop_front();
         }
 
         // If output is different from previous, count as progress
         if self.recent_outputs.len() < 2
-            || self.recent_outputs.last() != self.recent_outputs.get(self.recent_outputs.len() - 2)
+            || self.recent_outputs.back() != self.recent_outputs.get(self.recent_outputs.len() - 2)
         {
             self.last_progress = Utc::now();
         }
