@@ -1535,14 +1535,15 @@ async fn update_task(
 
     let task_snapshot = task.clone();
     drop(tasks);
+    let response_json = serde_json::json!(task_snapshot);
     state
         .event_bus
         .publish(crate::protocol::BridgeMessage::TaskUpdate(
-            Box::new(task_snapshot.clone()),
+            Box::new(task_snapshot),
         ));
     (
         axum::http::StatusCode::OK,
-        Json(serde_json::json!(task_snapshot)),
+        Json(response_json),
     )
 }
 
