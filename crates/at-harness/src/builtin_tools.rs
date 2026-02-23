@@ -186,15 +186,17 @@ fn get_task_logs_tool() -> McpTool {
 // ---------------------------------------------------------------------------
 
 use at_core::types::{Agent, AgentStatus, Bead, BeadStatus, Lane, Task, TaskPhase};
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use uuid::Uuid;
 
 /// Shared state needed to execute built-in tools.
 #[derive(Clone)]
 pub struct BuiltinToolContext {
-    pub beads: Arc<RwLock<Vec<Bead>>>,
-    pub agents: Arc<RwLock<Vec<Agent>>>,
-    pub tasks: Arc<RwLock<Vec<Task>>>,
+    pub beads: Arc<RwLock<HashMap<Uuid, Bead>>>,
+    pub agents: Arc<RwLock<HashMap<Uuid, Agent>>>,
+    pub tasks: Arc<RwLock<HashMap<Uuid, Task>>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -242,7 +244,7 @@ async fn exec_run_task(ctx: &BuiltinToolContext, args: &serde_json::Value) -> To
     };
 
     let mut tasks = ctx.tasks.write().await;
-    let Some(task) = tasks.iter_mut().find(|t| t.id == task_uuid) else {
+    let Some(task) = tasks.get_mut(&task_uuid) else {
         return ToolCallResult::error(format!("task not found: {task_id}"));
     };
 
@@ -282,8 +284,8 @@ async fn exec_list_agents(ctx: &BuiltinToolContext, args: &serde_json::Value) ->
         .and_then(|s| serde_json::from_value::<AgentStatus>(json!(s)).ok());
 
     let filtered: Vec<&Agent> = match &status_filter {
-        Some(status) => agents.iter().filter(|a| &a.status == status).collect(),
-        None => agents.iter().collect(),
+        Some(status) => agents.values().filter(|a| &a.status == status).collect(),
+        None => agents.values().collect(),
     };
 
     let result: Vec<serde_json::Value> = filtered
@@ -314,7 +316,7 @@ async fn exec_manage_beads(ctx: &BuiltinToolContext, args: &serde_json::Value) -
         "list" => {
             let beads = ctx.beads.read().await;
             let result: Vec<serde_json::Value> = beads
-                .iter()
+                .values()
                 .map(|b| {
                     json!({
                         "id": b.id,
@@ -339,7 +341,7 @@ async fn exec_manage_beads(ctx: &BuiltinToolContext, args: &serde_json::Value) -
                 Err(_) => return ToolCallResult::error(format!("invalid UUID: {bead_id}")),
             };
             let beads = ctx.beads.read().await;
-            match beads.iter().find(|b| b.id == bead_uuid) {
+            match beads.get(&bead_uuid) {
                 Some(bead) => ToolCallResult::text(serde_json::to_string(bead).unwrap()),
                 None => ToolCallResult::error(format!("bead not found: {bead_id}")),
             }
@@ -364,7 +366,7 @@ async fn exec_manage_beads(ctx: &BuiltinToolContext, args: &serde_json::Value) -
 
             let bead_json = serde_json::to_string(&bead).unwrap();
             let mut beads = ctx.beads.write().await;
-            beads.push(bead);
+            beads.insert(bead.id, bead);
 
             ToolCallResult::text(bead_json)
         }
@@ -387,7 +389,7 @@ async fn exec_manage_beads(ctx: &BuiltinToolContext, args: &serde_json::Value) -
             };
 
             let mut beads = ctx.beads.write().await;
-            let Some(bead) = beads.iter_mut().find(|b| b.id == bead_uuid) else {
+            let Some(bead) = beads.get_mut(&bead_uuid) else {
                 return ToolCallResult::error(format!("bead not found: {bead_id}"));
             };
 
@@ -420,7 +422,7 @@ async fn exec_get_build_status(
             Ok(u) => u,
             Err(_) => return ToolCallResult::error(format!("invalid UUID: {task_id_str}")),
         };
-        match tasks.iter().find(|t| t.id == task_uuid) {
+        match tasks.get(&task_uuid) {
             Some(task) => ToolCallResult::text(
                 json!({
                     "task_id": task.id,
@@ -437,7 +439,7 @@ async fn exec_get_build_status(
     } else {
         // Return all active (non-terminal) tasks.
         let active: Vec<serde_json::Value> = tasks
-            .iter()
+            .values()
             .filter(|t| {
                 !matches!(
                     t.phase,
@@ -469,7 +471,7 @@ async fn exec_get_task_logs(ctx: &BuiltinToolContext, args: &serde_json::Value) 
     let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(50) as usize;
 
     let tasks = ctx.tasks.read().await;
-    let Some(task) = tasks.iter().find(|t| t.id == task_uuid) else {
+    let Some(task) = tasks.get(&task_uuid) else {
         return ToolCallResult::error(format!("task not found: {task_id}"));
     };
 
@@ -496,9 +498,9 @@ mod tests {
 
     fn make_ctx() -> BuiltinToolContext {
         BuiltinToolContext {
-            beads: Arc::new(RwLock::new(Vec::new())),
-            agents: Arc::new(RwLock::new(Vec::new())),
-            tasks: Arc::new(RwLock::new(Vec::new())),
+            beads: Arc::new(RwLock::new(HashMap::new())),
+            agents: Arc::new(RwLock::new(HashMap::new())),
+            tasks: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -579,8 +581,8 @@ mod tests {
             a1.status = AgentStatus::Active;
             let mut a2 = Agent::new("beta", AgentRole::QaReviewer, CliType::Claude);
             a2.status = AgentStatus::Idle;
-            agents.push(a1);
-            agents.push(a2);
+            agents.insert(a1.id, a1);
+            agents.insert(a2.id, a2);
         }
         let req = ToolCallRequest {
             name: "list_agents".into(),
@@ -637,14 +639,14 @@ mod tests {
     async fn exec_manage_beads_update_status() {
         let ctx = make_ctx();
         let bead = Bead::new("Test bead", Lane::Standard);
-        let bead_id = bead.id.to_string();
-        ctx.beads.write().await.push(bead);
+        let bead_id = bead.id;
+        ctx.beads.write().await.insert(bead_id, bead);
 
         let req = ToolCallRequest {
             name: "manage_beads".into(),
             arguments: json!({
                 "action": "update_status",
-                "bead_id": bead_id,
+                "bead_id": bead_id.to_string(),
                 "status": "hooked"
             }),
         };
@@ -659,15 +661,15 @@ mod tests {
     async fn exec_manage_beads_invalid_transition() {
         let ctx = make_ctx();
         let bead = Bead::new("Test bead", Lane::Standard);
-        let bead_id = bead.id.to_string();
-        ctx.beads.write().await.push(bead);
+        let bead_id = bead.id;
+        ctx.beads.write().await.insert(bead_id, bead);
 
         // Backlog -> Done is invalid
         let req = ToolCallRequest {
             name: "manage_beads".into(),
             arguments: json!({
                 "action": "update_status",
-                "bead_id": bead_id,
+                "bead_id": bead_id.to_string(),
                 "status": "done"
             }),
         };
@@ -698,12 +700,12 @@ mod tests {
             TaskPriority::Medium,
             TaskComplexity::Medium,
         );
-        let task_id = task.id.to_string();
-        ctx.tasks.write().await.push(task);
+        let task_id = task.id;
+        ctx.tasks.write().await.insert(task_id, task);
 
         let req = ToolCallRequest {
             name: "run_task".into(),
-            arguments: json!({"task_id": task_id}),
+            arguments: json!({"task_id": task_id.to_string()}),
         };
         let result = execute_builtin_tool(&ctx, &req).await.unwrap();
         assert!(!result.is_error);
@@ -724,12 +726,12 @@ mod tests {
             TaskComplexity::Medium,
         );
         task.phase = TaskPhase::Coding;
-        let task_id = task.id.to_string();
-        ctx.tasks.write().await.push(task);
+        let task_id = task.id;
+        ctx.tasks.write().await.insert(task_id, task);
 
         let req = ToolCallRequest {
             name: "run_task".into(),
-            arguments: json!({"task_id": task_id}),
+            arguments: json!({"task_id": task_id.to_string()}),
         };
         let result = execute_builtin_tool(&ctx, &req).await.unwrap();
         assert!(result.is_error);
@@ -755,7 +757,9 @@ mod tests {
             TaskComplexity::Small,
         );
         t2.phase = TaskPhase::Complete;
-        ctx.tasks.write().await.extend(vec![t1, t2]);
+        let mut tasks = ctx.tasks.write().await;
+        tasks.insert(t1.id, t1);
+        tasks.insert(t2.id, t2);
 
         let req = ToolCallRequest {
             name: "get_build_status".into(),
@@ -779,12 +783,12 @@ mod tests {
             TaskPriority::High,
             TaskComplexity::Small,
         );
-        let task_id = task.id.to_string();
-        ctx.tasks.write().await.push(task);
+        let task_id = task.id;
+        ctx.tasks.write().await.insert(task_id, task);
 
         let req = ToolCallRequest {
             name: "get_task_logs".into(),
-            arguments: json!({"task_id": task_id}),
+            arguments: json!({"task_id": task_id.to_string()}),
         };
         let result = execute_builtin_tool(&ctx, &req).await.unwrap();
         assert!(!result.is_error);
