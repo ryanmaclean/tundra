@@ -2592,6 +2592,7 @@ struct ListGitHubIssuesQuery {
     pub per_page: Option<u8>,
 }
 
+/// GET /api/integrations/github/issues — list GitHub issues with optional state filter.
 async fn list_github_issues(
     State(state): State<Arc<ApiState>>,
     Query(q): Query<ListGitHubIssuesQuery>,
@@ -2742,6 +2743,7 @@ async fn get_sync_status(State(state): State<Arc<ApiState>>) -> impl IntoRespons
     Json(serde_json::json!(*status))
 }
 
+/// POST /api/tasks/{task_id}/pr — create a GitHub pull request for a task's branch.
 async fn create_pr_for_task(
     State(state): State<Arc<ApiState>>,
     Path(task_id): Path<Uuid>,
@@ -4478,6 +4480,7 @@ pub fn spawn_pr_poller(
     })
 }
 
+/// POST /api/github/pr/{number}/watch — start watching a pull request for status updates.
 async fn watch_pr(
     State(state): State<Arc<ApiState>>,
     Path(number): Path<u32>,
@@ -4494,6 +4497,7 @@ async fn watch_pr(
     (axum::http::StatusCode::OK, Json(serde_json::json!(status)))
 }
 
+/// DELETE /api/github/pr/{number}/watch — stop watching a pull request.
 async fn unwatch_pr(
     State(state): State<Arc<ApiState>>,
     Path(number): Path<u32>,
@@ -4512,6 +4516,7 @@ async fn unwatch_pr(
     }
 }
 
+/// GET /api/github/pr/watched — list all currently watched pull requests.
 async fn list_watched_prs(State(state): State<Arc<ApiState>>) -> Json<Vec<PrPollStatus>> {
     let registry = state.pr_poll_registry.read().await;
     Json(registry.values().cloned().collect())
@@ -4532,6 +4537,7 @@ struct CreateReleaseRequest {
     prerelease: bool,
 }
 
+/// POST /api/releases — create a new GitHub release with tag, name, body, and metadata.
 async fn create_release(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<CreateReleaseRequest>,
@@ -4637,6 +4643,7 @@ async fn create_release(
     )
 }
 
+/// GET /api/releases — list all GitHub releases for the configured repository.
 async fn list_releases(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     let config = state.settings_manager.load_or_default();
     let int = &config.integrations;
