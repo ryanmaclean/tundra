@@ -335,7 +335,7 @@ async fn test_bead_creation_publishes_event_on_bus() {
     // Subscribe to events BEFORE creating a bead.
     let rx = state.event_bus.subscribe();
 
-    // Create a bead (the handler publishes a BeadList event).
+    // Create a bead (the handler publishes a BeadCreated event).
     let resp = client
         .post(format!("{base}/api/beads"))
         .json(&json!({ "title": "Event test bead" }))
@@ -347,16 +347,16 @@ async fn test_bead_creation_publishes_event_on_bus() {
     // Give time for event propagation.
     tokio::time::sleep(Duration::from_millis(50)).await;
 
-    // Drain events and find the BeadList message.
-    let mut found_bead_list = false;
+    // Drain events and find the BeadCreated message.
+    let mut found_bead_created = false;
     while let Ok(msg) = rx.try_recv() {
-        if matches!(&*msg, BridgeMessage::BeadList(_)) {
-            found_bead_list = true;
+        if matches!(&*msg, BridgeMessage::BeadCreated(_)) {
+            found_bead_created = true;
         }
     }
     assert!(
-        found_bead_list,
-        "creating a bead should publish BeadList event"
+        found_bead_created,
+        "creating a bead should publish BeadCreated event"
     );
 }
 
