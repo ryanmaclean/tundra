@@ -57,6 +57,10 @@ pub enum BridgeMessage {
     QueueUpdate {
         task_ids: Vec<Uuid>,
     },
+    /// Bead created event.
+    BeadCreated(at_core::types::Bead),
+    /// Bead updated event.
+    BeadUpdated(at_core::types::Bead),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
