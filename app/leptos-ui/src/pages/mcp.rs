@@ -98,6 +98,10 @@ fn mcp_section_icon_svg(title: &str) -> &'static str {
     }
 }
 
+fn mcp_section_caret_svg() -> &'static str {
+    r#"<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>"#
+}
+
 /// Agent definition for display
 struct AgentDef {
     name: &'static str,
@@ -529,10 +533,11 @@ fn render_agent_section(title: &'static str, agents: &'static [AgentDef]) -> imp
         <section class="mcp-agent-section">
             <div class="mcp-agents-section-title">
                 <span class="mcp-agent-section-label">
+                    <span class="mcp-section-caret-svg" inner_html=mcp_section_caret_svg()></span>
                     <span class="mcp-agent-section-icon-svg" inner_html=mcp_section_icon_svg(title)></span>
                     <span>{title}</span>
                 </span>
-                <span class="count">{format!("{} agents", agents.len())}</span>
+                <span class="count">{format!("({} agents)", agents.len())}</span>
             </div>
             <div class="mcp-agent-grid">
                 {agents.iter().map(|a| {

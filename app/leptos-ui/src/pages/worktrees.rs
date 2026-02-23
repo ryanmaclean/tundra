@@ -87,6 +87,26 @@ fn pseudo_files_changed(branch: &str) -> u32 {
     (h % 12) + 1
 }
 
+fn pseudo_added(branch: &str) -> u32 {
+    if branch.is_empty() || branch == "main" {
+        return 0;
+    }
+    let h = branch
+        .bytes()
+        .fold(0u32, |acc, b| acc.wrapping_mul(41).wrapping_add(b as u32));
+    h % 12
+}
+
+fn pseudo_removed(branch: &str) -> u32 {
+    if branch.is_empty() || branch == "main" {
+        return 0;
+    }
+    let h = branch
+        .bytes()
+        .fold(0u32, |acc, b| acc.wrapping_mul(43).wrapping_add(b as u32));
+    h % 7
+}
+
 fn has_conflict(branch: &str) -> bool {
     if branch.is_empty() || branch == "main" {
         return false;
@@ -216,7 +236,7 @@ pub fn WorktreesPage() -> impl IntoView {
                     {move || if selection_mode.get() {
                         format!("Selected {}", selected_count())
                     } else {
-                        "+ Select".to_string()
+                        "Select".to_string()
                     }}
                 </button>
                 <button class="refresh-btn dashboard-refresh-btn" on:click=move |_| do_refresh()>
@@ -264,6 +284,8 @@ pub fn WorktreesPage() -> impl IntoView {
                 let task_title = title_from_branch(&branch);
                 let ahead = pseudo_commits_ahead(&branch);
                 let files_changed = pseudo_files_changed(&branch);
+                let added = pseudo_added(&branch);
+                let removed = pseudo_removed(&branch);
                 let conflict = has_conflict(&branch);
                 let id_for_checked = id_checkbox.clone();
 
@@ -300,9 +322,18 @@ pub fn WorktreesPage() -> impl IntoView {
                                 <span class="worktree-stat-icon" inner_html=worktree_stat_icon_svg("files")></span>
                                 <span>{format!("{} files changed", files_changed)}</span>
                             </span>
+                            <span class="worktree-stat-sep">"\u{203A}"</span>
                             <span class="worktree-stat-item">
                                 <span class="worktree-stat-icon" inner_html=worktree_stat_icon_svg("ahead")></span>
                                 <span>{format!("{} commits ahead", ahead)}</span>
+                            </span>
+                            <span class="worktree-stat-item worktree-stat-added">
+                                <span class="worktree-stat-icon" inner_html=worktree_stat_icon_svg("added")></span>
+                                <span>{format!("+{}", added)}</span>
+                            </span>
+                            <span class="worktree-stat-item worktree-stat-removed">
+                                <span class="worktree-stat-icon" inner_html=worktree_stat_icon_svg("removed")></span>
+                                <span>{format!("-{}", removed)}</span>
                             </span>
                         </div>
                         <div class="worktree-breadcrumb-row">

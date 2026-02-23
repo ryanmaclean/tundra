@@ -18130,3 +18130,167 @@ h2 .gh-icon {
 .insights-suggestion-item span {
     color: var(--text-muted);
 }
+
+/* ==========================================================================
+   Wave Parity: MCP + Worktrees + GitHub Issues/PRs (final pass)
+   ========================================================================== */
+
+.mcp-page-header {
+    border-bottom: 1px solid rgba(124, 58, 237, 0.16);
+}
+
+.mcp-section-caret-svg {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #9f87d7;
+    line-height: 0;
+    margin-right: 2px;
+}
+
+.mcp-agents-section-title {
+    justify-content: flex-start;
+    gap: 8px;
+}
+
+.mcp-agents-section-title .count {
+    background: none;
+    border: none;
+    min-width: 0;
+    height: auto;
+    padding: 0;
+    border-radius: 0;
+    color: var(--text-muted);
+    font-weight: 500;
+}
+
+.mcp-agent-grid {
+    gap: 8px;
+}
+
+.mcp-agent-card {
+    padding: 9px 11px;
+}
+
+.mcp-agent-desc {
+    -webkit-line-clamp: 1;
+}
+
+.worktrees-page-header .page-header-actions .refresh-btn {
+    min-height: 34px;
+    border-radius: 9px;
+    padding: 0 12px;
+}
+
+.worktree-card {
+    padding: 13px 15px;
+}
+
+.worktree-task-title {
+    font-size: 16px;
+    line-height: 1.2;
+    letter-spacing: -0.02em;
+}
+
+.worktree-stats {
+    gap: 10px;
+}
+
+.worktree-stat-sep {
+    color: var(--text-muted);
+    opacity: 0.7;
+}
+
+.worktree-stat-item {
+    font-size: 12px;
+}
+
+.worktree-stat-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 0;
+    opacity: 0.9;
+}
+
+.worktree-breadcrumb-row {
+    margin-bottom: 9px;
+}
+
+.worktree-actions .wt-btn {
+    min-height: 28px;
+    padding: 0 11px;
+    border-radius: 8px;
+}
+
+.worktree-path-hint {
+    margin-top: 9px;
+    font-size: 10px;
+}
+
+.issues-two-pane,
+.prs-two-pane {
+    border-color: rgba(124, 58, 237, 0.2);
+    border-radius: 10px;
+}
+
+.issues-list-pane,
+.prs-list-pane {
+    background: linear-gradient(180deg, rgba(36, 20, 57, 0.48), rgba(17, 11, 32, 0.96));
+}
+
+.issue-list-item,
+.pr-list-item {
+    min-height: 66px;
+    border-bottom-color: rgba(124, 58, 237, 0.14);
+}
+
+.issue-list-item.selected,
+.pr-list-item.selected {
+    border-left-width: 2px;
+    border-left-color: rgba(124, 58, 237, 0.78);
+}
+
+.issue-stat-chip,
+.pr-stat-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 7px;
+    font-size: 10px;
+    color: var(--text-secondary);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.issue-stat-icon,
+.pr-stat-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 0;
+    opacity: 0.8;
+}
+
+.issue-meta-ghost-menu,
+.pr-meta-ghost-menu {
+    opacity: 0.55;
+}
+
+.issue-title-text,
+.pr-title-text {
+    font-size: 14px;
+}
+
+.pr-list-item-meta {
+    padding-left: 31px;
+    gap: 7px;
+}
+
+.pr-author,
+.pr-created,
+.issue-assignee,
+.issue-created {
+    font-size: 11px;
+}

@@ -24,6 +24,18 @@ fn pr_placeholder_icon_svg(kind: &str) -> &'static str {
     }
 }
 
+fn pr_meta_icon_svg(kind: &str) -> &'static str {
+    match kind {
+        "comments" => {
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/></svg>"#
+        }
+        "reviews" => {
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>"#
+        }
+        _ => "",
+    }
+}
+
 #[component]
 pub fn GithubPrsPage() -> impl IntoView {
     let app_state = use_app_state();
@@ -423,8 +435,12 @@ pub fn GithubPrsPage() -> impl IntoView {
                             let author = pr.author.clone();
                             let title = pr.title.clone();
                             let created = pr.created.clone();
-                            let commit_count = (pr_number % 6 + 1) as usize;
-                            let file_count = (pr_number % 8 + 1) as usize;
+                            let review_count = if pr.reviewers.is_empty() {
+                                (pr_number % 3) as usize
+                            } else {
+                                pr.reviewers.len()
+                            };
+                            let comment_count = (pr_number % 8 + 1) as usize;
                             let additions = (pr_number % 12 + 1) as usize;
                             let deletions = (pr_number % 5) as usize;
                             let branch = format!("auto-claude/{:03}-{}", pr_number, title.to_lowercase().replace(' ', "-").chars().take(28).collect::<String>());
@@ -458,12 +474,18 @@ pub fn GithubPrsPage() -> impl IntoView {
                                         </div>
                                         <div class="pr-list-item-meta">
                                             <span class={format!("pr-status-badge {}", status_class)}>{status_label}</span>
-                                            <span class="pr-stat-chip">{format!("{} commits", commit_count)}</span>
-                                            <span class="pr-stat-chip">{format!("{} files", file_count)}</span>
-                                            <span class="pr-comments pr-delta-pos">{format!("+{}", additions)}</span>
-                                            <span class="pr-comments pr-delta-neg">{format!("-{}", deletions)}</span>
                                             <span class="pr-author">{author}</span>
                                             <span class="pr-created">{age_label}</span>
+                                            <span class="pr-stat-chip">
+                                                <span class="pr-stat-icon" inner_html=pr_meta_icon_svg("comments")></span>
+                                                <span>{comment_count}</span>
+                                            </span>
+                                            <span class="pr-stat-chip">
+                                                <span class="pr-stat-icon" inner_html=pr_meta_icon_svg("reviews")></span>
+                                                <span>{format!("{} reviews", review_count)}</span>
+                                            </span>
+                                            <span class="pr-comments pr-delta-pos">{format!("+{}", additions)}</span>
+                                            <span class="pr-comments pr-delta-neg">{format!("-{}", deletions)}</span>
                                         </div>
                                     </div>
                                     <div class="pr-list-item-actions">

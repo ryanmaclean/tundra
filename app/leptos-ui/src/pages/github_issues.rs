@@ -33,6 +33,18 @@ fn detail_empty_icon_svg() -> &'static str {
     r#"<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>"#
 }
 
+fn issue_stat_icon_svg(kind: &str) -> &'static str {
+    match kind {
+        "comments" => {
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/></svg>"#
+        }
+        "touches" => {
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3 4 7l4 4"/><path d="M4 7h9a4 4 0 1 1 0 8H9"/><path d="m16 21 4-4-4-4"/></svg>"#
+        }
+        _ => "",
+    }
+}
+
 #[component]
 pub fn GithubIssuesPage() -> impl IntoView {
     let state = use_app_state();
@@ -361,8 +373,14 @@ pub fn GithubIssuesPage() -> impl IntoView {
                                         <div class="issue-list-item-meta">
                                             <span class="issue-labels">{labels_view}</span>
                                             <span class="issue-assignee">{short_assignee}</span>
-                                            <span class="issue-stat-chip">{format!("\u{1F4AC} {}", comment_count)}</span>
-                                            <span class="issue-stat-chip">{format!("\u{1F9E9} {}", touch_count)}</span>
+                                            <span class="issue-stat-chip">
+                                                <span class="issue-stat-icon" inner_html=issue_stat_icon_svg("comments")></span>
+                                                <span>{comment_count}</span>
+                                            </span>
+                                            <span class="issue-stat-chip">
+                                                <span class="issue-stat-icon" inner_html=issue_stat_icon_svg("touches")></span>
+                                                <span>{touch_count}</span>
+                                            </span>
                                             <span class="issue-created">{age_label}</span>
                                         </div>
                                     </div>
