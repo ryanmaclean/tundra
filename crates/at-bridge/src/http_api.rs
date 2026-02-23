@@ -4772,6 +4772,34 @@ async fn list_convoys() -> Json<Vec<ConvoyEntry>> {
 // Project handlers
 // ---------------------------------------------------------------------------
 
+/// GET /api/projects -- retrieve all projects in the system.
+///
+/// Returns a JSON array of all projects (workspaces/repositories) managed by the system.
+/// Each project includes its ID, name, path, creation timestamp, and active status.
+/// Only one project can be active at a time.
+///
+/// **Request:** No parameters required.
+/// **Response:** 200 OK with JSON array of Project objects.
+///
+/// **Example Response:**
+/// ```json
+/// [
+///   {
+///     "id": "550e8400-e29b-41d4-a716-446655440000",
+///     "name": "my-rust-project",
+///     "path": "/home/user/projects/rust-harness",
+///     "created_at": "2026-02-23T10:00:00Z",
+///     "is_active": true
+///   },
+///   {
+///     "id": "660e8400-e29b-41d4-a716-446655440001",
+///     "name": "web-app",
+///     "path": "/home/user/projects/webapp",
+///     "created_at": "2026-02-22T14:30:00Z",
+///     "is_active": false
+///   }
+/// ]
+/// ```
 async fn list_projects(State(state): State<Arc<ApiState>>) -> Json<Vec<Project>> {
     let projects = state.projects.read().await;
     Json(projects.clone())
@@ -4783,6 +4811,33 @@ struct CreateProjectRequest {
     path: String,
 }
 
+/// POST /api/projects -- create a new project.
+///
+/// Creates a new project (workspace/repository) with the specified name and filesystem path.
+/// The project is initialized with `is_active: false` and a current timestamp.
+/// To make it the active project, call the activate endpoint afterwards.
+///
+/// **Request Body:** CreateProjectRequest JSON object with `name` and `path` fields.
+/// **Response:** 201 Created with the newly created Project object.
+///
+/// **Example Request:**
+/// ```json
+/// {
+///   "name": "new-api-service",
+///   "path": "/home/user/projects/api-service"
+/// }
+/// ```
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "id": "770e8400-e29b-41d4-a716-446655440002",
+///   "name": "new-api-service",
+///   "path": "/home/user/projects/api-service",
+///   "created_at": "2026-02-23T11:30:00Z",
+///   "is_active": false
+/// }
+/// ```
 async fn create_project(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<CreateProjectRequest>,
@@ -4807,6 +4862,41 @@ struct UpdateProjectRequest {
     path: Option<String>,
 }
 
+/// PATCH /api/projects/{id} -- update a project's name or path.
+///
+/// Updates one or more fields of an existing project. Both `name` and `path` are optional;
+/// only the provided fields will be updated. The project's `is_active` status and other
+/// metadata are not modified by this endpoint.
+///
+/// **Path Parameters:** `id` - UUID of the project to update.
+/// **Request Body:** UpdateProjectRequest JSON object with optional `name` and `path` fields.
+/// **Response:** 200 OK with the updated Project object, 404 if project not found.
+///
+/// **Example Request:**
+/// ```json
+/// {
+///   "name": "renamed-project",
+///   "path": "/new/path/to/project"
+/// }
+/// ```
+///
+/// **Example Response (Success):**
+/// ```json
+/// {
+///   "id": "770e8400-e29b-41d4-a716-446655440002",
+///   "name": "renamed-project",
+///   "path": "/new/path/to/project",
+///   "created_at": "2026-02-23T11:30:00Z",
+///   "is_active": false
+/// }
+/// ```
+///
+/// **Example Response (Not Found):**
+/// ```json
+/// {
+///   "error": "project not found"
+/// }
+/// ```
 async fn update_project(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
@@ -4831,6 +4921,36 @@ async fn update_project(
     )
 }
 
+/// DELETE /api/projects/{id} -- delete a project.
+///
+/// Removes a project from the system. Cannot delete the last remaining project
+/// (returns 400 Bad Request if attempted). If the deleted project was the active one,
+/// automatically activates the first remaining project to ensure there is always
+/// an active project.
+///
+/// **Path Parameters:** `id` - UUID of the project to delete.
+/// **Response:** 200 OK with success confirmation, 404 if project not found, 400 if last project.
+///
+/// **Example Response (Success):**
+/// ```json
+/// {
+///   "ok": true
+/// }
+/// ```
+///
+/// **Example Response (Not Found):**
+/// ```json
+/// {
+///   "error": "project not found"
+/// }
+/// ```
+///
+/// **Example Response (Cannot Delete Last):**
+/// ```json
+/// {
+///   "error": "cannot delete last project"
+/// }
+/// ```
 async fn delete_project(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
@@ -4861,6 +4981,32 @@ async fn delete_project(
     )
 }
 
+/// POST /api/projects/{id}/activate -- set a project as the active project.
+///
+/// Activates the specified project and deactivates all other projects. Only one project
+/// can be active at a time. The active project is used as the default workspace for
+/// operations that require a project context.
+///
+/// **Path Parameters:** `id` - UUID of the project to activate.
+/// **Response:** 200 OK with the activated Project object, 404 if project not found.
+///
+/// **Example Response (Success):**
+/// ```json
+/// {
+///   "id": "770e8400-e29b-41d4-a716-446655440002",
+///   "name": "my-rust-project",
+///   "path": "/home/user/projects/rust-harness",
+///   "created_at": "2026-02-23T11:30:00Z",
+///   "is_active": true
+/// }
+/// ```
+///
+/// **Example Response (Not Found):**
+/// ```json
+/// {
+///   "error": "project not found"
+/// }
+/// ```
 async fn activate_project(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
