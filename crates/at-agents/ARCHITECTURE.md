@@ -226,7 +226,7 @@ The agent system is composed of interconnected modules with clear responsibiliti
 
 ## 4. Agent State Machine
 
-The agent state machine defines 7 states and 11 valid transitions.
+The agent state machine defines 7 states and 11 valid transitions, enforcing deterministic lifecycle management.
 
 ### The 7 Agent States
 
@@ -247,7 +247,61 @@ pub enum AgentState {
 - **Initial State:** `Idle` — Agent created but not operational
 - **Transitional States:** `Spawning`, `Stopping` — Intermediate states during lifecycle changes
 - **Operational States:** `Active`, `Paused` — Agent is running (active) or suspended (paused)
-- **Terminal States:** `Stopped`, `Failed` — End states (Stopped is clean exit, Failed requires recovery)
+- **Terminal States:** `Stopped`, `Failed` — End states (see detailed explanation below)
+
+### State Machine Diagram
+
+The following diagram shows all 7 states and 11 valid transitions:
+
+```
+                    ┌──────────┐
+                    │   IDLE   │ ◄─────────────────┐
+                    └────┬─────┘                   │
+                         │ (1) Start               │
+                         ▼                         │ (11) Recover
+                    ┌──────────┐                   │
+                    │ SPAWNING │                   │
+                    └──┬────┬──┘                   │
+                       │    │                      │
+         (2) Spawned   │    │ (3) Fail             │
+                       │    │                      │
+                       ▼    ▼                      │
+              ┌──────────┐ ┌────────┐             │
+              │  ACTIVE  │ │ FAILED │─────────────┘
+              └─┬──┬──┬──┘ └────▲───┘
+                │  │  │         │
+   (4) Pause    │  │  │         │ (6) Fail
+                │  │  │         │ (10) Fail
+                ▼  │  │         │
+            ┌────────┐│         │
+            │ PAUSED ││         │
+            └──┬──┬──┘│         │
+               │  │   │         │
+   (7) Resume  │  │   │ (5) Stop│
+               │  │   │ (8) Stop│
+               │  ▼   ▼         │
+               │ ┌──────────┐   │
+               └►│ STOPPING │───┘
+                 └─────┬────┘
+                       │ (9) Stop
+                       ▼
+                 ┌──────────┐
+                 │ STOPPED  │ (Terminal)
+                 └──────────┘
+
+Transitions:
+(1)  Idle     + Start   → Spawning
+(2)  Spawning + Spawned → Active
+(3)  Spawning + Fail    → Failed
+(4)  Active   + Pause   → Paused
+(5)  Active   + Stop    → Stopping
+(6)  Active   + Fail    → Failed
+(7)  Paused   + Resume  → Active
+(8)  Paused   + Stop    → Stopping
+(9)  Stopping + Stop    → Stopped
+(10) Stopping + Fail    → Failed
+(11) Failed   + Recover → Idle
+```
 
 ### The 11 State Transitions
 
@@ -265,7 +319,7 @@ pub enum AgentEvent {
 }
 ```
 
-**Valid Transitions:**
+**Complete Transition Table:**
 
 | # | From State | Event | To State | Description |
 |---|-----------|-------|----------|-------------|
@@ -281,13 +335,95 @@ pub enum AgentEvent {
 | 10 | `Stopping` | `Fail` | `Failed` | Shutdown failed |
 | 11 | `Failed` | `Recover` | `Idle` | Reset to initial state |
 
+### Terminal States
+
+The state machine defines two **terminal states**:
+
+#### 1. Stopped State
+- **Meaning:** Clean, graceful shutdown completed
+- **Entry:** Via `Stopping + Stop` transition (#9)
+- **Characteristics:**
+  - No outgoing transitions (true terminal state)
+  - Resources fully released
+  - Agent removed from active supervision
+  - Cannot be recovered or restarted
+- **Use Case:** Normal agent lifecycle completion
+
+#### 2. Failed State
+- **Meaning:** Error occurred, agent in error state
+- **Entry:** Via three possible transitions:
+  - `Spawning + Fail` (#3) — Startup failure
+  - `Active + Fail` (#6) — Execution failure
+  - `Stopping + Fail` (#10) — Shutdown failure
+- **Characteristics:**
+  - Quasi-terminal (has one outgoing transition)
+  - Resources may still be held
+  - Agent remains under supervision
+  - Can be recovered via `Recover` event
+- **Use Case:** Recoverable errors, transient failures
+
+**Key Difference:**
+- `Stopped` is **permanent** — agent lifecycle is complete
+- `Failed` is **recoverable** — agent can be restarted via recovery path
+
+### Recovery Path from Failed State
+
+When an agent enters `Failed` state, it can be recovered through the following path:
+
+```
+┌────────┐  Recover   ┌──────┐  Start   ┌──────────┐  Spawned   ┌────────┐
+│ FAILED │ ─────────► │ IDLE │ ───────► │ SPAWNING │ ─────────► │ ACTIVE │
+└────────┘            └──────┘          └──────────┘            └────────┘
+```
+
+**Recovery Process:**
+
+1. **Detection** — Supervisor detects `Failed` state via health monitoring
+2. **Recovery Decision** — Supervisor or user decides to attempt recovery
+3. **Recover Transition** — `Failed + Recover → Idle` (transition #11)
+4. **Resource Cleanup** — Failed agent's resources are released
+5. **Fresh Start** — Agent transitions back to `Idle` state
+6. **Re-spawning** — Normal startup flow resumes: `Idle → Spawning → Active`
+
+**Implementation:**
+
+```rust
+impl AgentSupervisor {
+    pub async fn recover_failed_agent(&mut self, agent_id: Uuid) -> Result<()> {
+        let agent = self.get_agent_mut(agent_id)?;
+
+        // Only Failed agents can be recovered
+        if agent.state_machine.state() != AgentState::Failed {
+            return Err(Error::InvalidState);
+        }
+
+        // Transition Failed → Idle
+        agent.state_machine.transition(AgentEvent::Recover)?;
+
+        // Clean up any held resources
+        agent.cleanup_resources().await?;
+
+        // Agent is now ready to be re-started
+        Ok(())
+    }
+}
+```
+
+**Recovery Strategies:**
+
+- **Automatic Recovery** — Supervisor can auto-recover after configurable backoff
+- **Manual Recovery** — User explicitly requests recovery via CLI or API
+- **Selective Recovery** — Only certain error types trigger auto-recovery
+- **Recovery Limits** — Max recovery attempts to prevent infinite loops
+
 ### State Machine Properties
 
 **Invariants:**
 - Agents always start in `Idle`
 - Only `Idle` can transition to `Spawning`
 - `Failed` agents can only recover to `Idle`, not directly to `Active`
-- `Stopped` is a terminal state with no outgoing transitions
+- `Stopped` is a true terminal state with no outgoing transitions
+- `Failed` is a quasi-terminal state with one recovery transition
 - All transitions are deterministic and validated
 
 **Transition Validation:**
@@ -304,6 +440,23 @@ impl AgentStateMachine {
     }
 }
 ```
+
+**Transition History:**
+
+The state machine maintains a complete history of all transitions:
+
+```rust
+pub struct AgentStateMachine {
+    current: AgentState,
+    history: Vec<(AgentState, AgentEvent, AgentState)>,
+}
+```
+
+This history enables:
+- **Debugging** — Trace how an agent reached its current state
+- **Auditing** — Verify state transition correctness
+- **Monitoring** — Detect patterns in state changes
+- **Recovery** — Understand failure context for better recovery decisions
 
 ---
 
