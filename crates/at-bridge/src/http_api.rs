@@ -1108,7 +1108,7 @@ async fn update_bead_status(
     let bead_snapshot = bead.clone();
     state
         .event_bus
-        .publish(crate::protocol::BridgeMessage::BeadList(beads.clone()));
+        .publish(crate::protocol::BridgeMessage::BeadUpdated(bead_snapshot.clone()));
 
     (
         axum::http::StatusCode::OK,
