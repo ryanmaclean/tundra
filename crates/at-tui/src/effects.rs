@@ -175,6 +175,7 @@ impl Default for EffectManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tachyonfx::Shader;
 
     #[test]
     fn sweep_direction_converts_to_motion() {
