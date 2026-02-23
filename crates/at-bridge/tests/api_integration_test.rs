@@ -10,6 +10,7 @@ use std::time::Duration;
 use at_bridge::event_bus::EventBus;
 use at_bridge::http_api::{api_router, ApiState};
 use at_bridge::protocol::BridgeMessage;
+use at_core::settings::SettingsManager;
 use at_core::types::{Agent, AgentRole, AgentStatus, CliType};
 use serde_json::{json, Value};
 
@@ -20,7 +21,13 @@ use serde_json::{json, Value};
 /// Spin up an API server on a random port, return the base URL and shared state.
 async fn start_test_server() -> (String, Arc<ApiState>) {
     let event_bus = EventBus::new();
-    let state = Arc::new(ApiState::new(event_bus));
+    let mut api_state = ApiState::new(event_bus);
+    // Use an isolated settings file per test server to avoid cross-test races.
+    let settings_path = std::env::temp_dir()
+        .join(format!("at-bridge-api-test-{}", uuid::Uuid::new_v4()))
+        .join("settings.toml");
+    api_state.settings_manager = Arc::new(SettingsManager::new(settings_path));
+    let state = Arc::new(api_state);
     let router = api_router(state.clone());
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
