@@ -9,3 +9,8 @@
 app/leptos-ui/dist/
 /app/tauri/gen/
 .playwright-cli/
+
+# Auto Claude data directory
+.auto-claude/
+.auto-claude-*
+.claude_settings.json
