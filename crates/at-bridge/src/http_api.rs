@@ -112,10 +112,10 @@ pub struct PipelineQueueStatus {
 /// Shared application state for all HTTP/WS handlers.
 pub struct ApiState {
     pub event_bus: EventBus,
-    pub beads: Arc<RwLock<Vec<Bead>>>,
-    pub agents: Arc<RwLock<Vec<Agent>>>,
+    pub beads: Arc<RwLock<std::collections::HashMap<Uuid, Bead>>>,
+    pub agents: Arc<RwLock<std::collections::HashMap<Uuid, Agent>>>,
     pub kpi: Arc<RwLock<KpiSnapshot>>,
-    pub tasks: Arc<RwLock<Vec<Task>>>,
+    pub tasks: Arc<RwLock<std::collections::HashMap<Uuid, Task>>>,
     /// Queue gate for task pipeline execution.
     pub pipeline_semaphore: Arc<Semaphore>,
     /// Max number of concurrently executing task pipelines.
