@@ -88,8 +88,8 @@ impl SessionStore {
     }
 
     /// Ensure the base directory exists.
-    fn ensure_dir(&self) -> Result<(), SessionStoreError> {
-        std::fs::create_dir_all(&self.base_dir)?;
+    async fn ensure_dir(&self) -> Result<(), SessionStoreError> {
+        tokio::fs::create_dir_all(&self.base_dir).await?;
         Ok(())
     }
 
@@ -99,34 +99,36 @@ impl SessionStore {
     }
 
     /// Save a session to disk.
-    pub fn save_session(&self, state: &SessionState) -> Result<(), SessionStoreError> {
-        self.ensure_dir()?;
+    pub async fn save_session(&self, state: &SessionState) -> Result<(), SessionStoreError> {
+        self.ensure_dir().await?;
         let path = self.session_path(&state.id);
         let json = serde_json::to_string_pretty(state)?;
-        std::fs::write(path, json)?;
+        tokio::fs::write(path, json).await?;
         Ok(())
     }
 
     /// Load a session by ID. Returns `None` if not found.
-    pub fn load_session(&self, id: &Uuid) -> Result<Option<SessionState>, SessionStoreError> {
+    pub async fn load_session(&self, id: &Uuid) -> Result<Option<SessionState>, SessionStoreError> {
         let path = self.session_path(id);
-        if !path.exists() {
-            return Ok(None);
+        match tokio::fs::try_exists(&path).await {
+            Ok(false) => return Ok(None),
+            Err(e) => return Err(SessionStoreError::Io(e)),
+            Ok(true) => {}
         }
-        let data = std::fs::read_to_string(path)?;
+        let data = tokio::fs::read_to_string(path).await?;
         let state: SessionState = serde_json::from_str(&data)?;
         Ok(Some(state))
     }
 
     /// List all saved sessions, sorted by last active time (most recent first).
-    pub fn list_sessions(&self) -> Result<Vec<SessionState>, SessionStoreError> {
-        self.ensure_dir()?;
+    pub async fn list_sessions(&self) -> Result<Vec<SessionState>, SessionStoreError> {
+        self.ensure_dir().await?;
         let mut sessions = Vec::new();
-        for entry in std::fs::read_dir(&self.base_dir)? {
-            let entry = entry?;
+        let mut read_dir = tokio::fs::read_dir(&self.base_dir).await?;
+        while let Some(entry) = read_dir.next_entry().await? {
             let path = entry.path();
             if path.extension().and_then(|e| e.to_str()) == Some("json") {
-                match std::fs::read_to_string(&path) {
+                match tokio::fs::read_to_string(&path).await {
                     Ok(data) => {
                         if let Ok(state) = serde_json::from_str::<SessionState>(&data) {
                             sessions.push(state);
@@ -141,52 +143,29 @@ impl SessionStore {
     }
 
     /// Delete a session by ID. Returns `true` if the file was removed.
-    pub fn delete_session(&self, id: &Uuid) -> Result<bool, SessionStoreError> {
+    pub async fn delete_session(&self, id: &Uuid) -> Result<bool, SessionStoreError> {
         let path = self.session_path(id);
-        if path.exists() {
-            std::fs::remove_file(path)?;
-            Ok(true)
-        } else {
-            Ok(false)
+        match tokio::fs::try_exists(&path).await {
+            Ok(true) => {
+                tokio::fs::remove_file(path).await?;
+                Ok(true)
+            }
+            Ok(false) => Ok(false),
+            Err(e) => Err(SessionStoreError::Io(e)),
         }
     }
 
     /// Delete sessions whose `last_active_at` is older than `older_than`
     /// duration from now. Returns the number of sessions removed.
-    ///
-    /// Uses a lightweight partial deserialization to extract only the
-    /// `id` and `last_active_at` fields, avoiding full `SessionState`
-    /// parsing for sessions that will just be deleted.
-    pub fn cleanup_old_sessions(&self, older_than: Duration) -> Result<usize, SessionStoreError> {
-        self.ensure_dir()?;
+    pub async fn cleanup_old_sessions(&self, older_than: Duration) -> Result<usize, SessionStoreError> {
         let cutoff = Utc::now() - older_than;
+        let sessions = self.list_sessions().await?;
         let mut removed = 0;
-
-        // Lightweight struct for partial deserialization — only the fields we need.
-        #[derive(Deserialize)]
-        struct SessionMeta {
-            #[allow(dead_code)]
-            id: Uuid,
-            last_active_at: DateTime<Utc>,
-        }
-
-        for entry in std::fs::read_dir(&self.base_dir)? {
-            let entry = entry?;
-            let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) != Some("json") {
-                continue;
-            }
-            let data = match std::fs::read_to_string(&path) {
-                Ok(d) => d,
-                Err(_) => continue,
-            };
-            let meta: SessionMeta = match serde_json::from_str(&data) {
-                Ok(m) => m,
-                Err(_) => continue,
-            };
-            if meta.last_active_at < cutoff {
-                std::fs::remove_file(&path)?;
-                removed += 1;
+        for session in sessions {
+            if session.last_active_at < cutoff {
+                if self.delete_session(&session.id).await? {
+                    removed += 1;
+                }
             }
         }
         Ok(removed)
@@ -207,8 +186,8 @@ mod tests {
         (store, dir)
     }
 
-    #[test]
-    fn test_save_and_load_roundtrip() {
+    #[tokio::test]
+    async fn test_save_and_load_roundtrip() {
         let (store, _dir) = temp_store();
         let mut state = SessionState::new("alice");
         state.active_page = "tasks".to_string();
@@ -216,8 +195,8 @@ mod tests {
         state.terminal_layout = TerminalLayout::SplitHorizontal;
         state.filters.insert("status".into(), "active".into());
 
-        store.save_session(&state).unwrap();
-        let loaded = store.load_session(&state.id).unwrap().unwrap();
+        store.save_session(&state).await.unwrap();
+        let loaded = store.load_session(&state.id).await.unwrap().unwrap();
 
         assert_eq!(loaded.id, state.id);
         assert_eq!(loaded.user_id, "alice");
@@ -227,54 +206,54 @@ mod tests {
         assert_eq!(loaded.filters.get("status").unwrap(), "active");
     }
 
-    #[test]
-    fn test_load_nonexistent() {
+    #[tokio::test]
+    async fn test_load_nonexistent() {
         let (store, _dir) = temp_store();
-        let result = store.load_session(&Uuid::new_v4()).unwrap();
+        let result = store.load_session(&Uuid::new_v4()).await.unwrap();
         assert!(result.is_none());
     }
 
-    #[test]
-    fn test_list_sessions() {
+    #[tokio::test]
+    async fn test_list_sessions() {
         let (store, _dir) = temp_store();
 
         let s1 = SessionState::new("alice");
         let s2 = SessionState::new("bob");
-        store.save_session(&s1).unwrap();
-        store.save_session(&s2).unwrap();
+        store.save_session(&s1).await.unwrap();
+        store.save_session(&s2).await.unwrap();
 
-        let list = store.list_sessions().unwrap();
+        let list = store.list_sessions().await.unwrap();
         assert_eq!(list.len(), 2);
     }
 
-    #[test]
-    fn test_delete_session() {
+    #[tokio::test]
+    async fn test_delete_session() {
         let (store, _dir) = temp_store();
         let state = SessionState::new("alice");
-        store.save_session(&state).unwrap();
+        store.save_session(&state).await.unwrap();
 
-        assert!(store.delete_session(&state.id).unwrap());
-        assert!(!store.delete_session(&state.id).unwrap()); // already gone
-        assert!(store.load_session(&state.id).unwrap().is_none());
+        assert!(store.delete_session(&state.id).await.unwrap());
+        assert!(!store.delete_session(&state.id).await.unwrap()); // already gone
+        assert!(store.load_session(&state.id).await.unwrap().is_none());
     }
 
-    #[test]
-    fn test_cleanup_old_sessions() {
+    #[tokio::test]
+    async fn test_cleanup_old_sessions() {
         let (store, _dir) = temp_store();
 
         // Create an old session
         let mut old = SessionState::new("old_user");
         old.last_active_at = Utc::now() - Duration::days(90);
-        store.save_session(&old).unwrap();
+        store.save_session(&old).await.unwrap();
 
         // Create a recent session
         let recent = SessionState::new("new_user");
-        store.save_session(&recent).unwrap();
+        store.save_session(&recent).await.unwrap();
 
-        let removed = store.cleanup_old_sessions(Duration::days(30)).unwrap();
+        let removed = store.cleanup_old_sessions(Duration::days(30)).await.unwrap();
         assert_eq!(removed, 1);
 
-        let remaining = store.list_sessions().unwrap();
+        let remaining = store.list_sessions().await.unwrap();
         assert_eq!(remaining.len(), 1);
         assert_eq!(remaining[0].user_id, "new_user");
     }
