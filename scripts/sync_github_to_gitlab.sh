@@ -55,8 +55,8 @@ echo "Pushing exact mirror to GitLab..."
 )
 
 echo "Verifying ref parity..."
-git ls-remote --refs "$GH_URL" | sort > "$workdir/gh.refs"
-git ls-remote --refs "$GL_URL" | sort > "$workdir/gl.refs"
+git ls-remote --heads --tags "$GH_URL" | sort > "$workdir/gh.refs"
+git ls-remote --heads --tags "$GL_URL" | sort > "$workdir/gl.refs"
 
 if diff -u "$workdir/gh.refs" "$workdir/gl.refs" > "$workdir/refs.diff"; then
   refs_count="$(wc -l < "$workdir/gh.refs" | tr -d ' ')"

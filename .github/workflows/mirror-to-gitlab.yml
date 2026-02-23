@@ -41,6 +41,6 @@ jobs:
       - name: Verify ref parity
         run: |
           set -euo pipefail
-          git ls-remote --refs https://github.com/ryanmaclean/tundra.git | sort > gh.refs
-          git ls-remote --refs https://gitlab.com/ryanmaclean/tundra.git | sort > gl.refs
+          git ls-remote --heads --tags https://github.com/ryanmaclean/tundra.git | sort > gh.refs
+          git ls-remote --heads --tags https://gitlab.com/ryanmaclean/tundra.git | sort > gl.refs
           diff -u gh.refs gl.refs
