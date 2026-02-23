@@ -367,16 +367,18 @@ impl ApiState {
 
         let mut agents = self.agents.write().await;
         if agents.is_empty() {
-            agents.push(Agent::new(
+            let agent1 = Agent::new(
                 "Crew",
                 at_core::types::AgentRole::Crew,
                 CliType::Claude,
-            ));
-            agents.push(Agent::new(
+            );
+            let agent2 = Agent::new(
                 "Reviewer",
                 at_core::types::AgentRole::SpecCritic,
                 CliType::Claude,
-            ));
+            );
+            agents.insert(agent1.id, agent1);
+            agents.insert(agent2.id, agent2);
         }
 
         let snapshot = KpiSnapshot {
@@ -1143,7 +1145,7 @@ async fn update_bead_status(
 /// ```
 async fn list_agents(State(state): State<Arc<ApiState>>) -> Json<Vec<Agent>> {
     let agents = state.agents.read().await;
-    Json(agents.clone())
+    Json(agents.values().cloned().collect())
 }
 
 /// POST /api/agents/{id}/nudge -- signal an agent to wake up and check for work.
@@ -1179,7 +1181,7 @@ async fn nudge_agent(
     Path(id): Path<Uuid>,
 ) -> impl IntoResponse {
     let mut agents = state.agents.write().await;
-    let Some(agent) = agents.iter_mut().find(|a| a.id == id) else {
+    let Some(agent) = agents.get_mut(&id) else {
         return (
             axum::http::StatusCode::NOT_FOUND,
             Json(serde_json::json!({"error": "agent not found"})),
@@ -1233,7 +1235,7 @@ async fn nudge_agent(
 /// ```
 async fn stop_agent(State(state): State<Arc<ApiState>>, Path(id): Path<Uuid>) -> impl IntoResponse {
     let mut agents = state.agents.write().await;
-    let Some(agent) = agents.iter_mut().find(|a| a.id == id) else {
+    let Some(agent) = agents.get_mut(&id) else {
         return (
             axum::http::StatusCode::NOT_FOUND,
             Json(serde_json::json!({"error": "agent not found"})),
@@ -5663,7 +5665,7 @@ struct AgentSessionEntry {
 async fn list_agent_sessions(State(state): State<Arc<ApiState>>) -> Json<Vec<AgentSessionEntry>> {
     let agents = state.agents.read().await;
     let sessions: Vec<AgentSessionEntry> = agents
-        .iter()
+        .values()
         .map(|a| {
             let duration_secs = (chrono::Utc::now() - a.created_at).num_seconds().max(0) as u64;
             let mins = duration_secs / 60;
