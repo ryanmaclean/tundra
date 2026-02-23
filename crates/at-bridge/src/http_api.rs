@@ -585,6 +585,9 @@ pub fn api_router_with_auth(state: Arc<ApiState>, api_key: Option<String>) -> Ro
 // Request / Response types
 // ---------------------------------------------------------------------------
 
+/// Response payload for GET /api/status.
+///
+/// Returns basic server status including version, uptime, and entity counts.
 #[derive(Debug, Serialize)]
 struct StatusResponse {
     version: String,
@@ -735,6 +738,21 @@ pub struct CompetitorAnalysisResult {
 // Handlers
 // ---------------------------------------------------------------------------
 
+/// GET /api/status -- returns basic server health and statistics.
+///
+/// Provides a lightweight status check that includes the API version,
+/// how long the server has been running, and counts of active agents and beads.
+/// Returns 200 OK with JSON body.
+///
+/// Example response:
+/// ```json
+/// {
+///   "version": "0.1.0",
+///   "uptime_seconds": 3600,
+///   "agent_count": 2,
+///   "bead_count": 42
+/// }
+/// ```
 async fn get_status(State(state): State<Arc<ApiState>>) -> Json<StatusResponse> {
     let beads = state.beads.read().await;
     let agents = state.agents.read().await;
@@ -2398,6 +2416,18 @@ async fn delete_notification(
 // ---------------------------------------------------------------------------
 
 /// GET /api/metrics — Prometheus text format export.
+/// GET /api/metrics -- exports telemetry metrics in Prometheus text format.
+///
+/// Returns all collected metrics (request counts, durations, gauges, etc.)
+/// in the standard Prometheus exposition format for scraping by monitoring systems.
+/// Returns 200 OK with text/plain content type.
+///
+/// Example response:
+/// ```text
+/// # HELP http_requests_total Total HTTP requests
+/// # TYPE http_requests_total counter
+/// http_requests_total{method="GET",path="/api/status"} 42
+/// ```
 async fn get_metrics_prometheus() -> impl IntoResponse {
     let body = global_metrics().export_prometheus();
     (
@@ -2409,7 +2439,20 @@ async fn get_metrics_prometheus() -> impl IntoResponse {
     )
 }
 
-/// GET /api/metrics/json — JSON format export.
+/// GET /api/metrics/json -- exports telemetry metrics in JSON format.
+///
+/// Returns all collected metrics in a structured JSON format suitable for
+/// programmatic consumption by dashboards and monitoring tools. Returns 200 OK
+/// with application/json content type.
+///
+/// Example response:
+/// ```json
+/// {
+///   "counters": { "http_requests_total": 42 },
+///   "gauges": { "active_connections": 5 },
+///   "histograms": { "request_duration_ms": { "p50": 10, "p99": 100 } }
+/// }
+/// ```
 async fn get_metrics_json() -> impl IntoResponse {
     Json(global_metrics().export_json())
 }
