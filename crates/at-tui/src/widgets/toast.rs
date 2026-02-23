@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
 use ratatui::layout::Rect;
@@ -82,20 +83,20 @@ const TOAST_HEIGHT: u16 = 3;
 
 /// Manages a stack of toast notifications (max 5).
 pub struct ToastManager {
-    toasts: Vec<Toast>,
+    toasts: VecDeque<Toast>,
 }
 
 impl ToastManager {
     pub fn new() -> Self {
-        Self { toasts: Vec::new() }
+        Self { toasts: VecDeque::new() }
     }
 
     /// Push a new toast. If the stack exceeds the maximum, the oldest toast is removed.
     #[allow(dead_code)]
     pub fn push(&mut self, toast: Toast) {
-        self.toasts.push(toast);
+        self.toasts.push_back(toast);
         if self.toasts.len() > MAX_TOASTS {
-            self.toasts.remove(0);
+            self.toasts.pop_front();
         }
     }
 
