@@ -1,9 +1,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use at_core::context_engine::{
-    AgentDefinition, ProjectContextLoader, SkillDefinition,
-};
+use at_core::context_engine::{AgentDefinition, ProjectContextLoader, SkillDefinition};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, warn};
 

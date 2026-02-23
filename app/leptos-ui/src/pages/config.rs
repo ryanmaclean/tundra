@@ -549,6 +549,10 @@ pub fn ConfigPage(#[prop(optional)] on_close: Option<Callback<()>>) -> impl Into
     let (local_probe_loading, set_local_probe_loading) = signal(false);
     let (local_probe_status, set_local_probe_status) = signal(Option::<(bool, String)>::None);
     let (local_probe_models, set_local_probe_models) = signal(Vec::<String>::new());
+    let (pipeline_queue_loading, set_pipeline_queue_loading) = signal(false);
+    let (pipeline_queue_status, set_pipeline_queue_status) =
+        signal(Option::<api::ApiPipelineQueueStatus>::None);
+    let (pipeline_queue_error, set_pipeline_queue_error) = signal(Option::<String>::None);
 
     // -- Updates check --
     let (update_status_msg, set_update_status_msg) = signal(Option::<String>::None);
@@ -627,6 +631,19 @@ pub fn ConfigPage(#[prop(optional)] on_close: Option<Callback<()>>) -> impl Into
                 );
             }
         }
+
+        set_pipeline_queue_loading.set(true);
+        match api::fetch_pipeline_queue_status().await {
+            Ok(queue) => {
+                set_pipeline_queue_status.set(Some(queue));
+                set_pipeline_queue_error.set(None);
+            }
+            Err(e) => {
+                set_pipeline_queue_error.set(Some(e));
+                set_pipeline_queue_status.set(None);
+            }
+        }
+        set_pipeline_queue_loading.set(false);
     });
 
     let _show_toast_fn = move |msg: &str| {
@@ -1764,6 +1781,24 @@ pub fn ConfigPage(#[prop(optional)] on_close: Option<Callback<()>>) -> impl Into
                                     <span class="settings-label">"API Key Env"</span>
                                     <code class="settings-inline-code">{move || local_provider_key_env.get()}</code>
                                 </div>
+                                <div class="settings-local-provider-row settings-local-provider-row-wrap">
+                                    <span class="settings-label">"Queue Gate"</span>
+                                    <div class="settings-local-provider-queue-values">
+                                        {move || match pipeline_queue_status.get() {
+                                            Some(queue) => view! {
+                                                <>
+                                                    <span class="settings-queue-chip">{format!("limit {}", queue.limit)}</span>
+                                                    <span class="settings-queue-chip">{format!("running {}", queue.running)}</span>
+                                                    <span class="settings-queue-chip">{format!("waiting {}", queue.waiting)}</span>
+                                                    <span class="settings-queue-chip">{format!("permits {}", queue.available_permits)}</span>
+                                                </>
+                                            }.into_any(),
+                                            None => view! {
+                                                <span class="settings-hint">"Queue status unavailable"</span>
+                                            }.into_any(),
+                                        }}
+                                    </div>
+                                </div>
                                 <div class="settings-local-provider-actions">
                                     <button
                                         class="btn-secondary settings-probe-btn"
@@ -1790,6 +1825,30 @@ pub fn ConfigPage(#[prop(optional)] on_close: Option<Callback<()>>) -> impl Into
                                         <span class="settings-probe-btn-icon" inner_html=api_profiles_icon_svg("test")></span>
                                         <span>{move || if local_probe_loading.get() { "Testing..." } else { "Test Local Provider" }}</span>
                                     </button>
+                                    <button
+                                        class="btn-secondary settings-probe-btn"
+                                        on:click=move |_| {
+                                            set_pipeline_queue_loading.set(true);
+                                            set_pipeline_queue_error.set(None);
+                                            leptos::task::spawn_local(async move {
+                                                match api::fetch_pipeline_queue_status().await {
+                                                    Ok(queue) => {
+                                                        set_pipeline_queue_status.set(Some(queue));
+                                                        set_pipeline_queue_error.set(None);
+                                                    }
+                                                    Err(e) => {
+                                                        set_pipeline_queue_error.set(Some(e));
+                                                        set_pipeline_queue_status.set(None);
+                                                    }
+                                                }
+                                                set_pipeline_queue_loading.set(false);
+                                            });
+                                        }
+                                        disabled=move || pipeline_queue_loading.get()
+                                    >
+                                        <span class="settings-probe-btn-icon" inner_html=api_profiles_icon_svg("local")></span>
+                                        <span>{move || if pipeline_queue_loading.get() { "Refreshing..." } else { "Refresh Queue" }}</span>
+                                    </button>
                                 </div>
                                 {move || local_probe_status.get().map(|(ok, msg)| {
                                     view! {
@@ -1797,6 +1856,9 @@ pub fn ConfigPage(#[prop(optional)] on_close: Option<Callback<()>>) -> impl Into
                                             {msg}
                                         </div>
                                     }
+                                })}
+                                {move || pipeline_queue_error.get().map(|msg| {
+                                    view! { <div class="settings-probe-result err">{msg}</div> }
                                 })}
                                 {move || (!local_probe_models.get().is_empty()).then(|| {
                                     view! {

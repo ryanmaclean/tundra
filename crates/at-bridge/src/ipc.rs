@@ -72,9 +72,7 @@ impl IpcHandler {
             BridgeMessage::HookBead { title, agent_name } => {
                 self.handle_hook_bead(title, agent_name)
             }
-            BridgeMessage::DoneBead { bead_id, failed } => {
-                self.handle_done_bead(bead_id, failed)
-            }
+            BridgeMessage::DoneBead { bead_id, failed } => self.handle_done_bead(bead_id, failed),
             BridgeMessage::NudgeAgent {
                 agent_name,
                 message,

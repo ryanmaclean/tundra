@@ -91,6 +91,7 @@ pub fn NewTaskModal(
             agent_names: vec![],
             timestamp: "just now".to_string(),
             action,
+            subtask_statuses: vec![],
         };
 
         set_beads.update(|beads| {

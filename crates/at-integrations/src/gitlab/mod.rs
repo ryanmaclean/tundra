@@ -1,5 +1,5 @@
-pub mod oauth;
 pub mod mr_review;
+pub mod oauth;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -130,11 +130,7 @@ impl GitLabClient {
         Ok(resp)
     }
 
-    async fn api_post(
-        &self,
-        path: &str,
-        body: &serde_json::Value,
-    ) -> Result<reqwest::Response> {
+    async fn api_post(&self, path: &str, body: &serde_json::Value) -> Result<reqwest::Response> {
         let url = format!("{}/api/v4{}", self.base_url, path);
         let resp = self
             .client
@@ -166,10 +162,7 @@ impl GitLabClient {
     /// triggers stub mode so tests work without network access.
     pub(crate) fn is_stub_token(&self) -> bool {
         let t = &self.token;
-        t.starts_with("tok")
-            || t.starts_with("stub")
-            || t == "glpat-test123"
-            || t.len() < 10
+        t.starts_with("tok") || t.starts_with("stub") || t == "glpat-test123" || t.len() < 10
     }
 
     fn stub_user() -> GitLabUser {
@@ -197,10 +190,7 @@ impl GitLabClient {
             created_at: now,
             updated_at: now,
             closed_at: if state == "closed" { Some(now) } else { None },
-            web_url: format!(
-                "{}/{}/issues/{}",
-                "https://gitlab.com", project_id, iid
-            ),
+            web_url: format!("{}/{}/issues/{}", "https://gitlab.com", project_id, iid),
         }
     }
 
@@ -249,7 +239,10 @@ impl GitLabClient {
         }
 
         let encoded_id = urlencoding::encode(project_id);
-        let mut path = format!("/projects/{}/issues?page={}&per_page={}", encoded_id, page, per_page);
+        let mut path = format!(
+            "/projects/{}/issues?page={}&per_page={}",
+            encoded_id, page, per_page
+        );
         if let Some(s) = state {
             path.push_str(&format!("&state={}", s));
         }
@@ -290,7 +283,10 @@ impl GitLabClient {
         }
 
         let encoded_id = urlencoding::encode(project_id);
-        let mut path = format!("/projects/{}/merge_requests?page={}&per_page={}", encoded_id, page, per_page);
+        let mut path = format!(
+            "/projects/{}/merge_requests?page={}&per_page={}",
+            encoded_id, page, per_page
+        );
         if let Some(s) = state {
             path.push_str(&format!("&state={}", s));
         }
@@ -343,10 +339,7 @@ impl GitLabClient {
                 created_at: now,
                 updated_at: now,
                 merged_at: None,
-                web_url: format!(
-                    "{}/{}/merge_requests/1",
-                    "https://gitlab.com", project_id
-                ),
+                web_url: format!("{}/{}/merge_requests/1", "https://gitlab.com", project_id),
             });
         }
 
@@ -393,7 +386,10 @@ mod tests {
     #[tokio::test]
     async fn list_issues_stub() {
         let client = GitLabClient::new("tok").unwrap();
-        let issues = client.list_issues("42", Some("opened"), 1, 3).await.unwrap();
+        let issues = client
+            .list_issues("42", Some("opened"), 1, 3)
+            .await
+            .unwrap();
         assert_eq!(issues.len(), 3);
         assert_eq!(issues[0].iid, 1);
         assert_eq!(issues[0].state, "opened");

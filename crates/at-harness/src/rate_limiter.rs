@@ -1,5 +1,5 @@
-use std::time::{Duration, Instant};
 use dashmap::DashMap;
+use std::time::{Duration, Instant};
 use tracing::warn;
 
 // ---------------------------------------------------------------------------
@@ -9,10 +9,7 @@ use tracing::warn;
 #[derive(Debug, thiserror::Error)]
 pub enum RateLimitError {
     #[error("rate limit exceeded for key `{key}` – retry after {retry_after:?}")]
-    Exceeded {
-        key: String,
-        retry_after: Duration,
-    },
+    Exceeded { key: String, retry_after: Duration },
 }
 
 // ---------------------------------------------------------------------------
@@ -157,8 +154,7 @@ impl RateLimiter {
         match self.buckets.get(key) {
             Some(bucket) => {
                 let elapsed = bucket.last_refill.elapsed().as_secs_f64();
-                (bucket.tokens + elapsed * self.config.tokens_per_second)
-                    .min(self.config.max_burst)
+                (bucket.tokens + elapsed * self.config.tokens_per_second).min(self.config.max_burst)
             }
             None => self.config.max_burst,
         }

@@ -78,9 +78,7 @@ pub enum WsIncoming {
 // ---------------------------------------------------------------------------
 
 /// POST /api/terminals — spawn a new terminal session.
-pub async fn create_terminal(
-    State(state): State<Arc<ApiState>>,
-) -> impl IntoResponse {
+pub async fn create_terminal(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     let pool = match &state.pty_pool {
         Some(pool) => pool.clone(),
         None => {
@@ -92,7 +90,11 @@ pub async fn create_terminal(
     };
 
     // Spawn a shell process.
-    let shell = if cfg!(target_os = "macos") { "/bin/zsh" } else { "/bin/bash" };
+    let shell = if cfg!(target_os = "macos") {
+        "/bin/zsh"
+    } else {
+        "/bin/bash"
+    };
     let handle = match pool.spawn(shell, &[], &[("TERM", "xterm-256color")]) {
         Ok(h) => h,
         Err(e) => {
@@ -131,13 +133,14 @@ pub async fn create_terminal(
         handles.insert(terminal_id, handle);
     }
 
-    (axum::http::StatusCode::CREATED, Json(serde_json::json!(resp)))
+    (
+        axum::http::StatusCode::CREATED,
+        Json(serde_json::json!(resp)),
+    )
 }
 
 /// GET /api/terminals — list active terminals.
-pub async fn list_terminals(
-    State(state): State<Arc<ApiState>>,
-) -> impl IntoResponse {
+pub async fn list_terminals(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     let registry = state.terminal_registry.read().await;
     let terminals: Vec<TerminalResponse> = registry
         .list()
@@ -321,9 +324,7 @@ pub async fn update_terminal_settings(
 }
 
 /// GET /api/terminals/persistent — list persistent terminal sessions that should survive restart.
-pub async fn list_persistent_terminals(
-    State(state): State<Arc<ApiState>>,
-) -> impl IntoResponse {
+pub async fn list_persistent_terminals(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     let registry = state.terminal_registry.read().await;
     let persistent: Vec<serde_json::Value> = registry
         .list_persistent()
@@ -402,7 +403,11 @@ async fn handle_terminal_ws(socket: WebSocket, state: Arc<ApiState>, terminal_id
                     bytes = buffered.len(),
                     "replaying disconnect buffer on reconnect"
                 );
-                let _ = ws_sender.lock().await.send(Message::Text(text.into())).await;
+                let _ = ws_sender
+                    .lock()
+                    .await
+                    .send(Message::Text(text.into()))
+                    .await;
             }
         }
     }
@@ -499,7 +504,8 @@ async fn handle_terminal_ws(socket: WebSocket, state: Arc<ApiState>, terminal_id
                                         {
                                             let mut registry =
                                                 writer_state.terminal_registry.write().await;
-                                            if let Some(info) = registry.get_mut(&writer_terminal_id)
+                                            if let Some(info) =
+                                                registry.get_mut(&writer_terminal_id)
                                             {
                                                 info.cols = cols;
                                                 info.rows = rows;
@@ -725,7 +731,9 @@ mod tests {
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
 
-        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let terminals: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
         assert!(terminals.is_empty());
     }
@@ -745,7 +753,9 @@ mod tests {
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::CREATED);
 
-        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let terminal: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert!(terminal.get("id").is_some());
         assert_eq!(terminal.get("status").unwrap().as_str().unwrap(), "active");
@@ -792,7 +802,9 @@ mod tests {
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
 
-        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let terminals: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
         assert_eq!(terminals.len(), 1);
     }
@@ -812,7 +824,9 @@ mod tests {
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::CREATED);
 
-        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let terminal: serde_json::Value = serde_json::from_slice(&body).unwrap();
         let tid = terminal.get("id").unwrap().as_str().unwrap();
 
@@ -834,7 +848,9 @@ mod tests {
             .body(Body::empty())
             .unwrap();
         let resp = app.oneshot(req).await.unwrap();
-        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let terminals: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
         assert!(terminals.is_empty());
     }

@@ -1,9 +1,4 @@
-use axum::{
-    body::Body,
-    extract::Request,
-    middleware::Next,
-    response::Response,
-};
+use axum::{body::Body, extract::Request, middleware::Next, response::Response};
 use std::time::Instant;
 
 use crate::metrics::global_metrics;
@@ -26,11 +21,7 @@ pub async fn metrics_middleware(request: Request<Body>, next: Next) -> Response 
     let m = global_metrics();
     m.increment_counter(
         "api_requests_total",
-        &[
-            ("method", &method),
-            ("path", &path),
-            ("status", &status),
-        ],
+        &[("method", &method), ("path", &path), ("status", &status)],
     );
     m.record_histogram("api_request_duration_seconds", duration);
 

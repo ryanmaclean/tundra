@@ -53,7 +53,12 @@ pub fn list(project_path: &str, json_output: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn show(project_path: &str, skill_name: &str, full: bool, json_output: bool) -> anyhow::Result<()> {
+pub fn show(
+    project_path: &str,
+    skill_name: &str,
+    full: bool,
+    json_output: bool,
+) -> anyhow::Result<()> {
     let skills = load_skills(project_path)?;
     let skill = skills
         .into_iter()

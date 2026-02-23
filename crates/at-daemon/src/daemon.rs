@@ -2,19 +2,19 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use chrono::Utc;
 use at_bridge::event_bus::EventBus;
 use at_bridge::http_api::ApiState;
 use at_core::cache::CacheDb;
 use at_core::config::{Config, CredentialProvider};
 use at_intelligence::ResilientRegistry;
+use chrono::Utc;
 use tracing::{error, info, warn};
 
 use at_harness::shutdown::ShutdownSignal;
 
 use crate::heartbeat::HeartbeatMonitor;
 use crate::kpi::KpiCollector;
-use crate::patrol::{PatrolRunner, reap_orphan_ptys};
+use crate::patrol::{reap_orphan_ptys, PatrolRunner};
 use crate::scheduler::TaskScheduler;
 
 /// Configuration for daemon loop intervals.
@@ -120,7 +120,7 @@ impl Daemon {
             .best_available()
             .map(|p| format!("{} ({:?})", p.name, p.provider))
             .unwrap_or_else(|| "none".to_string());
-        
+
         info!(
             total_profiles = total_count,
             best_profile = %best_profile,
@@ -150,10 +150,7 @@ impl Daemon {
         // Seed demo data so the UI is functional on first launch.
         self.api_state.seed_demo_data().await;
 
-        let api_router = at_bridge::http_api::api_router_with_auth(
-            self.api_state.clone(),
-            api_key,
-        );
+        let api_router = at_bridge::http_api::api_router_with_auth(self.api_state.clone(), api_key);
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
         let port = listener.local_addr()?.port();
 
@@ -192,18 +189,16 @@ impl Daemon {
         shutdown: ShutdownSignal,
     ) {
         let patrol_runner = PatrolRunner::new(config.agents.heartbeat_interval_secs);
-        let heartbeat_monitor = HeartbeatMonitor::new(
-            Duration::from_secs(config.agents.heartbeat_interval_secs * 2),
-        );
+        let heartbeat_monitor = HeartbeatMonitor::new(Duration::from_secs(
+            config.agents.heartbeat_interval_secs * 2,
+        ));
         let kpi_collector = KpiCollector::new();
         let _scheduler = TaskScheduler::new(config.agents.max_concurrent);
 
-        let mut patrol_interval =
-            tokio::time::interval(Duration::from_secs(intervals.patrol_secs));
+        let mut patrol_interval = tokio::time::interval(Duration::from_secs(intervals.patrol_secs));
         let mut heartbeat_interval =
             tokio::time::interval(Duration::from_secs(intervals.heartbeat_secs));
-        let mut kpi_interval =
-            tokio::time::interval(Duration::from_secs(intervals.kpi_secs));
+        let mut kpi_interval = tokio::time::interval(Duration::from_secs(intervals.kpi_secs));
 
         // Consume the first immediate tick so loops don't all fire at t=0.
         patrol_interval.tick().await;
@@ -320,19 +315,25 @@ impl Daemon {
         if let Some(p) = reg.registry.best_available() {
             let api_key = std::env::var(&p.api_key_env).ok().filter(|s| !s.is_empty());
             let provider: Arc<dyn at_intelligence::llm::LlmProvider> = match p.provider {
-                at_intelligence::ProviderKind::Local => {
-                    Arc::new(at_intelligence::llm::LocalProvider::new(&p.base_url, api_key))
-                }
-                at_intelligence::ProviderKind::Anthropic => {
-                    Arc::new(at_intelligence::llm::AnthropicProvider::new(api_key.unwrap_or_default()))
-                }
-                at_intelligence::ProviderKind::OpenAi => {
-                    Arc::new(at_intelligence::llm::OpenAiProvider::new(api_key.unwrap_or_default()))
-                }
-                _ => Arc::new(at_intelligence::llm::LocalProvider::new(&p.base_url, api_key)),
+                at_intelligence::ProviderKind::Local => Arc::new(
+                    at_intelligence::llm::LocalProvider::new(&p.base_url, api_key),
+                ),
+                at_intelligence::ProviderKind::Anthropic => Arc::new(
+                    at_intelligence::llm::AnthropicProvider::new(api_key.unwrap_or_default()),
+                ),
+                at_intelligence::ProviderKind::OpenAi => Arc::new(
+                    at_intelligence::llm::OpenAiProvider::new(api_key.unwrap_or_default()),
+                ),
+                _ => Arc::new(at_intelligence::llm::LocalProvider::new(
+                    &p.base_url,
+                    api_key,
+                )),
             };
             let mut engine = self.api_state.ideation_engine.write().await;
-            *engine = at_intelligence::ideation::IdeationEngine::with_provider(provider, p.default_model.clone());
+            *engine = at_intelligence::ideation::IdeationEngine::with_provider(
+                provider,
+                p.default_model.clone(),
+            );
         }
 
         info!(
@@ -388,19 +389,25 @@ impl Daemon {
         if let Some(p) = reg.registry.best_available() {
             let api_key = std::env::var(&p.api_key_env).ok().filter(|s| !s.is_empty());
             let provider: Arc<dyn at_intelligence::llm::LlmProvider> = match p.provider {
-                at_intelligence::ProviderKind::Local => {
-                    Arc::new(at_intelligence::llm::LocalProvider::new(&p.base_url, api_key))
-                }
-                at_intelligence::ProviderKind::Anthropic => {
-                    Arc::new(at_intelligence::llm::AnthropicProvider::new(api_key.unwrap_or_default()))
-                }
-                at_intelligence::ProviderKind::OpenAi => {
-                    Arc::new(at_intelligence::llm::OpenAiProvider::new(api_key.unwrap_or_default()))
-                }
-                _ => Arc::new(at_intelligence::llm::LocalProvider::new(&p.base_url, api_key)),
+                at_intelligence::ProviderKind::Local => Arc::new(
+                    at_intelligence::llm::LocalProvider::new(&p.base_url, api_key),
+                ),
+                at_intelligence::ProviderKind::Anthropic => Arc::new(
+                    at_intelligence::llm::AnthropicProvider::new(api_key.unwrap_or_default()),
+                ),
+                at_intelligence::ProviderKind::OpenAi => Arc::new(
+                    at_intelligence::llm::OpenAiProvider::new(api_key.unwrap_or_default()),
+                ),
+                _ => Arc::new(at_intelligence::llm::LocalProvider::new(
+                    &p.base_url,
+                    api_key,
+                )),
             };
             let mut engine = self.api_state.ideation_engine.write().await;
-            *engine = at_intelligence::ideation::IdeationEngine::with_provider(provider, p.default_model.clone());
+            *engine = at_intelligence::ideation::IdeationEngine::with_provider(
+                provider,
+                p.default_model.clone(),
+            );
         }
 
         info!(

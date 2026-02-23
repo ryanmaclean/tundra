@@ -170,9 +170,7 @@ impl MetricsCollector {
         }
         // Slow-path: write lock to insert
         let mut map = self.counters.write().unwrap();
-        let c = map
-            .entry(key)
-            .or_insert_with(|| AtomicU64::new(0));
+        let c = map.entry(key).or_insert_with(|| AtomicU64::new(0));
         c.fetch_add(amount, Ordering::Relaxed);
     }
 
@@ -243,10 +241,7 @@ impl MetricsCollector {
             let mut grouped: AHashMap<&str, Vec<(&Labels, u64)>> = AHashMap::new();
             for ((name, labels), val) in map.iter() {
                 let v = val.load(Ordering::Relaxed);
-                grouped
-                    .entry(name.as_str())
-                    .or_default()
-                    .push((labels, v));
+                grouped.entry(name.as_str()).or_default().push((labels, v));
             }
             let mut names: Vec<&&str> = grouped.keys().collect();
             names.sort();
@@ -254,12 +249,7 @@ impl MetricsCollector {
                 out.push_str(&format!("# TYPE {} counter\n", name));
                 let entries = &grouped[name];
                 for (labels, value) in entries {
-                    out.push_str(&format!(
-                        "{}{} {}\n",
-                        name,
-                        labels.prometheus_str(),
-                        value
-                    ));
+                    out.push_str(&format!("{}{} {}\n", name, labels.prometheus_str(), value));
                 }
             }
         }
@@ -292,7 +282,11 @@ impl MetricsCollector {
                         name, boundary, cumulative
                     ));
                 }
-                out.push_str(&format!("{}_bucket{{le=\"+Inf\"}} {}\n", name, h.get_count()));
+                out.push_str(&format!(
+                    "{}_bucket{{le=\"+Inf\"}} {}\n",
+                    name,
+                    h.get_count()
+                ));
                 out.push_str(&format!("{}_sum {}\n", name, h.get_sum()));
                 out.push_str(&format!("{}_count {}\n", name, h.get_count()));
             }
@@ -321,10 +315,7 @@ impl MetricsCollector {
         {
             let map = self.gauges.read().unwrap();
             for (name, val) in map.iter() {
-                gauges_json.insert(
-                    name.clone(),
-                    serde_json::json!(val.load(Ordering::Relaxed)),
-                );
+                gauges_json.insert(name.clone(), serde_json::json!(val.load(Ordering::Relaxed)));
             }
         }
 

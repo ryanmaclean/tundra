@@ -103,6 +103,7 @@ pub fn TaskWizard(on_close: impl Fn(MouseEvent) + Clone + 'static) -> impl IntoV
             agent_names: vec![],
             timestamp: "just now".to_string(),
             action: Some("start".to_string()),
+            subtask_statuses: vec![],
         };
 
         set_beads.update(|beads| {

@@ -1,9 +1,7 @@
 use chrono::{DateTime, Utc};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use at_core::types::{
-    AgentRole, AgentStatus, BeadStatus, CliType, ConvoyStatus, Lane,
-};
+use at_core::types::{AgentRole, AgentStatus, BeadStatus, CliType, ConvoyStatus, Lane};
 
 use crate::api_client;
 
@@ -304,7 +302,11 @@ impl App {
         self.kpi = KpiView {
             active_agents: data.kpi.active_agents,
             total_beads: data.kpi.total_beads,
-            active_convoys: self.convoys.iter().filter(|c| matches!(c.status, ConvoyStatus::Active)).count() as u64,
+            active_convoys: self
+                .convoys
+                .iter()
+                .filter(|c| matches!(c.status, ConvoyStatus::Active))
+                .count() as u64,
             total_cost: 0.0,
         };
 
@@ -335,7 +337,11 @@ impl App {
             .collect();
 
         // Update KPI active convoys after convoys are set
-        self.kpi.active_convoys = self.convoys.iter().filter(|c| matches!(c.status, ConvoyStatus::Active)).count() as u64;
+        self.kpi.active_convoys = self
+            .convoys
+            .iter()
+            .filter(|c| matches!(c.status, ConvoyStatus::Active))
+            .count() as u64;
 
         // Costs
         self.costs = data
@@ -465,7 +471,11 @@ impl App {
             .map(|c| ChangelogEntryInfo {
                 version: c.version,
                 date: c.date,
-                sections: c.sections.into_iter().map(|s| (s.category, s.items)).collect(),
+                sections: c
+                    .sections
+                    .into_iter()
+                    .map(|s| (s.category, s.items))
+                    .collect(),
                 expanded: false,
             })
             .collect();
@@ -562,14 +572,38 @@ impl App {
             }
 
             // Quick-jump letter shortcuts for tabs >9
-            KeyCode::Char('R') => { self.current_tab = 9; self.selected_index = 0; }   // Roadmap
-            KeyCode::Char('I') => { self.current_tab = 10; self.selected_index = 0; }  // Ideation
-            KeyCode::Char('W') => { self.current_tab = 11; self.selected_index = 0; }  // Worktrees
-            KeyCode::Char('G') => { self.current_tab = 12; self.selected_index = 0; }  // GitHub Issues
-            KeyCode::Char('P') => { self.current_tab = 13; self.selected_index = 0; }  // GitHub PRs
-            KeyCode::Char('S') => { self.current_tab = 14; self.selected_index = 0; }  // Stacks
-            KeyCode::Char('X') => { self.current_tab = 15; self.selected_index = 0; }  // Context
-            KeyCode::Char('L') => { self.current_tab = 16; self.selected_index = 0; }  // Changelog
+            KeyCode::Char('R') => {
+                self.current_tab = 9;
+                self.selected_index = 0;
+            } // Roadmap
+            KeyCode::Char('I') => {
+                self.current_tab = 10;
+                self.selected_index = 0;
+            } // Ideation
+            KeyCode::Char('W') => {
+                self.current_tab = 11;
+                self.selected_index = 0;
+            } // Worktrees
+            KeyCode::Char('G') => {
+                self.current_tab = 12;
+                self.selected_index = 0;
+            } // GitHub Issues
+            KeyCode::Char('P') => {
+                self.current_tab = 13;
+                self.selected_index = 0;
+            } // GitHub PRs
+            KeyCode::Char('S') => {
+                self.current_tab = 14;
+                self.selected_index = 0;
+            } // Stacks
+            KeyCode::Char('X') => {
+                self.current_tab = 15;
+                self.selected_index = 0;
+            } // Context
+            KeyCode::Char('L') => {
+                self.current_tab = 16;
+                self.selected_index = 0;
+            } // Changelog
 
             // List navigation
             KeyCode::Char('j') | KeyCode::Down => {
@@ -626,7 +660,7 @@ impl App {
     /// Returns the length of the primary list for the current tab.
     fn current_list_len(&self) -> usize {
         match self.current_tab {
-            0 => self.agents.len(),  // dashboard agent panel
+            0 => self.agents.len(), // dashboard agent panel
             1 => self.agents.len(),
             2 => self.beads.len(),
             3 => self.sessions.len(),
@@ -779,62 +813,214 @@ fn demo_agents() -> Vec<AgentInfo> {
 
 fn demo_beads() -> Vec<BeadInfo> {
     vec![
-        BeadInfo { id: "bd-001".into(), title: "Set up CI pipeline".into(), status: BeadStatus::Done, lane: Lane::Standard },
-        BeadInfo { id: "bd-002".into(), title: "Implement auth module".into(), status: BeadStatus::Slung, lane: Lane::Critical },
-        BeadInfo { id: "bd-003".into(), title: "Add unit tests for core".into(), status: BeadStatus::Slung, lane: Lane::Standard },
-        BeadInfo { id: "bd-004".into(), title: "Design TUI layout".into(), status: BeadStatus::Review, lane: Lane::Standard },
-        BeadInfo { id: "bd-005".into(), title: "Write API docs".into(), status: BeadStatus::Hooked, lane: Lane::Experimental },
-        BeadInfo { id: "bd-006".into(), title: "Refactor config loader".into(), status: BeadStatus::Backlog, lane: Lane::Standard },
-        BeadInfo { id: "bd-007".into(), title: "Add MCP transport".into(), status: BeadStatus::Backlog, lane: Lane::Critical },
-        BeadInfo { id: "bd-008".into(), title: "Optimize token usage".into(), status: BeadStatus::Backlog, lane: Lane::Experimental },
-        BeadInfo { id: "bd-009".into(), title: "Setup monitoring".into(), status: BeadStatus::Done, lane: Lane::Standard },
-        BeadInfo { id: "bd-010".into(), title: "Convoy orchestration".into(), status: BeadStatus::Hooked, lane: Lane::Critical },
+        BeadInfo {
+            id: "bd-001".into(),
+            title: "Set up CI pipeline".into(),
+            status: BeadStatus::Done,
+            lane: Lane::Standard,
+        },
+        BeadInfo {
+            id: "bd-002".into(),
+            title: "Implement auth module".into(),
+            status: BeadStatus::Slung,
+            lane: Lane::Critical,
+        },
+        BeadInfo {
+            id: "bd-003".into(),
+            title: "Add unit tests for core".into(),
+            status: BeadStatus::Slung,
+            lane: Lane::Standard,
+        },
+        BeadInfo {
+            id: "bd-004".into(),
+            title: "Design TUI layout".into(),
+            status: BeadStatus::Review,
+            lane: Lane::Standard,
+        },
+        BeadInfo {
+            id: "bd-005".into(),
+            title: "Write API docs".into(),
+            status: BeadStatus::Hooked,
+            lane: Lane::Experimental,
+        },
+        BeadInfo {
+            id: "bd-006".into(),
+            title: "Refactor config loader".into(),
+            status: BeadStatus::Backlog,
+            lane: Lane::Standard,
+        },
+        BeadInfo {
+            id: "bd-007".into(),
+            title: "Add MCP transport".into(),
+            status: BeadStatus::Backlog,
+            lane: Lane::Critical,
+        },
+        BeadInfo {
+            id: "bd-008".into(),
+            title: "Optimize token usage".into(),
+            status: BeadStatus::Backlog,
+            lane: Lane::Experimental,
+        },
+        BeadInfo {
+            id: "bd-009".into(),
+            title: "Setup monitoring".into(),
+            status: BeadStatus::Done,
+            lane: Lane::Standard,
+        },
+        BeadInfo {
+            id: "bd-010".into(),
+            title: "Convoy orchestration".into(),
+            status: BeadStatus::Hooked,
+            lane: Lane::Critical,
+        },
     ]
 }
 
 fn demo_sessions() -> Vec<SessionInfo> {
     vec![
-        SessionInfo { id: "sess-01".into(), agent: "mayor-alpha".into(), cli_type: CliType::Claude, status: "running".into(), duration: "12m 34s".into(), cpu: "2.1%".into() },
-        SessionInfo { id: "sess-02".into(), agent: "deacon-bravo".into(), cli_type: CliType::Claude, status: "running".into(), duration: "8m 12s".into(), cpu: "1.4%".into() },
-        SessionInfo { id: "sess-03".into(), agent: "crew-charlie".into(), cli_type: CliType::Codex, status: "idle".into(), duration: "45m 01s".into(), cpu: "0.0%".into() },
-        SessionInfo { id: "sess-04".into(), agent: "crew-delta".into(), cli_type: CliType::Gemini, status: "starting".into(), duration: "0m 03s".into(), cpu: "0.5%".into() },
+        SessionInfo {
+            id: "sess-01".into(),
+            agent: "mayor-alpha".into(),
+            cli_type: CliType::Claude,
+            status: "running".into(),
+            duration: "12m 34s".into(),
+            cpu: "2.1%".into(),
+        },
+        SessionInfo {
+            id: "sess-02".into(),
+            agent: "deacon-bravo".into(),
+            cli_type: CliType::Claude,
+            status: "running".into(),
+            duration: "8m 12s".into(),
+            cpu: "1.4%".into(),
+        },
+        SessionInfo {
+            id: "sess-03".into(),
+            agent: "crew-charlie".into(),
+            cli_type: CliType::Codex,
+            status: "idle".into(),
+            duration: "45m 01s".into(),
+            cpu: "0.0%".into(),
+        },
+        SessionInfo {
+            id: "sess-04".into(),
+            agent: "crew-delta".into(),
+            cli_type: CliType::Gemini,
+            status: "starting".into(),
+            duration: "0m 03s".into(),
+            cpu: "0.5%".into(),
+        },
     ]
 }
 
 fn demo_convoys() -> Vec<ConvoyInfo> {
     vec![
-        ConvoyInfo { name: "auth-feature".into(), status: ConvoyStatus::Active, bead_count: 3, progress: 66 },
-        ConvoyInfo { name: "ci-setup".into(), status: ConvoyStatus::Completed, bead_count: 2, progress: 100 },
-        ConvoyInfo { name: "api-docs".into(), status: ConvoyStatus::Forming, bead_count: 4, progress: 10 },
+        ConvoyInfo {
+            name: "auth-feature".into(),
+            status: ConvoyStatus::Active,
+            bead_count: 3,
+            progress: 66,
+        },
+        ConvoyInfo {
+            name: "ci-setup".into(),
+            status: ConvoyStatus::Completed,
+            bead_count: 2,
+            progress: 100,
+        },
+        ConvoyInfo {
+            name: "api-docs".into(),
+            status: ConvoyStatus::Forming,
+            bead_count: 4,
+            progress: 10,
+        },
     ]
 }
 
 fn demo_costs() -> Vec<CostRow> {
     vec![
-        CostRow { provider: "Anthropic".into(), model: "claude-opus-4".into(), input_tokens: 125_000, output_tokens: 42_000, cost_usd: 3.45 },
-        CostRow { provider: "Anthropic".into(), model: "claude-sonnet-4".into(), input_tokens: 310_000, output_tokens: 98_000, cost_usd: 2.12 },
-        CostRow { provider: "OpenAI".into(), model: "o3".into(), input_tokens: 80_000, output_tokens: 25_000, cost_usd: 1.80 },
-        CostRow { provider: "Google".into(), model: "gemini-2.5-pro".into(), input_tokens: 50_000, output_tokens: 15_000, cost_usd: 0.65 },
+        CostRow {
+            provider: "Anthropic".into(),
+            model: "claude-opus-4".into(),
+            input_tokens: 125_000,
+            output_tokens: 42_000,
+            cost_usd: 3.45,
+        },
+        CostRow {
+            provider: "Anthropic".into(),
+            model: "claude-sonnet-4".into(),
+            input_tokens: 310_000,
+            output_tokens: 98_000,
+            cost_usd: 2.12,
+        },
+        CostRow {
+            provider: "OpenAI".into(),
+            model: "o3".into(),
+            input_tokens: 80_000,
+            output_tokens: 25_000,
+            cost_usd: 1.80,
+        },
+        CostRow {
+            provider: "Google".into(),
+            model: "gemini-2.5-pro".into(),
+            input_tokens: 50_000,
+            output_tokens: 15_000,
+            cost_usd: 0.65,
+        },
     ]
 }
 
 fn demo_mcp() -> Vec<McpServerInfo> {
     vec![
-        McpServerInfo { name: "filesystem".into(), transport: "stdio".into(), status: "connected".into(), tools: 8 },
-        McpServerInfo { name: "git".into(), transport: "stdio".into(), status: "connected".into(), tools: 12 },
-        McpServerInfo { name: "postgres".into(), transport: "sse".into(), status: "disconnected".into(), tools: 5 },
-        McpServerInfo { name: "web-search".into(), transport: "stdio".into(), status: "connected".into(), tools: 3 },
+        McpServerInfo {
+            name: "filesystem".into(),
+            transport: "stdio".into(),
+            status: "connected".into(),
+            tools: 8,
+        },
+        McpServerInfo {
+            name: "git".into(),
+            transport: "stdio".into(),
+            status: "connected".into(),
+            tools: 12,
+        },
+        McpServerInfo {
+            name: "postgres".into(),
+            transport: "sse".into(),
+            status: "disconnected".into(),
+            tools: 5,
+        },
+        McpServerInfo {
+            name: "web-search".into(),
+            transport: "stdio".into(),
+            status: "connected".into(),
+            tools: 3,
+        },
     ]
 }
 
 fn demo_activity() -> Vec<ActivityEntry> {
     let now = Utc::now();
     vec![
-        ActivityEntry { timestamp: now, message: "mayor-alpha hooked bead bd-002".into() },
-        ActivityEntry { timestamp: now, message: "deacon-bravo completed review on bd-004".into() },
-        ActivityEntry { timestamp: now, message: "crew-charlie went idle".into() },
-        ActivityEntry { timestamp: now, message: "convoy auth-feature progress: 66%".into() },
-        ActivityEntry { timestamp: now, message: "crew-delta spawned with gemini-2.5-pro".into() },
+        ActivityEntry {
+            timestamp: now,
+            message: "mayor-alpha hooked bead bd-002".into(),
+        },
+        ActivityEntry {
+            timestamp: now,
+            message: "deacon-bravo completed review on bd-004".into(),
+        },
+        ActivityEntry {
+            timestamp: now,
+            message: "crew-charlie went idle".into(),
+        },
+        ActivityEntry {
+            timestamp: now,
+            message: "convoy auth-feature progress: 66%".into(),
+        },
+        ActivityEntry {
+            timestamp: now,
+            message: "crew-delta spawned with gemini-2.5-pro".into(),
+        },
     ]
 }
 
@@ -849,49 +1035,168 @@ fn demo_kpi() -> KpiView {
 
 fn demo_worktrees() -> Vec<WorktreeInfo> {
     vec![
-        WorktreeInfo { id: "wt-01".into(), path: "/tmp/auto-tundra/feat-auth".into(), branch: "feat/auth-module".into(), bead_id: "bd-002".into(), status: "active".into() },
-        WorktreeInfo { id: "wt-02".into(), path: "/tmp/auto-tundra/fix-ci".into(), branch: "fix/ci-pipeline".into(), bead_id: "bd-001".into(), status: "active".into() },
-        WorktreeInfo { id: "wt-03".into(), path: "/tmp/auto-tundra/docs".into(), branch: "docs/api".into(), bead_id: "bd-005".into(), status: "stale".into() },
+        WorktreeInfo {
+            id: "wt-01".into(),
+            path: "/tmp/auto-tundra/feat-auth".into(),
+            branch: "feat/auth-module".into(),
+            bead_id: "bd-002".into(),
+            status: "active".into(),
+        },
+        WorktreeInfo {
+            id: "wt-02".into(),
+            path: "/tmp/auto-tundra/fix-ci".into(),
+            branch: "fix/ci-pipeline".into(),
+            bead_id: "bd-001".into(),
+            status: "active".into(),
+        },
+        WorktreeInfo {
+            id: "wt-03".into(),
+            path: "/tmp/auto-tundra/docs".into(),
+            branch: "docs/api".into(),
+            bead_id: "bd-005".into(),
+            status: "stale".into(),
+        },
     ]
 }
 
 fn demo_github_issues() -> Vec<GithubIssueInfo> {
     vec![
-        GithubIssueInfo { number: 42, title: "Add WebSocket support".into(), labels: vec!["enhancement".into()], assignee: Some("mayor-alpha".into()), state: "open".into(), created: "2026-02-18".into() },
-        GithubIssueInfo { number: 41, title: "Fix config parsing edge case".into(), labels: vec!["bug".into()], assignee: None, state: "open".into(), created: "2026-02-17".into() },
-        GithubIssueInfo { number: 40, title: "Update dependencies".into(), labels: vec!["chore".into()], assignee: Some("crew-charlie".into()), state: "closed".into(), created: "2026-02-15".into() },
+        GithubIssueInfo {
+            number: 42,
+            title: "Add WebSocket support".into(),
+            labels: vec!["enhancement".into()],
+            assignee: Some("mayor-alpha".into()),
+            state: "open".into(),
+            created: "2026-02-18".into(),
+        },
+        GithubIssueInfo {
+            number: 41,
+            title: "Fix config parsing edge case".into(),
+            labels: vec!["bug".into()],
+            assignee: None,
+            state: "open".into(),
+            created: "2026-02-17".into(),
+        },
+        GithubIssueInfo {
+            number: 40,
+            title: "Update dependencies".into(),
+            labels: vec!["chore".into()],
+            assignee: Some("crew-charlie".into()),
+            state: "closed".into(),
+            created: "2026-02-15".into(),
+        },
     ]
 }
 
 fn demo_github_prs() -> Vec<GithubPrInfo> {
     vec![
-        GithubPrInfo { number: 15, title: "feat: add agent orchestration".into(), author: "mayor-alpha".into(), status: "open".into(), reviewers: vec!["deacon-bravo".into()], created: "2026-02-20".into() },
-        GithubPrInfo { number: 14, title: "fix: convoy status tracking".into(), author: "crew-charlie".into(), status: "merged".into(), reviewers: vec!["witness-echo".into()], created: "2026-02-19".into() },
+        GithubPrInfo {
+            number: 15,
+            title: "feat: add agent orchestration".into(),
+            author: "mayor-alpha".into(),
+            status: "open".into(),
+            reviewers: vec!["deacon-bravo".into()],
+            created: "2026-02-20".into(),
+        },
+        GithubPrInfo {
+            number: 14,
+            title: "fix: convoy status tracking".into(),
+            author: "crew-charlie".into(),
+            status: "merged".into(),
+            reviewers: vec!["witness-echo".into()],
+            created: "2026-02-19".into(),
+        },
     ]
 }
 
 fn demo_roadmap() -> Vec<RoadmapItemInfo> {
     vec![
-        RoadmapItemInfo { id: "rm-01".into(), title: "Multi-provider support".into(), description: "Support Claude, Codex, Gemini".into(), status: "in_progress".into(), priority: "high".into() },
-        RoadmapItemInfo { id: "rm-02".into(), title: "WebSocket streaming".into(), description: "Real-time terminal output".into(), status: "planned".into(), priority: "high".into() },
-        RoadmapItemInfo { id: "rm-03".into(), title: "Plugin system".into(), description: "MCP-based plugin architecture".into(), status: "planned".into(), priority: "medium".into() },
-        RoadmapItemInfo { id: "rm-04".into(), title: "Team collaboration".into(), description: "Multi-user workspace".into(), status: "backlog".into(), priority: "low".into() },
+        RoadmapItemInfo {
+            id: "rm-01".into(),
+            title: "Multi-provider support".into(),
+            description: "Support Claude, Codex, Gemini".into(),
+            status: "in_progress".into(),
+            priority: "high".into(),
+        },
+        RoadmapItemInfo {
+            id: "rm-02".into(),
+            title: "WebSocket streaming".into(),
+            description: "Real-time terminal output".into(),
+            status: "planned".into(),
+            priority: "high".into(),
+        },
+        RoadmapItemInfo {
+            id: "rm-03".into(),
+            title: "Plugin system".into(),
+            description: "MCP-based plugin architecture".into(),
+            status: "planned".into(),
+            priority: "medium".into(),
+        },
+        RoadmapItemInfo {
+            id: "rm-04".into(),
+            title: "Team collaboration".into(),
+            description: "Multi-user workspace".into(),
+            status: "backlog".into(),
+            priority: "low".into(),
+        },
     ]
 }
 
 fn demo_ideas() -> Vec<IdeaInfo> {
     vec![
-        IdeaInfo { id: "idea-01".into(), title: "Auto-retry failed beads".into(), description: "Retry with exponential backoff".into(), category: "performance".into(), impact: "high".into(), effort: "medium".into() },
-        IdeaInfo { id: "idea-02".into(), title: "Cost alert thresholds".into(), description: "Notify when spend exceeds limit".into(), category: "cost".into(), impact: "medium".into(), effort: "low".into() },
-        IdeaInfo { id: "idea-03".into(), title: "Git worktree auto-cleanup".into(), description: "Remove stale worktrees on bead completion".into(), category: "quality".into(), impact: "low".into(), effort: "low".into() },
+        IdeaInfo {
+            id: "idea-01".into(),
+            title: "Auto-retry failed beads".into(),
+            description: "Retry with exponential backoff".into(),
+            category: "performance".into(),
+            impact: "high".into(),
+            effort: "medium".into(),
+        },
+        IdeaInfo {
+            id: "idea-02".into(),
+            title: "Cost alert thresholds".into(),
+            description: "Notify when spend exceeds limit".into(),
+            category: "cost".into(),
+            impact: "medium".into(),
+            effort: "low".into(),
+        },
+        IdeaInfo {
+            id: "idea-03".into(),
+            title: "Git worktree auto-cleanup".into(),
+            description: "Remove stale worktrees on bead completion".into(),
+            category: "quality".into(),
+            impact: "low".into(),
+            effort: "low".into(),
+        },
     ]
 }
 
 fn demo_stacks() -> Vec<StackNodeInfo> {
     vec![
-        StackNodeInfo { id: "bd-006".into(), title: "Build agent executor".into(), phase: "In Progress".into(), git_branch: Some("feat/agent-executor".into()), pr_number: Some(41), depth: 0 },
-        StackNodeInfo { id: "bd-007".into(), title: "MCP tool integration".into(), phase: "In Progress".into(), git_branch: Some("feat/mcp-integration".into()), pr_number: Some(39), depth: 1 },
-        StackNodeInfo { id: "bd-010".into(), title: "Review agent executor v1".into(), phase: "AI Review".into(), git_branch: Some("feat/executor-review".into()), pr_number: None, depth: 2 },
+        StackNodeInfo {
+            id: "bd-006".into(),
+            title: "Build agent executor".into(),
+            phase: "In Progress".into(),
+            git_branch: Some("feat/agent-executor".into()),
+            pr_number: Some(41),
+            depth: 0,
+        },
+        StackNodeInfo {
+            id: "bd-007".into(),
+            title: "MCP tool integration".into(),
+            phase: "In Progress".into(),
+            git_branch: Some("feat/mcp-integration".into()),
+            pr_number: Some(39),
+            depth: 1,
+        },
+        StackNodeInfo {
+            id: "bd-010".into(),
+            title: "Review agent executor v1".into(),
+            phase: "AI Review".into(),
+            git_branch: Some("feat/executor-review".into()),
+            pr_number: None,
+            depth: 2,
+        },
     ]
 }
 
@@ -901,7 +1206,10 @@ fn demo_changelog() -> Vec<ChangelogEntryInfo> {
             version: "0.3.0".into(),
             date: "2026-02-21".into(),
             sections: vec![
-                ("Added".into(), vec!["TUI dashboard".into(), "Agent orchestration".into()]),
+                (
+                    "Added".into(),
+                    vec!["TUI dashboard".into(), "Agent orchestration".into()],
+                ),
                 ("Fixed".into(), vec!["Config parser edge case".into()]),
             ],
             expanded: true,
@@ -909,9 +1217,10 @@ fn demo_changelog() -> Vec<ChangelogEntryInfo> {
         ChangelogEntryInfo {
             version: "0.2.0".into(),
             date: "2026-02-15".into(),
-            sections: vec![
-                ("Added".into(), vec!["MCP transport".into(), "Convoy system".into()]),
-            ],
+            sections: vec![(
+                "Added".into(),
+                vec!["MCP transport".into(), "Convoy system".into()],
+            )],
             expanded: false,
         },
     ]
@@ -919,8 +1228,18 @@ fn demo_changelog() -> Vec<ChangelogEntryInfo> {
 
 fn demo_memory() -> Vec<MemoryEntryInfo> {
     vec![
-        MemoryEntryInfo { id: "mem-01".into(), category: "pattern".into(), content: "Use flume channels for async communication".into(), created_at: "2026-02-20".into() },
-        MemoryEntryInfo { id: "mem-02".into(), category: "convention".into(), content: "API keys via env vars only".into(), created_at: "2026-02-18".into() },
+        MemoryEntryInfo {
+            id: "mem-01".into(),
+            category: "pattern".into(),
+            content: "Use flume channels for async communication".into(),
+            created_at: "2026-02-20".into(),
+        },
+        MemoryEntryInfo {
+            id: "mem-02".into(),
+            category: "convention".into(),
+            content: "API keys via env vars only".into(),
+            created_at: "2026-02-18".into(),
+        },
     ]
 }
 

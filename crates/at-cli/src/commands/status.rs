@@ -13,10 +13,7 @@ pub async fn run(api_url: &str) -> anyhow::Result<()> {
         .map_err(friendly_error)?;
 
     if !status_resp.status().is_success() {
-        anyhow::bail!(
-            "Failed to fetch status (HTTP {})",
-            status_resp.status()
-        );
+        anyhow::bail!("Failed to fetch status (HTTP {})", status_resp.status());
     }
     let status: serde_json::Value = status_resp.json().await.map_err(friendly_error)?;
 

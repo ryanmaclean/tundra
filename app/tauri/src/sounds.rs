@@ -240,10 +240,16 @@ mod engine {
             let remaining = self.total_samples.saturating_sub(self.sample_idx);
             Some(remaining as usize)
         }
-        fn channels(&self) -> u16 { 1 }
-        fn sample_rate(&self) -> u32 { self.sample_rate }
+        fn channels(&self) -> u16 {
+            1
+        }
+        fn sample_rate(&self) -> u32 {
+            self.sample_rate
+        }
         fn total_duration(&self) -> Option<Duration> {
-            Some(Duration::from_millis(self.total_samples * 1000 / self.sample_rate as u64))
+            Some(Duration::from_millis(
+                self.total_samples * 1000 / self.sample_rate as u64,
+            ))
         }
     }
 
@@ -295,8 +301,12 @@ mod engine {
 
         pub fn set_enabled(&self, _enabled: bool) {}
         pub fn set_volume(&self, _volume: f32) {}
-        pub fn is_enabled(&self) -> bool { false }
-        pub fn volume(&self) -> f32 { 0.0 }
+        pub fn is_enabled(&self) -> bool {
+            false
+        }
+        pub fn volume(&self) -> f32 {
+            0.0
+        }
         pub fn play(&self, _effect: SoundEffect) {}
     }
 }

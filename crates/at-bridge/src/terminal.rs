@@ -41,10 +41,22 @@ pub enum TerminalStatus {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum TerminalEvent {
-    Output { terminal_id: Uuid, data: String },
-    Resize { terminal_id: Uuid, cols: u16, rows: u16 },
-    Close { terminal_id: Uuid },
-    Title { terminal_id: Uuid, title: String },
+    Output {
+        terminal_id: Uuid,
+        data: String,
+    },
+    Resize {
+        terminal_id: Uuid,
+        cols: u16,
+        rows: u16,
+    },
+    Close {
+        terminal_id: Uuid,
+    },
+    Title {
+        terminal_id: Uuid,
+        title: String,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -146,10 +158,7 @@ impl TerminalRegistry {
     }
 
     pub fn list_persistent(&self) -> Vec<&TerminalInfo> {
-        self.terminals
-            .values()
-            .filter(|t| t.persistent)
-            .collect()
+        self.terminals.values().filter(|t| t.persistent).collect()
     }
 
     pub fn update_status(&mut self, id: &Uuid, status: TerminalStatus) -> bool {
@@ -308,7 +317,10 @@ mod tests {
         assert!(terminal.auto_name.is_none());
 
         terminal.auto_name = Some("cargo build".to_string());
-        assert_eq!(reg.get(&id).unwrap().auto_name.as_deref(), Some("cargo build"));
+        assert_eq!(
+            reg.get(&id).unwrap().auto_name.as_deref(),
+            Some("cargo build")
+        );
     }
 
     #[test]

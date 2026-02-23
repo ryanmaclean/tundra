@@ -152,7 +152,13 @@ async fn test_kanban_lists_all_seven_status_lanes() {
     let beads = state.beads.read().await;
     let statuses: Vec<String> = beads
         .iter()
-        .map(|b| serde_json::to_value(&b.status).unwrap().as_str().unwrap().to_string())
+        .map(|b| {
+            serde_json::to_value(&b.status)
+                .unwrap()
+                .as_str()
+                .unwrap()
+                .to_string()
+        })
         .collect();
 
     assert!(statuses.contains(&"backlog".to_string()));
@@ -259,10 +265,7 @@ async fn test_create_task_with_labels() {
 
     let beads = state.beads.read().await;
     let found = beads.iter().find(|b| b.id == id).unwrap();
-    let labels = found
-        .metadata
-        .as_ref()
-        .unwrap()["labels"]
+    let labels = found.metadata.as_ref().unwrap()["labels"]
         .as_array()
         .unwrap();
     assert_eq!(labels.len(), 3);
@@ -736,16 +739,10 @@ async fn test_filter_tasks_by_lane() {
 
     let beads = api_list_beads(&client, &base).await;
 
-    let backlog_beads: Vec<_> = beads
-        .iter()
-        .filter(|b| b["status"] == "backlog")
-        .collect();
+    let backlog_beads: Vec<_> = beads.iter().filter(|b| b["status"] == "backlog").collect();
     assert_eq!(backlog_beads.len(), 2);
 
-    let hooked_beads: Vec<_> = beads
-        .iter()
-        .filter(|b| b["status"] == "hooked")
-        .collect();
+    let hooked_beads: Vec<_> = beads.iter().filter(|b| b["status"] == "hooked").collect();
     assert_eq!(hooked_beads.len(), 1);
 
     let done_beads: Vec<_> = beads.iter().filter(|b| b["status"] == "done").collect();
@@ -770,7 +767,10 @@ async fn test_filter_tasks_by_agent() {
     }
 
     let beads = state.beads.read().await;
-    let agent_a_tasks: Vec<_> = beads.iter().filter(|b| b.agent_id == Some(agent_a)).collect();
+    let agent_a_tasks: Vec<_> = beads
+        .iter()
+        .filter(|b| b.agent_id == Some(agent_a))
+        .collect();
     assert_eq!(agent_a_tasks.len(), 1);
     assert_eq!(agent_a_tasks[0].title, "agent-a-task");
 
@@ -790,7 +790,11 @@ async fn test_filter_tasks_by_priority() {
         let mut beads = state.beads.write().await;
         beads.iter_mut().find(|b| b.id == id_low).unwrap().priority = 1;
         beads.iter_mut().find(|b| b.id == id_high).unwrap().priority = 5;
-        beads.iter_mut().find(|b| b.id == id_urgent).unwrap().priority = 10;
+        beads
+            .iter_mut()
+            .find(|b| b.id == id_urgent)
+            .unwrap()
+            .priority = 10;
     }
 
     let beads = state.beads.read().await;
@@ -914,10 +918,7 @@ async fn test_get_api_beads_with_lane_filter() {
 
     // Fetch all beads and filter client-side (the API returns all beads).
     let beads = api_list_beads(&client, &base).await;
-    let hooked: Vec<_> = beads
-        .iter()
-        .filter(|b| b["status"] == "hooked")
-        .collect();
+    let hooked: Vec<_> = beads.iter().filter(|b| b["status"] == "hooked").collect();
     assert_eq!(hooked.len(), 1);
     assert_eq!(hooked[0]["title"], "lf-hooked");
 }
@@ -1045,7 +1046,10 @@ async fn test_bead_updated_at_changes_on_transition() {
     let (_, updated) = api_transition_bead(&client, &base, id, "hooked").await;
     let updated_at = updated["updated_at"].as_str().unwrap().to_string();
 
-    assert_ne!(created_at, updated_at, "updated_at should change on transition");
+    assert_ne!(
+        created_at, updated_at,
+        "updated_at should change on transition"
+    );
 }
 
 #[tokio::test]
@@ -1135,11 +1139,7 @@ async fn test_kpi_endpoint_returns_all_lane_fields() {
     let (base, _state) = start_test_server().await;
     let client = reqwest::Client::new();
 
-    let resp = client
-        .get(format!("{base}/api/kpi"))
-        .send()
-        .await
-        .unwrap();
+    let resp = client.get(format!("{base}/api/kpi")).send().await.unwrap();
     assert_eq!(resp.status(), 200);
     let body: Value = resp.json().await.unwrap();
 

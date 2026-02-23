@@ -123,16 +123,32 @@ pub struct McpTool {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ToolAnnotations {
     /// Tool only reads data, doesn't modify state.
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "readOnlyHint")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "readOnlyHint"
+    )]
     pub read_only_hint: Option<bool>,
     /// Tool may perform destructive actions.
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "destructiveHint")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "destructiveHint"
+    )]
     pub destructive_hint: Option<bool>,
     /// Calling tool multiple times with same args has same effect.
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "idempotentHint")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "idempotentHint"
+    )]
     pub idempotent_hint: Option<bool>,
     /// Tool interacts with external world (network, etc).
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "openWorldHint")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "openWorldHint"
+    )]
     pub open_world_hint: Option<bool>,
 }
 
@@ -382,9 +398,7 @@ impl McpToolRegistry {
 
     /// Find a tool by just the tool name (returns first match).
     pub fn find_tool_by_name(&self, tool_name: &str) -> Option<&RegisteredTool> {
-        self.tools
-            .values()
-            .find(|rt| rt.tool.name == tool_name)
+        self.tools.values().find(|rt| rt.tool.name == tool_name)
     }
 
     /// List all registered tools.
@@ -444,11 +458,7 @@ impl McpToolRegistry {
 
     /// List server names that have registered tools.
     pub fn server_names(&self) -> Vec<String> {
-        let mut names: Vec<String> = self
-            .tools
-            .values()
-            .map(|rt| rt.server.clone())
-            .collect();
+        let mut names: Vec<String> = self.tools.values().map(|rt| rt.server.clone()).collect();
         names.sort();
         names.dedup();
         names

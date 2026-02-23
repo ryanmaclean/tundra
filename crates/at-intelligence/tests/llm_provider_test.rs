@@ -42,7 +42,10 @@ fn test_llm_role_display() {
 
 #[test]
 fn test_llm_role_serialization() {
-    assert_eq!(serde_json::to_string(&LlmRole::System).unwrap(), "\"system\"");
+    assert_eq!(
+        serde_json::to_string(&LlmRole::System).unwrap(),
+        "\"system\""
+    );
     assert_eq!(serde_json::to_string(&LlmRole::User).unwrap(), "\"user\"");
     assert_eq!(
         serde_json::to_string(&LlmRole::Assistant).unwrap(),
@@ -410,9 +413,7 @@ async fn test_mock_provider_error_queueing() {
     let provider = MockProvider::new().with_error(LlmError::Timeout);
     let config = LlmConfig::default();
 
-    let result = provider
-        .complete(&[LlmMessage::user("Hi")], &config)
-        .await;
+    let result = provider.complete(&[LlmMessage::user("Hi")], &config).await;
     assert!(result.is_err());
     assert!(matches!(result.unwrap_err(), LlmError::Timeout));
 }
@@ -489,9 +490,7 @@ async fn test_mock_provider_stream_unsupported() {
     let provider = MockProvider::new();
     let config = LlmConfig::default();
 
-    let result = provider
-        .stream(&[LlmMessage::user("Hi")], &config)
-        .await;
+    let result = provider.stream(&[LlmMessage::user("Hi")], &config).await;
     assert!(result.is_err());
     match result {
         Err(LlmError::Unsupported(msg)) => {
@@ -529,22 +528,16 @@ async fn test_mock_provider_mixed_responses_and_errors() {
     let config = LlmConfig::default();
 
     // First: success
-    let r1 = provider
-        .complete(&[LlmMessage::user("a")], &config)
-        .await;
+    let r1 = provider.complete(&[LlmMessage::user("a")], &config).await;
     assert!(r1.is_ok());
 
     // Second: error
-    let r2 = provider
-        .complete(&[LlmMessage::user("b")], &config)
-        .await;
+    let r2 = provider.complete(&[LlmMessage::user("b")], &config).await;
     assert!(r2.is_err());
     assert!(matches!(r2.unwrap_err(), LlmError::RateLimited { .. }));
 
     // Third: default
-    let r3 = provider
-        .complete(&[LlmMessage::user("c")], &config)
-        .await;
+    let r3 = provider.complete(&[LlmMessage::user("c")], &config).await;
     assert!(r3.is_ok());
 }
 
@@ -561,8 +554,7 @@ fn test_anthropic_provider_creation() {
 
 #[test]
 fn test_anthropic_provider_custom_base_url() {
-    let provider = AnthropicProvider::new("sk-test")
-        .with_base_url("http://localhost:8080");
+    let provider = AnthropicProvider::new("sk-test").with_base_url("http://localhost:8080");
     // Verify it accepts a custom base URL (for mock server testing)
     let _: &dyn LlmProvider = &provider;
 }
@@ -638,13 +630,10 @@ fn test_anthropic_provider_config_system_plus_message_system() {
 
 #[tokio::test]
 async fn test_anthropic_provider_stream_unsupported() {
-    let provider = AnthropicProvider::new("sk-test")
-        .with_base_url("http://localhost:1"); // won't connect
+    let provider = AnthropicProvider::new("sk-test").with_base_url("http://localhost:1"); // won't connect
     let config = LlmConfig::default();
 
-    let result = provider
-        .stream(&[LlmMessage::user("Hi")], &config)
-        .await;
+    let result = provider.stream(&[LlmMessage::user("Hi")], &config).await;
     assert!(result.is_err());
     match result {
         Err(LlmError::Unsupported(msg)) => {
@@ -666,8 +655,8 @@ fn test_openai_provider_creation() {
 
 #[test]
 fn test_openai_provider_custom_base_url() {
-    let provider = OpenAiProvider::new("sk-test")
-        .with_base_url("https://my-azure-openai.openai.azure.com");
+    let provider =
+        OpenAiProvider::new("sk-test").with_base_url("https://my-azure-openai.openai.azure.com");
     let _: &dyn LlmProvider = &provider;
 }
 
@@ -741,13 +730,10 @@ fn test_openai_provider_config_system_prepended() {
 
 #[tokio::test]
 async fn test_openai_provider_stream_unsupported() {
-    let provider = OpenAiProvider::new("sk-test")
-        .with_base_url("http://localhost:1");
+    let provider = OpenAiProvider::new("sk-test").with_base_url("http://localhost:1");
     let config = LlmConfig::default();
 
-    let result = provider
-        .stream(&[LlmMessage::user("Hi")], &config)
-        .await;
+    let result = provider.stream(&[LlmMessage::user("Hi")], &config).await;
     assert!(result.is_err());
     match result {
         Err(LlmError::Unsupported(msg)) => {

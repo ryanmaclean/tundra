@@ -19,7 +19,10 @@ fn test_pty_spawn_shell() {
         .spawn(shell, &[], &[("TERM", "xterm-256color")])
         .expect("failed to spawn shell");
 
-    assert!(handle.is_alive(), "shell process should be alive after spawn");
+    assert!(
+        handle.is_alive(),
+        "shell process should be alive after spawn"
+    );
     assert_eq!(pool.active_count(), 1);
 
     // Clean up.
@@ -55,9 +58,7 @@ fn test_pty_resize() {
     // PTY resize is handled at the portable-pty level. We verify that
     // spawning with default size works and the process stays alive.
     let pool = PtyPool::new(4);
-    let handle = pool
-        .spawn("/bin/cat", &[], &[])
-        .expect("failed to spawn");
+    let handle = pool.spawn("/bin/cat", &[], &[]).expect("failed to spawn");
 
     // The handle should be alive (resize is a PTY master operation).
     assert!(handle.is_alive());
@@ -249,12 +250,8 @@ fn test_pool_list_active_sessions() {
 fn test_pool_session_isolation() {
     let pool = PtyPool::new(4);
 
-    let h1 = pool
-        .spawn("/bin/cat", &[], &[])
-        .expect("spawn 1");
-    let h2 = pool
-        .spawn("/bin/cat", &[], &[])
-        .expect("spawn 2");
+    let h1 = pool.spawn("/bin/cat", &[], &[]).expect("spawn 1");
+    let h2 = pool.spawn("/bin/cat", &[], &[]).expect("spawn 2");
 
     // Write to h1 only.
     h1.send_line("ISOLATION_SESSION_1").expect("send to h1");
@@ -325,11 +322,7 @@ fn test_terminal_spawns_in_worktree_dir() {
     // Spawn a shell that prints its working directory.
     // We pass a PWD env var to simulate worktree directory.
     let handle = pool
-        .spawn(
-            "/bin/sh",
-            &["-c", "echo CWD_IS=$(pwd)"],
-            &[("PWD", "/tmp")],
-        )
+        .spawn("/bin/sh", &["-c", "echo CWD_IS=$(pwd)"], &[("PWD", "/tmp")])
         .expect("failed to spawn");
 
     std::thread::sleep(Duration::from_millis(500));
@@ -340,10 +333,7 @@ fn test_terminal_spawns_in_worktree_dir() {
     // The shell should report some directory. The PWD env is set, but the
     // actual cwd depends on the spawn implementation. We verify the env
     // var was at least passed.
-    assert!(
-        !text.is_empty(),
-        "expected some output from pwd command"
-    );
+    assert!(!text.is_empty(), "expected some output from pwd command");
 }
 
 #[test]
@@ -461,9 +451,7 @@ fn test_pty_send_line_appends_newline() {
 #[test]
 fn test_pty_handle_debug_format() {
     let pool = PtyPool::new(4);
-    let handle = pool
-        .spawn("/bin/cat", &[], &[])
-        .expect("failed to spawn");
+    let handle = pool.spawn("/bin/cat", &[], &[]).expect("failed to spawn");
 
     let debug_str = format!("{:?}", handle);
     assert!(

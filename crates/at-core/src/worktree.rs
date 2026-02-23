@@ -296,11 +296,7 @@ mod tests {
         let existing_path = tmp.join(".worktrees").join(existing_name);
         std::fs::create_dir_all(&existing_path).ok();
 
-        let result = WorktreeManager::create_worktree(
-            existing_name,
-            "main",
-            tmp.to_str().unwrap(),
-        );
+        let result = WorktreeManager::create_worktree(existing_name, "main", tmp.to_str().unwrap());
         assert!(result.is_err());
         if let Err(WorktreeError::AlreadyExists(_)) = result {
             // expected

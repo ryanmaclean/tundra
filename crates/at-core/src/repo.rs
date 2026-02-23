@@ -1,5 +1,5 @@
-use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -181,11 +181,7 @@ pub struct AsyncGitJob {
 
 impl AsyncGitJob {
     /// Spawn a new async git command.
-    pub fn spawn(
-        repo: &RepoPath,
-        args: Vec<String>,
-        description: impl Into<String>,
-    ) -> Self {
+    pub fn spawn(repo: &RepoPath, args: Vec<String>, description: impl Into<String>) -> Self {
         let id = uuid::Uuid::new_v4();
         let desc = description.into();
         let workdir = repo.workdir().to_path_buf();
@@ -230,7 +226,9 @@ impl AsyncGitJob {
     pub async fn wait(mut self) -> Result<GitJobResult> {
         match self.handle.take() {
             Some(handle) => {
-                let result = handle.await.map_err(|e| RepoError::JobFailed(e.to_string()))??;
+                let result = handle
+                    .await
+                    .map_err(|e| RepoError::JobFailed(e.to_string()))??;
                 Ok(result)
             }
             None => Err(RepoError::JobFailed("job already consumed".to_string())),
@@ -308,7 +306,11 @@ impl AsyncGitOps {
     pub fn branches(repo: &RepoPath) -> AsyncGitJob {
         AsyncGitJob::spawn(
             repo,
-            vec!["branch".into(), "-a".into(), "--format=%(refname:short)".into()],
+            vec![
+                "branch".into(),
+                "-a".into(),
+                "--format=%(refname:short)".into(),
+            ],
             "list branches",
         )
     }
@@ -331,11 +333,7 @@ impl AsyncGitOps {
 
     /// Get list of stashes.
     pub fn stash_list(repo: &RepoPath) -> AsyncGitJob {
-        AsyncGitJob::spawn(
-            repo,
-            vec!["stash".into(), "list".into()],
-            "git stash list",
-        )
+        AsyncGitJob::spawn(repo, vec!["stash".into(), "list".into()], "git stash list")
     }
 
     /// Get the list of tags.

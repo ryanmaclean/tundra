@@ -1,9 +1,4 @@
-use axum::{
-    body::Body,
-    extract::Request,
-    middleware::Next,
-    response::Response,
-};
+use axum::{body::Body, extract::Request, middleware::Next, response::Response};
 use uuid::Uuid;
 
 /// Generate an OpenTelemetry-compatible trace ID (32 hex characters).
@@ -39,9 +34,9 @@ pub async fn request_id_middleware(mut request: Request<Body>, next: Next) -> Re
     // Insert/overwrite so downstream handlers can read it
     request.headers_mut().insert(
         "x-request-id",
-        request_id.parse().unwrap_or_else(|_| {
-            axum::http::HeaderValue::from_static("unknown")
-        }),
+        request_id
+            .parse()
+            .unwrap_or_else(|_| axum::http::HeaderValue::from_static("unknown")),
     );
 
     let method = request.method().to_string();

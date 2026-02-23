@@ -1,8 +1,8 @@
-use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem};
+use ratatui::Frame;
 
 use crate::app::App;
 
@@ -24,10 +24,7 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect) {
                 Some(n) => format!(" PR#{}", n),
                 None => String::new(),
             };
-            let branch = node
-                .git_branch
-                .as_deref()
-                .unwrap_or("-");
+            let branch = node.git_branch.as_deref().unwrap_or("-");
             let style = if i == app.selected_index {
                 Style::default().add_modifier(Modifier::REVERSED)
             } else {
@@ -39,15 +36,9 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect) {
                     format!("{:<14} ", node.phase),
                     Style::default().fg(phase_color),
                 ),
-                Span::styled(
-                    format!("{:<28} ", branch),
-                    Style::default().fg(Color::Cyan),
-                ),
+                Span::styled(format!("{:<28} ", branch), Style::default().fg(Color::Cyan)),
                 Span::raw(&node.title),
-                Span::styled(
-                    pr_label,
-                    Style::default().fg(Color::Yellow),
-                ),
+                Span::styled(pr_label, Style::default().fg(Color::Yellow)),
             ]))
             .style(style)
         })

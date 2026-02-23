@@ -78,7 +78,9 @@ async fn test_create_terminal_returns_id_and_name() {
     Uuid::parse_str(id_str).expect("id should be valid UUID");
 
     // Must have a title that contains "Terminal".
-    let title = terminal["title"].as_str().expect("title should be a string");
+    let title = terminal["title"]
+        .as_str()
+        .expect("title should be a string");
     assert!(
         title.contains("Terminal"),
         "expected title to contain 'Terminal', got: {title}"
@@ -211,11 +213,7 @@ async fn test_terminal_capacity_limit() {
         .send()
         .await
         .unwrap();
-    assert_eq!(
-        resp.status(),
-        500,
-        "expected 500 when pool is at capacity"
-    );
+    assert_eq!(resp.status(), 500, "expected 500 when pool is at capacity");
 
     let body: Value = resp.json().await.unwrap();
     let err = body["error"].as_str().unwrap();
@@ -248,7 +246,10 @@ async fn test_terminal_ws_connect_valid_id() {
     let msg = tokio::time::timeout(Duration::from_secs(3), ws_stream.next()).await;
     // The connection itself succeeding is the main assertion.
     // We may or may not get output depending on shell startup timing.
-    assert!(msg.is_ok() || msg.is_err(), "websocket connection established");
+    assert!(
+        msg.is_ok() || msg.is_err(),
+        "websocket connection established"
+    );
 }
 
 #[tokio::test]
@@ -288,9 +289,9 @@ async fn test_terminal_send_input_via_ws() {
     tokio::time::sleep(Duration::from_millis(500)).await;
 
     // Drain any initial prompt output.
-    while let Ok(Some(_)) =
-        tokio::time::timeout(Duration::from_millis(200), ws_stream.next()).await
-    {}
+    while let Ok(Some(_)) = tokio::time::timeout(Duration::from_millis(200), ws_stream.next()).await
+    {
+    }
 
     // Send an echo command via the JSON input protocol.
     let input_msg = serde_json::json!({
@@ -317,7 +318,10 @@ async fn test_terminal_send_input_via_ws() {
         }
     }
 
-    assert!(found, "expected to see echoed 'HELLO_TERMINAL_TEST' in WS output");
+    assert!(
+        found,
+        "expected to see echoed 'HELLO_TERMINAL_TEST' in WS output"
+    );
 }
 
 #[tokio::test]
@@ -360,7 +364,9 @@ async fn test_terminal_resize_event() {
     // Verify that the terminal registry was updated with new dimensions.
     {
         let registry = state.terminal_registry.read().await;
-        let info = registry.get(&tid_uuid).expect("terminal should exist in registry");
+        let info = registry
+            .get(&tid_uuid)
+            .expect("terminal should exist in registry");
         assert_eq!(info.cols, 120, "cols should be updated to 120");
         assert_eq!(info.rows, 40, "rows should be updated to 40");
     }
@@ -610,12 +616,8 @@ async fn test_invite_all_sends_to_all_terminals() {
     tokio::time::sleep(Duration::from_millis(500)).await;
 
     // Drain initial output.
-    while let Ok(Some(_)) =
-        tokio::time::timeout(Duration::from_millis(200), ws1.next()).await
-    {}
-    while let Ok(Some(_)) =
-        tokio::time::timeout(Duration::from_millis(200), ws2.next()).await
-    {}
+    while let Ok(Some(_)) = tokio::time::timeout(Duration::from_millis(200), ws1.next()).await {}
+    while let Ok(Some(_)) = tokio::time::timeout(Duration::from_millis(200), ws2.next()).await {}
 
     // Simulate "Invite All" by sending the same command to both.
     let prompt = "echo INVITE_ALL_MARKER\n";
@@ -681,12 +683,8 @@ async fn test_concurrent_terminal_output() {
     tokio::time::sleep(Duration::from_millis(500)).await;
 
     // Drain initial output.
-    while let Ok(Some(_)) =
-        tokio::time::timeout(Duration::from_millis(200), ws1.next()).await
-    {}
-    while let Ok(Some(_)) =
-        tokio::time::timeout(Duration::from_millis(200), ws2.next()).await
-    {}
+    while let Ok(Some(_)) = tokio::time::timeout(Duration::from_millis(200), ws1.next()).await {}
+    while let Ok(Some(_)) = tokio::time::timeout(Duration::from_millis(200), ws2.next()).await {}
 
     // Send different commands to each terminal concurrently.
     let msg1 = serde_json::json!({ "type": "input", "data": "echo CONCURRENT_T1\n" });
@@ -756,12 +754,8 @@ async fn test_terminal_isolation() {
     tokio::time::sleep(Duration::from_millis(500)).await;
 
     // Drain initial output from both.
-    while let Ok(Some(_)) =
-        tokio::time::timeout(Duration::from_millis(200), ws1.next()).await
-    {}
-    while let Ok(Some(_)) =
-        tokio::time::timeout(Duration::from_millis(200), ws2.next()).await
-    {}
+    while let Ok(Some(_)) = tokio::time::timeout(Duration::from_millis(200), ws1.next()).await {}
+    while let Ok(Some(_)) = tokio::time::timeout(Duration::from_millis(200), ws2.next()).await {}
 
     // Send a unique marker ONLY to terminal 1.
     let msg = serde_json::json!({ "type": "input", "data": "echo ISOLATION_MARKER_T1_ONLY\n" });
@@ -951,10 +945,7 @@ async fn test_create_terminal_without_pty_pool_returns_503() {
     assert_eq!(resp.status(), 503);
 
     let body: Value = resp.json().await.unwrap();
-    assert!(body["error"]
-        .as_str()
-        .unwrap()
-        .contains("not available"));
+    assert!(body["error"].as_str().unwrap().contains("not available"));
 }
 
 #[tokio::test]
@@ -1128,7 +1119,9 @@ async fn test_terminal_dead_after_grace_period() {
     // Terminal should be in Disconnected state.
     {
         let registry = state.terminal_registry.read().await;
-        let info = registry.get(&tid_uuid).expect("terminal should still exist");
+        let info = registry
+            .get(&tid_uuid)
+            .expect("terminal should still exist");
         assert!(
             matches!(info.status, TerminalStatus::Disconnected { .. }),
             "expected Disconnected status, got {:?}",
@@ -1152,7 +1145,9 @@ async fn test_terminal_dead_after_grace_period() {
     // Terminal should now be Dead.
     {
         let registry = state.terminal_registry.read().await;
-        let info = registry.get(&tid_uuid).expect("terminal should still be in registry");
+        let info = registry
+            .get(&tid_uuid)
+            .expect("terminal should still be in registry");
         assert_eq!(
             info.status,
             TerminalStatus::Dead,

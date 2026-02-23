@@ -48,9 +48,7 @@ impl DaemonLockfile {
     /// Canonical lockfile path: `~/.auto-tundra/daemon.lock`.
     pub fn path() -> PathBuf {
         let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-        PathBuf::from(home)
-            .join(".auto-tundra")
-            .join("daemon.lock")
+        PathBuf::from(home).join(".auto-tundra").join("daemon.lock")
     }
 
     /// Try to exclusively create and write the lockfile.

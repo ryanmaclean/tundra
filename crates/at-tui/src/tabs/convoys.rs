@@ -1,10 +1,10 @@
-use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::widgets::{Block, Borders, Gauge, Paragraph};
+use ratatui::Frame;
 
-use at_core::types::ConvoyStatus;
 use crate::app::App;
+use at_core::types::ConvoyStatus;
 
 /// Tab 5: Convoy progress gauges.
 pub fn render(frame: &mut Frame, app: &App, area: Rect) {

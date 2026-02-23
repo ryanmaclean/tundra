@@ -111,12 +111,9 @@ pub fn parse_json_command(json: &str) -> Option<AppCommand> {
     let cmd = v.get("cmd")?.as_str()?;
     let args = v.get("args");
 
-    let arg_usize = |idx: usize| -> Option<usize> {
-        args?.as_array()?.get(idx)?.as_u64().map(|n| n as usize)
-    };
-    let arg_str = |idx: usize| -> Option<&str> {
-        args?.as_array()?.get(idx)?.as_str()
-    };
+    let arg_usize =
+        |idx: usize| -> Option<usize> { args?.as_array()?.get(idx)?.as_u64().map(|n| n as usize) };
+    let arg_str = |idx: usize| -> Option<&str> { args?.as_array()?.get(idx)?.as_str() };
 
     match cmd {
         "tab" => Some(AppCommand::Tab(arg_usize(0)?)),
@@ -213,9 +210,7 @@ pub fn execute_command(app: &mut App, cmd: AppCommand) -> Option<String> {
 
         // -- Queries --------------------------------------------------------
         AppCommand::QueryState => {
-            let tab_name = TAB_NAMES
-                .get(app.current_tab)
-                .unwrap_or(&"unknown");
+            let tab_name = TAB_NAMES.get(app.current_tab).unwrap_or(&"unknown");
             let state = serde_json::json!({
                 "current_tab": app.current_tab,
                 "tab_name": tab_name,
@@ -477,135 +472,135 @@ fn serialize_tab_data(app: &App) -> serde_json::Value {
 fn serialize_selected_item(app: &App) -> serde_json::Value {
     let idx = app.selected_index;
     match app.current_tab {
-        0 | 1 => {
-            app.agents.get(idx).map(|a| serde_json::json!({
+        0 | 1 => app.agents.get(idx).map(|a| {
+            serde_json::json!({
                 "name": a.name,
                 "role": format!("{:?}", a.role),
                 "status": format!("{:?}", a.status),
                 "cli_type": format!("{:?}", a.cli_type),
                 "model": a.model,
                 "last_seen": a.last_seen.to_rfc3339(),
-            }))
-        }
-        2 => {
-            app.beads.get(idx).map(|b| serde_json::json!({
+            })
+        }),
+        2 => app.beads.get(idx).map(|b| {
+            serde_json::json!({
                 "id": b.id,
                 "title": b.title,
                 "status": format!("{:?}", b.status),
                 "lane": format!("{:?}", b.lane),
-            }))
-        }
-        3 => {
-            app.sessions.get(idx).map(|s| serde_json::json!({
+            })
+        }),
+        3 => app.sessions.get(idx).map(|s| {
+            serde_json::json!({
                 "id": s.id,
                 "agent": s.agent,
                 "cli_type": format!("{:?}", s.cli_type),
                 "status": s.status,
                 "duration": s.duration,
                 "cpu": s.cpu,
-            }))
-        }
-        4 => {
-            app.convoys.get(idx).map(|c| serde_json::json!({
+            })
+        }),
+        4 => app.convoys.get(idx).map(|c| {
+            serde_json::json!({
                 "name": c.name,
                 "status": format!("{:?}", c.status),
                 "bead_count": c.bead_count,
                 "progress": c.progress,
-            }))
-        }
-        5 => {
-            app.costs.get(idx).map(|c| serde_json::json!({
+            })
+        }),
+        5 => app.costs.get(idx).map(|c| {
+            serde_json::json!({
                 "provider": c.provider,
                 "model": c.model,
                 "input_tokens": c.input_tokens,
                 "output_tokens": c.output_tokens,
                 "cost_usd": c.cost_usd,
-            }))
-        }
-        8 => {
-            app.mcp_servers.get(idx).map(|m| serde_json::json!({
+            })
+        }),
+        8 => app.mcp_servers.get(idx).map(|m| {
+            serde_json::json!({
                 "name": m.name,
                 "transport": m.transport,
                 "status": m.status,
                 "tools": m.tools,
-            }))
-        }
-        9 => {
-            app.roadmap_items.get(idx).map(|r| serde_json::json!({
+            })
+        }),
+        9 => app.roadmap_items.get(idx).map(|r| {
+            serde_json::json!({
                 "id": r.id,
                 "title": r.title,
                 "description": r.description,
                 "status": r.status,
                 "priority": r.priority,
-            }))
-        }
-        10 => {
-            app.ideas.get(idx).map(|i| serde_json::json!({
+            })
+        }),
+        10 => app.ideas.get(idx).map(|i| {
+            serde_json::json!({
                 "id": i.id,
                 "title": i.title,
                 "description": i.description,
                 "category": i.category,
                 "impact": i.impact,
                 "effort": i.effort,
-            }))
-        }
-        11 => {
-            app.worktrees.get(idx).map(|w| serde_json::json!({
+            })
+        }),
+        11 => app.worktrees.get(idx).map(|w| {
+            serde_json::json!({
                 "id": w.id,
                 "path": w.path,
                 "branch": w.branch,
                 "bead_id": w.bead_id,
                 "status": w.status,
-            }))
-        }
-        12 => {
-            app.github_issues.get(idx).map(|i| serde_json::json!({
+            })
+        }),
+        12 => app.github_issues.get(idx).map(|i| {
+            serde_json::json!({
                 "number": i.number,
                 "title": i.title,
                 "labels": i.labels,
                 "assignee": i.assignee,
                 "state": i.state,
                 "created": i.created,
-            }))
-        }
-        13 => {
-            app.github_prs.get(idx).map(|p| serde_json::json!({
+            })
+        }),
+        13 => app.github_prs.get(idx).map(|p| {
+            serde_json::json!({
                 "number": p.number,
                 "title": p.title,
                 "author": p.author,
                 "status": p.status,
                 "reviewers": p.reviewers,
                 "created": p.created,
-            }))
-        }
-        14 => {
-            app.stacks.get(idx).map(|s| serde_json::json!({
+            })
+        }),
+        14 => app.stacks.get(idx).map(|s| {
+            serde_json::json!({
                 "id": s.id,
                 "title": s.title,
                 "phase": s.phase,
                 "git_branch": s.git_branch,
                 "pr_number": s.pr_number,
                 "depth": s.depth,
-            }))
-        }
-        15 => {
-            app.memory_entries.get(idx).map(|m| serde_json::json!({
+            })
+        }),
+        15 => app.memory_entries.get(idx).map(|m| {
+            serde_json::json!({
                 "id": m.id,
                 "category": m.category,
                 "content": m.content,
                 "created_at": m.created_at,
-            }))
-        }
-        16 => {
-            app.changelog.get(idx).map(|c| serde_json::json!({
+            })
+        }),
+        16 => app.changelog.get(idx).map(|c| {
+            serde_json::json!({
                 "version": c.version,
                 "date": c.date,
                 "sections": c.sections.iter().map(|(cat, items)| {
                     serde_json::json!({ "category": cat, "items": items })
                 }).collect::<Vec<_>>(),
                 "expanded": c.expanded,
-            }))
-        }
+            })
+        }),
         _ => None,
     }
     .unwrap_or(serde_json::json!(null))
@@ -663,7 +658,10 @@ mod tests {
     fn parse_query_commands() {
         assert_eq!(parse_command(":query state"), Some(AppCommand::QueryState));
         assert_eq!(parse_command(":query tab"), Some(AppCommand::QueryTab));
-        assert_eq!(parse_command(":query selected"), Some(AppCommand::QuerySelected));
+        assert_eq!(
+            parse_command(":query selected"),
+            Some(AppCommand::QuerySelected)
+        );
         assert_eq!(parse_command(":query invalid"), None);
     }
 
@@ -736,10 +734,7 @@ mod tests {
             parse_json_command(r#"{"cmd":"prev_tab"}"#),
             Some(AppCommand::PrevTab)
         );
-        assert_eq!(
-            parse_json_command(r#"{"cmd":"up"}"#),
-            Some(AppCommand::Up)
-        );
+        assert_eq!(parse_json_command(r#"{"cmd":"up"}"#), Some(AppCommand::Up));
         assert_eq!(
             parse_json_command(r#"{"cmd":"down"}"#),
             Some(AppCommand::Down)

@@ -183,18 +183,17 @@ impl Orchestrator {
         self.executions.insert(id, execution);
         self.stuck_detectors.insert(
             id,
-            StuckDetector::new(self.config.stuck_timeout_secs, self.config.stuck_token_budget),
+            StuckDetector::new(
+                self.config.stuck_timeout_secs,
+                self.config.stuck_token_budget,
+            ),
         );
 
         id
     }
 
     /// Assemble context for a task execution at a given phase.
-    pub fn assemble_context(
-        &self,
-        execution_id: &Uuid,
-        phase: &str,
-    ) -> Option<AssembledContext> {
+    pub fn assemble_context(&self, execution_id: &Uuid, phase: &str) -> Option<AssembledContext> {
         let exec = self.executions.get(execution_id)?;
         Some(self.context_steerer.assemble(
             &format!("{:?}", exec.agent_role),
@@ -205,11 +204,7 @@ impl Orchestrator {
     }
 
     /// Build the full prompt for an agent invocation.
-    pub fn build_prompt(
-        &self,
-        execution_id: &Uuid,
-        phase: &str,
-    ) -> Option<String> {
+    pub fn build_prompt(&self, execution_id: &Uuid, phase: &str) -> Option<String> {
         let exec = self.executions.get(execution_id)?;
 
         // 1. Get the prompt template for this role
@@ -267,10 +262,8 @@ impl Orchestrator {
         let exec = self.executions.get_mut(execution_id)?;
         exec.used_rlm = true;
 
-        let mut decomp = Decomposition::new(
-            &exec.task_description,
-            self.config.max_recursion_depth,
-        );
+        let mut decomp =
+            Decomposition::new(&exec.task_description, self.config.max_recursion_depth);
         decomp.synthesis = strategy;
         for st in subtasks {
             decomp.add_subtask(st);
@@ -282,20 +275,14 @@ impl Orchestrator {
     }
 
     /// Start progressive refinement for a task.
-    pub fn start_refinement(
-        &mut self,
-        execution_id: &Uuid,
-    ) -> Option<Uuid> {
+    pub fn start_refinement(&mut self, execution_id: &Uuid) -> Option<Uuid> {
         if !self.config.enable_refinement {
             return None;
         }
         let exec = self.executions.get_mut(execution_id)?;
         exec.used_refinement = true;
 
-        let pr = ProgressiveRefinement::new(
-            &exec.task_description,
-            self.config.max_revisions,
-        );
+        let pr = ProgressiveRefinement::new(&exec.task_description, self.config.max_revisions);
         let pr_id = pr.id;
         self.refinements.insert(pr_id, pr);
         Some(pr_id)
@@ -447,7 +434,11 @@ mod tests {
     fn make_orchestrator() -> Orchestrator {
         let dir = tempfile::tempdir().unwrap();
         // Create minimal project structure
-        std::fs::write(dir.path().join("CLAUDE.md"), "# Rules\n## Conventions\n- Use Rust\n").unwrap();
+        std::fs::write(
+            dir.path().join("CLAUDE.md"),
+            "# Rules\n## Conventions\n- Use Rust\n",
+        )
+        .unwrap();
 
         Orchestrator::new(dir.path(), OrchestratorConfig::default())
     }
@@ -471,7 +462,11 @@ mod tests {
         let prompt = orch.build_prompt(&id, "coding");
         assert!(prompt.is_some());
         let prompt = prompt.unwrap();
-        assert!(prompt.contains("project-context") || prompt.contains("Add auth") || prompt.contains("OAuth"));
+        assert!(
+            prompt.contains("project-context")
+                || prompt.contains("Add auth")
+                || prompt.contains("OAuth")
+        );
     }
 
     #[test]
@@ -614,7 +609,9 @@ mod tests {
 
         let mut orch = Orchestrator::new(dir.path(), config);
         let id = orch.start_task("task", "desc", AgentRole::Mayor);
-        assert!(orch.decompose(&id, vec!["sub".into()], SynthesisStrategy::Concatenate).is_none());
+        assert!(orch
+            .decompose(&id, vec!["sub".into()], SynthesisStrategy::Concatenate)
+            .is_none());
     }
 
     #[test]

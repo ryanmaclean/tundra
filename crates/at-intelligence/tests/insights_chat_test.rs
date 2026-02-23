@@ -1,7 +1,7 @@
 //! Exhaustive integration tests for InsightsEngine (Insights / AI Chat feature).
 
-use std::sync::Arc;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::sync::Mutex;
 
 use async_trait::async_trait;
@@ -429,10 +429,7 @@ async fn test_insights_create_task_from_suggestion() {
 
     // Simulate the "create task" prompt
     let reply = engine
-        .send_message_with_ai(
-            &session_id,
-            "Create a task for adding connection pooling",
-        )
+        .send_message_with_ai(&session_id, "Create a task for adding connection pooling")
         .await
         .unwrap();
 
@@ -462,9 +459,7 @@ async fn test_send_message_with_ai_nonexistent_session_returns_error() {
     let mock = Arc::new(MockProvider::new("reply"));
     let mut engine = InsightsEngine::with_provider(mock);
 
-    let result = engine
-        .send_message_with_ai(&Uuid::new_v4(), "hello")
-        .await;
+    let result = engine.send_message_with_ai(&Uuid::new_v4(), "hello").await;
 
     assert!(result.is_err());
 }

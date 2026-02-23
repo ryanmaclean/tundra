@@ -58,7 +58,9 @@ fn sanitize_short_key() {
 #[test]
 fn allows_safe_tool() {
     let fw = ToolCallFirewall::new();
-    assert!(fw.validate_tool_call("calculator", r#"{"expr":"2+2"}"#).is_ok());
+    assert!(fw
+        .validate_tool_call("calculator", r#"{"expr":"2+2"}"#)
+        .is_ok());
 }
 
 #[test]

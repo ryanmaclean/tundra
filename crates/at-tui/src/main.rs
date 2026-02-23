@@ -14,10 +14,10 @@ use anyhow::Result;
 use crossterm::{
     event::{self as ct_event, Event},
     execute,
-    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
+use ratatui::Terminal;
 
 use crate::app::App;
 
@@ -154,8 +154,7 @@ fn run_headless(offline: bool, api_base: &str) -> Result<()> {
         }
 
         // Try JSON command first, then text command
-        let cmd = command::parse_json_command(&line)
-            .or_else(|| command::parse_command(&line));
+        let cmd = command::parse_json_command(&line).or_else(|| command::parse_command(&line));
 
         match cmd {
             Some(cmd) => {

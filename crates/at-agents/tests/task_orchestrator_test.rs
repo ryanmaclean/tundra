@@ -44,7 +44,12 @@ impl PtySpawner for MockSpawner {
         let _ = read_tx.send(self.output.clone());
         drop(read_tx);
 
-        Ok(SpawnedProcess::new(Uuid::new_v4(), read_rx, write_tx, false))
+        Ok(SpawnedProcess::new(
+            Uuid::new_v4(),
+            read_rx,
+            write_tx,
+            false,
+        ))
     }
 }
 
@@ -122,17 +127,34 @@ async fn pipeline_phases_transition_correctly() {
         event_types
     );
     assert!(
-        event_types.iter().any(|e| e.starts_with("pipeline_complete")),
+        event_types
+            .iter()
+            .any(|e| e.starts_with("pipeline_complete")),
         "missing pipeline_complete* in: {:?}",
         event_types
     );
 
     // Verify ordering: pipeline_start before coding_phase_start
-    let start_idx = event_types.iter().position(|e| e == "pipeline_start").unwrap();
-    let coding_idx = event_types.iter().position(|e| e == "coding_phase_start").unwrap();
-    let qa_idx = event_types.iter().position(|e| e == "qa_phase_start").unwrap();
-    assert!(start_idx < coding_idx, "pipeline_start should come before coding_phase_start");
-    assert!(coding_idx < qa_idx, "coding_phase_start should come before qa_phase_start");
+    let start_idx = event_types
+        .iter()
+        .position(|e| e == "pipeline_start")
+        .unwrap();
+    let coding_idx = event_types
+        .iter()
+        .position(|e| e == "coding_phase_start")
+        .unwrap();
+    let qa_idx = event_types
+        .iter()
+        .position(|e| e == "qa_phase_start")
+        .unwrap();
+    assert!(
+        start_idx < coding_idx,
+        "pipeline_start should come before coding_phase_start"
+    );
+    assert!(
+        coding_idx < qa_idx,
+        "coding_phase_start should come before qa_phase_start"
+    );
 }
 
 #[tokio::test]
@@ -216,7 +238,10 @@ async fn event_bus_receives_phase_transition_events() {
     }
 
     assert!(found_start, "should have received coding_phase_start event");
-    assert!(found_complete, "should have received coding_phase_complete event");
+    assert!(
+        found_complete,
+        "should have received coding_phase_complete event"
+    );
 }
 
 #[tokio::test]

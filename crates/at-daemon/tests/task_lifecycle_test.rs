@@ -377,7 +377,10 @@ fn stuck_task_with_pending_subtasks_gets_subtasks_reset() {
             sub.agent_id = None;
         }
     }
-    assert!(task.subtasks.iter().all(|s| s.status == SubtaskStatus::Pending));
+    assert!(task
+        .subtasks
+        .iter()
+        .all(|s| s.status == SubtaskStatus::Pending));
 }
 
 #[test]

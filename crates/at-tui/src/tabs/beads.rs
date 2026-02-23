@@ -1,10 +1,10 @@
-use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::widgets::{Block, Borders, List, ListItem};
+use ratatui::Frame;
 
-use at_core::types::BeadStatus;
 use crate::app::{App, BeadInfo};
+use at_core::types::BeadStatus;
 
 /// Tab 3: Kanban board with 5 columns.
 pub fn render(frame: &mut Frame, app: &App, area: Rect) {
@@ -28,11 +28,7 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect) {
     ];
 
     for (i, (label, status, color)) in statuses.iter().enumerate() {
-        let beads: Vec<&BeadInfo> = app
-            .beads
-            .iter()
-            .filter(|b| b.status == *status)
-            .collect();
+        let beads: Vec<&BeadInfo> = app.beads.iter().filter(|b| b.status == *status).collect();
 
         let items: Vec<ListItem> = beads
             .iter()
@@ -52,9 +48,7 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect) {
             .collect();
 
         let border_style = if i == app.kanban_column {
-            Style::default()
-                .fg(*color)
-                .add_modifier(Modifier::BOLD)
+            Style::default().fg(*color).add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(*color)
         };

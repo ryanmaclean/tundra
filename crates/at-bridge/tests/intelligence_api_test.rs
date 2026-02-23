@@ -254,9 +254,7 @@ async fn test_post_ideation_convert_to_task() {
 async fn test_get_memory_empty() {
     let (base, _state) = start_test_server().await;
 
-    let resp = reqwest::get(format!("{base}/api/memory"))
-        .await
-        .unwrap();
+    let resp = reqwest::get(format!("{base}/api/memory")).await.unwrap();
     assert_eq!(resp.status(), 200);
 
     let body: Vec<Value> = resp.json().await.unwrap();
@@ -285,9 +283,7 @@ async fn test_post_memory_creates_entry() {
     assert!(body["id"].is_string());
 
     // Verify it shows up in listing
-    let resp = reqwest::get(format!("{base}/api/memory"))
-        .await
-        .unwrap();
+    let resp = reqwest::get(format!("{base}/api/memory")).await.unwrap();
     let entries: Vec<Value> = resp.json().await.unwrap();
     assert_eq!(entries.len(), 1);
     assert_eq!(entries[0]["key"], "api_url");
@@ -393,9 +389,7 @@ async fn test_delete_memory_entry() {
     assert_eq!(body["deleted"], true);
 
     // Verify it is gone
-    let resp = reqwest::get(format!("{base}/api/memory"))
-        .await
-        .unwrap();
+    let resp = reqwest::get(format!("{base}/api/memory")).await.unwrap();
     let entries: Vec<Value> = resp.json().await.unwrap();
     assert!(entries.is_empty());
 
@@ -418,8 +412,16 @@ async fn test_memory_categories() {
     // Patterns -> pattern, Gotchas -> keyword
     let categories = vec![
         ("pattern", "review_pattern", "Always check error handling"),
-        ("convention", "naming_convention", "Use snake_case for functions"),
-        ("architecture", "codebase_structure", "Monorepo with 10 crates"),
+        (
+            "convention",
+            "naming_convention",
+            "Use snake_case for functions",
+        ),
+        (
+            "architecture",
+            "codebase_structure",
+            "Monorepo with 10 crates",
+        ),
         ("keyword", "gotcha_async", "Watch for async deadlocks"),
         ("dependency", "tokio_version", "tokio 1.x required"),
     ];
@@ -440,9 +442,7 @@ async fn test_memory_categories() {
     }
 
     // Verify all entries exist
-    let resp = reqwest::get(format!("{base}/api/memory"))
-        .await
-        .unwrap();
+    let resp = reqwest::get(format!("{base}/api/memory")).await.unwrap();
     let entries: Vec<Value> = resp.json().await.unwrap();
     assert_eq!(entries.len(), categories.len());
 
@@ -469,9 +469,7 @@ async fn test_post_message_to_nonexistent_session_returns_error() {
 
     let fake_id = uuid::Uuid::new_v4();
     let resp = client
-        .post(format!(
-            "{base}/api/insights/sessions/{fake_id}/messages"
-        ))
+        .post(format!("{base}/api/insights/sessions/{fake_id}/messages"))
         .json(&json!({
             "content": "hello?"
         }))

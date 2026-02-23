@@ -10,38 +10,40 @@ use axum::{
 };
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
-use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc,
+};
 use tokio::sync::{RwLock, Semaphore};
 use tower_http::cors::CorsLayer;
 use tracing::warn;
 use uuid::Uuid;
 
+use crate::auth::AuthLayer;
+use crate::event_bus::EventBus;
+use crate::intelligence_api;
+use crate::notifications::{notification_from_event, NotificationStore};
+use crate::terminal::TerminalRegistry;
+use crate::terminal_ws;
 use at_core::config::{Config, CredentialProvider};
 use at_core::session_store::{SessionState, SessionStore};
 use at_core::settings::SettingsManager;
 use at_core::types::{
-    Agent, AgentProfile, Bead, BeadStatus, BuildLogEntry, BuildStream, CliType, KpiSnapshot,
-    Lane, PhaseConfig, Task, TaskCategory, TaskComplexity, TaskImpact, TaskPhase, TaskPriority,
+    Agent, AgentProfile, Bead, BeadStatus, BuildLogEntry, BuildStream, CliType, KpiSnapshot, Lane,
+    PhaseConfig, Task, TaskCategory, TaskComplexity, TaskImpact, TaskPhase, TaskPriority,
     TaskSource,
 };
-use at_integrations::github::{issues, oauth as gh_oauth, pull_requests, pr_automation::PrAutomation, sync::IssueSyncEngine};
+use at_integrations::github::{
+    issues, oauth as gh_oauth, pr_automation::PrAutomation, pull_requests, sync::IssueSyncEngine,
+};
 use at_integrations::types::{GitHubConfig, GitHubRelease, IssueState, PrState};
 use at_intelligence::{
-    changelog::ChangelogEngine,
-    ideation::IdeationEngine,
-    insights::InsightsEngine,
-    memory::MemoryStore,
-    roadmap::RoadmapEngine,
+    changelog::ChangelogEngine, ideation::IdeationEngine, insights::InsightsEngine,
+    memory::MemoryStore, roadmap::RoadmapEngine,
 };
 use at_telemetry::metrics::global_metrics;
 use at_telemetry::middleware::metrics_middleware;
 use at_telemetry::tracing_setup::request_id_middleware;
-use crate::auth::AuthLayer;
-use crate::event_bus::EventBus;
-use crate::intelligence_api;
-use crate::notifications::{NotificationStore, notification_from_event};
-use crate::terminal::TerminalRegistry;
-use crate::terminal_ws;
 
 /// A project represents a workspace/repository that can be managed.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -170,7 +172,8 @@ pub struct ApiState {
     // ---- Disconnect buffers for terminal WS reconnection ------------------
     /// Per-terminal output buffer for disconnected terminals.
     /// Key: terminal_id, Value: bounded ring buffer of bytes.
-    pub disconnect_buffers: Arc<RwLock<std::collections::HashMap<Uuid, crate::terminal::DisconnectBuffer>>>,
+    pub disconnect_buffers:
+        Arc<RwLock<std::collections::HashMap<Uuid, crate::terminal::DisconnectBuffer>>>,
 }
 
 /// Default 8 Kanban columns (Backlog, Queue, In Progress, Review, QA, Done, PR Created, Error).
@@ -190,14 +193,46 @@ pub struct KanbanColumn {
 fn default_kanban_columns() -> KanbanColumnConfig {
     KanbanColumnConfig {
         columns: vec![
-            KanbanColumn { id: "backlog".into(), label: "Backlog".into(), width_px: Some(200) },
-            KanbanColumn { id: "queue".into(), label: "Queue".into(), width_px: Some(180) },
-            KanbanColumn { id: "in_progress".into(), label: "In Progress".into(), width_px: Some(220) },
-            KanbanColumn { id: "review".into(), label: "Review".into(), width_px: Some(180) },
-            KanbanColumn { id: "qa".into(), label: "QA".into(), width_px: Some(160) },
-            KanbanColumn { id: "done".into(), label: "Done".into(), width_px: Some(180) },
-            KanbanColumn { id: "pr_created".into(), label: "PR Created".into(), width_px: Some(180) },
-            KanbanColumn { id: "error".into(), label: "Error".into(), width_px: Some(160) },
+            KanbanColumn {
+                id: "backlog".into(),
+                label: "Backlog".into(),
+                width_px: Some(200),
+            },
+            KanbanColumn {
+                id: "queue".into(),
+                label: "Queue".into(),
+                width_px: Some(180),
+            },
+            KanbanColumn {
+                id: "in_progress".into(),
+                label: "In Progress".into(),
+                width_px: Some(220),
+            },
+            KanbanColumn {
+                id: "review".into(),
+                label: "Review".into(),
+                width_px: Some(180),
+            },
+            KanbanColumn {
+                id: "qa".into(),
+                label: "QA".into(),
+                width_px: Some(160),
+            },
+            KanbanColumn {
+                id: "done".into(),
+                label: "Done".into(),
+                width_px: Some(180),
+            },
+            KanbanColumn {
+                id: "pr_created".into(),
+                label: "PR Created".into(),
+                width_px: Some(180),
+            },
+            KanbanColumn {
+                id: "error".into(),
+                label: "Error".into(),
+                width_px: Some(160),
+            },
         ],
     }
 }
@@ -267,7 +302,10 @@ impl ApiState {
     }
 
     /// Create a new `ApiState` with a PTY pool for terminal support.
-    pub fn with_pty_pool(event_bus: EventBus, pty_pool: Arc<at_session::pty_pool::PtyPool>) -> Self {
+    pub fn with_pty_pool(
+        event_bus: EventBus,
+        pty_pool: Arc<at_session::pty_pool::PtyPool>,
+    ) -> Self {
         let mut state = Self::new(event_bus);
         state.pty_pool = Some(pty_pool);
         state
@@ -304,7 +342,11 @@ impl ApiState {
 
         let mut agents = self.agents.write().await;
         if agents.is_empty() {
-            agents.push(Agent::new("Crew", at_core::types::AgentRole::Crew, CliType::Claude));
+            agents.push(Agent::new(
+                "Crew",
+                at_core::types::AgentRole::Crew,
+                CliType::Claude,
+            ));
             agents.push(Agent::new(
                 "Reviewer",
                 at_core::types::AgentRole::SpecCritic,
@@ -314,12 +356,30 @@ impl ApiState {
 
         let snapshot = KpiSnapshot {
             total_beads: beads.len() as u64,
-            backlog: beads.iter().filter(|b| b.status == BeadStatus::Backlog).count() as u64,
-            hooked: beads.iter().filter(|b| b.status == BeadStatus::Hooked).count() as u64,
-            slung: beads.iter().filter(|b| b.status == BeadStatus::Slung).count() as u64,
-            review: beads.iter().filter(|b| b.status == BeadStatus::Review).count() as u64,
-            done: beads.iter().filter(|b| b.status == BeadStatus::Done).count() as u64,
-            failed: beads.iter().filter(|b| b.status == BeadStatus::Failed).count() as u64,
+            backlog: beads
+                .iter()
+                .filter(|b| b.status == BeadStatus::Backlog)
+                .count() as u64,
+            hooked: beads
+                .iter()
+                .filter(|b| b.status == BeadStatus::Hooked)
+                .count() as u64,
+            slung: beads
+                .iter()
+                .filter(|b| b.status == BeadStatus::Slung)
+                .count() as u64,
+            review: beads
+                .iter()
+                .filter(|b| b.status == BeadStatus::Review)
+                .count() as u64,
+            done: beads
+                .iter()
+                .filter(|b| b.status == BeadStatus::Done)
+                .count() as u64,
+            failed: beads
+                .iter()
+                .filter(|b| b.status == BeadStatus::Failed)
+                .count() as u64,
             escalated: beads
                 .iter()
                 .filter(|b| b.status == BeadStatus::Escalated)
@@ -364,11 +424,23 @@ pub fn api_router_with_auth(state: Arc<ApiState>, api_key: Option<String>) -> Ro
         .route("/api/pipeline/queue", get(get_pipeline_queue_status))
         .route("/api/terminals", get(terminal_ws::list_terminals))
         .route("/api/terminals", post(terminal_ws::create_terminal))
-        .route("/api/terminals/{id}", axum::routing::delete(terminal_ws::delete_terminal))
+        .route(
+            "/api/terminals/{id}",
+            axum::routing::delete(terminal_ws::delete_terminal),
+        )
         .route("/ws/terminal/{id}", get(terminal_ws::terminal_ws))
-        .route("/api/terminals/{id}/settings", patch(terminal_ws::update_terminal_settings))
-        .route("/api/terminals/{id}/auto-name", post(terminal_ws::auto_name_terminal))
-        .route("/api/terminals/persistent", get(terminal_ws::list_persistent_terminals))
+        .route(
+            "/api/terminals/{id}/settings",
+            patch(terminal_ws::update_terminal_settings),
+        )
+        .route(
+            "/api/terminals/{id}/auto-name",
+            post(terminal_ws::auto_name_terminal),
+        )
+        .route(
+            "/api/terminals/persistent",
+            get(terminal_ws::list_persistent_terminals),
+        )
         .route("/api/settings", get(get_settings))
         .route("/api/settings", put(put_settings))
         .route("/api/settings", patch(patch_settings))
@@ -376,7 +448,10 @@ pub fn api_router_with_auth(state: Arc<ApiState>, api_key: Option<String>) -> Ro
         .route("/api/github/sync", post(trigger_github_sync))
         .route("/api/github/sync/status", get(get_sync_status))
         .route("/api/github/issues", get(list_github_issues))
-        .route("/api/github/issues/{number}/import", post(import_github_issue))
+        .route(
+            "/api/github/issues/{number}/import",
+            post(import_github_issue),
+        )
         .route("/api/github/prs", get(list_github_prs))
         .route("/api/github/pr/{task_id}", post(create_pr_for_task))
         // GitHub OAuth
@@ -386,8 +461,14 @@ pub fn api_router_with_auth(state: Arc<ApiState>, api_key: Option<String>) -> Ro
         .route("/api/github/oauth/revoke", post(github_oauth_revoke))
         // GitLab integration
         .route("/api/gitlab/issues", get(list_gitlab_issues))
-        .route("/api/gitlab/merge-requests", get(list_gitlab_merge_requests))
-        .route("/api/gitlab/merge-requests/{iid}/review", post(review_gitlab_merge_request))
+        .route(
+            "/api/gitlab/merge-requests",
+            get(list_gitlab_merge_requests),
+        )
+        .route(
+            "/api/gitlab/merge-requests/{iid}/review",
+            post(review_gitlab_merge_request),
+        )
         // Linear integration
         .route("/api/linear/issues", get(list_linear_issues))
         .route("/api/linear/import", post(import_linear_issues))
@@ -398,7 +479,10 @@ pub fn api_router_with_auth(state: Arc<ApiState>, api_key: Option<String>) -> Ro
         .route("/api/mcp/tools/call", post(call_mcp_tool))
         // Worktrees
         .route("/api/worktrees", get(list_worktrees))
-        .route("/api/worktrees/{id}", axum::routing::delete(delete_worktree))
+        .route(
+            "/api/worktrees/{id}",
+            axum::routing::delete(delete_worktree),
+        )
         .route("/api/worktrees/{id}/merge", post(merge_worktree))
         .route("/api/worktrees/{id}/merge-preview", get(merge_preview))
         .route("/api/worktrees/{id}/resolve", post(resolve_conflict))
@@ -420,8 +504,14 @@ pub fn api_router_with_auth(state: Arc<ApiState>, api_key: Option<String>) -> Ro
         .route("/api/notifications", get(list_notifications))
         .route("/api/notifications/count", get(notification_count))
         .route("/api/notifications/{id}/read", post(mark_notification_read))
-        .route("/api/notifications/read-all", post(mark_all_notifications_read))
-        .route("/api/notifications/{id}", axum::routing::delete(delete_notification))
+        .route(
+            "/api/notifications/read-all",
+            post(mark_all_notifications_read),
+        )
+        .route(
+            "/api/notifications/{id}",
+            axum::routing::delete(delete_notification),
+        )
         // Metrics endpoints
         .route("/api/metrics", get(get_metrics_prometheus))
         .route("/api/metrics/json", get(get_metrics_json))
@@ -437,7 +527,10 @@ pub fn api_router_with_auth(state: Arc<ApiState>, api_key: Option<String>) -> Ro
         .route("/api/projects/{id}/activate", post(activate_project))
         // PR polling
         .route("/api/github/pr/{number}/watch", post(watch_pr))
-        .route("/api/github/pr/{number}/watch", axum::routing::delete(unwatch_pr))
+        .route(
+            "/api/github/pr/{number}/watch",
+            axum::routing::delete(unwatch_pr),
+        )
         .route("/api/github/pr/watched", get(list_watched_prs))
         // GitHub releases
         .route("/api/github/releases", post(create_release))
@@ -449,12 +542,18 @@ pub fn api_router_with_auth(state: Arc<ApiState>, api_key: Option<String>) -> Ro
         // Attachments
         .route("/api/tasks/{task_id}/attachments", get(list_attachments))
         .route("/api/tasks/{task_id}/attachments", post(add_attachment))
-        .route("/api/tasks/{task_id}/attachments/{id}", axum::routing::delete(delete_attachment))
+        .route(
+            "/api/tasks/{task_id}/attachments/{id}",
+            axum::routing::delete(delete_attachment),
+        )
         // Task drafts
         .route("/api/tasks/drafts", get(list_task_drafts))
         .route("/api/tasks/drafts", post(save_task_draft))
         .route("/api/tasks/drafts/{id}", get(get_task_draft))
-        .route("/api/tasks/drafts/{id}", axum::routing::delete(delete_task_draft))
+        .route(
+            "/api/tasks/drafts/{id}",
+            axum::routing::delete(delete_task_draft),
+        )
         // Kanban column locking
         .route("/api/kanban/columns/lock", post(lock_column))
         // Task ordering
@@ -463,7 +562,10 @@ pub fn api_router_with_auth(state: Arc<ApiState>, api_key: Option<String>) -> Ro
         .route("/api/files/watch", post(start_file_watch))
         .route("/api/files/unwatch", post(stop_file_watch))
         // Competitor analysis
-        .route("/api/roadmap/competitor-analysis", post(run_competitor_analysis))
+        .route(
+            "/api/roadmap/competitor-analysis",
+            post(run_competitor_analysis),
+        )
         // Profile swap notification
         .route("/api/notifications/profile-swap", post(notify_profile_swap))
         // App update check
@@ -664,7 +766,9 @@ async fn create_bead(
     beads.push(bead.clone());
 
     // Publish event
-    state.event_bus.publish(crate::protocol::BridgeMessage::BeadList(beads.clone()));
+    state
+        .event_bus
+        .publish(crate::protocol::BridgeMessage::BeadList(beads.clone()));
 
     (axum::http::StatusCode::CREATED, Json(bead))
 }
@@ -698,9 +802,14 @@ async fn update_bead_status(
     bead.updated_at = chrono::Utc::now();
 
     let bead_snapshot = bead.clone();
-    state.event_bus.publish(crate::protocol::BridgeMessage::BeadList(beads.clone()));
+    state
+        .event_bus
+        .publish(crate::protocol::BridgeMessage::BeadList(beads.clone()));
 
-    (axum::http::StatusCode::OK, Json(serde_json::json!(bead_snapshot)))
+    (
+        axum::http::StatusCode::OK,
+        Json(serde_json::json!(bead_snapshot)),
+    )
 }
 
 async fn list_agents(State(state): State<Arc<ApiState>>) -> Json<Vec<Agent>> {
@@ -732,13 +841,13 @@ async fn nudge_agent(
     }
 
     let snapshot = agent.clone();
-    (axum::http::StatusCode::OK, Json(serde_json::json!(snapshot)))
+    (
+        axum::http::StatusCode::OK,
+        Json(serde_json::json!(snapshot)),
+    )
 }
 
-async fn stop_agent(
-    State(state): State<Arc<ApiState>>,
-    Path(id): Path<Uuid>,
-) -> impl IntoResponse {
+async fn stop_agent(State(state): State<Arc<ApiState>>, Path(id): Path<Uuid>) -> impl IntoResponse {
     let mut agents = state.agents.write().await;
     let Some(agent) = agents.iter_mut().find(|a| a.id == id) else {
         return (
@@ -751,7 +860,10 @@ async fn stop_agent(
     agent.last_seen = chrono::Utc::now();
 
     let snapshot = agent.clone();
-    (axum::http::StatusCode::OK, Json(serde_json::json!(snapshot)))
+    (
+        axum::http::StatusCode::OK,
+        Json(serde_json::json!(snapshot)),
+    )
 }
 
 async fn get_kpi(State(state): State<Arc<ApiState>>) -> Json<KpiSnapshot> {
@@ -776,10 +888,17 @@ async fn create_task(
         return (
             axum::http::StatusCode::BAD_REQUEST,
             Json(serde_json::json!({"error": "title cannot be empty"})),
-        ).into_response();
+        )
+            .into_response();
     }
 
-    let mut task = Task::new(req.title, req.bead_id, req.category, req.priority, req.complexity);
+    let mut task = Task::new(
+        req.title,
+        req.bead_id,
+        req.category,
+        req.priority,
+        req.complexity,
+    );
     task.description = req.description;
     task.impact = req.impact;
     task.agent_profile = req.agent_profile;
@@ -791,13 +910,14 @@ async fn create_task(
     let mut tasks = state.tasks.write().await;
     tasks.push(task.clone());
 
-    (axum::http::StatusCode::CREATED, Json(serde_json::json!(task))).into_response()
+    (
+        axum::http::StatusCode::CREATED,
+        Json(serde_json::json!(task)),
+    )
+        .into_response()
 }
 
-async fn get_task(
-    State(state): State<Arc<ApiState>>,
-    Path(id): Path<Uuid>,
-) -> impl IntoResponse {
+async fn get_task(State(state): State<Arc<ApiState>>, Path(id): Path<Uuid>) -> impl IntoResponse {
     let tasks = state.tasks.read().await;
     let Some(task) = tasks.iter().find(|t| t.id == id) else {
         return (
@@ -855,8 +975,15 @@ async fn update_task(
 
     let task_snapshot = task.clone();
     drop(tasks);
-    state.event_bus.publish(crate::protocol::BridgeMessage::TaskUpdate(task_snapshot.clone()));
-    (axum::http::StatusCode::OK, Json(serde_json::json!(task_snapshot)))
+    state
+        .event_bus
+        .publish(crate::protocol::BridgeMessage::TaskUpdate(
+            task_snapshot.clone(),
+        ));
+    (
+        axum::http::StatusCode::OK,
+        Json(serde_json::json!(task_snapshot)),
+    )
 }
 
 async fn delete_task(
@@ -906,8 +1033,15 @@ async fn update_task_phase(
     task.set_phase(req.phase);
     let task_snapshot = task.clone();
     drop(tasks);
-    state.event_bus.publish(crate::protocol::BridgeMessage::TaskUpdate(task_snapshot.clone()));
-    (axum::http::StatusCode::OK, Json(serde_json::json!(task_snapshot)))
+    state
+        .event_bus
+        .publish(crate::protocol::BridgeMessage::TaskUpdate(
+            task_snapshot.clone(),
+        ));
+    (
+        axum::http::StatusCode::OK,
+        Json(serde_json::json!(task_snapshot)),
+    )
 }
 
 async fn get_task_logs(
@@ -927,7 +1061,9 @@ async fn get_task_logs(
     )
 }
 
-async fn get_pipeline_queue_status(State(state): State<Arc<ApiState>>) -> Json<PipelineQueueStatus> {
+async fn get_pipeline_queue_status(
+    State(state): State<Arc<ApiState>>,
+) -> Json<PipelineQueueStatus> {
     Json(PipelineQueueStatus {
         limit: state.pipeline_max_concurrent,
         waiting: state.pipeline_waiting.load(Ordering::SeqCst),
@@ -978,12 +1114,14 @@ async fn execute_task_pipeline(
     drop(tasks);
 
     // Extract optional CLI type from request body.
-    let cli_type = body
-        .and_then(|b| b.0.cli_type)
-        .unwrap_or(CliType::Claude);
+    let cli_type = body.and_then(|b| b.0.cli_type).unwrap_or(CliType::Claude);
 
     // Publish the phase change.
-    state.event_bus.publish(crate::protocol::BridgeMessage::TaskUpdate(task_snapshot.clone()));
+    state
+        .event_bus
+        .publish(crate::protocol::BridgeMessage::TaskUpdate(
+            task_snapshot.clone(),
+        ));
 
     // Spawn a background task to drive the pipeline phases.
     let tasks_store = state.tasks.clone();
@@ -995,18 +1133,20 @@ async fn execute_task_pipeline(
     let pipeline_limit = state.pipeline_max_concurrent;
 
     let queued_position = pipeline_waiting.fetch_add(1, Ordering::SeqCst) + 1;
-    state.event_bus.publish(crate::protocol::BridgeMessage::Event(
-        crate::protocol::EventPayload {
-            event_type: "pipeline_queued".to_string(),
-            agent_id: None,
-            bead_id: Some(task_snapshot.bead_id),
-            message: format!(
-                "Task '{}' queued (position={}, limit={})",
-                task_snapshot.title, queued_position, pipeline_limit
-            ),
-            timestamp: chrono::Utc::now(),
-        },
-    ));
+    state
+        .event_bus
+        .publish(crate::protocol::BridgeMessage::Event(
+            crate::protocol::EventPayload {
+                event_type: "pipeline_queued".to_string(),
+                agent_id: None,
+                bead_id: Some(task_snapshot.bead_id),
+                message: format!(
+                    "Task '{}' queued (position={}, limit={})",
+                    task_snapshot.title, queued_position, pipeline_limit
+                ),
+                timestamp: chrono::Utc::now(),
+            },
+        ));
 
     tokio::spawn(async move {
         let _permit = match pipeline_semaphore.acquire_owned().await {
@@ -1018,7 +1158,10 @@ async fn execute_task_pipeline(
                         event_type: "pipeline_queue_error".to_string(),
                         agent_id: None,
                         bead_id: Some(task_snapshot.bead_id),
-                        message: format!("Task '{}' failed to acquire pipeline queue permit", task_snapshot.title),
+                        message: format!(
+                            "Task '{}' failed to acquire pipeline queue permit",
+                            task_snapshot.title
+                        ),
                         timestamp: chrono::Utc::now(),
                     },
                 ));
@@ -1080,12 +1223,12 @@ async fn run_pipeline_background(
     // Helper: record a build log line on the task and publish it over the
     // event bus so WebSocket subscribers see it in real time.
     let emit_build_log = |tasks_store: &Arc<RwLock<Vec<Task>>>,
-                           event_bus: &EventBus,
-                           task_id: Uuid,
-                           bead_id: Uuid,
-                           stream: BuildStream,
-                           line: String,
-                           phase: TaskPhase| {
+                          event_bus: &EventBus,
+                          task_id: Uuid,
+                          bead_id: Uuid,
+                          stream: BuildStream,
+                          line: String,
+                          phase: TaskPhase| {
         let ts = tasks_store.clone();
         let eb = event_bus.clone();
         let stream_label = match &stream {
@@ -1127,10 +1270,15 @@ async fn run_pipeline_background(
 
     // Record phase start as a build log entry.
     emit_build_log(
-        &tasks_store, &event_bus, task.id, task.bead_id,
-        BuildStream::Stdout, "Coding phase started".to_string(),
+        &tasks_store,
+        &event_bus,
+        task.id,
+        task.bead_id,
+        BuildStream::Stdout,
+        "Coding phase started".to_string(),
         TaskPhase::Coding,
-    ).await;
+    )
+    .await;
 
     if pty_pool.is_some() {
         // Real execution would use at-agents::task_orchestrator::TaskOrchestrator.
@@ -1138,17 +1286,27 @@ async fn run_pipeline_background(
         // PTY-based execution should use the at-agents crate directly.
         tracing::info!(task_id = %task.id, "PTY pool available; coding phase delegated to agent executor");
         emit_build_log(
-            &tasks_store, &event_bus, task.id, task.bead_id,
-            BuildStream::Stdout, "PTY pool available; delegating to agent executor".to_string(),
+            &tasks_store,
+            &event_bus,
+            task.id,
+            task.bead_id,
+            BuildStream::Stdout,
+            "PTY pool available; delegating to agent executor".to_string(),
             TaskPhase::Coding,
-        ).await;
+        )
+        .await;
     }
 
     emit_build_log(
-        &tasks_store, &event_bus, task.id, task.bead_id,
-        BuildStream::Stdout, "Coding phase complete".to_string(),
+        &tasks_store,
+        &event_bus,
+        task.id,
+        task.bead_id,
+        BuildStream::Stdout,
+        "Coding phase complete".to_string(),
         TaskPhase::Coding,
-    ).await;
+    )
+    .await;
 
     emit("coding_phase_complete");
 
@@ -1165,10 +1323,15 @@ async fn run_pipeline_background(
     emit("qa_phase_start");
 
     emit_build_log(
-        &tasks_store, &event_bus, task.id, task.bead_id,
-        BuildStream::Stdout, "QA phase started".to_string(),
+        &tasks_store,
+        &event_bus,
+        task.id,
+        task.bead_id,
+        BuildStream::Stdout,
+        "QA phase started".to_string(),
         TaskPhase::Qa,
-    ).await;
+    )
+    .await;
 
     let worktree = task.worktree_path.as_deref().unwrap_or(".");
     let mut qa_runner = QaRunner::new();
@@ -1181,11 +1344,19 @@ async fn run_pipeline_background(
         BuildStream::Stderr
     };
     emit_build_log(
-        &tasks_store, &event_bus, task.id, task.bead_id,
+        &tasks_store,
+        &event_bus,
+        task.id,
+        task.bead_id,
         qa_stream,
-        format!("QA result: {:?} ({} issues)", report.status, report.issues.len()),
+        format!(
+            "QA result: {:?} ({} issues)",
+            report.status,
+            report.issues.len()
+        ),
         TaskPhase::Qa,
-    ).await;
+    )
+    .await;
 
     emit("qa_phase_complete");
 
@@ -1196,11 +1367,15 @@ async fn run_pipeline_background(
         emit(&format!("qa_fix_iteration_{}", iterations));
 
         emit_build_log(
-            &tasks_store, &event_bus, task.id, task.bead_id,
+            &tasks_store,
+            &event_bus,
+            task.id,
+            task.bead_id,
             BuildStream::Stderr,
             format!("Fix iteration {} of {}", iterations, max_fix_iterations),
             TaskPhase::Fixing,
-        ).await;
+        )
+        .await;
 
         // Transition to Fixing
         {
@@ -1229,11 +1404,19 @@ async fn run_pipeline_background(
             BuildStream::Stderr
         };
         emit_build_log(
-            &tasks_store, &event_bus, task.id, task.bead_id,
+            &tasks_store,
+            &event_bus,
+            task.id,
+            task.bead_id,
             iter_stream,
-            format!("QA re-check result: {:?} ({} issues)", report.status, report.issues.len()),
+            format!(
+                "QA re-check result: {:?} ({} issues)",
+                report.status,
+                report.issues.len()
+            ),
             TaskPhase::Qa,
-        ).await;
+        )
+        .await;
     }
 
     // Store the QA report on the task
@@ -1250,17 +1433,27 @@ async fn run_pipeline_background(
 
     if report.status == at_core::types::QaStatus::Passed {
         emit_build_log(
-            &tasks_store, &event_bus, task.id, task.bead_id,
-            BuildStream::Stdout, "Pipeline completed successfully".to_string(),
+            &tasks_store,
+            &event_bus,
+            task.id,
+            task.bead_id,
+            BuildStream::Stdout,
+            "Pipeline completed successfully".to_string(),
             TaskPhase::Complete,
-        ).await;
+        )
+        .await;
         emit("pipeline_complete");
     } else {
         emit_build_log(
-            &tasks_store, &event_bus, task.id, task.bead_id,
-            BuildStream::Stderr, "Pipeline completed with failures".to_string(),
+            &tasks_store,
+            &event_bus,
+            task.id,
+            task.bead_id,
+            BuildStream::Stderr,
+            "Pipeline completed with failures".to_string(),
             TaskPhase::Error,
-        ).await;
+        )
+        .await;
         emit("pipeline_complete_with_failures");
     }
 
@@ -1312,7 +1505,9 @@ async fn get_build_logs(
             Err(_) => {
                 return (
                     axum::http::StatusCode::BAD_REQUEST,
-                    Json(serde_json::json!({"error": "invalid 'since' timestamp; use ISO-8601 / RFC-3339"})),
+                    Json(
+                        serde_json::json!({"error": "invalid 'since' timestamp; use ISO-8601 / RFC-3339"}),
+                    ),
                 );
             }
         }
@@ -1480,7 +1675,8 @@ async fn list_gitlab_issues(
         );
     }
 
-    let base_url = int.gitlab_url
+    let base_url = int
+        .gitlab_url
         .clone()
         .unwrap_or_else(|| "https://gitlab.com".to_string());
 
@@ -1558,7 +1754,8 @@ async fn list_gitlab_merge_requests(
         );
     }
 
-    let base_url = int.gitlab_url
+    let base_url = int
+        .gitlab_url
         .clone()
         .unwrap_or_else(|| "https://gitlab.com".to_string());
 
@@ -1637,7 +1834,8 @@ async fn review_gitlab_merge_request(
         );
     }
 
-    let base_url = int.gitlab_url
+    let base_url = int
+        .gitlab_url
         .clone()
         .unwrap_or_else(|| "https://gitlab.com".to_string());
     let client = match at_integrations::gitlab::GitLabClient::new_with_url(
@@ -1699,15 +1897,16 @@ async fn list_linear_issues(
         );
     }
 
-    let client = match at_integrations::linear::LinearClient::new(token.as_deref().unwrap_or_default()) {
-        Ok(c) => c,
-        Err(e) => {
-            return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": e.to_string() })),
-            );
-        }
-    };
+    let client =
+        match at_integrations::linear::LinearClient::new(token.as_deref().unwrap_or_default()) {
+            Ok(c) => c,
+            Err(e) => {
+                return (
+                    axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({ "error": e.to_string() })),
+                );
+            }
+        };
 
     let team = q.team_id.as_deref().or(int.linear_team_id.as_deref());
     if team.is_none() {
@@ -1719,10 +1918,7 @@ async fn list_linear_issues(
         );
     }
 
-    match client
-        .list_issues(team, q.state.as_deref())
-        .await
-    {
+    match client.list_issues(team, q.state.as_deref()).await {
         Ok(issues) => (axum::http::StatusCode::OK, Json(serde_json::json!(issues))),
         Err(e) => (
             axum::http::StatusCode::INTERNAL_SERVER_ERROR,
@@ -1754,15 +1950,16 @@ async fn import_linear_issues(
         );
     }
 
-    let client = match at_integrations::linear::LinearClient::new(token.as_deref().unwrap_or_default()) {
-        Ok(c) => c,
-        Err(e) => {
-            return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": e.to_string() })),
-            );
-        }
-    };
+    let client =
+        match at_integrations::linear::LinearClient::new(token.as_deref().unwrap_or_default()) {
+            Ok(c) => c,
+            Err(e) => {
+                return (
+                    axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({ "error": e.to_string() })),
+                );
+            }
+        };
 
     match client.import_issues(body.issue_ids).await {
         Ok(results) => (axum::http::StatusCode::OK, Json(serde_json::json!(results))),
@@ -1905,16 +2102,20 @@ async fn list_github_issues(
         }
     };
 
-    let state_filter = q.state.as_deref().and_then(|s| match s.to_lowercase().as_str() {
-        "open" => Some(IssueState::Open),
-        "closed" => Some(IssueState::Closed),
-        _ => None,
-    });
-    let labels: Option<Vec<String>> = q
-        .labels
+    let state_filter = q
+        .state
         .as_deref()
-        .filter(|s| !s.is_empty())
-        .map(|s| s.split(',').map(|l| l.trim().to_string()).filter(|l| !l.is_empty()).collect());
+        .and_then(|s| match s.to_lowercase().as_str() {
+            "open" => Some(IssueState::Open),
+            "closed" => Some(IssueState::Closed),
+            _ => None,
+        });
+    let labels: Option<Vec<String>> = q.labels.as_deref().filter(|s| !s.is_empty()).map(|s| {
+        s.split(',')
+            .map(|l| l.trim().to_string())
+            .filter(|l| !l.is_empty())
+            .collect()
+    });
     let list = match issues::list_issues(&client, state_filter, labels, q.page, q.per_page).await {
         Ok(issues) => issues,
         Err(e) => {
@@ -1928,9 +2129,7 @@ async fn list_github_issues(
     (axum::http::StatusCode::OK, Json(serde_json::json!(list)))
 }
 
-async fn trigger_github_sync(
-    State(state): State<Arc<ApiState>>,
-) -> impl IntoResponse {
+async fn trigger_github_sync(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     let config = state.settings_manager.load_or_default();
     let int = &config.integrations;
     let token = CredentialProvider::from_env(&int.github_token_env);
@@ -2009,9 +2208,7 @@ async fn trigger_github_sync(
     )
 }
 
-async fn get_sync_status(
-    State(state): State<Arc<ApiState>>,
-) -> impl IntoResponse {
+async fn get_sync_status(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     let status = state.sync_status.read().await;
     Json(serde_json::json!(*status))
 }
@@ -2066,11 +2263,7 @@ async fn create_pr_for_task(
         );
     }
 
-    let gh_config = GitHubConfig {
-        token,
-        owner,
-        repo,
-    };
+    let gh_config = GitHubConfig { token, owner, repo };
     let client = match at_integrations::github::client::GitHubClient::new(gh_config) {
         Ok(c) => c,
         Err(e) => {
@@ -2147,9 +2340,7 @@ async fn list_notifications(
 }
 
 /// GET /api/notifications/count — return unread count.
-async fn notification_count(
-    State(state): State<Arc<ApiState>>,
-) -> impl IntoResponse {
+async fn notification_count(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     let store = state.notification_store.read().await;
     Json(serde_json::json!({
         "unread": store.unread_count(),
@@ -2177,9 +2368,7 @@ async fn mark_notification_read(
 }
 
 /// POST /api/notifications/read-all — mark all notifications as read.
-async fn mark_all_notifications_read(
-    State(state): State<Arc<ApiState>>,
-) -> impl IntoResponse {
+async fn mark_all_notifications_read(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     let mut store = state.notification_store.write().await;
     store.mark_all_read();
     Json(serde_json::json!({"status": "all_read"}))
@@ -2230,9 +2419,7 @@ async fn get_metrics_json() -> impl IntoResponse {
 // ---------------------------------------------------------------------------
 
 /// GET /api/sessions/ui — load the most recent UI session (or return null).
-async fn get_ui_session(
-    State(state): State<Arc<ApiState>>,
-) -> impl IntoResponse {
+async fn get_ui_session(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     match state.session_store.list_sessions() {
         Ok(sessions) => {
             if let Some(session) = sessions.into_iter().next() {
@@ -2264,11 +2451,12 @@ async fn save_ui_session(
 }
 
 /// GET /api/sessions/ui/list — list all saved sessions.
-async fn list_ui_sessions(
-    State(state): State<Arc<ApiState>>,
-) -> impl IntoResponse {
+async fn list_ui_sessions(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     match state.session_store.list_sessions() {
-        Ok(sessions) => (axum::http::StatusCode::OK, Json(serde_json::json!(sessions))),
+        Ok(sessions) => (
+            axum::http::StatusCode::OK,
+            Json(serde_json::json!(sessions)),
+        ),
         Err(e) => (
             axum::http::StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({"error": e.to_string()})),
@@ -2280,10 +2468,7 @@ async fn list_ui_sessions(
 // WebSocket — legacy /ws handler
 // ---------------------------------------------------------------------------
 
-async fn ws_handler(
-    ws: WebSocketUpgrade,
-    State(state): State<Arc<ApiState>>,
-) -> impl IntoResponse {
+async fn ws_handler(ws: WebSocketUpgrade, State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     ws.on_upgrade(move |socket| handle_ws(socket, state))
 }
 
@@ -2402,12 +2587,20 @@ async fn list_mcp_servers() -> Json<Vec<McpServer>> {
         McpServer {
             name: "Graphiti Memory".into(),
             status: "active".into(),
-            tools: vec!["add_memory".into(), "search_memory".into(), "delete_memory".into()],
+            tools: vec![
+                "add_memory".into(),
+                "search_memory".into(),
+                "delete_memory".into(),
+            ],
         },
         McpServer {
             name: "Linear".into(),
             status: "inactive".into(),
-            tools: vec!["create_issue".into(), "list_issues".into(), "update_issue".into()],
+            tools: vec![
+                "create_issue".into(),
+                "list_issues".into(),
+                "update_issue".into(),
+            ],
         },
         McpServer {
             name: "Sequential Thinking".into(),
@@ -2417,7 +2610,11 @@ async fn list_mcp_servers() -> Json<Vec<McpServer>> {
         McpServer {
             name: "Filesystem".into(),
             status: "active".into(),
-            tools: vec!["read_file".into(), "write_file".into(), "list_directory".into()],
+            tools: vec![
+                "read_file".into(),
+                "write_file".into(),
+                "list_directory".into(),
+            ],
         },
         McpServer {
             name: "Puppeteer".into(),
@@ -2553,7 +2750,10 @@ async fn list_worktrees() -> impl IntoResponse {
         });
     }
 
-    (axum::http::StatusCode::OK, Json(serde_json::json!(worktrees)))
+    (
+        axum::http::StatusCode::OK,
+        Json(serde_json::json!(worktrees)),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -2667,12 +2867,14 @@ async fn merge_worktree(
             }
 
             // Publish event
-            state.event_bus.publish(crate::protocol::BridgeMessage::MergeResult {
-                worktree_id: id.clone(),
-                branch: branch.clone(),
-                status: "success".to_string(),
-                conflict_files: vec![],
-            });
+            state
+                .event_bus
+                .publish(crate::protocol::BridgeMessage::MergeResult {
+                    worktree_id: id.clone(),
+                    branch: branch.clone(),
+                    status: "success".to_string(),
+                    conflict_files: vec![],
+                });
 
             (
                 axum::http::StatusCode::OK,
@@ -2713,12 +2915,14 @@ async fn merge_worktree(
                 }
             };
 
-            state.event_bus.publish(crate::protocol::BridgeMessage::MergeResult {
-                worktree_id: id.clone(),
-                branch: branch.clone(),
-                status: "conflict".to_string(),
-                conflict_files: conflict_files.clone(),
-            });
+            state
+                .event_bus
+                .publish(crate::protocol::BridgeMessage::MergeResult {
+                    worktree_id: id.clone(),
+                    branch: branch.clone(),
+                    status: "conflict".to_string(),
+                    conflict_files: conflict_files.clone(),
+                });
 
             (
                 axum::http::StatusCode::OK,
@@ -2793,7 +2997,12 @@ async fn merge_preview(Path(id): Path<String>) -> impl IntoResponse {
 
     // Count commits ahead/behind
     let rev_list = tokio::process::Command::new("git")
-        .args(["rev-list", "--left-right", "--count", &format!("main...{}", branch)])
+        .args([
+            "rev-list",
+            "--left-right",
+            "--count",
+            &format!("main...{}", branch),
+        ])
         .current_dir(base_dir_str)
         .output()
         .await;
@@ -2802,8 +3011,14 @@ async fn merge_preview(Path(id): Path<String>) -> impl IntoResponse {
         Ok(o) if o.status.success() => {
             let text = String::from_utf8_lossy(&o.stdout);
             let parts: Vec<&str> = text.trim().split('\t').collect();
-            let behind = parts.first().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
-            let ahead = parts.get(1).and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
+            let behind = parts
+                .first()
+                .and_then(|s| s.parse::<u64>().ok())
+                .unwrap_or(0);
+            let ahead = parts
+                .get(1)
+                .and_then(|s| s.parse::<u64>().ok())
+                .unwrap_or(0);
             (behind, ahead)
         }
         _ => (0, 0),
@@ -2990,9 +3205,11 @@ async fn reorder_queue(
     drop(tasks);
 
     // Publish queue update event
-    state.event_bus.publish(crate::protocol::BridgeMessage::QueueUpdate {
-        task_ids: req.task_ids,
-    });
+    state
+        .event_bus
+        .publish(crate::protocol::BridgeMessage::QueueUpdate {
+            task_ids: req.task_ids,
+        });
 
     (
         axum::http::StatusCode::OK,
@@ -3020,9 +3237,16 @@ async fn prioritize_task(
     let task_snapshot = task.clone();
     drop(tasks);
 
-    state.event_bus.publish(crate::protocol::BridgeMessage::TaskUpdate(task_snapshot.clone()));
+    state
+        .event_bus
+        .publish(crate::protocol::BridgeMessage::TaskUpdate(
+            task_snapshot.clone(),
+        ));
 
-    (axum::http::StatusCode::OK, Json(serde_json::json!(task_snapshot)))
+    (
+        axum::http::StatusCode::OK,
+        Json(serde_json::json!(task_snapshot)),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -3093,10 +3317,7 @@ async fn list_available_clis() -> impl IntoResponse {
 
 /// Use `which` to detect a CLI binary on the system PATH.
 fn detect_cli_binary(name: &str) -> (bool, Option<String>) {
-    match std::process::Command::new("which")
-        .arg(name)
-        .output()
-    {
+    match std::process::Command::new("which").arg(name).output() {
         Ok(output) if output.status.success() => {
             let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
             (true, Some(path))
@@ -3243,22 +3464,26 @@ async fn list_github_prs(
         }
     };
 
-    let state_filter = q.state.as_deref().and_then(|s| match s.to_lowercase().as_str() {
-        "open" => Some(PrState::Open),
-        "closed" => Some(PrState::Closed),
-        "merged" => Some(PrState::Merged),
-        _ => None,
-    });
+    let state_filter = q
+        .state
+        .as_deref()
+        .and_then(|s| match s.to_lowercase().as_str() {
+            "open" => Some(PrState::Open),
+            "closed" => Some(PrState::Closed),
+            "merged" => Some(PrState::Merged),
+            _ => None,
+        });
 
-    let list = match pull_requests::list_pull_requests(&client, state_filter, q.page, q.per_page).await {
-        Ok(prs) => prs,
-        Err(e) => {
-            return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": e.to_string() })),
-            );
-        }
-    };
+    let list =
+        match pull_requests::list_pull_requests(&client, state_filter, q.page, q.per_page).await {
+            Ok(prs) => prs,
+            Err(e) => {
+                return (
+                    axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({ "error": e.to_string() })),
+                );
+            }
+        };
 
     (axum::http::StatusCode::OK, Json(serde_json::json!(list)))
 }
@@ -3319,7 +3544,10 @@ async fn import_github_issue(
     let bead = issues::import_issue_as_task(&issue);
     state.beads.write().await.push(bead.clone());
 
-    (axum::http::StatusCode::CREATED, Json(serde_json::json!(bead)))
+    (
+        axum::http::StatusCode::CREATED,
+        Json(serde_json::json!(bead)),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -3327,9 +3555,7 @@ async fn import_github_issue(
 // ---------------------------------------------------------------------------
 
 /// GET /api/github/oauth/authorize — build the GitHub authorization URL.
-async fn github_oauth_authorize(
-    State(_state): State<Arc<ApiState>>,
-) -> impl IntoResponse {
+async fn github_oauth_authorize(State(_state): State<Arc<ApiState>>) -> impl IntoResponse {
     let client_id = match std::env::var("GITHUB_OAUTH_CLIENT_ID") {
         Ok(v) if !v.is_empty() => v,
         _ => {
@@ -3452,9 +3678,7 @@ async fn github_oauth_callback(
 }
 
 /// GET /api/github/oauth/status — check whether the user is authenticated.
-async fn github_oauth_status(
-    State(state): State<Arc<ApiState>>,
-) -> impl IntoResponse {
+async fn github_oauth_status(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     let token = state.github_oauth_token.read().await;
     let user = state.github_oauth_user.read().await;
 
@@ -3467,9 +3691,7 @@ async fn github_oauth_status(
 }
 
 /// POST /api/github/oauth/revoke — clear the stored OAuth token.
-async fn github_oauth_revoke(
-    State(state): State<Arc<ApiState>>,
-) -> impl IntoResponse {
+async fn github_oauth_revoke(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     *state.github_oauth_token.write().await = None;
     *state.github_oauth_user.write().await = None;
 
@@ -3518,9 +3740,7 @@ struct AgentSessionEntry {
     duration: String,
 }
 
-async fn list_agent_sessions(
-    State(state): State<Arc<ApiState>>,
-) -> Json<Vec<AgentSessionEntry>> {
+async fn list_agent_sessions(State(state): State<Arc<ApiState>>) -> Json<Vec<AgentSessionEntry>> {
     let agents = state.agents.read().await;
     let sessions: Vec<AgentSessionEntry> = agents
         .iter()
@@ -3613,7 +3833,10 @@ async fn update_project(
     if let Some(path) = req.path {
         project.path = path;
     }
-    (axum::http::StatusCode::OK, Json(serde_json::json!(project.clone())))
+    (
+        axum::http::StatusCode::OK,
+        Json(serde_json::json!(project.clone())),
+    )
 }
 
 async fn delete_project(
@@ -3640,7 +3863,10 @@ async fn delete_project(
             first.is_active = true;
         }
     }
-    (axum::http::StatusCode::OK, Json(serde_json::json!({"ok": true})))
+    (
+        axum::http::StatusCode::OK,
+        Json(serde_json::json!({"ok": true})),
+    )
 }
 
 async fn activate_project(
@@ -3659,7 +3885,10 @@ async fn activate_project(
         p.is_active = p.id == id;
     }
     let activated = projects.iter().find(|p| p.id == id).cloned().unwrap();
-    (axum::http::StatusCode::OK, Json(serde_json::json!(activated)))
+    (
+        axum::http::StatusCode::OK,
+        Json(serde_json::json!(activated)),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -3717,9 +3946,15 @@ async fn unwatch_pr(
 ) -> impl IntoResponse {
     let mut registry = state.pr_poll_registry.write().await;
     if registry.remove(&number).is_some() {
-        (axum::http::StatusCode::OK, Json(serde_json::json!({"removed": number})))
+        (
+            axum::http::StatusCode::OK,
+            Json(serde_json::json!({"removed": number})),
+        )
     } else {
-        (axum::http::StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "PR not watched"})))
+        (
+            axum::http::StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "PR not watched"})),
+        )
     }
 }
 
@@ -3747,23 +3982,170 @@ async fn create_release(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<CreateReleaseRequest>,
 ) -> impl IntoResponse {
-    let release = GitHubRelease {
-        tag_name: req.tag_name,
-        name: req.name,
-        body: req.body,
-        draft: req.draft,
-        prerelease: req.prerelease,
-        created_at: chrono::Utc::now(),
-        html_url: format!("https://github.com/example/repo/releases/tag/stub"),
+    let config = state.settings_manager.load_or_default();
+    let int = &config.integrations;
+    let token = CredentialProvider::from_env(&int.github_token_env);
+    let owner = int.github_owner.as_deref().unwrap_or("").to_string();
+    let repo = int.github_repo.as_deref().unwrap_or("").to_string();
+
+    if token.as_ref().map_or(true, |t| t.is_empty()) || owner.is_empty() || repo.is_empty() {
+        let release = GitHubRelease {
+            tag_name: req.tag_name,
+            name: req.name,
+            body: req.body,
+            draft: req.draft,
+            prerelease: req.prerelease,
+            created_at: chrono::Utc::now(),
+            html_url: format!("local://releases/{}", chrono::Utc::now().timestamp_millis()),
+        };
+        let mut releases = state.releases.write().await;
+        releases.retain(|r| r.tag_name != release.tag_name);
+        releases.push(release.clone());
+        return (
+            axum::http::StatusCode::CREATED,
+            Json(serde_json::json!(release)),
+        );
+    }
+
+    let gh_config = GitHubConfig { token, owner, repo };
+    let client = match at_integrations::github::client::GitHubClient::new(gh_config) {
+        Ok(c) => c,
+        Err(e) => {
+            return (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            );
+        }
     };
+
+    let route = format!("/repos/{}/{}/releases", client.owner(), client.repo());
+    let payload = serde_json::json!({
+        "tag_name": req.tag_name,
+        "name": req.name,
+        "body": req.body,
+        "draft": req.draft,
+        "prerelease": req.prerelease,
+    });
+
+    let created: serde_json::Value = match client.inner().post(route, Some(&payload)).await {
+        Ok(v) => v,
+        Err(e) => {
+            return (
+                axum::http::StatusCode::BAD_GATEWAY,
+                Json(serde_json::json!({ "error": format!("GitHub release create failed: {e}") })),
+            );
+        }
+    };
+
+    let release = GitHubRelease {
+        tag_name: created
+            .get("tag_name")
+            .and_then(|v| v.as_str())
+            .unwrap_or(payload["tag_name"].as_str().unwrap_or_default())
+            .to_string(),
+        name: created
+            .get("name")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .or_else(|| payload["name"].as_str().map(|s| s.to_string())),
+        body: created
+            .get("body")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .or_else(|| payload["body"].as_str().map(|s| s.to_string())),
+        draft: created
+            .get("draft")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(payload["draft"].as_bool().unwrap_or(false)),
+        prerelease: created
+            .get("prerelease")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(payload["prerelease"].as_bool().unwrap_or(false)),
+        created_at: created
+            .get("created_at")
+            .and_then(|v| v.as_str())
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+            .map(|dt| dt.with_timezone(&chrono::Utc))
+            .unwrap_or_else(chrono::Utc::now),
+        html_url: created
+            .get("html_url")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string(),
+    };
+
     let mut releases = state.releases.write().await;
+    releases.retain(|r| r.tag_name != release.tag_name);
     releases.push(release.clone());
-    (axum::http::StatusCode::CREATED, Json(serde_json::json!(release)))
+    (
+        axum::http::StatusCode::CREATED,
+        Json(serde_json::json!(release)),
+    )
 }
 
-async fn list_releases(State(state): State<Arc<ApiState>>) -> Json<Vec<GitHubRelease>> {
-    let releases = state.releases.read().await;
-    Json(releases.clone())
+async fn list_releases(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
+    let config = state.settings_manager.load_or_default();
+    let int = &config.integrations;
+    let token = CredentialProvider::from_env(&int.github_token_env);
+    let owner = int.github_owner.as_deref().unwrap_or("").to_string();
+    let repo = int.github_repo.as_deref().unwrap_or("").to_string();
+
+    if token.as_ref().map_or(false, |t| !t.is_empty()) && !owner.is_empty() && !repo.is_empty() {
+        let gh_config = GitHubConfig { token, owner, repo };
+        if let Ok(client) = at_integrations::github::client::GitHubClient::new(gh_config) {
+            let route = format!("/repos/{}/{}/releases", client.owner(), client.repo());
+            if let Ok(remote) = client
+                .inner()
+                .get::<Vec<serde_json::Value>, _, _>(&route, None::<&()>)
+                .await
+            {
+                let releases: Vec<GitHubRelease> = remote
+                    .into_iter()
+                    .map(|r| GitHubRelease {
+                        tag_name: r
+                            .get("tag_name")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default()
+                            .to_string(),
+                        name: r
+                            .get("name")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string()),
+                        body: r
+                            .get("body")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string()),
+                        draft: r.get("draft").and_then(|v| v.as_bool()).unwrap_or(false),
+                        prerelease: r
+                            .get("prerelease")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false),
+                        created_at: r
+                            .get("created_at")
+                            .and_then(|v| v.as_str())
+                            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+                            .map(|dt| dt.with_timezone(&chrono::Utc))
+                            .unwrap_or_else(chrono::Utc::now),
+                        html_url: r
+                            .get("html_url")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default()
+                            .to_string(),
+                    })
+                    .collect();
+
+                let mut cache = state.releases.write().await;
+                *cache = releases.clone();
+                return (
+                    axum::http::StatusCode::OK,
+                    Json(serde_json::json!(releases)),
+                );
+            }
+        }
+    }
+
+    let cached = state.releases.read().await.clone();
+    (axum::http::StatusCode::OK, Json(serde_json::json!(cached)))
 }
 
 // ---------------------------------------------------------------------------
@@ -3778,7 +4160,10 @@ async fn archive_task(
     if !archived.contains(&id) {
         archived.push(id);
     }
-    (axum::http::StatusCode::OK, Json(serde_json::json!({"archived": id})))
+    (
+        axum::http::StatusCode::OK,
+        Json(serde_json::json!({"archived": id})),
+    )
 }
 
 async fn unarchive_task(
@@ -3787,7 +4172,10 @@ async fn unarchive_task(
 ) -> impl IntoResponse {
     let mut archived = state.archived_tasks.write().await;
     archived.retain(|&aid| aid != id);
-    (axum::http::StatusCode::OK, Json(serde_json::json!({"unarchived": id})))
+    (
+        axum::http::StatusCode::OK,
+        Json(serde_json::json!({"unarchived": id})),
+    )
 }
 
 async fn list_archived_tasks(State(state): State<Arc<ApiState>>) -> Json<Vec<Uuid>> {
@@ -3804,7 +4192,11 @@ async fn list_attachments(
     Path(task_id): Path<Uuid>,
 ) -> Json<Vec<Attachment>> {
     let attachments = state.attachments.read().await;
-    let filtered: Vec<Attachment> = attachments.iter().filter(|a| a.task_id == task_id).cloned().collect();
+    let filtered: Vec<Attachment> = attachments
+        .iter()
+        .filter(|a| a.task_id == task_id)
+        .cloned()
+        .collect();
     Json(filtered)
 }
 
@@ -3816,14 +4208,25 @@ async fn add_attachment(
     let attachment = Attachment {
         id: Uuid::new_v4(),
         task_id,
-        filename: req.get("filename").and_then(|v| v.as_str()).unwrap_or("untitled").to_string(),
-        content_type: req.get("content_type").and_then(|v| v.as_str()).unwrap_or("application/octet-stream").to_string(),
+        filename: req
+            .get("filename")
+            .and_then(|v| v.as_str())
+            .unwrap_or("untitled")
+            .to_string(),
+        content_type: req
+            .get("content_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("application/octet-stream")
+            .to_string(),
         size_bytes: req.get("size_bytes").and_then(|v| v.as_u64()).unwrap_or(0),
         uploaded_at: chrono::Utc::now().to_rfc3339(),
     };
     let mut attachments = state.attachments.write().await;
     attachments.push(attachment.clone());
-    (axum::http::StatusCode::CREATED, Json(serde_json::json!(attachment)))
+    (
+        axum::http::StatusCode::CREATED,
+        Json(serde_json::json!(attachment)),
+    )
 }
 
 async fn delete_attachment(
@@ -3834,9 +4237,15 @@ async fn delete_attachment(
     let before = attachments.len();
     attachments.retain(|a| a.id != attachment_id);
     if attachments.len() < before {
-        (axum::http::StatusCode::OK, Json(serde_json::json!({"deleted": attachment_id})))
+        (
+            axum::http::StatusCode::OK,
+            Json(serde_json::json!({"deleted": attachment_id})),
+        )
     } else {
-        (axum::http::StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "attachment not found"})))
+        (
+            axum::http::StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "attachment not found"})),
+        )
     }
 }
 
@@ -3861,7 +4270,10 @@ async fn get_task_draft(
     let drafts = state.task_drafts.read().await;
     match drafts.get(&id) {
         Some(draft) => (axum::http::StatusCode::OK, Json(serde_json::json!(draft))),
-        None => (axum::http::StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "draft not found"}))),
+        None => (
+            axum::http::StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "draft not found"})),
+        ),
     }
 }
 
@@ -3871,9 +4283,15 @@ async fn delete_task_draft(
 ) -> impl IntoResponse {
     let mut drafts = state.task_drafts.write().await;
     if drafts.remove(&id).is_some() {
-        (axum::http::StatusCode::OK, Json(serde_json::json!({"deleted": id})))
+        (
+            axum::http::StatusCode::OK,
+            Json(serde_json::json!({"deleted": id})),
+        )
     } else {
-        (axum::http::StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "draft not found"})))
+        (
+            axum::http::StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "draft not found"})),
+        )
     }
 }
 
@@ -3898,7 +4316,10 @@ async fn lock_column(
             col.label = col.label.trim_start_matches("\u{1f512} ").to_string();
         }
     }
-    (axum::http::StatusCode::OK, Json(serde_json::json!({"column_id": req.column_id, "locked": req.locked})))
+    (
+        axum::http::StatusCode::OK,
+        Json(serde_json::json!({"column_id": req.column_id, "locked": req.locked})),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -3910,10 +4331,13 @@ async fn save_task_ordering(
     Json(req): Json<TaskOrderingRequest>,
 ) -> impl IntoResponse {
     // Stub: in production this would persist to SQLite
-    (axum::http::StatusCode::OK, Json(serde_json::json!({
-        "column_id": req.column_id,
-        "task_count": req.task_ids.len()
-    })))
+    (
+        axum::http::StatusCode::OK,
+        Json(serde_json::json!({
+            "column_id": req.column_id,
+            "task_count": req.task_ids.len()
+        })),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -3925,19 +4349,25 @@ async fn start_file_watch(
     Json(req): Json<FileWatchRequest>,
 ) -> impl IntoResponse {
     // Stub: in production this would create a FileWatcher from at_core::file_watcher
-    (axum::http::StatusCode::OK, Json(serde_json::json!({
-        "watching": req.path,
-        "recursive": req.recursive
-    })))
+    (
+        axum::http::StatusCode::OK,
+        Json(serde_json::json!({
+            "watching": req.path,
+            "recursive": req.recursive
+        })),
+    )
 }
 
 async fn stop_file_watch(
     State(_state): State<Arc<ApiState>>,
     Json(req): Json<FileWatchRequest>,
 ) -> impl IntoResponse {
-    (axum::http::StatusCode::OK, Json(serde_json::json!({
-        "stopped": req.path
-    })))
+    (
+        axum::http::StatusCode::OK,
+        Json(serde_json::json!({
+            "stopped": req.path
+        })),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -3975,7 +4405,10 @@ async fn notify_profile_swap(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<serde_json::Value>,
 ) -> impl IntoResponse {
-    let profile_name = req.get("profile").and_then(|v| v.as_str()).unwrap_or("default");
+    let profile_name = req
+        .get("profile")
+        .and_then(|v| v.as_str())
+        .unwrap_or("default");
     let mut store = state.notification_store.write().await;
     store.add(
         "Profile Swapped",
@@ -3983,16 +4416,17 @@ async fn notify_profile_swap(
         crate::notifications::NotificationLevel::Info,
         "system",
     );
-    (axum::http::StatusCode::OK, Json(serde_json::json!({"notified": profile_name})))
+    (
+        axum::http::StatusCode::OK,
+        Json(serde_json::json!({"notified": profile_name})),
+    )
 }
 
 // ---------------------------------------------------------------------------
 // App update check notification
 // ---------------------------------------------------------------------------
 
-async fn check_app_update(
-    State(state): State<Arc<ApiState>>,
-) -> impl IntoResponse {
+async fn check_app_update(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     // Stub: always returns "up to date"
     let mut store = state.notification_store.write().await;
     store.add(
@@ -4001,11 +4435,14 @@ async fn check_app_update(
         crate::notifications::NotificationLevel::Info,
         "system",
     );
-    (axum::http::StatusCode::OK, Json(serde_json::json!({
-        "current_version": "0.1.0",
-        "latest_version": "0.1.0",
-        "update_available": false
-    })))
+    (
+        axum::http::StatusCode::OK,
+        Json(serde_json::json!({
+            "current_version": "0.1.0",
+            "latest_version": "0.1.0",
+            "update_available": false
+        })),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -4226,7 +4663,9 @@ mod tests {
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
 
-        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let json: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
         assert!(json.is_empty());
     }
@@ -4244,7 +4683,9 @@ mod tests {
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
 
-        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(json["unread"], 0);
         assert_eq!(json["total"], 0);
@@ -4275,7 +4716,9 @@ mod tests {
             .unwrap();
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
-        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let json: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
         assert_eq!(json.len(), 1);
         assert_eq!(json[0]["title"], "Test Alert");
@@ -4288,7 +4731,9 @@ mod tests {
             .body(Body::empty())
             .unwrap();
         let resp = app.oneshot(req).await.unwrap();
-        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(json["unread"], 1);
 
@@ -4310,7 +4755,9 @@ mod tests {
             .body(Body::empty())
             .unwrap();
         let resp = app.oneshot(req).await.unwrap();
-        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(json["unread"], 0);
         assert_eq!(json["total"], 1);
@@ -4333,7 +4780,9 @@ mod tests {
             .body(Body::empty())
             .unwrap();
         let resp = app.oneshot(req).await.unwrap();
-        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(json["total"], 0);
     }
@@ -4345,9 +4794,24 @@ mod tests {
         // Add multiple notifications.
         {
             let mut store = state.notification_store.write().await;
-            store.add("n1", "m1", crate::notifications::NotificationLevel::Info, "system");
-            store.add("n2", "m2", crate::notifications::NotificationLevel::Warning, "system");
-            store.add("n3", "m3", crate::notifications::NotificationLevel::Error, "system");
+            store.add(
+                "n1",
+                "m1",
+                crate::notifications::NotificationLevel::Info,
+                "system",
+            );
+            store.add(
+                "n2",
+                "m2",
+                crate::notifications::NotificationLevel::Warning,
+                "system",
+            );
+            store.add(
+                "n3",
+                "m3",
+                crate::notifications::NotificationLevel::Error,
+                "system",
+            );
         }
 
         let app = api_router(state.clone());
@@ -4366,7 +4830,9 @@ mod tests {
             .body(Body::empty())
             .unwrap();
         let resp = app.oneshot(req).await.unwrap();
-        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(json["unread"], 0);
         assert_eq!(json["total"], 3);
@@ -4379,8 +4845,18 @@ mod tests {
         let id1;
         {
             let mut store = state.notification_store.write().await;
-            id1 = store.add("n1", "m1", crate::notifications::NotificationLevel::Info, "system");
-            store.add("n2", "m2", crate::notifications::NotificationLevel::Warning, "system");
+            id1 = store.add(
+                "n1",
+                "m1",
+                crate::notifications::NotificationLevel::Info,
+                "system",
+            );
+            store.add(
+                "n2",
+                "m2",
+                crate::notifications::NotificationLevel::Warning,
+                "system",
+            );
             store.mark_read(id1);
         }
 
@@ -4392,7 +4868,9 @@ mod tests {
             .unwrap();
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
-        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let json: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
         assert_eq!(json.len(), 1);
         assert_eq!(json[0]["title"], "n2");
@@ -4405,7 +4883,12 @@ mod tests {
         {
             let mut store = state.notification_store.write().await;
             for i in 0..10 {
-                store.add(format!("n{i}"), "msg", crate::notifications::NotificationLevel::Info, "system");
+                store.add(
+                    format!("n{i}"),
+                    "msg",
+                    crate::notifications::NotificationLevel::Info,
+                    "system",
+                );
             }
         }
 
@@ -4416,7 +4899,9 @@ mod tests {
             .body(Body::empty())
             .unwrap();
         let resp = app.oneshot(req).await.unwrap();
-        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let json: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
         assert_eq!(json.len(), 3);
         // Newest first
@@ -4520,7 +5005,9 @@ mod tests {
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::ACCEPTED);
 
-        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(json["status"], "started");
 
@@ -4545,7 +5032,9 @@ mod tests {
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
 
-        let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(json["limit"], state.pipeline_max_concurrent as u64);
         assert_eq!(json["waiting"], 2);

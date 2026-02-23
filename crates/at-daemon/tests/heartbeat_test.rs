@@ -11,7 +11,10 @@ async fn no_registered_agents_returns_empty() {
     let cache = CacheDb::new_in_memory().await.expect("in-memory cache");
     let monitor = HeartbeatMonitor::new(Duration::from_secs(60));
 
-    let stale = monitor.check_agents(&cache).await.expect("check should succeed");
+    let stale = monitor
+        .check_agents(&cache)
+        .await
+        .expect("check should succeed");
     assert!(stale.is_empty());
 }
 
@@ -27,7 +30,10 @@ async fn fresh_agent_is_not_stale() {
     let monitor = HeartbeatMonitor::new(Duration::from_secs(60));
     monitor.register_agent("agent-fresh".to_string(), agent.id);
 
-    let stale = monitor.check_agents(&cache).await.expect("check should succeed");
+    let stale = monitor
+        .check_agents(&cache)
+        .await
+        .expect("check should succeed");
     assert!(stale.is_empty(), "recently seen agent should not be stale");
 }
 
@@ -45,7 +51,10 @@ async fn old_agent_is_detected_as_stale() {
     let monitor = HeartbeatMonitor::new(Duration::from_secs(60));
     monitor.register_agent("agent-old".to_string(), agent.id);
 
-    let stale = monitor.check_agents(&cache).await.expect("check should succeed");
+    let stale = monitor
+        .check_agents(&cache)
+        .await
+        .expect("check should succeed");
     assert_eq!(stale.len(), 1);
     assert_eq!(stale[0].agent_id, agent.id);
     assert_eq!(stale[0].name, "agent-old");
@@ -64,8 +73,14 @@ async fn unregistered_agent_in_cache_is_ignored() {
     let monitor = HeartbeatMonitor::new(Duration::from_secs(60));
     // Not registering the agent.
 
-    let stale = monitor.check_agents(&cache).await.expect("check should succeed");
-    assert!(stale.is_empty(), "unregistered agents should not be checked");
+    let stale = monitor
+        .check_agents(&cache)
+        .await
+        .expect("check should succeed");
+    assert!(
+        stale.is_empty(),
+        "unregistered agents should not be checked"
+    );
 }
 
 #[tokio::test]
@@ -76,7 +91,10 @@ async fn missing_agent_in_cache_reported_as_stale() {
     let fake_id = Uuid::new_v4();
     monitor.register_agent("ghost-agent".to_string(), fake_id);
 
-    let stale = monitor.check_agents(&cache).await.expect("check should succeed");
+    let stale = monitor
+        .check_agents(&cache)
+        .await
+        .expect("check should succeed");
     assert_eq!(stale.len(), 1);
     assert_eq!(stale[0].agent_id, fake_id);
     assert_eq!(stale[0].name, "ghost-agent");

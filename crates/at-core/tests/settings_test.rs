@@ -6,10 +6,7 @@ use at_core::settings::SettingsManager;
 
 /// Generate a unique temporary path for each test to avoid collisions.
 fn tmp_settings_path() -> PathBuf {
-    let dir = std::env::temp_dir().join(format!(
-        "at-settings-test-{}",
-        uuid::Uuid::new_v4()
-    ));
+    let dir = std::env::temp_dir().join(format!("at-settings-test-{}", uuid::Uuid::new_v4()));
     dir.join("settings.toml")
 }
 
@@ -170,7 +167,12 @@ fn test_settings_overwrite_existing() {
 fn test_settings_creates_parent_dirs() {
     let path = tmp_settings_path();
     // Extra nesting to ensure deep directory creation
-    let deep_path = path.parent().unwrap().join("nested").join("deep").join("settings.toml");
+    let deep_path = path
+        .parent()
+        .unwrap()
+        .join("nested")
+        .join("deep")
+        .join("settings.toml");
     assert!(!deep_path.parent().unwrap().exists());
 
     let mgr = SettingsManager::new(&deep_path);
@@ -228,7 +230,11 @@ fn test_color_themes() {
         mgr.save(&cfg).unwrap();
 
         let loaded = mgr.load().unwrap();
-        assert_eq!(loaded.display.theme, *theme, "theme '{}' did not roundtrip", theme);
+        assert_eq!(
+            loaded.display.theme, *theme,
+            "theme '{}' did not roundtrip",
+            theme
+        );
 
         cleanup(&path);
     }
@@ -283,7 +289,11 @@ fn test_display_fine_tune_range() {
         mgr.save(&cfg).unwrap();
 
         let loaded = mgr.load().unwrap();
-        assert_eq!(loaded.display.font_size, size, "font_size {} didn't roundtrip", size);
+        assert_eq!(
+            loaded.display.font_size, size,
+            "font_size {} didn't roundtrip",
+            size
+        );
 
         cleanup(&path);
     }
@@ -331,9 +341,18 @@ fn test_config_never_contains_secrets() {
     let toml_str = cfg.to_toml().unwrap();
 
     // The serialized config must not contain any secret-looking values.
-    assert!(!toml_str.contains("sk-"), "TOML contains what looks like a secret key");
-    assert!(!toml_str.contains("ghp_"), "TOML contains what looks like a GitHub token");
-    assert!(!toml_str.contains("glpat-"), "TOML contains what looks like a GitLab token");
+    assert!(
+        !toml_str.contains("sk-"),
+        "TOML contains what looks like a secret key"
+    );
+    assert!(
+        !toml_str.contains("ghp_"),
+        "TOML contains what looks like a GitHub token"
+    );
+    assert!(
+        !toml_str.contains("glpat-"),
+        "TOML contains what looks like a GitLab token"
+    );
 
     // It should contain env var names instead.
     assert!(toml_str.contains("GITHUB_TOKEN"));

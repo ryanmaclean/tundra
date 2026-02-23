@@ -5,7 +5,7 @@ use at_bridge::http_api::ApiState;
 use at_bridge::terminal::{TerminalInfo, TerminalStatus};
 use at_core::cache::CacheDb;
 use at_core::types::{Bead, BeadStatus, Lane};
-use at_daemon::patrol::{PatrolRunner, reap_orphan_ptys};
+use at_daemon::patrol::{reap_orphan_ptys, PatrolRunner};
 use chrono::{Duration, Utc};
 use uuid::Uuid;
 
@@ -14,7 +14,10 @@ async fn patrol_empty_cache_returns_clean_report() {
     let cache = CacheDb::new_in_memory().await.expect("in-memory cache");
     let runner = PatrolRunner::new(30);
 
-    let report = runner.run_patrol(&cache).await.expect("patrol should succeed");
+    let report = runner
+        .run_patrol(&cache)
+        .await
+        .expect("patrol should succeed");
 
     assert_eq!(report.stale_agents, 0);
     assert_eq!(report.stuck_beads, 0);
@@ -39,7 +42,10 @@ async fn patrol_detects_stuck_slung_beads() {
     cache.upsert_bead(&fresh_bead).await.expect("upsert bead");
 
     let runner = PatrolRunner::new(30);
-    let report = runner.run_patrol(&cache).await.expect("patrol should succeed");
+    let report = runner
+        .run_patrol(&cache)
+        .await
+        .expect("patrol should succeed");
 
     assert_eq!(report.stuck_beads, 1);
     assert_eq!(report.stuck_bead_ids.len(), 1);
@@ -54,7 +60,10 @@ async fn patrol_ignores_non_slung_beads() {
     cache.upsert_bead(&bead).await.expect("upsert bead");
 
     let runner = PatrolRunner::new(30);
-    let report = runner.run_patrol(&cache).await.expect("patrol should succeed");
+    let report = runner
+        .run_patrol(&cache)
+        .await
+        .expect("patrol should succeed");
 
     assert_eq!(report.stuck_beads, 0);
 }

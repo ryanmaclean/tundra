@@ -1,8 +1,8 @@
-use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
+use ratatui::Frame;
 
 use crate::app::App;
 
@@ -12,7 +12,7 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect) {
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(5), // KPI cards
-            Constraint::Min(0),   // bottom panels
+            Constraint::Min(0),    // bottom panels
         ])
         .split(area);
 
@@ -20,10 +20,7 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect) {
 
     let bottom = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage(50),
-            Constraint::Percentage(50),
-        ])
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
         .split(chunks[1]);
 
     render_agent_summary(frame, app, bottom[0]);
@@ -44,8 +41,16 @@ fn render_kpi_cards(frame: &mut Frame, app: &App, area: Rect) {
     let cards: Vec<(&str, String, Color)> = vec![
         ("Agents", format!("{}", app.kpi.active_agents), Color::Green),
         ("Beads", format!("{}", app.kpi.total_beads), Color::Yellow),
-        ("Convoys", format!("{}", app.kpi.active_convoys), Color::Cyan),
-        ("Cost $", format!("{:.2}", app.kpi.total_cost), Color::Magenta),
+        (
+            "Convoys",
+            format!("{}", app.kpi.active_convoys),
+            Color::Cyan,
+        ),
+        (
+            "Cost $",
+            format!("{:.2}", app.kpi.total_cost),
+            Color::Magenta,
+        ),
     ];
 
     for (i, (title, value, color)) in cards.iter().enumerate() {
@@ -55,9 +60,7 @@ fn render_kpi_cards(frame: &mut Frame, app: &App, area: Rect) {
             .border_style(Style::default().fg(*color));
         let text = Paragraph::new(Line::from(Span::styled(
             value.clone(),
-            Style::default()
-                .fg(*color)
-                .add_modifier(Modifier::BOLD),
+            Style::default().fg(*color).add_modifier(Modifier::BOLD),
         )))
         .block(block)
         .alignment(ratatui::layout::Alignment::Center);
@@ -82,11 +85,7 @@ fn render_agent_summary(frame: &mut Frame, app: &App, area: Rect) {
         })
         .collect();
 
-    let list = List::new(items).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title(" Agents "),
-    );
+    let list = List::new(items).block(Block::default().borders(Borders::ALL).title(" Agents "));
     frame.render_widget(list, area);
 }
 
@@ -97,20 +96,13 @@ fn render_activity_feed(frame: &mut Frame, app: &App, area: Rect) {
         .map(|entry| {
             let ts = entry.timestamp.format("%H:%M:%S");
             ListItem::new(Line::from(vec![
-                Span::styled(
-                    format!("[{}] ", ts),
-                    Style::default().fg(Color::DarkGray),
-                ),
+                Span::styled(format!("[{}] ", ts), Style::default().fg(Color::DarkGray)),
                 Span::raw(&entry.message),
             ]))
         })
         .collect();
 
-    let list = List::new(items).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title(" Activity "),
-    );
+    let list = List::new(items).block(Block::default().borders(Borders::ALL).title(" Activity "));
     frame.render_widget(list, area);
 }
 

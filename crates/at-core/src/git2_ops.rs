@@ -62,15 +62,12 @@ impl Git2ReadOps {
         let head = repo.head().map_err(RepoError::from)?;
 
         if head.is_branch() {
-            Ok(head
-                .shorthand()
-                .unwrap_or("HEAD")
-                .to_string())
+            Ok(head.shorthand().unwrap_or("HEAD").to_string())
         } else {
             // Detached HEAD — return short OID
-            let oid = head.target().ok_or_else(|| {
-                RepoError::GitCommand("HEAD has no target".to_string())
-            })?;
+            let oid = head
+                .target()
+                .ok_or_else(|| RepoError::GitCommand("HEAD has no target".to_string()))?;
             Ok(format!("{:.7}", oid))
         }
     }
@@ -111,9 +108,7 @@ impl Git2ReadOps {
                 || st.contains(git2::Status::INDEX_MODIFIED)
             {
                 DiffStatus::Modified
-            } else if st.intersects(
-                git2::Status::WT_TYPECHANGE | git2::Status::INDEX_TYPECHANGE,
-            ) {
+            } else if st.intersects(git2::Status::WT_TYPECHANGE | git2::Status::INDEX_TYPECHANGE) {
                 DiffStatus::Modified
             } else {
                 DiffStatus::Untracked
@@ -134,10 +129,7 @@ impl Git2ReadOps {
     /// (replaces `git diff --numstat`).
     pub fn diff_stat(workdir: &Path) -> Result<Vec<DiffEntry>, RepoError> {
         let repo = Self::open(workdir)?;
-        let head_tree = repo
-            .head()
-            .ok()
-            .and_then(|h| h.peel_to_tree().ok());
+        let head_tree = repo.head().ok().and_then(|h| h.peel_to_tree().ok());
 
         let diff = repo
             .diff_tree_to_workdir_with_index(head_tree.as_ref(), None)
@@ -185,10 +177,10 @@ impl Git2ReadOps {
 
         // Try to get per-file line counts by walking patches
         let _ = diff.foreach(
-            &mut |_, _| true,     // file cb
-            None,                 // binary cb
-            None,                 // hunk cb
-            None,                 // line cb
+            &mut |_, _| true, // file cb
+            None,             // binary cb
+            None,             // hunk cb
+            None,             // line cb
         );
 
         // More accurate: walk with print to get line stats
@@ -230,9 +222,7 @@ impl Git2ReadOps {
     /// List all branches (replaces `git branch -a --format=%(refname:short)`).
     pub fn branches(workdir: &Path) -> Result<Vec<BranchInfo>, RepoError> {
         let repo = Self::open(workdir)?;
-        let branches = repo
-            .branches(None)
-            .map_err(RepoError::from)?;
+        let branches = repo.branches(None).map_err(RepoError::from)?;
 
         let mut result = Vec::new();
         for branch in branches {
@@ -263,9 +253,7 @@ impl Git2ReadOps {
 
         repo.tag_foreach(|_oid, name| {
             if let Ok(name_str) = std::str::from_utf8(name) {
-                let short = name_str
-                    .strip_prefix("refs/tags/")
-                    .unwrap_or(name_str);
+                let short = name_str.strip_prefix("refs/tags/").unwrap_or(name_str);
                 tags.push(short.to_string());
             }
             true
@@ -291,10 +279,7 @@ impl Git2ReadOps {
             let oid = oid_result.map_err(RepoError::from)?;
             let commit = repo.find_commit(oid).map_err(RepoError::from)?;
 
-            let message = commit
-                .summary()
-                .unwrap_or("")
-                .to_string();
+            let message = commit.summary().unwrap_or("").to_string();
 
             let author = commit.author();
             let author_name = author.name().unwrap_or("").to_string();
@@ -516,25 +501,13 @@ impl Git2ReadOps {
     ///
     /// Essential for stacked PR visualization — shows where a child branch
     /// forked from its parent. Also used to determine if a rebase is needed.
-    pub fn merge_base(
-        workdir: &Path,
-        ref_a: &str,
-        ref_b: &str,
-    ) -> Result<String, RepoError> {
+    pub fn merge_base(workdir: &Path, ref_a: &str, ref_b: &str) -> Result<String, RepoError> {
         let repo = Self::open(workdir)?;
 
-        let oid_a = repo
-            .revparse_single(ref_a)
-            .map_err(RepoError::from)?
-            .id();
-        let oid_b = repo
-            .revparse_single(ref_b)
-            .map_err(RepoError::from)?
-            .id();
+        let oid_a = repo.revparse_single(ref_a).map_err(RepoError::from)?.id();
+        let oid_b = repo.revparse_single(ref_b).map_err(RepoError::from)?.id();
 
-        let base = repo
-            .merge_base(oid_a, oid_b)
-            .map_err(RepoError::from)?;
+        let base = repo.merge_base(oid_a, oid_b).map_err(RepoError::from)?;
 
         Ok(format!("{:.7}", base))
     }
@@ -576,9 +549,7 @@ impl Git2ReadOps {
                 }
             };
 
-            let merge_base_oid = repo
-                .merge_base(base_oid, branch_oid)
-                .unwrap_or(base_oid);
+            let merge_base_oid = repo.merge_base(base_oid, branch_oid).unwrap_or(base_oid);
 
             let (ahead, behind) = repo
                 .graph_ahead_behind(branch_oid, base_oid)
@@ -685,18 +656,16 @@ impl Git2ReadOps {
         for oid_result in revwalk.take(max_commits) {
             let oid = oid_result.map_err(RepoError::from)?;
             let commit = repo.find_commit(oid).map_err(RepoError::from)?;
-            let author = commit
-                .author()
-                .name()
-                .unwrap_or("unknown")
-                .to_string();
+            let author = commit.author().name().unwrap_or("unknown").to_string();
             let ts = commit.time().seconds();
 
-            let entry = author_stats.entry(author).or_insert_with(|| ContributorAccum {
-                commits: 0,
-                first_commit: ts,
-                last_commit: ts,
-            });
+            let entry = author_stats
+                .entry(author)
+                .or_insert_with(|| ContributorAccum {
+                    commits: 0,
+                    first_commit: ts,
+                    last_commit: ts,
+                });
             entry.commits += 1;
             if ts < entry.first_commit {
                 entry.first_commit = ts;
@@ -724,10 +693,7 @@ impl Git2ReadOps {
     ///
     /// Powers the GitHub-style contribution heatmap. Groups commits by
     /// date (UTC) and returns daily counts.
-    pub fn commit_activity(
-        workdir: &Path,
-        days: u32,
-    ) -> Result<Vec<DailyActivity>, RepoError> {
+    pub fn commit_activity(workdir: &Path, days: u32) -> Result<Vec<DailyActivity>, RepoError> {
         let repo = Self::open(workdir)?;
         let mut revwalk = repo.revwalk().map_err(RepoError::from)?;
         revwalk.push_head().map_err(RepoError::from)?;
@@ -739,8 +705,7 @@ impl Git2ReadOps {
         let cutoff = now - chrono::Duration::days(days as i64);
         let cutoff_ts = cutoff.timestamp();
 
-        let mut daily: std::collections::HashMap<String, u32> =
-            std::collections::HashMap::new();
+        let mut daily: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
 
         for oid_result in revwalk {
             let oid = oid_result.map_err(RepoError::from)?;
@@ -751,8 +716,7 @@ impl Git2ReadOps {
                 break; // Commits are time-sorted, so we can stop early
             }
 
-            let dt = chrono::DateTime::from_timestamp(ts, 0)
-                .unwrap_or(cutoff);
+            let dt = chrono::DateTime::from_timestamp(ts, 0).unwrap_or(cutoff);
             let date_str = dt.format("%Y-%m-%d").to_string();
             *daily.entry(date_str).or_insert(0) += 1;
         }
@@ -777,10 +741,22 @@ impl Git2ReadOps {
         let recent = Self::log(workdir, 5).unwrap_or_default();
         let clean = status.is_empty();
 
-        let modified_count = status.iter().filter(|e| e.status == DiffStatus::Modified).count();
-        let added_count = status.iter().filter(|e| e.status == DiffStatus::Added).count();
-        let deleted_count = status.iter().filter(|e| e.status == DiffStatus::Deleted).count();
-        let untracked_count = status.iter().filter(|e| e.status == DiffStatus::Untracked).count();
+        let modified_count = status
+            .iter()
+            .filter(|e| e.status == DiffStatus::Modified)
+            .count();
+        let added_count = status
+            .iter()
+            .filter(|e| e.status == DiffStatus::Added)
+            .count();
+        let deleted_count = status
+            .iter()
+            .filter(|e| e.status == DiffStatus::Deleted)
+            .count();
+        let untracked_count = status
+            .iter()
+            .filter(|e| e.status == DiffStatus::Untracked)
+            .count();
 
         let local_branches = branches.iter().filter(|b| !b.is_remote).count();
         let remote_branches = branches.iter().filter(|b| b.is_remote).count();
@@ -1060,12 +1036,8 @@ mod tests {
     fn branch_graph_handles_missing_branch() {
         let root = workspace_root();
         let branch = Git2ReadOps::current_branch(&root).unwrap();
-        let nodes = Git2ReadOps::branch_graph(
-            &root,
-            &branch,
-            &["nonexistent-branch-xyz-999"],
-        )
-        .unwrap();
+        let nodes =
+            Git2ReadOps::branch_graph(&root, &branch, &["nonexistent-branch-xyz-999"]).unwrap();
         assert_eq!(nodes.len(), 1);
         assert!(!nodes[0].exists);
     }

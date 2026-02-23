@@ -1,7 +1,7 @@
-use ratatui::Frame;
 use ratatui::layout::{Constraint, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::widgets::{Block, Borders, Cell, Row, Table};
+use ratatui::Frame;
 
 use crate::app::App;
 
@@ -50,13 +50,11 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect) {
         Constraint::Length(6),
     ];
 
-    let table = Table::new(rows, widths)
-        .header(header)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(" MCP Servers "),
-        );
+    let table = Table::new(rows, widths).header(header).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(" MCP Servers "),
+    );
 
     frame.render_widget(table, area);
 }

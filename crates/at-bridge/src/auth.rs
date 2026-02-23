@@ -136,10 +136,7 @@ mod tests {
     #[tokio::test]
     async fn no_key_configured_allows_all() {
         let app = test_router(None);
-        let req = Request::builder()
-            .uri("/ping")
-            .body(Body::empty())
-            .unwrap();
+        let req = Request::builder().uri("/ping").body(Body::empty()).unwrap();
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
     }
@@ -171,10 +168,7 @@ mod tests {
     #[tokio::test]
     async fn missing_key_returns_401() {
         let app = test_router(Some("secret123".into()));
-        let req = Request::builder()
-            .uri("/ping")
-            .body(Body::empty())
-            .unwrap();
+        let req = Request::builder().uri("/ping").body(Body::empty()).unwrap();
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
     }

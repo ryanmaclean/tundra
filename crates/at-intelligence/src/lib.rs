@@ -88,9 +88,7 @@ mod tests {
         let mut engine = InsightsEngine::new();
         let id = engine.create_session("Chat", "claude-3").id;
 
-        engine
-            .add_message(&id, ChatRole::User, "Hello")
-            .unwrap();
+        engine.add_message(&id, ChatRole::User, "Hello").unwrap();
         engine
             .add_message(&id, ChatRole::Assistant, "Hi there")
             .unwrap();
@@ -219,7 +217,12 @@ mod tests {
     #[test]
     fn memory_add_and_get_entry() {
         let mut store = MemoryStore::new();
-        let entry = MemoryEntry::new("api_url", "http://localhost:3000", MemoryCategory::ApiRoute, "config");
+        let entry = MemoryEntry::new(
+            "api_url",
+            "http://localhost:3000",
+            MemoryCategory::ApiRoute,
+            "config",
+        );
         let id = entry.id;
         store.add_entry(entry);
 
@@ -230,9 +233,24 @@ mod tests {
     #[test]
     fn memory_search() {
         let mut store = MemoryStore::new();
-        store.add_entry(MemoryEntry::new("db_url", "postgres://localhost", MemoryCategory::ServiceEndpoint, "env"));
-        store.add_entry(MemoryEntry::new("cache_url", "redis://localhost", MemoryCategory::ServiceEndpoint, "env"));
-        store.add_entry(MemoryEntry::new("log_level", "debug", MemoryCategory::EnvVar, "env"));
+        store.add_entry(MemoryEntry::new(
+            "db_url",
+            "postgres://localhost",
+            MemoryCategory::ServiceEndpoint,
+            "env",
+        ));
+        store.add_entry(MemoryEntry::new(
+            "cache_url",
+            "redis://localhost",
+            MemoryCategory::ServiceEndpoint,
+            "env",
+        ));
+        store.add_entry(MemoryEntry::new(
+            "log_level",
+            "debug",
+            MemoryCategory::EnvVar,
+            "env",
+        ));
 
         let results = store.search("localhost");
         assert_eq!(results.len(), 2);
@@ -250,7 +268,10 @@ mod tests {
 
         assert_eq!(store.list_by_category(&MemoryCategory::Pattern).len(), 2);
         assert_eq!(store.list_by_category(&MemoryCategory::EnvVar).len(), 1);
-        assert_eq!(store.list_by_category(&MemoryCategory::Architecture).len(), 0);
+        assert_eq!(
+            store.list_by_category(&MemoryCategory::Architecture).len(),
+            0
+        );
     }
 
     #[test]

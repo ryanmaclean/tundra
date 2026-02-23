@@ -1,4 +1,6 @@
-use at_harness::circuit_breaker::{CircuitBreaker, CircuitBreakerConfig, CircuitBreakerError, CircuitState};
+use at_harness::circuit_breaker::{
+    CircuitBreaker, CircuitBreakerConfig, CircuitBreakerError, CircuitState,
+};
 use std::time::Duration;
 
 fn fast_config() -> CircuitBreakerConfig {

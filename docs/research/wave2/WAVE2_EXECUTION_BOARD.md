@@ -64,7 +64,18 @@ Date: 2026-02-22
   - Deliverable: monthly watch cadence + signals
   - ETA: 48h
 
+## Team E — Ecosystem Watchlist
+- **E1 ecosystem inventory** — Complete (first slice)
+  - Deliverable: consolidated decision matrix for requested repos/tools
+  - Added: `docs/research/wave2/team-e-ecosystem-watchlist.md`
+  - Coverage: Lapce, Redox, crossbeam, rayon, rodio, nushell, rustdesk, cortex-mem, codex CLI, rig, rustic, git2-rs, Rust_Search, persistent-scheduler, vllm.rs, candle, DuckDB WASM
+  - ETA: done
+- **E2 pilot criteria + cadence** — Planned
+  - Deliverable: monthly review rubric + pilot acceptance gates
+  - ETA: 48h
+
 ## Next Integrations
 1. Convert Team B/B2 into a feature-flagged code PR.
 2. Convert Team C/C2 into config + provider profile PR.
 3. Convert Team D/D2 into Tauri prototype branch plan.
+4. Convert Team E/E1 into tracked pilot cards (A/B/C/D owners).

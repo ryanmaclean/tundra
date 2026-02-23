@@ -352,7 +352,11 @@ mod tests {
         let agent_id = Uuid::new_v4();
 
         let approval_id = system
-            .request_approval(agent_id, "file_write", serde_json::json!({"path": "foo.rs"}))
+            .request_approval(
+                agent_id,
+                "file_write",
+                serde_json::json!({"path": "foo.rs"}),
+            )
             .id;
 
         // Should be pending
@@ -375,7 +379,11 @@ mod tests {
         let agent_id = Uuid::new_v4();
 
         let approval_id = system
-            .request_approval(agent_id, "shell_execute", serde_json::json!({"cmd": "rm -rf /"}))
+            .request_approval(
+                agent_id,
+                "shell_execute",
+                serde_json::json!({"cmd": "rm -rf /"}),
+            )
             .id;
 
         // Deny it

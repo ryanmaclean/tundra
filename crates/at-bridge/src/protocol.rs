@@ -7,12 +7,26 @@ use uuid::Uuid;
 pub enum BridgeMessage {
     // Frontend -> Backend
     GetStatus,
-    ListBeads { status: Option<String> },
+    ListBeads {
+        status: Option<String>,
+    },
     ListAgents,
-    SlingBead { bead_id: Uuid, agent_id: Uuid },
-    HookBead { title: String, agent_name: String },
-    DoneBead { bead_id: Uuid, failed: bool },
-    NudgeAgent { agent_name: String, message: String },
+    SlingBead {
+        bead_id: Uuid,
+        agent_id: Uuid,
+    },
+    HookBead {
+        title: String,
+        agent_name: String,
+    },
+    DoneBead {
+        bead_id: Uuid,
+        failed: bool,
+    },
+    NudgeAgent {
+        agent_name: String,
+        message: String,
+    },
     GetKpi,
 
     // Backend -> Frontend
@@ -20,8 +34,14 @@ pub enum BridgeMessage {
     BeadList(Vec<at_core::types::Bead>),
     AgentList(Vec<at_core::types::Agent>),
     KpiUpdate(KpiPayload),
-    AgentOutput { agent_id: Uuid, output: String },
-    Error { code: String, message: String },
+    AgentOutput {
+        agent_id: Uuid,
+        output: String,
+    },
+    Error {
+        code: String,
+        message: String,
+    },
     Event(EventPayload),
     /// Real-time task update (phase change, progress, subtasks). Subscribe on /api/events/ws.
     TaskUpdate(at_core::types::Task),

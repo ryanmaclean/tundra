@@ -1,5 +1,5 @@
-use at_agents::supervisor::AgentSupervisor;
 use at_agents::state_machine::AgentState;
+use at_agents::supervisor::AgentSupervisor;
 use at_core::types::{AgentRole, CliType};
 
 #[tokio::test]
@@ -61,12 +61,24 @@ async fn stop_nonexistent_agent_errors() {
 async fn spawn_all_roles() {
     let sup = AgentSupervisor::new();
 
-    sup.spawn_agent("m", AgentRole::Mayor, CliType::Claude).await.unwrap();
-    sup.spawn_agent("d", AgentRole::Deacon, CliType::Claude).await.unwrap();
-    sup.spawn_agent("w", AgentRole::Witness, CliType::Gemini).await.unwrap();
-    sup.spawn_agent("r", AgentRole::Refinery, CliType::Codex).await.unwrap();
-    sup.spawn_agent("p", AgentRole::Polecat, CliType::OpenCode).await.unwrap();
-    sup.spawn_agent("c", AgentRole::Crew, CliType::Claude).await.unwrap();
+    sup.spawn_agent("m", AgentRole::Mayor, CliType::Claude)
+        .await
+        .unwrap();
+    sup.spawn_agent("d", AgentRole::Deacon, CliType::Claude)
+        .await
+        .unwrap();
+    sup.spawn_agent("w", AgentRole::Witness, CliType::Gemini)
+        .await
+        .unwrap();
+    sup.spawn_agent("r", AgentRole::Refinery, CliType::Codex)
+        .await
+        .unwrap();
+    sup.spawn_agent("p", AgentRole::Polecat, CliType::OpenCode)
+        .await
+        .unwrap();
+    sup.spawn_agent("c", AgentRole::Crew, CliType::Claude)
+        .await
+        .unwrap();
 
     assert_eq!(sup.agent_count().await, 6);
 }

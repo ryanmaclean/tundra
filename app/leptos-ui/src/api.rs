@@ -533,6 +533,14 @@ pub struct ApiLocalProviderProbe {
     pub message: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiPipelineQueueStatus {
+    pub limit: usize,
+    pub waiting: usize,
+    pub running: usize,
+    pub available_permits: usize,
+}
+
 // ── Public API functions ──
 
 pub async fn fetch_beads() -> Result<Vec<ApiBead>, String> {
@@ -549,6 +557,10 @@ pub async fn fetch_kpi() -> Result<ApiKpi, String> {
 
 pub async fn fetch_status() -> Result<ApiStatus, String> {
     fetch_json(&format!("{}/api/status", get_api_base())).await
+}
+
+pub async fn fetch_pipeline_queue_status() -> Result<ApiPipelineQueueStatus, String> {
+    fetch_json(&format!("{}/api/pipeline/queue", get_api_base())).await
 }
 
 pub async fn fetch_stacks() -> Result<Vec<ApiStack>, String> {

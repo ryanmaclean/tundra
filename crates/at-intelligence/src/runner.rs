@@ -275,11 +275,16 @@ impl QaRunner {
     /// - Run linters, formatters, tests
     /// - Check for security issues, performance problems
     /// - Generate structured QaIssue objects
-    pub fn run_qa_checks(&mut self, task_id: Uuid, _task_title: &str, worktree_path: Option<&str>) -> QaReport {
+    pub fn run_qa_checks(
+        &mut self,
+        task_id: Uuid,
+        _task_title: &str,
+        worktree_path: Option<&str>,
+    ) -> QaReport {
         // Placeholder: create a basic QA report
         // In production, this would analyze the codebase, run tests, etc.
         let mut report = QaReport::new(task_id, QaStatus::Pending);
-        
+
         // Simulate some checks
         if let Some(worktree) = worktree_path {
             // Placeholder: check if worktree exists and has changes
@@ -293,9 +298,17 @@ impl QaRunner {
         }
 
         // Determine status based on issues
-        let critical_count = report.issues.iter().filter(|i| i.severity == QaSeverity::Critical).count();
-        let major_count = report.issues.iter().filter(|i| i.severity == QaSeverity::Major).count();
-        
+        let critical_count = report
+            .issues
+            .iter()
+            .filter(|i| i.severity == QaSeverity::Critical)
+            .count();
+        let major_count = report
+            .issues
+            .iter()
+            .filter(|i| i.severity == QaSeverity::Major)
+            .count();
+
         report.status = if critical_count > 0 || major_count > 2 {
             QaStatus::Failed
         } else if report.issues.is_empty() {

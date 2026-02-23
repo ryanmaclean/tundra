@@ -35,7 +35,11 @@ pub struct ContextNode {
 }
 
 impl ContextNode {
-    pub fn new(kind: ContextNodeKind, label: impl Into<String>, content: impl Into<String>) -> Self {
+    pub fn new(
+        kind: ContextNodeKind,
+        label: impl Into<String>,
+        content: impl Into<String>,
+    ) -> Self {
         Self {
             id: Uuid::new_v4(),
             kind,
@@ -120,10 +124,7 @@ impl ContextGraph {
     /// Insert a node into the graph.
     pub fn insert(&mut self, node: ContextNode) -> Uuid {
         let id = node.id;
-        self.by_kind
-            .entry(node.kind)
-            .or_default()
-            .push(id);
+        self.by_kind.entry(node.kind).or_default().push(id);
         self.by_label.insert(node.label.clone(), id);
         self.nodes.insert(id, node);
         id
@@ -172,11 +173,7 @@ impl ContextGraph {
     /// Collect context for a task, using progressive disclosure.
     ///
     /// Returns nodes sorted by relevance, limited to `token_budget` tokens.
-    pub fn collect_context(
-        &self,
-        _task_id: &Uuid,
-        token_budget: usize,
-    ) -> Vec<&ContextNode> {
+    pub fn collect_context(&self, _task_id: &Uuid, token_budget: usize) -> Vec<&ContextNode> {
         let mut candidates: Vec<&ContextNode> = self.nodes.values().collect();
         candidates.sort_by(|a, b| {
             b.relevance
@@ -394,11 +391,7 @@ impl ProjectContextLoader {
 
         // todo.md
         if let Some(content) = self.load_todo_md() {
-            graph.insert(ContextNode::new(
-                ContextNodeKind::Task,
-                "todo.md",
-                content,
-            ));
+            graph.insert(ContextNode::new(ContextNodeKind::Task, "todo.md", content));
         }
 
         // Agent definitions
@@ -444,14 +437,11 @@ impl ProjectContextLoader {
 fn parse_agent_definition(path: &Path, content: &str) -> Option<AgentDefinition> {
     let (frontmatter, body) = split_frontmatter(content);
 
-    let name = frontmatter
-        .get("name")
-        .cloned()
-        .unwrap_or_else(|| {
-            path.file_stem()
-                .map(|s| s.to_string_lossy().to_string())
-                .unwrap_or_else(|| "unknown".into())
-        });
+    let name = frontmatter.get("name").cloned().unwrap_or_else(|| {
+        path.file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_else(|| "unknown".into())
+    });
 
     let description = frontmatter
         .get("description")
@@ -485,15 +475,12 @@ fn parse_agent_definition(path: &Path, content: &str) -> Option<AgentDefinition>
 fn parse_skill_definition(skill_dir: &Path, content: &str) -> Option<SkillDefinition> {
     let (frontmatter, body) = split_frontmatter(content);
 
-    let name = frontmatter
-        .get("name")
-        .cloned()
-        .unwrap_or_else(|| {
-            skill_dir
-                .file_name()
-                .map(|s| s.to_string_lossy().to_string())
-                .unwrap_or_else(|| "unknown".into())
-        });
+    let name = frontmatter.get("name").cloned().unwrap_or_else(|| {
+        skill_dir
+            .file_name()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_else(|| "unknown".into())
+    });
 
     let description = frontmatter
         .get("description")
@@ -554,10 +541,7 @@ fn split_frontmatter(content: &str) -> (HashMap<String, String>, String) {
         let mut map = HashMap::new();
         for line in yaml_section.lines() {
             if let Some((key, value)) = line.split_once(':') {
-                map.insert(
-                    key.trim().to_string(),
-                    value.trim().to_string(),
-                );
+                map.insert(key.trim().to_string(), value.trim().to_string());
             }
         }
 
@@ -808,7 +792,11 @@ mod tests {
     #[test]
     fn graph_get_by_label() {
         let mut graph = ContextGraph::new();
-        graph.insert(ContextNode::new(ContextNodeKind::ProjectConfig, "CLAUDE.md", "project config"));
+        graph.insert(ContextNode::new(
+            ContextNodeKind::ProjectConfig,
+            "CLAUDE.md",
+            "project config",
+        ));
 
         let found = graph.get_by_label("CLAUDE.md");
         assert!(found.is_some());
@@ -851,7 +839,8 @@ mod tests {
         let mut graph = ContextGraph::new();
         // Each node ≈ 25 tokens (100 chars / 4)
         for i in 0..10 {
-            let mut node = ContextNode::new(ContextNodeKind::Memory, format!("n{i}"), "x".repeat(100));
+            let mut node =
+                ContextNode::new(ContextNodeKind::Memory, format!("n{i}"), "x".repeat(100));
             node.relevance = 1.0 - (i as f64 * 0.1);
             graph.insert(node);
         }
@@ -963,7 +952,10 @@ mod tests {
 
         // Discovery should come before context_gathering
         let disc_idx = order.iter().position(|p| p.name == "discovery").unwrap();
-        let ctx_idx = order.iter().position(|p| p.name == "context_gathering").unwrap();
+        let ctx_idx = order
+            .iter()
+            .position(|p| p.name == "context_gathering")
+            .unwrap();
         assert!(disc_idx < ctx_idx);
 
         // Coding should come before QA

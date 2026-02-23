@@ -9,11 +9,11 @@
 //! - Sync engine configuration and lifecycle
 //! - Type serde roundtrips
 
-use at_integrations::linear::{
-    ImportResult, LinearClient, LinearError, LinearIssue, LinearProject, LinearTeam,
-};
 use at_integrations::linear::sync::{
     LinearSyncEngine, PendingChange, SyncConfig, SyncDirection, SyncResult,
+};
+use at_integrations::linear::{
+    ImportResult, LinearClient, LinearError, LinearIssue, LinearProject, LinearTeam,
 };
 
 use chrono::Utc;
@@ -73,7 +73,10 @@ fn client_creation_various_prefixes() {
 #[tokio::test]
 async fn import_single_issue() {
     let client = LinearClient::new("tok").unwrap();
-    let results = client.import_issues(vec!["issue-001".to_string()]).await.unwrap();
+    let results = client
+        .import_issues(vec!["issue-001".to_string()])
+        .await
+        .unwrap();
     assert_eq!(results.len(), 1);
     assert!(results[0].success);
     assert_eq!(results[0].issue_id, "issue-001");
@@ -289,7 +292,11 @@ fn sync_config_serde_roundtrip() {
 
 #[test]
 fn sync_direction_serde_roundtrip() {
-    for dir in [SyncDirection::Push, SyncDirection::Pull, SyncDirection::Bidirectional] {
+    for dir in [
+        SyncDirection::Push,
+        SyncDirection::Pull,
+        SyncDirection::Bidirectional,
+    ] {
         let json = serde_json::to_string(&dir).unwrap();
         let de: SyncDirection = serde_json::from_str(&json).unwrap();
         assert_eq!(de, dir);
@@ -298,8 +305,14 @@ fn sync_direction_serde_roundtrip() {
 
 #[test]
 fn sync_direction_serde_values() {
-    assert_eq!(serde_json::to_string(&SyncDirection::Push).unwrap(), "\"push\"");
-    assert_eq!(serde_json::to_string(&SyncDirection::Pull).unwrap(), "\"pull\"");
+    assert_eq!(
+        serde_json::to_string(&SyncDirection::Push).unwrap(),
+        "\"push\""
+    );
+    assert_eq!(
+        serde_json::to_string(&SyncDirection::Pull).unwrap(),
+        "\"pull\""
+    );
     assert_eq!(
         serde_json::to_string(&SyncDirection::Bidirectional).unwrap(),
         "\"bidirectional\""
@@ -492,7 +505,11 @@ async fn e2e_import_then_queue_changes() {
     let client = LinearClient::new("tok").unwrap();
 
     // 2. Import some issues
-    let ids = vec!["issue-1".to_string(), "issue-2".to_string(), "issue-3".to_string()];
+    let ids = vec![
+        "issue-1".to_string(),
+        "issue-2".to_string(),
+        "issue-3".to_string(),
+    ];
     let import_results = client.import_issues(ids.clone()).await.unwrap();
     assert_eq!(import_results.len(), 3);
     assert!(import_results.iter().all(|r| r.success));

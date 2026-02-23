@@ -109,15 +109,50 @@ impl ToolFallbackMap {
     pub fn new() -> Self {
         let mut fallbacks = std::collections::HashMap::new();
         // Common tool name mismatches in LLM agents
-        fallbacks.insert("Bash".into(), vec!["bash".into(), "shell".into(), "execute_command".into()]);
-        fallbacks.insert("bash".into(), vec!["Bash".into(), "shell".into(), "execute_command".into()]);
-        fallbacks.insert("Read".into(), vec!["read_file".into(), "cat".into(), "file_read".into()]);
-        fallbacks.insert("Write".into(), vec!["write_file".into(), "file_write".into(), "create_file".into()]);
-        fallbacks.insert("Edit".into(), vec!["edit_file".into(), "file_edit".into(), "str_replace_editor".into()]);
-        fallbacks.insert("Grep".into(), vec!["grep".into(), "search".into(), "ripgrep".into()]);
-        fallbacks.insert("Glob".into(), vec!["glob".into(), "find_files".into(), "list_files".into()]);
-        fallbacks.insert("WebSearch".into(), vec!["web_search".into(), "search_web".into()]);
-        fallbacks.insert("WebFetch".into(), vec!["web_fetch".into(), "fetch_url".into(), "curl".into()]);
+        fallbacks.insert(
+            "Bash".into(),
+            vec!["bash".into(), "shell".into(), "execute_command".into()],
+        );
+        fallbacks.insert(
+            "bash".into(),
+            vec!["Bash".into(), "shell".into(), "execute_command".into()],
+        );
+        fallbacks.insert(
+            "Read".into(),
+            vec!["read_file".into(), "cat".into(), "file_read".into()],
+        );
+        fallbacks.insert(
+            "Write".into(),
+            vec![
+                "write_file".into(),
+                "file_write".into(),
+                "create_file".into(),
+            ],
+        );
+        fallbacks.insert(
+            "Edit".into(),
+            vec![
+                "edit_file".into(),
+                "file_edit".into(),
+                "str_replace_editor".into(),
+            ],
+        );
+        fallbacks.insert(
+            "Grep".into(),
+            vec!["grep".into(), "search".into(), "ripgrep".into()],
+        );
+        fallbacks.insert(
+            "Glob".into(),
+            vec!["glob".into(), "find_files".into(), "list_files".into()],
+        );
+        fallbacks.insert(
+            "WebSearch".into(),
+            vec!["web_search".into(), "search_web".into()],
+        );
+        fallbacks.insert(
+            "WebFetch".into(),
+            vec!["web_fetch".into(), "fetch_url".into(), "curl".into()],
+        );
         Self { fallbacks }
     }
 
@@ -262,10 +297,7 @@ impl PtySpawner for PtyPoolSpawner {
         args: &[&str],
         env: &[(&str, &str)],
     ) -> std::result::Result<SpawnedProcess, String> {
-        let handle = self
-            .pool
-            .spawn(cmd, args, env)
-            .map_err(|e| e.to_string())?;
+        let handle = self.pool.spawn(cmd, args, env).map_err(|e| e.to_string())?;
 
         Ok(SpawnedProcess::new(
             handle.id,
@@ -758,8 +790,12 @@ fn extract_tool_name(error_msg: &str) -> String {
         let cleaned = msg.replace('"', "").replace('\'', "");
         for word in cleaned.split_whitespace() {
             // Tool names are typically PascalCase or lowercase
-            if word != "Tool" && word != "is" && word != "not" && word != "available"
-                && word != "Error:" && word != "Unknown"
+            if word != "Tool"
+                && word != "is"
+                && word != "not"
+                && word != "available"
+                && word != "Error:"
+                && word != "Unknown"
                 && word.chars().next().map_or(false, |c| c.is_alphabetic())
             {
                 return word.to_string();
@@ -871,10 +907,7 @@ mod tests {
             r#"{"event":"tool_call","message":"Reading file","data":{"file":"src/main.rs"}}"#;
         let output = format!("{json_event}\nsome normal output\n");
 
-        let spawner = Arc::new(MockSpawner::new(
-            vec![output.into_bytes()],
-            false,
-        ));
+        let spawner = Arc::new(MockSpawner::new(vec![output.into_bytes()], false));
         let bus = EventBus::new();
         let cache = Arc::new(CacheDb::new_in_memory().await.unwrap());
 
@@ -893,10 +926,7 @@ mod tests {
     async fn execute_task_parses_progress_markers() {
         let output = b"[PROGRESS] 50% complete\n".to_vec();
 
-        let spawner = Arc::new(MockSpawner::new(
-            vec![output],
-            false,
-        ));
+        let spawner = Arc::new(MockSpawner::new(vec![output], false));
         let bus = EventBus::new();
         let cache = Arc::new(CacheDb::new_in_memory().await.unwrap());
 
@@ -913,10 +943,7 @@ mod tests {
 
     #[tokio::test]
     async fn execute_task_publishes_events_to_bus() {
-        let spawner = Arc::new(MockSpawner::new(
-            vec![b"output\n".to_vec()],
-            false,
-        ));
+        let spawner = Arc::new(MockSpawner::new(vec![b"output\n".to_vec()], false));
         let bus = EventBus::new();
         let rx = bus.subscribe();
         let cache = Arc::new(CacheDb::new_in_memory().await.unwrap());
@@ -951,19 +978,11 @@ mod tests {
         let (write_tx, _write_rx) = flume::bounded::<Vec<u8>>(256);
 
         let task_id = Uuid::new_v4();
-        let process = Arc::new(SpawnedProcess::new(
-            Uuid::new_v4(),
-            read_rx,
-            write_tx,
-            true,
-        ));
+        let process = Arc::new(SpawnedProcess::new(Uuid::new_v4(), read_rx, write_tx, true));
 
         let bus = EventBus::new();
         let cache = Arc::new(CacheDb::new_in_memory().await.unwrap());
-        let spawner: Arc<dyn PtySpawner> = Arc::new(MockSpawner::new(
-            vec![],
-            true,
-        ));
+        let spawner: Arc<dyn PtySpawner> = Arc::new(MockSpawner::new(vec![], true));
 
         let executor = AgentExecutor::with_spawner(spawner, bus, cache);
 
@@ -1126,10 +1145,7 @@ text in between
     async fn execute_task_detects_tool_use_errors() {
         let output_with_error = b"some output\n<tool_use_error>Error: No such tool available: Bash</tool_use_error>\nmore output\n".to_vec();
 
-        let spawner = Arc::new(MockSpawner::new(
-            vec![output_with_error],
-            false,
-        ));
+        let spawner = Arc::new(MockSpawner::new(vec![output_with_error], false));
         let bus = EventBus::new();
         let cache = Arc::new(CacheDb::new_in_memory().await.unwrap());
 

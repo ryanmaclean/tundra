@@ -99,10 +99,7 @@ impl PatrolRunner {
             timestamp: now,
         };
 
-        debug!(
-            stuck_beads = report.stuck_beads,
-            "patrol sweep completed"
-        );
+        debug!(stuck_beads = report.stuck_beads, "patrol sweep completed");
 
         Ok(report)
     }

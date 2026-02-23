@@ -19,15 +19,12 @@ fn main() {
 
     let start_time = std::time::Instant::now();
 
-    let runtime = tokio::runtime::Runtime::new()
-        .expect("failed to create tokio runtime");
+    let runtime = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
 
     // Boot daemon inside the tokio runtime.
     let (daemon, api_port) = runtime.block_on(async {
         let config = load_config();
-        let daemon = Daemon::new(config)
-            .await
-            .expect("failed to create daemon");
+        let daemon = Daemon::new(config).await.expect("failed to create daemon");
         let port = daemon
             .start_embedded()
             .await
@@ -41,7 +38,11 @@ fn main() {
     // vectors and event bus, replacing the previous stub.
     let ipc = ipc_handler_from_daemon(&daemon, start_time);
 
-    let state = AppState { daemon, api_port, ipc };
+    let state = AppState {
+        daemon,
+        api_port,
+        ipc,
+    };
 
     // Initialize sound engine (returns None if no audio device available).
     let sound_engine: Option<SoundEngine> = SoundEngine::try_new();
@@ -61,7 +62,11 @@ fn main() {
     let native_shell = cfg!(target_os = "macos") && env_flag("AT_NATIVE_SHELL_MACOS");
     // Traffic lights/top inset: larger in native-shell prototype mode.
     let titlebar_inset = if cfg!(target_os = "macos") {
-        if native_shell { 36 } else { 28 }
+        if native_shell {
+            36
+        } else {
+            28
+        }
     } else {
         0
     };
@@ -103,7 +108,10 @@ fn main() {
 
 fn env_flag(name: &str) -> bool {
     match std::env::var(name) {
-        Ok(v) => matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"),
+        Ok(v) => matches!(
+            v.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        ),
         Err(_) => false,
     }
 }

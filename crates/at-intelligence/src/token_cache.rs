@@ -115,11 +115,7 @@ impl TokenCache {
     }
 
     /// Look up a cached response for the given messages and config.
-    pub async fn get(
-        &self,
-        messages: &[LlmMessage],
-        config: &LlmConfig,
-    ) -> Option<LlmResponse> {
+    pub async fn get(&self, messages: &[LlmMessage], config: &LlmConfig) -> Option<LlmResponse> {
         let mut stats = self.stats.write().await;
         stats.total_lookups += 1;
 
@@ -132,7 +128,8 @@ impl TokenCache {
                 if entry.created_at.elapsed() < Duration::from_secs(self.config.ttl_secs) {
                     entry.hit_count += 1;
                     stats.hash_hits += 1;
-                    stats.tokens_saved += entry.response.input_tokens + entry.response.output_tokens;
+                    stats.tokens_saved +=
+                        entry.response.input_tokens + entry.response.output_tokens;
                     return Some(entry.response.clone());
                 } else {
                     // Expired — remove it
@@ -167,12 +164,7 @@ impl TokenCache {
     }
 
     /// Store a response in the cache.
-    pub async fn put(
-        &self,
-        messages: &[LlmMessage],
-        config: &LlmConfig,
-        response: &LlmResponse,
-    ) {
+    pub async fn put(&self, messages: &[LlmMessage], config: &LlmConfig, response: &LlmResponse) {
         let prompt_hash = compute_prompt_hash(messages, config);
 
         let entry = CacheEntry {
@@ -571,6 +563,9 @@ mod tests {
         let config = test_config();
         let m1 = vec![LlmMessage::user("Hello")];
         let m2 = vec![LlmMessage::user("World")];
-        assert_ne!(compute_prompt_hash(&m1, &config), compute_prompt_hash(&m2, &config));
+        assert_ne!(
+            compute_prompt_hash(&m1, &config),
+            compute_prompt_hash(&m2, &config)
+        );
     }
 }

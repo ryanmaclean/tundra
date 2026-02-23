@@ -9,9 +9,7 @@ use std::sync::Arc;
 
 use at_bridge::event_bus::EventBus;
 use at_bridge::protocol::{BridgeMessage, EventPayload};
-use at_core::types::{
-    CliType, QaReport, QaStatus, Subtask, Task, TaskPhase,
-};
+use at_core::types::{CliType, QaReport, QaStatus, Subtask, Task, TaskPhase};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -171,10 +169,7 @@ impl TaskOrchestrator {
                 // Build a temporary task variant for each subtask.
                 let mut sub_task = task.clone();
                 sub_task.title = st.title.clone();
-                sub_task.description = Some(format!(
-                    "Subtask of '{}': {}",
-                    task.title, st.title
-                ));
+                sub_task.description = Some(format!("Subtask of '{}': {}", task.title, st.title));
 
                 let result = self.executor.execute_task(&sub_task, &config).await?;
                 combined_output.push_str(&format!("\n--- Subtask: {} ---\n", st.title));
@@ -211,11 +206,7 @@ impl TaskOrchestrator {
     // -----------------------------------------------------------------------
 
     /// Run QA checks on the task's worktree, returning a `QaReport`.
-    pub async fn run_qa_phase(
-        &self,
-        task: &Task,
-        worktree_path: &str,
-    ) -> Result<QaReport> {
+    pub async fn run_qa_phase(&self, task: &Task, worktree_path: &str) -> Result<QaReport> {
         self.emit_phase_event(task, "qa_phase_start");
 
         let mut qa_runner = at_intelligence::runner::QaRunner::new();
@@ -248,10 +239,7 @@ impl TaskOrchestrator {
         let mut report = initial_report;
         let mut iterations = 0usize;
 
-        let worktree = task
-            .worktree_path
-            .as_deref()
-            .unwrap_or(".");
+        let worktree = task.worktree_path.as_deref().unwrap_or(".");
 
         while report.status != QaStatus::Passed && iterations < max_iterations {
             iterations += 1;
@@ -265,7 +253,8 @@ impl TaskOrchestrator {
             self.emit_phase_event(task, &format!("qa_fix_iteration_{}", iterations));
 
             // Build a fix prompt that includes QA issues
-            let fix_config = AgentConfig::default_for_phase(self.cli_type.clone(), TaskPhase::Fixing);
+            let fix_config =
+                AgentConfig::default_for_phase(self.cli_type.clone(), TaskPhase::Fixing);
             let mut fix_task = task.clone();
             fix_task.description = Some(format!(
                 "Fix QA issues for task '{}':\n{}",
@@ -315,18 +304,13 @@ impl TaskOrchestrator {
     /// 2. QA phase: run checks on the worktree
     /// 3. QA fix loop: iterate fix->QA until pass or budget exhausted
     /// 4. Emit final result events
-    pub async fn execute_full_pipeline(
-        &self,
-        task: &Task,
-    ) -> Result<PipelineResult> {
+    pub async fn execute_full_pipeline(&self, task: &Task) -> Result<PipelineResult> {
         let pipeline_start = std::time::Instant::now();
 
         self.emit_phase_event(task, "pipeline_start");
 
         // 1. Coding
-        let coding_result = self
-            .run_coding_phase(task, task.subtasks.clone())
-            .await?;
+        let coding_result = self.run_coding_phase(task, task.subtasks.clone()).await?;
 
         if !coding_result.success {
             warn!(task_id = %task.id, "coding phase failed; proceeding to QA anyway");
@@ -397,10 +381,7 @@ impl TaskOrchestrator {
 fn format_qa_issues(report: &QaReport) -> String {
     let mut out = String::new();
     for issue in &report.issues {
-        out.push_str(&format!(
-            "- [{:?}] {}",
-            issue.severity, issue.description
-        ));
+        out.push_str(&format!("- [{:?}] {}", issue.severity, issue.description));
         if let Some(ref file) = issue.file {
             out.push_str(&format!(" (file: {}", file));
             if let Some(line) = issue.line {

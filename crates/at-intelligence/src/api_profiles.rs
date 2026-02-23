@@ -16,7 +16,9 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use at_harness::circuit_breaker::{CircuitBreaker, CircuitBreakerConfig, CircuitBreakerError, CircuitState};
+use at_harness::circuit_breaker::{
+    CircuitBreaker, CircuitBreakerConfig, CircuitBreakerError, CircuitState,
+};
 use at_harness::rate_limiter::{RateLimitConfig, RateLimitError, RateLimiter};
 
 // ---------------------------------------------------------------------------
@@ -322,11 +324,8 @@ impl ProfileRegistry {
     }
 
     fn rebuild_priority_order(&mut self) {
-        let mut entries: Vec<(Uuid, u32)> = self
-            .profiles
-            .values()
-            .map(|p| (p.id, p.priority))
-            .collect();
+        let mut entries: Vec<(Uuid, u32)> =
+            self.profiles.values().map(|p| (p.id, p.priority)).collect();
         entries.sort_by_key(|(_, priority)| *priority);
         self.priority_order = entries.into_iter().map(|(id, _)| id).collect();
     }
@@ -580,10 +579,7 @@ impl ResilientRegistry {
 
             // Attempt the call through the circuit breaker.
             let profile_clone = profile.clone();
-            let result = state
-                .breaker
-                .call(|| make_call(&profile_clone))
-                .await;
+            let result = state.breaker.call(|| make_call(&profile_clone)).await;
 
             match result {
                 Ok(value) => return Ok((profile.id, value)),

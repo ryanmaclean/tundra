@@ -53,8 +53,7 @@ impl IssueSyncEngine {
         };
 
         if let Some(state) = target_state {
-            issues::update_issue(&self.client, issue_number, None, None, Some(state), None)
-                .await?;
+            issues::update_issue(&self.client, issue_number, None, None, Some(state), None).await?;
         }
 
         Ok(())
@@ -73,8 +72,7 @@ impl IssueSyncEngine {
     /// Check for new/updated issues since `since`.
     pub async fn poll_updates(&self, since: DateTime<Utc>) -> Result<Vec<GitHubIssue>> {
         // Fetch all open issues and filter by updated_at >= since.
-        let all_issues =
-            issues::list_issues(&self.client, None, None, None, None).await?;
+        let all_issues = issues::list_issues(&self.client, None, None, None, None).await?;
 
         let updated: Vec<GitHubIssue> = all_issues
             .into_iter()
@@ -91,10 +89,7 @@ impl IssueSyncEngine {
 
 /// Extract the set of already-imported issue numbers from bead metadata.
 fn extract_imported_issue_numbers(beads: &[Bead]) -> Vec<u64> {
-    beads
-        .iter()
-        .filter_map(|b| bead_issue_number(b))
-        .collect()
+    beads.iter().filter_map(|b| bead_issue_number(b)).collect()
 }
 
 /// Read `metadata.issue_number` from a bead, if present.
@@ -305,8 +300,7 @@ mod tests {
             },
         ];
 
-        let filtered: Vec<&GitHubIssue> =
-            issues.iter().filter(|i| i.updated_at >= since).collect();
+        let filtered: Vec<&GitHubIssue> = issues.iter().filter(|i| i.updated_at >= since).collect();
 
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].number, 2);

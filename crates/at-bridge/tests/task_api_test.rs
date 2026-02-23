@@ -163,7 +163,10 @@ async fn test_create_task_with_all_fields() {
     assert_eq!(body["category"], "feature");
     assert_eq!(body["priority"], "high");
     assert_eq!(body["complexity"], "medium");
-    assert_eq!(body["description"], "Build the login page with OAuth support");
+    assert_eq!(
+        body["description"],
+        "Build the login page with OAuth support"
+    );
     assert_eq!(body["impact"], "high");
     assert_eq!(body["agent_profile"], "balanced");
     assert_eq!(body["phase_configs"].as_array().unwrap().len(), 3);
@@ -201,7 +204,8 @@ async fn test_update_task_title() {
     let (base, _state) = start_test_server().await;
     let client = reqwest::Client::new();
 
-    let (_, created) = api_create_task(&client, &base, "Old title", "feature", "low", "small").await;
+    let (_, created) =
+        api_create_task(&client, &base, "Old title", "feature", "low", "small").await;
     let id = created["id"].as_str().unwrap();
 
     let (code, body) = api_update_task(&client, &base, id, &json!({"title": "New title"})).await;
@@ -214,7 +218,8 @@ async fn test_update_task_description() {
     let (base, _state) = start_test_server().await;
     let client = reqwest::Client::new();
 
-    let (_, created) = api_create_task(&client, &base, "Desc test", "feature", "low", "small").await;
+    let (_, created) =
+        api_create_task(&client, &base, "Desc test", "feature", "low", "small").await;
     let id = created["id"].as_str().unwrap();
 
     let (code, body) = api_update_task(
@@ -233,7 +238,8 @@ async fn test_delete_task() {
     let (base, _state) = start_test_server().await;
     let client = reqwest::Client::new();
 
-    let (_, created) = api_create_task(&client, &base, "Delete me", "feature", "low", "small").await;
+    let (_, created) =
+        api_create_task(&client, &base, "Delete me", "feature", "low", "small").await;
     let id = created["id"].as_str().unwrap();
 
     let (code, body) = api_delete_task(&client, &base, id).await;
@@ -302,7 +308,13 @@ async fn test_update_nonexistent_task_returns_404() {
     let client = reqwest::Client::new();
 
     let fake_id = Uuid::new_v4();
-    let (code, _) = api_update_task(&client, &base, &fake_id.to_string(), &json!({"title": "nope"})).await;
+    let (code, _) = api_update_task(
+        &client,
+        &base,
+        &fake_id.to_string(),
+        &json!({"title": "nope"}),
+    )
+    .await;
     assert_eq!(code, 404);
 }
 
@@ -340,7 +352,8 @@ async fn test_update_task_category_and_priority() {
     let (base, _state) = start_test_server().await;
     let client = reqwest::Client::new();
 
-    let (_, created) = api_create_task(&client, &base, "Multi update", "feature", "low", "small").await;
+    let (_, created) =
+        api_create_task(&client, &base, "Multi update", "feature", "low", "small").await;
     let id = created["id"].as_str().unwrap();
 
     let (code, body) = api_update_task(
@@ -453,7 +466,8 @@ async fn test_mixed_category_priority_complexity_via_api() {
     ];
 
     for (cat, pri, cplx) in combos {
-        let (code, body) = api_create_task(&client, &base, &format!("{cat}-task"), cat, pri, cplx).await;
+        let (code, body) =
+            api_create_task(&client, &base, &format!("{cat}-task"), cat, pri, cplx).await;
         assert_eq!(code, 201);
         assert_eq!(body["category"], cat);
         assert_eq!(body["priority"], pri);
@@ -466,7 +480,8 @@ async fn test_empty_title_rejected_on_update() {
     let (base, _state) = start_test_server().await;
     let client = reqwest::Client::new();
 
-    let (_, created) = api_create_task(&client, &base, "Has title", "feature", "low", "small").await;
+    let (_, created) =
+        api_create_task(&client, &base, "Has title", "feature", "low", "small").await;
     let id = created["id"].as_str().unwrap();
 
     let (code, body) = api_update_task(&client, &base, id, &json!({"title": ""})).await;
@@ -480,7 +495,8 @@ async fn test_very_long_title_accepted() {
     let client = reqwest::Client::new();
 
     let long_title = "A".repeat(1500);
-    let (code, body) = api_create_task(&client, &base, &long_title, "feature", "low", "trivial").await;
+    let (code, body) =
+        api_create_task(&client, &base, &long_title, "feature", "low", "trivial").await;
     assert_eq!(code, 201);
     assert_eq!(body["title"].as_str().unwrap().len(), 1500);
 }
@@ -490,7 +506,8 @@ async fn test_description_with_markdown_preserved() {
     let (base, _state) = start_test_server().await;
     let client = reqwest::Client::new();
 
-    let markdown_desc = "# Heading\n\n- item 1\n- item 2\n\n```rust\nfn main() {}\n```\n\n**bold** and _italic_";
+    let markdown_desc =
+        "# Heading\n\n- item 1\n- item 2\n\n```rust\nfn main() {}\n```\n\n**bold** and _italic_";
     let bead_id = Uuid::new_v4();
     let (code, body) = api_create_task_full(
         &client,
@@ -618,7 +635,15 @@ async fn test_task_timestamps_set_on_create() {
     let (base, _state) = start_test_server().await;
     let client = reqwest::Client::new();
 
-    let (code, body) = api_create_task(&client, &base, "Timestamp test", "feature", "low", "trivial").await;
+    let (code, body) = api_create_task(
+        &client,
+        &base,
+        "Timestamp test",
+        "feature",
+        "low",
+        "trivial",
+    )
+    .await;
     assert_eq!(code, 201);
     assert!(body["created_at"].is_string());
     assert!(body["updated_at"].is_string());
@@ -631,13 +656,15 @@ async fn test_update_task_updated_at_changes() {
     let (base, _state) = start_test_server().await;
     let client = reqwest::Client::new();
 
-    let (_, created) = api_create_task(&client, &base, "Time update", "feature", "low", "small").await;
+    let (_, created) =
+        api_create_task(&client, &base, "Time update", "feature", "low", "small").await;
     let id = created["id"].as_str().unwrap();
     let original_updated = created["updated_at"].as_str().unwrap().to_string();
 
     tokio::time::sleep(std::time::Duration::from_millis(10)).await;
 
-    let (code, body) = api_update_task(&client, &base, id, &json!({"title": "Time update v2"})).await;
+    let (code, body) =
+        api_update_task(&client, &base, id, &json!({"title": "Time update v2"})).await;
     assert_eq!(code, 200);
     let new_updated = body["updated_at"].as_str().unwrap().to_string();
     assert_ne!(original_updated, new_updated);
@@ -780,7 +807,8 @@ async fn test_override_individual_phase_settings() {
     let (base, _state) = start_test_server().await;
     let client = reqwest::Client::new();
 
-    let (_, created) = api_create_task(&client, &base, "Override phases", "feature", "low", "small").await;
+    let (_, created) =
+        api_create_task(&client, &base, "Override phases", "feature", "low", "small").await;
     let id = created["id"].as_str().unwrap();
 
     let (code, body) = api_update_task(
@@ -991,10 +1019,12 @@ async fn test_profile_via_api_update() {
     let (base, _state) = start_test_server().await;
     let client = reqwest::Client::new();
 
-    let (_, created) = api_create_task(&client, &base, "Profile update", "feature", "low", "small").await;
+    let (_, created) =
+        api_create_task(&client, &base, "Profile update", "feature", "low", "small").await;
     let id = created["id"].as_str().unwrap();
 
-    let (code, body) = api_update_task(&client, &base, id, &json!({"agent_profile": "quick"})).await;
+    let (code, body) =
+        api_update_task(&client, &base, id, &json!({"agent_profile": "quick"})).await;
     assert_eq!(code, 200);
     assert_eq!(body["agent_profile"], "quick");
 }
@@ -1062,7 +1092,8 @@ async fn test_impact_update_via_api() {
     let (base, _state) = start_test_server().await;
     let client = reqwest::Client::new();
 
-    let (_, created) = api_create_task(&client, &base, "Impact update", "feature", "low", "small").await;
+    let (_, created) =
+        api_create_task(&client, &base, "Impact update", "feature", "low", "small").await;
     let id = created["id"].as_str().unwrap();
     assert!(created["impact"].is_null());
 
@@ -1075,17 +1106,35 @@ async fn test_impact_update_via_api() {
 async fn test_impact_filtering_in_memory() {
     let tasks: Vec<Task> = vec![
         {
-            let mut t = Task::new("Low impact", Uuid::new_v4(), TaskCategory::Feature, TaskPriority::Low, TaskComplexity::Small);
+            let mut t = Task::new(
+                "Low impact",
+                Uuid::new_v4(),
+                TaskCategory::Feature,
+                TaskPriority::Low,
+                TaskComplexity::Small,
+            );
             t.impact = Some(TaskImpact::Low);
             t
         },
         {
-            let mut t = Task::new("High impact", Uuid::new_v4(), TaskCategory::Security, TaskPriority::High, TaskComplexity::Large);
+            let mut t = Task::new(
+                "High impact",
+                Uuid::new_v4(),
+                TaskCategory::Security,
+                TaskPriority::High,
+                TaskComplexity::Large,
+            );
             t.impact = Some(TaskImpact::High);
             t
         },
         {
-            let mut t = Task::new("Critical impact", Uuid::new_v4(), TaskCategory::Security, TaskPriority::Urgent, TaskComplexity::Complex);
+            let mut t = Task::new(
+                "Critical impact",
+                Uuid::new_v4(),
+                TaskCategory::Security,
+                TaskPriority::Urgent,
+                TaskComplexity::Complex,
+            );
             t.impact = Some(TaskImpact::Critical);
             t
         },
@@ -1093,7 +1142,12 @@ async fn test_impact_filtering_in_memory() {
 
     let high_and_above: Vec<_> = tasks
         .iter()
-        .filter(|t| matches!(t.impact, Some(TaskImpact::High) | Some(TaskImpact::Critical)))
+        .filter(|t| {
+            matches!(
+                t.impact,
+                Some(TaskImpact::High) | Some(TaskImpact::Critical)
+            )
+        })
         .collect();
     assert_eq!(high_and_above.len(), 2);
 }

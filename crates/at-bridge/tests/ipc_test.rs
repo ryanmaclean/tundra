@@ -10,7 +10,10 @@ fn make_handler() -> IpcHandler {
 #[tokio::test]
 async fn test_handle_get_status() {
     let handler = make_handler();
-    let resp = handler.handle_message(BridgeMessage::GetStatus).await.unwrap();
+    let resp = handler
+        .handle_message(BridgeMessage::GetStatus)
+        .await
+        .unwrap();
     match resp {
         BridgeMessage::StatusUpdate(s) => {
             assert_eq!(s.version, env!("CARGO_PKG_VERSION"));
@@ -139,10 +142,12 @@ async fn test_backend_message_returns_error() {
     let handler = make_handler();
 
     // Backend-to-frontend messages should not be handled as incoming requests.
-    let result = handler.handle_message(BridgeMessage::Error {
-        code: "TEST".into(),
-        message: "test".into(),
-    }).await;
+    let result = handler
+        .handle_message(BridgeMessage::Error {
+            code: "TEST".into(),
+            message: "test".into(),
+        })
+        .await;
     assert!(result.is_err());
 }
 
@@ -167,12 +172,7 @@ async fn test_handle_list_beads_with_populated_data() {
     ];
     let beads = Arc::new(RwLock::new(beads));
     let agents = Arc::new(RwLock::new(Vec::new()));
-    let handler = IpcHandler::new(
-        EventBus::new(),
-        beads,
-        agents,
-        std::time::Instant::now(),
-    );
+    let handler = IpcHandler::new(EventBus::new(), beads, agents, std::time::Instant::now());
 
     // List all beads
     let resp = handler
@@ -216,12 +216,7 @@ async fn test_handle_get_status_with_populated_data() {
     ];
     let beads = Arc::new(RwLock::new(beads));
     let agents = Arc::new(RwLock::new(Vec::new()));
-    let handler = IpcHandler::new(
-        EventBus::new(),
-        beads,
-        agents,
-        std::time::Instant::now(),
-    );
+    let handler = IpcHandler::new(EventBus::new(), beads, agents, std::time::Instant::now());
 
     let resp = handler
         .handle_message(BridgeMessage::GetStatus)
@@ -243,7 +238,7 @@ async fn test_handle_get_kpi_with_populated_data() {
     use tokio::sync::RwLock;
 
     let beads = vec![
-        Bead::new("b1", Lane::Standard),        // Backlog
+        Bead::new("b1", Lane::Standard), // Backlog
         {
             let mut b = Bead::new("b2", Lane::Standard);
             b.status = BeadStatus::Hooked;
@@ -267,17 +262,9 @@ async fn test_handle_get_kpi_with_populated_data() {
     ];
     let beads = Arc::new(RwLock::new(beads));
     let agents = Arc::new(RwLock::new(Vec::new()));
-    let handler = IpcHandler::new(
-        EventBus::new(),
-        beads,
-        agents,
-        std::time::Instant::now(),
-    );
+    let handler = IpcHandler::new(EventBus::new(), beads, agents, std::time::Instant::now());
 
-    let resp = handler
-        .handle_message(BridgeMessage::GetKpi)
-        .await
-        .unwrap();
+    let resp = handler.handle_message(BridgeMessage::GetKpi).await.unwrap();
     match resp {
         BridgeMessage::KpiUpdate(kpi) => {
             assert_eq!(kpi.total_beads, 5);

@@ -139,8 +139,14 @@ fn test_prometheus_export_format() {
     let m = MetricsCollector::new();
 
     // Add a counter with labels
-    m.increment_counter("http_requests_total", &[("method", "GET"), ("status", "200")]);
-    m.increment_counter("http_requests_total", &[("method", "GET"), ("status", "200")]);
+    m.increment_counter(
+        "http_requests_total",
+        &[("method", "GET"), ("status", "200")],
+    );
+    m.increment_counter(
+        "http_requests_total",
+        &[("method", "GET"), ("status", "200")],
+    );
 
     // Add a gauge
     m.set_gauge("beads_in_flight", 7);
@@ -151,7 +157,10 @@ fn test_prometheus_export_format() {
     let output = m.export_prometheus();
 
     // Verify counter section
-    assert!(output.contains("# TYPE http_requests_total counter"), "missing counter TYPE line");
+    assert!(
+        output.contains("# TYPE http_requests_total counter"),
+        "missing counter TYPE line"
+    );
     assert!(
         output.contains("http_requests_total{method=\"GET\",status=\"200\"} 2"),
         "missing counter value line, output: {}",
@@ -159,16 +168,28 @@ fn test_prometheus_export_format() {
     );
 
     // Verify gauge section
-    assert!(output.contains("# TYPE beads_in_flight gauge"), "missing gauge TYPE line");
-    assert!(output.contains("beads_in_flight 7"), "missing gauge value line");
+    assert!(
+        output.contains("# TYPE beads_in_flight gauge"),
+        "missing gauge TYPE line"
+    );
+    assert!(
+        output.contains("beads_in_flight 7"),
+        "missing gauge value line"
+    );
 
     // Verify histogram section
     assert!(
         output.contains("# TYPE api_latency_seconds histogram"),
         "missing histogram TYPE line"
     );
-    assert!(output.contains("api_latency_seconds_count 1"), "missing histogram count");
-    assert!(output.contains("api_latency_seconds_bucket{le=\"+Inf\"} 1"), "missing +Inf bucket");
+    assert!(
+        output.contains("api_latency_seconds_count 1"),
+        "missing histogram count"
+    );
+    assert!(
+        output.contains("api_latency_seconds_bucket{le=\"+Inf\"} 1"),
+        "missing +Inf bucket"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -192,7 +213,10 @@ fn test_metrics_labels() {
     // Labels equality
     let l1 = Labels::new(&[("a", "1"), ("b", "2")]);
     let l2 = Labels::new(&[("b", "2"), ("a", "1")]);
-    assert_eq!(l1, l2, "labels with same pairs in different order should be equal");
+    assert_eq!(
+        l1, l2,
+        "labels with same pairs in different order should be equal"
+    );
 }
 
 #[test]
@@ -373,7 +397,10 @@ fn test_json_export_structure() {
 fn test_global_metrics_is_singleton() {
     let m1 = global_metrics();
     let m2 = global_metrics();
-    assert!(std::ptr::eq(m1, m2), "global_metrics should return the same instance");
+    assert!(
+        std::ptr::eq(m1, m2),
+        "global_metrics should return the same instance"
+    );
 }
 
 #[test]

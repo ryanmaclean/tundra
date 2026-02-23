@@ -1,8 +1,8 @@
-use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, Tabs};
+use ratatui::Frame;
 
 use crate::app::App;
 
@@ -11,28 +11,25 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect) {
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(3), // sub-tab bar
-            Constraint::Min(0),   // content
+            Constraint::Min(0),    // content
         ])
         .split(area);
 
     // Sub-tab bar
-    let sub_tabs = Tabs::new(vec![
-        Line::from("Index"),
-        Line::from("Memory"),
-    ])
-    .block(
-        Block::default()
-            .borders(Borders::BOTTOM)
-            .title(" Context ")
-            .border_style(Style::default().fg(Color::Cyan)),
-    )
-    .select(app.context_sub_tab)
-    .highlight_style(
-        Style::default()
-            .fg(Color::Yellow)
-            .add_modifier(Modifier::BOLD),
-    )
-    .divider(Span::raw(" | "));
+    let sub_tabs = Tabs::new(vec![Line::from("Index"), Line::from("Memory")])
+        .block(
+            Block::default()
+                .borders(Borders::BOTTOM)
+                .title(" Context ")
+                .border_style(Style::default().fg(Color::Cyan)),
+        )
+        .select(app.context_sub_tab)
+        .highlight_style(
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )
+        .divider(Span::raw(" | "));
 
     frame.render_widget(sub_tabs, chunks[0]);
 
@@ -46,19 +43,37 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect) {
 fn render_index(frame: &mut Frame, _app: &App, area: Rect) {
     let items = vec![
         ListItem::new(Line::from(vec![
-            Span::styled(" L0 ", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                " L0 ",
+                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+            ),
             Span::raw("Identity — system prompt, role definition"),
         ])),
         ListItem::new(Line::from(vec![
-            Span::styled(" L1 ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                " L1 ",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::raw("Active — current task, recent context"),
         ])),
         ListItem::new(Line::from(vec![
-            Span::styled(" L2 ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                " L2 ",
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::raw("Reference — project docs, patterns"),
         ])),
         ListItem::new(Line::from(vec![
-            Span::styled(" L3 ", Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                " L3 ",
+                Style::default()
+                    .fg(Color::Blue)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::raw("Deep — full codebase, archived context"),
         ])),
     ];

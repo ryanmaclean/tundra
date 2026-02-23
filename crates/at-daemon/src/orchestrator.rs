@@ -84,7 +84,10 @@ impl TaskOrchestrator {
             Ok(wt_info) => {
                 task.worktree_path = Some(wt_info.path.clone());
                 task.git_branch = Some(wt_info.branch.clone());
-                task.log(TaskLogType::Info, format!("Worktree created at {}", wt_info.path));
+                task.log(
+                    TaskLogType::Info,
+                    format!("Worktree created at {}", wt_info.path),
+                );
                 self.publish_event(task, "worktree_created");
             }
             Err(e) => {
@@ -155,10 +158,7 @@ impl TaskOrchestrator {
                     }
                 }
 
-                task.log(
-                    TaskLogType::PhaseEnd,
-                    format!("Completed phase: {phase:?}"),
-                );
+                task.log(TaskLogType::PhaseEnd, format!("Completed phase: {phase:?}"));
                 self.publish_event(task, &format!("phase_end:{phase:?}"));
                 continue;
             }
@@ -166,10 +166,7 @@ impl TaskOrchestrator {
             // SpecCreation: run spec pipeline (at-intelligence SpecRunner) and persist phase results to task logs
             if *phase == TaskPhase::SpecCreation {
                 run_spec_pipeline_for_task(task);
-                task.log(
-                    TaskLogType::PhaseEnd,
-                    format!("Completed phase: {phase:?}"),
-                );
+                task.log(TaskLogType::PhaseEnd, format!("Completed phase: {phase:?}"));
                 self.publish_event(task, &format!("phase_end:{phase:?}"));
                 continue;
             }
@@ -177,15 +174,16 @@ impl TaskOrchestrator {
             // QA phase: run QA checks (at-intelligence QaRunner) and attach QaReport to task
             if *phase == TaskPhase::Qa {
                 let mut qa_runner = QaRunner::new();
-                let report = qa_runner.run_qa_checks(
-                    task.id,
-                    &task.title,
-                    task.worktree_path.as_deref(),
-                );
+                let report =
+                    qa_runner.run_qa_checks(task.id, &task.title, task.worktree_path.as_deref());
                 task.qa_report = Some(report.clone());
                 task.log(
                     TaskLogType::Info,
-                    format!("QA report generated: {:?} with {} issues", report.status, report.issues.len()),
+                    format!(
+                        "QA report generated: {:?} with {} issues",
+                        report.status,
+                        report.issues.len()
+                    ),
                 );
                 for issue in &report.issues {
                     task.log(
@@ -209,10 +207,8 @@ impl TaskOrchestrator {
 
             // Build prompt and execute via agent
             let prompt = self.build_prompt_for_phase(task, phase.clone());
-            let config = AgentConfig::default_for_phase(
-                at_core::types::CliType::Claude,
-                phase.clone(),
-            );
+            let config =
+                AgentConfig::default_for_phase(at_core::types::CliType::Claude, phase.clone());
 
             // Store the prompt in the task description for the executor
             let mut exec_task = task.clone();
@@ -236,11 +232,18 @@ impl TaskOrchestrator {
                     if !result.output.is_empty() {
                         // Log output in chunks if it's large
                         let output_preview = if result.output.len() > 1000 {
-                            format!("{}... (truncated, {} bytes total)", &result.output[..1000], result.output.len())
+                            format!(
+                                "{}... (truncated, {} bytes total)",
+                                &result.output[..1000],
+                                result.output.len()
+                            )
                         } else {
                             result.output.clone()
                         };
-                        task.log(TaskLogType::Info, format!("Agent output:\n{}", output_preview));
+                        task.log(
+                            TaskLogType::Info,
+                            format!("Agent output:\n{}", output_preview),
+                        );
                     }
                     if !result.tool_errors.is_empty() {
                         warn!(
@@ -251,7 +254,10 @@ impl TaskOrchestrator {
                         for tool_err in &result.tool_errors {
                             task.log(
                                 TaskLogType::Error,
-                                format!("Tool error: {} - {}", tool_err.tool_name, tool_err.error_message),
+                                format!(
+                                    "Tool error: {} - {}",
+                                    tool_err.tool_name, tool_err.error_message
+                                ),
                             );
                         }
                     }
@@ -271,10 +277,7 @@ impl TaskOrchestrator {
                             format!("Phase {phase:?} did not succeed"),
                         );
                     } else {
-                        task.log(
-                            TaskLogType::PhaseEnd,
-                            format!("Completed phase: {phase:?}"),
-                        );
+                        task.log(TaskLogType::PhaseEnd, format!("Completed phase: {phase:?}"));
                     }
                 }
                 Err(e) => {
@@ -298,10 +301,7 @@ impl TaskOrchestrator {
     pub async fn cancel_task(&self, task: &mut Task) -> Result<()> {
         info!(task_id = %task.id, "cancelling task");
 
-        self.executor
-            .abort_task(task.id)
-            .await
-            .ok(); // Best-effort abort
+        self.executor.abort_task(task.id).await.ok(); // Best-effort abort
 
         task.set_phase(TaskPhase::Stopped);
         task.error = Some("Task cancelled by user".to_string());
@@ -335,10 +335,7 @@ impl TaskOrchestrator {
     fn build_prompt_for_phase(&self, task: &Task, phase: TaskPhase) -> String {
         let title = &task.title;
         let desc = task.description.as_deref().unwrap_or("No description");
-        let worktree = task
-            .worktree_path
-            .as_deref()
-            .unwrap_or("(no worktree)");
+        let worktree = task.worktree_path.as_deref().unwrap_or("(no worktree)");
 
         match phase {
             TaskPhase::Discovery => {
@@ -381,9 +378,7 @@ impl TaskOrchestrator {
                 format!("Fix any issues found during QA.\nTask: {title}\nWorktree: {worktree}")
             }
             TaskPhase::Merging => {
-                format!(
-                    "Prepare changes for merging. Ensure all tests pass.\nTask: {title}"
-                )
+                format!("Prepare changes for merging. Ensure all tests pass.\nTask: {title}")
             }
             _ => format!("Continue working on task: {title}"),
         }
@@ -417,7 +412,11 @@ fn run_spec_pipeline_for_task(task: &mut Task) {
             id: Uuid::new_v4(),
             phase: *spec_phase,
             status: PhaseStatus::Complete,
-            content: format!("[{}] Placeholder output for task: {}", spec_phase.label(), title),
+            content: format!(
+                "[{}] Placeholder output for task: {}",
+                spec_phase.label(),
+                title
+            ),
             artifacts: vec![],
             metrics: PhaseMetrics::default(),
             created_at: Utc::now(),
@@ -430,7 +429,10 @@ fn run_spec_pipeline_for_task(task: &mut Task) {
         .map(|r| r.content.as_str())
         .collect::<Vec<_>>()
         .join("\n\n");
-    task.log(TaskLogType::Info, format!("Spec pipeline completed.\n{combined}"));
+    task.log(
+        TaskLogType::Info,
+        format!("Spec pipeline completed.\n{combined}"),
+    );
 }
 
 /// Sanitize a task title for branch/directory naming.
@@ -581,8 +583,7 @@ mod tests {
             }, // diff
         ];
 
-        let orchestrator =
-            make_orchestrator(b"agent output\n".to_vec(), git_responses).await;
+        let orchestrator = make_orchestrator(b"agent output\n".to_vec(), git_responses).await;
         let mut task = make_test_task();
 
         let result = orchestrator.start_task(&mut task).await;

@@ -4,15 +4,13 @@ use async_trait::async_trait;
 use tokio::sync::RwLock;
 
 use crate::command_registry::{
-    CommandCategory, CommandContext, CommandDescriptor, CommandError, CommandHandler, CommandOutput,
-    CommandRegistry, CommandSource, Result,
+    CommandCategory, CommandContext, CommandDescriptor, CommandError, CommandHandler,
+    CommandOutput, CommandRegistry, CommandSource, Result,
 };
-use crate::protocol::BridgeMessage;
 use crate::event_bus::EventBus;
+use crate::protocol::BridgeMessage;
 
-use at_core::types::{
-    Agent, AgentStatus, Bead, KpiSnapshot, Lane, Task, TaskPhase,
-};
+use at_core::types::{Agent, AgentStatus, Bead, KpiSnapshot, Lane, Task, TaskPhase};
 
 // ---------------------------------------------------------------------------
 // Shared state handle for command handlers
@@ -66,7 +64,9 @@ impl CommandHandler for CreateBeadHandler {
 
         let mut beads = self.0.beads.write().await;
         beads.push(bead);
-        self.0.event_bus.publish(BridgeMessage::BeadList(beads.clone()));
+        self.0
+            .event_bus
+            .publish(BridgeMessage::BeadList(beads.clone()));
 
         Ok(CommandOutput::ok_data(bead_json))
     }
@@ -168,7 +168,9 @@ impl CommandHandler for AdvanceTaskPhaseHandler {
         let snapshot = task.clone();
         drop(tasks);
 
-        self.0.event_bus.publish(BridgeMessage::TaskUpdate(snapshot));
+        self.0
+            .event_bus
+            .publish(BridgeMessage::TaskUpdate(snapshot));
 
         Ok(CommandOutput::ok("phase advanced"))
     }
@@ -389,5 +391,4 @@ mod tests {
         let data = output.data.unwrap();
         assert_eq!(data["total_beads"], 0);
     }
-
 }

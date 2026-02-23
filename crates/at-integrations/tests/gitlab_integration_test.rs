@@ -3,14 +3,14 @@
 //!
 //! All tests use stub implementations so no real GitLab API calls are made.
 
-use at_integrations::gitlab::{
-    GitLabClient, GitLabError, GitLabIssue, GitLabMergeRequest, GitLabUser,
-};
 use at_integrations::gitlab::mr_review::{
     MrReviewConfig, MrReviewEngine, MrReviewFinding, MrReviewResult, MrReviewSeverity,
 };
 use at_integrations::gitlab::oauth::{
     GitLabOAuthClient, GitLabOAuthConfig, GitLabUserProfile, OAuthTokenResponse,
+};
+use at_integrations::gitlab::{
+    GitLabClient, GitLabError, GitLabIssue, GitLabMergeRequest, GitLabUser,
 };
 
 use chrono::Utc;
@@ -78,7 +78,10 @@ fn client_custom_url_empty_token_fails() {
 #[tokio::test]
 async fn list_issues_respects_per_page() {
     let client = test_client();
-    let issues = client.list_issues("42", Some("opened"), 1, 3).await.unwrap();
+    let issues = client
+        .list_issues("42", Some("opened"), 1, 3)
+        .await
+        .unwrap();
     assert_eq!(issues.len(), 3);
 }
 
@@ -101,7 +104,10 @@ async fn list_issues_default_state() {
 #[tokio::test]
 async fn list_issues_closed_state() {
     let client = test_client();
-    let issues = client.list_issues("42", Some("closed"), 1, 3).await.unwrap();
+    let issues = client
+        .list_issues("42", Some("closed"), 1, 3)
+        .await
+        .unwrap();
     for issue in &issues {
         assert_eq!(issue.state, "closed");
         assert!(issue.closed_at.is_some());
@@ -146,7 +152,10 @@ async fn list_merge_requests_respects_per_page() {
 #[tokio::test]
 async fn list_merge_requests_merged_state() {
     let client = test_client();
-    let mrs = client.list_merge_requests("42", Some("merged"), 1, 3).await.unwrap();
+    let mrs = client
+        .list_merge_requests("42", Some("merged"), 1, 3)
+        .await
+        .unwrap();
     for mr in &mrs {
         assert_eq!(mr.state, "merged");
         assert!(mr.merged_at.is_some());
@@ -436,7 +445,10 @@ async fn e2e_issue_to_mr_to_review() {
     let client = test_client();
 
     // 1. List open issues
-    let issues = client.list_issues("42", Some("opened"), 1, 5).await.unwrap();
+    let issues = client
+        .list_issues("42", Some("opened"), 1, 5)
+        .await
+        .unwrap();
     assert!(!issues.is_empty());
     let issue = &issues[0];
 

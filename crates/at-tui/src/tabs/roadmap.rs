@@ -1,8 +1,8 @@
-use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem};
+use ratatui::Frame;
 
 use crate::app::App;
 
@@ -31,7 +31,9 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect) {
             ListItem::new(Line::from(vec![
                 Span::styled(
                     format!(" {:>4} ", item.priority.to_uppercase()),
-                    Style::default().fg(priority_color).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(priority_color)
+                        .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(
                     format!("{:<12} ", item.status),

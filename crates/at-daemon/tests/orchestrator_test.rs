@@ -42,7 +42,6 @@ impl MockSpawner {
             _write_rxs: Mutex::new(Vec::new()),
         }
     }
-
 }
 
 #[async_trait::async_trait]
@@ -62,7 +61,12 @@ impl PtySpawner for MockSpawner {
         }
         drop(read_tx);
 
-        Ok(SpawnedProcess::new(Uuid::new_v4(), read_rx, write_tx, false))
+        Ok(SpawnedProcess::new(
+            Uuid::new_v4(),
+            read_rx,
+            write_tx,
+            false,
+        ))
     }
 }
 
@@ -121,7 +125,7 @@ impl MockGit {
                 stderr: String::new(),
             },
             GitOutput {
-                success: false,       // merge fails
+                success: false, // merge fails
                 stdout: String::new(),
                 stderr: "CONFLICT (content): Merge conflict in src/main.rs".to_string(),
             },
@@ -186,7 +190,10 @@ async fn make_orchestrator_with_bus(
     let git = Box::new(MockGit::new(git_responses));
     let worktree_manager = WorktreeManager::with_git_runner(tmp, cache.clone(), git);
 
-    (TaskOrchestrator::new(executor, worktree_manager, cache, bus), rx)
+    (
+        TaskOrchestrator::new(executor, worktree_manager, cache, bus),
+        rx,
+    )
 }
 
 async fn make_failing_orchestrator(git_responses: Vec<GitOutput>) -> TaskOrchestrator {
@@ -219,7 +226,11 @@ fn collect_events(rx: &flume::Receiver<Arc<BridgeMessage>>) -> Vec<String> {
 
 #[tokio::test]
 async fn test_pipeline_discovery_phase() {
-    let orchestrator = make_orchestrator(b"discovery output\n".to_vec(), MockGit::happy_path_responses()).await;
+    let orchestrator = make_orchestrator(
+        b"discovery output\n".to_vec(),
+        MockGit::happy_path_responses(),
+    )
+    .await;
     let mut task = make_test_task();
 
     assert_eq!(task.phase, TaskPhase::Discovery);
@@ -242,7 +253,8 @@ async fn test_pipeline_discovery_phase() {
 
 #[tokio::test]
 async fn test_pipeline_implementation_phase() {
-    let orchestrator = make_orchestrator(b"coding output\n".to_vec(), MockGit::happy_path_responses()).await;
+    let orchestrator =
+        make_orchestrator(b"coding output\n".to_vec(), MockGit::happy_path_responses()).await;
     let mut task = make_test_task();
 
     let _ = orchestrator.start_task(&mut task).await;
@@ -253,15 +265,13 @@ async fn test_pipeline_implementation_phase() {
         .iter()
         .filter(|l| l.message.contains("Coding"))
         .collect();
-    assert!(
-        !coding_logs.is_empty(),
-        "should have Coding phase logs"
-    );
+    assert!(!coding_logs.is_empty(), "should have Coding phase logs");
 }
 
 #[tokio::test]
 async fn test_pipeline_review_phase() {
-    let orchestrator = make_orchestrator(b"qa output\n".to_vec(), MockGit::happy_path_responses()).await;
+    let orchestrator =
+        make_orchestrator(b"qa output\n".to_vec(), MockGit::happy_path_responses()).await;
     let mut task = make_test_task();
 
     let _ = orchestrator.start_task(&mut task).await;
@@ -277,7 +287,8 @@ async fn test_pipeline_review_phase() {
 
 #[tokio::test]
 async fn test_pipeline_merge_phase() {
-    let orchestrator = make_orchestrator(b"merge output\n".to_vec(), MockGit::happy_path_responses()).await;
+    let orchestrator =
+        make_orchestrator(b"merge output\n".to_vec(), MockGit::happy_path_responses()).await;
     let mut task = make_test_task();
 
     let _ = orchestrator.start_task(&mut task).await;
@@ -288,15 +299,13 @@ async fn test_pipeline_merge_phase() {
         .iter()
         .filter(|l| l.message.contains("Merging"))
         .collect();
-    assert!(
-        !merge_logs.is_empty(),
-        "should have Merging phase logs"
-    );
+    assert!(!merge_logs.is_empty(), "should have Merging phase logs");
 }
 
 #[tokio::test]
 async fn test_pipeline_complete_phase() {
-    let orchestrator = make_orchestrator(b"output\n".to_vec(), MockGit::happy_path_responses()).await;
+    let orchestrator =
+        make_orchestrator(b"output\n".to_vec(), MockGit::happy_path_responses()).await;
     let mut task = make_test_task();
 
     let result = orchestrator.start_task(&mut task).await;
@@ -308,7 +317,11 @@ async fn test_pipeline_complete_phase() {
 
 #[tokio::test]
 async fn test_full_pipeline_happy_path() {
-    let orchestrator = make_orchestrator(b"full pipeline output\n".to_vec(), MockGit::happy_path_responses()).await;
+    let orchestrator = make_orchestrator(
+        b"full pipeline output\n".to_vec(),
+        MockGit::happy_path_responses(),
+    )
+    .await;
     let mut task = make_test_task();
 
     assert!(task.started_at.is_none());
@@ -359,7 +372,8 @@ async fn test_full_pipeline_happy_path() {
 /// continues through Coding, QA, Merging, and Complete.
 #[tokio::test]
 async fn test_pipeline_stall_after_planning() {
-    let orchestrator = make_orchestrator(b"output\n".to_vec(), MockGit::happy_path_responses()).await;
+    let orchestrator =
+        make_orchestrator(b"output\n".to_vec(), MockGit::happy_path_responses()).await;
     let mut task = make_test_task();
 
     let result = orchestrator.start_task(&mut task).await;
@@ -394,7 +408,10 @@ async fn test_pipeline_crash_recovery() {
     let mut task = make_test_task();
 
     let result = orchestrator.start_task(&mut task).await;
-    assert!(result.is_err(), "pipeline should fail when executor crashes");
+    assert!(
+        result.is_err(),
+        "pipeline should fail when executor crashes"
+    );
 
     // Task should be in Error state, not stuck.
     assert_eq!(
@@ -435,13 +452,17 @@ async fn test_pipeline_stuck_task_timeout() {
         "stuck task should transition to Error, got {:?}",
         task.phase
     );
-    assert!(task.completed_at.is_none(), "failed task should not be marked complete");
+    assert!(
+        task.completed_at.is_none(),
+        "failed task should not be marked complete"
+    );
 }
 
 /// Verifies that retry_task resets state and restarts the pipeline.
 #[tokio::test]
 async fn test_pipeline_retry_on_failure() {
-    let orchestrator = make_orchestrator(b"retry output\n".to_vec(), MockGit::happy_path_responses()).await;
+    let orchestrator =
+        make_orchestrator(b"retry output\n".to_vec(), MockGit::happy_path_responses()).await;
     let mut task = make_test_task();
 
     // Put task in Error state to enable retry.
@@ -479,7 +500,8 @@ async fn test_pipeline_escalation_on_repeated_failure() {
     task.set_phase(TaskPhase::Stopped);
     // We need a valid orchestrator for the retry, but the important thing
     // is that the state check passes.
-    let orchestrator2 = make_orchestrator(b"output\n".to_vec(), MockGit::happy_path_responses()).await;
+    let orchestrator2 =
+        make_orchestrator(b"output\n".to_vec(), MockGit::happy_path_responses()).await;
     let result = orchestrator2.retry_task(&mut task).await;
     assert!(result.is_ok(), "retry from Stopped should succeed");
 }
@@ -521,12 +543,19 @@ async fn test_scheduler_dequeue_next_task() {
     // Assign the first bead (transitions to Hooked, removing from Backlog).
     let agent = Agent::new("worker", AgentRole::Crew, CliType::Claude);
     cache.upsert_agent(&agent).await.unwrap();
-    scheduler.assign_bead(&cache, bead1_id, agent.id).await.unwrap();
+    scheduler
+        .assign_bead(&cache, bead1_id, agent.id)
+        .await
+        .unwrap();
 
     // Second dequeue should return the other bead.
     let next2 = scheduler.next_bead(&cache).await;
     assert!(next2.is_some());
-    assert_ne!(next2.unwrap().id, bead1_id, "should not return already-hooked bead");
+    assert_ne!(
+        next2.unwrap().id,
+        bead1_id,
+        "should not return already-hooked bead"
+    );
 }
 
 #[tokio::test]
@@ -549,7 +578,10 @@ async fn test_scheduler_priority_ordering() {
     let next = scheduler.next_bead(&cache).await.unwrap();
 
     // Critical lane always wins over Standard, regardless of priority.
-    assert_eq!(next.id, critical_id, "Critical lane should take highest priority");
+    assert_eq!(
+        next.id, critical_id,
+        "Critical lane should take highest priority"
+    );
 }
 
 #[tokio::test]
@@ -706,11 +738,9 @@ async fn test_daemon_kpi_collection() {
 
 #[tokio::test]
 async fn test_pipeline_emits_bead_state_events() {
-    let (orchestrator, rx) = make_orchestrator_with_bus(
-        b"event output\n".to_vec(),
-        MockGit::happy_path_responses(),
-    )
-    .await;
+    let (orchestrator, rx) =
+        make_orchestrator_with_bus(b"event output\n".to_vec(), MockGit::happy_path_responses())
+            .await;
 
     let mut task = make_test_task();
     let _ = orchestrator.start_task(&mut task).await;
@@ -744,11 +774,9 @@ async fn test_pipeline_emits_bead_state_events() {
 
 #[tokio::test]
 async fn test_pipeline_emits_agent_events() {
-    let (orchestrator, rx) = make_orchestrator_with_bus(
-        b"agent output\n".to_vec(),
-        MockGit::happy_path_responses(),
-    )
-    .await;
+    let (orchestrator, rx) =
+        make_orchestrator_with_bus(b"agent output\n".to_vec(), MockGit::happy_path_responses())
+            .await;
 
     let mut task = make_test_task();
     let _ = orchestrator.start_task(&mut task).await;
@@ -802,11 +830,8 @@ async fn test_cancel_task_sets_stopped() {
 
 #[tokio::test]
 async fn test_pipeline_handles_merge_conflict() {
-    let orchestrator = make_orchestrator(
-        b"output\n".to_vec(),
-        MockGit::merge_conflict_responses(),
-    )
-    .await;
+    let orchestrator =
+        make_orchestrator(b"output\n".to_vec(), MockGit::merge_conflict_responses()).await;
     let mut task = make_test_task();
 
     let result = orchestrator.start_task(&mut task).await;
@@ -826,7 +851,8 @@ async fn test_pipeline_handles_merge_conflict() {
 
 #[tokio::test]
 async fn test_pipeline_sets_started_at() {
-    let orchestrator = make_orchestrator(b"output\n".to_vec(), MockGit::happy_path_responses()).await;
+    let orchestrator =
+        make_orchestrator(b"output\n".to_vec(), MockGit::happy_path_responses()).await;
     let mut task = make_test_task();
 
     assert!(task.started_at.is_none());
@@ -836,7 +862,8 @@ async fn test_pipeline_sets_started_at() {
 
 #[tokio::test]
 async fn test_pipeline_logs_are_chronological() {
-    let orchestrator = make_orchestrator(b"output\n".to_vec(), MockGit::happy_path_responses()).await;
+    let orchestrator =
+        make_orchestrator(b"output\n".to_vec(), MockGit::happy_path_responses()).await;
     let mut task = make_test_task();
 
     let _ = orchestrator.start_task(&mut task).await;
@@ -876,7 +903,10 @@ async fn test_scheduler_assign_bead_sets_hooked_fields() {
     cache.upsert_agent(&agent).await.unwrap();
 
     let scheduler = TaskScheduler::default();
-    scheduler.assign_bead(&cache, bead_id, agent_id).await.unwrap();
+    scheduler
+        .assign_bead(&cache, bead_id, agent_id)
+        .await
+        .unwrap();
 
     let updated = cache.get_bead(bead_id).await.unwrap().unwrap();
     assert_eq!(updated.status, BeadStatus::Hooked);

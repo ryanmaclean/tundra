@@ -62,7 +62,11 @@ async fn test_create_bead_appears_in_status_count() {
     let client = reqwest::Client::new();
 
     // Check initial status.
-    let resp = client.get(format!("{base}/api/status")).send().await.unwrap();
+    let resp = client
+        .get(format!("{base}/api/status"))
+        .send()
+        .await
+        .unwrap();
     let status: Value = resp.json().await.unwrap();
     assert_eq!(status["bead_count"], 0);
 
@@ -76,7 +80,11 @@ async fn test_create_bead_appears_in_status_count() {
     assert_eq!(resp.status(), 201);
 
     // Status should now show 1 bead.
-    let resp = client.get(format!("{base}/api/status")).send().await.unwrap();
+    let resp = client
+        .get(format!("{base}/api/status"))
+        .send()
+        .await
+        .unwrap();
     let status: Value = resp.json().await.unwrap();
     assert_eq!(status["bead_count"], 1);
 }
@@ -96,7 +104,11 @@ async fn test_create_multiple_beads_reflected_in_status() {
         assert_eq!(resp.status(), 201);
     }
 
-    let resp = client.get(format!("{base}/api/status")).send().await.unwrap();
+    let resp = client
+        .get(format!("{base}/api/status"))
+        .send()
+        .await
+        .unwrap();
     let status: Value = resp.json().await.unwrap();
     assert_eq!(status["bead_count"], 5);
 }
@@ -154,7 +166,11 @@ async fn test_bead_status_transitions_full_lifecycle() {
     assert_eq!(resp.status(), 200);
 
     // Verify final state.
-    let resp = client.get(format!("{base}/api/beads")).send().await.unwrap();
+    let resp = client
+        .get(format!("{base}/api/beads"))
+        .send()
+        .await
+        .unwrap();
     let beads: Vec<Value> = resp.json().await.unwrap();
     assert_eq!(beads[0]["status"], "done");
 }
@@ -174,7 +190,11 @@ async fn test_agent_lifecycle_via_state_injection() {
     state.agents.write().await.push(agent);
 
     // List agents.
-    let resp = client.get(format!("{base}/api/agents")).send().await.unwrap();
+    let resp = client
+        .get(format!("{base}/api/agents"))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200);
     let agents: Vec<Value> = resp.json().await.unwrap();
     assert_eq!(agents.len(), 1);
@@ -200,7 +220,11 @@ async fn test_agent_lifecycle_via_state_injection() {
     assert_eq!(stopped["status"], "stopped");
 
     // Verify the status endpoint reflects the agent.
-    let resp = client.get(format!("{base}/api/status")).send().await.unwrap();
+    let resp = client
+        .get(format!("{base}/api/status"))
+        .send()
+        .await
+        .unwrap();
     let status: Value = resp.json().await.unwrap();
     assert_eq!(status["agent_count"], 1);
 }
@@ -243,7 +267,11 @@ async fn test_settings_put_and_get_cycle() {
     let client = reqwest::Client::new();
 
     // GET default settings.
-    let resp = client.get(format!("{base}/api/settings")).send().await.unwrap();
+    let resp = client
+        .get(format!("{base}/api/settings"))
+        .send()
+        .await
+        .unwrap();
     let defaults: Value = resp.json().await.unwrap();
 
     // PUT modified settings back.
@@ -256,7 +284,11 @@ async fn test_settings_put_and_get_cycle() {
     assert_eq!(resp.status(), 200);
 
     // GET again and verify round-trip.
-    let resp = client.get(format!("{base}/api/settings")).send().await.unwrap();
+    let resp = client
+        .get(format!("{base}/api/settings"))
+        .send()
+        .await
+        .unwrap();
     let reloaded: Value = resp.json().await.unwrap();
     assert_eq!(defaults["agents"], reloaded["agents"]);
     assert_eq!(defaults["cache"], reloaded["cache"]);
@@ -268,7 +300,11 @@ async fn test_settings_patch_preserves_other_fields() {
     let client = reqwest::Client::new();
 
     // GET initial settings to know the cache section.
-    let resp = client.get(format!("{base}/api/settings")).send().await.unwrap();
+    let resp = client
+        .get(format!("{base}/api/settings"))
+        .send()
+        .await
+        .unwrap();
     let initial: Value = resp.json().await.unwrap();
     let initial_cache = initial["cache"].clone();
 
@@ -318,7 +354,10 @@ async fn test_bead_creation_publishes_event_on_bus() {
             found_bead_list = true;
         }
     }
-    assert!(found_bead_list, "creating a bead should publish BeadList event");
+    assert!(
+        found_bead_list,
+        "creating a bead should publish BeadList event"
+    );
 }
 
 #[tokio::test]
@@ -362,7 +401,10 @@ async fn test_task_update_publishes_event_on_bus() {
             found_task_update = true;
         }
     }
-    assert!(found_task_update, "updating a task should publish TaskUpdate event");
+    assert!(
+        found_task_update,
+        "updating a task should publish TaskUpdate event"
+    );
 }
 
 #[tokio::test]

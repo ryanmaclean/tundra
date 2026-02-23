@@ -85,7 +85,9 @@ pub async fn run(
         .into_iter()
         .filter(|name| !name.trim().is_empty())
         .map(|name| {
-            let is_set = std::env::var(&name).ok().is_some_and(|v| !v.trim().is_empty());
+            let is_set = std::env::var(&name)
+                .ok()
+                .is_some_and(|v| !v.trim().is_empty());
             if !is_set {
                 failures += 1;
             }
@@ -222,9 +224,7 @@ mod tests {
                 }),
             );
 
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-            .await
-            .unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         tokio::spawn(async move {
             axum::serve(listener, app).await.unwrap();

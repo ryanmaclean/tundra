@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use reqwest::Client;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Idea {
@@ -27,7 +27,7 @@ pub async fn list(api_url: &str) -> anyhow::Result<()> {
         anyhow::bail!("Failed to list ideas: {}", msg);
     }
     let ideas: Vec<Idea> = res.json().await?;
-    
+
     // Check if we want JSON
     if std::env::args().any(|arg| arg == "-j" || arg == "--json") {
         println!("{}", serde_json::to_string_pretty(&ideas)?);
@@ -39,7 +39,10 @@ pub async fn list(api_url: &str) -> anyhow::Result<()> {
         return Ok(());
     }
     for idea in ideas {
-        println!("{} [{}] ({}) -> {}", idea.id, idea.category, idea.impact, idea.title);
+        println!(
+            "{} [{}] ({}) -> {}",
+            idea.id, idea.category, idea.impact, idea.title
+        );
     }
     Ok(())
 }
@@ -68,14 +71,17 @@ pub async fn generate(api_url: &str, category: &str, context: &str) -> anyhow::R
         anyhow::bail!("Failed to generate ideas: {}", msg);
     }
     let result: IdeationResult = res.json().await?;
-    
+
     if std::env::args().any(|arg| arg == "-j" || arg == "--json") {
         println!("{}", serde_json::to_string_pretty(&result)?);
         return Ok(());
     }
 
     for idea in result.ideas {
-        println!("{} [{}] ({}) -> {}", idea.id, idea.category, idea.impact, idea.title);
+        println!(
+            "{} [{}] ({}) -> {}",
+            idea.id, idea.category, idea.impact, idea.title
+        );
     }
     Ok(())
 }
@@ -88,7 +94,7 @@ pub async fn convert(api_url: &str, idea_id: &str) -> anyhow::Result<()> {
         let msg = res.text().await?;
         anyhow::bail!("Failed to convert idea: {}", msg);
     }
-    
+
     let text = res.text().await?;
     if std::env::args().any(|arg| arg == "-j" || arg == "--json") {
         println!("{}", text);

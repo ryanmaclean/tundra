@@ -115,8 +115,8 @@ impl Config {
     pub fn load() -> Result<Self, ConfigError> {
         let path = Self::default_path();
         if path.exists() {
-            let text = std::fs::read_to_string(&path)
-                .map_err(|e| ConfigError::Io(e.to_string()))?;
+            let text =
+                std::fs::read_to_string(&path).map_err(|e| ConfigError::Io(e.to_string()))?;
             let cfg: Config =
                 toml::from_str(&text).map_err(|e| ConfigError::Parse(e.to_string()))?;
             Ok(cfg)
@@ -128,10 +128,8 @@ impl Config {
     /// Load from a specific path.
     pub fn load_from(path: impl Into<PathBuf>) -> Result<Self, ConfigError> {
         let path = path.into();
-        let text =
-            std::fs::read_to_string(&path).map_err(|e| ConfigError::Io(e.to_string()))?;
-        let cfg: Config =
-            toml::from_str(&text).map_err(|e| ConfigError::Parse(e.to_string()))?;
+        let text = std::fs::read_to_string(&path).map_err(|e| ConfigError::Io(e.to_string()))?;
+        let cfg: Config = toml::from_str(&text).map_err(|e| ConfigError::Parse(e.to_string()))?;
         Ok(cfg)
     }
 
@@ -557,9 +555,15 @@ impl Default for IntegrationConfig {
     }
 }
 
-fn default_github_env() -> String { "GITHUB_TOKEN".into() }
-fn default_gitlab_env() -> String { "GITLAB_TOKEN".into() }
-fn default_linear_env() -> String { "LINEAR_API_KEY".into() }
+fn default_github_env() -> String {
+    "GITHUB_TOKEN".into()
+}
+fn default_gitlab_env() -> String {
+    "GITLAB_TOKEN".into()
+}
+fn default_linear_env() -> String {
+    "LINEAR_API_KEY".into()
+}
 
 // ---------------------------------------------------------------------------
 // Appearance settings (UI-facing)
@@ -582,8 +586,12 @@ impl Default for AppearanceConfig {
     }
 }
 
-fn default_appearance_mode() -> String { "system".into() }
-fn default_color_theme() -> String { "arctic".into() }
+fn default_appearance_mode() -> String {
+    "system".into()
+}
+fn default_color_theme() -> String {
+    "arctic".into()
+}
 
 // ---------------------------------------------------------------------------
 // Language settings (UI-facing)
@@ -603,7 +611,9 @@ impl Default for LanguageConfig {
     }
 }
 
-fn default_interface_language() -> String { "en".into() }
+fn default_interface_language() -> String {
+    "en".into()
+}
 
 // ---------------------------------------------------------------------------
 // Dev tools settings (UI-facing)
@@ -647,13 +657,27 @@ impl Default for DevToolsConfig {
     }
 }
 
-fn default_preferred_ide() -> String { "vscode".into() }
-fn default_preferred_terminal() -> String { "default".into() }
-fn default_terminal_font_family() -> String { "JetBrains Mono, monospace".into() }
-fn default_terminal_font_size() -> u16 { 14 }
-fn default_terminal_cursor_style() -> String { "block".into() }
-fn default_terminal_cursor_blink() -> bool { true }
-fn default_terminal_scrollback_lines() -> u32 { 5000 }
+fn default_preferred_ide() -> String {
+    "vscode".into()
+}
+fn default_preferred_terminal() -> String {
+    "default".into()
+}
+fn default_terminal_font_family() -> String {
+    "JetBrains Mono, monospace".into()
+}
+fn default_terminal_font_size() -> u16 {
+    14
+}
+fn default_terminal_cursor_style() -> String {
+    "block".into()
+}
+fn default_terminal_cursor_blink() -> bool {
+    true
+}
+fn default_terminal_scrollback_lines() -> u32 {
+    5000
+}
 
 // ---------------------------------------------------------------------------
 // Agent profile settings (UI-facing)
@@ -692,8 +716,12 @@ impl Default for AgentProfileConfig {
     }
 }
 
-fn default_agent_profile() -> String { "default".into() }
-fn default_agent_framework() -> String { "auto-tundra".into() }
+fn default_agent_profile() -> String {
+    "default".into()
+}
+fn default_agent_framework() -> String {
+    "auto-tundra".into()
+}
 
 // ---------------------------------------------------------------------------
 // Paths settings (UI-facing)
@@ -891,11 +919,21 @@ impl CredentialProvider {
     /// Check which providers have credentials available.
     pub fn available_providers() -> Vec<&'static str> {
         let mut providers = Vec::new();
-        if Self::anthropic_api_key().is_some() { providers.push("anthropic"); }
-        if Self::openai_api_key().is_some() { providers.push("openai"); }
-        if Self::from_env("GITHUB_TOKEN").is_some() { providers.push("github"); }
-        if Self::from_env("GITLAB_TOKEN").is_some() { providers.push("gitlab"); }
-        if Self::from_env("LINEAR_API_KEY").is_some() { providers.push("linear"); }
+        if Self::anthropic_api_key().is_some() {
+            providers.push("anthropic");
+        }
+        if Self::openai_api_key().is_some() {
+            providers.push("openai");
+        }
+        if Self::from_env("GITHUB_TOKEN").is_some() {
+            providers.push("github");
+        }
+        if Self::from_env("GITLAB_TOKEN").is_some() {
+            providers.push("gitlab");
+        }
+        if Self::from_env("LINEAR_API_KEY").is_some() {
+            providers.push("linear");
+        }
         providers
     }
 }

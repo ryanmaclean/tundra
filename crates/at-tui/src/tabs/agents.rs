@@ -1,7 +1,7 @@
-use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::widgets::{Block, Borders, Cell, Row, Table};
+use ratatui::Frame;
 
 use crate::app::App;
 
@@ -36,7 +36,11 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect) {
                 _ => Color::White,
             };
             let row = Row::new(vec![
-                Cell::from(glyph).style(Style::default().fg(glyph_color).add_modifier(Modifier::BOLD)),
+                Cell::from(glyph).style(
+                    Style::default()
+                        .fg(glyph_color)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Cell::from(a.name.as_str()),
                 Cell::from(format!("{:?}", a.role)),
                 Cell::from(format!("{:?}", a.cli_type)),
@@ -62,11 +66,7 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect) {
 
     let table = Table::new(rows, widths)
         .header(header)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(" Agents "),
-        );
+        .block(Block::default().borders(Borders::ALL).title(" Agents "));
 
     frame.render_widget(table, area);
 }

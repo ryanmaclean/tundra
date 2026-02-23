@@ -249,11 +249,7 @@ impl MrReviewEngine {
     /// With a real GitLab client: fetches MR changes from the API and runs
     /// heuristic pattern analysis on the diffs. Without a client (or if the
     /// client uses a test token): returns stub findings for pipeline validation.
-    pub async fn review_mr(
-        &self,
-        project_id: &str,
-        mr_iid: u32,
-    ) -> MrReviewResult {
+    pub async fn review_mr(&self, project_id: &str, mr_iid: u32) -> MrReviewResult {
         let all_findings = match &self.client {
             Some(client) if !client.is_stub_token() => {
                 self.review_real(client, project_id, mr_iid).await
@@ -271,10 +267,7 @@ impl MrReviewEngine {
         project_id: &str,
         mr_iid: u32,
     ) -> Vec<MrReviewFinding> {
-        let path = format!(
-            "/projects/{}/merge_requests/{}/changes",
-            project_id, mr_iid
-        );
+        let path = format!("/projects/{}/merge_requests/{}/changes", project_id, mr_iid);
 
         let response = match client.api_get(&path).await {
             Ok(resp) => resp,
@@ -365,7 +358,9 @@ impl MrReviewEngine {
                 severity: MrReviewSeverity::High,
                 category: "security".into(),
                 message: "Potential SQL injection via unsanitized user input".into(),
-                suggestion: Some("Use parameterized queries instead of string concatenation".into()),
+                suggestion: Some(
+                    "Use parameterized queries instead of string concatenation".into(),
+                ),
             },
             MrReviewFinding {
                 file: "src/lib.rs".into(),
@@ -682,13 +677,16 @@ mod tests {
         let result = engine.build_result(findings);
         // Low is filtered out (below Medium threshold), and max 2 findings.
         assert_eq!(result.findings.len(), 2);
-        assert!(result.findings.iter().all(|f| f.severity >= MrReviewSeverity::Medium));
+        assert!(result
+            .findings
+            .iter()
+            .all(|f| f.severity >= MrReviewSeverity::Medium));
     }
 
     #[test]
     fn engine_with_client_creates_properly() {
-        let client = GitLabClient::new_with_url("https://gitlab.example.com", "stub-token")
-            .unwrap();
+        let client =
+            GitLabClient::new_with_url("https://gitlab.example.com", "stub-token").unwrap();
         let engine = MrReviewEngine::with_client(MrReviewConfig::default(), client);
         assert!(engine.client.is_some());
     }

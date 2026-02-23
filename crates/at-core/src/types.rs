@@ -490,29 +490,89 @@ impl AgentProfile {
     pub fn default_phase_configs(&self) -> Vec<PhaseConfig> {
         match self {
             AgentProfile::Auto => vec![
-                PhaseConfig { phase_name: "spec_creation".into(), model: "sonnet".into(), thinking_level: "medium".into() },
-                PhaseConfig { phase_name: "planning".into(), model: "sonnet".into(), thinking_level: "medium".into() },
-                PhaseConfig { phase_name: "code_review".into(), model: "sonnet".into(), thinking_level: "medium".into() },
+                PhaseConfig {
+                    phase_name: "spec_creation".into(),
+                    model: "sonnet".into(),
+                    thinking_level: "medium".into(),
+                },
+                PhaseConfig {
+                    phase_name: "planning".into(),
+                    model: "sonnet".into(),
+                    thinking_level: "medium".into(),
+                },
+                PhaseConfig {
+                    phase_name: "code_review".into(),
+                    model: "sonnet".into(),
+                    thinking_level: "medium".into(),
+                },
             ],
             AgentProfile::Complex => vec![
-                PhaseConfig { phase_name: "spec_creation".into(), model: "opus".into(), thinking_level: "high".into() },
-                PhaseConfig { phase_name: "planning".into(), model: "opus".into(), thinking_level: "high".into() },
-                PhaseConfig { phase_name: "code_review".into(), model: "opus".into(), thinking_level: "high".into() },
+                PhaseConfig {
+                    phase_name: "spec_creation".into(),
+                    model: "opus".into(),
+                    thinking_level: "high".into(),
+                },
+                PhaseConfig {
+                    phase_name: "planning".into(),
+                    model: "opus".into(),
+                    thinking_level: "high".into(),
+                },
+                PhaseConfig {
+                    phase_name: "code_review".into(),
+                    model: "opus".into(),
+                    thinking_level: "high".into(),
+                },
             ],
             AgentProfile::Balanced => vec![
-                PhaseConfig { phase_name: "spec_creation".into(), model: "sonnet".into(), thinking_level: "medium".into() },
-                PhaseConfig { phase_name: "planning".into(), model: "opus".into(), thinking_level: "medium".into() },
-                PhaseConfig { phase_name: "code_review".into(), model: "haiku".into(), thinking_level: "low".into() },
+                PhaseConfig {
+                    phase_name: "spec_creation".into(),
+                    model: "sonnet".into(),
+                    thinking_level: "medium".into(),
+                },
+                PhaseConfig {
+                    phase_name: "planning".into(),
+                    model: "opus".into(),
+                    thinking_level: "medium".into(),
+                },
+                PhaseConfig {
+                    phase_name: "code_review".into(),
+                    model: "haiku".into(),
+                    thinking_level: "low".into(),
+                },
             ],
             AgentProfile::Quick => vec![
-                PhaseConfig { phase_name: "spec_creation".into(), model: "haiku".into(), thinking_level: "low".into() },
-                PhaseConfig { phase_name: "planning".into(), model: "haiku".into(), thinking_level: "low".into() },
-                PhaseConfig { phase_name: "code_review".into(), model: "haiku".into(), thinking_level: "low".into() },
+                PhaseConfig {
+                    phase_name: "spec_creation".into(),
+                    model: "haiku".into(),
+                    thinking_level: "low".into(),
+                },
+                PhaseConfig {
+                    phase_name: "planning".into(),
+                    model: "haiku".into(),
+                    thinking_level: "low".into(),
+                },
+                PhaseConfig {
+                    phase_name: "code_review".into(),
+                    model: "haiku".into(),
+                    thinking_level: "low".into(),
+                },
             ],
             AgentProfile::Custom(_) => vec![
-                PhaseConfig { phase_name: "spec_creation".into(), model: "sonnet".into(), thinking_level: "medium".into() },
-                PhaseConfig { phase_name: "planning".into(), model: "sonnet".into(), thinking_level: "medium".into() },
-                PhaseConfig { phase_name: "code_review".into(), model: "sonnet".into(), thinking_level: "medium".into() },
+                PhaseConfig {
+                    phase_name: "spec_creation".into(),
+                    model: "sonnet".into(),
+                    thinking_level: "medium".into(),
+                },
+                PhaseConfig {
+                    phase_name: "planning".into(),
+                    model: "sonnet".into(),
+                    thinking_level: "medium".into(),
+                },
+                PhaseConfig {
+                    phase_name: "code_review".into(),
+                    model: "sonnet".into(),
+                    thinking_level: "medium".into(),
+                },
             ],
         }
     }
@@ -755,7 +815,9 @@ impl QaReport {
 
     /// Returns true if any issue has Critical severity.
     pub fn has_critical_issues(&self) -> bool {
-        self.issues.iter().any(|i| i.severity == QaSeverity::Critical)
+        self.issues
+            .iter()
+            .any(|i| i.severity == QaSeverity::Critical)
     }
 
     /// Determine the next phase based on QA status.
@@ -845,17 +907,26 @@ impl TaskFiles {
 
     /// Filter files by type.
     pub fn by_type(&self, file_type: &TaskFileType) -> Vec<&TaskFile> {
-        self.files.iter().filter(|f| &f.file_type == file_type).collect()
+        self.files
+            .iter()
+            .filter(|f| &f.file_type == file_type)
+            .collect()
     }
 
     /// Filter files by phase.
     pub fn by_phase(&self, phase: &TaskPhase) -> Vec<&TaskFile> {
-        self.files.iter().filter(|f| &f.phase_added == phase).collect()
+        self.files
+            .iter()
+            .filter(|f| &f.phase_added == phase)
+            .collect()
     }
 
     /// Filter files by subtask.
     pub fn by_subtask(&self, subtask_id: Uuid) -> Vec<&TaskFile> {
-        self.files.iter().filter(|f| f.subtask_id == Some(subtask_id)).collect()
+        self.files
+            .iter()
+            .filter(|f| f.subtask_id == Some(subtask_id))
+            .collect()
     }
 
     /// Count of files.

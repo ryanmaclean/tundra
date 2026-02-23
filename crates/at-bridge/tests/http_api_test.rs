@@ -32,9 +32,7 @@ async fn start_test_server_with_config(config: Config) -> (String, Arc<ApiState>
         .join(format!("at-http-api-test-{}", uuid::Uuid::new_v4()))
         .join("settings.toml");
     let settings_manager = Arc::new(SettingsManager::new(&tmp_path));
-    settings_manager
-        .save(&config)
-        .expect("save test settings");
+    settings_manager.save(&config).expect("save test settings");
 
     let mut state = ApiState::new(event_bus);
     state.settings_manager = settings_manager;
@@ -57,9 +55,7 @@ async fn start_test_server_with_config(config: Config) -> (String, Arc<ApiState>
 async fn test_get_status() {
     let (base, _state) = start_test_server().await;
 
-    let resp = reqwest::get(format!("{base}/api/status"))
-        .await
-        .unwrap();
+    let resp = reqwest::get(format!("{base}/api/status")).await.unwrap();
     assert_eq!(resp.status(), 200);
 
     let body: Value = resp.json().await.unwrap();
@@ -73,9 +69,7 @@ async fn test_get_status() {
 async fn test_list_beads_empty() {
     let (base, _state) = start_test_server().await;
 
-    let resp = reqwest::get(format!("{base}/api/beads"))
-        .await
-        .unwrap();
+    let resp = reqwest::get(format!("{base}/api/beads")).await.unwrap();
     assert_eq!(resp.status(), 200);
 
     let body: Vec<Value> = resp.json().await.unwrap();
@@ -106,9 +100,7 @@ async fn test_create_and_list_beads() {
     assert!(created["id"].is_string());
 
     // List beads and verify
-    let resp = reqwest::get(format!("{base}/api/beads"))
-        .await
-        .unwrap();
+    let resp = reqwest::get(format!("{base}/api/beads")).await.unwrap();
     let beads: Vec<Value> = resp.json().await.unwrap();
     assert_eq!(beads.len(), 1);
     assert_eq!(beads[0]["title"], "Test bead");
@@ -170,9 +162,7 @@ async fn test_update_bead_status_not_found() {
 async fn test_list_agents_empty() {
     let (base, _state) = start_test_server().await;
 
-    let resp = reqwest::get(format!("{base}/api/agents"))
-        .await
-        .unwrap();
+    let resp = reqwest::get(format!("{base}/api/agents")).await.unwrap();
     assert_eq!(resp.status(), 200);
 
     let body: Vec<Value> = resp.json().await.unwrap();
@@ -183,9 +173,7 @@ async fn test_list_agents_empty() {
 async fn test_get_kpi() {
     let (base, _state) = start_test_server().await;
 
-    let resp = reqwest::get(format!("{base}/api/kpi"))
-        .await
-        .unwrap();
+    let resp = reqwest::get(format!("{base}/api/kpi")).await.unwrap();
     assert_eq!(resp.status(), 200);
 
     let body: Value = resp.json().await.unwrap();
@@ -208,19 +196,14 @@ async fn test_websocket_receives_events() {
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
     // Publish an event through the event bus
-    state
-        .event_bus
-        .publish(BridgeMessage::GetStatus);
+    state.event_bus.publish(BridgeMessage::GetStatus);
 
     // Receive the event on the WS
-    let msg = tokio::time::timeout(
-        std::time::Duration::from_secs(2),
-        ws_stream.next(),
-    )
-    .await
-    .expect("timed out waiting for ws message")
-    .expect("stream ended")
-    .expect("ws error");
+    let msg = tokio::time::timeout(std::time::Duration::from_secs(2), ws_stream.next())
+        .await
+        .expect("timed out waiting for ws message")
+        .expect("stream ended")
+        .expect("ws error");
 
     let text = msg.into_text().expect("expected text message");
     let parsed: Value = serde_json::from_str(&text).unwrap();
@@ -301,7 +284,9 @@ async fn test_get_task() {
     let created: Value = resp.json().await.unwrap();
     let id = created["id"].as_str().unwrap();
 
-    let resp = reqwest::get(format!("{base}/api/tasks/{id}")).await.unwrap();
+    let resp = reqwest::get(format!("{base}/api/tasks/{id}"))
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200);
     let body: Value = resp.json().await.unwrap();
     assert_eq!(body["title"], "Implement login");
@@ -311,7 +296,9 @@ async fn test_get_task() {
 async fn test_get_task_not_found() {
     let (base, _state) = start_test_server().await;
     let fake_id = uuid::Uuid::new_v4();
-    let resp = reqwest::get(format!("{base}/api/tasks/{fake_id}")).await.unwrap();
+    let resp = reqwest::get(format!("{base}/api/tasks/{fake_id}"))
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 404);
 }
 
@@ -379,7 +366,9 @@ async fn test_get_task_logs() {
     let created: Value = resp.json().await.unwrap();
     let id = created["id"].as_str().unwrap();
 
-    let resp = reqwest::get(format!("{base}/api/tasks/{id}/logs")).await.unwrap();
+    let resp = reqwest::get(format!("{base}/api/tasks/{id}/logs"))
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200);
     let body: Vec<Value> = resp.json().await.unwrap();
     assert!(body.is_empty()); // No logs on a fresh task
@@ -390,7 +379,11 @@ async fn test_kanban_columns_get_and_patch() {
     let (base, _state) = start_test_server().await;
     let client = reqwest::Client::new();
 
-    let resp = client.get(format!("{base}/api/kanban/columns")).send().await.unwrap();
+    let resp = client
+        .get(format!("{base}/api/kanban/columns"))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200);
     let body: Value = resp.json().await.unwrap();
     let columns = body["columns"].as_array().unwrap();
@@ -455,9 +448,18 @@ async fn test_list_mcp_servers_response_structure() {
 
     // Each server should have name, status, and tools fields
     for server in &body {
-        assert!(server["name"].is_string(), "server should have a name string");
-        assert!(server["status"].is_string(), "server should have a status string");
-        assert!(server["tools"].is_array(), "server should have a tools array");
+        assert!(
+            server["name"].is_string(),
+            "server should have a name string"
+        );
+        assert!(
+            server["status"].is_string(),
+            "server should have a status string"
+        );
+        assert!(
+            server["tools"].is_array(),
+            "server should have a tools array"
+        );
     }
 
     // Verify known servers are present
@@ -477,8 +479,14 @@ async fn test_list_mcp_servers_has_active_and_inactive() {
     let body: Vec<Value> = resp.json().await.unwrap();
 
     let statuses: Vec<&str> = body.iter().map(|s| s["status"].as_str().unwrap()).collect();
-    assert!(statuses.contains(&"active"), "should have at least one active server");
-    assert!(statuses.contains(&"inactive"), "should have at least one inactive server");
+    assert!(
+        statuses.contains(&"active"),
+        "should have at least one active server"
+    );
+    assert!(
+        statuses.contains(&"inactive"),
+        "should have at least one inactive server"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -489,9 +497,7 @@ async fn test_list_mcp_servers_has_active_and_inactive() {
 async fn test_list_worktrees_returns_ok() {
     let (base, _state) = start_test_server().await;
 
-    let resp = reqwest::get(format!("{base}/api/worktrees"))
-        .await
-        .unwrap();
+    let resp = reqwest::get(format!("{base}/api/worktrees")).await.unwrap();
     // This should return 200 since we're in a git repo
     assert_eq!(resp.status(), 200);
 
@@ -503,9 +509,7 @@ async fn test_list_worktrees_returns_ok() {
 async fn test_list_worktrees_response_structure() {
     let (base, _state) = start_test_server().await;
 
-    let resp = reqwest::get(format!("{base}/api/worktrees"))
-        .await
-        .unwrap();
+    let resp = reqwest::get(format!("{base}/api/worktrees")).await.unwrap();
     let body: Vec<Value> = resp.json().await.unwrap();
 
     // In a git repo, at least one worktree (the main one) should exist
@@ -541,9 +545,11 @@ async fn test_list_github_prs_requires_config() {
 async fn test_list_github_prs_accepts_query_params() {
     let (base, _state) = start_test_server().await;
 
-    let resp = reqwest::get(format!("{base}/api/github/prs?state=open&page=1&per_page=10"))
-        .await
-        .unwrap();
+    let resp = reqwest::get(format!(
+        "{base}/api/github/prs?state=open&page=1&per_page=10"
+    ))
+    .await
+    .unwrap();
     // Without config, should still return 503 (not 400 or 500)
     assert_eq!(resp.status(), 503);
 }
@@ -637,7 +643,10 @@ async fn test_list_gitlab_mrs_requires_project_id_when_not_configured() {
 
     let body: Value = resp.json().await.unwrap();
     assert!(
-        body["error"].as_str().unwrap_or_default().contains("project ID"),
+        body["error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("project ID"),
         "expected project ID error, got: {body}"
     );
 }
@@ -660,7 +669,10 @@ async fn test_review_gitlab_mr_requires_project_id_when_not_configured() {
 
     let body: Value = resp.json().await.unwrap();
     assert!(
-        body["error"].as_str().unwrap_or_default().contains("project ID"),
+        body["error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("project ID"),
         "expected project ID error, got: {body}"
     );
 }
@@ -695,7 +707,10 @@ async fn test_list_linear_issues_requires_team_id_when_not_configured() {
 
     let body: Value = resp.json().await.unwrap();
     assert!(
-        body["error"].as_str().unwrap_or_default().contains("team_id"),
+        body["error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("team_id"),
         "expected team_id error, got: {body}"
     );
 }
@@ -809,7 +824,10 @@ async fn test_stop_agent_changes_status_from_active() {
     // Verify the agent list reflects the change
     let resp = reqwest::get(format!("{base}/api/agents")).await.unwrap();
     let agents: Vec<Value> = resp.json().await.unwrap();
-    let agent_entry = agents.iter().find(|a| a["id"] == agent_id.to_string()).unwrap();
+    let agent_entry = agents
+        .iter()
+        .find(|a| a["id"] == agent_id.to_string())
+        .unwrap();
     assert_eq!(agent_entry["status"], "stopped");
 }
 
@@ -821,9 +839,7 @@ async fn test_stop_agent_changes_status_from_active() {
 async fn test_get_costs_returns_ok() {
     let (base, _state) = start_test_server().await;
 
-    let resp = reqwest::get(format!("{base}/api/costs"))
-        .await
-        .unwrap();
+    let resp = reqwest::get(format!("{base}/api/costs")).await.unwrap();
     assert_eq!(resp.status(), 200);
 
     let body: Value = resp.json().await.unwrap();
@@ -836,9 +852,7 @@ async fn test_get_costs_returns_ok() {
 async fn test_get_costs_default_values() {
     let (base, _state) = start_test_server().await;
 
-    let resp = reqwest::get(format!("{base}/api/costs"))
-        .await
-        .unwrap();
+    let resp = reqwest::get(format!("{base}/api/costs")).await.unwrap();
     let body: Value = resp.json().await.unwrap();
 
     assert_eq!(body["input_tokens"], 0);
@@ -855,9 +869,7 @@ async fn test_get_costs_default_values() {
 async fn test_list_agent_sessions_empty() {
     let (base, _state) = start_test_server().await;
 
-    let resp = reqwest::get(format!("{base}/api/sessions"))
-        .await
-        .unwrap();
+    let resp = reqwest::get(format!("{base}/api/sessions")).await.unwrap();
     assert_eq!(resp.status(), 200);
 
     let body: Vec<Value> = resp.json().await.unwrap();
@@ -885,9 +897,7 @@ async fn test_list_agent_sessions_with_agents() {
         agents.push(agent2);
     }
 
-    let resp = reqwest::get(format!("{base}/api/sessions"))
-        .await
-        .unwrap();
+    let resp = reqwest::get(format!("{base}/api/sessions")).await.unwrap();
     assert_eq!(resp.status(), 200);
 
     let body: Vec<Value> = resp.json().await.unwrap();
@@ -909,9 +919,7 @@ async fn test_list_agent_sessions_response_structure() {
         agents.push(agent);
     }
 
-    let resp = reqwest::get(format!("{base}/api/sessions"))
-        .await
-        .unwrap();
+    let resp = reqwest::get(format!("{base}/api/sessions")).await.unwrap();
     let body: Vec<Value> = resp.json().await.unwrap();
 
     assert_eq!(body.len(), 1);
@@ -932,9 +940,7 @@ async fn test_list_agent_sessions_response_structure() {
 async fn test_list_convoys_returns_ok() {
     let (base, _state) = start_test_server().await;
 
-    let resp = reqwest::get(format!("{base}/api/convoys"))
-        .await
-        .unwrap();
+    let resp = reqwest::get(format!("{base}/api/convoys")).await.unwrap();
     assert_eq!(resp.status(), 200);
 
     let body: Vec<Value> = resp.json().await.unwrap();
@@ -945,9 +951,7 @@ async fn test_list_convoys_returns_ok() {
 async fn test_list_convoys_response_is_array() {
     let (base, _state) = start_test_server().await;
 
-    let resp = reqwest::get(format!("{base}/api/convoys"))
-        .await
-        .unwrap();
+    let resp = reqwest::get(format!("{base}/api/convoys")).await.unwrap();
     let body: Value = resp.json().await.unwrap();
     assert!(body.is_array());
 }
@@ -982,9 +986,11 @@ async fn test_get_session_messages_empty_session() {
         session_id = session.id;
     }
 
-    let resp = reqwest::get(format!("{base}/api/insights/sessions/{session_id}/messages"))
-        .await
-        .unwrap();
+    let resp = reqwest::get(format!(
+        "{base}/api/insights/sessions/{session_id}/messages"
+    ))
+    .await
+    .unwrap();
     assert_eq!(resp.status(), 200);
 
     let body: Vec<Value> = resp.json().await.unwrap();
@@ -1006,7 +1012,9 @@ async fn test_get_session_messages_with_messages() {
 
     // Add a message via the POST endpoint
     let resp = client
-        .post(format!("{base}/api/insights/sessions/{session_id}/messages"))
+        .post(format!(
+            "{base}/api/insights/sessions/{session_id}/messages"
+        ))
         .json(&json!({"content": "Hello from test"}))
         .send()
         .await
@@ -1014,9 +1022,11 @@ async fn test_get_session_messages_with_messages() {
     assert_eq!(resp.status(), 201);
 
     // Get messages
-    let resp = reqwest::get(format!("{base}/api/insights/sessions/{session_id}/messages"))
-        .await
-        .unwrap();
+    let resp = reqwest::get(format!(
+        "{base}/api/insights/sessions/{session_id}/messages"
+    ))
+    .await
+    .unwrap();
     assert_eq!(resp.status(), 200);
 
     let body: Vec<Value> = resp.json().await.unwrap();
@@ -1073,7 +1083,9 @@ async fn test_insight_session_crud_flow() {
 
     // Add messages
     let resp = client
-        .post(format!("{base}/api/insights/sessions/{session_id}/messages"))
+        .post(format!(
+            "{base}/api/insights/sessions/{session_id}/messages"
+        ))
         .json(&json!({"content": "What is the project about?"}))
         .send()
         .await
@@ -1081,7 +1093,9 @@ async fn test_insight_session_crud_flow() {
     assert_eq!(resp.status(), 201);
 
     let resp = client
-        .post(format!("{base}/api/insights/sessions/{session_id}/messages"))
+        .post(format!(
+            "{base}/api/insights/sessions/{session_id}/messages"
+        ))
         .json(&json!({"content": "Follow-up question"}))
         .send()
         .await
@@ -1089,9 +1103,11 @@ async fn test_insight_session_crud_flow() {
     assert_eq!(resp.status(), 201);
 
     // Get messages - should have 2
-    let resp = reqwest::get(format!("{base}/api/insights/sessions/{session_id}/messages"))
-        .await
-        .unwrap();
+    let resp = reqwest::get(format!(
+        "{base}/api/insights/sessions/{session_id}/messages"
+    ))
+    .await
+    .unwrap();
     assert_eq!(resp.status(), 200);
     let messages: Vec<Value> = resp.json().await.unwrap();
     assert_eq!(messages.len(), 2);
@@ -1105,9 +1121,11 @@ async fn test_insight_session_crud_flow() {
     assert_eq!(resp.status(), 200);
 
     // Messages should return 404 now
-    let resp = reqwest::get(format!("{base}/api/insights/sessions/{session_id}/messages"))
-        .await
-        .unwrap();
+    let resp = reqwest::get(format!(
+        "{base}/api/insights/sessions/{session_id}/messages"
+    ))
+    .await
+    .unwrap();
     assert_eq!(resp.status(), 404);
 }
 
@@ -1347,9 +1365,11 @@ async fn test_merge_worktree_not_found() {
 async fn test_merge_preview_not_found() {
     let (base, _state) = start_test_server().await;
 
-    let resp = reqwest::get(format!("{base}/api/worktrees/nonexistent-branch/merge-preview"))
-        .await
-        .unwrap();
+    let resp = reqwest::get(format!(
+        "{base}/api/worktrees/nonexistent-branch/merge-preview"
+    ))
+    .await
+    .unwrap();
     assert_eq!(resp.status(), 404);
 
     let body: Value = resp.json().await.unwrap();
@@ -1468,7 +1488,10 @@ async fn test_list_cli_available_entry_structure() {
 
     for entry in &body {
         assert!(entry["name"].is_string(), "entry should have a name string");
-        assert!(entry["detected"].is_boolean(), "entry should have a detected boolean");
+        assert!(
+            entry["detected"].is_boolean(),
+            "entry should have a detected boolean"
+        );
         // path is either null or a string
         assert!(
             entry["path"].is_null() || entry["path"].is_string(),
@@ -1717,7 +1740,10 @@ fn test_task_without_build_logs_deserializes_with_default() {
     });
 
     let task: at_core::types::Task = serde_json::from_value(json_str).unwrap();
-    assert!(task.build_logs.is_empty(), "build_logs should default to empty vec");
+    assert!(
+        task.build_logs.is_empty(),
+        "build_logs should default to empty vec"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -1817,8 +1843,7 @@ async fn test_get_build_logs_since_filter() {
         task.add_build_log(BuildStream::Stdout, "first line");
         // Record a timestamp between entries.
         // Use to_rfc3339_opts with Z suffix to avoid URL-encoding issues with '+'.
-        mid_timestamp = chrono::Utc::now()
-            .to_rfc3339_opts(chrono::SecondsFormat::Nanos, true);
+        mid_timestamp = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Nanos, true);
         // Small sleep to ensure timestamp difference.
         std::thread::sleep(std::time::Duration::from_millis(10));
         task.add_build_log(BuildStream::Stdout, "second line");

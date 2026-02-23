@@ -150,8 +150,20 @@ impl CacheDb {
                         slung_at=excluded.slung_at, done_at=excluded.done_at,
                         git_branch=excluded.git_branch, metadata=excluded.metadata",
                     rusqlite::params![
-                        id, title, description, status, lane, priority, agent_id, convoy_id,
-                        created_at, updated_at, hooked_at, slung_at, done_at, git_branch,
+                        id,
+                        title,
+                        description,
+                        status,
+                        lane,
+                        priority,
+                        agent_id,
+                        convoy_id,
+                        created_at,
+                        updated_at,
+                        hooked_at,
+                        slung_at,
+                        done_at,
+                        git_branch,
                         metadata,
                     ],
                 )?;
@@ -232,8 +244,8 @@ impl CacheDb {
                         pid=excluded.pid, session_id=excluded.session_id,
                         last_seen=excluded.last_seen, metadata=excluded.metadata",
                     rusqlite::params![
-                        id, name, role, cli_type, model, status, rig, pid, session_id,
-                        created_at, last_seen, metadata,
+                        id, name, role, cli_type, model, status, rig, pid, session_id, created_at,
+                        last_seen, metadata,
                     ],
                 )?;
                 Ok(())
@@ -270,8 +282,7 @@ impl CacheDb {
         self.conn
             .call(|conn| {
                 let count = |status: &str| -> rusqlite::Result<u64> {
-                    let mut stmt =
-                        conn.prepare("SELECT COUNT(*) FROM beads WHERE status = ?1")?;
+                    let mut stmt = conn.prepare("SELECT COUNT(*) FROM beads WHERE status = ?1")?;
                     stmt.query_row(rusqlite::params![status], |r| r.get::<_, u64>(0))
                 };
 

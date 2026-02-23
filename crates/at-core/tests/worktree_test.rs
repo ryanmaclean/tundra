@@ -9,12 +9,12 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::Duration;
 
+use at_core::cache::CacheDb;
 use at_core::types::*;
 use at_core::worktree::{WorktreeError, WorktreeInfo, WorktreeManager as LowLevelWorktreeManager};
 use at_core::worktree_manager::{
     GitOutput, GitRunner, MergeResult, WorktreeManager, WorktreeManagerError,
 };
-use at_core::cache::CacheDb;
 
 use chrono::Utc;
 use std::sync::Arc;
@@ -37,7 +37,6 @@ impl MockGitRunner {
             commands: Mutex::new(Vec::new()),
         }
     }
-
 }
 
 impl GitRunner for MockGitRunner {
@@ -165,7 +164,10 @@ async fn test_list_worktrees() {
     assert!(path_b.to_str().unwrap().contains(".worktrees"));
 
     // They should be different (mirrors "Total Worktrees" count in UI)
-    assert_ne!(path_a, path_b, "different tasks should have different worktree paths");
+    assert_ne!(
+        path_a, path_b,
+        "different tasks should have different worktree paths"
+    );
 }
 
 #[tokio::test]
@@ -196,7 +198,10 @@ async fn test_worktree_has_unique_path() {
     let task = make_test_task("Unique Task");
 
     let result = manager.create_for_task(&task).await;
-    assert!(result.is_err(), "duplicate worktree path should be rejected");
+    assert!(
+        result.is_err(),
+        "duplicate worktree path should be rejected"
+    );
 
     match result {
         Err(WorktreeManagerError::Worktree(WorktreeError::AlreadyExists(_))) => {}
@@ -283,7 +288,10 @@ async fn test_worktree_copy_path() {
         path_str.starts_with("/Users/studio/projects/my-app"),
         "path should start with project dir"
     );
-    assert!(path_str.ends_with("fix-login-bug"), "path should end with sanitized task name");
+    assert!(
+        path_str.ends_with("fix-login-bug"),
+        "path should end with sanitized task name"
+    );
 
     // Verify it's a valid PathBuf (copyable)
     let copied = PathBuf::from(path_str);
@@ -395,10 +403,22 @@ async fn test_worktree_branch_naming_convention() {
     let manager = WorktreeManager::new("/project", cache);
 
     let cases = vec![
-        ("Fix PR review findings dropped", "fix-pr-review-findings-dropped"),
-        ("Refactor GitHub PR review with XState", "refactor-github-pr-review-with-xstate"),
-        ("Remove .auto-claude files from git index", "remove--auto-claude-files-from-git-index"),
-        ("Allow project tabs to expand horizontally", "allow-project-tabs-to-expand-horizontally"),
+        (
+            "Fix PR review findings dropped",
+            "fix-pr-review-findings-dropped",
+        ),
+        (
+            "Refactor GitHub PR review with XState",
+            "refactor-github-pr-review-with-xstate",
+        ),
+        (
+            "Remove .auto-claude files from git index",
+            "remove--auto-claude-files-from-git-index",
+        ),
+        (
+            "Allow project tabs to expand horizontally",
+            "allow-project-tabs-to-expand-horizontally",
+        ),
     ];
 
     for (title, expected_sanitized) in cases {
@@ -435,10 +455,7 @@ async fn test_worktree_cleanup_removes_directory() {
     let manager = WorktreeManager::with_git_runner(tmp.clone(), cache, git);
 
     // With a very short max_age, recent dirs won't be cleaned
-    let _result = manager
-        .cleanup_stale(Duration::from_secs(0))
-        .await
-        .unwrap();
+    let _result = manager.cleanup_stale(Duration::from_secs(0)).await.unwrap();
 
     // The directory was just created so it won't be older than cutoff
     // This verifies the cleanup logic runs without error
@@ -518,7 +535,10 @@ async fn test_manager_git_runner_integration() {
 
     let task = make_test_task("Runner Test");
     let result = manager.create_for_task(&task).await;
-    assert!(result.is_ok(), "create_for_task should succeed with mock git runner");
+    assert!(
+        result.is_ok(),
+        "create_for_task should succeed with mock git runner"
+    );
 
     let info = result.unwrap();
     // The git runner was called to create the worktree; verify results

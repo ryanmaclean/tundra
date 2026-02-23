@@ -22,8 +22,7 @@ fn config_roundtrip() {
     let toml_str = cfg.to_toml().expect("serialize to toml");
     assert!(toml_str.contains("auto-tundra"));
 
-    let parsed: Config =
-        toml::from_str(&toml_str).expect("parse toml back");
+    let parsed: Config = toml::from_str(&toml_str).expect("parse toml back");
     assert_eq!(parsed.general.project_name, cfg.general.project_name);
     assert_eq!(parsed.daemon.port, cfg.daemon.port);
     assert_eq!(parsed.cache.max_size_mb, cfg.cache.max_size_mb);

@@ -158,10 +158,7 @@ impl SessionStore {
 
     /// Delete sessions whose `last_active_at` is older than `older_than`
     /// duration from now. Returns the number of sessions removed.
-    pub fn cleanup_old_sessions(
-        &self,
-        older_than: Duration,
-    ) -> Result<usize, SessionStoreError> {
+    pub fn cleanup_old_sessions(&self, older_than: Duration) -> Result<usize, SessionStoreError> {
         let cutoff = Utc::now() - older_than;
         let sessions = self.list_sessions()?;
         let mut removed = 0;

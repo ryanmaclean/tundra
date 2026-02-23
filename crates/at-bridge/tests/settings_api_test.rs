@@ -42,9 +42,7 @@ async fn start_test_server() -> (String, Arc<ApiState>) {
 async fn test_get_settings_returns_defaults() {
     let (base, _state) = start_test_server().await;
 
-    let resp = reqwest::get(format!("{base}/api/settings"))
-        .await
-        .unwrap();
+    let resp = reqwest::get(format!("{base}/api/settings")).await.unwrap();
     assert_eq!(resp.status(), 200);
 
     let body: Value = resp.json().await.unwrap();
@@ -67,9 +65,7 @@ async fn test_get_settings_returns_saved_values() {
     cfg.general.project_name = "saved-test".into();
     state.settings_manager.save(&cfg).unwrap();
 
-    let resp = reqwest::get(format!("{base}/api/settings"))
-        .await
-        .unwrap();
+    let resp = reqwest::get(format!("{base}/api/settings")).await.unwrap();
     assert_eq!(resp.status(), 200);
 
     let body: Value = resp.json().await.unwrap();
@@ -101,9 +97,7 @@ async fn test_put_settings_full_replace() {
     assert_eq!(resp.status(), 200);
 
     // Verify via GET
-    let resp = reqwest::get(format!("{base}/api/settings"))
-        .await
-        .unwrap();
+    let resp = reqwest::get(format!("{base}/api/settings")).await.unwrap();
     let body: Value = resp.json().await.unwrap();
     assert_eq!(body["display"]["theme"], "lime");
     assert_eq!(body["terminal"]["font_family"], "Fira Code");

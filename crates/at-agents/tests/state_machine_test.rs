@@ -27,9 +27,9 @@ fn invalid_idle_to_active() {
 fn full_lifecycle_idle_to_stopped() {
     let mut sm = AgentStateMachine::new();
 
-    sm.transition(AgentEvent::Start).unwrap();   // Idle -> Spawning
-    sm.transition(AgentEvent::Spawned).unwrap();  // Spawning -> Active
-    sm.transition(AgentEvent::Stop).unwrap();     // Active -> Stopping
+    sm.transition(AgentEvent::Start).unwrap(); // Idle -> Spawning
+    sm.transition(AgentEvent::Spawned).unwrap(); // Spawning -> Active
+    sm.transition(AgentEvent::Stop).unwrap(); // Active -> Stopping
     let s = sm.transition(AgentEvent::Stop).unwrap(); // Stopping -> Stopped
     assert_eq!(s, AgentState::Stopped);
 
@@ -40,12 +40,12 @@ fn full_lifecycle_idle_to_stopped() {
 fn failure_and_recovery() {
     let mut sm = AgentStateMachine::new();
 
-    sm.transition(AgentEvent::Start).unwrap();   // Idle -> Spawning
-    sm.transition(AgentEvent::Spawned).unwrap();  // Spawning -> Active
-    sm.transition(AgentEvent::Fail).unwrap();     // Active -> Failed
+    sm.transition(AgentEvent::Start).unwrap(); // Idle -> Spawning
+    sm.transition(AgentEvent::Spawned).unwrap(); // Spawning -> Active
+    sm.transition(AgentEvent::Fail).unwrap(); // Active -> Failed
     assert_eq!(sm.state(), AgentState::Failed);
 
-    sm.transition(AgentEvent::Recover).unwrap();  // Failed -> Idle
+    sm.transition(AgentEvent::Recover).unwrap(); // Failed -> Idle
     assert_eq!(sm.state(), AgentState::Idle);
 }
 

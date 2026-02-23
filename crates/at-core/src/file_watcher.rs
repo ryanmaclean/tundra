@@ -54,9 +54,9 @@ fn map_event_kind(kind: &EventKind) -> Option<FileChangeKind> {
     match kind {
         EventKind::Create(CreateKind::File | CreateKind::Any) => Some(FileChangeKind::Created),
         EventKind::Create(_) => Some(FileChangeKind::Created),
-        EventKind::Modify(ModifyKind::Name(RenameMode::Both | RenameMode::From | RenameMode::To)) => {
-            Some(FileChangeKind::Renamed)
-        }
+        EventKind::Modify(ModifyKind::Name(
+            RenameMode::Both | RenameMode::From | RenameMode::To,
+        )) => Some(FileChangeKind::Renamed),
         EventKind::Modify(ModifyKind::Data(_) | ModifyKind::Metadata(_) | ModifyKind::Any) => {
             Some(FileChangeKind::Modified)
         }
@@ -338,6 +338,9 @@ mod tests {
             map_event_kind(&EventKind::Modify(ModifyKind::Name(RenameMode::Both))),
             Some(FileChangeKind::Renamed)
         );
-        assert_eq!(map_event_kind(&EventKind::Access(notify::event::AccessKind::Any)), None);
+        assert_eq!(
+            map_event_kind(&EventKind::Access(notify::event::AccessKind::Any)),
+            None
+        );
     }
 }

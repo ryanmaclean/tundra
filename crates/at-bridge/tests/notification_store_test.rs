@@ -1,6 +1,4 @@
-use at_bridge::notifications::{
-    notification_from_event, NotificationLevel, NotificationStore,
-};
+use at_bridge::notifications::{notification_from_event, NotificationLevel, NotificationStore};
 use at_bridge::protocol::{BridgeMessage, EventPayload};
 use chrono::Utc;
 use uuid::Uuid;
@@ -12,7 +10,12 @@ use uuid::Uuid;
 #[test]
 fn test_add_notification() {
     let mut store = NotificationStore::new(100);
-    let id = store.add("Build Done", "Build #42 passed", NotificationLevel::Info, "ci");
+    let id = store.add(
+        "Build Done",
+        "Build #42 passed",
+        NotificationLevel::Info,
+        "ci",
+    );
     assert_eq!(store.total_count(), 1);
     let all = store.list_all(10, 0);
     assert_eq!(all.len(), 1);
@@ -63,13 +66,7 @@ fn test_add_notification_with_action_url() {
 #[test]
 fn test_add_with_url_none_leaves_action_url_none() {
     let mut store = NotificationStore::new(100);
-    let id = store.add_with_url(
-        "Plain",
-        "No URL",
-        NotificationLevel::Info,
-        "system",
-        None,
-    );
+    let id = store.add_with_url("Plain", "No URL", NotificationLevel::Info, "system", None);
     let all = store.list_all(10, 0);
     assert_eq!(all[0].id, id);
     assert!(all[0].action_url.is_none());
@@ -297,7 +294,12 @@ fn test_unread_sorted_newest_first() {
 // Event-to-Notification Conversion (notification_from_event)
 // ---------------------------------------------------------------------------
 
-fn make_event(event_type: &str, agent_id: Option<Uuid>, bead_id: Option<Uuid>, message: &str) -> BridgeMessage {
+fn make_event(
+    event_type: &str,
+    agent_id: Option<Uuid>,
+    bead_id: Option<Uuid>,
+    message: &str,
+) -> BridgeMessage {
     BridgeMessage::Event(EventPayload {
         event_type: event_type.to_string(),
         agent_id,
@@ -346,7 +348,12 @@ fn test_agent_spawned_without_agent_id_uses_system_source() {
 #[test]
 fn test_agent_stopped_creates_warning_notification() {
     let agent = Uuid::new_v4();
-    let msg = make_event("agent_stopped", Some(agent), None, "Agent stopped gracefully");
+    let msg = make_event(
+        "agent_stopped",
+        Some(agent),
+        None,
+        "Agent stopped gracefully",
+    );
     let result = notification_from_event(&msg);
     assert!(result.is_some());
     let (title, body, level, source, _url) = result.unwrap();

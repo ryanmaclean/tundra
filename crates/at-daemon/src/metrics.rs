@@ -1,8 +1,8 @@
+use crate::profiling::record_event;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::info;
-use crate::profiling::record_event;
 
 /// Custom metrics collector for Datadog
 #[derive(Debug, Default)]
@@ -22,7 +22,7 @@ impl MetricsCollector {
         let mut counters = self.counters.write().await;
         let key = self.build_key(name, tags);
         *counters.entry(key).or_insert(0) += 1;
-        
+
         tracing::info!(
             metric_type = "counter",
             metric_name = name,
@@ -37,7 +37,7 @@ impl MetricsCollector {
         let mut gauges = self.gauges.write().await;
         let key = self.build_key(name, tags);
         gauges.insert(key, value);
-        
+
         tracing::info!(
             metric_type = "gauge",
             metric_name = name,
@@ -52,7 +52,7 @@ impl MetricsCollector {
         let mut histograms = self.histograms.write().await;
         let key = self.build_key(name, tags);
         histograms.entry(key).or_insert_with(Vec::new).push(value);
-        
+
         tracing::info!(
             metric_type = "histogram",
             metric_name = name,
@@ -67,7 +67,7 @@ impl MetricsCollector {
         let counters = self.counters.read().await.clone();
         let gauges = self.gauges.read().await.clone();
         let histograms = self.histograms.read().await.clone();
-        
+
         MetricsSnapshot {
             counters,
             gauges,
@@ -152,7 +152,8 @@ pub struct HistogramStats {
 }
 
 /// Global metrics instance
-static METRICS: std::sync::LazyLock<MetricsCollector> = std::sync::LazyLock::new(MetricsCollector::new);
+static METRICS: std::sync::LazyLock<MetricsCollector> =
+    std::sync::LazyLock::new(MetricsCollector::new);
 
 /// Get global metrics collector
 pub fn metrics() -> &'static MetricsCollector {
@@ -207,59 +208,103 @@ impl AppMetrics {
 
     /// Record API request
     pub async fn api_request(method: &str, endpoint: &str, status: u16, duration_ms: f64) {
-        increment_counter!("api.requests", method = method, endpoint = endpoint, status = &status.to_string());
-        record_histogram!("api.request_duration_ms", duration_ms, method = method, endpoint = endpoint);
+        increment_counter!(
+            "api.requests",
+            method = method,
+            endpoint = endpoint,
+            status = &status.to_string()
+        );
+        record_histogram!(
+            "api.request_duration_ms",
+            duration_ms,
+            method = method,
+            endpoint = endpoint
+        );
     }
 
     /// Record frontend request
     pub async fn frontend_request(path: &str, status: u16, duration_ms: f64) {
-        increment_counter!("frontend.requests", path = path, status = &status.to_string());
+        increment_counter!(
+            "frontend.requests",
+            path = path,
+            status = &status.to_string()
+        );
         record_histogram!("frontend.request_duration_ms", duration_ms, path = path);
     }
 
     /// Record task execution
     pub async fn task_executed(task_type: &str, success: bool, duration_ms: f64) {
-        increment_counter!("tasks.executed", task_type = task_type, success = &success.to_string());
+        increment_counter!(
+            "tasks.executed",
+            task_type = task_type,
+            success = &success.to_string()
+        );
         record_histogram!("task.duration_ms", duration_ms, task_type = task_type);
     }
 
     /// Record LLM-specific metrics
-    pub async fn llm_request(model: &str, provider: &str, tokens_used: u32, duration_ms: f64, success: bool) {
-        increment_counter!("llm.requests", 
-            model = model, 
-            provider = provider, 
+    pub async fn llm_request(
+        model: &str,
+        provider: &str,
+        tokens_used: u32,
+        duration_ms: f64,
+        success: bool,
+    ) {
+        increment_counter!(
+            "llm.requests",
+            model = model,
+            provider = provider,
             success = &success.to_string()
         );
-        record_histogram!("llm.request_duration_ms", duration_ms, 
-            model = model, 
+        record_histogram!(
+            "llm.request_duration_ms",
+            duration_ms,
+            model = model,
             provider = provider
         );
-        record_histogram!("llm.tokens_used", tokens_used as f64, 
-            model = model, 
+        record_histogram!(
+            "llm.tokens_used",
+            tokens_used as f64,
+            model = model,
             provider = provider
         );
     }
 
     /// Record LLM profile bootstrap
-    pub async fn llm_profile_bootstrap(total_profiles: u32, best_profile: &str, best_provider: &str) {
+    pub async fn llm_profile_bootstrap(
+        total_profiles: u32,
+        best_profile: &str,
+        best_provider: &str,
+    ) {
         increment_counter!("llm.profile.bootstrap");
         set_gauge!("llm.profile.total_available", total_profiles as f64);
-        record_event("llm_profile_bootstrap", &[
-            ("total_profiles", &total_profiles.to_string()),
-            ("best_profile", &best_profile.to_string()),
-            ("best_provider", &best_provider.to_string())
-        ]);
+        record_event(
+            "llm_profile_bootstrap",
+            &[
+                ("total_profiles", &total_profiles.to_string()),
+                ("best_profile", &best_profile.to_string()),
+                ("best_provider", &best_provider.to_string()),
+            ],
+        );
     }
 
     /// Record LLM agent execution
-    pub async fn llm_agent_execution(agent_name: &str, task_type: &str, duration_ms: f64, success: bool) {
-        increment_counter!("llm.agent.executions", 
-            agent = agent_name, 
-            task_type = task_type, 
+    pub async fn llm_agent_execution(
+        agent_name: &str,
+        task_type: &str,
+        duration_ms: f64,
+        success: bool,
+    ) {
+        increment_counter!(
+            "llm.agent.executions",
+            agent = agent_name,
+            task_type = task_type,
             success = &success.to_string()
         );
-        record_histogram!("llm.agent.duration_ms", duration_ms, 
-            agent = agent_name, 
+        record_histogram!(
+            "llm.agent.duration_ms",
+            duration_ms,
+            agent = agent_name,
             task_type = task_type
         );
     }
@@ -292,11 +337,11 @@ mod tests {
     #[tokio::test]
     async fn test_metrics_collection() {
         let metrics = MetricsCollector::new();
-        
+
         metrics.increment_counter("test_counter", &[]).await;
         metrics.set_gauge("test_gauge", 42.0, &[]).await;
         metrics.record_histogram("test_histogram", 1.5, &[]).await;
-        
+
         let snapshot = metrics.get_metrics_snapshot().await;
         assert_eq!(snapshot.counters.get("test_counter"), Some(&1));
         assert_eq!(snapshot.gauges.get("test_gauge"), Some(&42.0));
@@ -306,8 +351,10 @@ mod tests {
     #[tokio::test]
     async fn test_histogram_stats() {
         let mut snapshot = MetricsSnapshot::default();
-        snapshot.histograms.insert("test".to_string(), vec![1.0, 2.0, 3.0, 4.0, 5.0]);
-        
+        snapshot
+            .histograms
+            .insert("test".to_string(), vec![1.0, 2.0, 3.0, 4.0, 5.0]);
+
         let stats = snapshot.histogram_stats("test").unwrap();
         assert_eq!(stats.count, 5);
         assert_eq!(stats.min, 1.0);

@@ -26,10 +26,9 @@ impl SettingsManager {
 
     /// Load config from the TOML file on disk.
     pub fn load(&self) -> Result<Config, ConfigError> {
-        let text = std::fs::read_to_string(&self.path)
-            .map_err(|e| ConfigError::Io(e.to_string()))?;
-        let cfg: Config =
-            toml::from_str(&text).map_err(|e| ConfigError::Parse(e.to_string()))?;
+        let text =
+            std::fs::read_to_string(&self.path).map_err(|e| ConfigError::Io(e.to_string()))?;
+        let cfg: Config = toml::from_str(&text).map_err(|e| ConfigError::Parse(e.to_string()))?;
         Ok(cfg)
     }
 
@@ -37,13 +36,10 @@ impl SettingsManager {
     /// they don't exist.
     pub fn save(&self, config: &Config) -> Result<(), ConfigError> {
         if let Some(parent) = self.path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| ConfigError::Io(e.to_string()))?;
+            std::fs::create_dir_all(parent).map_err(|e| ConfigError::Io(e.to_string()))?;
         }
-        let text = toml::to_string_pretty(config)
-            .map_err(|e| ConfigError::Parse(e.to_string()))?;
-        std::fs::write(&self.path, text)
-            .map_err(|e| ConfigError::Io(e.to_string()))?;
+        let text = toml::to_string_pretty(config).map_err(|e| ConfigError::Parse(e.to_string()))?;
+        std::fs::write(&self.path, text).map_err(|e| ConfigError::Io(e.to_string()))?;
         Ok(())
     }
 
@@ -69,10 +65,7 @@ mod tests {
     use std::fs;
 
     fn tmp_settings_path() -> PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "at-settings-test-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let dir = std::env::temp_dir().join(format!("at-settings-test-{}", uuid::Uuid::new_v4()));
         dir.join("settings.toml")
     }
 

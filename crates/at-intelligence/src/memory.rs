@@ -162,14 +162,14 @@ impl MemoryStore {
             });
         }
 
-        let entry = self
-            .entries
-            .iter_mut()
-            .find(|e| e.id == *from)
-            .ok_or(IntelligenceError::NotFound {
-                entity: "memory_entry".into(),
-                id: *from,
-            })?;
+        let entry =
+            self.entries
+                .iter_mut()
+                .find(|e| e.id == *from)
+                .ok_or(IntelligenceError::NotFound {
+                    entity: "memory_entry".into(),
+                    id: *from,
+                })?;
 
         if !entry.related.contains(to) {
             entry.related.push(*to);
@@ -179,14 +179,14 @@ impl MemoryStore {
     }
 
     pub fn update_entry(&mut self, id: &Uuid, value: &str) -> Result<(), IntelligenceError> {
-        let entry = self
-            .entries
-            .iter_mut()
-            .find(|e| e.id == *id)
-            .ok_or(IntelligenceError::NotFound {
-                entity: "memory_entry".into(),
-                id: *id,
-            })?;
+        let entry =
+            self.entries
+                .iter_mut()
+                .find(|e| e.id == *id)
+                .ok_or(IntelligenceError::NotFound {
+                    entity: "memory_entry".into(),
+                    id: *id,
+                })?;
 
         entry.value = value.to_string();
         entry.updated_at = Utc::now();
@@ -254,14 +254,20 @@ impl MemoryStore {
                                     let name = name.trim();
                                     if !name.is_empty()
                                         && !name.starts_with('[')
-                                        && !["name", "version", "edition", "license", "rust-version", "resolver", "path", "members"]
-                                            .contains(&name)
+                                        && ![
+                                            "name",
+                                            "version",
+                                            "edition",
+                                            "license",
+                                            "rust-version",
+                                            "resolver",
+                                            "path",
+                                            "members",
+                                        ]
+                                        .contains(&name)
                                     {
-                                        let version = rest
-                                            .trim()
-                                            .trim_matches('"')
-                                            .trim_matches('{')
-                                            .trim();
+                                        let version =
+                                            rest.trim().trim_matches('"').trim_matches('{').trim();
                                         dependencies.push(DependencyInfo {
                                             name: name.to_string(),
                                             version: version.to_string(),
@@ -826,10 +832,17 @@ mod graph_tests {
     #[test]
     fn graph_auto_cluster() {
         let mut g = GraphMemory::new();
-        g.create_cluster("Database", vec!["postgres".into(), "database".into(), "sql".into()]);
+        g.create_cluster(
+            "Database",
+            vec!["postgres".into(), "database".into(), "sql".into()],
+        );
         g.create_cluster("Auth", vec!["auth".into(), "token".into()]);
 
-        let e = make_entry("db_url", "postgres://localhost/mydb", MemoryCategory::ServiceEndpoint);
+        let e = make_entry(
+            "db_url",
+            "postgres://localhost/mydb",
+            MemoryCategory::ServiceEndpoint,
+        );
         let id = e.id;
         g.add_entry(e);
         g.auto_cluster(&id);
@@ -872,11 +885,23 @@ mod graph_tests {
     #[test]
     fn graph_search_ranked() {
         let mut g = GraphMemory::new();
-        let mut e1 = make_entry("api_auth", "authentication endpoint for users", MemoryCategory::ApiRoute);
+        let mut e1 = make_entry(
+            "api_auth",
+            "authentication endpoint for users",
+            MemoryCategory::ApiRoute,
+        );
         e1.confidence = 1.0;
-        let mut e2 = make_entry("cache_config", "redis cache settings", MemoryCategory::Convention);
+        let mut e2 = make_entry(
+            "cache_config",
+            "redis cache settings",
+            MemoryCategory::Convention,
+        );
         e2.confidence = 0.5;
-        let mut e3 = make_entry("auth_token", "jwt auth token handler", MemoryCategory::Pattern);
+        let mut e3 = make_entry(
+            "auth_token",
+            "jwt auth token handler",
+            MemoryCategory::Pattern,
+        );
         e3.confidence = 0.8;
         g.add_entry(e1);
         g.add_entry(e2);
@@ -884,7 +909,7 @@ mod graph_tests {
 
         let results = g.search_ranked("auth");
         assert_eq!(results.len(), 2); // e1 and e3
-        // e1 should be first (confidence 1.0 > 0.8)
+                                      // e1 should be first (confidence 1.0 > 0.8)
         assert_eq!(results[0].0.key, "api_auth");
     }
 

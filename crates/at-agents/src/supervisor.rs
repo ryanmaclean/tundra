@@ -6,9 +6,7 @@ use tokio::sync::Mutex;
 use uuid::Uuid;
 
 use crate::lifecycle::AgentLifecycle;
-use crate::roles::{
-    CrewAgent, DeaconAgent, MayorAgent, PolecatAgent, RefineryAgent, WitnessAgent,
-};
+use crate::roles::{CrewAgent, DeaconAgent, MayorAgent, PolecatAgent, RefineryAgent, WitnessAgent};
 use crate::state_machine::{AgentEvent, AgentState, AgentStateMachine};
 
 // ---------------------------------------------------------------------------

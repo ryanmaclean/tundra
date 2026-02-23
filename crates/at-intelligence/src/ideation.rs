@@ -230,15 +230,13 @@ impl IdeationEngine {
             system_prompt: None,
         };
 
-        let response = provider
-            .complete(&messages, &config)
-            .await
-            .map_err(|e| {
-                crate::IntelligenceError::InvalidOperation(format!("LLM call failed: {e}"))
-            })?;
+        let response = provider.complete(&messages, &config).await.map_err(|e| {
+            crate::IntelligenceError::InvalidOperation(format!("LLM call failed: {e}"))
+        })?;
 
         // Try JSON parsing first, fall back to text parsing.
-        let ideas = self.parse_ideas_json(&response.content, category)
+        let ideas = self
+            .parse_ideas_json(&response.content, category)
             .unwrap_or_else(|| self.parse_ideas_text(&response.content, category));
 
         // Store the generated ideas.
@@ -297,10 +295,7 @@ impl IdeationEngine {
             .strip_prefix("```json")
             .or_else(|| text.trim().strip_prefix("```"))
             .unwrap_or(text.trim());
-        let cleaned = cleaned
-            .strip_suffix("```")
-            .unwrap_or(cleaned)
-            .trim();
+        let cleaned = cleaned.strip_suffix("```").unwrap_or(cleaned).trim();
 
         let parsed: LlmIdeasResponseJson = serde_json::from_str(cleaned).ok()?;
         if parsed.ideas.is_empty() {
@@ -333,7 +328,9 @@ impl IdeationEngine {
             .map(|line| {
                 // Strip leading list markers like "- ", "* ", "1. ", etc.
                 let cleaned = line
-                    .trim_start_matches(|c: char| c == '-' || c == '*' || c.is_ascii_digit() || c == '.')
+                    .trim_start_matches(|c: char| {
+                        c == '-' || c == '*' || c.is_ascii_digit() || c == '.'
+                    })
                     .trim();
                 Idea {
                     id: Uuid::new_v4(),
@@ -383,9 +380,9 @@ impl Default for IdeationEngine {
 mod tests {
     use super::*;
     use crate::llm::{LlmConfig, LlmError, LlmMessage, LlmProvider, LlmResponse, LlmRole};
+    use futures_util::Stream;
     use std::pin::Pin;
     use std::sync::Mutex;
-    use futures_util::Stream;
 
     // ---- MockProvider --------------------------------------------------------
 
@@ -414,7 +411,10 @@ mod tests {
             messages: &[LlmMessage],
             config: &LlmConfig,
         ) -> Result<LlmResponse, LlmError> {
-            self.calls.lock().unwrap().push((messages.to_vec(), config.clone()));
+            self.calls
+                .lock()
+                .unwrap()
+                .push((messages.to_vec(), config.clone()));
             Ok(LlmResponse {
                 content: self.response.clone(),
                 model: "mock".to_string(),
@@ -428,8 +428,11 @@ mod tests {
             &self,
             _messages: &[LlmMessage],
             _config: &LlmConfig,
-        ) -> Result<Pin<Box<dyn Stream<Item = Result<String, LlmError>> + Send>>, LlmError> {
-            Err(LlmError::Unsupported("mock does not support streaming".into()))
+        ) -> Result<Pin<Box<dyn Stream<Item = Result<String, LlmError>> + Send>>, LlmError>
+        {
+            Err(LlmError::Unsupported(
+                "mock does not support streaming".into(),
+            ))
         }
     }
 

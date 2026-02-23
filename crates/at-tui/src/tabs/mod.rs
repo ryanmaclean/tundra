@@ -1,5 +1,5 @@
-pub mod analytics;
 pub mod agents;
+pub mod analytics;
 pub mod beads;
 pub mod changelog;
 pub mod config;

@@ -93,7 +93,10 @@ fn test_add_feature_to_roadmap() {
 
     let roadmap = engine.get_roadmap(&rid).unwrap();
     assert_eq!(roadmap.features.len(), 1);
-    assert_eq!(roadmap.features[0].title, "Project Documentation Foundation");
+    assert_eq!(
+        roadmap.features[0].title,
+        "Project Documentation Foundation"
+    );
 }
 
 #[test]
@@ -371,12 +374,7 @@ fn test_sort_features_by_priority() {
         engine.add_feature(&rid, f).unwrap();
     }
 
-    let mut features: Vec<_> = engine
-        .get_roadmap(&rid)
-        .unwrap()
-        .features
-        .iter()
-        .collect();
+    let mut features: Vec<_> = engine.get_roadmap(&rid).unwrap().features.iter().collect();
     features.sort_by_key(|f| f.priority);
 
     assert_eq!(features[0].title, "High Priority");

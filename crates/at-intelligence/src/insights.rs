@@ -156,14 +156,12 @@ impl InsightsEngine {
         self.add_message(session_id, ChatRole::User, content)?;
 
         // 2. Build the conversation history as LlmMessages.
-        let session = self
-            .sessions
-            .iter()
-            .find(|s| s.id == *session_id)
-            .ok_or(IntelligenceError::NotFound {
+        let session = self.sessions.iter().find(|s| s.id == *session_id).ok_or(
+            IntelligenceError::NotFound {
                 entity: "session".into(),
                 id: *session_id,
-            })?;
+            },
+        )?;
 
         let system_prompt = "You are an expert codebase exploration assistant. \
             Help the user understand code structure, patterns, dependencies, and \
@@ -227,9 +225,9 @@ impl Default for InsightsEngine {
 mod tests {
     use super::*;
     use crate::llm::{LlmConfig, LlmError, LlmMessage, LlmProvider, LlmResponse, LlmRole};
+    use futures_util::Stream;
     use std::pin::Pin;
     use std::sync::Mutex;
-    use futures_util::Stream;
 
     // ---- MockProvider --------------------------------------------------------
 
@@ -260,7 +258,10 @@ mod tests {
             messages: &[LlmMessage],
             config: &LlmConfig,
         ) -> Result<LlmResponse, LlmError> {
-            self.calls.lock().unwrap().push((messages.to_vec(), config.clone()));
+            self.calls
+                .lock()
+                .unwrap()
+                .push((messages.to_vec(), config.clone()));
             Ok(LlmResponse {
                 content: self.response.clone(),
                 model: "mock".to_string(),
@@ -274,8 +275,11 @@ mod tests {
             &self,
             _messages: &[LlmMessage],
             _config: &LlmConfig,
-        ) -> Result<Pin<Box<dyn Stream<Item = Result<String, LlmError>> + Send>>, LlmError> {
-            Err(LlmError::Unsupported("mock does not support streaming".into()))
+        ) -> Result<Pin<Box<dyn Stream<Item = Result<String, LlmError>> + Send>>, LlmError>
+        {
+            Err(LlmError::Unsupported(
+                "mock does not support streaming".into(),
+            ))
         }
     }
 
@@ -334,9 +338,7 @@ mod tests {
         let mut engine = InsightsEngine::new();
         let session_id = engine.create_session("No AI", "model").id;
 
-        let result = engine
-            .send_message_with_ai(&session_id, "hello")
-            .await;
+        let result = engine.send_message_with_ai(&session_id, "hello").await;
 
         assert!(result.is_err());
         let err_msg = format!("{}", result.unwrap_err());
@@ -348,9 +350,7 @@ mod tests {
         let mock = Arc::new(MockProvider::new("reply"));
         let mut engine = InsightsEngine::with_provider(mock);
 
-        let result = engine
-            .send_message_with_ai(&Uuid::new_v4(), "hello")
-            .await;
+        let result = engine.send_message_with_ai(&Uuid::new_v4(), "hello").await;
 
         assert!(result.is_err());
     }

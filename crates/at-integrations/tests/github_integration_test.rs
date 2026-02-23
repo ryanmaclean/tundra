@@ -381,12 +381,7 @@ fn test_analyze_and_group_issues() {
             IssueState::Open,
             vec![("enhancement", "a2eeef")],
         ),
-        make_github_issue_with_labels(
-            3,
-            "Memory leak",
-            IssueState::Open,
-            vec![("bug", "d73a4a")],
-        ),
+        make_github_issue_with_labels(3, "Memory leak", IssueState::Open, vec![("bug", "d73a4a")]),
         make_github_issue_with_labels(
             4,
             "New API endpoint",
@@ -416,7 +411,11 @@ fn test_analyze_and_group_issues() {
 #[test]
 fn test_auto_fix_toggle_creates_branch() {
     // "Auto-Fix New" toggle: when enabled, new issues get a branch
-    let issue = make_github_issue(221, "Refactor GitHub PR review with XState", IssueState::Open);
+    let issue = make_github_issue(
+        221,
+        "Refactor GitHub PR review with XState",
+        IssueState::Open,
+    );
 
     // Branch naming convention: auto-claude/{issue_number}-{sanitized-title}
     let sanitized_title = issue
@@ -621,13 +620,7 @@ fn test_create_pr_for_task() {
     assert_eq!(head, "feature/test-branch");
 
     // PR title matches task title
-    let pr = make_github_pr(
-        200,
-        &task.title,
-        PrState::Open,
-        head,
-        "auto-claude",
-    );
+    let pr = make_github_pr(200, &task.title, PrState::Open, head, "auto-claude");
     assert_eq!(pr.title, "Add user authentication");
     assert_eq!(pr.head_branch, "feature/test-branch");
     assert_eq!(pr.base_branch, "main");
@@ -687,14 +680,12 @@ fn test_filter_prs_by_contributor() {
         make_github_pr(4, "PR by Charlie", PrState::Merged, "branch-d", "charlie"),
     ];
 
-    let alice_prs: Vec<&GitHubPullRequest> =
-        prs.iter().filter(|p| p.author == "alice").collect();
+    let alice_prs: Vec<&GitHubPullRequest> = prs.iter().filter(|p| p.author == "alice").collect();
     assert_eq!(alice_prs.len(), 2);
     assert_eq!(alice_prs[0].number, 1);
     assert_eq!(alice_prs[1].number, 3);
 
-    let bob_prs: Vec<&GitHubPullRequest> =
-        prs.iter().filter(|p| p.author == "bob").collect();
+    let bob_prs: Vec<&GitHubPullRequest> = prs.iter().filter(|p| p.author == "bob").collect();
     assert_eq!(bob_prs.len(), 1);
 }
 
@@ -949,13 +940,7 @@ fn test_github_issue_serde_roundtrip() {
 
 #[test]
 fn test_github_pr_serde_roundtrip() {
-    let mut pr = make_github_pr(
-        101,
-        "Add feature X",
-        PrState::Open,
-        "feature-x",
-        "alice",
-    );
+    let mut pr = make_github_pr(101, "Add feature X", PrState::Open, "feature-x", "alice");
     pr.labels = vec![GitHubLabel {
         name: "enhancement".to_string(),
         color: "a2eeef".to_string(),
@@ -993,7 +978,10 @@ fn test_review_finding_serde_roundtrip() {
     assert_eq!(deserialized.file, "src/main.rs");
     assert_eq!(deserialized.line, Some(42));
     assert_eq!(deserialized.severity, FindingSeverity::Warning);
-    assert_eq!(deserialized.suggestion.as_deref(), Some("Remove or prefix with underscore"));
+    assert_eq!(
+        deserialized.suggestion.as_deref(),
+        Some("Remove or prefix with underscore")
+    );
 }
 
 #[test]

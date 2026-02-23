@@ -1,7 +1,7 @@
 use at_agents::approval::{ApprovalPolicy, ApprovalStatus, ToolApprovalSystem};
 use at_agents::roles::{
-    CrewAgent, DeaconAgent, MayorAgent, PolecatAgent, RefineryAgent, RoleConfig, WitnessAgent,
-    role_config_for,
+    role_config_for, CrewAgent, DeaconAgent, MayorAgent, PolecatAgent, RefineryAgent, RoleConfig,
+    WitnessAgent,
 };
 use at_core::types::AgentRole;
 
@@ -15,7 +15,10 @@ fn mayor_has_nonempty_system_prompt() {
     let prompt = agent.system_prompt();
     assert!(!prompt.is_empty());
     assert!(prompt.len() > 50, "system prompt should be detailed");
-    assert!(prompt.contains("orchestrat"), "Mayor should mention orchestration");
+    assert!(
+        prompt.contains("orchestrat"),
+        "Mayor should mention orchestration"
+    );
 }
 
 #[test]
@@ -42,7 +45,10 @@ fn refinery_has_nonempty_system_prompt() {
     let prompt = agent.system_prompt();
     assert!(!prompt.is_empty());
     assert!(prompt.len() > 50);
-    assert!(prompt.contains("refactor"), "Refinery should mention refactoring");
+    assert!(
+        prompt.contains("refactor"),
+        "Refinery should mention refactoring"
+    );
 }
 
 #[test]
@@ -51,8 +57,10 @@ fn polecat_has_nonempty_system_prompt() {
     let prompt = agent.system_prompt();
     assert!(!prompt.is_empty());
     assert!(prompt.len() > 50);
-    assert!(prompt.contains("security") || prompt.contains("vulnerabilit"),
-        "Polecat should mention security");
+    assert!(
+        prompt.contains("security") || prompt.contains("vulnerabilit"),
+        "Polecat should mention security"
+    );
 }
 
 #[test]
@@ -61,8 +69,10 @@ fn crew_has_nonempty_system_prompt() {
     let prompt = agent.system_prompt();
     assert!(!prompt.is_empty());
     assert!(prompt.len() > 50);
-    assert!(prompt.contains("implement") || prompt.contains("worker"),
-        "Crew should mention implementation or working");
+    assert!(
+        prompt.contains("implement") || prompt.contains("worker"),
+        "Crew should mention implementation or working"
+    );
 }
 
 // ===========================================================================
@@ -73,32 +83,46 @@ fn crew_has_nonempty_system_prompt() {
 fn mayor_cannot_write_files() {
     let agent = MayorAgent::new();
     let tools = agent.allowed_tools();
-    assert!(!tools.contains(&"file_write".to_string()),
-        "Mayor should not have file_write permission");
-    assert!(tools.contains(&"file_read".to_string()),
-        "Mayor should be able to read files");
-    assert!(tools.contains(&"task_assign".to_string()),
-        "Mayor should be able to assign tasks");
+    assert!(
+        !tools.contains(&"file_write".to_string()),
+        "Mayor should not have file_write permission"
+    );
+    assert!(
+        tools.contains(&"file_read".to_string()),
+        "Mayor should be able to read files"
+    );
+    assert!(
+        tools.contains(&"task_assign".to_string()),
+        "Mayor should be able to assign tasks"
+    );
 }
 
 #[test]
 fn deacon_cannot_write_files() {
     let agent = DeaconAgent::new();
     let tools = agent.allowed_tools();
-    assert!(!tools.contains(&"file_write".to_string()),
-        "Deacon should not have file_write permission");
-    assert!(tools.contains(&"git_diff".to_string()),
-        "Deacon should be able to view diffs");
+    assert!(
+        !tools.contains(&"file_write".to_string()),
+        "Deacon should not have file_write permission"
+    );
+    assert!(
+        tools.contains(&"git_diff".to_string()),
+        "Deacon should be able to view diffs"
+    );
 }
 
 #[test]
 fn witness_can_execute_shell() {
     let agent = WitnessAgent::new();
     let tools = agent.allowed_tools();
-    assert!(tools.contains(&"shell_execute".to_string()),
-        "Witness needs shell access to run tests");
-    assert!(!tools.contains(&"file_write".to_string()),
-        "Witness should not write files");
+    assert!(
+        tools.contains(&"shell_execute".to_string()),
+        "Witness needs shell access to run tests"
+    );
+    assert!(
+        !tools.contains(&"file_write".to_string()),
+        "Witness should not write files"
+    );
 }
 
 #[test]
@@ -106,18 +130,24 @@ fn refinery_can_read_and_write() {
     let agent = RefineryAgent::new();
     let tools = agent.allowed_tools();
     assert!(tools.contains(&"file_read".to_string()));
-    assert!(tools.contains(&"file_write".to_string()),
-        "Refinery needs write access for refactoring");
+    assert!(
+        tools.contains(&"file_write".to_string()),
+        "Refinery needs write access for refactoring"
+    );
 }
 
 #[test]
 fn polecat_cannot_write_files() {
     let agent = PolecatAgent::new();
     let tools = agent.allowed_tools();
-    assert!(!tools.contains(&"file_write".to_string()),
-        "Polecat should not write files");
-    assert!(tools.contains(&"shell_execute".to_string()),
-        "Polecat needs shell for security scanning tools");
+    assert!(
+        !tools.contains(&"file_write".to_string()),
+        "Polecat should not write files"
+    );
+    assert!(
+        tools.contains(&"shell_execute".to_string()),
+        "Polecat needs shell for security scanning tools"
+    );
 }
 
 #[test]
@@ -138,8 +168,10 @@ fn crew_has_full_dev_tools() {
 fn mayor_has_highest_turn_limit() {
     let mayor = MayorAgent::new();
     let crew = CrewAgent::new();
-    assert!(mayor.max_turns() >= crew.max_turns(),
-        "Mayor (orchestrator) should have at least as many turns as Crew");
+    assert!(
+        mayor.max_turns() >= crew.max_turns(),
+        "Mayor (orchestrator) should have at least as many turns as Crew"
+    );
 }
 
 #[test]
@@ -228,7 +260,10 @@ fn all_roles_have_preferred_model() {
         Box::new(CrewAgent::new()),
     ];
     for role in &roles {
-        assert!(role.preferred_model().is_some(), "each role should specify a preferred model");
+        assert!(
+            role.preferred_model().is_some(),
+            "each role should specify a preferred model"
+        );
     }
 }
 
@@ -242,7 +277,10 @@ fn role_config_for_returns_correct_prompts() {
     assert!(mayor_config.system_prompt().contains("orchestrat"));
 
     let crew_config = role_config_for(&AgentRole::Crew);
-    assert!(crew_config.system_prompt().contains("worker") || crew_config.system_prompt().contains("implement"));
+    assert!(
+        crew_config.system_prompt().contains("worker")
+            || crew_config.system_prompt().contains("implement")
+    );
 }
 
 // ===========================================================================
@@ -348,7 +386,10 @@ fn executor_build_prompt_includes_system_prompt() {
     // Simulate what execute_task_with_role would build
     let base_prompt = "Task: Build feature\nDescription: Some desc";
     let full_prompt = if let Some(preamble) = pre_hook {
-        format!("System: {}\n\n{}\n\n{}", system_prompt, preamble, base_prompt)
+        format!(
+            "System: {}\n\n{}\n\n{}",
+            system_prompt, preamble, base_prompt
+        )
     } else {
         format!("System: {}\n\n{}", system_prompt, base_prompt)
     };

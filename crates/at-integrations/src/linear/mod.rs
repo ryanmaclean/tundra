@@ -100,10 +100,7 @@ impl LinearClient {
     /// prefixed and 40+ chars.
     fn is_stub_key(&self) -> bool {
         let k = &self.api_key;
-        k.starts_with("tok")
-            || k.starts_with("test")
-            || k.starts_with("stub")
-            || k.len() < 10
+        k.starts_with("tok") || k.starts_with("test") || k.starts_with("stub") || k.len() < 10
     }
 
     // -- stub helpers -------------------------------------------------------
@@ -173,10 +170,7 @@ impl LinearClient {
             identifier: n["identifier"].as_str().unwrap_or_default().to_string(),
             title: n["title"].as_str().unwrap_or_default().to_string(),
             description: n["description"].as_str().map(|s| s.to_string()),
-            state_name: n["state"]["name"]
-                .as_str()
-                .unwrap_or("Unknown")
-                .to_string(),
+            state_name: n["state"]["name"].as_str().unwrap_or("Unknown").to_string(),
             priority: n["priority"].as_u64().unwrap_or(0) as u8,
             team: LinearTeam {
                 id: n["team"]["id"].as_str().unwrap_or_default().to_string(),
@@ -285,10 +279,7 @@ impl LinearClient {
         }"#;
 
         let mut variables = serde_json::Map::new();
-        variables.insert(
-            "id".into(),
-            serde_json::Value::String(issue_id.to_string()),
-        );
+        variables.insert("id".into(), serde_json::Value::String(issue_id.to_string()));
 
         let body = self.graphql(query, Some(variables)).await?;
 
@@ -352,10 +343,7 @@ impl LinearClient {
         // Build the mutation input fields dynamically.
         let mut input_fields = Vec::new();
         let mut variables = serde_json::Map::new();
-        variables.insert(
-            "id".into(),
-            serde_json::Value::String(issue_id.to_string()),
-        );
+        variables.insert("id".into(), serde_json::Value::String(issue_id.to_string()));
 
         if let Some(t) = title {
             input_fields.push("title: $title");

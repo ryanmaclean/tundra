@@ -88,9 +88,9 @@ impl ContextFold {
 
     /// Get a named section.
     pub fn get_section(&self, name: &str) -> Option<String> {
-        self.sections.get(name).map(|span| {
-            self.slice(span.start_line, span.end_line)
-        })
+        self.sections
+            .get(name)
+            .map(|span| self.slice(span.start_line, span.end_line))
     }
 
     /// Search the content for a pattern (simple substring search).
@@ -111,7 +111,11 @@ impl ContextFold {
     pub fn add_summary(&mut self, ratio: f64, text: impl Into<String>) {
         let text = text.into();
         let tokens = text.len() / 4;
-        self.summaries.push(FoldSummary { ratio, text, tokens });
+        self.summaries.push(FoldSummary {
+            ratio,
+            text,
+            tokens,
+        });
     }
 
     /// Get the best summary for a given token budget.
@@ -145,13 +149,19 @@ impl ContextFold {
 
         for (i, line) in self.content.lines().enumerate() {
             let trimmed = line.trim();
-            if trimmed.starts_with("# ") || trimmed.starts_with("## ") || trimmed.starts_with("### ") {
+            if trimmed.starts_with("# ")
+                || trimmed.starts_with("## ")
+                || trimmed.starts_with("### ")
+            {
                 // Close previous section
                 if let Some((name, start)) = current_section.take() {
-                    self.sections.insert(name, SectionSpan {
-                        start_line: start,
-                        end_line: i,
-                    });
+                    self.sections.insert(
+                        name,
+                        SectionSpan {
+                            start_line: start,
+                            end_line: i,
+                        },
+                    );
                 }
                 // Start new section
                 let name = trimmed
@@ -166,10 +176,13 @@ impl ContextFold {
         // Close last section
         let line_count = self.content.lines().count();
         if let Some((name, start)) = current_section {
-            self.sections.insert(name, SectionSpan {
-                start_line: start,
-                end_line: line_count,
-            });
+            self.sections.insert(
+                name,
+                SectionSpan {
+                    start_line: start,
+                    end_line: line_count,
+                },
+            );
         }
     }
 
@@ -297,11 +310,7 @@ impl Decomposition {
     }
 
     /// Record a sub-task result.
-    pub fn record_result(
-        &mut self,
-        subtask_id: &Uuid,
-        result: impl Into<String>,
-    ) -> bool {
+    pub fn record_result(&mut self, subtask_id: &Uuid, result: impl Into<String>) -> bool {
         if let Some(st) = self.subtasks.iter_mut().find(|s| s.id == *subtask_id) {
             st.result = Some(result.into());
             st.status = SubTaskStatus::Complete;
@@ -324,14 +333,17 @@ impl Decomposition {
     /// Check if all sub-tasks are complete.
     pub fn is_complete(&self) -> bool {
         !self.subtasks.is_empty()
-            && self.subtasks.iter().all(|s| {
-                s.status == SubTaskStatus::Complete || s.status == SubTaskStatus::Skipped
-            })
+            && self
+                .subtasks
+                .iter()
+                .all(|s| s.status == SubTaskStatus::Complete || s.status == SubTaskStatus::Skipped)
     }
 
     /// Check if any sub-task failed.
     pub fn has_failures(&self) -> bool {
-        self.subtasks.iter().any(|s| s.status == SubTaskStatus::Failed)
+        self.subtasks
+            .iter()
+            .any(|s| s.status == SubTaskStatus::Failed)
     }
 
     /// Synthesize results from completed sub-tasks.
@@ -344,16 +356,10 @@ impl Decomposition {
 
         match self.synthesis {
             SynthesisStrategy::Concatenate => completed.join("\n\n---\n\n"),
-            SynthesisStrategy::BestOf => {
-                completed.last().copied().unwrap_or("").to_string()
-            }
-            SynthesisStrategy::Refine => {
-                completed.last().copied().unwrap_or("").to_string()
-            }
+            SynthesisStrategy::BestOf => completed.last().copied().unwrap_or("").to_string(),
+            SynthesisStrategy::Refine => completed.last().copied().unwrap_or("").to_string(),
             // LlmMerge and Vote require actual LLM calls — return concat as fallback
-            SynthesisStrategy::LlmMerge | SynthesisStrategy::Vote => {
-                completed.join("\n\n---\n\n")
-            }
+            SynthesisStrategy::LlmMerge | SynthesisStrategy::Vote => completed.join("\n\n---\n\n"),
         }
     }
 
@@ -546,7 +552,8 @@ impl StuckDetector {
         // Check output loop
         if self.recent_outputs.len() >= self.max_repeats {
             let last = &self.recent_outputs[self.recent_outputs.len() - 1];
-            let all_same = self.recent_outputs
+            let all_same = self
+                .recent_outputs
                 .iter()
                 .rev()
                 .take(self.max_repeats)
@@ -748,7 +755,11 @@ mod tests {
         let mut dec = Decomposition::new("task", 3);
         dec.add_subtask("par 1");
         let id2 = dec.add_subtask("seq");
-        dec.subtasks.iter_mut().find(|s| s.id == id2).unwrap().parallelizable = false;
+        dec.subtasks
+            .iter_mut()
+            .find(|s| s.id == id2)
+            .unwrap()
+            .parallelizable = false;
 
         assert_eq!(dec.parallel_batch().len(), 1);
     }

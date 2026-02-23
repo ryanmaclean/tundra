@@ -138,6 +138,22 @@ mod api_deserialization {
         assert_eq!(status.version, "");
         assert_eq!(status.uptime_secs, 0);
     }
+
+    #[wasm_bindgen_test]
+    fn test_api_pipeline_queue_status_deserialize() {
+        let json = r#"{
+            "limit": 2,
+            "waiting": 3,
+            "running": 1,
+            "available_permits": 1
+        }"#;
+        let queue: ApiPipelineQueueStatus =
+            serde_json::from_str(json).expect("ApiPipelineQueueStatus deserialization failed");
+        assert_eq!(queue.limit, 2);
+        assert_eq!(queue.waiting, 3);
+        assert_eq!(queue.running, 1);
+        assert_eq!(queue.available_permits, 1);
+    }
 }
 
 // =============================================================================
@@ -763,6 +779,7 @@ mod phase_icon_svg {
             agent_names: vec![],
             timestamp: String::new(),
             action: None,
+            subtask_statuses: vec![],
         }
     }
 

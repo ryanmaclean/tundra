@@ -160,7 +160,6 @@ pub enum IdeationCommands {
     },
 }
 
-
 #[derive(Subcommand)]
 enum SkillCommands {
     /// List skills discovered from .claude/skills/*/SKILL.md.
@@ -363,7 +362,9 @@ async fn main() -> anyhow::Result<()> {
             IdeationCommands::List { .. } => {
                 commands::ideation::list(&api_url).await?;
             }
-            IdeationCommands::Generate { category, context, .. } => {
+            IdeationCommands::Generate {
+                category, context, ..
+            } => {
                 commands::ideation::generate(&api_url, &category, &context).await?;
             }
             IdeationCommands::Convert { idea_id, .. } => {

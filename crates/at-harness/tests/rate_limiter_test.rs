@@ -93,9 +93,9 @@ fn remaining_tokens() {
 #[test]
 fn multi_key_limiter() {
     let limiter = MultiKeyRateLimiter::new(
-        RateLimitConfig::per_second(100),   // global
-        RateLimitConfig::per_second(5),     // per user
-        RateLimitConfig::per_second(50),    // per endpoint
+        RateLimitConfig::per_second(100), // global
+        RateLimitConfig::per_second(5),   // per user
+        RateLimitConfig::per_second(50),  // per endpoint
     );
 
     for _ in 0..5 {
@@ -115,5 +115,8 @@ fn error_message_includes_key() {
     limiter.check("my-key").unwrap();
     let err = limiter.check("my-key").unwrap_err();
     let msg = err.to_string();
-    assert!(msg.contains("my-key"), "error should contain key name: {msg}");
+    assert!(
+        msg.contains("my-key"),
+        "error should contain key name: {msg}"
+    );
 }

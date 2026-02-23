@@ -237,9 +237,7 @@ mod tests {
             drop(guard2);
         });
 
-        let result = signal
-            .wait_for_drain(2, Duration::from_secs(1))
-            .await;
+        let result = signal.wait_for_drain(2, Duration::from_secs(1)).await;
         assert!(result.is_complete());
     }
 
@@ -251,9 +249,7 @@ mod tests {
 
         signal.trigger();
 
-        let result = signal
-            .wait_for_drain(2, Duration::from_millis(50))
-            .await;
+        let result = signal.wait_for_drain(2, Duration::from_millis(50)).await;
         match result {
             DrainResult::Timeout {
                 confirmed,
@@ -293,9 +289,7 @@ mod tests {
             // guard dropped here
         }
 
-        let result = signal
-            .wait_for_drain(1, Duration::from_millis(100))
-            .await;
+        let result = signal.wait_for_drain(1, Duration::from_millis(100)).await;
         assert!(result.is_complete());
     }
 

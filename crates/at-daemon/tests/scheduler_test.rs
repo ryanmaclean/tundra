@@ -29,9 +29,15 @@ async fn critical_lane_takes_priority_over_standard() {
     cache.upsert_bead(&experimental).await.expect("upsert");
 
     let scheduler = TaskScheduler::default();
-    let next = scheduler.next_bead(&cache).await.expect("should find a bead");
+    let next = scheduler
+        .next_bead(&cache)
+        .await
+        .expect("should find a bead");
 
-    assert_eq!(next.id, critical.id, "critical lane bead should be picked first");
+    assert_eq!(
+        next.id, critical.id,
+        "critical lane bead should be picked first"
+    );
 }
 
 #[tokio::test]
@@ -51,7 +57,10 @@ async fn higher_priority_wins_within_same_lane() {
     cache.upsert_bead(&mid).await.expect("upsert");
 
     let scheduler = TaskScheduler::default();
-    let next = scheduler.next_bead(&cache).await.expect("should find a bead");
+    let next = scheduler
+        .next_bead(&cache)
+        .await
+        .expect("should find a bead");
 
     assert_eq!(next.id, high.id, "highest priority bead should be picked");
 }
@@ -73,7 +82,10 @@ async fn older_bead_wins_on_tie() {
     cache.upsert_bead(&newer).await.expect("upsert");
 
     let scheduler = TaskScheduler::default();
-    let next = scheduler.next_bead(&cache).await.expect("should find a bead");
+    let next = scheduler
+        .next_bead(&cache)
+        .await
+        .expect("should find a bead");
 
     assert_eq!(next.id, older.id, "older bead should win on priority tie");
 }
@@ -96,7 +108,11 @@ async fn assign_bead_transitions_to_hooked() {
         .await
         .expect("assign should succeed");
 
-    let updated = cache.get_bead(bead_id).await.expect("get").expect("bead exists");
+    let updated = cache
+        .get_bead(bead_id)
+        .await
+        .expect("get")
+        .expect("bead exists");
     assert_eq!(updated.status, BeadStatus::Hooked);
     assert_eq!(updated.agent_id, Some(agent_id));
     assert!(updated.hooked_at.is_some());
@@ -113,9 +129,7 @@ async fn assign_bead_rejects_invalid_transition() {
     cache.upsert_bead(&bead).await.expect("upsert");
 
     let scheduler = TaskScheduler::default();
-    let result = scheduler
-        .assign_bead(&cache, bead_id, Uuid::new_v4())
-        .await;
+    let result = scheduler.assign_bead(&cache, bead_id, Uuid::new_v4()).await;
 
     assert!(result.is_err(), "should reject invalid status transition");
 }
@@ -200,7 +214,10 @@ async fn semaphore_blocks_when_exhausted() {
 
     // Give it a brief moment — it should NOT complete.
     let result = tokio::time::timeout(Duration::from_millis(50), handle).await;
-    assert!(result.is_err(), "second acquire should block when semaphore is exhausted");
+    assert!(
+        result.is_err(),
+        "second acquire should block when semaphore is exhausted"
+    );
 }
 
 #[tokio::test]

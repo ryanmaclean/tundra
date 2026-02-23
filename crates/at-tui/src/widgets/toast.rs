@@ -1,10 +1,10 @@
 use std::time::{Duration, Instant};
 
-use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
+use ratatui::Frame;
 
 #[derive(Debug, Clone)]
 pub enum ToastLevel {
@@ -179,8 +179,7 @@ mod tests {
 
     #[test]
     fn toast_expiry() {
-        let toast = Toast::new("hello", ToastLevel::Info)
-            .with_duration(Duration::from_millis(0));
+        let toast = Toast::new("hello", ToastLevel::Info).with_duration(Duration::from_millis(0));
         assert!(toast.expired());
     }
 
@@ -202,10 +201,7 @@ mod tests {
     #[test]
     fn manager_tick_removes_expired() {
         let mut mgr = ToastManager::new();
-        mgr.push(
-            Toast::new("expired", ToastLevel::Error)
-                .with_duration(Duration::from_millis(0)),
-        );
+        mgr.push(Toast::new("expired", ToastLevel::Error).with_duration(Duration::from_millis(0)));
         mgr.push(Toast::new("alive", ToastLevel::Info));
         mgr.tick();
         assert_eq!(mgr.len(), 1);

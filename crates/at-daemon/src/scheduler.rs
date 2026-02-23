@@ -64,10 +64,7 @@ impl TaskScheduler {
     ///
     /// Returns `None` when the backlog is empty.
     pub async fn next_bead(&self, cache: &CacheDb) -> Option<Bead> {
-        let mut backlog = cache
-            .list_beads_by_status(BeadStatus::Backlog)
-            .await
-            .ok()?;
+        let mut backlog = cache.list_beads_by_status(BeadStatus::Backlog).await.ok()?;
 
         if backlog.is_empty() {
             return None;
@@ -100,12 +97,7 @@ impl TaskScheduler {
     ///
     /// Updates the bead's `agent_id`, `status`, `hooked_at`, and `updated_at`
     /// fields, then persists the change via `cache.upsert_bead`.
-    pub async fn assign_bead(
-        &self,
-        cache: &CacheDb,
-        bead_id: Uuid,
-        agent_id: Uuid,
-    ) -> Result<()> {
+    pub async fn assign_bead(&self, cache: &CacheDb, bead_id: Uuid, agent_id: Uuid) -> Result<()> {
         let bead = cache
             .get_bead(bead_id)
             .await

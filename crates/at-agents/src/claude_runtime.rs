@@ -13,7 +13,11 @@ use at_intelligence::llm::LlmResponse;
 #[async_trait]
 pub trait ClaudeRuntime: Send + Sync {
     async fn start_session(&self, config: SessionConfig) -> Result<SessionId, SessionError>;
-    async fn send(&self, session_id: SessionId, message: String) -> Result<LlmResponse, SessionError>;
+    async fn send(
+        &self,
+        session_id: SessionId,
+        message: String,
+    ) -> Result<LlmResponse, SessionError>;
     async fn close_session(&self, session_id: SessionId) -> bool;
     async fn list_sessions(&self) -> Vec<SessionId>;
 }
@@ -44,7 +48,11 @@ impl ClaudeRuntime for ManagerClaudeRuntime {
         Ok(mgr.create_session(config))
     }
 
-    async fn send(&self, session_id: SessionId, message: String) -> Result<LlmResponse, SessionError> {
+    async fn send(
+        &self,
+        session_id: SessionId,
+        message: String,
+    ) -> Result<LlmResponse, SessionError> {
         let mut mgr = self.manager.lock().await;
         mgr.send_message(&session_id, message).await
     }
@@ -68,7 +76,10 @@ mod tests {
     #[tokio::test]
     async fn manager_runtime_starts_and_lists_sessions() {
         let runtime = ManagerClaudeRuntime::new("test-key");
-        let id = runtime.start_session(SessionConfig::default()).await.unwrap();
+        let id = runtime
+            .start_session(SessionConfig::default())
+            .await
+            .unwrap();
         let sessions = runtime.list_sessions().await;
         assert!(sessions.contains(&id));
     }
@@ -76,7 +87,10 @@ mod tests {
     #[tokio::test]
     async fn manager_runtime_close_session() {
         let runtime = ManagerClaudeRuntime::new("test-key");
-        let id = runtime.start_session(SessionConfig::default()).await.unwrap();
+        let id = runtime
+            .start_session(SessionConfig::default())
+            .await
+            .unwrap();
         assert!(runtime.close_session(id).await);
         assert!(!runtime.close_session(id).await);
     }

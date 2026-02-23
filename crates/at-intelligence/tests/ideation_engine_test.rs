@@ -100,7 +100,9 @@ fn test_generate_ideas_for_performance() {
     assert_eq!(result.ideas.len(), 1);
     assert_eq!(result.analysis_type, "performance");
     assert_eq!(result.ideas[0].category, IdeaCategory::Performance);
-    assert!(result.ideas[0].description.contains("slow database queries"));
+    assert!(result.ideas[0]
+        .description
+        .contains("slow database queries"));
 }
 
 #[test]

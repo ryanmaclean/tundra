@@ -32,9 +32,7 @@ impl GitHubClient {
     pub fn new(config: GitHubConfig) -> Result<Self> {
         let token = config.token.ok_or(GitHubError::MissingToken)?;
 
-        let octocrab = Octocrab::builder()
-            .personal_token(token)
-            .build()?;
+        let octocrab = Octocrab::builder().personal_token(token).build()?;
 
         Ok(Self {
             octocrab,

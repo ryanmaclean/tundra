@@ -121,11 +121,7 @@ pub struct ModelRouter {
 }
 
 impl ModelRouter {
-    pub fn new(
-        strategy: RoutingStrategy,
-        cost_tracker: CostTracker,
-        cache: TokenCache,
-    ) -> Self {
+    pub fn new(strategy: RoutingStrategy, cost_tracker: CostTracker, cache: TokenCache) -> Self {
         let mut tiers = crate::cost_tracker::default_pricing_table();
         // Sort by cost (cheapest first)
         tiers.sort_by(|a, b| {
@@ -143,11 +139,7 @@ impl ModelRouter {
     }
 
     /// Select the best model for the given messages and config.
-    pub async fn route(
-        &self,
-        messages: &[LlmMessage],
-        _config: &LlmConfig,
-    ) -> RouteDecision {
+    pub async fn route(&self, messages: &[LlmMessage], _config: &LlmConfig) -> RouteDecision {
         match &self.strategy {
             RoutingStrategy::Fixed { model } => self.route_fixed(model).await,
             RoutingStrategy::ComplexityBased => self.route_by_complexity(messages).await,
@@ -208,7 +200,11 @@ impl ModelRouter {
         // Calculate actual cost
         let cost = self
             .cost_tracker
-            .calculate_cost(&response.model, response.input_tokens, response.output_tokens)
+            .calculate_cost(
+                &response.model,
+                response.input_tokens,
+                response.output_tokens,
+            )
             .await;
 
         // Record in cost tracker
@@ -229,11 +225,7 @@ impl ModelRouter {
         // Consume budget
         if let Some(key) = budget_key {
             self.cost_tracker
-                .consume_budget(
-                    key,
-                    response.input_tokens + response.output_tokens,
-                    cost,
-                )
+                .consume_budget(key, response.input_tokens + response.output_tokens, cost)
                 .await;
         }
 
@@ -468,11 +460,17 @@ mod tests {
         let config = LlmConfig::default();
 
         // First call — miss
-        let (resp1, dec1) = router.execute(&provider, &messages, &config, None).await.unwrap();
+        let (resp1, dec1) = router
+            .execute(&provider, &messages, &config, None)
+            .await
+            .unwrap();
         assert_ne!(dec1.reason, "cache hit");
 
         // Second call — cache hit
-        let (resp2, dec2) = router.execute(&provider, &messages, &config, None).await.unwrap();
+        let (resp2, dec2) = router
+            .execute(&provider, &messages, &config, None)
+            .await
+            .unwrap();
         assert_eq!(dec2.reason, "cache hit");
         assert_eq!(resp1.content, resp2.content);
     }
@@ -489,7 +487,10 @@ mod tests {
         // Set a budget that allows exactly 1 request
         router
             .cost_tracker
-            .set_budget("task-1".into(), crate::cost_tracker::TokenBudget::new(100_000, 10.0, 1))
+            .set_budget(
+                "task-1".into(),
+                crate::cost_tracker::TokenBudget::new(100_000, 10.0, 1),
+            )
             .await;
 
         // First call succeeds
@@ -515,7 +516,10 @@ mod tests {
         let messages = vec![LlmMessage::user("Hello")];
         let config = LlmConfig::default();
 
-        router.execute(&provider, &messages, &config, None).await.unwrap();
+        router
+            .execute(&provider, &messages, &config, None)
+            .await
+            .unwrap();
 
         assert_eq!(router.cost_tracker.request_count().await, 1);
     }

@@ -1,9 +1,9 @@
 use chrono::Local;
-use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
+use ratatui::Frame;
 
 use crate::app::App;
 
@@ -12,11 +12,17 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect) {
     let now = Local::now().format("%Y-%m-%d %H:%M:%S");
 
     let conn_indicator = if app.offline {
-        Span::styled(" OFFLINE ", Style::default().fg(Color::Black).bg(Color::Yellow))
+        Span::styled(
+            " OFFLINE ",
+            Style::default().fg(Color::Black).bg(Color::Yellow),
+        )
     } else if app.api_connected {
         Span::styled(" LIVE ", Style::default().fg(Color::Black).bg(Color::Green))
     } else {
-        Span::styled(" ... ", Style::default().fg(Color::Black).bg(Color::DarkGray))
+        Span::styled(
+            " ... ",
+            Style::default().fg(Color::Black).bg(Color::DarkGray),
+        )
     };
 
     let left = vec![

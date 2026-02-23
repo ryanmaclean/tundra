@@ -31,8 +31,9 @@ pub fn builtin_tool_definitions() -> Vec<McpTool> {
 fn run_task_tool() -> McpTool {
     McpTool {
         name: "run_task".to_string(),
-        description: "Execute a task by its UUID. Transitions the task into the execution pipeline."
-            .to_string(),
+        description:
+            "Execute a task by its UUID. Transitions the task into the execution pipeline."
+                .to_string(),
         input_schema: json!({
             "type": "object",
             "properties": {
@@ -325,9 +326,7 @@ async fn exec_manage_beads(ctx: &BuiltinToolContext, args: &serde_json::Value) -
                     })
                 })
                 .collect();
-            ToolCallResult::text(
-                json!({ "beads": result, "count": result.len() }).to_string(),
-            )
+            ToolCallResult::text(json!({ "beads": result, "count": result.len() }).to_string())
         }
 
         "get" => {
@@ -358,7 +357,10 @@ async fn exec_manage_beads(ctx: &BuiltinToolContext, args: &serde_json::Value) -
                 .unwrap_or(Lane::Standard);
 
             let mut bead = Bead::new(title, lane);
-            bead.description = args.get("description").and_then(|v| v.as_str()).map(String::from);
+            bead.description = args
+                .get("description")
+                .and_then(|v| v.as_str())
+                .map(String::from);
 
             let bead_json = serde_json::to_string(&bead).unwrap();
             let mut beads = ctx.beads.write().await;
@@ -436,7 +438,12 @@ async fn exec_get_build_status(
         // Return all active (non-terminal) tasks.
         let active: Vec<serde_json::Value> = tasks
             .iter()
-            .filter(|t| !matches!(t.phase, TaskPhase::Complete | TaskPhase::Error | TaskPhase::Stopped))
+            .filter(|t| {
+                !matches!(
+                    t.phase,
+                    TaskPhase::Complete | TaskPhase::Error | TaskPhase::Stopped
+                )
+            })
             .map(|t| {
                 json!({
                     "task_id": t.id,
@@ -446,16 +453,11 @@ async fn exec_get_build_status(
                 })
             })
             .collect();
-        ToolCallResult::text(
-            json!({ "active_tasks": active, "count": active.len() }).to_string(),
-        )
+        ToolCallResult::text(json!({ "active_tasks": active, "count": active.len() }).to_string())
     }
 }
 
-async fn exec_get_task_logs(
-    ctx: &BuiltinToolContext,
-    args: &serde_json::Value,
-) -> ToolCallResult {
+async fn exec_get_task_logs(ctx: &BuiltinToolContext, args: &serde_json::Value) -> ToolCallResult {
     let task_id = match args.get("task_id").and_then(|v| v.as_str()) {
         Some(id) => id,
         None => return ToolCallResult::error("missing required parameter: task_id"),
@@ -464,18 +466,14 @@ async fn exec_get_task_logs(
         Ok(u) => u,
         Err(_) => return ToolCallResult::error(format!("invalid UUID: {task_id}")),
     };
-    let limit = args
-        .get("limit")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(50) as usize;
+    let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(50) as usize;
 
     let tasks = ctx.tasks.read().await;
     let Some(task) = tasks.iter().find(|t| t.id == task_uuid) else {
         return ToolCallResult::error(format!("task not found: {task_id}"));
     };
 
-    let logs: Vec<&at_core::types::TaskLogEntry> =
-        task.logs.iter().rev().take(limit).collect();
+    let logs: Vec<&at_core::types::TaskLogEntry> = task.logs.iter().rev().take(limit).collect();
     ToolCallResult::text(
         json!({
             "task_id": task_id,
@@ -538,10 +536,20 @@ mod tests {
             let ann = tool.annotations.as_ref().unwrap();
             match tool.name.as_str() {
                 "list_agents" | "get_build_status" | "get_task_logs" => {
-                    assert_eq!(ann.read_only_hint, Some(true), "{} should be read-only", tool.name);
+                    assert_eq!(
+                        ann.read_only_hint,
+                        Some(true),
+                        "{} should be read-only",
+                        tool.name
+                    );
                 }
                 "run_task" | "manage_beads" => {
-                    assert_eq!(ann.read_only_hint, Some(false), "{} should NOT be read-only", tool.name);
+                    assert_eq!(
+                        ann.read_only_hint,
+                        Some(false),
+                        "{} should NOT be read-only",
+                        tool.name
+                    );
                 }
                 _ => panic!("unexpected tool: {}", tool.name),
             }

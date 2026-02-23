@@ -183,7 +183,10 @@ impl TaskRunner {
 
         // Transition
         task.set_phase(phase.clone());
-        task.log(TaskLogType::PhaseStart, format!("Starting phase: {phase:?}"));
+        task.log(
+            TaskLogType::PhaseStart,
+            format!("Starting phase: {phase:?}"),
+        );
 
         // Publish phase_start event
         self.publish_event(bus, task, &format!("phase_start:{phase:?}"));
@@ -209,7 +212,10 @@ impl TaskRunner {
         let output_text = match output {
             Some(bytes) => {
                 let text = String::from_utf8_lossy(&bytes).to_string();
-                task.log(TaskLogType::Text, format!("Agent output ({} bytes)", bytes.len()));
+                task.log(
+                    TaskLogType::Text,
+                    format!("Agent output ({} bytes)", bytes.len()),
+                );
 
                 // Feed to stuck detector
                 if let Some(ref mut detector) = self.stuck_detector {
@@ -234,7 +240,10 @@ impl TaskRunner {
         // Check for errors in output
         if let Some(status) = session.parse_status(&output_text) {
             if status == "error" {
-                task.log(TaskLogType::Error, format!("Agent reported error in phase {phase:?}"));
+                task.log(
+                    TaskLogType::Error,
+                    format!("Agent reported error in phase {phase:?}"),
+                );
                 return Err(TaskRunnerError::PhaseError(format!(
                     "Agent error in phase {phase:?}"
                 )));
@@ -260,9 +269,7 @@ impl TaskRunner {
         let desc = task.description.as_deref().unwrap_or("No description");
 
         // Try steered context + prompt template
-        if let (Some(steerer), Some(registry)) =
-            (&self.context_steerer, &self.prompt_registry)
-        {
+        if let (Some(steerer), Some(registry)) = (&self.context_steerer, &self.prompt_registry) {
             let context = steerer.assemble(
                 &format!("{:?}", self.agent_role),
                 phase_name,
@@ -313,9 +320,7 @@ impl TaskRunner {
                 )
             }
             TaskPhase::Coding => {
-                format!(
-                    "Implement the changes according to the plan.\nTask: {title}"
-                )
+                format!("Implement the changes according to the plan.\nTask: {title}")
             }
             TaskPhase::Qa => {
                 format!(
@@ -324,9 +329,7 @@ impl TaskRunner {
                 )
             }
             TaskPhase::Fixing => {
-                format!(
-                    "Fix any issues found during QA.\nTask: {title}"
-                )
+                format!("Fix any issues found during QA.\nTask: {title}")
             }
             TaskPhase::Merging => {
                 format!(
@@ -521,7 +524,11 @@ mod tests {
     #[test]
     fn build_steered_prompt_with_project() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("CLAUDE.md"), "# Rules\n## Conventions\n- Use Rust\n").unwrap();
+        std::fs::write(
+            dir.path().join("CLAUDE.md"),
+            "# Rules\n## Conventions\n- Use Rust\n",
+        )
+        .unwrap();
         let runner = TaskRunner::with_project(dir.path());
         let task = make_test_task();
         let prompt = runner.build_steered_prompt(&task, &TaskPhase::Coding);
@@ -535,7 +542,10 @@ mod tests {
         assert_eq!(phase_to_steering_name(&TaskPhase::Coding), "coding");
         assert_eq!(phase_to_steering_name(&TaskPhase::Qa), "qa");
         assert_eq!(phase_to_steering_name(&TaskPhase::Merging), "merging");
-        assert_eq!(phase_to_steering_name(&TaskPhase::SpecCreation), "spec_creation");
+        assert_eq!(
+            phase_to_steering_name(&TaskPhase::SpecCreation),
+            "spec_creation"
+        );
     }
 
     #[test]

@@ -1,8 +1,8 @@
-use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Tabs};
+use ratatui::Frame;
 
 use crate::app::{App, TAB_NAMES};
 use crate::tabs;
@@ -15,14 +15,18 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     let full_area = frame.area();
 
     // Allocate extra row for command bar when in command mode.
-    let status_height = if app.in_command_mode || app.command_result.is_some() { 2 } else { 1 };
+    let status_height = if app.in_command_mode || app.command_result.is_some() {
+        2
+    } else {
+        1
+    };
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),              // tab bar
+            Constraint::Length(3),             // tab bar
             Constraint::Min(0),                // content
-            Constraint::Length(status_height),  // status bar + command
+            Constraint::Length(status_height), // status bar + command
         ])
         .split(full_area);
 
@@ -40,7 +44,8 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         status_bar::render(frame, app, chunks[2]);
     }
 
-    app.effects.tick_and_render(delta, frame.buffer_mut(), full_area);
+    app.effects
+        .tick_and_render(delta, frame.buffer_mut(), full_area);
     app.last_tick = now;
 
     // Toast notifications (rendered on top of everything)
@@ -55,7 +60,12 @@ pub fn render(frame: &mut Frame, app: &mut App) {
 fn render_command_bar(frame: &mut Frame, app: &App, area: Rect) {
     if app.in_command_mode {
         let spans = vec![
-            Span::styled(":", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                ":",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::raw(&app.command_buffer),
             Span::styled("_", Style::default().fg(Color::Yellow)),
         ];

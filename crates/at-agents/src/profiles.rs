@@ -62,12 +62,9 @@ impl AgentConfig {
     /// - Merging: low thinking, shorter timeout
     pub fn default_for_phase(cli_type: CliType, phase: TaskPhase) -> Self {
         let (model, thinking, max_tokens, timeout) = match phase {
-            TaskPhase::Discovery | TaskPhase::ContextGathering => (
-                default_model_for(&cli_type),
-                ThinkingLevel::Low,
-                8_000,
-                120,
-            ),
+            TaskPhase::Discovery | TaskPhase::ContextGathering => {
+                (default_model_for(&cli_type), ThinkingLevel::Low, 8_000, 120)
+            }
             TaskPhase::SpecCreation | TaskPhase::Planning => (
                 default_model_for(&cli_type),
                 ThinkingLevel::Medium,
@@ -86,19 +83,11 @@ impl AgentConfig {
                 16_000,
                 300,
             ),
-            TaskPhase::Merging => (
-                default_model_for(&cli_type),
-                ThinkingLevel::Low,
-                8_000,
-                120,
-            ),
+            TaskPhase::Merging => (default_model_for(&cli_type), ThinkingLevel::Low, 8_000, 120),
             // Terminal states - use minimal defaults
-            TaskPhase::Complete | TaskPhase::Error | TaskPhase::Stopped => (
-                default_model_for(&cli_type),
-                ThinkingLevel::None,
-                4_000,
-                60,
-            ),
+            TaskPhase::Complete | TaskPhase::Error | TaskPhase::Stopped => {
+                (default_model_for(&cli_type), ThinkingLevel::None, 4_000, 60)
+            }
         };
 
         Self {

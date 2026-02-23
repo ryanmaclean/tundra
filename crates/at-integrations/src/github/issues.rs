@@ -14,9 +14,7 @@ pub async fn list_issues(
     page: Option<u32>,
     per_page: Option<u8>,
 ) -> Result<Vec<GitHubIssue>> {
-    let issue_handler = client
-        .octocrab
-        .issues(&client.owner, &client.repo);
+    let issue_handler = client.octocrab.issues(&client.owner, &client.repo);
 
     let mut handler = issue_handler.list();
 
@@ -71,9 +69,7 @@ pub async fn create_issue(
     body: Option<&str>,
     labels: Option<Vec<String>>,
 ) -> Result<GitHubIssue> {
-    let issue_handler = client
-        .octocrab
-        .issues(&client.owner, &client.repo);
+    let issue_handler = client.octocrab.issues(&client.owner, &client.repo);
 
     let mut builder = issue_handler.create(title);
 
@@ -99,9 +95,7 @@ pub async fn update_issue(
     state: Option<IssueState>,
     labels: Option<Vec<String>>,
 ) -> Result<GitHubIssue> {
-    let issue_handler = client
-        .octocrab
-        .issues(&client.owner, &client.repo);
+    let issue_handler = client.octocrab.issues(&client.owner, &client.repo);
 
     let mut builder = issue_handler.update(number);
 
@@ -186,11 +180,7 @@ fn octocrab_issue_to_github_issue(issue: octocrab::models::issues::Issue) -> Git
         })
         .collect();
 
-    let assignees = issue
-        .assignees
-        .iter()
-        .map(|a| a.login.clone())
-        .collect();
+    let assignees = issue.assignees.iter().map(|a| a.login.clone()).collect();
 
     let author = issue.user.login.clone();
 

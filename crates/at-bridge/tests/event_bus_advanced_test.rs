@@ -1,9 +1,9 @@
 use at_bridge::event_bus::EventBus;
 use at_bridge::protocol::{BridgeMessage, EventPayload, KpiPayload, StatusPayload};
 use chrono::Utc;
-use uuid::Uuid;
 use std::sync::{Arc, Barrier};
 use std::thread;
+use uuid::Uuid;
 
 // ---------------------------------------------------------------------------
 // Event Publishing
@@ -106,9 +106,9 @@ fn test_multiple_subscribers_all_receive() {
     }));
 
     for (i, rx) in receivers.iter().enumerate() {
-        let msg = rx.try_recv().unwrap_or_else(|_| {
-            panic!("subscriber {} should have received the message", i)
-        });
+        let msg = rx
+            .try_recv()
+            .unwrap_or_else(|_| panic!("subscriber {} should have received the message", i));
         match &*msg {
             BridgeMessage::Event(ep) => {
                 assert_eq!(ep.bead_id, Some(bead_id));

@@ -1,7 +1,7 @@
-use ratatui::Frame;
 use ratatui::layout::{Constraint, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::widgets::{Block, Borders, Cell, Row, Table};
+use ratatui::Frame;
 
 use crate::app::App;
 
@@ -59,11 +59,7 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect) {
 
     let table = Table::new(rows, widths)
         .header(header)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(" Sessions "),
-        );
+        .block(Block::default().borders(Borders::ALL).title(" Sessions "));
 
     frame.render_widget(table, area);
 }

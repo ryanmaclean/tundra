@@ -30,26 +30,14 @@ impl PrAutomation {
     ///
     /// The task must have a `git_branch` set, which is used as the head branch.
     /// The `base` parameter specifies the target branch (e.g. `"main"`).
-    pub async fn create_pr_for_task(
-        &self,
-        task: &Task,
-        base: &str,
-    ) -> Result<GitHubPullRequest> {
-        let head = task
-            .git_branch
-            .as_deref()
-            .unwrap_or("main");
+    pub async fn create_pr_for_task(&self, task: &Task, base: &str) -> Result<GitHubPullRequest> {
+        let head = task.git_branch.as_deref().unwrap_or("main");
 
         let body = self.generate_pr_body(task);
 
-        let pr = pull_requests::create_pull_request(
-            &self.client,
-            &task.title,
-            Some(&body),
-            head,
-            base,
-        )
-        .await?;
+        let pr =
+            pull_requests::create_pull_request(&self.client, &task.title, Some(&body), head, base)
+                .await?;
 
         Ok(pr)
     }
@@ -103,7 +91,9 @@ impl PrAutomation {
             for entry in log_slice {
                 body.push_str(&format!(
                     "- `[{:?}]` {}: {}\n",
-                    entry.phase, entry.log_type_label(), entry.message
+                    entry.phase,
+                    entry.log_type_label(),
+                    entry.message
                 ));
             }
         }
@@ -168,7 +158,7 @@ impl TaskLogEntryExt for at_core::types::TaskLogEntry {
 mod tests {
     use super::*;
     use at_core::types::{
-        SubtaskStatus, Subtask, Task, TaskCategory, TaskComplexity, TaskLogType, TaskPhase,
+        Subtask, SubtaskStatus, Task, TaskCategory, TaskComplexity, TaskLogType, TaskPhase,
         TaskPriority,
     };
     use uuid::Uuid;

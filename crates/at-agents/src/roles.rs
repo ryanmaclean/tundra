@@ -1,7 +1,7 @@
 use at_core::types::{AgentRole, Bead};
-use uuid::Uuid;
-use std::collections::BinaryHeap;
 use std::cmp::Ordering;
+use std::collections::BinaryHeap;
+use uuid::Uuid;
 
 use crate::lifecycle::{AgentLifecycle, Result};
 
@@ -263,7 +263,10 @@ impl RoleConfig for DeaconAgent {
     fn post_execute(&self, output: &str) -> Option<String> {
         let issue_count = output.matches("[WARNING]").count() + output.matches("[ERROR]").count();
         if issue_count > 0 {
-            Some(format!("Review complete: found {} issues requiring attention.", issue_count))
+            Some(format!(
+                "Review complete: found {} issues requiring attention.",
+                issue_count
+            ))
         } else {
             Some("Review complete: no issues found. Approved.".to_string())
         }
@@ -332,9 +335,7 @@ pub struct WitnessAgent {
 
 impl WitnessAgent {
     pub fn new() -> Self {
-        Self {
-            events_observed: 0,
-        }
+        Self { events_observed: 0 }
     }
 
     pub fn events_observed(&self) -> u64 {
@@ -448,9 +449,7 @@ pub struct RefineryAgent {
 
 impl RefineryAgent {
     pub fn new() -> Self {
-        Self {
-            runs_completed: 0,
-        }
+        Self { runs_completed: 0 }
     }
 
     pub fn runs_completed(&self) -> u64 {
@@ -686,9 +685,7 @@ pub struct CrewAgent {
 
 impl CrewAgent {
     pub fn new() -> Self {
-        Self {
-            beads_executed: 0,
-        }
+        Self { beads_executed: 0 }
     }
 
     pub fn beads_executed(&self) -> u64 {
@@ -733,7 +730,9 @@ impl RoleConfig for CrewAgent {
 
     fn post_execute(&self, output: &str) -> Option<String> {
         if output.contains("error[E") || output.contains("FAILED") {
-            Some("Implementation has compilation errors or test failures. Needs fixing.".to_string())
+            Some(
+                "Implementation has compilation errors or test failures. Needs fixing.".to_string(),
+            )
         } else {
             Some("Implementation complete. Ready for review.".to_string())
         }

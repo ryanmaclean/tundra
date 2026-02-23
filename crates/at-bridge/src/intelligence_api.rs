@@ -14,13 +14,13 @@ use serde::Deserialize;
 use std::sync::Arc;
 use uuid::Uuid;
 
+use at_core::context_engine::ProjectContextLoader;
 use at_intelligence::{
     ideation::IdeaCategory,
     insights::ChatRole,
     memory::{MemoryCategory, MemoryEntry},
     roadmap::{FeatureStatus, RoadmapFeature},
 };
-use at_core::context_engine::ProjectContextLoader;
 
 use crate::http_api::ApiState;
 
@@ -259,10 +259,7 @@ async fn convert_idea(
 ) -> impl IntoResponse {
     let engine = state.ideation_engine.read().await;
     match engine.convert_to_task(&id) {
-        Some(bead) => (
-            axum::http::StatusCode::OK,
-            Json(serde_json::json!(bead)),
-        ),
+        Some(bead) => (axum::http::StatusCode::OK, Json(serde_json::json!(bead))),
         None => (
             axum::http::StatusCode::NOT_FOUND,
             Json(serde_json::json!({"error": "idea not found"})),
@@ -317,10 +314,7 @@ async fn add_feature(
     let feature = RoadmapFeature::new(&req.title, &req.description, req.priority);
     let feature_json = serde_json::json!(feature);
     match engine.add_feature(&id, feature) {
-        Ok(()) => (
-            axum::http::StatusCode::CREATED,
-            Json(feature_json),
-        ),
+        Ok(()) => (axum::http::StatusCode::CREATED, Json(feature_json)),
         Err(e) => (
             axum::http::StatusCode::NOT_FOUND,
             Json(serde_json::json!({"error": e.to_string()})),
@@ -344,23 +338,21 @@ async fn add_feature_to_latest(
             r.id
         }
     };
-    let priority = req.priority.parse::<u8>().unwrap_or_else(|_| {
-        match req.priority.to_lowercase().as_str() {
-            "critical" | "highest" => 1,
-            "high" => 2,
-            "medium" | "normal" => 3,
-            "low" => 4,
-            "lowest" => 5,
-            _ => 3,
-        }
-    });
+    let priority =
+        req.priority
+            .parse::<u8>()
+            .unwrap_or_else(|_| match req.priority.to_lowercase().as_str() {
+                "critical" | "highest" => 1,
+                "high" => 2,
+                "medium" | "normal" => 3,
+                "low" => 4,
+                "lowest" => 5,
+                _ => 3,
+            });
     let feature = RoadmapFeature::new(&req.title, &req.description, priority);
     let feature_json = serde_json::json!(feature);
     match engine.add_feature(&roadmap_id, feature) {
-        Ok(()) => (
-            axum::http::StatusCode::CREATED,
-            Json(feature_json),
-        ),
+        Ok(()) => (axum::http::StatusCode::CREATED, Json(feature_json)),
         Err(e) => (
             axum::http::StatusCode::NOT_FOUND,
             Json(serde_json::json!({"error": e.to_string()})),
@@ -490,11 +482,13 @@ async fn get_changelog(
             .iter()
             .filter(|t| t.phase == at_core::types::TaskPhase::Complete)
             .collect();
-        
+
         if completed_tasks.is_empty() {
             return (
                 axum::http::StatusCode::OK,
-                Json(serde_json::json!({"markdown": "# Changelog\n\nNo completed tasks found.\n", "entries": []})),
+                Json(
+                    serde_json::json!({"markdown": "# Changelog\n\nNo completed tasks found.\n", "entries": []}),
+                ),
             );
         }
 
@@ -515,11 +509,16 @@ async fn get_changelog(
             };
             commits.push_str(&format!("{}: {}\n", category, task.title));
         }
-        let version = format!("{}.{}.{}", chrono::Utc::now().year(), chrono::Utc::now().month(), chrono::Utc::now().day());
+        let version = format!(
+            "{}.{}.{}",
+            chrono::Utc::now().year(),
+            chrono::Utc::now().month(),
+            chrono::Utc::now().day()
+        );
         let entry = engine.generate_from_commits(&commits, &version);
         let markdown = engine.generate_markdown();
         drop(engine);
-        
+
         (
             axum::http::StatusCode::OK,
             Json(serde_json::json!({
@@ -531,10 +530,7 @@ async fn get_changelog(
         // Default: list existing entries
         let engine = state.changelog_engine.read().await;
         let entries = engine.list_entries().to_vec();
-        (
-            axum::http::StatusCode::OK,
-            Json(serde_json::json!(entries)),
-        )
+        (axum::http::StatusCode::OK, Json(serde_json::json!(entries)))
     }
 }
 
@@ -562,15 +558,14 @@ fn default_budget() -> usize {
 }
 
 /// D3: GET /api/context?path=&budget= — expose ProjectContextLoader for UI to show project index.
-async fn get_context(
-    Query(query): Query<ContextQuery>,
-) -> impl IntoResponse {
-    let project_root = query.path
+async fn get_context(Query(query): Query<ContextQuery>) -> impl IntoResponse {
+    let project_root = query
+        .path
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| ".".into()));
-    
+
     let loader = ProjectContextLoader::new(project_root);
-    
+
     // Load project context files
     let mut context_summary = serde_json::json!({
         "claude_md": loader.load_claude_md(),
@@ -580,15 +575,17 @@ async fn get_context(
         "skill_definitions_count": loader.load_skill_definitions().len(),
         "budget": query.budget,
     });
-    
+
     // If budget allows, include more details
     if query.budget > 2000 {
         let agents = loader.load_agent_definitions();
         let skills = loader.load_skill_definitions();
-        context_summary["agent_definitions"] = serde_json::json!(agents.iter().map(|a| &a.name).collect::<Vec<_>>());
-        context_summary["skill_definitions"] = serde_json::json!(skills.iter().map(|s| &s.name).collect::<Vec<_>>());
+        context_summary["agent_definitions"] =
+            serde_json::json!(agents.iter().map(|a| &a.name).collect::<Vec<_>>());
+        context_summary["skill_definitions"] =
+            serde_json::json!(skills.iter().map(|s| &s.name).collect::<Vec<_>>());
     }
-    
+
     Json(context_summary)
 }
 
@@ -599,10 +596,7 @@ async fn get_context(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use at_intelligence::{
-        changelog::ChangelogEngine,
-        roadmap::RoadmapEngine,
-    };
+    use at_intelligence::{changelog::ChangelogEngine, roadmap::RoadmapEngine};
 
     #[test]
     fn test_roadmap_generate_from_codebase() {

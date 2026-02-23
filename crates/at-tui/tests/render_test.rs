@@ -6,25 +6,25 @@
 //! representation with the correct data.
 
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
-use ratatui::{Terminal, backend::TestBackend, buffer::Buffer, layout::Rect};
+use ratatui::{backend::TestBackend, buffer::Buffer, layout::Rect, Terminal};
 
 // Include binary-crate modules via path for testing.
 #[path = "../src/api_client.rs"]
 mod api_client;
-#[path = "../src/effects.rs"]
-mod effects;
-#[path = "../src/command.rs"]
-mod command;
 #[path = "../src/app.rs"]
 mod app;
-#[path = "../src/tabs/mod.rs"]
-mod tabs;
-#[path = "../src/widgets/mod.rs"]
-mod widgets;
+#[path = "../src/command.rs"]
+mod command;
+#[path = "../src/effects.rs"]
+mod effects;
 #[path = "../src/event.rs"]
 mod event;
+#[path = "../src/tabs/mod.rs"]
+mod tabs;
 #[path = "../src/ui.rs"]
 mod ui;
+#[path = "../src/widgets/mod.rs"]
+mod widgets;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -53,9 +53,7 @@ fn demo_app() -> app::App {
 fn render_to_string(app: &mut app::App) -> String {
     let backend = TestBackend::new(WIDTH, HEIGHT);
     let mut terminal = Terminal::new(backend).unwrap();
-    terminal
-        .draw(|frame| ui::render(frame, app))
-        .unwrap();
+    terminal.draw(|frame| ui::render(frame, app)).unwrap();
     let buf = terminal.backend().buffer().clone();
     buffer_to_string(&buf)
 }
@@ -86,16 +84,36 @@ fn switch_to_tab(app: &mut app::App, tab: usize) {
     // Key '1' → tab 0, '2' → tab 1, ... '9' → tab 8, '0' → tab 9
     // So to go to tab N, press char (N+1) for 0..=8, '0' for tab 9.
     match tab {
-        0 => { app.on_key(key(KeyCode::Char('1'))); }
-        1 => { app.on_key(key(KeyCode::Char('2'))); }
-        2 => { app.on_key(key(KeyCode::Char('3'))); }
-        3 => { app.on_key(key(KeyCode::Char('4'))); }
-        4 => { app.on_key(key(KeyCode::Char('5'))); }
-        5 => { app.on_key(key(KeyCode::Char('6'))); }
-        6 => { app.on_key(key(KeyCode::Char('7'))); }
-        7 => { app.on_key(key(KeyCode::Char('8'))); }
-        8 => { app.on_key(key(KeyCode::Char('9'))); }
-        9 => { app.on_key(key(KeyCode::Char('0'))); }
+        0 => {
+            app.on_key(key(KeyCode::Char('1')));
+        }
+        1 => {
+            app.on_key(key(KeyCode::Char('2')));
+        }
+        2 => {
+            app.on_key(key(KeyCode::Char('3')));
+        }
+        3 => {
+            app.on_key(key(KeyCode::Char('4')));
+        }
+        4 => {
+            app.on_key(key(KeyCode::Char('5')));
+        }
+        5 => {
+            app.on_key(key(KeyCode::Char('6')));
+        }
+        6 => {
+            app.on_key(key(KeyCode::Char('7')));
+        }
+        7 => {
+            app.on_key(key(KeyCode::Char('8')));
+        }
+        8 => {
+            app.on_key(key(KeyCode::Char('9')));
+        }
+        9 => {
+            app.on_key(key(KeyCode::Char('0')));
+        }
         10 => app.on_key(key(KeyCode::Char('I'))),
         11 => app.on_key(key(KeyCode::Char('W'))),
         12 => app.on_key(key(KeyCode::Char('G'))),
@@ -176,13 +194,16 @@ fn render_agents_table_header() {
 #[test]
 fn render_agents_shows_all_agents() {
     let output = render_tab(1);
-    assert_contains_all(&output, &[
-        "mayor-alpha",
-        "deacon-bravo",
-        "crew-charlie",
-        "crew-delta",
-        "witness-echo",
-    ]);
+    assert_contains_all(
+        &output,
+        &[
+            "mayor-alpha",
+            "deacon-bravo",
+            "crew-charlie",
+            "crew-delta",
+            "witness-echo",
+        ],
+    );
 }
 
 #[test]
@@ -194,7 +215,10 @@ fn render_agents_shows_roles() {
 #[test]
 fn render_agents_shows_models() {
     let output = render_tab(1);
-    assert_contains_all(&output, &["claude-opus-4", "claude-sonnet-4", "o3", "gemini-2.5-pro"]);
+    assert_contains_all(
+        &output,
+        &["claude-opus-4", "claude-sonnet-4", "o3", "gemini-2.5-pro"],
+    );
 }
 
 #[test]
@@ -264,21 +288,25 @@ fn render_beads_kanban_column_selection() {
 #[test]
 fn render_sessions_table_header() {
     let output = render_tab(3);
-    assert_contains_all(&output, &["ID", "Agent", "CLI", "Status", "Duration", "CPU"]);
+    assert_contains_all(
+        &output,
+        &["ID", "Agent", "CLI", "Status", "Duration", "CPU"],
+    );
 }
 
 #[test]
 fn render_sessions_shows_all_sessions() {
     let output = render_tab(3);
-    assert_contains_all(&output, &[
-        "sess-01", "sess-02", "sess-03", "sess-04",
-    ]);
+    assert_contains_all(&output, &["sess-01", "sess-02", "sess-03", "sess-04"]);
 }
 
 #[test]
 fn render_sessions_shows_agents() {
     let output = render_tab(3);
-    assert_contains_all(&output, &["mayor-alpha", "deacon-bravo", "crew-charlie", "crew-delta"]);
+    assert_contains_all(
+        &output,
+        &["mayor-alpha", "deacon-bravo", "crew-charlie", "crew-delta"],
+    );
 }
 
 #[test]
@@ -336,7 +364,10 @@ fn render_convoys_empty_state() {
 #[test]
 fn render_costs_table_header() {
     let output = render_tab(5);
-    assert_contains_all(&output, &["Provider", "Model", "Input Tokens", "Output Tokens", "Cost"]);
+    assert_contains_all(
+        &output,
+        &["Provider", "Model", "Input Tokens", "Output Tokens", "Cost"],
+    );
 }
 
 #[test]
@@ -348,7 +379,10 @@ fn render_costs_shows_providers() {
 #[test]
 fn render_costs_shows_models() {
     let output = render_tab(5);
-    assert_contains_all(&output, &["claude-opus-4", "claude-sonnet-4", "o3", "gemini-2.5-pro"]);
+    assert_contains_all(
+        &output,
+        &["claude-opus-4", "claude-sonnet-4", "o3", "gemini-2.5-pro"],
+    );
 }
 
 #[test]
@@ -378,7 +412,10 @@ fn render_analytics_shows_activity_summary() {
 #[test]
 fn render_analytics_shows_time_ranges() {
     let output = render_tab(6);
-    assert_contains_all(&output, &["00:00", "04:00", "08:00", "12:00", "16:00", "20:00"]);
+    assert_contains_all(
+        &output,
+        &["00:00", "04:00", "08:00", "12:00", "16:00", "20:00"],
+    );
 }
 
 #[test]
@@ -462,12 +499,15 @@ fn render_mcp_tab_badge() {
 #[test]
 fn render_roadmap_shows_items() {
     let output = render_tab(9);
-    assert_contains_all(&output, &[
-        "Multi-provider support",
-        "WebSocket streaming",
-        "Plugin system",
-        "Team collaboration",
-    ]);
+    assert_contains_all(
+        &output,
+        &[
+            "Multi-provider support",
+            "WebSocket streaming",
+            "Plugin system",
+            "Team collaboration",
+        ],
+    );
 }
 
 #[test]
@@ -499,11 +539,14 @@ fn render_roadmap_tab_badge() {
 #[test]
 fn render_ideation_shows_idea_list() {
     let output = render_tab(10);
-    assert_contains_all(&output, &[
-        "Auto-retry failed beads",
-        "Cost alert thresholds",
-        "Git worktree auto-cleanup",
-    ]);
+    assert_contains_all(
+        &output,
+        &[
+            "Auto-retry failed beads",
+            "Cost alert thresholds",
+            "Git worktree auto-cleanup",
+        ],
+    );
 }
 
 #[test]
@@ -544,11 +587,10 @@ fn render_ideation_navigation_updates_detail() {
 #[test]
 fn render_worktrees_shows_all_entries() {
     let output = render_tab(11);
-    assert_contains_all(&output, &[
-        "feat/auth-module",
-        "fix/ci-pipeline",
-        "docs/api",
-    ]);
+    assert_contains_all(
+        &output,
+        &["feat/auth-module", "fix/ci-pipeline", "docs/api"],
+    );
 }
 
 #[test]
@@ -586,14 +628,17 @@ fn render_worktrees_tab_badge() {
 #[test]
 fn render_github_issues_shows_list() {
     let output = render_tab(12);
-    assert_contains_all(&output, &[
-        "#42",
-        "WebSocket support",
-        "#41",
-        "config parsing",
-        "#40",
-        "dependencies",
-    ]);
+    assert_contains_all(
+        &output,
+        &[
+            "#42",
+            "WebSocket support",
+            "#41",
+            "config parsing",
+            "#40",
+            "dependencies",
+        ],
+    );
 }
 
 #[test]
@@ -638,12 +683,10 @@ fn render_github_issues_tab_badge() {
 #[test]
 fn render_github_prs_shows_list() {
     let output = render_tab(13);
-    assert_contains_all(&output, &[
-        "#15",
-        "agent orchestration",
-        "#14",
-        "convoy status",
-    ]);
+    assert_contains_all(
+        &output,
+        &["#15", "agent orchestration", "#14", "convoy status"],
+    );
 }
 
 #[test]
@@ -688,11 +731,14 @@ fn render_github_prs_tab_badge() {
 #[test]
 fn render_stacks_shows_tree_structure() {
     let output = render_tab(14);
-    assert_contains_all(&output, &[
-        "Build agent executor",
-        "MCP tool integration",
-        "Review agent executor",
-    ]);
+    assert_contains_all(
+        &output,
+        &[
+            "Build agent executor",
+            "MCP tool integration",
+            "Review agent executor",
+        ],
+    );
 }
 
 #[test]
@@ -882,17 +928,20 @@ fn render_status_bar_live_indicator() {
 #[test]
 fn render_tab_bar_shows_all_17_tabs() {
     let output = render_tab(0);
-    assert_contains_all(&output, &[
-        "Dashboard",
-        "Agents",
-        "Beads",
-        "Sessions",
-        "Convoys",
-        "Costs",
-        "Analytics",
-        "Config",
-        "MCP",
-    ]);
+    assert_contains_all(
+        &output,
+        &[
+            "Dashboard",
+            "Agents",
+            "Beads",
+            "Sessions",
+            "Convoys",
+            "Costs",
+            "Analytics",
+            "Config",
+            "MCP",
+        ],
+    );
 }
 
 #[test]
@@ -914,18 +963,21 @@ fn render_help_modal_overlay() {
     app.on_key(key(KeyCode::Char('?')));
     let output = render_to_string(&mut app);
     assert_contains(&output, "Keybindings");
-    assert_contains_all(&output, &[
-        "Jump to tab",
-        "Next",
-        "previous tab",
-        "Move down",
-        "Move up",
-        "Kanban column",
-        "Refresh",
-        "Toggle this help",
-        "Close help",
-        "Quit",
-    ]);
+    assert_contains_all(
+        &output,
+        &[
+            "Jump to tab",
+            "Next",
+            "previous tab",
+            "Move down",
+            "Move up",
+            "Kanban column",
+            "Refresh",
+            "Toggle this help",
+            "Close help",
+            "Quit",
+        ],
+    );
 }
 
 // ===========================================================================
@@ -1107,11 +1159,7 @@ fn render_memory_empty_state() {
 fn render_all_tabs_no_panic() {
     for tab in 0..=16 {
         let output = render_tab(tab);
-        assert!(
-            !output.is_empty(),
-            "Tab {} rendered empty output",
-            tab
-        );
+        assert!(!output.is_empty(), "Tab {} rendered empty output", tab);
     }
 }
 
@@ -1123,9 +1171,7 @@ fn render_all_tabs_at_minimum_size() {
     let mut terminal = Terminal::new(backend).unwrap();
     for tab in 0..=16 {
         switch_to_tab(&mut app, tab);
-        terminal
-            .draw(|frame| ui::render(frame, &mut app))
-            .unwrap();
+        terminal.draw(|frame| ui::render(frame, &mut app)).unwrap();
     }
 }
 
@@ -1137,9 +1183,7 @@ fn render_all_tabs_at_wide_size() {
     let mut terminal = Terminal::new(backend).unwrap();
     for tab in 0..=16 {
         switch_to_tab(&mut app, tab);
-        terminal
-            .draw(|frame| ui::render(frame, &mut app))
-            .unwrap();
+        terminal.draw(|frame| ui::render(frame, &mut app)).unwrap();
     }
 }
 
@@ -1167,7 +1211,7 @@ fn render_selection_clamped_to_list_bounds() {
         app.on_key(key(KeyCode::Char('j')));
     }
     assert_eq!(app.selected_index, 4); // clamped to len-1
-    // Renders without panic
+                                       // Renders without panic
     let _ = render_to_string(&mut app);
 }
 

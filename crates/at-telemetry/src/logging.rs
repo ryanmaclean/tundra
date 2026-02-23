@@ -1,4 +1,4 @@
-use tracing_subscriber::{EnvFilter, fmt};
+use tracing_subscriber::{fmt, EnvFilter};
 
 /// Initialize logging with human-readable output format.
 ///
@@ -7,8 +7,8 @@ use tracing_subscriber::{EnvFilter, fmt};
 ///
 /// Safe to call multiple times (e.g. in tests) -- subsequent calls are no-ops.
 pub fn init_logging(service_name: &str, default_level: &str) {
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new(default_level));
+    let filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_level));
 
     fmt()
         .with_env_filter(filter)
@@ -20,7 +20,10 @@ pub fn init_logging(service_name: &str, default_level: &str) {
         .try_init()
         .ok();
 
-    tracing::info!(service = service_name, "logging initialised (human-readable)");
+    tracing::info!(
+        service = service_name,
+        "logging initialised (human-readable)"
+    );
 }
 
 /// Initialize logging with JSON output format (suitable for Vector / Loki / ELK).
@@ -30,8 +33,8 @@ pub fn init_logging(service_name: &str, default_level: &str) {
 ///
 /// Safe to call multiple times -- subsequent calls are no-ops.
 pub fn init_logging_json(service_name: &str, default_level: &str) {
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new(default_level));
+    let filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_level));
 
     fmt()
         .json()

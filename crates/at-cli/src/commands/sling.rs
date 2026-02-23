@@ -27,9 +27,7 @@ pub async fn run(api_url: &str, title: &str, lane: &str) -> anyhow::Result<()> {
         println!("  lane:  {lane}");
         println!("  status: slung");
     } else {
-        let err_msg = body["error"]
-            .as_str()
-            .unwrap_or("unknown error");
+        let err_msg = body["error"].as_str().unwrap_or("unknown error");
         anyhow::bail!("Failed to create bead: {err_msg} (HTTP {status})");
     }
 

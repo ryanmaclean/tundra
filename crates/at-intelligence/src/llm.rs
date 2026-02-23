@@ -192,10 +192,7 @@ impl AnthropicProvider {
     }
 
     /// Build the JSON request body for the Anthropic Messages API.
-    pub fn build_request_body(
-        messages: &[LlmMessage],
-        config: &LlmConfig,
-    ) -> serde_json::Value {
+    pub fn build_request_body(messages: &[LlmMessage], config: &LlmConfig) -> serde_json::Value {
         // Anthropic API: system prompt goes in the top-level `system` field,
         // not as a message. Filter system messages out of the messages array.
         let mut system_text: Option<String> = config.system_prompt.clone();
@@ -359,10 +356,7 @@ impl OpenAiProvider {
     }
 
     /// Build the JSON request body for the OpenAI Chat Completions API.
-    pub fn build_request_body(
-        messages: &[LlmMessage],
-        config: &LlmConfig,
-    ) -> serde_json::Value {
+    pub fn build_request_body(messages: &[LlmMessage], config: &LlmConfig) -> serde_json::Value {
         // OpenAI format: system messages go inline in the messages array.
         let mut api_messages: Vec<serde_json::Value> = Vec::new();
 
@@ -470,7 +464,10 @@ impl LlmProvider for OpenAiProvider {
             model: api_resp.model,
             input_tokens: api_resp.usage.prompt_tokens,
             output_tokens: api_resp.usage.completion_tokens,
-            finish_reason: choice.finish_reason.clone().unwrap_or_else(|| "unknown".into()),
+            finish_reason: choice
+                .finish_reason
+                .clone()
+                .unwrap_or_else(|| "unknown".into()),
         })
     }
 
@@ -881,9 +878,7 @@ mod tests {
         let provider = MockProvider::new().with_error(LlmError::Timeout);
         let config = default_config();
 
-        let result = provider
-            .complete(&[LlmMessage::user("Hi")], &config)
-            .await;
+        let result = provider.complete(&[LlmMessage::user("Hi")], &config).await;
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), LlmError::Timeout));
     }
@@ -911,9 +906,7 @@ mod tests {
         let provider = MockProvider::new();
         let config = default_config();
 
-        let result = provider
-            .stream(&[LlmMessage::user("Hi")], &config)
-            .await;
+        let result = provider.stream(&[LlmMessage::user("Hi")], &config).await;
         assert!(result.is_err());
         match result {
             Err(LlmError::Unsupported(_)) => {} // expected
@@ -1310,9 +1303,7 @@ mod tests {
     async fn local_provider_stream_returns_unsupported() {
         let provider = LocalProvider::new("http://localhost:9999", None);
         let config = default_config();
-        let result = provider
-            .stream(&[LlmMessage::user("Hi")], &config)
-            .await;
+        let result = provider.stream(&[LlmMessage::user("Hi")], &config).await;
         assert!(result.is_err());
         match result {
             Err(LlmError::Unsupported(msg)) => {
@@ -1327,9 +1318,7 @@ mod tests {
         // Connect to a port where nothing is listening.
         let provider = LocalProvider::new("http://127.0.0.1:19999", None);
         let config = default_config();
-        let result = provider
-            .complete(&[LlmMessage::user("Hi")], &config)
-            .await;
+        let result = provider.complete(&[LlmMessage::user("Hi")], &config).await;
         assert!(result.is_err());
         match result {
             Err(LlmError::HttpError(msg)) => {
@@ -1343,9 +1332,7 @@ mod tests {
     #[test]
     fn local_provider_as_trait_object_compiles() {
         // Verify LocalProvider is object-safe for dyn LlmProvider.
-        let _: Box<dyn LlmProvider> = Box::new(
-            LocalProvider::new("http://localhost:8000", None),
-        );
+        let _: Box<dyn LlmProvider> = Box::new(LocalProvider::new("http://localhost:8000", None));
     }
 
     #[test]

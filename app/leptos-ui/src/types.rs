@@ -109,6 +109,10 @@ pub struct BeadResponse {
     pub agent_names: Vec<String>,
     pub timestamp: String,
     pub action: Option<String>,
+    /// Lightweight subtask status list for rendering progress dots.
+    /// Each entry is one of: "pending", "in_progress", "complete", "failed".
+    #[serde(default)]
+    pub subtask_statuses: Vec<String>,
 }
 
 // ── KPI ──
@@ -324,6 +328,7 @@ pub fn demo_beads() -> Vec<BeadResponse> {
             agent_names: vec![],
             timestamp: "3d ago".into(),
             action: Some("start".into()),
+            subtask_statuses: vec![],
         },
         BeadResponse {
             id: "bead-022".into(),
@@ -337,6 +342,7 @@ pub fn demo_beads() -> Vec<BeadResponse> {
             agent_names: vec![],
             timestamp: "4d ago".into(),
             action: Some("start".into()),
+            subtask_statuses: vec![],
         },
         BeadResponse {
             id: "bead-023".into(),
@@ -350,6 +356,7 @@ pub fn demo_beads() -> Vec<BeadResponse> {
             agent_names: vec![],
             timestamp: "5d ago".into(),
             action: Some("start".into()),
+            subtask_statuses: vec![],
         },
         // Queue column (2 beads)
         BeadResponse {
@@ -364,6 +371,7 @@ pub fn demo_beads() -> Vec<BeadResponse> {
             agent_names: vec![],
             timestamp: "1d ago".into(),
             action: Some("start".into()),
+            subtask_statuses: vec![],
         },
         BeadResponse {
             id: "bead-025".into(),
@@ -377,6 +385,7 @@ pub fn demo_beads() -> Vec<BeadResponse> {
             agent_names: vec![],
             timestamp: "2d ago".into(),
             action: Some("start".into()),
+            subtask_statuses: vec![],
         },
         // Planning column (5 beads)
         BeadResponse {
@@ -391,6 +400,7 @@ pub fn demo_beads() -> Vec<BeadResponse> {
             agent_names: vec![],
             timestamp: "1h ago".into(),
             action: Some("start".into()),
+            subtask_statuses: vec![],
         },
         BeadResponse {
             id: "bead-002".into(),
@@ -404,6 +414,7 @@ pub fn demo_beads() -> Vec<BeadResponse> {
             agent_names: vec![],
             timestamp: "3h ago".into(),
             action: Some("start".into()),
+            subtask_statuses: vec![],
         },
         BeadResponse {
             id: "bead-003".into(),
@@ -417,6 +428,7 @@ pub fn demo_beads() -> Vec<BeadResponse> {
             agent_names: vec![],
             timestamp: "5h ago".into(),
             action: Some("start".into()),
+            subtask_statuses: vec![],
         },
         BeadResponse {
             id: "bead-004".into(),
@@ -430,6 +442,7 @@ pub fn demo_beads() -> Vec<BeadResponse> {
             agent_names: vec![],
             timestamp: "6h ago".into(),
             action: Some("start".into()),
+            subtask_statuses: vec![],
         },
         BeadResponse {
             id: "bead-005".into(),
@@ -443,6 +456,7 @@ pub fn demo_beads() -> Vec<BeadResponse> {
             agent_names: vec![],
             timestamp: "8h ago".into(),
             action: Some("start".into()),
+            subtask_statuses: vec![],
         },
         // In Progress column (4 beads)
         BeadResponse {
@@ -457,6 +471,7 @@ pub fn demo_beads() -> Vec<BeadResponse> {
             agent_names: vec!["Coder-A".into()],
             timestamp: "5m ago".into(),
             action: None,
+            subtask_statuses: vec![],
         },
         BeadResponse {
             id: "bead-007".into(),
@@ -470,6 +485,7 @@ pub fn demo_beads() -> Vec<BeadResponse> {
             agent_names: vec!["Coder-B".into()],
             timestamp: "12m ago".into(),
             action: None,
+            subtask_statuses: vec![],
         },
         BeadResponse {
             id: "bead-008".into(),
@@ -483,6 +499,7 @@ pub fn demo_beads() -> Vec<BeadResponse> {
             agent_names: vec!["Coder-A".into(), "Architect".into()],
             timestamp: "25m ago".into(),
             action: Some("recover".into()),
+            subtask_statuses: vec![],
         },
         BeadResponse {
             id: "bead-009".into(),
@@ -496,6 +513,7 @@ pub fn demo_beads() -> Vec<BeadResponse> {
             agent_names: vec!["Architect".into()],
             timestamp: "30m ago".into(),
             action: None,
+            subtask_statuses: vec![],
         },
         // AI Review column (3 beads)
         BeadResponse {
@@ -510,6 +528,7 @@ pub fn demo_beads() -> Vec<BeadResponse> {
             agent_names: vec!["Reviewer".into()],
             timestamp: "2m ago".into(),
             action: None,
+            subtask_statuses: vec![],
         },
         BeadResponse {
             id: "bead-011".into(),
@@ -523,6 +542,7 @@ pub fn demo_beads() -> Vec<BeadResponse> {
             agent_names: vec!["Reviewer".into()],
             timestamp: "18m ago".into(),
             action: None,
+            subtask_statuses: vec![],
         },
         BeadResponse {
             id: "bead-012".into(),
@@ -536,6 +556,7 @@ pub fn demo_beads() -> Vec<BeadResponse> {
             agent_names: vec!["Tester".into()],
             timestamp: "45m ago".into(),
             action: Some("recover".into()),
+            subtask_statuses: vec![],
         },
         // Human Review column (3 beads)
         BeadResponse {
@@ -550,6 +571,7 @@ pub fn demo_beads() -> Vec<BeadResponse> {
             agent_names: vec!["Architect".into()],
             timestamp: "1h ago".into(),
             action: None,
+            subtask_statuses: vec![],
         },
         BeadResponse {
             id: "bead-014".into(),
@@ -563,6 +585,7 @@ pub fn demo_beads() -> Vec<BeadResponse> {
             agent_names: vec![],
             timestamp: "2h ago".into(),
             action: None,
+            subtask_statuses: vec![],
         },
         BeadResponse {
             id: "bead-015".into(),
@@ -576,6 +599,7 @@ pub fn demo_beads() -> Vec<BeadResponse> {
             agent_names: vec![],
             timestamp: "3h ago".into(),
             action: None,
+            subtask_statuses: vec![],
         },
         // Done column (5 beads)
         BeadResponse {
@@ -590,6 +614,7 @@ pub fn demo_beads() -> Vec<BeadResponse> {
             agent_names: vec!["Architect".into()],
             timestamp: "2d ago".into(),
             action: None,
+            subtask_statuses: vec![],
         },
         BeadResponse {
             id: "bead-017".into(),
@@ -603,6 +628,7 @@ pub fn demo_beads() -> Vec<BeadResponse> {
             agent_names: vec!["Coder-A".into()],
             timestamp: "1d ago".into(),
             action: None,
+            subtask_statuses: vec![],
         },
         BeadResponse {
             id: "bead-018".into(),
@@ -616,6 +642,7 @@ pub fn demo_beads() -> Vec<BeadResponse> {
             agent_names: vec!["Coder-B".into()],
             timestamp: "1d ago".into(),
             action: None,
+            subtask_statuses: vec![],
         },
         BeadResponse {
             id: "bead-019".into(),
@@ -629,6 +656,7 @@ pub fn demo_beads() -> Vec<BeadResponse> {
             agent_names: vec!["Coder-A".into()],
             timestamp: "12h ago".into(),
             action: None,
+            subtask_statuses: vec![],
         },
         BeadResponse {
             id: "bead-020".into(),
@@ -642,6 +670,7 @@ pub fn demo_beads() -> Vec<BeadResponse> {
             agent_names: vec!["Coder-B".into()],
             timestamp: "6h ago".into(),
             action: Some("resume".into()),
+            subtask_statuses: vec![],
         },
         // PR Created column (2 beads)
         BeadResponse {
@@ -656,6 +685,7 @@ pub fn demo_beads() -> Vec<BeadResponse> {
             agent_names: vec!["Coder-A".into()],
             timestamp: "4h ago".into(),
             action: None,
+            subtask_statuses: vec![],
         },
         BeadResponse {
             id: "bead-027".into(),
@@ -669,6 +699,7 @@ pub fn demo_beads() -> Vec<BeadResponse> {
             agent_names: vec!["Coder-B".into()],
             timestamp: "8h ago".into(),
             action: None,
+            subtask_statuses: vec![],
         },
     ]
 }

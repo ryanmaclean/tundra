@@ -90,7 +90,11 @@ impl NotificationStore {
 
     /// Return all unread notifications (newest first).
     pub fn list_unread(&self) -> Vec<&Notification> {
-        self.notifications.iter().rev().filter(|n| !n.read).collect()
+        self.notifications
+            .iter()
+            .rev()
+            .filter(|n| !n.read)
+            .collect()
     }
 
     /// Paginated listing of all notifications (newest first).
@@ -155,7 +159,9 @@ impl Default for NotificationStore {
 
 /// Convert a `BridgeMessage` event into a notification, if relevant.
 /// Returns `None` for events that don't warrant a notification.
-pub fn notification_from_event(msg: &BridgeMessage) -> Option<(String, String, NotificationLevel, String, Option<String>)> {
+pub fn notification_from_event(
+    msg: &BridgeMessage,
+) -> Option<(String, String, NotificationLevel, String, Option<String>)> {
     match msg {
         BridgeMessage::Event(EventPayload {
             event_type,

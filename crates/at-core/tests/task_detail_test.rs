@@ -48,7 +48,13 @@ fn make_log_entry(
 #[test]
 fn task_creation_all_fields_populated() {
     let bead_id = Uuid::new_v4();
-    let task = Task::new("Implement login", bead_id, TaskCategory::Feature, TaskPriority::High, TaskComplexity::Large);
+    let task = Task::new(
+        "Implement login",
+        bead_id,
+        TaskCategory::Feature,
+        TaskPriority::High,
+        TaskComplexity::Large,
+    );
     assert_eq!(task.title, "Implement login");
     assert_eq!(task.bead_id, bead_id);
     assert_eq!(task.category, TaskCategory::Feature);
@@ -146,7 +152,8 @@ fn task_progress_from_phase_stopped() {
 #[test]
 fn task_with_description_and_rationale() {
     let mut task = make_task("Add dark mode");
-    task.description = Some("Implement dark mode toggle.\n\nRationale: users request it frequently.".into());
+    task.description =
+        Some("Implement dark mode toggle.\n\nRationale: users request it frequently.".into());
     assert!(task.description.as_ref().unwrap().contains("Rationale"));
 }
 
@@ -166,7 +173,10 @@ fn task_with_worktree_and_branch() {
     let mut task = make_task("Branch task");
     task.worktree_path = Some("/tmp/worktrees/feat-login".into());
     task.git_branch = Some("feat/login".into());
-    assert_eq!(task.worktree_path.as_deref(), Some("/tmp/worktrees/feat-login"));
+    assert_eq!(
+        task.worktree_path.as_deref(),
+        Some("/tmp/worktrees/feat-login")
+    );
     assert_eq!(task.git_branch.as_deref(), Some("feat/login"));
 }
 
@@ -217,7 +227,11 @@ fn subtask_completion_percentage() {
         }
         task.subtasks.push(s);
     }
-    let completed = task.subtasks.iter().filter(|s| s.status == SubtaskStatus::Complete).count();
+    let completed = task
+        .subtasks
+        .iter()
+        .filter(|s| s.status == SubtaskStatus::Complete)
+        .count();
     let pct = (completed as f64 / task.subtasks.len() as f64 * 100.0) as u8;
     assert_eq!(pct, 60);
 }
@@ -230,7 +244,10 @@ fn subtask_ordering_preservation() {
         task.subtasks.push(make_subtask(t));
     }
     let result: Vec<&str> = task.subtasks.iter().map(|s| s.title.as_str()).collect();
-    assert_eq!(result, vec!["step 0", "step 1", "step 2", "step 3", "step 4"]);
+    assert_eq!(
+        result,
+        vec!["step 0", "step 1", "step 2", "step 3", "step 4"]
+    );
 }
 
 #[test]
@@ -263,7 +280,11 @@ fn subtask_agent_assignment() {
 fn subtask_empty_list() {
     let task = make_task("no subs");
     assert!(task.subtasks.is_empty());
-    let completed = task.subtasks.iter().filter(|s| s.status == SubtaskStatus::Complete).count();
+    let completed = task
+        .subtasks
+        .iter()
+        .filter(|s| s.status == SubtaskStatus::Complete)
+        .count();
     assert_eq!(completed, 0);
 }
 
@@ -272,10 +293,18 @@ fn subtask_filter_by_status_pending() {
     let mut task = make_task("filter");
     for i in 0..6 {
         let mut s = make_subtask(&format!("s{}", i));
-        s.status = if i % 2 == 0 { SubtaskStatus::Pending } else { SubtaskStatus::Complete };
+        s.status = if i % 2 == 0 {
+            SubtaskStatus::Pending
+        } else {
+            SubtaskStatus::Complete
+        };
         task.subtasks.push(s);
     }
-    let pending: Vec<_> = task.subtasks.iter().filter(|s| s.status == SubtaskStatus::Pending).collect();
+    let pending: Vec<_> = task
+        .subtasks
+        .iter()
+        .filter(|s| s.status == SubtaskStatus::Pending)
+        .collect();
     assert_eq!(pending.len(), 3);
 }
 
@@ -284,10 +313,18 @@ fn subtask_filter_by_status_in_progress() {
     let mut task = make_task("filter ip");
     for i in 0..4 {
         let mut s = make_subtask(&format!("s{}", i));
-        s.status = if i == 1 { SubtaskStatus::InProgress } else { SubtaskStatus::Pending };
+        s.status = if i == 1 {
+            SubtaskStatus::InProgress
+        } else {
+            SubtaskStatus::Pending
+        };
         task.subtasks.push(s);
     }
-    let in_progress: Vec<_> = task.subtasks.iter().filter(|s| s.status == SubtaskStatus::InProgress).collect();
+    let in_progress: Vec<_> = task
+        .subtasks
+        .iter()
+        .filter(|s| s.status == SubtaskStatus::InProgress)
+        .collect();
     assert_eq!(in_progress.len(), 1);
 }
 
@@ -302,7 +339,11 @@ fn subtask_count_completed_vs_total() {
         task.subtasks.push(s);
     }
     let total = task.subtasks.len();
-    let completed = task.subtasks.iter().filter(|s| s.status == SubtaskStatus::Complete).count();
+    let completed = task
+        .subtasks
+        .iter()
+        .filter(|s| s.status == SubtaskStatus::Complete)
+        .count();
     assert_eq!(total, 10);
     assert_eq!(completed, 7);
 }
@@ -423,7 +464,10 @@ fn logs_with_detail_field() {
         "cargo test finished",
         Some("test result: 42 passed, 0 failed"),
     ));
-    assert_eq!(task.logs[0].detail.as_deref(), Some("test result: 42 passed, 0 failed"));
+    assert_eq!(
+        task.logs[0].detail.as_deref(),
+        Some("test result: 42 passed, 0 failed")
+    );
 }
 
 #[test]
@@ -443,7 +487,11 @@ fn filter_logs_by_phase_planning() {
     task.set_phase(TaskPhase::Qa);
     task.log(TaskLogType::Text, "qa msg");
 
-    let planning_logs: Vec<_> = task.logs.iter().filter(|l| l.phase == TaskPhase::Planning).collect();
+    let planning_logs: Vec<_> = task
+        .logs
+        .iter()
+        .filter(|l| l.phase == TaskPhase::Planning)
+        .collect();
     assert_eq!(planning_logs.len(), 1);
     assert_eq!(planning_logs[0].message, "planning msg");
 }
@@ -457,7 +505,11 @@ fn filter_logs_by_phase_coding() {
     task.set_phase(TaskPhase::Qa);
     task.log(TaskLogType::Text, "qa check");
 
-    let coding_logs: Vec<_> = task.logs.iter().filter(|l| l.phase == TaskPhase::Coding).collect();
+    let coding_logs: Vec<_> = task
+        .logs
+        .iter()
+        .filter(|l| l.phase == TaskPhase::Coding)
+        .collect();
     assert_eq!(coding_logs.len(), 2);
 }
 
@@ -469,7 +521,11 @@ fn filter_logs_by_type() {
     task.log(TaskLogType::Error, "err 2");
     task.log(TaskLogType::Success, "ok");
 
-    let errors: Vec<_> = task.logs.iter().filter(|l| l.log_type == TaskLogType::Error).collect();
+    let errors: Vec<_> = task
+        .logs
+        .iter()
+        .filter(|l| l.log_type == TaskLogType::Error)
+        .collect();
     assert_eq!(errors.len(), 2);
 }
 
@@ -485,8 +541,16 @@ fn log_entry_count_per_phase() {
         task.log(TaskLogType::Text, "code");
     }
 
-    let planning_count = task.logs.iter().filter(|l| l.phase == TaskPhase::Planning).count();
-    let coding_count = task.logs.iter().filter(|l| l.phase == TaskPhase::Coding).count();
+    let planning_count = task
+        .logs
+        .iter()
+        .filter(|l| l.phase == TaskPhase::Planning)
+        .count();
+    let coding_count = task
+        .logs
+        .iter()
+        .filter(|l| l.phase == TaskPhase::Coding)
+        .count();
     assert_eq!(planning_count, 3);
     assert_eq!(coding_count, 5);
 }
@@ -503,9 +567,13 @@ fn phase_based_log_grouping() {
     }
 
     // Group by phase
-    let mut groups: std::collections::HashMap<String, Vec<&TaskLogEntry>> = std::collections::HashMap::new();
+    let mut groups: std::collections::HashMap<String, Vec<&TaskLogEntry>> =
+        std::collections::HashMap::new();
     for entry in &task.logs {
-        groups.entry(format!("{:?}", entry.phase)).or_default().push(entry);
+        groups
+            .entry(format!("{:?}", entry.phase))
+            .or_default()
+            .push(entry);
     }
     assert_eq!(groups.len(), 3);
     for (_, entries) in &groups {
@@ -823,7 +891,13 @@ fn task_all_categories() {
         TaskCategory::Testing,
     ];
     for cat in categories {
-        let task = Task::new("t", Uuid::new_v4(), cat.clone(), TaskPriority::Low, TaskComplexity::Trivial);
+        let task = Task::new(
+            "t",
+            Uuid::new_v4(),
+            cat.clone(),
+            TaskPriority::Low,
+            TaskComplexity::Trivial,
+        );
         assert_eq!(task.category, cat);
     }
 }
@@ -837,7 +911,13 @@ fn task_all_priorities() {
         TaskPriority::Urgent,
     ];
     for pri in priorities {
-        let task = Task::new("t", Uuid::new_v4(), TaskCategory::Feature, pri.clone(), TaskComplexity::Trivial);
+        let task = Task::new(
+            "t",
+            Uuid::new_v4(),
+            TaskCategory::Feature,
+            pri.clone(),
+            TaskComplexity::Trivial,
+        );
         assert_eq!(task.priority, pri);
     }
 }
@@ -852,7 +932,13 @@ fn task_all_complexities() {
         TaskComplexity::Complex,
     ];
     for cplx in complexities {
-        let task = Task::new("t", Uuid::new_v4(), TaskCategory::Feature, TaskPriority::Low, cplx.clone());
+        let task = Task::new(
+            "t",
+            Uuid::new_v4(),
+            TaskCategory::Feature,
+            TaskPriority::Low,
+            cplx.clone(),
+        );
         assert_eq!(task.complexity, cplx);
     }
 }
@@ -966,7 +1052,11 @@ fn task_full_lifecycle_integration() {
     assert_eq!(task.progress_percent, 100);
     assert!(task.started_at.unwrap() <= task.completed_at.unwrap());
 
-    let completed = task.subtasks.iter().filter(|s| s.status == SubtaskStatus::Complete).count();
+    let completed = task
+        .subtasks
+        .iter()
+        .filter(|s| s.status == SubtaskStatus::Complete)
+        .count();
     assert_eq!(completed, 3);
     assert!(task.logs.len() >= 4);
 }

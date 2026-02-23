@@ -61,7 +61,10 @@ fn token_response_minimal() {
     }"#;
 
     let resp: OAuthTokenResponse = serde_json::from_str(json).unwrap();
-    assert_eq!(resp.access_token, "gho_16C7e42F292c6912E7710c838347Ae178B4a");
+    assert_eq!(
+        resp.access_token,
+        "gho_16C7e42F292c6912E7710c838347Ae178B4a"
+    );
     assert_eq!(resp.token_type, "bearer");
     assert_eq!(resp.scope, "repo,gist");
     assert!(resp.refresh_token.is_none());

@@ -14,10 +14,7 @@ use tower::ServiceExt;
 fn auth_router(api_key: Option<String>) -> Router {
     Router::new()
         .route("/ping", get(|| async { "pong" }))
-        .route(
-            "/echo",
-            post(|body: String| async move { body }),
-        )
+        .route("/echo", post(|body: String| async move { body }))
         .layer(AuthLayer::new(api_key))
 }
 
@@ -44,10 +41,7 @@ async fn body_bytes(resp: axum::http::Response<Body>) -> Vec<u8> {
 async fn test_no_api_key_allows_all_requests() {
     let app = auth_router(None);
 
-    let req = Request::builder()
-        .uri("/ping")
-        .body(Body::empty())
-        .unwrap();
+    let req = Request::builder().uri("/ping").body(Body::empty()).unwrap();
 
     let resp = app.oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
@@ -154,10 +148,7 @@ async fn test_invalid_bearer_token_rejected_401() {
 async fn test_missing_auth_header_rejected_401() {
     let app = auth_router(Some("correct-key".into()));
 
-    let req = Request::builder()
-        .uri("/ping")
-        .body(Body::empty())
-        .unwrap();
+    let req = Request::builder().uri("/ping").body(Body::empty()).unwrap();
 
     let resp = app.oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
@@ -248,17 +239,14 @@ async fn test_auth_preserves_request_body() {
 async fn test_auth_error_response_is_json() {
     let app = auth_router(Some("secret".into()));
 
-    let req = Request::builder()
-        .uri("/ping")
-        .body(Body::empty())
-        .unwrap();
+    let req = Request::builder().uri("/ping").body(Body::empty()).unwrap();
 
     let resp = app.oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
 
     // Verify the error body is JSON
     let body = body_bytes(resp).await;
-    let json: Value = serde_json::from_slice(&body)
-        .expect("401 response body should be valid JSON");
+    let json: Value =
+        serde_json::from_slice(&body).expect("401 response body should be valid JSON");
     assert_eq!(json["error"], "unauthorized");
 }

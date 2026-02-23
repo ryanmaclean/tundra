@@ -128,6 +128,16 @@ pub fn api_bead_to_bead_response(ab: &ApiBead) -> BeadResponse {
         }
     }
 
+    // Derive subtask statuses from progress stage as a visual approximation.
+    // When real subtask data flows through the API this will use actual values.
+    let subtask_statuses = match progress.as_str() {
+        "plan" => vec!["in_progress", "pending", "pending"],
+        "code" => vec!["complete", "in_progress", "pending", "pending"],
+        "qa" => vec!["complete", "complete", "in_progress", "pending"],
+        "done" => vec!["complete", "complete", "complete", "complete"],
+        _ => vec!["pending", "pending"],
+    }.into_iter().map(String::from).collect();
+
     BeadResponse {
         id: ab.id.clone(),
         title: ab.title.clone(),
@@ -140,6 +150,135 @@ pub fn api_bead_to_bead_response(ab: &ApiBead) -> BeadResponse {
         agent_names: vec![],
         timestamp: String::new(),
         action,
+        subtask_statuses,
+    }
+}
+
+/// Short initials for known agent roles/names.
+pub fn agent_initials(name: &str) -> String {
+    let n = name.to_lowercase();
+    if n.contains("crew") {
+        "CR".to_string()
+    } else if n.contains("swarm") {
+        "SW".to_string()
+    } else if n.contains("planner") {
+        "PL".to_string()
+    } else if n.contains("coder") {
+        "CD".to_string()
+    } else if n.contains("review") {
+        "RV".to_string()
+    } else if n.contains("test") {
+        "TS".to_string()
+    } else if n.contains("debug") {
+        "DB".to_string()
+    } else if n.contains("architect") {
+        "AR".to_string()
+    } else {
+        let mut chars = name.chars();
+        let first = chars.next().map(|c| c.to_ascii_uppercase()).unwrap_or('X');
+        let second = chars.next().map(|c| c.to_ascii_uppercase());
+        match second {
+            Some(s) => format!("{}{}", first, s),
+            None => first.to_string(),
+        }
+    }
+}
+
+/// Progress lane class for compact P/C/Q/D pills.
+pub fn stage_class(progress: &str, stage: &str) -> &'static str {
+    if progress == "done" {
+        if stage == "done" {
+            "stage active"
+        } else {
+            "stage completed"
+        }
+    } else {
+        let order = |s: &str| match s {
+            "plan" => 0,
+            "code" => 1,
+            "qa" => 2,
+            "done" => 3,
+            _ => -1,
+        };
+        let p = order(progress);
+        let st = order(stage);
+        if st < p {
+            "stage completed"
+        } else if st == p {
+            "stage active"
+        } else {
+            "stage pending"
+        }
+    }
+}
+
+/// Tag class mapper used by Kanban chips.
+pub fn bead_tag_class(tag: &str) -> &'static str {
+    let t = tag.to_lowercase();
+    if t.contains("stuck") || t.contains("recovery") || t.contains("needs recovery") {
+        "bead-tag bead-tag-recovery"
+    } else if t.contains("critical") || t.contains("urgent") {
+        "bead-tag bead-tag-critical"
+    } else if t.contains("high") || t.contains("medium") || t.contains("low") {
+        "bead-tag bead-tag-priority"
+    } else if t.contains("feature")
+        || t.contains("bug")
+        || t.contains("refactor")
+        || t.contains("infra")
+        || t.contains("security")
+        || t.contains("performance")
+        || t.contains("ui")
+        || t.contains("test")
+        || t.contains("doc")
+    {
+        "bead-tag bead-tag-category"
+    } else if t.contains("incomplete")
+        || t.contains("blocked")
+        || t.contains("pending")
+        || t.contains("interrupted")
+        || t.contains("status")
+    {
+        "bead-tag bead-tag-status"
+    } else {
+        "bead-tag bead-tag-priority"
+    }
+}
+
+/// Phase status class used beside the per-card phase line.
+pub fn phase_status_class(bead: &BeadResponse) -> &'static str {
+    let needs_warn = bead.tags.iter().any(|t| {
+        let v = t.to_lowercase();
+        v.contains("stuck") || v.contains("recovery") || v.contains("needs recovery")
+    });
+    if needs_warn {
+        return "bead-phase-status bead-phase-interrupted";
+    }
+    match bead.status {
+        BeadStatus::Planning => "bead-phase-status bead-phase-planning",
+        BeadStatus::InProgress => "bead-phase-status bead-phase-progress",
+        BeadStatus::AiReview => "bead-phase-status bead-phase-review",
+        BeadStatus::HumanReview => "bead-phase-status bead-phase-review",
+        BeadStatus::Done => "bead-phase-status bead-phase-complete",
+        BeadStatus::Failed => "bead-phase-status bead-phase-interrupted",
+    }
+}
+
+/// SVG icon markup for the phase indicator.
+pub fn phase_status_icon_svg(bead: &BeadResponse) -> String {
+    let needs_warn = bead.tags.iter().any(|t| {
+        let v = t.to_lowercase();
+        v.contains("stuck") || v.contains("recovery") || v.contains("needs recovery")
+    });
+    if needs_warn {
+        return r#"<svg width="14" height="14" viewBox="0 0 24 24" class="phase-icon phase-icon-warn" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>"#.to_string();
+    }
+
+    match bead.status {
+        BeadStatus::Planning => r#"<svg width="14" height="14" viewBox="0 0 24 24" class="phase-icon phase-icon-plan" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 8 9-8 9-8-9 8-9z"/></svg>"#.to_string(),
+        BeadStatus::InProgress => r#"<svg width="14" height="14" viewBox="0 0 24 24" class="phase-icon phase-icon-active" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="8 5 19 12 8 19 8 5"/></svg>"#.to_string(),
+        BeadStatus::AiReview | BeadStatus::HumanReview => r#"<svg width="14" height="14" viewBox="0 0 24 24" class="phase-icon phase-icon-review" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>"#.to_string(),
+        BeadStatus::Done => r#"<svg width="14" height="14" viewBox="0 0 24 24" class="phase-icon phase-icon-done" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" stroke-dasharray="24" stroke-dashoffset="24"><animate attributeName="stroke-dashoffset" from="24" to="0" dur="0.5s" begin="0s" fill="freeze"/></polyline></svg>"#.to_string(),
+        BeadStatus::Failed => r#"<svg width="14" height="14" viewBox="0 0 24 24" class="phase-icon phase-icon-fail" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>"#.to_string(),
     }
 }
 
@@ -216,11 +355,11 @@ pub fn BeadsPage() -> impl IntoView {
     };
 
     let lanes = vec![
-        (Lane::Planning, "Planning"),
-        (Lane::InProgress, "In Progress"),
-        (Lane::AiReview, "AI Review"),
-        (Lane::HumanReview, "Human Review"),
-        (Lane::Done, "Done"),
+        (Lane::Planning, "Planning", "column-dot column-dot-planning"),
+        (Lane::InProgress, "In Progress", "column-dot column-dot-inprogress"),
+        (Lane::AiReview, "AI Review", "column-dot column-dot-aireview"),
+        (Lane::HumanReview, "Human Review", "column-dot column-dot-humanreview"),
+        (Lane::Done, "Done", "column-dot column-dot-done"),
     ];
 
     // Move a bead to a target lane (optimistic local update + API call with rollback)
@@ -383,7 +522,7 @@ pub fn BeadsPage() -> impl IntoView {
         </div>
 
         <div class="kanban">
-            {lanes.into_iter().map(|( lane, label)| {
+            {lanes.into_iter().map(|(lane, label, dot_class)| {
                 let lane_for_render = lane.clone();
                 let lane_for_drop = lane.clone();
                 let lane_for_over = lane.clone();
@@ -474,6 +613,7 @@ pub fn BeadsPage() -> impl IntoView {
                             >
                                 {move || if is_collapsed() { "+" } else { "-" }}
                             </button>
+                            <span class={dot_class}></span>
                             {label}
                             " "
                             <span class="count">{count}</span>
@@ -589,6 +729,17 @@ pub fn BeadsPage() -> impl IntoView {
 
                                     // Agent indicator
                                     let has_agent = !bead.agent_names.is_empty();
+
+                                    // Subtask dots
+                                    let subtask_dots: Vec<_> = bead.subtask_statuses.iter().map(|s| {
+                                        let dot_cls = match s.as_str() {
+                                            "complete" => "subtask-dot subtask-complete",
+                                            "in_progress" => "subtask-dot subtask-active",
+                                            "failed" => "subtask-dot subtask-failed",
+                                            _ => "subtask-dot subtask-pending",
+                                        };
+                                        view! { <span class={dot_cls}></span> }
+                                    }).collect();
 
                                     let _tags_view = bead.tags.iter().map(|tag| {
                                         let tag_class = match tag.as_str() {
@@ -736,15 +887,27 @@ pub fn BeadsPage() -> impl IntoView {
                                                 })}
                                             </div>
                                             <div class="progress-pipeline">
-                                                <span class={plan_cls}>{"Plan"}</span>
-                                                <span class={code_cls}>{"Code"}</span>
-                                                <span class={qa_cls}>{"QA"}</span>
+                                                <span class={plan_cls}>
+                                                    <span class="stage-dot"></span>
+                                                    {"Plan"}
+                                                </span>
+                                                <span class={code_cls}>
+                                                    <span class="stage-dot"></span>
+                                                    {"Code"}
+                                                </span>
+                                                <span class={qa_cls}>
+                                                    <span class="stage-dot"></span>
+                                                    {"QA"}
+                                                </span>
                                             </div>
                                             <div class="bead-progress">
                                                 <div class="progress-bar">
                                                     <div class="progress-fill" style={format!("width: {}%;", progress_pct)}></div>
                                                 </div>
                                                 <span class="progress-label">{format!("{progress_pct}%")}</span>
+                                            </div>
+                                            <div class="subtask-dots">
+                                                {subtask_dots}
                                             </div>
                                             <div class="bead-footer">
                                                 <div class="bead-agents">{agents_view}</div>

@@ -1,5 +1,5 @@
-use at_core::types::CliType;
 use async_trait::async_trait;
+use at_core::types::CliType;
 
 use crate::pty_pool::{PtyHandle, PtyPool, Result};
 

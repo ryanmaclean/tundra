@@ -100,9 +100,9 @@ impl HeartbeatMonitor {
         let now = Utc::now();
         let tracked: Vec<(String, Uuid)> = {
             let agents = self.tracked_agents.lock().unwrap_or_else(|e| {
-            tracing::warn!("HeartbeatMonitor lock was poisoned, recovering");
-            e.into_inner()
-        });
+                tracing::warn!("HeartbeatMonitor lock was poisoned, recovering");
+                e.into_inner()
+            });
             agents.iter().map(|(k, v)| (k.clone(), *v)).collect()
         };
 

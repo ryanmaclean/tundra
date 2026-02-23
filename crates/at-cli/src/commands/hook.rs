@@ -22,9 +22,7 @@ pub async fn run(api_url: &str, bead_id: &str) -> anyhow::Result<()> {
             println!("  title: {title}");
         }
     } else {
-        let err_msg = body["error"]
-            .as_str()
-            .unwrap_or("unknown error");
+        let err_msg = body["error"].as_str().unwrap_or("unknown error");
         anyhow::bail!("Failed to hook bead {bead_id}: {err_msg} (HTTP {status})");
     }
 

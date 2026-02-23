@@ -8,10 +8,10 @@ use thiserror::Error;
 use tracing::{info, warn};
 
 use crate::cache::CacheDb;
-use crate::git_read_adapter::{GitReadAdapter, default_read_adapter};
+use crate::git_read_adapter::{default_read_adapter, GitReadAdapter};
 use crate::repo::RepoPath;
 use crate::types::Task;
-use crate::worktree::{WorktreeInfo, WorktreeError};
+use crate::worktree::{WorktreeError, WorktreeInfo};
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -281,7 +281,10 @@ impl WorktreeManager {
         }
 
         // 2. Check if there are changes to merge
-        let diff_stdout = match self.git_read.diff_stat(base_dir_str, "main", &worktree.branch) {
+        let diff_stdout = match self
+            .git_read
+            .diff_stat(base_dir_str, "main", &worktree.branch)
+        {
             Ok(stdout) => stdout,
             Err(e) => {
                 warn!(
@@ -310,36 +313,31 @@ impl WorktreeManager {
         // 3. Attempt merge (using --no-commit first to check)
         let merge_result = self.git.run_git(
             base_dir_str,
-            &[
-                "merge",
-                "--no-ff",
-                "--no-commit",
-                &worktree.branch,
-            ],
+            &["merge", "--no-ff", "--no-commit", &worktree.branch],
         );
 
         match merge_result {
             Ok(output) if output.success => {
                 // Commit the merge
                 let commit_msg = format!("Merge branch '{}' into main", worktree.branch);
-                let commit_result =
-                    self.git
-                        .run_git(base_dir_str, &["commit", "-m", &commit_msg]);
+                let commit_result = self
+                    .git
+                    .run_git(base_dir_str, &["commit", "-m", &commit_msg]);
 
                 match commit_result {
                     Ok(co) if co.success => {
                         // 5. Clean up worktree
                         let wt_path = &worktree.path;
-                        if let Err(e) = self.git.run_git(
-                            base_dir_str,
-                            &["worktree", "remove", "--force", wt_path],
-                        ) {
+                        if let Err(e) = self
+                            .git
+                            .run_git(base_dir_str, &["worktree", "remove", "--force", wt_path])
+                        {
                             warn!(error = %e, "git worktree cleanup failed");
                         }
-                        if let Err(e) = self.git.run_git(
-                            base_dir_str,
-                            &["branch", "-d", &worktree.branch],
-                        ) {
+                        if let Err(e) = self
+                            .git
+                            .run_git(base_dir_str, &["branch", "-d", &worktree.branch])
+                        {
                             warn!(error = %e, "git branch cleanup failed");
                         }
 
@@ -360,10 +358,10 @@ impl WorktreeManager {
                             branch = %worktree.branch,
                             "git read adapter failed for conflict files; falling back to GitRunner"
                         );
-                        match self.git.run_git(
-                            base_dir_str,
-                            &["diff", "--name-only", "--diff-filter=U"],
-                        ) {
+                        match self
+                            .git
+                            .run_git(base_dir_str, &["diff", "--name-only", "--diff-filter=U"])
+                        {
                             Ok(co) => Ok(co
                                 .stdout
                                 .lines()
@@ -515,7 +513,10 @@ mod tests {
             }
         }
 
-        fn conflict_files(&self, _repo_dir: &str) -> std::result::Result<Vec<String>, GitReadError> {
+        fn conflict_files(
+            &self,
+            _repo_dir: &str,
+        ) -> std::result::Result<Vec<String>, GitReadError> {
             match &self.conflict_result {
                 Ok(v) => Ok(v.clone()),
                 Err(e) => Err(GitReadError::Command(e.clone())),
@@ -770,8 +771,7 @@ mod tests {
     async fn cleanup_stale_with_no_worktrees_dir() {
         let cache = Arc::new(CacheDb::new_in_memory().await.unwrap());
         let git = Box::new(MockGitRunner::new(vec![]));
-        let manager =
-            WorktreeManager::with_git_runner("/nonexistent/path/xyz", cache, git);
+        let manager = WorktreeManager::with_git_runner("/nonexistent/path/xyz", cache, git);
 
         let result = manager
             .cleanup_stale(Duration::from_secs(3600))
@@ -813,7 +813,10 @@ mod tests {
         let commands = shared.commands();
         // Only fetch should be executed by GitRunner (diff came from read adapter).
         assert_eq!(commands.len(), 1);
-        assert_eq!(commands[0].1, vec!["fetch".to_string(), "origin".to_string()]);
+        assert_eq!(
+            commands[0].1,
+            vec!["fetch".to_string(), "origin".to_string()]
+        );
     }
 
     #[tokio::test]
@@ -860,7 +863,10 @@ mod tests {
 
         let commands = shared.commands();
         assert_eq!(commands.len(), 3);
-        assert_eq!(commands[0].1, vec!["fetch".to_string(), "origin".to_string()]);
+        assert_eq!(
+            commands[0].1,
+            vec!["fetch".to_string(), "origin".to_string()]
+        );
         assert_eq!(
             commands[1].1,
             vec![
@@ -915,7 +921,10 @@ mod tests {
 
         let commands = shared.commands();
         assert_eq!(commands.len(), 2);
-        assert_eq!(commands[0].1, vec!["fetch".to_string(), "origin".to_string()]);
+        assert_eq!(
+            commands[0].1,
+            vec!["fetch".to_string(), "origin".to_string()]
+        );
         assert_eq!(
             commands[1].1,
             vec![

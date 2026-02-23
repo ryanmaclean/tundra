@@ -3,20 +3,20 @@ use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifi
 // We reference types from the binary crate by including modules directly.
 #[path = "../src/api_client.rs"]
 mod api_client;
-#[path = "../src/effects.rs"]
-mod effects;
-#[path = "../src/command.rs"]
-mod command;
 #[path = "../src/app.rs"]
 mod app;
-#[path = "../src/tabs/mod.rs"]
-mod tabs;
-#[path = "../src/widgets/mod.rs"]
-mod widgets;
+#[path = "../src/command.rs"]
+mod command;
+#[path = "../src/effects.rs"]
+mod effects;
 #[path = "../src/event.rs"]
 mod event;
+#[path = "../src/tabs/mod.rs"]
+mod tabs;
 #[path = "../src/ui.rs"]
 mod ui;
+#[path = "../src/widgets/mod.rs"]
+mod widgets;
 
 fn key(code: KeyCode) -> KeyEvent {
     KeyEvent {

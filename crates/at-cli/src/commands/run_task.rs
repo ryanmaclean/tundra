@@ -6,7 +6,9 @@ use serde_json::json;
 
 use super::{api_client, friendly_error};
 
-async fn response_json_or_raw(resp: reqwest::Response) -> anyhow::Result<(reqwest::StatusCode, serde_json::Value)> {
+async fn response_json_or_raw(
+    resp: reqwest::Response,
+) -> anyhow::Result<(reqwest::StatusCode, serde_json::Value)> {
     let status = resp.status();
     let text = resp.text().await.map_err(friendly_error)?;
     let body = serde_json::from_str(&text).unwrap_or_else(|_| {
@@ -49,7 +51,10 @@ fn write_json_artifact(path: &str, value: &serde_json::Value) -> anyhow::Result<
     Ok(())
 }
 
-fn load_selected_skills(project_path: &str, selected: &[String]) -> anyhow::Result<Vec<SkillDefinition>> {
+fn load_selected_skills(
+    project_path: &str,
+    selected: &[String],
+) -> anyhow::Result<Vec<SkillDefinition>> {
     if selected.is_empty() {
         return Ok(Vec::new());
     }
@@ -80,7 +85,11 @@ fn load_selected_skills(project_path: &str, selected: &[String]) -> anyhow::Resu
         anyhow::bail!(
             "Unknown skills: {}. Available: {}",
             missing.join(", "),
-            if known.is_empty() { "<none>".to_string() } else { known }
+            if known.is_empty() {
+                "<none>".to_string()
+            } else {
+                known
+            }
         );
     }
 
@@ -89,7 +98,11 @@ fn load_selected_skills(project_path: &str, selected: &[String]) -> anyhow::Resu
 
 fn title_from_task(task: &str, role: Option<&str>) -> String {
     let trimmed = task.trim();
-    let base = if trimmed.is_empty() { "Untitled task" } else { trimmed };
+    let base = if trimmed.is_empty() {
+        "Untitled task"
+    } else {
+        trimmed
+    };
     let mut out = if let Some(r) = role {
         format!("[{}] {}", r, base)
     } else {
@@ -129,7 +142,12 @@ fn build_description(opts: &RunOptions, skills: &[SkillDefinition]) -> String {
     parts.join("\n")
 }
 
-fn dry_run_payload(opts: &RunOptions, title: &str, description: &str, skills: &[SkillDefinition]) -> serde_json::Value {
+fn dry_run_payload(
+    opts: &RunOptions,
+    title: &str,
+    description: &str,
+    skills: &[SkillDefinition],
+) -> serde_json::Value {
     json!({
         "mode": "dry-run",
         "task_title": title,
@@ -162,11 +180,32 @@ pub async fn run(api_url: &str, opts: RunOptions) -> anyhow::Result<()> {
             println!("{}", serde_json::to_string_pretty(&payload)?);
         } else {
             println!("dry-run: no API calls made");
-            println!("  title: {}", payload["task_title"].as_str().unwrap_or("<untitled>"));
-            println!("  lane/category: {}/{}", payload["lane"].as_str().unwrap_or("?"), payload["category"].as_str().unwrap_or("?"));
-            println!("  priority/complexity: {}/{}", payload["priority"].as_str().unwrap_or("?"), payload["complexity"].as_str().unwrap_or("?"));
-            println!("  skills: {}", selected_skills.iter().map(|s| s.name.clone()).collect::<Vec<_>>().join(", "));
-            println!("  description_len: {}", payload["description_len"].as_u64().unwrap_or(0));
+            println!(
+                "  title: {}",
+                payload["task_title"].as_str().unwrap_or("<untitled>")
+            );
+            println!(
+                "  lane/category: {}/{}",
+                payload["lane"].as_str().unwrap_or("?"),
+                payload["category"].as_str().unwrap_or("?")
+            );
+            println!(
+                "  priority/complexity: {}/{}",
+                payload["priority"].as_str().unwrap_or("?"),
+                payload["complexity"].as_str().unwrap_or("?")
+            );
+            println!(
+                "  skills: {}",
+                selected_skills
+                    .iter()
+                    .map(|s| s.name.clone())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+            println!(
+                "  description_len: {}",
+                payload["description_len"].as_u64().unwrap_or(0)
+            );
             if opts.emit_prompt {
                 println!("\n--- prompt ---\n{}", description);
             }
@@ -271,7 +310,10 @@ pub async fn run(api_url: &str, opts: RunOptions) -> anyhow::Result<()> {
 
     println!("Task created: {}", task_id);
     println!("  bead: {}", bead["id"].as_str().unwrap_or("<unknown>"));
-    println!("  title: {}", task["title"].as_str().unwrap_or("<untitled>"));
+    println!(
+        "  title: {}",
+        task["title"].as_str().unwrap_or("<untitled>")
+    );
     if !selected_skills.is_empty() {
         let names = selected_skills
             .iter()
@@ -295,12 +337,7 @@ pub async fn run(api_url: &str, opts: RunOptions) -> anyhow::Result<()> {
 mod tests {
     use std::path::PathBuf;
 
-    use axum::{
-        extract::Path as AxPath,
-        http::StatusCode,
-        routing::post,
-        Json, Router,
-    };
+    use axum::{extract::Path as AxPath, http::StatusCode, routing::post, Json, Router};
 
     use super::*;
 
@@ -368,7 +405,11 @@ mod tests {
     #[test]
     fn dry_run_payload_contains_expected_fields() {
         let opts = sample_opts();
-        let skills = vec![sample_skill("integration-hardening", "Keep creds real", "Rules...")];
+        let skills = vec![sample_skill(
+            "integration-hardening",
+            "Keep creds real",
+            "Rules...",
+        )];
         let title = title_from_task(&opts.task, None);
         let desc = build_description(&opts, &skills);
         let payload = dry_run_payload(&opts, &title, &desc, &skills);
@@ -385,8 +426,11 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or(0);
-        let out = std::env::temp_dir()
-            .join(format!("at-cli-dry-run-{}-{}.json", std::process::id(), nanos));
+        let out = std::env::temp_dir().join(format!(
+            "at-cli-dry-run-{}-{}.json",
+            std::process::id(),
+            nanos
+        ));
         let opts = RunOptions {
             task: "Artifact run".to_string(),
             skills: vec![],
@@ -441,14 +485,12 @@ mod tests {
             )
             .route(
                 "/api/tasks/{id}/execute",
-                post(|AxPath(_id): AxPath<String>| async move {
-                    (StatusCode::ACCEPTED, "accepted")
-                }),
+                post(
+                    |AxPath(_id): AxPath<String>| async move { (StatusCode::ACCEPTED, "accepted") },
+                ),
             );
 
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-            .await
-            .unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         tokio::spawn(async move {
             axum::serve(listener, app).await.unwrap();
@@ -487,9 +529,7 @@ mod tests {
             }),
         );
 
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-            .await
-            .unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         tokio::spawn(async move {
             axum::serve(listener, app).await.unwrap();
@@ -499,8 +539,11 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or(0);
-        let out = std::env::temp_dir()
-            .join(format!("at-cli-run-fail-{}-{}.json", std::process::id(), nanos));
+        let out = std::env::temp_dir().join(format!(
+            "at-cli-run-fail-{}-{}.json",
+            std::process::id(),
+            nanos
+        ));
 
         let opts = RunOptions {
             task: "should fail".to_string(),

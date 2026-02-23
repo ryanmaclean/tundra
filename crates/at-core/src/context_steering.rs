@@ -84,11 +84,7 @@ impl PhaseContextProfile {
                 ContextNodeKind::Task,
                 ContextNodeKind::Convention,
             ],
-            boost_keywords: vec![
-                "architecture".into(),
-                "structure".into(),
-                "overview".into(),
-            ],
+            boost_keywords: vec!["architecture".into(), "structure".into(), "overview".into()],
             include_memories: true,
             include_task_spec: true,
         }
@@ -187,10 +183,7 @@ impl PhaseContextProfile {
         Self {
             min_level: DisclosureLevel::Project,
             max_level: DisclosureLevel::Task,
-            relevant_kinds: vec![
-                ContextNodeKind::ProjectConfig,
-                ContextNodeKind::Convention,
-            ],
+            relevant_kinds: vec![ContextNodeKind::ProjectConfig, ContextNodeKind::Convention],
             boost_keywords: vec!["merge".into(), "commit".into(), "branch".into()],
             include_memories: false,
             include_task_spec: false,
@@ -319,7 +312,13 @@ impl AssembledContext {
 fn sanitize_xml_tag(label: &str) -> String {
     label
         .chars()
-        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '-'
+            }
+        })
         .collect::<String>()
         .to_lowercase()
 }
@@ -456,15 +455,16 @@ impl MemoryWeight {
 
         let frequency_bonus = (self.access_count as f64 * 0.02).min(0.1);
 
-        let recency_bonus = if let Ok(last) = chrono::DateTime::parse_from_rfc3339(&self.last_accessed) {
-            let age_hours = (chrono::Utc::now() - last.with_timezone(&chrono::Utc))
-                .num_hours()
-                .max(0) as f64;
-            let decay_hours = 7.0 * 24.0; // 7-day half-life
-            (0.1 * (-age_hours / decay_hours).exp()).max(0.0)
-        } else {
-            0.0
-        };
+        let recency_bonus =
+            if let Ok(last) = chrono::DateTime::parse_from_rfc3339(&self.last_accessed) {
+                let age_hours = (chrono::Utc::now() - last.with_timezone(&chrono::Utc))
+                    .num_hours()
+                    .max(0) as f64;
+                let decay_hours = 7.0 * 24.0; // 7-day half-life
+                (0.1 * (-age_hours / decay_hours).exp()).max(0.0)
+            } else {
+                0.0
+            };
 
         self.computed_weight = (tier_base + frequency_bonus + recency_bonus).min(1.0);
 
@@ -550,11 +550,8 @@ impl ContextSteerer {
 
         // L1: todo.md
         if let Some(content) = loader.load_todo_md() {
-            self.project_context.push(ContextBlock::new(
-                "todo.md",
-                content,
-                DisclosureLevel::Task,
-            ));
+            self.project_context
+                .push(ContextBlock::new("todo.md", content, DisclosureLevel::Task));
         }
 
         // Load agent and skill definitions
@@ -686,11 +683,12 @@ impl ContextSteerer {
                     }
                     // Then check keyword relevance or high relevance/weight
                     m.keywords.iter().any(|k| {
-                        profile.boost_keywords.iter().any(|bk| {
-                            k.contains(bk.as_str()) || bk.contains(k.as_str())
-                        })
+                        profile
+                            .boost_keywords
+                            .iter()
+                            .any(|bk| k.contains(bk.as_str()) || bk.contains(k.as_str()))
                     }) || m.relevance > 0.7
-                      || m.weight.computed_weight > 0.8
+                        || m.weight.computed_weight > 0.8
                 })
                 .collect();
 
@@ -983,8 +981,7 @@ mod tests {
 
     #[test]
     fn context_block_with_relevance() {
-        let block = ContextBlock::new("x", "content", DisclosureLevel::Task)
-            .with_relevance(0.75);
+        let block = ContextBlock::new("x", "content", DisclosureLevel::Task).with_relevance(0.75);
         assert!((block.relevance - 0.75).abs() < f64::EPSILON);
     }
 
@@ -1017,9 +1014,11 @@ mod tests {
     #[test]
     fn assembled_context_render_xml() {
         let ctx = AssembledContext {
-            blocks: vec![
-                ContextBlock::new("CLAUDE.md", "rules", DisclosureLevel::Project),
-            ],
+            blocks: vec![ContextBlock::new(
+                "CLAUDE.md",
+                "rules",
+                DisclosureLevel::Project,
+            )],
             total_tokens: 10,
             level_reached: DisclosureLevel::Project,
             metadata: ContextMetadata {
@@ -1226,7 +1225,12 @@ mod tests {
         });
 
         // Discovery phase includes memories
-        let ctx = steerer.assemble("researcher", "discovery", Some("understand the codebase"), 8000);
+        let ctx = steerer.assemble(
+            "researcher",
+            "discovery",
+            Some("understand the codebase"),
+            8000,
+        );
         let has_memory = ctx.blocks.iter().any(|b| b.label.contains("memory"));
         assert!(has_memory);
     }
@@ -1409,11 +1413,24 @@ mod tests {
 
     #[test]
     fn all_phase_profiles_have_relevant_kinds() {
-        let phases = ["discovery", "spec_creation", "planning", "coding", "qa", "merging"];
+        let phases = [
+            "discovery",
+            "spec_creation",
+            "planning",
+            "coding",
+            "qa",
+            "merging",
+        ];
         for phase in phases {
             let p = PhaseContextProfile::for_phase(phase);
-            assert!(!p.relevant_kinds.is_empty(), "phase {phase} has no relevant kinds");
-            assert!(!p.boost_keywords.is_empty(), "phase {phase} has no boost keywords");
+            assert!(
+                !p.relevant_kinds.is_empty(),
+                "phase {phase} has no relevant kinds"
+            );
+            assert!(
+                !p.boost_keywords.is_empty(),
+                "phase {phase} has no boost keywords"
+            );
         }
     }
 

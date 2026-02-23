@@ -693,9 +693,18 @@ mod tests {
     #[test]
     fn role_from_prompt_name_mapping() {
         assert_eq!(role_from_prompt_name("coder"), Some(AgentRole::Coder));
-        assert_eq!(role_from_prompt_name("qa_reviewer"), Some(AgentRole::QaReviewer));
-        assert_eq!(role_from_prompt_name("spec_gatherer"), Some(AgentRole::SpecGatherer));
-        assert_eq!(role_from_prompt_name("roadmap_features"), Some(AgentRole::RoadmapFeatures));
+        assert_eq!(
+            role_from_prompt_name("qa_reviewer"),
+            Some(AgentRole::QaReviewer)
+        );
+        assert_eq!(
+            role_from_prompt_name("spec_gatherer"),
+            Some(AgentRole::SpecGatherer)
+        );
+        assert_eq!(
+            role_from_prompt_name("roadmap_features"),
+            Some(AgentRole::RoadmapFeatures)
+        );
         assert_eq!(role_from_prompt_name("nonexistent"), None);
     }
 

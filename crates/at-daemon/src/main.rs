@@ -6,18 +6,19 @@ use at_core::config::Config;
 use at_core::lockfile::DaemonLockfile;
 use tracing::info;
 
-mod profiling;
-mod metrics;
-mod environment;
-mod profiling_tests;
 mod benchmarks;
+mod environment;
+mod metrics;
+mod profiling;
+mod profiling_tests;
 
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let _main_span = traced_span!("main_execution",
+    let _main_span = traced_span!(
+        "main_execution",
         binary = "at-daemon",
         version = env!("CARGO_PKG_VERSION"),
         pid = std::process::id()
@@ -33,11 +34,14 @@ async fn main() -> Result<()> {
     profiling::init_datadog_telemetry().context("failed to initialize Datadog OpenTelemetry")?;
 
     info!("auto-tundra daemon starting");
-    profiling::record_event("daemon_startup", &[
-        ("version", env!("CARGO_PKG_VERSION")),
-        ("pid", &std::process::id().to_string()),
-        ("architecture", std::env::consts::ARCH),
-    ]);
+    profiling::record_event(
+        "daemon_startup",
+        &[
+            ("version", env!("CARGO_PKG_VERSION")),
+            ("pid", &std::process::id().to_string()),
+            ("architecture", std::env::consts::ARCH),
+        ],
+    );
 
     // Record startup metrics
     metrics::AppMetrics::daemon_started().await;
@@ -111,18 +115,19 @@ async fn main() -> Result<()> {
     info!("lockfile written to {}", DaemonLockfile::path().display());
 
     // Create and run the daemon
-    let daemon = profile_async!("daemon_initialization", at_daemon::daemon::Daemon::new(config)).await?;
+    let daemon = profile_async!(
+        "daemon_initialization",
+        at_daemon::daemon::Daemon::new(config)
+    )
+    .await?;
 
     // Record LLM profile bootstrap metrics after daemon creation
     let reg = at_intelligence::ResilientRegistry::from_config(&daemon.config());
     let total_count = reg.count();
     if let Some(best) = reg.registry.best_available() {
         let provider_name = format!("{:?}", best.provider);
-        metrics::AppMetrics::llm_profile_bootstrap(
-            total_count as u32,
-            &best.name,
-            &provider_name
-        ).await;
+        metrics::AppMetrics::llm_profile_bootstrap(total_count as u32, &best.name, &provider_name)
+            .await;
     }
 
     let shutdown = daemon.shutdown_handle();
@@ -144,12 +149,16 @@ async fn main() -> Result<()> {
 
     info!("dashboard: http://localhost:{frontend_port}");
     info!("API server: http://localhost:{api_port}");
-    profiling::record_event("daemon_ready", &[
-        ("frontend_port", &frontend_port.to_string()),
-        ("api_port", &api_port.to_string())
-    ]);
+    profiling::record_event(
+        "daemon_ready",
+        &[
+            ("frontend_port", &frontend_port.to_string()),
+            ("api_port", &api_port.to_string()),
+        ],
+    );
 
-    if let Err(e) = profile_async!("daemon_main_loop", daemon.run_with_listener(api_listener)).await {
+    if let Err(e) = profile_async!("daemon_main_loop", daemon.run_with_listener(api_listener)).await
+    {
         tracing::error!(error = %e, "daemon execution failed");
         profiling::record_event("daemon_execution_error", &[("error", &e.to_string())]);
         DaemonLockfile::remove();
@@ -175,8 +184,7 @@ fn load_config(home: &str) -> Result<Config> {
     if path.exists() {
         let content = std::fs::read_to_string(&path)
             .with_context(|| format!("failed to read {}", path.display()))?;
-        let config: Config =
-            toml::from_str(&content).context("failed to parse config.toml")?;
+        let config: Config = toml::from_str(&content).context("failed to parse config.toml")?;
         Ok(config)
     } else {
         info!("no config file found at {}, using defaults", path.display());
@@ -190,15 +198,13 @@ fn load_config(home: &str) -> Result<Config> {
 /// index.html so the WASM frontend discovers the API server automatically.
 /// Sends the bound port back to main via the oneshot channel.
 async fn serve_frontend(api_port: u16, port_tx: tokio::sync::oneshot::Sender<u16>) {
-    let _span = traced_span!("serve_frontend",
-        component = "http_server"
-    );
+    let _span = traced_span!("serve_frontend", component = "http_server");
 
     profiling::record_event("frontend_server_start", &[]);
 
-    use axum::Router;
-    use axum::routing::get;
     use axum::response::Html;
+    use axum::routing::get;
+    use axum::Router;
     use tower_http::services::ServeDir;
 
     let dist_dir = find_dist_dir();
@@ -210,9 +216,7 @@ async fn serve_frontend(api_port: u16, port_tx: tokio::sync::oneshot::Sender<u16
     let index_html = match std::fs::read_to_string(&index_path) {
         Ok(html) => html.replace(
             "</head>",
-            &format!(
-                "<script>window.__TUNDRA_API_PORT__={api_port};</script></head>"
-            ),
+            &format!("<script>window.__TUNDRA_API_PORT__={api_port};</script></head>"),
         ),
         Err(e) => {
             tracing::warn!(error = %e, "could not read index.html, using fallback");
@@ -226,19 +230,21 @@ async fn serve_frontend(api_port: u16, port_tx: tokio::sync::oneshot::Sender<u16
     // Serve patched index.html for root and SPA fallback; ServeDir for all other assets.
     let index_for_handler = index_html.clone();
     let app = Router::new()
-        .route("/", get({
-            let html = index_for_handler.clone();
-            move || {
-                let html = html.clone();
-                async move { Html(html) }
-            }
-        }))
-        .fallback_service(
-            ServeDir::new(&dist_dir)
-                .fallback(axum::routing::get(move || {
-                    let html = index_html.clone();
+        .route(
+            "/",
+            get({
+                let html = index_for_handler.clone();
+                move || {
+                    let html = html.clone();
                     async move { Html(html) }
-                })),
+                }
+            }),
+        )
+        .fallback_service(
+            ServeDir::new(&dist_dir).fallback(axum::routing::get(move || {
+                let html = index_html.clone();
+                async move { Html(html) }
+            })),
         );
 
     // Bind to port 0 — OS assigns an ephemeral port.
@@ -246,9 +252,7 @@ async fn serve_frontend(api_port: u16, port_tx: tokio::sync::oneshot::Sender<u16
         Ok(l) => l,
         Err(e) => {
             tracing::error!(error = %e, "failed to bind frontend server");
-            profiling::record_event("frontend_server_bind_error", &[
-                ("error", &e.to_string()),
-            ]);
+            profiling::record_event("frontend_server_bind_error", &[("error", &e.to_string())]);
             // Signal failure — drop the sender so the receiver gets an error.
             drop(port_tx);
             return;
@@ -260,16 +264,14 @@ async fn serve_frontend(api_port: u16, port_tx: tokio::sync::oneshot::Sender<u16
     let _ = port_tx.send(port);
 
     info!(port, "frontend server listening");
-    profiling::record_event("frontend_server_listening", &[
-        ("port", &port.to_string()),
-        ("protocol", "http")
-    ]);
+    profiling::record_event(
+        "frontend_server_listening",
+        &[("port", &port.to_string()), ("protocol", "http")],
+    );
 
     if let Err(e) = profile_async!("serve_frontend_requests", axum::serve(listener, app)).await {
         tracing::error!(error = %e, "frontend server error");
-        profiling::record_event("frontend_server_error", &[
-            ("error", &e.to_string())
-        ]);
+        profiling::record_event("frontend_server_error", &[("error", &e.to_string())]);
     }
 }
 
@@ -286,17 +288,21 @@ fn find_dist_dir() -> std::path::PathBuf {
         let index_path = dir.join("index.html");
         if index_path.exists() {
             info!(path = %dir.display(), "found frontend dist directory");
-            profiling::record_event("frontend_dist_found", &[
-                ("path", dir.to_str().unwrap_or("invalid")),
-                ("candidate_index", &index.to_string())
-            ]);
+            profiling::record_event(
+                "frontend_dist_found",
+                &[
+                    ("path", dir.to_str().unwrap_or("invalid")),
+                    ("candidate_index", &index.to_string()),
+                ],
+            );
             return dir.clone();
         }
     }
 
     tracing::warn!("frontend dist/ not found, falling back to app/leptos-ui/dist");
-    profiling::record_event("frontend_dist_fallback", &[
-        ("fallback_path", "app/leptos-ui/dist")
-    ]);
+    profiling::record_event(
+        "frontend_dist_fallback",
+        &[("fallback_path", "app/leptos-ui/dist")],
+    );
     candidates[0].clone()
 }

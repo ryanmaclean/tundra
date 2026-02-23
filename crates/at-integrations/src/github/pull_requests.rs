@@ -21,9 +21,7 @@ pub async fn list_pull_requests(
     page: Option<u32>,
     per_page: Option<u8>,
 ) -> Result<Vec<GitHubPullRequest>> {
-    let pulls_handler = client
-        .octocrab
-        .pulls(&client.owner, &client.repo);
+    let pulls_handler = client.octocrab.pulls(&client.owner, &client.repo);
 
     let mut handler = pulls_handler.list();
 
@@ -55,10 +53,7 @@ pub async fn list_pull_requests(
 }
 
 /// Get a single pull request by number.
-pub async fn get_pull_request(
-    client: &GitHubClient,
-    number: u64,
-) -> Result<GitHubPullRequest> {
+pub async fn get_pull_request(client: &GitHubClient, number: u64) -> Result<GitHubPullRequest> {
     let pr = client
         .octocrab
         .pulls(&client.owner, &client.repo)
@@ -76,9 +71,7 @@ pub async fn create_pull_request(
     head: &str,
     base: &str,
 ) -> Result<GitHubPullRequest> {
-    let pulls_handler = client
-        .octocrab
-        .pulls(&client.owner, &client.repo);
+    let pulls_handler = client.octocrab.pulls(&client.owner, &client.repo);
 
     let pr = pulls_handler
         .create(title, head, base)
@@ -90,10 +83,7 @@ pub async fn create_pull_request(
 }
 
 /// List files changed in a pull request.
-pub async fn list_pr_files(
-    client: &GitHubClient,
-    number: u64,
-) -> Result<Vec<PrFile>> {
+pub async fn list_pr_files(client: &GitHubClient, number: u64) -> Result<Vec<PrFile>> {
     let files = client
         .octocrab
         .pulls(&client.owner, &client.repo)
@@ -204,9 +194,6 @@ fn octocrab_pr_to_github_pr(pr: octocrab::models::pulls::PullRequest) -> GitHubP
         created_at,
         updated_at,
         merged_at: pr.merged_at,
-        html_url: pr
-            .html_url
-            .map(|u| u.to_string())
-            .unwrap_or_default(),
+        html_url: pr.html_url.map(|u| u.to_string()).unwrap_or_default(),
     }
 }

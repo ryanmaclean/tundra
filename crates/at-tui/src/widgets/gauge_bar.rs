@@ -1,8 +1,8 @@
-use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
+use ratatui::Frame;
 
 /// Renders a horizontal gauge bar with label and percentage.
 ///
@@ -10,13 +10,7 @@ use ratatui::widgets::Paragraph;
 ///
 /// The filled portion uses `color`; the empty portion is rendered in dark gray.
 /// The label is left-aligned and the percentage is right-aligned.
-pub fn render_gauge(
-    frame: &mut Frame,
-    area: Rect,
-    label: &str,
-    progress: u16,
-    color: Color,
-) {
+pub fn render_gauge(frame: &mut Frame, area: Rect, label: &str, progress: u16, color: Color) {
     let progress = progress.min(100);
     let pct_text = format!(" {}%", progress);
 

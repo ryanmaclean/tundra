@@ -66,7 +66,9 @@ impl PtyHandle {
             warn!("child lock was poisoned, recovering");
             e.into_inner()
         });
-        child.kill().map_err(|e| PtyError::Internal(e.to_string()))?;
+        child
+            .kill()
+            .map_err(|e| PtyError::Internal(e.to_string()))?;
         Ok(())
     }
 
@@ -82,12 +84,10 @@ impl PtyHandle {
     /// Read output with an async timeout.
     pub async fn read_timeout(&self, timeout: std::time::Duration) -> Option<Vec<u8>> {
         let rx = self.reader.clone();
-        tokio::time::timeout(timeout, async move {
-            rx.recv_async().await.ok()
-        })
-        .await
-        .ok()
-        .flatten()
+        tokio::time::timeout(timeout, async move { rx.recv_async().await.ok() })
+            .await
+            .ok()
+            .flatten()
     }
 
     /// Send bytes to the PTY stdin.
@@ -155,10 +155,13 @@ impl PtyPool {
 
     /// Number of currently active PTY sessions tracked by this pool.
     pub fn active_count(&self) -> usize {
-        self.handles.lock().unwrap_or_else(|e| {
-            warn!("PtyPool lock was poisoned, recovering");
-            e.into_inner()
-        }).len()
+        self.handles
+            .lock()
+            .unwrap_or_else(|e| {
+                warn!("PtyPool lock was poisoned, recovering");
+                e.into_inner()
+            })
+            .len()
     }
 
     /// Maximum capacity of the pool.
@@ -170,12 +173,7 @@ impl PtyPool {
     ///
     /// Returns a `PtyHandle` that provides async channels for reading stdout
     /// and writing to stdin of the spawned process.
-    pub fn spawn(
-        &self,
-        cmd: &str,
-        args: &[&str],
-        env: &[(&str, &str)],
-    ) -> Result<PtyHandle> {
+    pub fn spawn(&self, cmd: &str, args: &[&str], env: &[(&str, &str)]) -> Result<PtyHandle> {
         // Capacity check
         {
             let handles = self.handles.lock().unwrap_or_else(|e| {

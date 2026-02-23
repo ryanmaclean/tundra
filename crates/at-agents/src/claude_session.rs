@@ -453,10 +453,7 @@ mod tests {
 
     #[test]
     fn manager_with_base_url() {
-        let manager = ClaudeSessionManager::with_base_url(
-            "test-key",
-            "http://localhost:9999",
-        );
+        let manager = ClaudeSessionManager::with_base_url("test-key", "http://localhost:9999");
         assert_eq!(manager.session_count(), 0);
     }
 

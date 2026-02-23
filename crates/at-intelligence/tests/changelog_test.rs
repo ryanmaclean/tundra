@@ -38,7 +38,10 @@ fn entry(version: &str, sections: Vec<ChangelogSection>) -> ChangelogEntry {
 #[test]
 fn test_create_changelog_entry() {
     let mut engine = ChangelogEngine::new();
-    let e = entry("0.1.0", vec![section(ChangeCategory::Added, vec!["Initial release"])]);
+    let e = entry(
+        "0.1.0",
+        vec![section(ChangeCategory::Added, vec!["Initial release"])],
+    );
     let id = e.id;
     engine.add_entry(e);
 
@@ -77,7 +80,10 @@ fn test_list_changelog_entries() {
 #[test]
 fn test_get_changelog_by_version() {
     let mut engine = ChangelogEngine::new();
-    let e = entry("1.0.0", vec![section(ChangeCategory::Fixed, vec!["Bug fix"])]);
+    let e = entry(
+        "1.0.0",
+        vec![section(ChangeCategory::Fixed, vec!["Bug fix"])],
+    );
     let id = e.id;
     engine.add_entry(e);
 
@@ -120,7 +126,10 @@ fn test_parse_fix_commit_as_fixed() {
         .iter()
         .find(|s| s.category == ChangeCategory::Fixed);
     assert!(fixed_section.is_some());
-    assert_eq!(fixed_section.unwrap().items[0], "resolve null pointer crash");
+    assert_eq!(
+        fixed_section.unwrap().items[0],
+        "resolve null pointer crash"
+    );
 }
 
 #[test]
@@ -324,8 +333,14 @@ feat: CI/CD Pipeline Stabilization
         .find(|s| s.category == ChangeCategory::Added)
         .unwrap();
     assert_eq!(added.items.len(), 3);
-    assert!(added.items.iter().any(|i| i.contains("Project Documentation Foundation")));
-    assert!(added.items.iter().any(|i| i.contains("CI/CD Pipeline Stabilization")));
+    assert!(added
+        .items
+        .iter()
+        .any(|i| i.contains("Project Documentation Foundation")));
+    assert!(added
+        .items
+        .iter()
+        .any(|i| i.contains("CI/CD Pipeline Stabilization")));
 }
 
 #[test]

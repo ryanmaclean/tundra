@@ -94,9 +94,8 @@ impl GitReadAdapter for Git2ReadAdapter {
     }
 
     fn status_porcelain(&self, repo_dir: &str) -> Result<Vec<String>, GitReadError> {
-        let entries =
-            crate::git2_ops::Git2ReadOps::status(std::path::Path::new(repo_dir))
-                .map_err(|e| GitReadError::Command(e.to_string()))?;
+        let entries = crate::git2_ops::Git2ReadOps::status(std::path::Path::new(repo_dir))
+            .map_err(|e| GitReadError::Command(e.to_string()))?;
 
         // Format like `git status --porcelain`: "XY path"
         let lines = entries
@@ -191,7 +190,7 @@ pub fn default_read_adapter() -> Box<dyn GitReadAdapter> {
 
 #[cfg(test)]
 mod tests {
-    use super::{GitReadAdapter, ShellGitReadAdapter, default_read_adapter};
+    use super::{default_read_adapter, GitReadAdapter, ShellGitReadAdapter};
     use std::path::Path;
 
     #[test]
@@ -253,7 +252,9 @@ mod tests {
     fn shell_adapter_current_branch_fixture() {
         let tmp = init_fixture_repo();
         let adapter = ShellGitReadAdapter;
-        let branch = adapter.current_branch(tmp.path().to_str().unwrap()).unwrap();
+        let branch = adapter
+            .current_branch(tmp.path().to_str().unwrap())
+            .unwrap();
         assert_eq!(branch, "feature/adapter-test");
     }
 
@@ -263,7 +264,9 @@ mod tests {
         std::fs::write(tmp.path().join("README.md"), "hello\nmore\ndirty\n").unwrap();
 
         let adapter = ShellGitReadAdapter;
-        let lines = adapter.status_porcelain(tmp.path().to_str().unwrap()).unwrap();
+        let lines = adapter
+            .status_porcelain(tmp.path().to_str().unwrap())
+            .unwrap();
         assert!(!lines.is_empty());
         assert!(lines.iter().any(|l| l.contains("README.md")));
     }
@@ -337,9 +340,7 @@ mod tests {
         fn git2_adapter_current_branch() {
             let root = workspace_root();
             let adapter = Git2ReadAdapter;
-            let branch = adapter
-                .current_branch(root.to_str().unwrap())
-                .unwrap();
+            let branch = adapter.current_branch(root.to_str().unwrap()).unwrap();
             assert!(!branch.is_empty());
         }
 
@@ -348,18 +349,14 @@ mod tests {
             let root = workspace_root();
             let adapter = Git2ReadAdapter;
             // Should not error, even if clean
-            let _lines = adapter
-                .status_porcelain(root.to_str().unwrap())
-                .unwrap();
+            let _lines = adapter.status_porcelain(root.to_str().unwrap()).unwrap();
         }
 
         #[test]
         fn git2_adapter_diff_stat_same_ref() {
             let root = workspace_root();
             let adapter = Git2ReadAdapter;
-            let branch = adapter
-                .current_branch(root.to_str().unwrap())
-                .unwrap();
+            let branch = adapter.current_branch(root.to_str().unwrap()).unwrap();
             // Diff a branch against itself — should be empty
             let stat = adapter
                 .diff_stat(root.to_str().unwrap(), &branch, &branch)

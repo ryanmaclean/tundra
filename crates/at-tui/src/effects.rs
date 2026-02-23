@@ -24,10 +24,7 @@
 use std::time::Duration;
 
 use ratatui::{buffer::Buffer, layout::Rect, style::Color};
-use tachyonfx::{
-    Effect, EffectManager as TachyonManager, Interpolation, Motion, Shader,
-    fx,
-};
+use tachyonfx::{fx, Effect, EffectManager as TachyonManager, Interpolation, Motion, Shader};
 
 // ---------------------------------------------------------------------------
 // Direction type re-exported for callers
@@ -49,8 +46,8 @@ impl From<SweepDirection> for Motion {
         match d {
             SweepDirection::LeftToRight => Motion::LeftToRight,
             SweepDirection::RightToLeft => Motion::RightToLeft,
-            SweepDirection::UpToDown   => Motion::UpToDown,
-            SweepDirection::DownToUp   => Motion::DownToUp,
+            SweepDirection::UpToDown => Motion::UpToDown,
+            SweepDirection::DownToUp => Motion::DownToUp,
         }
     }
 }
@@ -94,7 +91,7 @@ pub fn sweep_in(direction: SweepDirection) -> Effect {
 pub fn glow_pulse() -> Effect {
     // Oscillate hue ±30° on the foreground to simulate a glow.
     let shift_forward = fx::hsl_shift_fg([30.0, 0.2, 0.15], (500, Interpolation::SineInOut));
-    let shift_back    = fx::hsl_shift_fg([-30.0, -0.2, -0.15], (500, Interpolation::SineInOut));
+    let shift_back = fx::hsl_shift_fg([-30.0, -0.2, -0.15], (500, Interpolation::SineInOut));
     fx::repeating(fx::sequence(&[shift_forward, shift_back]))
 }
 
@@ -177,8 +174,8 @@ mod tests {
         let cases = [
             (SweepDirection::LeftToRight, Motion::LeftToRight),
             (SweepDirection::RightToLeft, Motion::RightToLeft),
-            (SweepDirection::UpToDown,   Motion::UpToDown),
-            (SweepDirection::DownToUp,   Motion::DownToUp),
+            (SweepDirection::UpToDown, Motion::UpToDown),
+            (SweepDirection::DownToUp, Motion::DownToUp),
         ];
         for (dir, expected) in cases {
             let motion: Motion = dir.into();
@@ -212,7 +209,10 @@ mod tests {
         ];
         for dir in directions {
             let mut effect = sweep_in(dir);
-            assert!(!effect.done(), "sweep_in({dir:?}) should not be done immediately");
+            assert!(
+                !effect.done(),
+                "sweep_in({dir:?}) should not be done immediately"
+            );
         }
     }
 
@@ -220,13 +220,19 @@ mod tests {
     fn glow_pulse_effect_is_running_initially() {
         // glow_pulse uses repeating(), so it runs indefinitely.
         let mut effect = glow_pulse();
-        assert!(!effect.done(), "glow_pulse should never be done while active");
+        assert!(
+            !effect.done(),
+            "glow_pulse should never be done while active"
+        );
     }
 
     #[test]
     fn particle_burst_effect_is_running_initially() {
         let mut effect = particle_burst();
-        assert!(!effect.done(), "particle_burst should not be done immediately");
+        assert!(
+            !effect.done(),
+            "particle_burst should not be done immediately"
+        );
     }
 
     #[test]

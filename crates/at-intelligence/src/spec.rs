@@ -371,11 +371,7 @@ impl SpecPipeline {
     }
 
     /// Record a phase result for a spec.
-    pub fn record_phase(
-        &mut self,
-        spec_id: &Uuid,
-        result: PhaseResult,
-    ) -> Result<(), SpecError> {
+    pub fn record_phase(&mut self, spec_id: &Uuid, result: PhaseResult) -> Result<(), SpecError> {
         let spec = self
             .specs
             .get_mut(spec_id)
@@ -519,7 +515,11 @@ mod tests {
         let mut spec = Spec::new("test", "desc");
         assert!(!spec.is_complete());
 
-        for phase in [SpecPhase::Discovery, SpecPhase::Requirements, SpecPhase::Writing] {
+        for phase in [
+            SpecPhase::Discovery,
+            SpecPhase::Requirements,
+            SpecPhase::Writing,
+        ] {
             spec.add_phase_result(PhaseResult {
                 id: Uuid::new_v4(),
                 phase,

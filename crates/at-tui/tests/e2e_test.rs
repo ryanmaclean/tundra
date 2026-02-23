@@ -110,16 +110,15 @@ fn e2e_ollama_reachable() {
 fn e2e_ollama_has_models() {
     require_ollama();
     let resp = get_json(&format!("{OLLAMA_URL}/api/tags")).expect("failed to list models");
-    let models = resp["models"].as_array().expect("models should be an array");
+    let models = resp["models"]
+        .as_array()
+        .expect("models should be an array");
     assert!(
         !models.is_empty(),
         "Ollama should have at least one model installed"
     );
     // Check for at least one coding model
-    let model_names: Vec<&str> = models
-        .iter()
-        .filter_map(|m| m["name"].as_str())
-        .collect();
+    let model_names: Vec<&str> = models.iter().filter_map(|m| m["name"].as_str()).collect();
     eprintln!("Available Ollama models: {:?}", model_names);
 }
 
@@ -157,9 +156,19 @@ fn e2e_fetch_agents_schema() {
         );
         // Role should be a known role
         let known_roles = [
-            "mayor", "deacon", "crew", "witness", "herald", "scout",
-            "spec_writer", "spec_critic", "qa", "build", "utility",
-            "ideation", "reviewer",
+            "mayor",
+            "deacon",
+            "crew",
+            "witness",
+            "herald",
+            "scout",
+            "spec_writer",
+            "spec_critic",
+            "qa",
+            "build",
+            "utility",
+            "ideation",
+            "reviewer",
         ];
         assert!(
             known_roles.iter().any(|r| agent.role.contains(r)),
@@ -180,9 +189,19 @@ fn e2e_fetch_beads() {
         assert!(!bead.id.is_empty(), "bead id empty");
         assert!(!bead.title.is_empty(), "bead title empty");
         // Status should be a valid kanban lane
-        let valid_statuses = ["backlog", "hooked", "slung", "review", "done", "failed", "escalated"];
+        let valid_statuses = [
+            "backlog",
+            "hooked",
+            "slung",
+            "review",
+            "done",
+            "failed",
+            "escalated",
+        ];
         assert!(
-            valid_statuses.iter().any(|s| bead.status.to_lowercase().contains(s)),
+            valid_statuses
+                .iter()
+                .any(|s| bead.status.to_lowercase().contains(s)),
             "unexpected bead status: {} for bead {}",
             bead.status,
             bead.id
@@ -408,9 +427,7 @@ fn e2e_task_lifecycle() {
     // Verify it's in archived list (endpoint returns array of ID strings)
     let archived = get_json(&format!("{DAEMON_URL}/api/tasks/archived")).expect("fetch archived");
     let archived_arr = archived.as_array().expect("archived should be array");
-    let found = archived_arr
-        .iter()
-        .any(|t| t.as_str() == Some(task_id));
+    let found = archived_arr.iter().any(|t| t.as_str() == Some(task_id));
     assert!(found, "Task {} not found in archived list", task_id);
 }
 
@@ -425,7 +442,10 @@ fn e2e_settings_endpoint() {
 
     // Settings should have known top-level keys
     assert!(settings["general"].is_object(), "settings.general missing");
-    assert!(settings["providers"].is_object(), "settings.providers missing");
+    assert!(
+        settings["providers"].is_object(),
+        "settings.providers missing"
+    );
     assert!(settings["daemon"].is_object(), "settings.daemon missing");
     assert!(settings["agents"].is_object(), "settings.agents missing");
 }
@@ -448,7 +468,10 @@ fn e2e_cli_available() {
     let cli = get_json(&format!("{DAEMON_URL}/api/cli/available")).expect("cli available");
 
     // Should be an object with CLI tool availability
-    assert!(cli.is_object() || cli.is_array(), "cli/available should be object or array");
+    assert!(
+        cli.is_object() || cli.is_array(),
+        "cli/available should be object or array"
+    );
 }
 
 // ===========================================================================
@@ -470,11 +493,12 @@ fn e2e_ollama_chat_completion() {
     let resp = post_json(&format!("{OLLAMA_URL}/api/chat"), &body);
     match resp {
         Ok(data) => {
-            let content = data["message"]["content"]
-                .as_str()
-                .unwrap_or("");
+            let content = data["message"]["content"].as_str().unwrap_or("");
             eprintln!("Ollama response: {}", content);
-            assert!(!content.is_empty(), "Ollama should return non-empty content");
+            assert!(
+                !content.is_empty(),
+                "Ollama should return non-empty content"
+            );
         }
         Err(e) => {
             // Model might not be available — that's acceptable for CI
@@ -491,10 +515,7 @@ fn e2e_ollama_list_local_models() {
     let models = resp["models"].as_array().expect("models array");
 
     // Print available models for debugging
-    let names: Vec<&str> = models
-        .iter()
-        .filter_map(|m| m["name"].as_str())
-        .collect();
+    let names: Vec<&str> = models.iter().filter_map(|m| m["name"].as_str()).collect();
     eprintln!("Local Ollama models: {:?}", names);
 
     // Should have at least one model
@@ -533,10 +554,7 @@ fn e2e_generate_ideas_returns_valid_structure() {
                 data["analysis_type"].is_string(),
                 "should have analysis_type"
             );
-            assert!(
-                data["generated_at"].is_string(),
-                "should have generated_at"
-            );
+            assert!(data["generated_at"].is_string(), "should have generated_at");
         }
         Err(e) => {
             eprintln!("Generate ideas failed (expected if no LLM configured): {e}");
@@ -642,7 +660,11 @@ fn e2e_invalid_endpoint_returns_404() {
         .get(&format!("{DAEMON_URL}/api/nonexistent"))
         .send()
         .expect("request");
-    assert_eq!(resp.status().as_u16(), 404, "unknown endpoint should be 404");
+    assert_eq!(
+        resp.status().as_u16(),
+        404,
+        "unknown endpoint should be 404"
+    );
 }
 
 #[test]

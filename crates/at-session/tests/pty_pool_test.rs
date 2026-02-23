@@ -31,7 +31,11 @@ fn spawn_simple_process() {
 fn read_output_from_spawned_process() {
     let pool = PtyPool::new(4);
     let handle = pool
-        .spawn("/bin/sh", &["-c", "echo line1; echo line2; echo line3"], &[])
+        .spawn(
+            "/bin/sh",
+            &["-c", "echo line1; echo line2; echo line3"],
+            &[],
+        )
         .expect("failed to spawn sh");
 
     std::thread::sleep(Duration::from_millis(500));

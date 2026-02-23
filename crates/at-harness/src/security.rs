@@ -62,7 +62,10 @@ impl ApiKeyValidator {
         }
 
         // Character validation: alphanumeric, hyphens, underscores, dots
-        if !key.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '.') {
+        if !key
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '.')
+        {
             return Err(SecurityError::InvalidApiKey(
                 "key contains invalid characters".into(),
             ));
@@ -151,7 +154,11 @@ impl ToolCallFirewall {
     ) -> Result<(), SecurityError> {
         // Check blocked tools
         let name_lower = tool_name.to_lowercase();
-        if self.blocked_tools.iter().any(|b| name_lower == b.to_lowercase()) {
+        if self
+            .blocked_tools
+            .iter()
+            .any(|b| name_lower == b.to_lowercase())
+        {
             warn!(tool = tool_name, "blocked dangerous tool call");
             return Err(SecurityError::BlockedToolCall(format!(
                 "tool `{}` is not allowed",
@@ -248,7 +255,10 @@ impl InputSanitizer {
         let lower = input.to_lowercase();
         for pattern in &self.injection_patterns {
             if lower.contains(&pattern.to_lowercase()) {
-                warn!(pattern = pattern.as_str(), "potential prompt injection detected");
+                warn!(
+                    pattern = pattern.as_str(),
+                    "potential prompt injection detected"
+                );
                 return Err(SecurityError::InputRejected(format!(
                     "potential prompt injection detected: `{}`",
                     pattern

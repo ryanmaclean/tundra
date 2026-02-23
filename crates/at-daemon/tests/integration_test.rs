@@ -68,9 +68,7 @@ async fn test_daemon_startup_and_api_binding() {
     let (base, _state) = start_test_server().await;
 
     // Server should respond to a simple GET.
-    let resp = reqwest::get(format!("{base}/api/status"))
-        .await
-        .unwrap();
+    let resp = reqwest::get(format!("{base}/api/status")).await.unwrap();
     assert_eq!(resp.status(), 200);
     let body: Value = resp.json().await.unwrap();
     assert!(body["version"].is_string());
@@ -181,7 +179,11 @@ async fn test_settings_patch_cycle() {
     let client = reqwest::Client::new();
 
     // GET initial settings.
-    let resp = client.get(format!("{base}/api/settings")).send().await.unwrap();
+    let resp = client
+        .get(format!("{base}/api/settings"))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200);
     let initial: Value = resp.json().await.unwrap();
     assert!(initial["agents"].is_object());
@@ -280,7 +282,15 @@ async fn test_task_phase_transitions_through_api() {
     let task_id = created["id"].as_str().unwrap();
 
     // Walk through valid transitions: discovery -> context_gathering -> spec_creation
-    let phases = ["context_gathering", "spec_creation", "planning", "coding", "qa", "merging", "complete"];
+    let phases = [
+        "context_gathering",
+        "spec_creation",
+        "planning",
+        "coding",
+        "qa",
+        "merging",
+        "complete",
+    ];
     for phase in &phases {
         let resp = client
             .post(format!("{base}/api/tasks/{task_id}/phase"))
@@ -288,11 +298,7 @@ async fn test_task_phase_transitions_through_api() {
             .send()
             .await
             .unwrap();
-        assert_eq!(
-            resp.status(),
-            200,
-            "transition to {phase} should succeed"
-        );
+        assert_eq!(resp.status(), 200, "transition to {phase} should succeed");
         let body: Value = resp.json().await.unwrap();
         assert_eq!(body["phase"], *phase);
     }
@@ -386,15 +392,15 @@ async fn test_websocket_connects_and_receives_event() {
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     // Publish a test event.
-    state.event_bus.publish(BridgeMessage::Event(
-        at_bridge::protocol::EventPayload {
+    state
+        .event_bus
+        .publish(BridgeMessage::Event(at_bridge::protocol::EventPayload {
             event_type: "integration_test".to_string(),
             agent_id: None,
             bead_id: None,
             message: "hello from integration test".to_string(),
             timestamp: chrono::Utc::now(),
-        },
-    ));
+        }));
 
     // Receive the event.
     let msg = tokio::time::timeout(Duration::from_secs(3), ws_stream.next())
@@ -445,7 +451,10 @@ async fn test_events_ws_endpoint_connects() {
             }
         }
     }
-    assert!(found, "expected to receive a get_status event over WebSocket");
+    assert!(
+        found,
+        "expected to receive a get_status event over WebSocket"
+    );
 }
 
 // ===========================================================================
@@ -616,9 +625,7 @@ async fn test_notification_endpoints_via_http() {
 async fn test_agent_sessions_endpoint_empty() {
     let (base, _state) = start_test_server().await;
 
-    let resp = reqwest::get(format!("{base}/api/sessions"))
-        .await
-        .unwrap();
+    let resp = reqwest::get(format!("{base}/api/sessions")).await.unwrap();
     assert_eq!(resp.status(), 200);
 
     let body: Vec<Value> = resp.json().await.unwrap();

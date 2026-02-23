@@ -74,14 +74,8 @@ impl EventBus {
     /// - `Event(EventPayload { agent_id: Some(..), .. })`
     pub fn subscribe_for_agent(&self, agent_id: uuid::Uuid) -> flume::Receiver<Arc<BridgeMessage>> {
         self.subscribe_filtered(move |msg| match msg {
-            BridgeMessage::SlingBead {
-                agent_id: id,
-                ..
-            } => *id == agent_id,
-            BridgeMessage::AgentOutput {
-                agent_id: id,
-                ..
-            } => *id == agent_id,
+            BridgeMessage::SlingBead { agent_id: id, .. } => *id == agent_id,
+            BridgeMessage::AgentOutput { agent_id: id, .. } => *id == agent_id,
             BridgeMessage::Event(payload) => payload.agent_id == Some(agent_id),
             _ => false,
         })

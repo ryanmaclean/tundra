@@ -234,11 +234,7 @@ impl CommandRegistry {
     }
 
     /// Register a command with its descriptor and handler.
-    pub fn register(
-        &mut self,
-        descriptor: CommandDescriptor,
-        handler: Arc<dyn CommandHandler>,
-    ) {
+    pub fn register(&mut self, descriptor: CommandDescriptor, handler: Arc<dyn CommandHandler>) {
         let name = descriptor.name.clone();
         self.commands.insert(
             name,
@@ -372,7 +368,10 @@ impl Default for CommandRegistry {
 /// Wraps an async function as a CommandHandler for simple commands.
 pub struct FnCommandHandler<F>
 where
-    F: Fn(CommandContext) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<CommandOutput>> + Send>>
+    F: Fn(
+            CommandContext,
+        )
+            -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<CommandOutput>> + Send>>
         + Send
         + Sync
         + 'static,
@@ -382,7 +381,10 @@ where
 
 impl<F> FnCommandHandler<F>
 where
-    F: Fn(CommandContext) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<CommandOutput>> + Send>>
+    F: Fn(
+            CommandContext,
+        )
+            -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<CommandOutput>> + Send>>
         + Send
         + Sync
         + 'static,
@@ -395,7 +397,10 @@ where
 #[async_trait]
 impl<F> CommandHandler for FnCommandHandler<F>
 where
-    F: Fn(CommandContext) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<CommandOutput>> + Send>>
+    F: Fn(
+            CommandContext,
+        )
+            -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<CommandOutput>> + Send>>
         + Send
         + Sync
         + 'static,

@@ -1,8 +1,8 @@
-use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::Line;
 use ratatui::widgets::{Block, Borders, Cell, Paragraph, Row, Table};
+use ratatui::Frame;
 
 use crate::app::App;
 
@@ -56,11 +56,7 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect) {
 
     let table = Table::new(rows, widths)
         .header(header)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(" Costs "),
-        );
+        .block(Block::default().borders(Borders::ALL).title(" Costs "));
 
     frame.render_widget(table, chunks[0]);
 

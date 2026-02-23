@@ -4,8 +4,8 @@
 use at_agents::approval::{ApprovalPolicy, ToolApprovalSystem};
 use at_agents::profiles::{AgentConfig, ThinkingLevel};
 use at_agents::roles::{
-    CrewAgent, DeaconAgent, MayorAgent, PolecatAgent, RefineryAgent, RoleConfig, WitnessAgent,
-    role_config_for,
+    role_config_for, CrewAgent, DeaconAgent, MayorAgent, PolecatAgent, RefineryAgent, RoleConfig,
+    WitnessAgent,
 };
 use at_agents::state_machine::{AgentEvent, AgentState, AgentStateMachine};
 use at_agents::supervisor::AgentSupervisor;
@@ -85,7 +85,11 @@ fn test_role_display_names() {
     ];
     for (role, expected_json) in &pairs {
         let json = serde_json::to_string(role).unwrap();
-        assert_eq!(&json, expected_json, "Role {:?} did not serialize as expected", role);
+        assert_eq!(
+            &json, expected_json,
+            "Role {:?} did not serialize as expected",
+            role
+        );
     }
 }
 
@@ -529,7 +533,11 @@ fn test_approval_store_records_decisions() {
 
     // Request approval
     let approval_id = system
-        .request_approval(agent_id, "file_write", serde_json::json!({"path": "test.rs"}))
+        .request_approval(
+            agent_id,
+            "file_write",
+            serde_json::json!({"path": "test.rs"}),
+        )
         .id;
 
     // Verify pending
@@ -557,17 +565,18 @@ fn test_approval_deny_flow() {
     let agent_id = uuid::Uuid::new_v4();
 
     let approval_id = system
-        .request_approval(agent_id, "shell_execute", serde_json::json!({"cmd": "rm -rf /"}))
+        .request_approval(
+            agent_id,
+            "shell_execute",
+            serde_json::json!({"cmd": "rm -rf /"}),
+        )
         .id;
 
     system.deny(approval_id).unwrap();
     assert!(!system.is_approved(approval_id));
 
     let approval = system.get_approval(approval_id).unwrap();
-    assert_eq!(
-        approval.status,
-        at_agents::approval::ApprovalStatus::Denied
-    );
+    assert_eq!(approval.status, at_agents::approval::ApprovalStatus::Denied);
     assert!(approval.resolved_at.is_some());
 
     // Double-deny fails
@@ -598,7 +607,11 @@ fn test_approval_policies_per_role() {
     );
 
     // Add another role-specific override
-    system.set_role_override("shell_execute", AgentRole::Witness, ApprovalPolicy::AutoApprove);
+    system.set_role_override(
+        "shell_execute",
+        AgentRole::Witness,
+        ApprovalPolicy::AutoApprove,
+    );
     assert_eq!(
         system.check_approval("shell_execute", &AgentRole::Witness),
         ApprovalPolicy::AutoApprove
@@ -695,9 +708,9 @@ fn test_agent_state_spawning_to_running() {
 #[test]
 fn test_agent_state_running_to_stopped() {
     let mut sm = AgentStateMachine::new();
-    sm.transition(AgentEvent::Start).unwrap();   // Idle -> Spawning
-    sm.transition(AgentEvent::Spawned).unwrap();  // Spawning -> Active
-    sm.transition(AgentEvent::Stop).unwrap();     // Active -> Stopping
+    sm.transition(AgentEvent::Start).unwrap(); // Idle -> Spawning
+    sm.transition(AgentEvent::Spawned).unwrap(); // Spawning -> Active
+    sm.transition(AgentEvent::Stop).unwrap(); // Active -> Stopping
     let next = sm.transition(AgentEvent::Stop).unwrap(); // Stopping -> Stopped
     assert_eq!(next, AgentState::Stopped);
     assert_eq!(sm.state(), AgentState::Stopped);
@@ -767,9 +780,22 @@ fn test_agent_state_history_tracking() {
 
     let history = sm.history();
     assert_eq!(history.len(), 3);
-    assert_eq!(history[0], (AgentState::Idle, AgentEvent::Start, AgentState::Spawning));
-    assert_eq!(history[1], (AgentState::Spawning, AgentEvent::Spawned, AgentState::Active));
-    assert_eq!(history[2], (AgentState::Active, AgentEvent::Stop, AgentState::Stopping));
+    assert_eq!(
+        history[0],
+        (AgentState::Idle, AgentEvent::Start, AgentState::Spawning)
+    );
+    assert_eq!(
+        history[1],
+        (
+            AgentState::Spawning,
+            AgentEvent::Spawned,
+            AgentState::Active
+        )
+    );
+    assert_eq!(
+        history[2],
+        (AgentState::Active, AgentEvent::Stop, AgentState::Stopping)
+    );
 }
 
 #[test]

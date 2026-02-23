@@ -129,8 +129,7 @@ impl LinearSyncEngine {
         let changes = std::mem::take(&mut self.pending_changes);
 
         // Collect entity_ids that were pushed so we can detect conflicts later.
-        let mut pushed_ids: std::collections::HashSet<String> =
-            std::collections::HashSet::new();
+        let mut pushed_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
 
         let should_push = matches!(
             self.config.direction,
@@ -176,17 +175,13 @@ impl LinearSyncEngine {
                         self.retry_counts.remove(&change.id);
                     }
                     Err(err) => {
-                        let count = self
-                            .retry_counts
-                            .entry(change.id.clone())
-                            .or_insert(0);
+                        let count = self.retry_counts.entry(change.id.clone()).or_insert(0);
                         *count += 1;
 
                         if *count >= self.config.max_retries {
                             let final_count = *count;
                             self.retry_counts.remove(&change.id);
-                            self.dead_letter
-                                .push((change, final_count, err));
+                            self.dead_letter.push((change, final_count, err));
                             dead_lettered += 1;
                         } else {
                             // Put the change back for the next sync cycle.
@@ -458,11 +453,9 @@ mod tests {
         let mut engine = LinearSyncEngine::new(client, SyncConfig::default());
 
         // Manually push a dead letter entry for the test.
-        engine.dead_letter.push((
-            make_change("ch-dl", "ent-dl"),
-            3,
-            "some error".to_string(),
-        ));
+        engine
+            .dead_letter
+            .push((make_change("ch-dl", "ent-dl"), 3, "some error".to_string()));
         assert_eq!(engine.dead_letter_queue().len(), 1);
 
         engine.clear_dead_letters();

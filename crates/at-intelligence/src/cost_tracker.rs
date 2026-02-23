@@ -381,12 +381,7 @@ impl CostTracker {
 
     /// Get total cost across all recorded requests.
     pub async fn total_cost(&self) -> f64 {
-        self.records
-            .read()
-            .await
-            .iter()
-            .map(|r| r.cost_usd)
-            .sum()
+        self.records.read().await.iter().map(|r| r.cost_usd).sum()
     }
 
     /// Get total tokens across all recorded requests.
@@ -680,25 +675,31 @@ mod tests {
     async fn tracker_budget_enforcement() {
         let tracker = CostTracker::new();
         tracker
-            .set_budget(
-                "task-1".into(),
-                TokenBudget::new(5000, 0.50, 10),
-            )
+            .set_budget("task-1".into(), TokenBudget::new(5000, 0.50, 10))
             .await;
 
-        assert!(tracker.check_budget("task-1", 1000, 0.10).await.is_allowed());
+        assert!(tracker
+            .check_budget("task-1", 1000, 0.10)
+            .await
+            .is_allowed());
 
         // Consume most of the budget
         tracker.consume_budget("task-1", 4500, 0.45).await;
 
         // Should be denied now
-        assert!(!tracker.check_budget("task-1", 1000, 0.10).await.is_allowed());
+        assert!(!tracker
+            .check_budget("task-1", 1000, 0.10)
+            .await
+            .is_allowed());
     }
 
     #[tokio::test]
     async fn tracker_no_budget_allows_all() {
         let tracker = CostTracker::new();
-        assert!(tracker.check_budget("no-budget-key", 999_999, 999.0).await.is_allowed());
+        assert!(tracker
+            .check_budget("no-budget-key", 999_999, 999.0)
+            .await
+            .is_allowed());
     }
 
     #[tokio::test]
@@ -745,7 +746,9 @@ mod tests {
             })
             .await;
 
-        let cost = tracker.calculate_cost("custom-model", 1_000_000, 1_000_000).await;
+        let cost = tracker
+            .calculate_cost("custom-model", 1_000_000, 1_000_000)
+            .await;
         assert!((cost - 3.0).abs() < 0.001);
     }
 
