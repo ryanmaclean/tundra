@@ -124,7 +124,7 @@ pub fn validate_environment() -> Result<()> {
         let rate: f64 = sample_rate
             .parse()
             .context("DD_TRACE_SAMPLE_RATE must be a valid number")?;
-        if rate < 0.0 || rate > 1.0 {
+        if !(0.0..=1.0).contains(&rate) {
             return Err(anyhow::anyhow!(
                 "DD_TRACE_SAMPLE_RATE must be between 0.0 and 1.0"
             ));

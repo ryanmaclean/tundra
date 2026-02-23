@@ -5,6 +5,7 @@ use crate::protocol::BridgeMessage;
 /// A subscriber entry holding its sender channel and an optional filter.
 struct Subscriber {
     tx: flume::Sender<Arc<BridgeMessage>>,
+    #[allow(clippy::type_complexity)]
     filter: Option<Box<dyn Fn(&BridgeMessage) -> bool + Send + Sync>>,
 }
 

@@ -475,7 +475,7 @@ impl AgentExecutor {
         let process = self
             .spawner
             .spawn(agent_config.binary_name(), &args_refs, &env_refs)
-            .map_err(|e| ExecutorError::PtyPool(e))?;
+            .map_err(ExecutorError::PtyPool)?;
 
         let process = Arc::new(process);
 
@@ -491,7 +491,7 @@ impl AgentExecutor {
         // Send the prompt to stdin
         process
             .send_line(prompt)
-            .map_err(|e| ExecutorError::Internal(e))?;
+            .map_err(ExecutorError::Internal)?;
 
         // Collect output with timeout
         let timeout = Duration::from_secs(agent_config.timeout_secs);
@@ -780,14 +780,14 @@ fn extract_tool_name(error_msg: &str) -> String {
     // Pattern: "No such tool available: <ToolName>"
     if let Some(idx) = msg.rfind(": ") {
         let after = msg[idx + 2..].trim();
-        if !after.is_empty() && after.chars().next().map_or(false, |c| c.is_alphabetic()) {
+        if !after.is_empty() && after.chars().next().is_some_and(|c| c.is_alphabetic()) {
             return after.to_string();
         }
     }
 
     // Pattern: "Tool \"<ToolName>\" is not available" or "Tool '<ToolName>'"
     if msg.contains("Tool") {
-        let cleaned = msg.replace('"', "").replace('\'', "");
+        let cleaned = msg.replace(['"', '\''], "");
         for word in cleaned.split_whitespace() {
             // Tool names are typically PascalCase or lowercase
             if word != "Tool"
@@ -796,7 +796,7 @@ fn extract_tool_name(error_msg: &str) -> String {
                 && word != "available"
                 && word != "Error:"
                 && word != "Unknown"
-                && word.chars().next().map_or(false, |c| c.is_alphabetic())
+                && word.chars().next().is_some_and(|c| c.is_alphabetic())
             {
                 return word.to_string();
             }

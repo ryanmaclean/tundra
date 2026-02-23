@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use anyhow::Result;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -209,7 +210,7 @@ impl PerformanceBenchmarks {
 
         let events_per_second = 1_000;
         let duration_seconds = 5;
-        let total_events = events_per_second * duration_seconds;
+        let _total_events = events_per_second * duration_seconds;
 
         let start = Instant::now();
         let mut sent_events = 0;

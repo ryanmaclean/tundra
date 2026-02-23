@@ -15,6 +15,7 @@ pub struct ApiClient {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ApiAgent {
+    #[allow(dead_code)]
     #[serde(default)]
     pub id: String,
     #[serde(default)]
@@ -35,12 +36,15 @@ pub struct ApiBead {
     pub status: String,
     #[serde(default)]
     pub lane: String,
+    #[allow(dead_code)]
     #[serde(default)]
     pub priority: i32,
+    #[allow(dead_code)]
     #[serde(default)]
     pub category: Option<String>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Deserialize)]
 pub struct ApiKpi {
     #[serde(default)]
@@ -77,6 +81,7 @@ pub struct ApiSession {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ApiConvoy {
+    #[allow(dead_code)]
     #[serde(default)]
     pub id: String,
     #[serde(default)]
@@ -85,10 +90,12 @@ pub struct ApiConvoy {
     pub bead_count: u32,
     #[serde(default)]
     pub status: String,
+    #[allow(dead_code)]
     #[serde(default)]
     pub bead_ids: Vec<String>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Deserialize)]
 pub struct ApiCosts {
     #[serde(default)]
@@ -99,6 +106,7 @@ pub struct ApiCosts {
     pub sessions: Vec<ApiCostSession>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Deserialize)]
 pub struct ApiCostSession {
     #[serde(default)]
@@ -181,6 +189,7 @@ pub struct ApiRoadmapFeature {
     pub priority: u8,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Deserialize)]
 pub struct ApiRoadmap {
     #[serde(default)]
@@ -216,6 +225,7 @@ pub struct ApiIdea {
     pub effort: String,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Deserialize)]
 pub struct ApiStackNode {
     #[serde(default)]
@@ -232,6 +242,7 @@ pub struct ApiStackNode {
     pub stack_position: u32,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Deserialize)]
 pub struct ApiStack {
     pub root: ApiStackNode,
@@ -249,6 +260,7 @@ pub struct ApiChangelogSection {
     pub items: Vec<String>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Deserialize)]
 pub struct ApiChangelogEntry {
     #[serde(default)]
@@ -388,7 +400,7 @@ impl ApiClient {
         AppData {
             agents: self.fetch_agents().unwrap_or_default(),
             beads: self.fetch_beads().unwrap_or_default(),
-            kpi: self.fetch_kpi().unwrap_or_else(|_| ApiKpi {
+            kpi: self.fetch_kpi().unwrap_or(ApiKpi {
                 total_beads: 0,
                 backlog: 0,
                 hooked: 0,

@@ -6,6 +6,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 use ratatui::Frame;
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub enum ToastLevel {
     Info,
@@ -43,6 +44,7 @@ pub struct Toast {
 }
 
 impl Toast {
+    #[allow(dead_code)]
     pub fn new(message: impl Into<String>, level: ToastLevel) -> Self {
         Self {
             message: message.into(),
@@ -52,6 +54,7 @@ impl Toast {
         }
     }
 
+    #[allow(dead_code)]
     pub fn with_duration(mut self, duration: Duration) -> Self {
         self.duration = duration;
         self
@@ -72,6 +75,7 @@ impl Toast {
     }
 }
 
+#[allow(dead_code)]
 const MAX_TOASTS: usize = 5;
 const TOAST_WIDTH: u16 = 40;
 const TOAST_HEIGHT: u16 = 3;
@@ -87,6 +91,7 @@ impl ToastManager {
     }
 
     /// Push a new toast. If the stack exceeds the maximum, the oldest toast is removed.
+    #[allow(dead_code)]
     pub fn push(&mut self, toast: Toast) {
         self.toasts.push(toast);
         if self.toasts.len() > MAX_TOASTS {
@@ -100,11 +105,13 @@ impl ToastManager {
     }
 
     /// Returns the number of active (non-expired) toasts.
+    #[allow(dead_code)]
     pub fn len(&self) -> usize {
         self.toasts.len()
     }
 
     /// Returns true if there are no active toasts.
+    #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.toasts.is_empty()
     }

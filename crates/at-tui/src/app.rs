@@ -686,6 +686,7 @@ impl App {
 // Status glyph helper
 // ---------------------------------------------------------------------------
 
+#[allow(dead_code)]
 pub fn status_glyph(status: &str) -> &'static str {
     match status {
         "active" => "@",

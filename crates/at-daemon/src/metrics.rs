@@ -1,8 +1,8 @@
+#![allow(dead_code)]
 use crate::profiling::record_event;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::info;
 
 /// Custom metrics collector for Datadog
 #[derive(Debug, Default)]
@@ -282,8 +282,8 @@ impl AppMetrics {
             "llm_profile_bootstrap",
             &[
                 ("total_profiles", &total_profiles.to_string()),
-                ("best_profile", &best_profile.to_string()),
-                ("best_provider", &best_provider.to_string()),
+                ("best_profile", best_profile),
+                ("best_provider", best_provider),
             ],
         );
     }

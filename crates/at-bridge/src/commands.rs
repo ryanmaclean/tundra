@@ -170,7 +170,7 @@ impl CommandHandler for AdvanceTaskPhaseHandler {
 
         self.0
             .event_bus
-            .publish(BridgeMessage::TaskUpdate(snapshot));
+            .publish(BridgeMessage::TaskUpdate(Box::new(snapshot)));
 
         Ok(CommandOutput::ok("phase advanced"))
     }

@@ -14,17 +14,13 @@ use uuid::Uuid;
 /// The layout of terminal panels in the UI.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum TerminalLayout {
+    #[default]
     Single,
     SplitHorizontal,
     SplitVertical,
     Grid2x2,
-}
-
-impl Default for TerminalLayout {
-    fn default() -> Self {
-        Self::Single
-    }
 }
 
 /// Persisted UI session state.
@@ -214,11 +210,10 @@ impl SessionStore {
         let sessions = self.list_sessions().await?;
         let mut removed = 0;
         for session in sessions {
-            if session.last_active_at < cutoff {
-                if self.delete_session(&session.id).await? {
+            if session.last_active_at < cutoff
+                && self.delete_session(&session.id).await? {
                     removed += 1;
                 }
-            }
         }
         Ok(removed)
     }
