@@ -2101,11 +2101,115 @@ async fn get_build_status(
 // Settings handlers
 // ---------------------------------------------------------------------------
 
+/// GET /api/settings -- retrieve the current application configuration.
+///
+/// Returns the full Config object loaded from persistent storage (typically
+/// `~/.auto-tundra/config.toml`). If no config file exists, returns the default
+/// configuration. The Config contains all application settings including general,
+/// security, UI, integrations, and agent profile configurations.
+///
+/// **Response:** 200 OK with Config JSON object.
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "general": {
+///     "project_name": "auto-tundra",
+///     "log_level": "info",
+///     "workspace_root": "/home/user/workspace"
+///   },
+///   "security": {
+///     "enable_auth": true,
+///     "api_key_header": "X-API-Key"
+///   },
+///   "ui": {
+///     "theme": "dark",
+///     "page_size": 50
+///   },
+///   "bridge": {
+///     "host": "127.0.0.1",
+///     "port": 8765
+///   },
+///   "agents": {
+///     "max_concurrent": 4,
+///     "timeout_seconds": 300
+///   }
+/// }
+/// ```
 async fn get_settings(State(state): State<Arc<ApiState>>) -> Json<Config> {
     let cfg = state.settings_manager.load_or_default();
     Json(cfg)
 }
 
+/// PUT /api/settings -- replace the entire application configuration.
+///
+/// Replaces the entire configuration with the provided Config object and persists it to disk.
+/// All sections of the config must be provided; any omitted sections will be reset to their
+/// default values. Use PATCH /api/settings for partial updates.
+///
+/// **Request Body:** Complete Config JSON object.
+/// **Response:** 200 OK with saved Config, 500 if save fails.
+///
+/// **Example Request:**
+/// ```json
+/// {
+///   "general": {
+///     "project_name": "my-project",
+///     "log_level": "debug",
+///     "workspace_root": "/home/user/my-workspace"
+///   },
+///   "security": {
+///     "enable_auth": false,
+///     "api_key_header": "X-API-Key"
+///   },
+///   "ui": {
+///     "theme": "light",
+///     "page_size": 100
+///   },
+///   "bridge": {
+///     "host": "0.0.0.0",
+///     "port": 8765
+///   },
+///   "agents": {
+///     "max_concurrent": 8,
+///     "timeout_seconds": 600
+///   }
+/// }
+/// ```
+///
+/// **Example Response (Success):**
+/// ```json
+/// {
+///   "general": {
+///     "project_name": "my-project",
+///     "log_level": "debug",
+///     "workspace_root": "/home/user/my-workspace"
+///   },
+///   "security": {
+///     "enable_auth": false,
+///     "api_key_header": "X-API-Key"
+///   },
+///   "ui": {
+///     "theme": "light",
+///     "page_size": 100
+///   },
+///   "bridge": {
+///     "host": "0.0.0.0",
+///     "port": 8765
+///   },
+///   "agents": {
+///     "max_concurrent": 8,
+///     "timeout_seconds": 600
+///   }
+/// }
+/// ```
+///
+/// **Example Response (Error):**
+/// ```json
+/// {
+///   "error": "failed to write config to disk: permission denied"
+/// }
+/// ```
 async fn put_settings(
     State(state): State<Arc<ApiState>>,
     Json(cfg): Json<Config>,
@@ -2119,6 +2223,83 @@ async fn put_settings(
     }
 }
 
+/// PATCH /api/settings -- partially update the application configuration.
+///
+/// Merges the provided partial configuration into the existing configuration and persists
+/// the updated result to disk. Only the fields present in the request body are updated;
+/// all other fields retain their current values. This is useful for updating specific
+/// settings (e.g., only the log level or theme) without having to send the entire Config.
+///
+/// The partial update is performed via JSON merge: nested objects are merged recursively,
+/// and arrays are replaced entirely (not merged element-wise).
+///
+/// **Request Body:** Partial Config JSON object with only the fields to update.
+/// **Response:** 200 OK with updated Config, 400 if merge creates invalid config, 500 if save fails.
+///
+/// **Example Request (Update log level only):**
+/// ```json
+/// {
+///   "general": {
+///     "log_level": "trace"
+///   }
+/// }
+/// ```
+///
+/// **Example Request (Update multiple sections):**
+/// ```json
+/// {
+///   "general": {
+///     "log_level": "debug"
+///   },
+///   "ui": {
+///     "theme": "dark"
+///   },
+///   "agents": {
+///     "max_concurrent": 6
+///   }
+/// }
+/// ```
+///
+/// **Example Response (Success):**
+/// ```json
+/// {
+///   "general": {
+///     "project_name": "auto-tundra",
+///     "log_level": "trace",
+///     "workspace_root": "/home/user/workspace"
+///   },
+///   "security": {
+///     "enable_auth": true,
+///     "api_key_header": "X-API-Key"
+///   },
+///   "ui": {
+///     "theme": "dark",
+///     "page_size": 50
+///   },
+///   "bridge": {
+///     "host": "127.0.0.1",
+///     "port": 8765
+///   },
+///   "agents": {
+///     "max_concurrent": 6,
+///     "timeout_seconds": 300
+///   }
+/// }
+/// ```
+///
+/// **Example Response (Invalid Merge):**
+/// ```json
+/// {
+///   "error": "invalid value: expected u16, found string \"not-a-number\" at line 1 column 23"
+/// }
+/// ```
+///
+/// **Example Response (Save Error):**
+/// ```json
+/// {
+///   "error": "failed to write config to disk: permission denied"
+/// }
+/// ```
 async fn patch_settings(
     State(state): State<Arc<ApiState>>,
     Json(partial): Json<serde_json::Value>,
