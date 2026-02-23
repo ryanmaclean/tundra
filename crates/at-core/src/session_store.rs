@@ -1,7 +1,10 @@
 use chrono::{DateTime, Duration, Utc};
+use lru::LruCache;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
+use tokio::sync::Mutex;
 use uuid::Uuid;
 
 // ---------------------------------------------------------------------------
@@ -64,12 +67,14 @@ pub enum SessionStoreError {
 // SessionStore
 // ---------------------------------------------------------------------------
 
-/// File-system-backed session persistence.
+/// File-system-backed session persistence with in-memory LRU cache.
 ///
 /// Sessions are stored as individual JSON files under a configurable directory
-/// (defaults to `~/.config/auto-tundra/sessions/`).
+/// (defaults to `~/.config/auto-tundra/sessions/`). An in-memory LRU cache
+/// improves read performance by avoiding filesystem I/O for recently accessed sessions.
 pub struct SessionStore {
     base_dir: PathBuf,
+    cache: Mutex<LruCache<Uuid, SessionState>>,
 }
 
 impl SessionStore {
@@ -79,12 +84,20 @@ impl SessionStore {
             .unwrap_or_else(|| PathBuf::from(".config"))
             .join("auto-tundra")
             .join("sessions");
-        Self { base_dir: base }
+        let capacity = NonZeroUsize::new(100).expect("100 is non-zero");
+        Self {
+            base_dir: base,
+            cache: Mutex::new(LruCache::new(capacity)),
+        }
     }
 
     /// Create a store backed by a custom directory (useful for testing).
     pub fn new(base_dir: PathBuf) -> Self {
-        Self { base_dir }
+        let capacity = NonZeroUsize::new(100).expect("100 is non-zero");
+        Self {
+            base_dir,
+            cache: Mutex::new(LruCache::new(capacity)),
+        }
     }
 
     /// Ensure the base directory exists.
@@ -98,17 +111,32 @@ impl SessionStore {
         self.base_dir.join(format!("{}.json", id))
     }
 
-    /// Save a session to disk.
+    /// Save a session to disk and update the cache.
     pub async fn save_session(&self, state: &SessionState) -> Result<(), SessionStoreError> {
         self.ensure_dir().await?;
         let path = self.session_path(&state.id);
         let json = serde_json::to_string_pretty(state)?;
         tokio::fs::write(path, json).await?;
+
+        // Update cache with latest state
+        let mut cache = self.cache.lock().await;
+        cache.put(state.id, state.clone());
+
         Ok(())
     }
 
     /// Load a session by ID. Returns `None` if not found.
+    /// Checks the in-memory cache first before reading from filesystem.
     pub async fn load_session(&self, id: &Uuid) -> Result<Option<SessionState>, SessionStoreError> {
+        // Check cache first
+        {
+            let mut cache = self.cache.lock().await;
+            if let Some(state) = cache.get(id) {
+                return Ok(Some(state.clone()));
+            }
+        }
+
+        // Cache miss - load from filesystem
         let path = self.session_path(id);
         match tokio::fs::try_exists(&path).await {
             Ok(false) => return Ok(None),
@@ -117,10 +145,18 @@ impl SessionStore {
         }
         let data = tokio::fs::read_to_string(path).await?;
         let state: SessionState = serde_json::from_str(&data)?;
+
+        // Populate cache for future reads
+        {
+            let mut cache = self.cache.lock().await;
+            cache.put(*id, state.clone());
+        }
+
         Ok(Some(state))
     }
 
     /// List all saved sessions, sorted by last active time (most recent first).
+    /// Populates the cache with sessions as they are read from filesystem.
     pub async fn list_sessions(&self) -> Result<Vec<SessionState>, SessionStoreError> {
         self.ensure_dir().await?;
         let mut sessions = Vec::new();
@@ -131,7 +167,11 @@ impl SessionStore {
                 match tokio::fs::read_to_string(&path).await {
                     Ok(data) => {
                         if let Ok(state) = serde_json::from_str::<SessionState>(&data) {
-                            sessions.push(state);
+                            sessions.push(state.clone());
+
+                            // Populate cache for future reads
+                            let mut cache = self.cache.lock().await;
+                            cache.put(state.id, state);
                         }
                     }
                     Err(_) => continue,
@@ -143,16 +183,23 @@ impl SessionStore {
     }
 
     /// Delete a session by ID. Returns `true` if the file was removed.
+    /// Also removes the session from cache if present.
     pub async fn delete_session(&self, id: &Uuid) -> Result<bool, SessionStoreError> {
         let path = self.session_path(id);
-        match tokio::fs::try_exists(&path).await {
+        let result = match tokio::fs::try_exists(&path).await {
             Ok(true) => {
                 tokio::fs::remove_file(path).await?;
-                Ok(true)
+                true
             }
-            Ok(false) => Ok(false),
-            Err(e) => Err(SessionStoreError::Io(e)),
-        }
+            Ok(false) => false,
+            Err(e) => return Err(SessionStoreError::Io(e)),
+        };
+
+        // Remove from cache regardless of filesystem result
+        let mut cache = self.cache.lock().await;
+        cache.pop(id);
+
+        Ok(result)
     }
 
     /// Delete sessions whose `last_active_at` is older than `older_than`
