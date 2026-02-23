@@ -4858,6 +4858,31 @@ async fn list_task_drafts(State(state): State<Arc<ApiState>>) -> Json<Vec<TaskDr
 // Column locking
 // ---------------------------------------------------------------------------
 
+/// POST /api/kanban/columns/lock -- lock or unlock a Kanban column to prevent drag-drop.
+///
+/// Toggles the lock state of a specified Kanban column. When locked, the column displays
+/// a lock emoji (🔒) prefix in its label and prevents tasks from being dragged into or out
+/// of the column. This is useful for protecting columns like "Done" or "PR Created" from
+/// accidental modifications.
+///
+/// **Request Body:** LockColumnRequest with column_id and locked boolean.
+/// **Response:** 200 OK with confirmation containing column_id and locked state.
+///
+/// **Example Request:**
+/// ```json
+/// {
+///   "column_id": "done",
+///   "locked": true
+/// }
+/// ```
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "column_id": "done",
+///   "locked": true
+/// }
+/// ```
 async fn lock_column(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<LockColumnRequest>,
@@ -4880,6 +4905,35 @@ async fn lock_column(
 // Task ordering persistence
 // ---------------------------------------------------------------------------
 
+/// POST /api/kanban/ordering -- persist the user's manual task ordering within a column.
+///
+/// Saves the order of tasks within a specific Kanban column after the user has manually
+/// reordered them via drag-and-drop. The ordering is persisted so that tasks appear in
+/// the same order when the board is reloaded. This endpoint accepts a column ID and an
+/// ordered array of task IDs.
+///
+/// **Request Body:** TaskOrderingRequest with column_id and array of task_ids in order.
+/// **Response:** 200 OK with confirmation containing column_id and task_count.
+///
+/// **Example Request:**
+/// ```json
+/// {
+///   "column_id": "in-progress",
+///   "task_ids": [
+///     "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+///     "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+///     "c3d4e5f6-a7b8-9012-cdef-123456789012"
+///   ]
+/// }
+/// ```
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "column_id": "in-progress",
+///   "task_count": 3
+/// }
+/// ```
 async fn save_task_ordering(
     State(_state): State<Arc<ApiState>>,
     Json(req): Json<TaskOrderingRequest>,
