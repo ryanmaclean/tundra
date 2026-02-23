@@ -60,6 +60,10 @@ pub struct AppState {
     pub set_display_mode: WriteSignal<DisplayMode>,
     pub reduce_motion: ReadSignal<bool>,
     pub set_reduce_motion: WriteSignal<bool>,
+
+    /// Active project name (fetched from API on startup).
+    pub project_name: ReadSignal<String>,
+    pub set_project_name: WriteSignal<String>,
 }
 
 pub fn provide_app_state() {
@@ -91,6 +95,7 @@ pub fn provide_app_state() {
     let (dragging_bead, set_dragging_bead) = signal(None::<String>);
     let (display_mode, set_display_mode) = signal(DisplayMode::Standard);
     let (reduce_motion, set_reduce_motion) = signal(false);
+    let (project_name, set_project_name) = signal(String::from("auto-tundra"));
 
     let state = AppState {
         set_agents,
@@ -126,6 +131,8 @@ pub fn provide_app_state() {
         set_display_mode,
         reduce_motion,
         set_reduce_motion,
+        project_name,
+        set_project_name,
     };
 
     provide_context(state);

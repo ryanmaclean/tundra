@@ -1,0 +1,46 @@
+name: Mirror GitHub to GitLab
+
+on:
+  push:
+    branches:
+      - "**"
+    tags:
+      - "**"
+  delete:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Mirror refs to GitLab
+        env:
+          GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}
+          GITLAB_MIRROR_URL: https://gitlab.com/ryanmaclean/tundra.git
+        run: |
+          set -euo pipefail
+          if [[ -z "${GITLAB_TOKEN:-}" ]]; then
+            echo "Missing secret: GITLAB_TOKEN" >&2
+            exit 1
+          fi
+
+          # Ensure local clone has all refs before mirroring.
+          git fetch --prune origin '+refs/*:refs/*'
+
+          AUTH_URL="https://oauth2:${GITLAB_TOKEN}@${GITLAB_MIRROR_URL#https://}"
+          git push --mirror "${AUTH_URL}"
+
+      - name: Verify ref parity
+        run: |
+          set -euo pipefail
+          git ls-remote --refs https://github.com/ryanmaclean/tundra.git | sort > gh.refs
+          git ls-remote --refs https://gitlab.com/ryanmaclean/tundra.git | sort > gl.refs
+          diff -u gh.refs gl.refs

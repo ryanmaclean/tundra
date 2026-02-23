@@ -355,11 +355,11 @@ pub fn BeadsPage() -> impl IntoView {
     };
 
     let lanes = vec![
-        (Lane::Planning, "Planning", "column-dot column-dot-planning"),
-        (Lane::InProgress, "In Progress", "column-dot column-dot-inprogress"),
-        (Lane::AiReview, "AI Review", "column-dot column-dot-aireview"),
-        (Lane::HumanReview, "Human Review", "column-dot column-dot-humanreview"),
-        (Lane::Done, "Done", "column-dot column-dot-done"),
+        (Lane::Planning, "Planning", "column-border-planning"),
+        (Lane::InProgress, "In Progress", "column-border-inprogress"),
+        (Lane::AiReview, "AI Review", "column-border-aireview"),
+        (Lane::HumanReview, "Human Review", "column-border-humanreview"),
+        (Lane::Done, "Done", "column-border-done"),
     ];
 
     // Move a bead to a target lane (optimistic local update + API call with rollback)
@@ -588,11 +588,12 @@ pub fn BeadsPage() -> impl IntoView {
 
                 let col_class = move || {
                     let is_over = drag_over_lane.get() == Some(col_idx) && dragging_bead.get().is_some();
-                    match (is_collapsed(), is_over) {
-                        (true, _) => "kanban-column kanban-column-collapsed".to_string(),
-                        (false, true) => "kanban-column drag-over drop-target".to_string(),
-                        (false, false) => "kanban-column drop-target".to_string(),
-                    }
+                    let base = match (is_collapsed(), is_over) {
+                        (true, _) => "kanban-column kanban-column-collapsed",
+                        (false, true) => "kanban-column drag-over drop-target",
+                        (false, false) => "kanban-column drop-target",
+                    };
+                    format!("{} {}", base, dot_class)
                 };
 
                 let lane_for_add = lane.clone();
@@ -613,7 +614,6 @@ pub fn BeadsPage() -> impl IntoView {
                             >
                                 {move || if is_collapsed() { "+" } else { "-" }}
                             </button>
-                            <span class={dot_class}></span>
                             {label}
                             " "
                             <span class="count">{count}</span>
@@ -684,12 +684,14 @@ pub fn BeadsPage() -> impl IntoView {
                                         BeadStatus::Failed => "status-failed",
                                     };
 
-                                    let progress_pct: u8 = match bead.progress_stage.as_str() {
-                                        "plan" => 25,
-                                        "code" => 62,
-                                        "qa" => 82,
-                                        "done" => 100,
-                                        _ => 15,
+                                    // Phase segment classes for the segmented progress bar
+                                    // Each segment: planning (20%), coding (60%), QA (15%), done (5%)
+                                    let (seg_plan, seg_code, seg_qa, seg_done) = match bead.progress_stage.as_str() {
+                                        "plan" => ("phase-seg phase-seg-plan active", "phase-seg phase-seg-code", "phase-seg phase-seg-qa", "phase-seg phase-seg-done"),
+                                        "code" => ("phase-seg phase-seg-plan filled", "phase-seg phase-seg-code active", "phase-seg phase-seg-qa", "phase-seg phase-seg-done"),
+                                        "qa"   => ("phase-seg phase-seg-plan filled", "phase-seg phase-seg-code filled", "phase-seg phase-seg-qa active", "phase-seg phase-seg-done"),
+                                        "done" => ("phase-seg phase-seg-plan filled", "phase-seg phase-seg-code filled", "phase-seg phase-seg-qa filled", "phase-seg phase-seg-done filled"),
+                                        _      => ("phase-seg phase-seg-plan", "phase-seg phase-seg-code", "phase-seg phase-seg-qa", "phase-seg phase-seg-done"),
                                     };
 
                                     let (plan_cls, code_cls, qa_cls) = match bead.progress_stage.as_str() {
@@ -886,25 +888,24 @@ pub fn BeadsPage() -> impl IntoView {
                                                     }
                                                 })}
                                             </div>
+                                            // Phase segments progress bar (Auto Claude style)
+                                            <div class="phase-segments-bar">
+                                                <div class={seg_plan} title="Planning"></div>
+                                                <div class={seg_code} title="Coding"></div>
+                                                <div class={seg_qa} title="QA Review"></div>
+                                                <div class={seg_done} title="Complete"></div>
+                                            </div>
+                                            // Pipeline labels below the bar
                                             <div class="progress-pipeline">
                                                 <span class={plan_cls}>
-                                                    <span class="stage-dot"></span>
-                                                    {"Plan"}
+                                                    {"P"}
                                                 </span>
                                                 <span class={code_cls}>
-                                                    <span class="stage-dot"></span>
-                                                    {"Code"}
+                                                    {"C"}
                                                 </span>
                                                 <span class={qa_cls}>
-                                                    <span class="stage-dot"></span>
-                                                    {"QA"}
+                                                    {"Q"}
                                                 </span>
-                                            </div>
-                                            <div class="bead-progress">
-                                                <div class="progress-bar">
-                                                    <div class="progress-fill" style={format!("width: {}%;", progress_pct)}></div>
-                                                </div>
-                                                <span class="progress-label">{format!("{progress_pct}%")}</span>
                                             </div>
                                             <div class="subtask-dots">
                                                 {subtask_dots}

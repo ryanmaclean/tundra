@@ -62,6 +62,18 @@ pub fn App() -> impl IntoView {
 
     let page_label = move || components::nav_bar::tab_label(current_tab.get());
 
+    // Fetch active project name for breadcrumb
+    let (project_name, set_project_name) = signal(String::from("auto-tundra"));
+    {
+        leptos::task::spawn_local(async move {
+            if let Ok(projects) = api::fetch_projects().await {
+                if let Some(active) = projects.iter().find(|p| p.is_active) {
+                    set_project_name.set(active.name.clone());
+                }
+            }
+        });
+    }
+
     // Global keyboard shortcuts: pressing a letter key (D, K, A, N, etc.)
     // navigates to the corresponding tab, matching the sidebar shortcut badges.
     {
@@ -164,7 +176,7 @@ pub fn App() -> impl IntoView {
             <div class="main-area" role="main" style="position: relative; z-index: 2;">
                 <header class="top-bar">
                     <div class="top-bar-left">
-                        <span class="top-bar-project">"auto-tundra"</span>
+                        <span class="top-bar-project">{move || project_name.get()}</span>
                         <span class="top-bar-separator" aria-hidden="true">"/"</span>
                         <span class="top-bar-page">{page_label}</span>
                     </div>

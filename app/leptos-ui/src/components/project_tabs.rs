@@ -31,10 +31,9 @@ pub fn ProjectTabs() -> impl IntoView {
         spawn_local(async move {
             match api::activate_project(&id).await {
                 Ok(_) => {
-                    // Refresh projects to update active state
-                    match api::fetch_projects().await {
-                        Ok(list) => set_projects.set(list),
-                        Err(_) => {}
+                    // Full page reload so all signals re-fetch for the new active project
+                    if let Some(window) = web_sys::window() {
+                        let _ = window.location().reload();
                     }
                 }
                 Err(e) => {

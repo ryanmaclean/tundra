@@ -1068,9 +1068,10 @@ html[data-native-shell="1"] .sidebar-header {
 .kanban-column {
     flex: 1;
     min-width: 300px;
-    background: var(--bg-surface);
-    border: 1px solid var(--border);
+    background: linear-gradient(180deg, rgba(var(--bg-surface-rgb, 30, 28, 40), 0.3), transparent);
+    border: 1px solid rgba(255, 255, 255, 0.05);
     border-radius: var(--radius-xl);
+    backdrop-filter: blur(4px);
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -1344,12 +1345,7 @@ html[data-native-shell="1"] .sidebar-header {
     pointer-events: none;
 }
 
-.kanban-column:nth-child(1) h3 { border-left-color: var(--accent-purple); }
-.kanban-column:nth-child(2) h3 { border-left-color: var(--accent-yellow); }
-.kanban-column:nth-child(3) h3 { border-left-color: var(--accent-cyan); }
-.kanban-column:nth-child(4) h3 { border-left-color: var(--accent-orange); }
-.kanban-column:nth-child(5) h3 { border-left-color: var(--accent-pink, #e879a8); }
-.kanban-column:nth-child(6) h3 { border-left-color: var(--accent-green); }
+/* Column header border-left colors removed — now using border-top on .kanban-column via .column-border-* classes */
 
 .column-add-btn {
     margin-left: auto;
@@ -2342,25 +2338,14 @@ kbd {
     background: #dc2626;
 }
 
-/* ── Column Dots ── */
+/* ── Column Border-Top Colors (matches Auto Claude) ── */
+/* Each kanban column gets a 2px colored top border instead of inline dots */
 
-.column-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    flex-shrink: 0;
-    display: inline-block;
-    margin-right: 6px;
-    vertical-align: middle;
-}
-.column-dot-backlog { background: var(--text-muted); }
-.column-dot-queue { background: var(--accent-cyan); }
-.column-dot-planning { background: var(--accent-yellow); }
-.column-dot-inprogress { background: var(--accent-cyan); }
-.column-dot-aireview { background: var(--accent-purple); }
-.column-dot-humanreview { background: var(--accent-orange); }
-.column-dot-done { background: var(--accent-green); }
-.column-dot-prcreated { background: var(--accent-green); }
+.column-border-planning   { border-top: 2px solid var(--accent-yellow) !important; }
+.column-border-inprogress { border-top: 2px solid #3b82f6 !important; }
+.column-border-aireview   { border-top: 2px solid var(--accent-purple) !important; }
+.column-border-humanreview { border-top: 2px solid #a855f7 !important; }
+.column-border-done       { border-top: 2px solid var(--accent-green) !important; }
 
 /* ── Bead Progress Bar ── */
 
@@ -3459,66 +3444,91 @@ code.file-path, code.branch-name {
 }
 
 .pipeline-stage {
-    font-size: 0.65em;
-    padding: 2px 6px;
-    border-radius: 6px;
+    font-size: 0.6em;
+    padding: 1px 5px;
+    border-radius: 4px;
     background: var(--bg-primary);
     color: var(--text-muted);
     border: 1px solid rgba(255, 255, 255, 0.06);
     transition: all 0.2s;
+    font-weight: 600;
+    letter-spacing: 0.04em;
 }
 
 .pipeline-stage.completed {
-    background: rgba(124, 58, 237, 0.2);
-    color: var(--accent-purple);
-    border-color: var(--accent-purple);
+    background: rgba(34, 197, 94, 0.15);
+    color: #4ade80;
+    border-color: rgba(34, 197, 94, 0.25);
 }
 
 .pipeline-stage.active {
-    background: var(--accent-purple);
     color: white;
-    border-color: var(--accent-purple);
-    font-weight: 600;
+    font-weight: 700;
 }
 
-.pipeline-stage .stage-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    display: inline-block;
-    margin-right: 3px;
-    vertical-align: middle;
-    background: rgba(255, 255, 255, 0.15);
+/* Phase-specific active colors */
+.progress-pipeline .pipeline-stage.active:nth-child(1) {
+    background: #f59e0b; border-color: #f59e0b;
+}
+.progress-pipeline .pipeline-stage.active:nth-child(2) {
+    background: #3b82f6; border-color: #3b82f6;
+}
+.progress-pipeline .pipeline-stage.active:nth-child(3) {
+    background: #a855f7; border-color: #a855f7;
 }
 
-.pipeline-stage.completed .stage-dot {
-    background: var(--accent-purple);
+.pipeline-stage + .pipeline-stage {
+    margin-left: 2px;
 }
 
-.pipeline-stage.active .stage-dot {
-    background: white;
-    box-shadow: 0 0 4px rgba(124, 58, 237, 0.6);
+/* ── Phase Segments Bar (Auto Claude style) ──── */
+
+.phase-segments-bar {
+    display: flex;
+    gap: 2px;
+    height: 4px;
+    margin: 8px 0 4px;
+    border-radius: 999px;
+    overflow: hidden;
 }
 
-.pipeline-stage + .pipeline-stage::before {
-    content: "→";
-    color: var(--text-muted);
-    margin-right: 2px;
-    font-size: 0.8em;
+.phase-seg {
+    border-radius: 2px;
+    transition: opacity 0.25s, background 0.25s;
+    opacity: 0.18;
 }
+
+/* Proportional widths: planning 20%, coding 60%, QA 15%, done 5% */
+.phase-seg-plan { flex: 20; background: #f59e0b; }   /* amber */
+.phase-seg-code { flex: 60; background: #3b82f6; }   /* blue  */
+.phase-seg-qa   { flex: 15; background: #a855f7; }   /* purple */
+.phase-seg-done { flex:  5; background: #22c55e; }   /* green  */
+
+/* Filled (completed) segments at moderate opacity */
+.phase-seg.filled { opacity: 0.55; }
+
+/* Active segment at full opacity with glow */
+.phase-seg.active {
+    opacity: 1;
+    box-shadow: 0 0 6px currentColor;
+}
+.phase-seg-plan.active { box-shadow: 0 0 6px rgba(245, 158, 11, 0.5); }
+.phase-seg-code.active { box-shadow: 0 0 6px rgba(59, 130, 246, 0.5); }
+.phase-seg-qa.active   { box-shadow: 0 0 6px rgba(168, 85, 247, 0.5); }
+.phase-seg-done.active { box-shadow: 0 0 6px rgba(34, 197, 94, 0.5); }
 
 /* ── Subtask Dots ────────────────────── */
 
 .subtask-dots {
     display: flex;
     flex-wrap: wrap;
-    gap: 4px;
-    margin: 6px 0;
+    gap: 3px;
+    margin: 4px 0;
 }
 
 .subtask-dot {
-    width: 7px;
-    height: 7px;
+    width: 4px;
+    height: 4px;
     border-radius: 50%;
     display: inline-block;
     transition: all 0.2s;
