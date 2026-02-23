@@ -1020,7 +1020,7 @@ async fn create_bead(
     // Publish event
     state
         .event_bus
-        .publish(crate::protocol::BridgeMessage::BeadList(beads.clone()));
+        .publish(crate::protocol::BridgeMessage::BeadCreated(bead.clone()));
 
     (axum::http::StatusCode::CREATED, Json(bead))
 }
