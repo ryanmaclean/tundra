@@ -1,6 +1,7 @@
 use at_core::types::{AgentRole, CliType};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use uuid::Uuid;
@@ -63,13 +64,13 @@ struct ManagedAgent {
 // ---------------------------------------------------------------------------
 
 pub struct AgentSupervisor {
-    agents: Arc<Mutex<Vec<ManagedAgent>>>,
+    agents: Arc<Mutex<HashMap<Uuid, ManagedAgent>>>,
 }
 
 impl AgentSupervisor {
     pub fn new() -> Self {
         Self {
-            agents: Arc::new(Mutex::new(Vec::new())),
+            agents: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -117,7 +118,7 @@ impl AgentSupervisor {
             last_seen: Utc::now(),
         };
 
-        self.agents.lock().await.push(managed);
+        self.agents.lock().await.insert(id, managed);
         tracing::info!(id = %id, name = %name, role = ?role, "agent spawned");
         Ok(id)
     }
@@ -126,8 +127,7 @@ impl AgentSupervisor {
     pub async fn stop_agent(&self, id: Uuid) -> Result<()> {
         let mut agents = self.agents.lock().await;
         let agent = agents
-            .iter_mut()
-            .find(|a| a.id == id)
+            .get_mut(&id)
             .ok_or(SupervisorError::AgentNotFound(id))?;
 
         agent.sm.transition(AgentEvent::Stop)?;
@@ -143,7 +143,7 @@ impl AgentSupervisor {
     pub async fn list_agents(&self) -> Vec<AgentInfo> {
         let agents = self.agents.lock().await;
         agents
-            .iter()
+            .values()
             .map(|a| AgentInfo {
                 id: a.id,
                 name: a.name.clone(),
@@ -157,7 +157,7 @@ impl AgentSupervisor {
     /// Send heartbeat to all active agents.
     pub async fn send_heartbeat_all(&self) -> Result<()> {
         let mut agents = self.agents.lock().await;
-        for agent in agents.iter_mut() {
+        for agent in agents.values_mut() {
             if agent.sm.state() == AgentState::Active {
                 agent.lifecycle.on_heartbeat().await?;
                 agent.last_seen = Utc::now();
@@ -171,7 +171,7 @@ impl AgentSupervisor {
         let mut restarted = Vec::new();
         let mut agents = self.agents.lock().await;
 
-        for agent in agents.iter_mut() {
+        for agent in agents.values_mut() {
             if agent.sm.state() == AgentState::Failed {
                 // Recover: Failed -> Idle
                 agent.sm.transition(AgentEvent::Recover)?;
