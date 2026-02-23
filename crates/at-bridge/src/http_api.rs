@@ -1094,11 +1094,90 @@ async fn get_kpi(State(state): State<Arc<ApiState>>) -> Json<KpiSnapshot> {
 // Task handlers
 // ---------------------------------------------------------------------------
 
+/// GET /api/tasks -- retrieve all tasks in the system.
+///
+/// Returns a JSON array of all tasks with their complete state including phase,
+/// status, priority, complexity, agent assignment, timestamps, and metadata.
+/// Tasks represent individual work items that belong to beads (features/epics).
+///
+/// **Response:** 200 OK with array of Task objects.
+///
+/// **Example Response:**
+/// ```json
+/// [
+///   {
+///     "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+///     "title": "Implement JWT authentication",
+///     "description": "Add JWT token generation and validation",
+///     "bead_id": "550e8400-e29b-41d4-a716-446655440000",
+///     "category": "Backend",
+///     "priority": "High",
+///     "complexity": "Medium",
+///     "phase": "Pending",
+///     "impact": "Security",
+///     "agent_id": null,
+///     "agent_profile": "FullStack",
+///     "created_at": "2026-02-23T10:00:00Z",
+///     "updated_at": "2026-02-23T10:00:00Z",
+///     "started_at": null,
+///     "completed_at": null,
+///     "source": "Manual",
+///     "phase_configs": []
+///   }
+/// ]
+/// ```
 async fn list_tasks(State(state): State<Arc<ApiState>>) -> Json<Vec<Task>> {
     let tasks = state.tasks.read().await;
     Json(tasks.clone())
 }
 
+/// POST /api/tasks -- create a new task.
+///
+/// Creates a new task with specified title, category, priority, complexity, and optional
+/// metadata. The task is initialized in Pending phase with current timestamps. A valid
+/// bead_id must be provided to associate the task with a parent feature/epic.
+///
+/// **Request Body:** CreateTaskRequest JSON object.
+/// **Response:** 201 Created with the newly created Task object, 400 if validation fails.
+///
+/// **Example Request:**
+/// ```json
+/// {
+///   "title": "Implement JWT authentication",
+///   "description": "Add JWT token generation and validation",
+///   "bead_id": "550e8400-e29b-41d4-a716-446655440000",
+///   "category": "Backend",
+///   "priority": "High",
+///   "complexity": "Medium",
+///   "impact": "Security",
+///   "agent_profile": "FullStack",
+///   "source": "Manual",
+///   "phase_configs": []
+/// }
+/// ```
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+///   "title": "Implement JWT authentication",
+///   "description": "Add JWT token generation and validation",
+///   "bead_id": "550e8400-e29b-41d4-a716-446655440000",
+///   "category": "Backend",
+///   "priority": "High",
+///   "complexity": "Medium",
+///   "phase": "Pending",
+///   "impact": "Security",
+///   "agent_id": null,
+///   "agent_profile": "FullStack",
+///   "created_at": "2026-02-23T10:00:00Z",
+///   "updated_at": "2026-02-23T10:00:00Z",
+///   "started_at": null,
+///   "completed_at": null,
+///   "source": "Manual",
+///   "phase_configs": []
+/// }
+/// ```
 async fn create_task(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<CreateTaskRequest>,
@@ -1136,6 +1215,43 @@ async fn create_task(
         .into_response()
 }
 
+/// GET /api/tasks/{id} -- retrieve a specific task by ID.
+///
+/// Returns the complete task object including all metadata, phase information,
+/// timestamps, and agent assignment details.
+///
+/// **Path Parameters:** `id` - UUID of the task to retrieve.
+/// **Response:** 200 OK with Task object, 404 if not found.
+///
+/// **Example Response (Success):**
+/// ```json
+/// {
+///   "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+///   "title": "Implement JWT authentication",
+///   "description": "Add JWT token generation and validation",
+///   "bead_id": "550e8400-e29b-41d4-a716-446655440000",
+///   "category": "Backend",
+///   "priority": "High",
+///   "complexity": "Medium",
+///   "phase": "InProgress",
+///   "impact": "Security",
+///   "agent_id": "agent-123",
+///   "agent_profile": "FullStack",
+///   "created_at": "2026-02-23T10:00:00Z",
+///   "updated_at": "2026-02-23T10:30:00Z",
+///   "started_at": "2026-02-23T10:15:00Z",
+///   "completed_at": null,
+///   "source": "Manual",
+///   "phase_configs": []
+/// }
+/// ```
+///
+/// **Example Response (Not Found):**
+/// ```json
+/// {
+///   "error": "task not found"
+/// }
+/// ```
 async fn get_task(State(state): State<Arc<ApiState>>, Path(id): Path<Uuid>) -> impl IntoResponse {
     let tasks = state.tasks.read().await;
     let Some(task) = tasks.iter().find(|t| t.id == id) else {
@@ -1147,6 +1263,66 @@ async fn get_task(State(state): State<Arc<ApiState>>, Path(id): Path<Uuid>) -> i
     (axum::http::StatusCode::OK, Json(serde_json::json!(task)))
 }
 
+/// PATCH /api/tasks/{id} -- update an existing task.
+///
+/// Updates one or more fields of an existing task. All fields are optional; only provided
+/// fields will be updated. Updates the task's `updated_at` timestamp and broadcasts a
+/// TaskUpdate event via the event bus for real-time UI updates.
+///
+/// **Path Parameters:** `id` - UUID of the task to update.
+/// **Request Body:** UpdateTaskRequest JSON object with optional fields.
+/// **Response:** 200 OK with updated Task, 404 if not found, 400 if validation fails.
+///
+/// **Example Request:**
+/// ```json
+/// {
+///   "title": "Implement JWT authentication with refresh tokens",
+///   "priority": "Critical",
+///   "phase_configs": [
+///     {
+///       "phase": "Coding",
+///       "enabled": true,
+///       "config": {}
+///     }
+///   ]
+/// }
+/// ```
+///
+/// **Example Response (Success):**
+/// ```json
+/// {
+///   "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+///   "title": "Implement JWT authentication with refresh tokens",
+///   "description": "Add JWT token generation and validation",
+///   "bead_id": "550e8400-e29b-41d4-a716-446655440000",
+///   "category": "Backend",
+///   "priority": "Critical",
+///   "complexity": "Medium",
+///   "phase": "InProgress",
+///   "impact": "Security",
+///   "agent_id": "agent-123",
+///   "agent_profile": "FullStack",
+///   "created_at": "2026-02-23T10:00:00Z",
+///   "updated_at": "2026-02-23T11:00:00Z",
+///   "started_at": "2026-02-23T10:15:00Z",
+///   "completed_at": null,
+///   "source": "Manual",
+///   "phase_configs": [
+///     {
+///       "phase": "Coding",
+///       "enabled": true,
+///       "config": {}
+///     }
+///   ]
+/// }
+/// ```
+///
+/// **Example Response (Not Found):**
+/// ```json
+/// {
+///   "error": "task not found"
+/// }
+/// ```
 async fn update_task(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
@@ -1205,6 +1381,28 @@ async fn update_task(
     )
 }
 
+/// DELETE /api/tasks/{id} -- delete a task.
+///
+/// Permanently removes a task from the system. This operation cannot be undone.
+/// Use with caution, especially for tasks that have associated build logs or agent work.
+///
+/// **Path Parameters:** `id` - UUID of the task to delete.
+/// **Response:** 200 OK with deletion confirmation, 404 if not found.
+///
+/// **Example Response (Success):**
+/// ```json
+/// {
+///   "status": "deleted",
+///   "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+/// }
+/// ```
+///
+/// **Example Response (Not Found):**
+/// ```json
+/// {
+///   "error": "task not found"
+/// }
+/// ```
 async fn delete_task(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
