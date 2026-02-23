@@ -106,9 +106,8 @@ impl Git2ReadOps {
                 DiffStatus::Renamed
             } else if st.contains(git2::Status::WT_MODIFIED)
                 || st.contains(git2::Status::INDEX_MODIFIED)
+                || st.intersects(git2::Status::WT_TYPECHANGE | git2::Status::INDEX_TYPECHANGE)
             {
-                DiffStatus::Modified
-            } else if st.intersects(git2::Status::WT_TYPECHANGE | git2::Status::INDEX_TYPECHANGE) {
                 DiffStatus::Modified
             } else {
                 DiffStatus::Untracked

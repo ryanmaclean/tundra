@@ -6,7 +6,7 @@ use std::path::PathBuf;
 /// **Security**: This struct NEVER stores API keys, tokens, or secrets.
 /// All credentials are read from environment variables at runtime.
 /// See [`CredentialProvider`] for the env-var-based credential model.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Default)]
 pub struct Config {
     #[serde(default)]
     pub general: GeneralConfig,
@@ -77,35 +77,6 @@ impl std::fmt::Debug for Config {
             .field("debug", &self.debug)
             .field("memory", &self.memory)
             .finish()
-    }
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            general: GeneralConfig::default(),
-            dolt: DoltConfig::default(),
-            cache: CacheConfig::default(),
-            providers: ProvidersConfig::default(),
-            agents: AgentsConfig::default(),
-            security: SecurityConfig::default(),
-            daemon: DaemonConfig::default(),
-            ui: UiConfig::default(),
-            bridge: BridgeConfig::default(),
-            display: DisplayConfig::default(),
-            terminal: TerminalConfig::default(),
-            integrations: IntegrationConfig::default(),
-            appearance: AppearanceConfig::default(),
-            language: LanguageConfig::default(),
-            dev_tools: DevToolsConfig::default(),
-            agent_profile: AgentProfileConfig::default(),
-            paths: PathsConfig::default(),
-            api_profiles: ApiProfilesConfig::default(),
-            updates: UpdatesConfig::default(),
-            notifications: NotificationConfig::default(),
-            debug: DebugConfig::default(),
-            memory: MemoryConfig::default(),
-        }
     }
 }
 
@@ -727,7 +698,7 @@ fn default_agent_framework() -> String {
 // Paths settings (UI-facing)
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PathsConfig {
     #[serde(default)]
     pub python_path: String,
@@ -739,18 +710,6 @@ pub struct PathsConfig {
     pub claude_cli_path: String,
     #[serde(default)]
     pub auto_claude_path: String,
-}
-
-impl Default for PathsConfig {
-    fn default() -> Self {
-        Self {
-            python_path: String::new(),
-            git_path: String::new(),
-            github_cli_path: String::new(),
-            claude_cli_path: String::new(),
-            auto_claude_path: String::new(),
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -767,25 +726,17 @@ pub struct ApiProfileEntry {
     pub api_key_env: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ApiProfilesConfig {
     #[serde(default)]
     pub profiles: Vec<ApiProfileEntry>,
-}
-
-impl Default for ApiProfilesConfig {
-    fn default() -> Self {
-        Self {
-            profiles: Vec::new(),
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------
 // Updates settings (UI-facing)
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct UpdatesConfig {
     #[serde(default)]
     pub version: String,
@@ -795,17 +746,6 @@ pub struct UpdatesConfig {
     pub auto_update_projects: bool,
     #[serde(default)]
     pub beta_updates: bool,
-}
-
-impl Default for UpdatesConfig {
-    fn default() -> Self {
-        Self {
-            version: String::new(),
-            is_latest: false,
-            auto_update_projects: false,
-            beta_updates: false,
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -839,25 +779,17 @@ impl Default for NotificationConfig {
 // Debug settings (UI-facing)
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct DebugConfig {
     #[serde(default)]
     pub anonymous_error_reporting: bool,
-}
-
-impl Default for DebugConfig {
-    fn default() -> Self {
-        Self {
-            anonymous_error_reporting: false,
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------
 // Memory settings (UI-facing)
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MemoryConfig {
     #[serde(default)]
     pub enable_memory: bool,
@@ -869,18 +801,6 @@ pub struct MemoryConfig {
     pub embedding_provider: String,
     #[serde(default)]
     pub embedding_model: String,
-}
-
-impl Default for MemoryConfig {
-    fn default() -> Self {
-        Self {
-            enable_memory: false,
-            enable_agent_memory_access: false,
-            graphiti_server_url: String::new(),
-            embedding_provider: String::new(),
-            embedding_model: String::new(),
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------
