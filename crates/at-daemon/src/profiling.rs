@@ -135,7 +135,7 @@ mod tests {
 
     #[test]
     fn test_traced_span_macro() {
-        let span = traced_span!("test_operation", user_id = "123", action = "test");
+        let _span = traced_span!("test_operation", user_id = "123", action = "test");
         // This would normally be used in actual tracing context
     }
 

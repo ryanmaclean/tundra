@@ -585,7 +585,7 @@ fn test_serde_roundtrip_change_category() {
 
 #[test]
 fn test_change_category_variants_distinct() {
-    let all = vec![
+    let all = [
         ChangeCategory::Added,
         ChangeCategory::Changed,
         ChangeCategory::Fixed,

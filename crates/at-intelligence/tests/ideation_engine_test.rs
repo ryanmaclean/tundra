@@ -485,7 +485,7 @@ fn test_serde_roundtrip_ideation_result() {
 
 #[test]
 fn test_idea_category_variants_distinct() {
-    let cats = vec![
+    let cats = [
         IdeaCategory::CodeImprovement,
         IdeaCategory::Quality,
         IdeaCategory::Performance,

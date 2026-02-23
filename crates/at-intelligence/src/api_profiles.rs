@@ -672,10 +672,12 @@ mod tests {
 
     #[test]
     fn local_profile_from_providers_config() {
-        let mut cfg = at_core::config::ProvidersConfig::default();
-        cfg.local_base_url = "http://127.0.0.1:11434".into();
-        cfg.local_model = "qwen2.5-coder-7b".into();
-        cfg.local_api_key_env = "LOCAL_LLM_API_KEY".into();
+        let cfg = at_core::config::ProvidersConfig {
+            local_base_url: "http://127.0.0.1:11434".into(),
+            local_model: "qwen2.5-coder-7b".into(),
+            local_api_key_env: "LOCAL_LLM_API_KEY".into(),
+            ..Default::default()
+        };
 
         let profile = ApiProfile::local_from_providers("local-dev", &cfg);
         assert_eq!(profile.provider, ProviderKind::Local);

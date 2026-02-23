@@ -209,7 +209,7 @@ async fn semaphore_blocks_when_exhausted() {
     // Spawning a second acquire should not complete within the timeout.
     let gate2 = gate.clone();
     let handle = tokio::spawn(async move {
-        gate2.acquire().await.expect("acquire permit");
+        let _ = gate2.acquire().await.expect("acquire permit");
     });
 
     // Give it a brief moment — it should NOT complete.

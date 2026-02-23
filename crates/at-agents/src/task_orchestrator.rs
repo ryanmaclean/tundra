@@ -568,7 +568,7 @@ mod tests {
         let result = orch.execute_full_pipeline(&task).await.unwrap();
 
         assert_eq!(result.task_id, task.id);
-        assert!(result.total_duration_ms > 0 || result.total_duration_ms == 0); // non-negative
+        // total_duration_ms is unsigned, so always non-negative
 
         // Check that the event bus received phase events
         let mut events = Vec::new();

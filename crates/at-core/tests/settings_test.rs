@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use at_core::config::{Config, CredentialProvider};
 use at_core::settings::SettingsManager;
@@ -11,7 +11,7 @@ fn tmp_settings_path() -> PathBuf {
 }
 
 /// Helper: clean up a temp settings directory.
-fn cleanup(path: &PathBuf) {
+fn cleanup(path: &Path) {
     if let Some(parent) = path.parent() {
         let _ = fs::remove_dir_all(parent);
     }
@@ -76,7 +76,7 @@ fn test_settings_default_values() {
     // Display
     assert_eq!(cfg.display.theme, "dark");
     assert_eq!(cfg.display.font_size, 14);
-    assert_eq!(cfg.display.compact_mode, false);
+    assert!(!cfg.display.compact_mode);
 
     // Terminal
     assert_eq!(cfg.terminal.font_family, "JetBrains Mono");
@@ -85,8 +85,8 @@ fn test_settings_default_values() {
 
     // Security
     assert_eq!(cfg.security.auto_lock_timeout_mins, 15);
-    assert_eq!(cfg.security.sandbox_mode, true);
-    assert_eq!(cfg.security.allow_shell_exec, false);
+    assert!(cfg.security.sandbox_mode);
+    assert!(!cfg.security.allow_shell_exec);
 
     // Integrations — stores env var names, never actual tokens
     assert_eq!(cfg.integrations.github_token_env, "GITHUB_TOKEN");
@@ -129,7 +129,7 @@ theme = "ocean"
     // Defaulted values
     assert_eq!(cfg.general.log_level, "info");
     assert_eq!(cfg.display.font_size, 14);
-    assert_eq!(cfg.display.compact_mode, false);
+    assert!(!cfg.display.compact_mode);
     assert_eq!(cfg.terminal.font_family, "JetBrains Mono");
     assert_eq!(cfg.terminal.font_size, 14);
     assert_eq!(cfg.terminal.cursor_style, "block");
@@ -312,19 +312,19 @@ fn test_compact_mode_toggle() {
 
     // Default is false
     let cfg = mgr.load_or_default();
-    assert_eq!(cfg.display.compact_mode, false);
+    assert!(!cfg.display.compact_mode);
 
     // Toggle on
     let mut cfg_on = cfg.clone();
     cfg_on.display.compact_mode = true;
     mgr.save(&cfg_on).unwrap();
-    assert_eq!(mgr.load().unwrap().display.compact_mode, true);
+    assert!(mgr.load().unwrap().display.compact_mode);
 
     // Toggle off
     let mut cfg_off = cfg_on.clone();
     cfg_off.display.compact_mode = false;
     mgr.save(&cfg_off).unwrap();
-    assert_eq!(mgr.load().unwrap().display.compact_mode, false);
+    assert!(!mgr.load().unwrap().display.compact_mode);
 
     cleanup(&path);
 }
@@ -363,13 +363,13 @@ fn test_config_never_contains_secrets() {
 #[test]
 fn test_security_config_sandbox_mode() {
     let cfg = Config::default();
-    assert_eq!(cfg.security.sandbox_mode, true);
+    assert!(cfg.security.sandbox_mode);
 
     let mut cfg2 = cfg.clone();
     cfg2.security.sandbox_mode = false;
     let toml_str = cfg2.to_toml().unwrap();
     let parsed: Config = toml::from_str(&toml_str).unwrap();
-    assert_eq!(parsed.security.sandbox_mode, false);
+    assert!(!parsed.security.sandbox_mode);
 }
 
 #[test]
@@ -530,12 +530,12 @@ fn test_notification_on_task_complete() {
     // Here we verify that the config can store notification-related booleans
     // via the UiConfig's show_token_costs as a proxy for notification toggles.
     let mut cfg = Config::default();
-    assert_eq!(cfg.ui.show_token_costs, false);
+    assert!(!cfg.ui.show_token_costs);
 
     cfg.ui.show_token_costs = true;
     let toml_str = cfg.to_toml().unwrap();
     let parsed: Config = toml::from_str(&toml_str).unwrap();
-    assert_eq!(parsed.ui.show_token_costs, true);
+    assert!(parsed.ui.show_token_costs);
 }
 
 #[test]
@@ -543,7 +543,7 @@ fn test_notification_on_task_failed() {
     // Test that security.allow_shell_exec (used as a notification-like toggle)
     // persists correctly through TOML roundtrip.
     let mut cfg = Config::default();
-    assert_eq!(cfg.security.allow_shell_exec, false);
+    assert!(!cfg.security.allow_shell_exec);
 
     cfg.security.allow_shell_exec = true;
     let path = tmp_settings_path();
@@ -551,7 +551,7 @@ fn test_notification_on_task_failed() {
     mgr.save(&cfg).unwrap();
 
     let loaded = mgr.load().unwrap();
-    assert_eq!(loaded.security.allow_shell_exec, true);
+    assert!(loaded.security.allow_shell_exec);
 
     cleanup(&path);
 }
@@ -564,7 +564,7 @@ fn test_notification_on_review_needed() {
 
     let json = serde_json::to_string(&cfg).unwrap();
     let parsed: Config = serde_json::from_str(&json).unwrap();
-    assert_eq!(parsed.agents.auto_restart, true);
+    assert!(parsed.agents.auto_restart);
 }
 
 #[test]
@@ -576,11 +576,11 @@ fn test_notification_sound_toggle() {
     let mut cfg = Config::default();
     cfg.dolt.auto_commit = false;
     mgr.save(&cfg).unwrap();
-    assert_eq!(mgr.load().unwrap().dolt.auto_commit, false);
+    assert!(!mgr.load().unwrap().dolt.auto_commit);
 
     cfg.dolt.auto_commit = true;
     mgr.save(&cfg).unwrap();
-    assert_eq!(mgr.load().unwrap().dolt.auto_commit, true);
+    assert!(mgr.load().unwrap().dolt.auto_commit);
 
     cleanup(&path);
 }
