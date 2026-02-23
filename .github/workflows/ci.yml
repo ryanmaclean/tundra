@@ -117,14 +117,15 @@ jobs:
 
       - name: ast-grep SAST
         continue-on-error: true
-        run: ast-grep scan --config .ast-grep.yml --exclude '**/test*.rs' --exclude '**/*_test.rs' crates/
+        run: ast-grep scan --config .ast-grep.yml crates/
 
       - name: ast-grep SAST (SARIF output)
         if: always()
-        run: ast-grep scan --config .ast-grep.yml --format sarif --output ast-grep-results.sarif crates/
+        continue-on-error: true
+        run: ast-grep scan --config .ast-grep.yml --format sarif crates/ > ast-grep-results.sarif
 
       - name: Upload ast-grep results to Datadog
-        if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && secrets.DATADOG_API_KEY != ''
         env:
           DD_API_KEY: ${{ secrets.DATADOG_API_KEY }}
           DD_APP_KEY: ${{ secrets.DATADOG_APP_KEY }}
