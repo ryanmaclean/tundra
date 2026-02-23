@@ -82,7 +82,10 @@ pub enum PtyError {
     /// The caller should either wait for existing PTYs to be released or
     /// increase the pool capacity.
     #[error("pty pool is at capacity ({max})")]
-    AtCapacity { max: usize },
+    AtCapacity {
+        /// The maximum capacity that was reached
+        max: usize
+    },
 
     /// A PTY handle with the given UUID was not found in the pool.
     ///

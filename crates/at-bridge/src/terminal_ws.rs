@@ -173,15 +173,25 @@ const WS_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
 /// - `persistent`: Whether this terminal should survive server restart
 #[derive(Debug, Serialize)]
 pub struct TerminalResponse {
+    /// Unique terminal identifier (UUID).
     pub id: String,
+    /// Display name for the terminal.
     pub title: String,
+    /// Current lifecycle state (active, idle, disconnected, closed, dead).
     pub status: String,
+    /// Terminal width in columns.
     pub cols: u16,
+    /// Terminal height in rows.
     pub rows: u16,
+    /// Font size in pixels.
     pub font_size: u16,
+    /// Cursor appearance ("block", "underline", or "bar").
     pub cursor_style: String,
+    /// Whether the cursor blinks.
     pub cursor_blink: bool,
+    /// Auto-generated name from first command (if any).
     pub auto_name: Option<String>,
+    /// Whether this terminal should survive server restart.
     pub persistent: bool,
 }
 
