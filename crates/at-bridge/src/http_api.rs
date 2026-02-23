@@ -1422,6 +1422,33 @@ async fn delete_task(
     )
 }
 
+/// POST /api/tasks/{id}/phase -- update a task's phase/stage.
+///
+/// Transitions a task to a new phase (Pending, Planning, Coding, QA, etc.) with
+/// validation to ensure the transition is valid according to the task lifecycle.
+/// Invalid transitions (e.g., Completed -> Pending) are rejected with 400.
+/// Publishes a TaskUpdate event for real-time WebSocket notifications.
+///
+/// **Request Body:** UpdateTaskPhaseRequest JSON object with target phase.
+/// **Response:** 200 OK with updated Task object, 404 if task not found, 400 if invalid transition.
+///
+/// **Example Request:**
+/// ```json
+/// {
+///   "phase": "Coding"
+/// }
+/// ```
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+///   "title": "Implement JWT authentication",
+///   "phase": "Coding",
+///   "updated_at": "2026-02-23T10:30:00Z",
+///   ...
+/// }
+/// ```
 async fn update_task_phase(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
@@ -1461,6 +1488,23 @@ async fn update_task_phase(
     )
 }
 
+/// GET /api/tasks/{id}/logs -- retrieve execution logs for a task.
+///
+/// Returns the accumulated log output from task execution phases (Planning, Coding, QA).
+/// Logs are captured from agent interactions and tool executions. Returns an array
+/// of log line strings in chronological order.
+///
+/// **Response:** 200 OK with array of log strings, 404 if task not found.
+///
+/// **Example Response:**
+/// ```json
+/// [
+///   "[2026-02-23T10:15:00Z] Starting Planning phase...",
+///   "[2026-02-23T10:15:12Z] Generated spec.md",
+///   "[2026-02-23T10:15:45Z] Transitioning to Coding phase...",
+///   "[2026-02-23T10:20:30Z] Created src/auth.rs"
+/// ]
+/// ```
 async fn get_task_logs(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
@@ -1500,6 +1544,29 @@ async fn get_pipeline_queue_status(
 /// immediately so the caller can follow progress via WebSocket events.
 ///
 /// Accepts an optional JSON body with `cli_type` to override the default CLI.
+/// Task must be in Planning or Queue phase; returns 400 for invalid phase transitions.
+///
+/// **Request Body:** Optional ExecuteTaskRequest JSON object with cli_type override.
+/// **Response:** 202 Accepted with task snapshot, 404 if task not found, 400 if invalid phase.
+///
+/// **Example Request:**
+/// ```json
+/// {
+///   "cli_type": "Claude"
+/// }
+/// ```
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+///   "title": "Implement JWT authentication",
+///   "phase": "Coding",
+///   "progress_percent": 0,
+///   "started_at": "2026-02-23T10:30:00Z",
+///   ...
+/// }
+/// ```
 async fn execute_task_pipeline(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
@@ -1896,7 +1963,33 @@ struct BuildLogsQuery {
 /// GET /api/tasks/{id}/build-logs -- return captured build output lines.
 ///
 /// Supports an optional `?since=<ISO-8601>` query parameter for incremental
-/// polling so clients only receive new lines since their last fetch.
+/// polling so clients only receive new lines since their last fetch. Returns
+/// array of BuildLogEntry objects with timestamps, stream type (stdout/stderr),
+/// and line content. Useful for displaying real-time build progress.
+///
+/// **Response:** 200 OK with array of BuildLogEntry objects, 404 if task not found,
+/// 400 if 'since' timestamp is invalid.
+///
+/// **Example Response:**
+/// ```json
+/// [
+///   {
+///     "timestamp": "2026-02-23T10:15:00Z",
+///     "stream": "stdout",
+///     "line": "Compiling auth v0.1.0"
+///   },
+///   {
+///     "timestamp": "2026-02-23T10:15:05Z",
+///     "stream": "stdout",
+///     "line": "Finished dev [unoptimized] target(s) in 5.23s"
+///   },
+///   {
+///     "timestamp": "2026-02-23T10:15:10Z",
+///     "stream": "stderr",
+///     "line": "warning: unused variable `token`"
+///   }
+/// ]
+/// ```
 async fn get_build_logs(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
@@ -1948,6 +2041,25 @@ struct BuildStatusSummary {
 }
 
 /// GET /api/tasks/{id}/build-status -- return a summary of the build.
+///
+/// Provides an aggregate view of build progress including phase, progress percentage,
+/// log line counts by stream type (stdout/stderr), error counts, and the most recent
+/// log line. Useful for dashboard widgets and progress indicators.
+///
+/// **Response:** 200 OK with BuildStatusSummary object, 404 if task not found.
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "phase": "Coding",
+///   "progress_percent": 45,
+///   "total_lines": 127,
+///   "stdout_lines": 120,
+///   "stderr_lines": 7,
+///   "error_count": 7,
+///   "last_line": "warning: unused variable `token`"
+/// }
+/// ```
 async fn get_build_status(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
