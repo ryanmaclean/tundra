@@ -213,6 +213,31 @@ fn save_terminal_history(entries: &[String]) {
     }
 }
 
+fn should_skip_terminal_shortcut(event: &web_sys::KeyboardEvent) -> bool {
+    if event.default_prevented() || event.ctrl_key() || event.meta_key() {
+        return true;
+    }
+
+    let Some(target) = event.target() else {
+        return false;
+    };
+    let Some(element) = target.dyn_ref::<web_sys::Element>() else {
+        return false;
+    };
+
+    let tag = element.tag_name().to_ascii_lowercase();
+    if matches!(tag.as_str(), "input" | "textarea" | "select") {
+        return true;
+    }
+    if element.has_attribute("contenteditable") {
+        return true;
+    }
+    element
+        .get_attribute("role")
+        .map(|role| role.eq_ignore_ascii_case("textbox"))
+        .unwrap_or(false)
+}
+
 // ---------------------------------------------------------------------------
 // Agents Page
 // ---------------------------------------------------------------------------
@@ -276,6 +301,62 @@ pub fn AgentsPage() -> impl IntoView {
             set_loading.set(false);
         });
     };
+
+    // Command bar keyboard shortcuts:
+    // H=History, I=Invoke Claude All, N=New Terminal, F=Files drawer.
+    if let Some(window) = web_sys::window() {
+        let keydown = Closure::wrap(Box::new(move |event: web_sys::KeyboardEvent| {
+            if should_skip_terminal_shortcut(&event) {
+                return;
+            }
+
+            match event.key().as_str() {
+                "h" | "H" => {
+                    event.prevent_default();
+                    set_show_history_menu.update(|v| *v = !*v);
+                    set_show_files_drawer.set(false);
+                }
+                "i" | "I" => {
+                    event.prevent_default();
+                    do_refresh();
+                    append_history(format!(
+                        "{} Invoked terminal command bar refresh",
+                        history_timestamp()
+                    ));
+                }
+                "n" | "N" => {
+                    event.prevent_default();
+                    if let Some(set_tab) = set_current_tab {
+                        set_tab.set(14);
+                    }
+                }
+                "f" | "F" => {
+                    event.prevent_default();
+                    let opening = !show_files_drawer.get_untracked();
+                    set_show_files_drawer.set(opening);
+                    set_show_history_menu.set(false);
+                    if opening {
+                        do_refresh_worktrees();
+                        append_history(format!(
+                            "{} Opened files drawer",
+                            history_timestamp()
+                        ));
+                    }
+                }
+                _ => {}
+            }
+        }) as Box<dyn FnMut(web_sys::KeyboardEvent)>);
+
+        let _ = window.add_event_listener_with_callback("keydown", keydown.as_ref().unchecked_ref());
+        on_cleanup(move || {
+            if let Some(window) = web_sys::window() {
+                let _ = window.remove_event_listener_with_callback(
+                    "keydown",
+                    keydown.as_ref().unchecked_ref(),
+                );
+            }
+        });
+    }
 
     // Initial fetch
     do_refresh();
@@ -424,7 +505,9 @@ pub fn AgentsPage() -> impl IntoView {
                         }
                     >
                         <span class="terminal-cmd-icon" inner_html=agents_icon_svg("history")></span>
-                        "History \u{25BE}"
+                        "History"
+                        <span class="terminal-key-hint">"H"</span>
+                        "\u{25BE}"
                     </button>
                     {move || show_history_menu.get().then(|| view! {
                         <div class="terminal-dropdown-menu">
@@ -475,6 +558,7 @@ pub fn AgentsPage() -> impl IntoView {
                 <button class="terminal-cmd-btn" type="button" on:click=move |_| do_refresh()>
                     <span class="terminal-cmd-icon" inner_html=agents_icon_svg("invoke")></span>
                     "Invoke Claude All"
+                    <span class="terminal-key-hint">"I"</span>
                 </button>
                 <button
                     class="terminal-cmd-btn terminal-cmd-btn-magenta"
@@ -487,6 +571,7 @@ pub fn AgentsPage() -> impl IntoView {
                 >
                     <span class="terminal-cmd-icon" inner_html=agents_icon_svg("plus")></span>
                     "+ New Terminal"
+                    <span class="terminal-key-hint">"N"</span>
                 </button>
                 <button
                     class=(move || {
@@ -509,6 +594,7 @@ pub fn AgentsPage() -> impl IntoView {
                 >
                     <span class="terminal-cmd-icon" inner_html=agents_icon_svg("files")></span>
                     "Files"
+                    <span class="terminal-key-hint">"F"</span>
                 </button>
             </div>
         </div>

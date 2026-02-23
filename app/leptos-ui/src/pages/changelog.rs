@@ -30,6 +30,7 @@ pub fn ChangelogPage() -> impl IntoView {
     let (entries, set_entries) = signal(Vec::<api::ApiChangelogEntry>::new());
     let (loading, set_loading) = signal(true);
     let (error_msg, set_error_msg) = signal(Option::<String>::None);
+    let (offline_demo, set_offline_demo) = signal(false);
     let (success_msg, set_success_msg) = signal(Option::<String>::None);
 
     // 3-step generator flow: 0=hidden, 1=Select, 2=Generate, 3=Release
@@ -57,6 +58,7 @@ pub fn ChangelogPage() -> impl IntoView {
         spawn_local(async move {
             match api::fetch_changelog().await {
                 Ok(data) => {
+                    set_offline_demo.set(false);
                     let is_empty = data.is_empty();
                     set_entries.set(data);
                     if is_empty && gen_step.get_untracked() == 0 {
@@ -65,10 +67,8 @@ pub fn ChangelogPage() -> impl IntoView {
                     }
                 }
                 Err(e) => {
-                    if e.contains("Failed to connect")
-                        || e.contains("127.0.0.1")
-                        || e.contains("localhost")
-                    {
+                    if api::is_connection_error(&e) {
+                        set_offline_demo.set(true);
                         set_entries.set(Vec::new());
                         set_error_msg.set(None);
                         set_gen_step.set(1);
@@ -124,6 +124,7 @@ pub fn ChangelogPage() -> impl IntoView {
         spawn_local(async move {
             match api::fetch_beads().await {
                 Ok(beads) => {
+                    set_offline_demo.set(false);
                     let done: Vec<(String, String, String, bool)> = beads
                         .into_iter()
                         .filter(|b| {
@@ -138,10 +139,8 @@ pub fn ChangelogPage() -> impl IntoView {
                     set_completed_tasks.set(done);
                 }
                 Err(e) => {
-                    if e.contains("Failed to connect")
-                        || e.contains("127.0.0.1")
-                        || e.contains("localhost")
-                    {
+                    if api::is_connection_error(&e) {
+                        set_offline_demo.set(true);
                         set_completed_tasks.set(vec![
                             (
                                 "task-1".to_string(),
@@ -256,6 +255,16 @@ pub fn ChangelogPage() -> impl IntoView {
                     inner_html=r#"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>"#
                 ></span>
                 <span>{msg}</span>
+            </div>
+        })}
+
+        {move || offline_demo.get().then(|| view! {
+            <div class="state-banner state-banner-info">
+                <span
+                    class="state-banner-icon"
+                    inner_html=r#"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>"#
+                ></span>
+                <span>"Offline demo mode: completed tasks and generation flow are using local fallback data."</span>
             </div>
         })}
 

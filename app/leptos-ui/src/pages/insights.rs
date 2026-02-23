@@ -53,6 +53,7 @@ pub fn InsightsPage() -> impl IntoView {
     let (input_text, set_input_text) = signal(String::new());
     let (loading, set_loading) = signal(true);
     let (error_msg, set_error_msg) = signal(Option::<String>::None);
+    let (offline_demo, set_offline_demo) = signal(false);
     let (sending, set_sending) = signal(false);
     let (sidebar_collapsed, set_sidebar_collapsed) = signal(false);
     let (selected_model, set_selected_model) = signal("claude-sonnet".to_string());
@@ -63,6 +64,7 @@ pub fn InsightsPage() -> impl IntoView {
         spawn_local(async move {
             match api::fetch_insights_sessions().await {
                 Ok(data) => {
+                    set_offline_demo.set(false);
                     let chat_sessions: Vec<ChatSession> = data
                         .into_iter()
                         .map(|s| ChatSession {
@@ -74,10 +76,8 @@ pub fn InsightsPage() -> impl IntoView {
                     set_sessions.set(chat_sessions);
                 }
                 Err(e) => {
-                    if e.contains("Failed to connect")
-                        || e.contains("127.0.0.1")
-                        || e.contains("localhost")
-                    {
+                    if api::is_connection_error(&e) {
+                        set_offline_demo.set(true);
                         set_sessions.set(demo_insights_sessions());
                         set_error_msg.set(None);
                     } else {
@@ -115,10 +115,8 @@ pub fn InsightsPage() -> impl IntoView {
                     });
                 }
                 Err(e) => {
-                    if e.contains("Failed to connect")
-                        || e.contains("127.0.0.1")
-                        || e.contains("localhost")
-                    {
+                    if api::is_connection_error(&e) {
+                        set_offline_demo.set(true);
                         set_sessions.set(demo_insights_sessions());
                     } else {
                         web_sys::console::error_1(&format!("Failed to load messages: {e}").into());
@@ -199,6 +197,7 @@ pub fn InsightsPage() -> impl IntoView {
         spawn_local(async move {
             match api::send_insights_message_with_model(&sid_clone, &text, Some(&model)).await {
                 Ok(response) => {
+                    set_offline_demo.set(false);
                     let assistant_msg = ChatMessage {
                         id: response.id,
                         role: response.role,
@@ -214,10 +213,8 @@ pub fn InsightsPage() -> impl IntoView {
                     });
                 }
                 Err(e) => {
-                    if e.contains("Failed to connect")
-                        || e.contains("127.0.0.1")
-                        || e.contains("localhost")
-                    {
+                    if api::is_connection_error(&e) {
+                        set_offline_demo.set(true);
                         let assistant_msg = ChatMessage {
                             id: format!(
                                 "demo-{}",
@@ -300,6 +297,16 @@ pub fn InsightsPage() -> impl IntoView {
                     inner_html=r#"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>"#
                 ></span>
                 <span>{msg}</span>
+            </div>
+        })}
+
+        {move || offline_demo.get().then(|| view! {
+            <div class="state-banner state-banner-info">
+                <span
+                    class="state-banner-icon"
+                    inner_html=r#"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"M12 8v4\"/><path d=\"M12 16h.01\"/></svg>"#
+                ></span>
+                <span>"Offline demo mode: showing local insights history fallback."</span>
             </div>
         })}
 

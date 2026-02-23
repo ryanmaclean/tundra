@@ -155,6 +155,7 @@ pub fn WorktreesPage() -> impl IntoView {
     let (worktrees, set_worktrees) = signal(Vec::<WorktreeDisplay>::new());
     let (loading, set_loading) = signal(true);
     let (error_msg, set_error_msg) = signal(Option::<String>::None);
+    let (offline_demo, set_offline_demo) = signal(false);
     let (selected_worktrees, set_selected_worktrees) =
         signal(std::collections::HashSet::<String>::new());
     let (status_msg, set_status_msg) = signal(Option::<String>::None);
@@ -166,6 +167,7 @@ pub fn WorktreesPage() -> impl IntoView {
         spawn_local(async move {
             match api::fetch_worktrees().await {
                 Ok(data) => {
+                    set_offline_demo.set(false);
                     let display: Vec<WorktreeDisplay> =
                         data.into_iter().map(WorktreeDisplay::from_api).collect();
                     set_worktrees.set(display);
@@ -173,10 +175,9 @@ pub fn WorktreesPage() -> impl IntoView {
                 Err(e) => {
                     if e.contains("404")
                         || e.contains("Not Found")
-                        || e.contains("Failed to connect")
-                        || e.contains("127.0.0.1")
-                        || e.contains("localhost")
+                        || api::is_connection_error(&e)
                     {
+                        set_offline_demo.set(true);
                         set_worktrees.set(demo_worktrees());
                         set_error_msg.set(None);
                     } else {
@@ -252,6 +253,16 @@ pub fn WorktreesPage() -> impl IntoView {
                     inner_html=r#"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>"#
                 ></span>
                 <span>{msg}</span>
+            </div>
+        })}
+
+        {move || offline_demo.get().then(|| view! {
+            <div class="state-banner state-banner-info">
+                <span
+                    class="state-banner-icon"
+                    inner_html=r#"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>"#
+                ></span>
+                <span>"Offline demo mode: showing local worktree snapshots until daemon reconnects."</span>
             </div>
         })}
 

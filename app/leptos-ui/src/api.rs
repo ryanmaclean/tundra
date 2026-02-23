@@ -24,6 +24,20 @@ pub fn get_api_base() -> String {
     DEFAULT_API_BASE.to_string()
 }
 
+/// Best-effort detection for backend connectivity failures.
+/// Used by pages to switch into demo/offline fallback UX.
+pub fn is_connection_error(message: &str) -> bool {
+    let m = message.to_lowercase();
+    m.contains("failed to connect")
+        || m.contains("networkerror")
+        || m.contains("network error")
+        || m.contains("localhost")
+        || m.contains("127.0.0.1")
+        || m.contains("econnrefused")
+        || m.contains("connection refused")
+        || m.contains("timed out")
+}
+
 // ── Generic fetch helpers ──
 
 /// Extract a clean error message from a JsValue.
