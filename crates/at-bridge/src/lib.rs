@@ -6,6 +6,7 @@ pub mod http_api;
 pub mod intelligence_api;
 pub mod ipc;
 pub mod notifications;
+pub mod origin_validation;
 pub mod protocol;
 pub mod terminal;
 pub mod terminal_ws;

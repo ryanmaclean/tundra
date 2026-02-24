@@ -3,6 +3,7 @@ use axum::{
         ws::{Message, WebSocket, WebSocketUpgrade},
         Path, Query, State,
     },
+    http::HeaderMap,
     middleware as axum_middleware,
     response::IntoResponse,
     routing::{get, patch, post, put},
@@ -23,6 +24,7 @@ use crate::auth::AuthLayer;
 use crate::event_bus::EventBus;
 use crate::intelligence_api;
 use crate::notifications::{notification_from_event, NotificationStore};
+use crate::origin_validation::{get_default_allowed_origins, validate_websocket_origin};
 use crate::terminal::TerminalRegistry;
 use crate::terminal_ws;
 use at_core::config::{Config, CredentialProvider};
@@ -2468,7 +2470,16 @@ async fn list_ui_sessions(State(state): State<Arc<ApiState>>) -> impl IntoRespon
 // WebSocket — legacy /ws handler
 // ---------------------------------------------------------------------------
 
-async fn ws_handler(ws: WebSocketUpgrade, State(state): State<Arc<ApiState>>) -> impl IntoResponse {
+async fn ws_handler(
+    ws: WebSocketUpgrade,
+    State(state): State<Arc<ApiState>>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    // Validate Origin header to prevent cross-site WebSocket hijacking
+    if let Err(status) = validate_websocket_origin(&headers, &get_default_allowed_origins()) {
+        return status.into_response();
+    }
+
     ws.on_upgrade(move |socket| handle_ws(socket, state))
 }
 
@@ -2494,7 +2505,13 @@ async fn handle_ws(mut socket: WebSocket, state: Arc<ApiState>) {
 async fn events_ws_handler(
     ws: WebSocketUpgrade,
     State(state): State<Arc<ApiState>>,
+    headers: HeaderMap,
 ) -> impl IntoResponse {
+    // Validate Origin header to prevent cross-site WebSocket hijacking
+    if let Err(status) = validate_websocket_origin(&headers, &get_default_allowed_origins()) {
+        return status.into_response();
+    }
+
     ws.on_upgrade(move |socket| handle_events_ws(socket, state))
 }
 

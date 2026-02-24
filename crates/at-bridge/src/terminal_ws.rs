@@ -3,6 +3,7 @@ use axum::{
         ws::{Message, WebSocket, WebSocketUpgrade},
         Path, State,
     },
+    http::HeaderMap,
     response::IntoResponse,
     Json,
 };
@@ -12,6 +13,7 @@ use std::time::Duration;
 use uuid::Uuid;
 
 use crate::http_api::ApiState;
+use crate::origin_validation::{get_default_allowed_origins, validate_websocket_origin};
 use crate::terminal::{
     DisconnectBuffer, TerminalInfo, TerminalStatus, DISCONNECT_BUFFER_SIZE, WS_RECONNECT_GRACE,
 };
@@ -350,7 +352,14 @@ pub async fn terminal_ws(
     ws: WebSocketUpgrade,
     State(state): State<Arc<ApiState>>,
     Path(id): Path<String>,
+    headers: HeaderMap,
 ) -> impl IntoResponse {
+    // Validate Origin header to prevent cross-site WebSocket hijacking.
+    let allowed_origins = get_default_allowed_origins();
+    if let Err(status) = validate_websocket_origin(&headers, &allowed_origins) {
+        return (status, "origin not allowed").into_response();
+    }
+
     let terminal_id = match Uuid::parse_str(&id) {
         Ok(id) => id,
         Err(_) => {
