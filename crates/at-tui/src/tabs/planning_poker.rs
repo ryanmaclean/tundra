@@ -11,10 +11,7 @@ pub fn render(frame: &mut Frame, _app: &App, area: Rect) {
     // Split into 2 rows for card grid (5 cards per row)
     let rows = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Percentage(50),
-            Constraint::Percentage(50),
-        ])
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
         .split(area);
 
     // Top row: 0, 1, 2, 3, 5
@@ -70,12 +67,7 @@ pub fn render(frame: &mut Frame, _app: &App, area: Rect) {
 }
 
 /// Render a single planning poker card.
-fn render_card(
-    frame: &mut Frame,
-    card: &(&str, &str, Color),
-    area: Rect,
-    use_unicode: bool,
-) {
+fn render_card(frame: &mut Frame, card: &(&str, &str, Color), area: Rect, use_unicode: bool) {
     let (value, unicode_glyph, color) = card;
 
     let block = Block::default()
@@ -91,9 +83,7 @@ fn render_card(
             Line::from(""),
             Line::from(Span::styled(
                 format!("  {}  ", unicode_glyph),
-                Style::default()
-                    .fg(*color)
-                    .add_modifier(Modifier::BOLD),
+                Style::default().fg(*color).add_modifier(Modifier::BOLD),
             )),
             Line::from(""),
         ]
@@ -103,9 +93,7 @@ fn render_card(
             Line::from(""),
             Line::from(Span::styled(
                 format!("  {}  ", value),
-                Style::default()
-                    .fg(*color)
-                    .add_modifier(Modifier::BOLD),
+                Style::default().fg(*color).add_modifier(Modifier::BOLD),
             )),
             Line::from(""),
         ]
