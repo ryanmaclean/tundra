@@ -3620,6 +3620,21 @@ async fn github_oauth_callback(
     State(state): State<Arc<ApiState>>,
     Json(body): Json<OAuthCallbackRequest>,
 ) -> impl IntoResponse {
+    // Validate CSRF state parameter
+    let state_valid = state
+        .oauth_pending_states
+        .write()
+        .await
+        .remove(&body.state)
+        .is_some();
+
+    if !state_valid {
+        return (
+            axum::http::StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "Invalid or expired OAuth state parameter" })),
+        );
+    }
+
     let client_id = match std::env::var("GITHUB_OAUTH_CLIENT_ID") {
         Ok(v) if !v.is_empty() => v,
         _ => {
