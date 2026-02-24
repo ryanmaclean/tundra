@@ -157,8 +157,7 @@ pub struct ApiState {
     /// Kanban column config (8 columns: Backlog, Queue, In Progress, …, PR Created, Error).
     pub kanban_columns: Arc<RwLock<KanbanColumnConfig>>,
     /// Planning-poker sessions keyed by bead id.
-    pub planning_poker_sessions:
-        Arc<RwLock<std::collections::HashMap<Uuid, PlanningPokerSession>>>,
+    pub planning_poker_sessions: Arc<RwLock<std::collections::HashMap<Uuid, PlanningPokerSession>>>,
     // ---- GitHub OAuth ---------------------------------------------------
     pub github_oauth_token: Arc<RwLock<Option<String>>>,
     pub github_oauth_user: Arc<RwLock<Option<serde_json::Value>>>,
@@ -204,11 +203,22 @@ pub struct PlanningPokerVote {
     pub card: String,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PlanningPokerPhase {
+    Idle,
+    Voting,
+    Revealed,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlanningPokerSession {
     pub bead_id: Uuid,
-    pub revealed: bool,
+    pub phase: PlanningPokerPhase,
     pub votes: Vec<PlanningPokerVote>,
+    pub participants: Vec<String>,
+    pub deck: Vec<String>,
+    pub round_duration_seconds: Option<u64>,
     pub consensus_card: Option<String>,
     pub started_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
@@ -777,6 +787,11 @@ pub struct TaskOrderingRequest {
 #[derive(Debug, Deserialize)]
 pub struct StartPlanningPokerRequest {
     pub bead_id: Uuid,
+    #[serde(default)]
+    pub participants: Vec<String>,
+    pub deck_preset: Option<String>,
+    pub custom_deck: Option<Vec<String>>,
+    pub round_duration_seconds: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -794,16 +809,31 @@ pub struct RevealPlanningPokerRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlanningPokerVoteView {
     pub voter: String,
+    pub has_voted: bool,
     pub card: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlanningPokerRevealStats {
+    pub min: Option<f64>,
+    pub max: Option<f64>,
+    pub average: Option<f64>,
+    pub median: Option<f64>,
+    pub mode: Option<f64>,
+    pub numeric_vote_count: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlanningPokerSessionResponse {
     pub bead_id: Uuid,
+    pub phase: PlanningPokerPhase,
     pub revealed: bool,
+    pub deck: Vec<String>,
+    pub round_duration_seconds: Option<u64>,
     pub vote_count: usize,
     pub votes: Vec<PlanningPokerVoteView>,
     pub consensus_card: Option<String>,
+    pub stats: Option<PlanningPokerRevealStats>,
     pub started_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
 }
@@ -2096,26 +2126,196 @@ async fn patch_kanban_columns(
     )
 }
 
-fn planning_poker_response(session: &PlanningPokerSession) -> PlanningPokerSessionResponse {
-    let votes = session
-        .votes
+fn normalize_participants(raw: &[String]) -> Vec<String> {
+    let mut seen = std::collections::BTreeSet::new();
+    let mut out = Vec::new();
+    for item in raw {
+        let name = item.trim();
+        if name.is_empty() {
+            continue;
+        }
+        if seen.insert(name.to_string()) {
+            out.push(name.to_string());
+        }
+    }
+    out
+}
+
+fn normalize_cards(raw: &[String]) -> Vec<String> {
+    let mut seen = std::collections::BTreeSet::new();
+    let mut out = Vec::new();
+    for item in raw {
+        let card = item.trim();
+        if card.is_empty() {
+            continue;
+        }
+        if seen.insert(card.to_string()) {
+            out.push(card.to_string());
+        }
+    }
+    out
+}
+
+fn default_poker_deck() -> Vec<String> {
+    [
+        "0", "1", "2", "3", "5", "8", "13", "21", "34", "55", "89", "?", "coffee",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect()
+}
+
+fn deck_preset(preset: &str) -> Option<Vec<String>> {
+    let key = preset.trim().to_ascii_lowercase();
+    match key.as_str() {
+        "fibonacci" => Some(
+            [
+                "0", "1", "2", "3", "5", "8", "13", "21", "34", "55", "89", "?", "coffee",
+            ]
+            .iter()
+            .map(|s| s.to_string())
+            .collect(),
+        ),
+        "modified_fibonacci" => Some(
+            [
+                "0", "1", "2", "3", "5", "8", "13", "20", "40", "100", "?", "coffee",
+            ]
+            .iter()
+            .map(|s| s.to_string())
+            .collect(),
+        ),
+        "powers_of_two" => Some(
+            ["1", "2", "4", "8", "16", "32", "64", "128", "?", "coffee"]
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
+        ),
+        "tshirt" => Some(
+            ["xs", "s", "m", "l", "xl", "xxl", "?", "coffee"]
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
+        ),
+        _ => None,
+    }
+}
+
+fn parse_numeric_card(card: &str) -> Option<f64> {
+    card.trim().parse::<f64>().ok()
+}
+
+fn reveal_stats(votes: &[PlanningPokerVote]) -> Option<PlanningPokerRevealStats> {
+    let mut numbers = votes
         .iter()
-        .map(|vote| PlanningPokerVoteView {
-            voter: vote.voter.clone(),
-            card: if session.revealed {
-                Some(vote.card.clone())
-            } else {
-                None
-            },
+        .filter_map(|v| parse_numeric_card(&v.card))
+        .collect::<Vec<_>>();
+    if numbers.is_empty() {
+        return None;
+    }
+    numbers.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let sum = numbers.iter().sum::<f64>();
+    let min = numbers.first().copied();
+    let max = numbers.last().copied();
+    let average = Some(sum / numbers.len() as f64);
+    let median = if numbers.len() % 2 == 1 {
+        Some(numbers[numbers.len() / 2])
+    } else {
+        let a = numbers[(numbers.len() / 2) - 1];
+        let b = numbers[numbers.len() / 2];
+        Some((a + b) / 2.0)
+    };
+
+    let mut counts = std::collections::BTreeMap::<String, usize>::new();
+    for n in &numbers {
+        *counts.entry(n.to_string()).or_insert(0) += 1;
+    }
+    let mut best: Option<(f64, usize)> = None;
+    let mut tie = false;
+    for (key, count) in counts {
+        let parsed = key.parse::<f64>().ok();
+        if parsed.is_none() {
+            continue;
+        }
+        match best {
+            None => {
+                best = Some((parsed.unwrap_or_default(), count));
+                tie = false;
+            }
+            Some((_, best_count)) if count > best_count => {
+                best = Some((parsed.unwrap_or_default(), count));
+                tie = false;
+            }
+            Some((_, best_count)) if count == best_count => {
+                tie = true;
+            }
+            _ => {}
+        }
+    }
+    let mode = if tie {
+        None
+    } else {
+        best.map(|(value, _)| value)
+    };
+
+    Some(PlanningPokerRevealStats {
+        min,
+        max,
+        average,
+        median,
+        mode,
+        numeric_vote_count: numbers.len(),
+    })
+}
+
+fn planning_poker_response(session: &PlanningPokerSession) -> PlanningPokerSessionResponse {
+    let mut voted = std::collections::HashMap::<String, String>::new();
+    for vote in &session.votes {
+        voted.insert(vote.voter.clone(), vote.card.clone());
+    }
+
+    let mut participants = session.participants.clone();
+    for vote in &session.votes {
+        if !participants.iter().any(|p| p == &vote.voter) {
+            participants.push(vote.voter.clone());
+        }
+    }
+    participants.sort_by(|a, b| {
+        let a_voted = voted.contains_key(a);
+        let b_voted = voted.contains_key(b);
+        match (a_voted, b_voted) {
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            _ => a.cmp(b),
+        }
+    });
+
+    let revealed = matches!(session.phase, PlanningPokerPhase::Revealed);
+    let votes = participants
+        .iter()
+        .map(|participant| {
+            let card = voted.get(participant).cloned();
+            PlanningPokerVoteView {
+                voter: participant.clone(),
+                has_voted: card.is_some(),
+                card: if revealed { card } else { None },
+            }
         })
         .collect::<Vec<_>>();
 
     PlanningPokerSessionResponse {
         bead_id: session.bead_id,
-        revealed: session.revealed,
+        phase: session.phase,
+        revealed,
+        deck: session.deck.clone(),
+        round_duration_seconds: session.round_duration_seconds,
         vote_count: session.votes.len(),
         votes,
         consensus_card: session.consensus_card.clone(),
+        stats: if revealed {
+            reveal_stats(&session.votes)
+        } else {
+            None
+        },
         started_at: session.started_at,
         updated_at: session.updated_at,
     }
@@ -2171,11 +2371,37 @@ async fn start_planning_poker(
         );
     }
 
+    let deck = if let Some(custom) = req.custom_deck {
+        let normalized = normalize_cards(&custom);
+        if normalized.is_empty() {
+            return (
+                axum::http::StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": "custom_deck must include at least one card"})),
+            );
+        }
+        normalized
+    } else if let Some(preset) = req.deck_preset {
+        match deck_preset(&preset) {
+            Some(deck) => deck,
+            None => {
+                return (
+                    axum::http::StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({"error": "unknown deck preset"})),
+                );
+            }
+        }
+    } else {
+        default_poker_deck()
+    };
+
     let now = chrono::Utc::now();
     let session = PlanningPokerSession {
         bead_id: req.bead_id,
-        revealed: false,
+        phase: PlanningPokerPhase::Voting,
         votes: Vec::new(),
+        participants: normalize_participants(&req.participants),
+        deck,
+        round_duration_seconds: req.round_duration_seconds,
         consensus_card: None,
         started_at: now,
         updated_at: now,
@@ -2213,20 +2439,31 @@ async fn submit_planning_poker_vote(
         );
     };
 
-    if session.revealed {
+    if !matches!(session.phase, PlanningPokerPhase::Voting) {
         return (
             axum::http::StatusCode::CONFLICT,
-            Json(serde_json::json!({"error": "session already revealed"})),
+            Json(serde_json::json!({"error": "session is not in voting phase"})),
+        );
+    }
+
+    if !session.deck.iter().any(|card| card == &req.card) {
+        return (
+            axum::http::StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "card is not in active deck"})),
         );
     }
 
     if let Some(existing) = session.votes.iter_mut().find(|v| v.voter == req.voter) {
         existing.card = req.card;
     } else {
+        let voter = req.voter.clone();
         session.votes.push(PlanningPokerVote {
-            voter: req.voter,
+            voter,
             card: req.card,
         });
+    }
+    if !session.participants.iter().any(|p| p == &req.voter) {
+        session.participants.push(req.voter);
     }
     session.updated_at = chrono::Utc::now();
 
@@ -2248,7 +2485,14 @@ async fn reveal_planning_poker(
         );
     };
 
-    session.revealed = true;
+    if matches!(session.phase, PlanningPokerPhase::Revealed) {
+        return (
+            axum::http::StatusCode::CONFLICT,
+            Json(serde_json::json!({"error": "session already revealed"})),
+        );
+    }
+
+    session.phase = PlanningPokerPhase::Revealed;
     session.consensus_card = consensus_card_from_votes(&session.votes);
     session.updated_at = chrono::Utc::now();
 
@@ -5557,8 +5801,11 @@ mod tests {
             .await
             .unwrap();
         let get_json: serde_json::Value = serde_json::from_slice(&get_bytes).unwrap();
+        assert_eq!(get_json["phase"], "voting");
         assert_eq!(get_json["revealed"], false);
         assert_eq!(get_json["vote_count"], 2);
+        assert_eq!(get_json["votes"][0]["has_voted"], true);
+        assert_eq!(get_json["votes"][1]["has_voted"], true);
         assert!(get_json["votes"][0]["card"].is_null());
         assert!(get_json["votes"][1]["card"].is_null());
 
@@ -5575,10 +5822,15 @@ mod tests {
             .await
             .unwrap();
         let reveal_json: serde_json::Value = serde_json::from_slice(&reveal_bytes).unwrap();
+        assert_eq!(reveal_json["phase"], "revealed");
         assert_eq!(reveal_json["revealed"], true);
         assert_eq!(reveal_json["vote_count"], 2);
         assert_eq!(reveal_json["votes"][0]["card"], "5");
         assert_eq!(reveal_json["votes"][1]["card"], "8");
+        assert!(reveal_json["consensus_card"].is_null());
+        assert_eq!(reveal_json["stats"]["numeric_vote_count"], 2);
+        assert_eq!(reveal_json["stats"]["min"], 5.0);
+        assert_eq!(reveal_json["stats"]["max"], 8.0);
     }
 
     #[tokio::test]
@@ -5593,6 +5845,212 @@ mod tests {
             .unwrap();
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn test_planning_poker_participants_answered_first() {
+        let (app, _state) = test_app();
+        let create_body = serde_json::json!({
+            "title": "Estimate queue",
+            "description": "Planning poker ordering",
+            "lane": "standard"
+        });
+        let create_req = Request::builder()
+            .method("POST")
+            .uri("/api/beads")
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_vec(&create_body).unwrap()))
+            .unwrap();
+        let create_resp = app.clone().oneshot(create_req).await.unwrap();
+        let create_bytes = axum::body::to_bytes(create_resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let created: serde_json::Value = serde_json::from_slice(&create_bytes).unwrap();
+        let bead_id = created["id"].as_str().unwrap();
+
+        let start_body = serde_json::json!({
+            "bead_id": bead_id,
+            "participants": ["zoe", "amy", "liam"]
+        });
+        let start_req = Request::builder()
+            .method("POST")
+            .uri("/api/kanban/poker/start")
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_vec(&start_body).unwrap()))
+            .unwrap();
+        let start_resp = app.clone().oneshot(start_req).await.unwrap();
+        assert_eq!(start_resp.status(), StatusCode::CREATED);
+
+        let vote_body = serde_json::json!({
+            "bead_id": bead_id,
+            "voter": "liam",
+            "card": "3"
+        });
+        let vote_req = Request::builder()
+            .method("POST")
+            .uri("/api/kanban/poker/vote")
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_vec(&vote_body).unwrap()))
+            .unwrap();
+        let vote_resp = app.clone().oneshot(vote_req).await.unwrap();
+        assert_eq!(vote_resp.status(), StatusCode::OK);
+
+        let get_req = Request::builder()
+            .method("GET")
+            .uri(format!("/api/kanban/poker/{bead_id}"))
+            .body(Body::empty())
+            .unwrap();
+        let get_resp = app.clone().oneshot(get_req).await.unwrap();
+        let get_bytes = axum::body::to_bytes(get_resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let get_json: serde_json::Value = serde_json::from_slice(&get_bytes).unwrap();
+        assert_eq!(get_json["votes"][0]["voter"], "liam");
+        assert_eq!(get_json["votes"][0]["has_voted"], true);
+        assert_eq!(get_json["votes"][1]["voter"], "amy");
+        assert_eq!(get_json["votes"][2]["voter"], "zoe");
+        assert_eq!(get_json["votes"][1]["has_voted"], false);
+        assert_eq!(get_json["votes"][2]["has_voted"], false);
+    }
+
+    #[tokio::test]
+    async fn test_planning_poker_custom_deck_validation() {
+        let (app, _state) = test_app();
+        let create_body = serde_json::json!({
+            "title": "Estimate parser",
+            "description": "Deck validation",
+            "lane": "standard"
+        });
+        let create_req = Request::builder()
+            .method("POST")
+            .uri("/api/beads")
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_vec(&create_body).unwrap()))
+            .unwrap();
+        let create_resp = app.clone().oneshot(create_req).await.unwrap();
+        let create_bytes = axum::body::to_bytes(create_resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let created: serde_json::Value = serde_json::from_slice(&create_bytes).unwrap();
+        let bead_id = created["id"].as_str().unwrap();
+
+        let start_body = serde_json::json!({
+            "bead_id": bead_id,
+            "custom_deck": ["A", "B"]
+        });
+        let start_req = Request::builder()
+            .method("POST")
+            .uri("/api/kanban/poker/start")
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_vec(&start_body).unwrap()))
+            .unwrap();
+        let start_resp = app.clone().oneshot(start_req).await.unwrap();
+        assert_eq!(start_resp.status(), StatusCode::CREATED);
+
+        let bad_vote = serde_json::json!({
+            "bead_id": bead_id,
+            "voter": "dev",
+            "card": "C"
+        });
+        let bad_vote_req = Request::builder()
+            .method("POST")
+            .uri("/api/kanban/poker/vote")
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_vec(&bad_vote).unwrap()))
+            .unwrap();
+        let bad_vote_resp = app.clone().oneshot(bad_vote_req).await.unwrap();
+        assert_eq!(bad_vote_resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_planning_poker_unknown_deck_preset() {
+        let (app, _state) = test_app();
+        let create_body = serde_json::json!({
+            "title": "Estimate auth",
+            "description": "Unknown preset",
+            "lane": "standard"
+        });
+        let create_req = Request::builder()
+            .method("POST")
+            .uri("/api/beads")
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_vec(&create_body).unwrap()))
+            .unwrap();
+        let create_resp = app.clone().oneshot(create_req).await.unwrap();
+        let create_bytes = axum::body::to_bytes(create_resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let created: serde_json::Value = serde_json::from_slice(&create_bytes).unwrap();
+        let bead_id = created["id"].as_str().unwrap();
+
+        let start_body = serde_json::json!({
+            "bead_id": bead_id,
+            "deck_preset": "not-a-deck"
+        });
+        let start_req = Request::builder()
+            .method("POST")
+            .uri("/api/kanban/poker/start")
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_vec(&start_body).unwrap()))
+            .unwrap();
+        let start_resp = app.clone().oneshot(start_req).await.unwrap();
+        assert_eq!(start_resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_planning_poker_vote_after_reveal_conflict() {
+        let (app, _state) = test_app();
+        let create_body = serde_json::json!({
+            "title": "Estimate ws backlog",
+            "description": "Vote after reveal",
+            "lane": "standard"
+        });
+        let create_req = Request::builder()
+            .method("POST")
+            .uri("/api/beads")
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_vec(&create_body).unwrap()))
+            .unwrap();
+        let create_resp = app.clone().oneshot(create_req).await.unwrap();
+        let create_bytes = axum::body::to_bytes(create_resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let created: serde_json::Value = serde_json::from_slice(&create_bytes).unwrap();
+        let bead_id = created["id"].as_str().unwrap();
+
+        let start_body = serde_json::json!({ "bead_id": bead_id });
+        let start_req = Request::builder()
+            .method("POST")
+            .uri("/api/kanban/poker/start")
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_vec(&start_body).unwrap()))
+            .unwrap();
+        let start_resp = app.clone().oneshot(start_req).await.unwrap();
+        assert_eq!(start_resp.status(), StatusCode::CREATED);
+
+        let reveal_body = serde_json::json!({ "bead_id": bead_id });
+        let reveal_req = Request::builder()
+            .method("POST")
+            .uri("/api/kanban/poker/reveal")
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_vec(&reveal_body).unwrap()))
+            .unwrap();
+        let reveal_resp = app.clone().oneshot(reveal_req).await.unwrap();
+        assert_eq!(reveal_resp.status(), StatusCode::OK);
+
+        let vote_body = serde_json::json!({
+            "bead_id": bead_id,
+            "voter": "qa",
+            "card": "5"
+        });
+        let vote_req = Request::builder()
+            .method("POST")
+            .uri("/api/kanban/poker/vote")
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_vec(&vote_body).unwrap()))
+            .unwrap();
+        let vote_resp = app.clone().oneshot(vote_req).await.unwrap();
+        assert_eq!(vote_resp.status(), StatusCode::CONFLICT);
     }
 
     #[tokio::test]

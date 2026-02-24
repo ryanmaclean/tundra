@@ -585,10 +585,16 @@ async fn get_context(Query(query): Query<ContextQuery>) -> impl IntoResponse {
 
     // If budget allows, include more details
     if query.budget > 2000 {
-        context_summary["agent_definitions"] =
-            serde_json::json!(snapshot.agent_definitions.iter().map(|a| &a.name).collect::<Vec<_>>());
-        context_summary["skill_definitions"] =
-            serde_json::json!(snapshot.skill_definitions.iter().map(|s| &s.name).collect::<Vec<_>>());
+        context_summary["agent_definitions"] = serde_json::json!(snapshot
+            .agent_definitions
+            .iter()
+            .map(|a| &a.name)
+            .collect::<Vec<_>>());
+        context_summary["skill_definitions"] = serde_json::json!(snapshot
+            .skill_definitions
+            .iter()
+            .map(|s| &s.name)
+            .collect::<Vec<_>>());
     }
 
     Json(context_summary)

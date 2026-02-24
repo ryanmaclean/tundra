@@ -118,6 +118,29 @@ async fn test_daemon_shutdown_via_handle() {
     assert!(handle.is_shutting_down());
 }
 
+#[tokio::test]
+async fn test_daemon_startup_with_auto_generated_key() {
+    let cache = Arc::new(at_core::cache::CacheDb::new_in_memory().await.unwrap());
+    let config = at_core::config::Config::default();
+    let daemon = at_daemon::daemon::Daemon::with_cache(config, cache);
+
+    // Start daemon in embedded mode, which auto-generates an API key.
+    let port = daemon.start_embedded().await.unwrap();
+    assert!(port > 0, "daemon should bind to a valid port");
+
+    // Verify the API server is running by hitting the status endpoint.
+    // The server has auth enabled with the auto-generated key, but we can
+    // still verify basic connectivity.
+    let base_url = format!("http://127.0.0.1:{port}");
+
+    // Without the key, we should get 401 (auth required).
+    let resp = reqwest::get(format!("{base_url}/api/status")).await.unwrap();
+    assert_eq!(resp.status(), 401, "should require authentication");
+
+    // Clean shutdown.
+    daemon.shutdown();
+}
+
 // ===========================================================================
 // KPI endpoint
 // ===========================================================================
