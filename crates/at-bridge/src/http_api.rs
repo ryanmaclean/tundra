@@ -3559,7 +3559,7 @@ async fn import_github_issue(
 // ---------------------------------------------------------------------------
 
 /// GET /api/github/oauth/authorize — build the GitHub authorization URL.
-async fn github_oauth_authorize(State(_state): State<Arc<ApiState>>) -> impl IntoResponse {
+async fn github_oauth_authorize(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     let client_id = match std::env::var("GITHUB_OAUTH_CLIENT_ID") {
         Ok(v) if !v.is_empty() => v,
         _ => {
@@ -3591,6 +3591,14 @@ async fn github_oauth_authorize(State(_state): State<Arc<ApiState>>) -> impl Int
     let oauth_client = gh_oauth::GitHubOAuthClient::new(oauth_config);
     let csrf_state = uuid::Uuid::new_v4().to_string();
     let url = oauth_client.authorization_url(&csrf_state);
+
+    // Store the state for CSRF validation during callback
+    let timestamp = chrono::Utc::now().to_rfc3339();
+    state
+        .oauth_pending_states
+        .write()
+        .await
+        .insert(csrf_state.clone(), timestamp);
 
     (
         axum::http::StatusCode::OK,
