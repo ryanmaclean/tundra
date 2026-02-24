@@ -785,16 +785,11 @@ async fn update_bead_status(
     };
 
     if !bead.status.can_transition_to(&req.status) {
-        return (
-            axum::http::StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": format!(
-                    "invalid transition from {:?} to {:?}",
-                    bead.status, req.status
-                )
-            })),
-        )
-            .into_response();
+        return ApiError::BadRequest(format!(
+            "invalid transition from {:?} to {:?}",
+            bead.status, req.status
+        ))
+        .into_response();
     }
 
     bead.status = req.status;
@@ -881,11 +876,7 @@ async fn create_task(
     Json(req): Json<CreateTaskRequest>,
 ) -> impl IntoResponse {
     if req.title.is_empty() {
-        return (
-            axum::http::StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": "title cannot be empty"})),
-        )
-            .into_response();
+        return ApiError::BadRequest("title cannot be empty".to_string()).into_response();
     }
 
     let mut task = Task::new(
@@ -933,11 +924,7 @@ async fn update_task(
 
     if let Some(title) = req.title {
         if title.is_empty() {
-            return (
-                axum::http::StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": "title cannot be empty"})),
-            )
-                .into_response();
+            return ApiError::BadRequest("title cannot be empty".to_string()).into_response();
         }
         task.title = title;
     }
@@ -1006,16 +993,11 @@ async fn update_task_phase(
     };
 
     if !task.phase.can_transition_to(&req.phase) {
-        return (
-            axum::http::StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": format!(
-                    "invalid phase transition from {:?} to {:?}",
-                    task.phase, req.phase
-                )
-            })),
-        )
-            .into_response();
+        return ApiError::BadRequest(format!(
+            "invalid phase transition from {:?} to {:?}",
+            task.phase, req.phase
+        ))
+        .into_response();
     }
 
     task.set_phase(req.phase);
@@ -1082,16 +1064,11 @@ async fn execute_task_pipeline(
 
     // The task must be in a phase that can transition to Coding.
     if !task.phase.can_transition_to(&TaskPhase::Coding) {
-        return (
-            axum::http::StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": format!(
-                    "cannot start pipeline: task is in {:?} phase",
-                    task.phase
-                )
-            })),
-        )
-            .into_response();
+        return ApiError::BadRequest(format!(
+            "cannot start pipeline: task is in {:?} phase",
+            task.phase
+        ))
+        .into_response();
     }
 
     task.set_phase(TaskPhase::Coding);
@@ -1486,13 +1463,10 @@ async fn get_build_logs(
                     .collect()
             }
             Err(_) => {
-                return (
-                    axum::http::StatusCode::BAD_REQUEST,
-                    Json(
-                        serde_json::json!({"error": "invalid 'since' timestamp; use ISO-8601 / RFC-3339"}),
-                    ),
+                return ApiError::BadRequest(
+                    "invalid 'since' timestamp; use ISO-8601 / RFC-3339".to_string(),
                 )
-                    .into_response();
+                .into_response();
             }
         }
     } else {
@@ -1582,7 +1556,7 @@ async fn patch_settings(
             return (
                 axum::http::StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({"error": e.to_string()})),
-            );
+            ).into_response();
         }
     };
 
@@ -1592,19 +1566,16 @@ async fn patch_settings(
     current = match serde_json::from_value(current_val) {
         Ok(c) => c,
         Err(e) => {
-            return (
-                axum::http::StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": e.to_string()})),
-            );
+            return ApiError::BadRequest(e.to_string()).into_response();
         }
     };
 
     match state.settings_manager.save(&current) {
-        Ok(()) => (axum::http::StatusCode::OK, Json(serde_json::json!(current))),
+        Ok(()) => (axum::http::StatusCode::OK, Json(serde_json::json!(current))).into_response(),
         Err(e) => (
             axum::http::StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({"error": e.to_string()})),
-        ),
+        ).into_response(),
     }
 }
 
@@ -1639,7 +1610,7 @@ async fn list_gitlab_issues(
                 "error": "GitLab token not configured. Set the environment variable.",
                 "env_var": int.gitlab_token_env,
             })),
-        );
+        ).into_response();
     }
 
     let project_id = q
@@ -1648,12 +1619,11 @@ async fn list_gitlab_issues(
         .or_else(|| int.gitlab_project_id.clone())
         .unwrap_or_default();
     if project_id.is_empty() {
-        return (
-            axum::http::StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": "GitLab project ID is required (query param project_id or settings.integrations.gitlab_project_id).",
-            })),
-        );
+        return ApiError::BadRequest(
+            "GitLab project ID is required (query param project_id or settings.integrations.gitlab_project_id)."
+                .to_string(),
+        )
+        .into_response();
     }
 
     let base_url = int
@@ -1670,7 +1640,7 @@ async fn list_gitlab_issues(
             return (
                 axum::http::StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({ "error": e.to_string() })),
-            );
+            ).into_response();
         }
     };
 
@@ -1683,11 +1653,11 @@ async fn list_gitlab_issues(
         )
         .await
     {
-        Ok(issues) => (axum::http::StatusCode::OK, Json(serde_json::json!(issues))),
+        Ok(issues) => (axum::http::StatusCode::OK, Json(serde_json::json!(issues))).into_response(),
         Err(e) => (
             axum::http::StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({ "error": e.to_string() })),
-        ),
+        ).into_response(),
     }
 }
 
@@ -1718,7 +1688,7 @@ async fn list_gitlab_merge_requests(
                 "error": "GitLab token not configured. Set the environment variable.",
                 "env_var": int.gitlab_token_env,
             })),
-        );
+        ).into_response();
     }
 
     let project_id = q
@@ -1727,12 +1697,11 @@ async fn list_gitlab_merge_requests(
         .or_else(|| int.gitlab_project_id.clone())
         .unwrap_or_default();
     if project_id.is_empty() {
-        return (
-            axum::http::StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": "GitLab project ID is required (query param project_id or settings.integrations.gitlab_project_id).",
-            })),
-        );
+        return ApiError::BadRequest(
+            "GitLab project ID is required (query param project_id or settings.integrations.gitlab_project_id)."
+                .to_string(),
+        )
+        .into_response();
     }
 
     let base_url = int
@@ -1749,7 +1718,7 @@ async fn list_gitlab_merge_requests(
             return (
                 axum::http::StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({ "error": e.to_string() })),
-            );
+            ).into_response();
         }
     };
 
@@ -1762,11 +1731,11 @@ async fn list_gitlab_merge_requests(
         )
         .await
     {
-        Ok(mrs) => (axum::http::StatusCode::OK, Json(serde_json::json!(mrs))),
+        Ok(mrs) => (axum::http::StatusCode::OK, Json(serde_json::json!(mrs))).into_response(),
         Err(e) => (
             axum::http::StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({ "error": e.to_string() })),
-        ),
+        ).into_response(),
     }
 }
 
@@ -1798,7 +1767,7 @@ async fn review_gitlab_merge_request(
                 "error": "GitLab token not configured. Set the environment variable.",
                 "env_var": int.gitlab_token_env,
             })),
-        );
+        ).into_response();
     }
 
     let req = body.map(|b| b.0).unwrap_or_default();
@@ -1807,12 +1776,11 @@ async fn review_gitlab_merge_request(
         .or_else(|| int.gitlab_project_id.clone())
         .unwrap_or_default();
     if project_id.is_empty() {
-        return (
-            axum::http::StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": "GitLab project ID is required (request body project_id or settings.integrations.gitlab_project_id).",
-            })),
-        );
+        return ApiError::BadRequest(
+            "GitLab project ID is required (request body project_id or settings.integrations.gitlab_project_id)."
+                .to_string(),
+        )
+        .into_response();
     }
 
     let base_url = int
@@ -1828,7 +1796,7 @@ async fn review_gitlab_merge_request(
             return (
                 axum::http::StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({ "error": e.to_string() })),
-            );
+            ).into_response();
         }
     };
 
@@ -1845,7 +1813,7 @@ async fn review_gitlab_merge_request(
 
     let engine = at_integrations::gitlab::mr_review::MrReviewEngine::with_client(config, client);
     let result = engine.review_mr(&project_id, iid).await;
-    (axum::http::StatusCode::OK, Json(serde_json::json!(result)))
+    (axum::http::StatusCode::OK, Json(serde_json::json!(result))).into_response()
 }
 
 // ---------------------------------------------------------------------------
@@ -1875,7 +1843,7 @@ async fn list_linear_issues(
                 "error": "Linear API key not configured. Set the environment variable.",
                 "env_var": int.linear_api_key_env,
             })),
-        );
+        ).into_response();
     }
 
     let client =
@@ -1885,26 +1853,25 @@ async fn list_linear_issues(
                 return (
                     axum::http::StatusCode::INTERNAL_SERVER_ERROR,
                     Json(serde_json::json!({ "error": e.to_string() })),
-                );
+                ).into_response();
             }
         };
 
     let team = q.team_id.as_deref().or(int.linear_team_id.as_deref());
     if team.is_none() {
-        return (
-            axum::http::StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": "Linear team_id is required (query param team_id or settings.integrations.linear_team_id).",
-            })),
-        );
+        return ApiError::BadRequest(
+            "Linear team_id is required (query param team_id or settings.integrations.linear_team_id)."
+                .to_string(),
+        )
+        .into_response();
     }
 
     match client.list_issues(team, q.state.as_deref()).await {
-        Ok(issues) => (axum::http::StatusCode::OK, Json(serde_json::json!(issues))),
+        Ok(issues) => (axum::http::StatusCode::OK, Json(serde_json::json!(issues))).into_response(),
         Err(e) => (
             axum::http::StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({ "error": e.to_string() })),
-        ),
+        ).into_response(),
     }
 }
 
@@ -1928,7 +1895,7 @@ async fn import_linear_issues(
                 "error": "Linear API key not configured. Set the environment variable.",
                 "env_var": int.linear_api_key_env,
             })),
-        );
+        ).into_response();
     }
 
     let client =
@@ -1938,16 +1905,16 @@ async fn import_linear_issues(
                 return (
                     axum::http::StatusCode::INTERNAL_SERVER_ERROR,
                     Json(serde_json::json!({ "error": e.to_string() })),
-                );
+                ).into_response();
             }
         };
 
     match client.import_issues(body.issue_ids).await {
-        Ok(results) => (axum::http::StatusCode::OK, Json(serde_json::json!(results))),
+        Ok(results) => (axum::http::StatusCode::OK, Json(serde_json::json!(results))).into_response(),
         Err(e) => (
             axum::http::StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({ "error": e.to_string() })),
-        ),
+        ).into_response(),
     }
 }
 
@@ -1964,16 +1931,13 @@ async fn patch_kanban_columns(
 ) -> impl IntoResponse {
     let mut cols = state.kanban_columns.write().await;
     if patch.columns.is_empty() {
-        return (
-            axum::http::StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": "columns must not be empty"})),
-        );
+        return ApiError::BadRequest("columns must not be empty".to_string()).into_response();
     }
     *cols = patch;
     (
         axum::http::StatusCode::OK,
         Json(serde_json::to_value(cols.clone()).unwrap()),
-    )
+    ).into_response()
 }
 
 /// GET /api/credentials/status — report which credential providers are available.
@@ -2065,13 +2029,10 @@ async fn list_github_issues(
             .into_response();
     }
     if owner.is_empty() || repo.is_empty() {
-        return (
-            axum::http::StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": "GitHub owner and repo must be set in settings (integrations).",
-            })),
+        return ApiError::BadRequest(
+            "GitHub owner and repo must be set in settings (integrations).".to_string(),
         )
-            .into_response();
+        .into_response();
     }
 
     let gh_config = GitHubConfig { token, owner, repo };
@@ -2132,13 +2093,10 @@ async fn trigger_github_sync(State(state): State<Arc<ApiState>>) -> impl IntoRes
             .into_response();
     }
     if owner.is_empty() || repo.is_empty() {
-        return (
-            axum::http::StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": "GitHub owner and repo must be set in settings (integrations).",
-            })),
+        return ApiError::BadRequest(
+            "GitHub owner and repo must be set in settings (integrations).".to_string(),
         )
-            .into_response();
+        .into_response();
     }
 
     let gh_config = GitHubConfig {
@@ -2218,13 +2176,10 @@ async fn create_pr_for_task(
     drop(tasks);
 
     if task.git_branch.is_none() {
-        return (
-            axum::http::StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": "Task has no branch. Create a worktree for this task first.",
-            })),
+        return ApiError::BadRequest(
+            "Task has no branch. Create a worktree for this task first.".to_string(),
         )
-            .into_response();
+        .into_response();
     }
 
     let config = state.settings_manager.load_or_default();
@@ -2244,13 +2199,10 @@ async fn create_pr_for_task(
             .into_response();
     }
     if owner.is_empty() || repo.is_empty() {
-        return (
-            axum::http::StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": "GitHub owner and repo must be set in settings (integrations).",
-            })),
+        return ApiError::BadRequest(
+            "GitHub owner and repo must be set in settings (integrations).".to_string(),
         )
-            .into_response();
+        .into_response();
     }
 
     let gh_config = GitHubConfig { token, owner, repo };
@@ -2632,12 +2584,13 @@ async fn call_mcp_tool(
 
     match at_harness::builtin_tools::execute_builtin_tool(&ctx, &request).await {
         Some(result) => {
-            let status = if result.is_error {
-                axum::http::StatusCode::BAD_REQUEST
+            if result.is_error {
+                ApiError::BadRequest(
+                    serde_json::to_string(&result).unwrap_or_else(|_| "builtin tool error".to_string())
+                ).into_response()
             } else {
-                axum::http::StatusCode::OK
-            };
-            (status, Json(serde_json::to_value(result).unwrap())).into_response()
+                (axum::http::StatusCode::OK, Json(serde_json::to_value(result).unwrap())).into_response()
+            }
         }
         None => ApiError::NotFound(format!("unknown tool: {}", request.name)).into_response(),
     }
@@ -3036,12 +2989,11 @@ async fn resolve_conflict(
 ) -> impl IntoResponse {
     let valid_strategies = ["ours", "theirs", "manual"];
     if !valid_strategies.contains(&req.strategy.as_str()) {
-        return (
-            axum::http::StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": format!("invalid strategy '{}', must be one of: ours, theirs, manual", req.strategy)
-            })),
-        );
+        return ApiError::BadRequest(format!(
+            "invalid strategy '{}', must be one of: ours, theirs, manual",
+            req.strategy
+        ))
+        .into_response();
     }
 
     let base_dir = std::env::current_dir().unwrap_or_default();
@@ -3106,7 +3058,7 @@ async fn resolve_conflict(
             "file": req.file,
             "strategy": req.strategy,
         })),
-    )
+    ).into_response()
 }
 
 // ---------------------------------------------------------------------------
@@ -3160,10 +3112,7 @@ async fn reorder_queue(
     Json(req): Json<QueueReorderRequest>,
 ) -> impl IntoResponse {
     if req.task_ids.is_empty() {
-        return (
-            axum::http::StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": "task_ids must not be empty"})),
-        ).into_response();
+        return ApiError::BadRequest("task_ids must not be empty".to_string()).into_response();
     }
 
     // Validate all task IDs exist
@@ -3235,7 +3184,7 @@ async fn toggle_direct_mode(
             return (
                 axum::http::StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({"error": e.to_string()})),
-            );
+            ).into_response();
         }
     };
 
@@ -3246,10 +3195,7 @@ async fn toggle_direct_mode(
     current = match serde_json::from_value(current_val) {
         Ok(c) => c,
         Err(e) => {
-            return (
-                axum::http::StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": e.to_string()})),
-            );
+            return ApiError::BadRequest(e.to_string()).into_response();
         }
     };
 
@@ -3260,11 +3206,11 @@ async fn toggle_direct_mode(
                 "status": "ok",
                 "direct_mode": req.enabled,
             })),
-        ),
+        ).into_response(),
         Err(e) => (
             axum::http::StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({"error": e.to_string()})),
-        ),
+        ).into_response(),
     }
 }
 
@@ -3362,13 +3308,8 @@ async fn delete_worktree(Path(id): Path<String>) -> impl IntoResponse {
             axum::http::StatusCode::OK,
             Json(serde_json::json!({"status": "deleted", "id": id, "path": path})),
         ).into_response(),
-        Ok(o) => (
-            axum::http::StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": String::from_utf8_lossy(&o.stderr).to_string(),
-                "id": id,
-                "path": path
-            })),
+        Ok(o) => ApiError::BadRequest(
+            String::from_utf8_lossy(&o.stderr).to_string()
         ).into_response(),
         Err(e) => (
             axum::http::StatusCode::INTERNAL_SERVER_ERROR,
@@ -3413,13 +3354,10 @@ async fn list_github_prs(
             .into_response();
     }
     if owner.is_empty() || repo.is_empty() {
-        return (
-            axum::http::StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": "GitHub owner and repo must be set in settings (integrations).",
-            })),
+        return ApiError::BadRequest(
+            "GitHub owner and repo must be set in settings (integrations).".to_string(),
         )
-            .into_response();
+        .into_response();
     }
 
     let gh_config = GitHubConfig { token, owner, repo };
@@ -3483,13 +3421,10 @@ async fn import_github_issue(
             .into_response();
     }
     if owner.is_empty() || repo.is_empty() {
-        return (
-            axum::http::StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": "GitHub owner and repo must be set in settings (integrations).",
-            })),
+        return ApiError::BadRequest(
+            "GitHub owner and repo must be set in settings (integrations).".to_string(),
         )
-            .into_response();
+        .into_response();
     }
 
     let gh_config = GitHubConfig { token, owner, repo };
@@ -3586,7 +3521,7 @@ async fn github_oauth_callback(
             return (
                 axum::http::StatusCode::SERVICE_UNAVAILABLE,
                 Json(serde_json::json!({ "error": "GITHUB_OAUTH_CLIENT_ID not set" })),
-            );
+            ).into_response();
         }
     };
     let client_secret = match std::env::var("GITHUB_OAUTH_CLIENT_SECRET") {
@@ -3595,7 +3530,7 @@ async fn github_oauth_callback(
             return (
                 axum::http::StatusCode::SERVICE_UNAVAILABLE,
                 Json(serde_json::json!({ "error": "GITHUB_OAUTH_CLIENT_SECRET not set" })),
-            );
+            ).into_response();
         }
     };
     let redirect_uri = std::env::var("GITHUB_OAUTH_REDIRECT_URI")
@@ -3619,10 +3554,7 @@ async fn github_oauth_callback(
     let token_resp = match oauth_client.exchange_code(&body.code).await {
         Ok(t) => t,
         Err(e) => {
-            return (
-                axum::http::StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({ "error": e.to_string() })),
-            );
+            return ApiError::BadRequest(e.to_string()).into_response();
         }
     };
 
@@ -3647,7 +3579,7 @@ async fn github_oauth_callback(
             "scope": token_resp.scope,
             "expires_in": token_resp.expires_in,
         })),
-    )
+    ).into_response()
 }
 
 /// GET /api/github/oauth/status — check whether the user is authenticated.
@@ -3815,10 +3747,7 @@ async fn delete_project(
 ) -> impl IntoResponse {
     let mut projects = state.projects.write().await;
     if projects.len() <= 1 {
-        return (
-            axum::http::StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": "cannot delete last project"})),
-        ).into_response();
+        return ApiError::BadRequest("cannot delete last project".to_string()).into_response();
     }
     let before = projects.len();
     projects.retain(|p| p.id != id);
