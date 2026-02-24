@@ -3620,13 +3620,37 @@ async fn github_oauth_callback(
     State(state): State<Arc<ApiState>>,
     Json(body): Json<OAuthCallbackRequest>,
 ) -> impl IntoResponse {
-    // Validate CSRF state parameter
-    let state_valid = state
-        .oauth_pending_states
-        .write()
-        .await
-        .remove(&body.state)
-        .is_some();
+    // Validate CSRF state parameter with expiration check
+    let mut pending_states = state.oauth_pending_states.write().await;
+    let state_timestamp = pending_states.get(&body.state).cloned();
+
+    let state_valid = if let Some(timestamp_str) = state_timestamp {
+        // Parse the timestamp and check if it's within 10 minutes
+        match chrono::DateTime::parse_from_rfc3339(&timestamp_str) {
+            Ok(timestamp) => {
+                let age = chrono::Utc::now()
+                    .signed_duration_since(timestamp.with_timezone(&chrono::Utc));
+
+                if age.num_minutes() < 10 {
+                    // Valid and not expired - remove it to prevent replay
+                    pending_states.remove(&body.state);
+                    true
+                } else {
+                    // Expired - also remove to clean up
+                    pending_states.remove(&body.state);
+                    false
+                }
+            }
+            Err(_) => {
+                // Invalid timestamp format - remove and reject
+                pending_states.remove(&body.state);
+                false
+            }
+        }
+    } else {
+        false
+    };
+    drop(pending_states);
 
     if !state_valid {
         return (

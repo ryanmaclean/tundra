@@ -311,3 +311,54 @@ async fn test_oauth_csrf_multiple_states_can_coexist() {
     // Clean up
     std::env::remove_var("GITHUB_OAUTH_CLIENT_ID");
 }
+
+#[tokio::test]
+async fn test_oauth_csrf_callback_rejects_expired_state() {
+    let _lock = ENV_MUTEX.lock().unwrap();
+    let (base, state) = start_test_server().await;
+    let client = reqwest::Client::new();
+
+    // Set required env vars for callback
+    std::env::set_var("GITHUB_OAUTH_CLIENT_ID", "test_client_id");
+    std::env::set_var("GITHUB_OAUTH_CLIENT_SECRET", "test_client_secret");
+
+    // Manually insert an expired state (15 minutes ago)
+    let expired_state = uuid::Uuid::new_v4().to_string();
+    let old_timestamp = (chrono::Utc::now() - chrono::Duration::minutes(15)).to_rfc3339();
+    state
+        .oauth_pending_states
+        .write()
+        .await
+        .insert(expired_state.clone(), old_timestamp);
+
+    // Attempt callback with the expired state
+    let resp = client
+        .post(format!("{base}/api/github/oauth/callback"))
+        .json(&serde_json::json!({
+            "code": "test_code",
+            "state": expired_state
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    // Should be rejected as expired
+    assert_eq!(resp.status(), 400);
+
+    let body: Value = resp.json().await.unwrap();
+    assert!(
+        body["error"].as_str().unwrap().contains("Invalid or expired"),
+        "Error message should indicate state is invalid or expired"
+    );
+
+    // Verify the expired state was removed from storage (cleanup)
+    let pending_states = state.oauth_pending_states.read().await;
+    assert!(
+        !pending_states.contains_key(&expired_state),
+        "Expired state should be removed after rejection"
+    );
+
+    // Clean up
+    std::env::remove_var("GITHUB_OAUTH_CLIENT_ID");
+    std::env::remove_var("GITHUB_OAUTH_CLIENT_SECRET");
+}
