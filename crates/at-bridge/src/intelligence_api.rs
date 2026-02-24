@@ -16,13 +16,13 @@ use uuid::Uuid;
 
 use at_core::context_engine::ProjectContextLoader;
 use at_intelligence::{
-    ideation::IdeaCategory,
+    ideation::{EffortLevel, IdeaCategory},
     insights::ChatRole,
     memory::{MemoryCategory, MemoryEntry},
     roadmap::{FeatureStatus, RoadmapFeature},
 };
 
-use crate::http_api::ApiState;
+use crate::http_api::{simulate_planning_poker_for_bead, ApiState, SimulatePlanningPokerRequest};
 
 // ---------------------------------------------------------------------------
 // Request / query types
@@ -257,13 +257,75 @@ async fn convert_idea(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
 ) -> impl IntoResponse {
-    let engine = state.ideation_engine.read().await;
-    match engine.convert_to_task(&id) {
-        Some(bead) => (axum::http::StatusCode::OK, Json(serde_json::json!(bead))),
-        None => (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "idea not found"})),
-        ),
+    let (idea_effort, bead) = {
+        let engine = state.ideation_engine.read().await;
+        let Some(idea) = engine.get_idea(&id).cloned() else {
+            return (
+                axum::http::StatusCode::NOT_FOUND,
+                Json(serde_json::json!({"error": "idea not found"})),
+            );
+        };
+        let Some(bead) = engine.convert_to_task(&id) else {
+            return (
+                axum::http::StatusCode::NOT_FOUND,
+                Json(serde_json::json!({"error": "idea not found"})),
+            );
+        };
+        (idea.effort, bead)
+    };
+
+    {
+        let mut beads = state.beads.write().await;
+        beads.push(bead.clone());
+    }
+
+    let simulation = simulate_planning_poker_for_bead(
+        &state,
+        SimulatePlanningPokerRequest {
+            bead_id: bead.id,
+            virtual_agents: Vec::new(),
+            agent_count: Some(5),
+            deck_preset: None,
+            custom_deck: None,
+            round_duration_seconds: None,
+            focus_card: Some(effort_to_focus_card(&idea_effort).to_string()),
+            seed: Some(id.as_u128() as u64),
+            auto_reveal: true,
+        },
+    )
+    .await;
+
+    let mut payload = serde_json::to_value(&bead).unwrap_or_else(|_| serde_json::json!({}));
+    if let serde_json::Value::Object(map) = &mut payload {
+        match simulation {
+            Ok(session) => {
+                map.insert(
+                    "planning_poker".to_string(),
+                    serde_json::to_value(session).unwrap_or(serde_json::Value::Null),
+                );
+            }
+            Err((status, err)) => {
+                map.insert(
+                    "planning_poker_error".to_string(),
+                    serde_json::json!({
+                        "status": status.as_u16(),
+                        "details": err
+                    }),
+                );
+            }
+        }
+    }
+
+    (axum::http::StatusCode::OK, Json(payload))
+}
+
+fn effort_to_focus_card(effort: &EffortLevel) -> &'static str {
+    match effort {
+        EffortLevel::Trivial => "1",
+        EffortLevel::Small => "3",
+        EffortLevel::Medium => "5",
+        EffortLevel::Large => "8",
+        EffortLevel::Massive => "13",
     }
 }
 

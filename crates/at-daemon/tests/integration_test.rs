@@ -13,6 +13,23 @@ use serde_json::{json, Value};
 // Helpers
 // ---------------------------------------------------------------------------
 
+/// Build a WebSocket upgrade request with Origin header (required after CORS enforcement).
+fn ws_request(url: &str) -> tokio_tungstenite::tungstenite::http::Request<()> {
+    tokio_tungstenite::tungstenite::http::Request::builder()
+        .uri(url)
+        .header("Host", "localhost")
+        .header("Origin", "http://localhost")
+        .header("Connection", "Upgrade")
+        .header("Upgrade", "websocket")
+        .header("Sec-WebSocket-Version", "13")
+        .header(
+            "Sec-WebSocket-Key",
+            tokio_tungstenite::tungstenite::handshake::client::generate_key(),
+        )
+        .body(())
+        .unwrap()
+}
+
 /// Spin up an API server on a random port, return the base URL and shared state.
 async fn start_test_server() -> (String, Arc<ApiState>) {
     let event_bus = EventBus::new();
@@ -134,7 +151,9 @@ async fn test_daemon_startup_with_auto_generated_key() {
     let base_url = format!("http://127.0.0.1:{port}");
 
     // Without the key, we should get 401 (auth required).
-    let resp = reqwest::get(format!("{base_url}/api/status")).await.unwrap();
+    let resp = reqwest::get(format!("{base_url}/api/status"))
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 401, "should require authentication");
 
     // Clean shutdown.
@@ -371,17 +390,23 @@ async fn test_cors_preflight() {
 
     assert!(
         resp.status().is_success(),
-        "Localhost origin should be allowed for preflight, status: {}", resp.status()
+        "Localhost origin should be allowed for preflight, status: {}",
+        resp.status()
     );
     let headers = resp.headers();
     assert!(
         headers.contains_key("access-control-allow-origin"),
         "CORS allow-origin header should be present for localhost"
     );
-    let allow_origin = headers.get("access-control-allow-origin").unwrap().to_str().unwrap();
+    let allow_origin = headers
+        .get("access-control-allow-origin")
+        .unwrap()
+        .to_str()
+        .unwrap();
     assert_eq!(
         allow_origin, "http://localhost",
-        "Allow-origin should echo localhost origin exactly, got: {}", allow_origin
+        "Allow-origin should echo localhost origin exactly, got: {}",
+        allow_origin
     );
 
     // Test 2: Exact 127.0.0.1 origin (without port) should be allowed
@@ -395,17 +420,23 @@ async fn test_cors_preflight() {
 
     assert!(
         resp.status().is_success(),
-        "127.0.0.1 origin should be allowed for preflight, status: {}", resp.status()
+        "127.0.0.1 origin should be allowed for preflight, status: {}",
+        resp.status()
     );
     let headers = resp.headers();
     assert!(
         headers.contains_key("access-control-allow-origin"),
         "CORS allow-origin header should be present for 127.0.0.1"
     );
-    let allow_origin = headers.get("access-control-allow-origin").unwrap().to_str().unwrap();
+    let allow_origin = headers
+        .get("access-control-allow-origin")
+        .unwrap()
+        .to_str()
+        .unwrap();
     assert_eq!(
         allow_origin, "http://127.0.0.1",
-        "Allow-origin should echo 127.0.0.1 origin exactly, got: {}", allow_origin
+        "Allow-origin should echo 127.0.0.1 origin exactly, got: {}",
+        allow_origin
     );
 
     // Test 3: Localhost with non-standard port should be allowed (wildcard port matching)
@@ -419,17 +450,23 @@ async fn test_cors_preflight() {
 
     assert!(
         resp.status().is_success(),
-        "Localhost with port should be allowed for preflight (wildcard port matching), status: {}", resp.status()
+        "Localhost with port should be allowed for preflight (wildcard port matching), status: {}",
+        resp.status()
     );
     let headers = resp.headers();
     assert!(
         headers.contains_key("access-control-allow-origin"),
         "CORS allow-origin header should be present for localhost:3001"
     );
-    let allow_origin = headers.get("access-control-allow-origin").unwrap().to_str().unwrap();
+    let allow_origin = headers
+        .get("access-control-allow-origin")
+        .unwrap()
+        .to_str()
+        .unwrap();
     assert_eq!(
         allow_origin, "http://localhost:3001",
-        "Allow-origin should echo localhost:3001 origin exactly (wildcard port matching), got: {}", allow_origin
+        "Allow-origin should echo localhost:3001 origin exactly (wildcard port matching), got: {}",
+        allow_origin
     );
 
     // Test 4: Non-localhost origin should be rejected (no CORS headers for disallowed origin)
@@ -447,7 +484,8 @@ async fn test_cors_preflight() {
         let origin_str = allow_origin.to_str().unwrap();
         assert!(
             !origin_str.contains("evil.com"),
-            "Disallowed origin should not be echoed in allow-origin header, got: {}", origin_str
+            "Disallowed origin should not be echoed in allow-origin header, got: {}",
+            origin_str
         );
     }
 }
@@ -486,21 +524,24 @@ async fn test_cors_wildcard_port_matching() {
         let headers = resp.headers();
         assert!(
             headers.contains_key("access-control-allow-origin"),
-            "CORS allow-origin header should be present for {}", origin
+            "CORS allow-origin header should be present for {}",
+            origin
         );
 
-        let allow_origin = headers.get("access-control-allow-origin").unwrap().to_str().unwrap();
+        let allow_origin = headers
+            .get("access-control-allow-origin")
+            .unwrap()
+            .to_str()
+            .unwrap();
         assert_eq!(
             allow_origin, origin,
-            "Allow-origin should echo the localhost origin {} exactly, got: {}", origin, allow_origin
+            "Allow-origin should echo the localhost origin {} exactly, got: {}",
+            origin, allow_origin
         );
     }
 
     // Verify that non-localhost origins with ports are still rejected
-    let disallowed_origins = vec![
-        "http://evil.com:3000",
-        "http://malicious.com:8080",
-    ];
+    let disallowed_origins = vec!["http://evil.com:3000", "http://malicious.com:8080"];
 
     for origin in disallowed_origins {
         let resp = client
@@ -516,7 +557,9 @@ async fn test_cors_wildcard_port_matching() {
             let origin_str = allow_origin.to_str().unwrap();
             assert!(
                 origin_str != origin,
-                "Disallowed origin {} should not be echoed, got: {}", origin, origin_str
+                "Disallowed origin {} should not be echoed, got: {}",
+                origin,
+                origin_str
             );
         }
     }
@@ -554,7 +597,7 @@ async fn test_websocket_connects_and_receives_event() {
     let (base, state) = start_test_server().await;
     let ws_url = base.replace("http://", "ws://") + "/ws";
 
-    let (mut ws_stream, _) = tokio_tungstenite::connect_async(&ws_url)
+    let (mut ws_stream, _) = tokio_tungstenite::connect_async(ws_request(&ws_url))
         .await
         .expect("failed to connect to websocket");
 
@@ -595,7 +638,7 @@ async fn test_events_ws_endpoint_connects() {
     let (base, state) = start_test_server().await;
     let ws_url = base.replace("http://", "ws://") + "/api/events/ws";
 
-    let (mut ws_stream, _) = tokio_tungstenite::connect_async(&ws_url)
+    let (mut ws_stream, _) = tokio_tungstenite::connect_async(ws_request(&ws_url))
         .await
         .expect("failed to connect to /api/events/ws");
 

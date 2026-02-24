@@ -147,7 +147,11 @@ impl Daemon {
         self.api_state.seed_demo_data().await;
 
         let allowed_origins = self.config.security.allowed_origins.clone();
-        let api_router = at_bridge::http_api::api_router_with_auth(self.api_state.clone(), Some(api_key), allowed_origins);
+        let api_router = at_bridge::http_api::api_router_with_auth(
+            self.api_state.clone(),
+            Some(api_key),
+            allowed_origins,
+        );
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
         let port = listener.local_addr()?.port();
 
@@ -346,7 +350,11 @@ impl Daemon {
         self.api_state.seed_demo_data().await;
 
         let allowed_origins = self.config.security.allowed_origins.clone();
-        let api_router = at_bridge::http_api::api_router_with_auth(self.api_state.clone(), Some(api_key), allowed_origins);
+        let api_router = at_bridge::http_api::api_router_with_auth(
+            self.api_state.clone(),
+            Some(api_key),
+            allowed_origins,
+        );
         let bind_addr = listener.local_addr()?;
         let api_handle = tokio::spawn(async move {
             if let Err(e) = axum::serve(listener, api_router).await {
@@ -417,7 +425,11 @@ impl Daemon {
         self.api_state.seed_demo_data().await;
 
         let allowed_origins = self.config.security.allowed_origins.clone();
-        let api_router = at_bridge::http_api::api_router_with_auth(self.api_state.clone(), Some(api_key), allowed_origins);
+        let api_router = at_bridge::http_api::api_router_with_auth(
+            self.api_state.clone(),
+            Some(api_key),
+            allowed_origins,
+        );
         let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
         let api_handle = tokio::spawn(async move {
             if let Err(e) = axum::serve(listener, api_router).await {

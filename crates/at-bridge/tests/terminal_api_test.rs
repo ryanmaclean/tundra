@@ -694,8 +694,12 @@ async fn test_concurrent_terminal_output() {
     let ws_url1 = base.replace("http://", "ws://") + &format!("/ws/terminal/{tid1}");
     let ws_url2 = base.replace("http://", "ws://") + &format!("/ws/terminal/{tid2}");
 
-    let (mut ws1, _) = tokio_tungstenite::connect_async(ws_request(&ws_url1)).await.unwrap();
-    let (mut ws2, _) = tokio_tungstenite::connect_async(ws_request(&ws_url2)).await.unwrap();
+    let (mut ws1, _) = tokio_tungstenite::connect_async(ws_request(&ws_url1))
+        .await
+        .unwrap();
+    let (mut ws2, _) = tokio_tungstenite::connect_async(ws_request(&ws_url2))
+        .await
+        .unwrap();
 
     tokio::time::sleep(Duration::from_millis(500)).await;
 
@@ -765,8 +769,12 @@ async fn test_terminal_isolation() {
     let ws_url1 = base.replace("http://", "ws://") + &format!("/ws/terminal/{tid1}");
     let ws_url2 = base.replace("http://", "ws://") + &format!("/ws/terminal/{tid2}");
 
-    let (mut ws1, _) = tokio_tungstenite::connect_async(ws_request(&ws_url1)).await.unwrap();
-    let (mut ws2, _) = tokio_tungstenite::connect_async(ws_request(&ws_url2)).await.unwrap();
+    let (mut ws1, _) = tokio_tungstenite::connect_async(ws_request(&ws_url1))
+        .await
+        .unwrap();
+    let (mut ws2, _) = tokio_tungstenite::connect_async(ws_request(&ws_url2))
+        .await
+        .unwrap();
 
     tokio::time::sleep(Duration::from_millis(500)).await;
 

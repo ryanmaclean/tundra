@@ -391,28 +391,35 @@ impl ApiClient {
 
         let data = std::thread::scope(|scope| {
             let agents = scope.spawn(|| {
-                timed_fetch(profile, "agents", || self.fetch_agents().unwrap_or_default())
+                timed_fetch(profile, "agents", || {
+                    self.fetch_agents().unwrap_or_default()
+                })
             });
             let beads = scope
                 .spawn(|| timed_fetch(profile, "beads", || self.fetch_beads().unwrap_or_default()));
-            let kpi =
-                scope.spawn(|| timed_fetch(profile, "kpi", || self.fetch_kpi().unwrap_or_default()));
+            let kpi = scope
+                .spawn(|| timed_fetch(profile, "kpi", || self.fetch_kpi().unwrap_or_default()));
             let sessions = scope.spawn(|| {
-                timed_fetch(profile, "sessions", || self.fetch_sessions().unwrap_or_default())
+                timed_fetch(profile, "sessions", || {
+                    self.fetch_sessions().unwrap_or_default()
+                })
             });
             let convoys = scope.spawn(|| {
-                timed_fetch(profile, "convoys", || self.fetch_convoys().unwrap_or_default())
+                timed_fetch(profile, "convoys", || {
+                    self.fetch_convoys().unwrap_or_default()
+                })
             });
-            let costs = scope.spawn(|| {
-                timed_fetch(profile, "costs", || self.fetch_costs().unwrap_or_default())
-            });
+            let costs = scope
+                .spawn(|| timed_fetch(profile, "costs", || self.fetch_costs().unwrap_or_default()));
             let mcp_servers = scope.spawn(|| {
                 timed_fetch(profile, "mcp_servers", || {
                     self.fetch_mcp_servers().unwrap_or_default()
                 })
             });
             let worktrees = scope.spawn(|| {
-                timed_fetch(profile, "worktrees", || self.fetch_worktrees().unwrap_or_default())
+                timed_fetch(profile, "worktrees", || {
+                    self.fetch_worktrees().unwrap_or_default()
+                })
             });
             let github_issues = scope.spawn(|| {
                 timed_fetch(profile, "github_issues", || {
@@ -425,18 +432,26 @@ impl ApiClient {
                 })
             });
             let roadmap_items = scope.spawn(|| {
-                timed_fetch(profile, "roadmap", || self.fetch_roadmap().unwrap_or_default())
+                timed_fetch(profile, "roadmap", || {
+                    self.fetch_roadmap().unwrap_or_default()
+                })
             });
-            let ideas =
-                scope.spawn(|| timed_fetch(profile, "ideas", || self.fetch_ideas().unwrap_or_default()));
+            let ideas = scope
+                .spawn(|| timed_fetch(profile, "ideas", || self.fetch_ideas().unwrap_or_default()));
             let stacks = scope.spawn(|| {
-                timed_fetch(profile, "stacks", || self.fetch_stacks().unwrap_or_default())
+                timed_fetch(profile, "stacks", || {
+                    self.fetch_stacks().unwrap_or_default()
+                })
             });
             let changelog = scope.spawn(|| {
-                timed_fetch(profile, "changelog", || self.fetch_changelog().unwrap_or_default())
+                timed_fetch(profile, "changelog", || {
+                    self.fetch_changelog().unwrap_or_default()
+                })
             });
             let memory = scope.spawn(|| {
-                timed_fetch(profile, "memory", || self.fetch_memory().unwrap_or_default())
+                timed_fetch(profile, "memory", || {
+                    self.fetch_memory().unwrap_or_default()
+                })
             });
 
             AppData {
@@ -459,7 +474,10 @@ impl ApiClient {
         });
 
         if profile {
-            eprintln!("[at-tui] fetch_all total={}ms", started.elapsed().as_millis());
+            eprintln!(
+                "[at-tui] fetch_all total={}ms",
+                started.elapsed().as_millis()
+            );
         }
 
         data

@@ -517,6 +517,7 @@ pub fn api_router_with_auth(
         .route("/api/kanban/poker/start", post(start_planning_poker))
         .route("/api/kanban/poker/vote", post(submit_planning_poker_vote))
         .route("/api/kanban/poker/reveal", post(reveal_planning_poker))
+        .route("/api/kanban/poker/simulate", post(simulate_planning_poker))
         .route(
             "/api/kanban/poker/{bead_id}",
             get(get_planning_poker_session),
@@ -812,6 +813,25 @@ pub struct SubmitPlanningPokerVoteRequest {
 #[derive(Debug, Deserialize)]
 pub struct RevealPlanningPokerRequest {
     pub bead_id: Uuid,
+}
+
+fn default_poker_auto_reveal() -> bool {
+    true
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SimulatePlanningPokerRequest {
+    pub bead_id: Uuid,
+    #[serde(default)]
+    pub virtual_agents: Vec<String>,
+    pub agent_count: Option<usize>,
+    pub deck_preset: Option<String>,
+    pub custom_deck: Option<Vec<String>>,
+    pub round_duration_seconds: Option<u64>,
+    pub focus_card: Option<String>,
+    pub seed: Option<u64>,
+    #[serde(default = "default_poker_auto_reveal")]
+    pub auto_reveal: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -3060,6 +3080,233 @@ fn deck_preset(preset: &str) -> Option<Vec<String>> {
     }
 }
 
+fn resolve_poker_deck(
+    poker_cfg: &at_core::config::PlanningPokerConfig,
+    deck_preset_name: Option<&str>,
+    custom_deck: Option<&[String]>,
+) -> Result<Vec<String>, (axum::http::StatusCode, serde_json::Value)> {
+    if let Some(custom) = custom_deck {
+        if !poker_cfg.allow_custom_deck {
+            return Err((
+                axum::http::StatusCode::FORBIDDEN,
+                serde_json::json!({"error": "custom deck is disabled by settings"}),
+            ));
+        }
+        let normalized = normalize_cards(custom);
+        if normalized.is_empty() {
+            return Err((
+                axum::http::StatusCode::BAD_REQUEST,
+                serde_json::json!({"error": "custom_deck must include at least one card"}),
+            ));
+        }
+        return Ok(normalized);
+    }
+
+    if let Some(preset) = deck_preset_name {
+        return match deck_preset(preset) {
+            Some(deck) => Ok(deck),
+            None => Err((
+                axum::http::StatusCode::BAD_REQUEST,
+                serde_json::json!({"error": "unknown deck preset"}),
+            )),
+        };
+    }
+
+    if let Some(deck) = deck_preset(&poker_cfg.default_deck) {
+        Ok(deck)
+    } else {
+        Ok(default_poker_deck())
+    }
+}
+
+fn default_virtual_agent_name(index: usize) -> String {
+    const NAMES: [&str; 8] = [
+        "Planner",
+        "Architect",
+        "Coder",
+        "Reviewer",
+        "QA",
+        "DevOps",
+        "SRE",
+        "Product",
+    ];
+    if index < NAMES.len() {
+        NAMES[index].to_string()
+    } else {
+        format!("Agent {}", index + 1)
+    }
+}
+
+fn poker_focus_card_from_priority(priority: i32) -> &'static str {
+    match priority {
+        i32::MIN..=0 => "2",
+        1..=2 => "3",
+        3..=4 => "5",
+        5..=7 => "8",
+        _ => "13",
+    }
+}
+
+fn estimation_cards(deck: &[String]) -> Vec<String> {
+    let filtered = deck
+        .iter()
+        .filter(|card| {
+            let c = card.trim().to_ascii_lowercase();
+            c != "?" && c != "coffee" && c != "☕"
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    if filtered.is_empty() {
+        deck.to_vec()
+    } else {
+        filtered
+    }
+}
+
+fn nearest_card_index(cards: &[String], target: &str) -> usize {
+    if cards.is_empty() {
+        return 0;
+    }
+
+    if let Some(index) = cards
+        .iter()
+        .position(|card| card.eq_ignore_ascii_case(target.trim()))
+    {
+        return index;
+    }
+
+    if let Ok(target_num) = target.trim().parse::<f64>() {
+        if let Some((idx, _)) = cards
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, card)| card.trim().parse::<f64>().ok().map(|n| (idx, n)))
+            .min_by(|(_, a), (_, b)| {
+                (a - target_num)
+                    .abs()
+                    .partial_cmp(&(b - target_num).abs())
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+        {
+            return idx;
+        }
+    }
+
+    cards.len() / 2
+}
+
+pub(crate) async fn simulate_planning_poker_for_bead(
+    state: &Arc<ApiState>,
+    req: SimulatePlanningPokerRequest,
+) -> Result<PlanningPokerSessionResponse, (axum::http::StatusCode, serde_json::Value)> {
+    let cfg = state.settings_manager.load_or_default();
+    let poker_cfg = &cfg.kanban.planning_poker;
+    if !poker_cfg.enabled {
+        return Err((
+            axum::http::StatusCode::FORBIDDEN,
+            serde_json::json!({"error": "planning poker is disabled by settings"}),
+        ));
+    }
+
+    let bead = {
+        let beads = state.beads.read().await;
+        beads.iter().find(|b| b.id == req.bead_id).cloned()
+    }
+    .ok_or_else(|| {
+        (
+            axum::http::StatusCode::NOT_FOUND,
+            serde_json::json!({"error": "bead not found"}),
+        )
+    })?;
+
+    let deck = resolve_poker_deck(
+        poker_cfg,
+        req.deck_preset.as_deref(),
+        req.custom_deck.as_deref(),
+    )?;
+
+    let mut participants = normalize_participants(&req.virtual_agents);
+    let desired_count = req.agent_count.unwrap_or_else(|| {
+        if participants.is_empty() {
+            5
+        } else {
+            participants.len()
+        }
+    });
+
+    if desired_count == 0 || desired_count > 64 {
+        return Err((
+            axum::http::StatusCode::BAD_REQUEST,
+            serde_json::json!({"error": "agent_count must be between 1 and 64"}),
+        ));
+    }
+
+    if participants.len() > desired_count {
+        participants.truncate(desired_count);
+    }
+    while participants.len() < desired_count {
+        participants.push(default_virtual_agent_name(participants.len()));
+    }
+
+    let estimate_deck = estimation_cards(&deck);
+    let focus_card = req
+        .focus_card
+        .unwrap_or_else(|| poker_focus_card_from_priority(bead.priority).to_string());
+    let base_idx = nearest_card_index(&estimate_deck, &focus_card);
+
+    let mut votes = Vec::with_capacity(participants.len());
+    let seed = req.seed.unwrap_or_else(|| {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        req.bead_id.hash(&mut hasher);
+        bead.title.hash(&mut hasher);
+        hasher.finish()
+    });
+
+    for (index, voter) in participants.iter().enumerate() {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        seed.hash(&mut hasher);
+        req.bead_id.hash(&mut hasher);
+        index.hash(&mut hasher);
+        voter.hash(&mut hasher);
+        let jitter = (hasher.finish() % 3) as i32 - 1; // -1, 0, +1
+        let card_idx = (base_idx as i32 + jitter).clamp(0, estimate_deck.len() as i32 - 1) as usize;
+        votes.push(PlanningPokerVote {
+            voter: voter.clone(),
+            card: estimate_deck[card_idx].clone(),
+        });
+    }
+
+    let now = chrono::Utc::now();
+    let mut session = PlanningPokerSession {
+        bead_id: req.bead_id,
+        phase: PlanningPokerPhase::Voting,
+        votes,
+        participants,
+        deck,
+        round_duration_seconds: req
+            .round_duration_seconds
+            .or(Some(poker_cfg.round_duration_seconds)),
+        consensus_card: None,
+        started_at: now,
+        updated_at: now,
+    };
+
+    if req.auto_reveal {
+        session.phase = PlanningPokerPhase::Revealed;
+        session.consensus_card = consensus_card_from_votes(&session.votes);
+    }
+
+    let response = planning_poker_response(&session);
+    state
+        .planning_poker_sessions
+        .write()
+        .await
+        .insert(req.bead_id, session);
+
+    Ok(response)
+}
+
 fn parse_numeric_card(card: &str) -> Option<f64> {
     card.trim().parse::<f64>().ok()
 }
@@ -3240,35 +3487,13 @@ async fn start_planning_poker(
         );
     }
 
-    let deck = if let Some(custom) = req.custom_deck {
-        if !poker_cfg.allow_custom_deck {
-            return (
-                axum::http::StatusCode::FORBIDDEN,
-                Json(serde_json::json!({"error": "custom deck is disabled by settings"})),
-            );
-        }
-        let normalized = normalize_cards(&custom);
-        if normalized.is_empty() {
-            return (
-                axum::http::StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": "custom_deck must include at least one card"})),
-            );
-        }
-        normalized
-    } else if let Some(preset) = req.deck_preset {
-        match deck_preset(&preset) {
-            Some(deck) => deck,
-            None => {
-                return (
-                    axum::http::StatusCode::BAD_REQUEST,
-                    Json(serde_json::json!({"error": "unknown deck preset"})),
-                );
-            }
-        }
-    } else if let Some(deck) = deck_preset(&poker_cfg.default_deck) {
-        deck
-    } else {
-        default_poker_deck()
+    let deck = match resolve_poker_deck(
+        poker_cfg,
+        req.deck_preset.as_deref(),
+        req.custom_deck.as_deref(),
+    ) {
+        Ok(deck) => deck,
+        Err((status, body)) => return (status, Json(body)),
     };
 
     let now = chrono::Utc::now();
@@ -3401,6 +3626,19 @@ async fn reveal_planning_poker(
         axum::http::StatusCode::OK,
         Json(serde_json::to_value(planning_poker_response(session)).unwrap()),
     )
+}
+
+async fn simulate_planning_poker(
+    State(state): State<Arc<ApiState>>,
+    Json(req): Json<SimulatePlanningPokerRequest>,
+) -> impl IntoResponse {
+    match simulate_planning_poker_for_bead(&state, req).await {
+        Ok(response) => (
+            axum::http::StatusCode::OK,
+            Json(serde_json::to_value(response).unwrap()),
+        ),
+        Err((status, body)) => (status, Json(body)),
+    }
 }
 
 async fn get_planning_poker_session(
@@ -7668,6 +7906,108 @@ mod tests {
             .unwrap();
         let vote_resp = app.clone().oneshot(vote_req).await.unwrap();
         assert_eq!(vote_resp.status(), StatusCode::CONFLICT);
+    }
+
+    #[tokio::test]
+    async fn test_planning_poker_simulate_virtual_agents() {
+        let (app, _state) = test_app();
+        let create_body = serde_json::json!({
+            "title": "Estimate retries",
+            "description": "Virtual poker simulation",
+            "lane": "standard"
+        });
+        let create_req = Request::builder()
+            .method("POST")
+            .uri("/api/beads")
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_vec(&create_body).unwrap()))
+            .unwrap();
+        let create_resp = app.clone().oneshot(create_req).await.unwrap();
+        assert_eq!(create_resp.status(), StatusCode::CREATED);
+        let create_bytes = axum::body::to_bytes(create_resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let created: serde_json::Value = serde_json::from_slice(&create_bytes).unwrap();
+        let bead_id = created["id"].as_str().unwrap();
+
+        let simulate_body = serde_json::json!({
+            "bead_id": bead_id,
+            "agent_count": 4,
+            "focus_card": "8",
+            "auto_reveal": true
+        });
+        let simulate_req = Request::builder()
+            .method("POST")
+            .uri("/api/kanban/poker/simulate")
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_vec(&simulate_body).unwrap()))
+            .unwrap();
+        let simulate_resp = app.clone().oneshot(simulate_req).await.unwrap();
+        assert_eq!(simulate_resp.status(), StatusCode::OK);
+        let simulate_bytes = axum::body::to_bytes(simulate_resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let simulate_json: serde_json::Value = serde_json::from_slice(&simulate_bytes).unwrap();
+        assert_eq!(simulate_json["phase"], "revealed");
+        assert_eq!(simulate_json["vote_count"], 4);
+        assert_eq!(simulate_json["votes"].as_array().unwrap().len(), 4);
+        for vote in simulate_json["votes"].as_array().unwrap() {
+            assert_eq!(vote["has_voted"], true);
+            assert!(vote["card"].is_string());
+        }
+    }
+
+    #[tokio::test]
+    async fn test_convert_idea_auto_simulates_planning_poker() {
+        let (app, _state) = test_app();
+
+        let generate_body = serde_json::json!({
+            "category": "performance",
+            "context": "profiling cache misses in parser"
+        });
+        let generate_req = Request::builder()
+            .method("POST")
+            .uri("/api/ideation/generate")
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_vec(&generate_body).unwrap()))
+            .unwrap();
+        let generate_resp = app.clone().oneshot(generate_req).await.unwrap();
+        assert_eq!(generate_resp.status(), StatusCode::CREATED);
+        let generate_bytes = axum::body::to_bytes(generate_resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let generated: serde_json::Value = serde_json::from_slice(&generate_bytes).unwrap();
+        let idea_id = generated["ideas"][0]["id"].as_str().unwrap();
+
+        let convert_req = Request::builder()
+            .method("POST")
+            .uri(format!("/api/ideation/ideas/{idea_id}/convert"))
+            .body(Body::empty())
+            .unwrap();
+        let convert_resp = app.clone().oneshot(convert_req).await.unwrap();
+        assert_eq!(convert_resp.status(), StatusCode::OK);
+        let convert_bytes = axum::body::to_bytes(convert_resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let converted: serde_json::Value = serde_json::from_slice(&convert_bytes).unwrap();
+        let bead_id = converted["id"].as_str().unwrap();
+        assert!(converted["planning_poker"].is_object());
+        assert_eq!(converted["planning_poker"]["phase"], "revealed");
+        assert_eq!(converted["planning_poker"]["vote_count"], 5);
+
+        let session_req = Request::builder()
+            .method("GET")
+            .uri(format!("/api/kanban/poker/{bead_id}"))
+            .body(Body::empty())
+            .unwrap();
+        let session_resp = app.clone().oneshot(session_req).await.unwrap();
+        assert_eq!(session_resp.status(), StatusCode::OK);
+        let session_bytes = axum::body::to_bytes(session_resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let session: serde_json::Value = serde_json::from_slice(&session_bytes).unwrap();
+        assert_eq!(session["phase"], "revealed");
+        assert_eq!(session["vote_count"], 5);
     }
 
     #[tokio::test]

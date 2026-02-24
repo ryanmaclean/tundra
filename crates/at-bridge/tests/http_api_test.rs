@@ -195,7 +195,10 @@ async fn test_websocket_receives_events() {
         .header("Connection", "Upgrade")
         .header("Upgrade", "websocket")
         .header("Sec-WebSocket-Version", "13")
-        .header("Sec-WebSocket-Key", tokio_tungstenite::tungstenite::handshake::client::generate_key())
+        .header(
+            "Sec-WebSocket-Key",
+            tokio_tungstenite::tungstenite::handshake::client::generate_key(),
+        )
         .body(())
         .unwrap();
     let (mut ws_stream, _) = tokio_tungstenite::connect_async(request)

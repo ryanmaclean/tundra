@@ -46,6 +46,9 @@ Last updated: 2026-02-24
 - [x] Define a single bundled-terminal profile as source of truth (no cross-terminal compatibility target).
 - [x] Upgrade `/Users/studio/rust-harness/app/leptos-ui/src/components/terminal_view.rs` from line-buffer view to true terminal emulation path (xterm.js runtime bridge) with ANSI/VT fidelity.
 - [x] Add bundled card-render profile: fixed tiny font metrics, locked palette, and deterministic rendering assumptions.
+- [ ] Research `tui-cards` + Ratatui integration for planning-poker card rendering in bundled terminal mode.
+- [ ] Evaluate card-game interaction patterns from `csol` and `poker-planning-cli` for planning-poker UX flow (join/vote/reveal rounds).
+- [ ] Evaluate animation/perf budget for card effects in terminal stack (`ratatui`, `crossterm`, `console`, `indicatif`, `termimad`) under tiny-font profile.
 - [ ] Evaluate/ship card-capable custom font strategy for bundled terminal (monochrome Unicode vs COLRv1 colored cards).
 - [ ] Evaluate Lapce architecture patterns applicable to Tundra editor/terminal UX.
 - [ ] Evaluate Redox OS architectural ideas relevant to process isolation and composable services.
