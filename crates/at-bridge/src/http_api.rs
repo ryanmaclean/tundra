@@ -3612,6 +3612,7 @@ async fn github_oauth_authorize(State(state): State<Arc<ApiState>>) -> impl Into
 #[derive(Debug, Deserialize)]
 struct OAuthCallbackRequest {
     code: String,
+    state: String,
 }
 
 /// POST /api/github/oauth/callback — exchange the authorization code for a token.
