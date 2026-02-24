@@ -43,6 +43,10 @@ Last updated: 2026-02-24
 
 ## Platform and UX track
 
+- [ ] Define a single bundled-terminal profile as source of truth (no cross-terminal compatibility target).
+- [ ] Upgrade `/Users/studio/rust-harness/app/leptos-ui/src/components/terminal_view.rs` from line-buffer view to true terminal emulation path (xterm.js or bundled native terminal bridge) with ANSI/VT fidelity.
+- [ ] Add bundled card-render profile: fixed tiny font metrics, locked palette, and Unicode-card subset with deterministic width assumptions.
+- [ ] Evaluate/ship card-capable custom font strategy for bundled terminal (monochrome Unicode vs COLRv1 colored cards).
 - [ ] Evaluate Lapce architecture patterns applicable to Tundra editor/terminal UX.
 - [ ] Evaluate Redox OS architectural ideas relevant to process isolation and composable services.
 - [ ] Evaluate Crossbeam patterns for high-throughput agent event bus and work-stealing execution.
