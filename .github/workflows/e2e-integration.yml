@@ -1,0 +1,167 @@
+name: E2E Integration
+
+on:
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: "Runner type for E2E"
+        required: true
+        type: choice
+        options:
+          - github-hosted
+          - self-hosted
+        default: github-hosted
+  schedule:
+    - cron: "0 7 * * *"
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  OLLAMA_HOST: 127.0.0.1:11434
+
+jobs:
+  e2e-github-hosted:
+    name: E2E (GitHub-hosted)
+    if: github.event_name == 'schedule' || inputs.runner == 'github-hosted'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry & build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-e2e-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-e2e-
+
+      - name: Cache Ollama models
+        uses: actions/cache@v4
+        with:
+          path: ~/.ollama
+          key: ${{ runner.os }}-ollama-qwen2_5_1_5b-v1
+          restore-keys: |
+            ${{ runner.os }}-ollama-
+
+      - name: Install Ollama
+        run: curl -fsSL https://ollama.com/install.sh | sh
+
+      - name: Start Ollama
+        run: |
+          nohup ollama serve >/tmp/ollama.log 2>&1 &
+          for i in {1..30}; do
+            if curl -sf http://127.0.0.1:11434/api/tags >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Ollama failed to start"
+          tail -n 200 /tmp/ollama.log || true
+          exit 1
+
+      - name: Pull required Ollama model
+        run: |
+          ollama pull qwen2.5:1.5b
+          ollama list
+
+      - name: Configure daemon for fixed E2E port
+        run: |
+          mkdir -p ~/.auto-tundra
+          cat > ~/.auto-tundra/config.toml <<'EOF'
+          [daemon]
+          host = "127.0.0.1"
+          port = 9090
+          EOF
+
+      - name: Start daemon
+        run: |
+          rm -f ~/.auto-tundra/daemon.lock
+          nohup cargo run -p at-daemon -- --replace >/tmp/at-daemon.log 2>&1 &
+          for i in {1..60}; do
+            if curl -sf http://127.0.0.1:9090/api/status >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Daemon failed to start on :9090"
+          tail -n 200 /tmp/at-daemon.log || true
+          exit 1
+
+      - name: Run at-tui E2E tests
+        run: cargo test -p at-tui --test e2e_test -- --nocapture
+
+      - name: Upload E2E logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-logs-github-hosted
+          path: |
+            /tmp/ollama.log
+            /tmp/at-daemon.log
+          retention-days: 14
+
+  e2e-self-hosted:
+    name: E2E (Self-hosted)
+    if: github.event_name == 'workflow_dispatch' && inputs.runner == 'self-hosted'
+    runs-on: [self-hosted, linux, x64, tundra-e2e]
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Ensure Ollama is running
+        run: |
+          if ! curl -sf http://127.0.0.1:11434/api/tags >/dev/null; then
+            echo "Ollama is not reachable on self-hosted runner (127.0.0.1:11434)"
+            exit 1
+          fi
+          ollama list || true
+
+      - name: Ensure required model exists
+        run: |
+          if ! ollama list | grep -q 'qwen2.5:1.5b'; then
+            ollama pull qwen2.5:1.5b
+          fi
+
+      - name: Configure daemon for fixed E2E port
+        run: |
+          mkdir -p ~/.auto-tundra
+          cat > ~/.auto-tundra/config.toml <<'EOF'
+          [daemon]
+          host = "127.0.0.1"
+          port = 9090
+          EOF
+
+      - name: Start daemon
+        run: |
+          rm -f ~/.auto-tundra/daemon.lock
+          nohup cargo run -p at-daemon -- --replace >/tmp/at-daemon.log 2>&1 &
+          for i in {1..45}; do
+            if curl -sf http://127.0.0.1:9090/api/status >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Daemon failed to start on :9090"
+          tail -n 200 /tmp/at-daemon.log || true
+          exit 1
+
+      - name: Run at-tui E2E tests
+        run: cargo test -p at-tui --test e2e_test -- --nocapture
+
+      - name: Upload E2E logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-logs-self-hosted
+          path: /tmp/at-daemon.log
+          retention-days: 14
