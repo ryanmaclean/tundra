@@ -587,7 +587,7 @@ fn render_ideation_navigation_updates_detail() {
 
 #[test]
 fn planning_poker_tab_renders() {
-    let output = render_tab(11);
+    let output = render_tab(17);
     // Just rendering without panic is the main verification
     assert!(!output.is_empty());
 }
@@ -614,7 +614,10 @@ fn planning_poker_all_card_values_rendered() {
     let output = render_tab(17);
 
     // Verify all 10 card values are rendered: 0, 1, 2, 3, 5, 8, 13, 21, ?, ∞
-    assert_contains_all(&output, &["0", "1", "2", "3", "5", "8", "13", "21", "?", "∞"]);
+    assert_contains_all(
+        &output,
+        &["0", "1", "2", "3", "5", "8", "13", "21", "?", "∞"],
+    );
 }
 
 // ===========================================================================
