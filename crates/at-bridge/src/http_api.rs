@@ -1537,11 +1537,8 @@ async fn put_settings(
     Json(cfg): Json<Config>,
 ) -> impl IntoResponse {
     match state.settings_manager.save(&cfg) {
-        Ok(()) => (axum::http::StatusCode::OK, Json(serde_json::json!(cfg))),
-        Err(e) => (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": e.to_string()})),
-        ),
+        Ok(()) => (axum::http::StatusCode::OK, Json(serde_json::json!(cfg))).into_response(),
+        Err(e) => ApiError::InternalError(e.to_string()).into_response(),
     }
 }
 
@@ -1553,10 +1550,7 @@ async fn patch_settings(
     let mut current_val = match serde_json::to_value(&current) {
         Ok(v) => v,
         Err(e) => {
-            return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": e.to_string()})),
-            ).into_response();
+            return ApiError::InternalError(e.to_string()).into_response();
         }
     };
 
@@ -1572,10 +1566,7 @@ async fn patch_settings(
 
     match state.settings_manager.save(&current) {
         Ok(()) => (axum::http::StatusCode::OK, Json(serde_json::json!(current))).into_response(),
-        Err(e) => (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": e.to_string()})),
-        ).into_response(),
+        Err(e) => ApiError::InternalError(e.to_string()).into_response(),
     }
 }
 
@@ -1637,10 +1628,7 @@ async fn list_gitlab_issues(
     ) {
         Ok(c) => c,
         Err(e) => {
-            return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": e.to_string() })),
-            ).into_response();
+            return ApiError::InternalError(e.to_string()).into_response();
         }
     };
 
@@ -1654,10 +1642,7 @@ async fn list_gitlab_issues(
         .await
     {
         Ok(issues) => (axum::http::StatusCode::OK, Json(serde_json::json!(issues))).into_response(),
-        Err(e) => (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": e.to_string() })),
-        ).into_response(),
+        Err(e) => ApiError::InternalError(e.to_string()).into_response(),
     }
 }
 
@@ -1715,10 +1700,7 @@ async fn list_gitlab_merge_requests(
     ) {
         Ok(c) => c,
         Err(e) => {
-            return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": e.to_string() })),
-            ).into_response();
+            return ApiError::InternalError(e.to_string()).into_response();
         }
     };
 
@@ -1732,10 +1714,7 @@ async fn list_gitlab_merge_requests(
         .await
     {
         Ok(mrs) => (axum::http::StatusCode::OK, Json(serde_json::json!(mrs))).into_response(),
-        Err(e) => (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": e.to_string() })),
-        ).into_response(),
+        Err(e) => ApiError::InternalError(e.to_string()).into_response(),
     }
 }
 
@@ -1793,10 +1772,7 @@ async fn review_gitlab_merge_request(
     ) {
         Ok(c) => c,
         Err(e) => {
-            return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": e.to_string() })),
-            ).into_response();
+            return ApiError::InternalError(e.to_string()).into_response();
         }
     };
 
@@ -1850,10 +1826,7 @@ async fn list_linear_issues(
         match at_integrations::linear::LinearClient::new(token.as_deref().unwrap_or_default()) {
             Ok(c) => c,
             Err(e) => {
-                return (
-                    axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({ "error": e.to_string() })),
-                ).into_response();
+                return ApiError::InternalError(e.to_string()).into_response();
             }
         };
 
@@ -1868,10 +1841,7 @@ async fn list_linear_issues(
 
     match client.list_issues(team, q.state.as_deref()).await {
         Ok(issues) => (axum::http::StatusCode::OK, Json(serde_json::json!(issues))).into_response(),
-        Err(e) => (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": e.to_string() })),
-        ).into_response(),
+        Err(e) => ApiError::InternalError(e.to_string()).into_response(),
     }
 }
 
@@ -1902,19 +1872,13 @@ async fn import_linear_issues(
         match at_integrations::linear::LinearClient::new(token.as_deref().unwrap_or_default()) {
             Ok(c) => c,
             Err(e) => {
-                return (
-                    axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({ "error": e.to_string() })),
-                ).into_response();
+                return ApiError::InternalError(e.to_string()).into_response();
             }
         };
 
     match client.import_issues(body.issue_ids).await {
         Ok(results) => (axum::http::StatusCode::OK, Json(serde_json::json!(results))).into_response(),
-        Err(e) => (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": e.to_string() })),
-        ).into_response(),
+        Err(e) => ApiError::InternalError(e.to_string()).into_response(),
     }
 }
 
@@ -2029,21 +1993,20 @@ async fn list_github_issues(
             .into_response();
     }
     if owner.is_empty() || repo.is_empty() {
-        return ApiError::BadRequest(
-            "GitHub owner and repo must be set in settings (integrations).".to_string(),
+        return (
+            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({
+                "error": "GitHub owner and repo must be set in settings (integrations)."
+            })),
         )
-        .into_response();
+            .into_response();
     }
 
     let gh_config = GitHubConfig { token, owner, repo };
     let client = match at_integrations::github::client::GitHubClient::new(gh_config) {
         Ok(c) => c,
         Err(e) => {
-            return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": e.to_string() })),
-            )
-                .into_response();
+            return ApiError::InternalError(e.to_string()).into_response();
         }
     };
 
@@ -2064,11 +2027,7 @@ async fn list_github_issues(
     let list = match issues::list_issues(&client, state_filter, labels, q.page, q.per_page).await {
         Ok(issues) => issues,
         Err(e) => {
-            return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": e.to_string() })),
-            )
-                .into_response();
+            return ApiError::InternalError(e.to_string()).into_response();
         }
     };
 
@@ -2093,10 +2052,13 @@ async fn trigger_github_sync(State(state): State<Arc<ApiState>>) -> impl IntoRes
             .into_response();
     }
     if owner.is_empty() || repo.is_empty() {
-        return ApiError::BadRequest(
-            "GitHub owner and repo must be set in settings (integrations).".to_string(),
+        return (
+            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({
+                "error": "GitHub owner and repo must be set in settings (integrations)."
+            })),
         )
-        .into_response();
+            .into_response();
     }
 
     let gh_config = GitHubConfig {
@@ -2107,11 +2069,7 @@ async fn trigger_github_sync(State(state): State<Arc<ApiState>>) -> impl IntoRes
     let client = match at_integrations::github::client::GitHubClient::new(gh_config) {
         Ok(c) => c,
         Err(e) => {
-            return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": e.to_string() })),
-            )
-                .into_response();
+            return ApiError::InternalError(e.to_string()).into_response();
         }
     };
 
@@ -2127,11 +2085,7 @@ async fn trigger_github_sync(State(state): State<Arc<ApiState>>) -> impl IntoRes
         Err(e) => {
             let mut status = state.sync_status.write().await;
             status.is_syncing = false;
-            return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": e.to_string() })),
-            )
-                .into_response();
+            return ApiError::InternalError(e.to_string()).into_response();
         }
     };
 
@@ -2199,21 +2153,20 @@ async fn create_pr_for_task(
             .into_response();
     }
     if owner.is_empty() || repo.is_empty() {
-        return ApiError::BadRequest(
-            "GitHub owner and repo must be set in settings (integrations).".to_string(),
+        return (
+            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({
+                "error": "GitHub owner and repo must be set in settings (integrations)."
+            })),
         )
-        .into_response();
+            .into_response();
     }
 
     let gh_config = GitHubConfig { token, owner, repo };
     let client = match at_integrations::github::client::GitHubClient::new(gh_config) {
         Ok(c) => c,
         Err(e) => {
-            return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": e.to_string() })),
-            )
-                .into_response();
+            return ApiError::InternalError(e.to_string()).into_response();
         }
     };
 
@@ -2226,11 +2179,7 @@ async fn create_pr_for_task(
     let pr = match automation.create_pr_for_task(&task, base_branch).await {
         Ok(p) => p,
         Err(e) => {
-            return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": e.to_string() })),
-            )
-                .into_response();
+            return ApiError::InternalError(e.to_string()).into_response();
         }
     };
 
@@ -2364,15 +2313,12 @@ async fn get_ui_session(State(state): State<Arc<ApiState>>) -> impl IntoResponse
     match state.session_store.list_sessions() {
         Ok(sessions) => {
             if let Some(session) = sessions.into_iter().next() {
-                (axum::http::StatusCode::OK, Json(serde_json::json!(session)))
+                (axum::http::StatusCode::OK, Json(serde_json::json!(session))).into_response()
             } else {
-                (axum::http::StatusCode::OK, Json(serde_json::json!(null)))
+                (axum::http::StatusCode::OK, Json(serde_json::json!(null))).into_response()
             }
         }
-        Err(e) => (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": e.to_string()})),
-        ),
+        Err(e) => ApiError::InternalError(e.to_string()).into_response(),
     }
 }
 
@@ -2383,11 +2329,8 @@ async fn save_ui_session(
 ) -> impl IntoResponse {
     session.last_active_at = chrono::Utc::now();
     match state.session_store.save_session(&session) {
-        Ok(()) => (axum::http::StatusCode::OK, Json(serde_json::json!(session))),
-        Err(e) => (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": e.to_string()})),
-        ),
+        Ok(()) => (axum::http::StatusCode::OK, Json(serde_json::json!(session))).into_response(),
+        Err(e) => ApiError::InternalError(e.to_string()).into_response(),
     }
 }
 
@@ -2397,11 +2340,8 @@ async fn list_ui_sessions(State(state): State<Arc<ApiState>>) -> impl IntoRespon
         Ok(sessions) => (
             axum::http::StatusCode::OK,
             Json(serde_json::json!(sessions)),
-        ),
-        Err(e) => (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": e.to_string()})),
-        ),
+        ).into_response(),
+        Err(e) => ApiError::InternalError(e.to_string()).into_response(),
     }
 }
 
@@ -2634,19 +2574,13 @@ async fn list_worktrees() -> impl IntoResponse {
     {
         Ok(o) => o,
         Err(e) => {
-            return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": e.to_string()})),
-            );
+            return ApiError::InternalError(e.to_string()).into_response();
         }
     };
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        return (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": stderr})),
-        );
+        return ApiError::InternalError(stderr).into_response();
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -2686,7 +2620,7 @@ async fn list_worktrees() -> impl IntoResponse {
     (
         axum::http::StatusCode::OK,
         Json(serde_json::json!(worktrees)),
-    )
+    ).into_response()
 }
 
 // ---------------------------------------------------------------------------
@@ -2706,10 +2640,7 @@ async fn merge_worktree(
     {
         Ok(o) => o,
         Err(e) => {
-            return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": e.to_string()})),
-            ).into_response();
+            return ApiError::InternalError(e.to_string()).into_response();
         }
     };
 
@@ -2769,10 +2700,7 @@ async fn merge_worktree(
         }
         Ok(_) => { /* has changes */ }
         Err(e) => {
-            return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": e.to_string()})),
-            ).into_response();
+            return ApiError::InternalError(e.to_string()).into_response();
         }
     }
 
@@ -2863,10 +2791,7 @@ async fn merge_worktree(
                 })),
             ).into_response()
         }
-        Err(e) => (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": e.to_string()})),
-        ).into_response(),
+        Err(e) => ApiError::InternalError(e.to_string()).into_response(),
     }
 }
 
@@ -2883,10 +2808,7 @@ async fn merge_preview(Path(id): Path<String>) -> impl IntoResponse {
     {
         Ok(o) => o,
         Err(e) => {
-            return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": e.to_string()})),
-            ).into_response();
+            return ApiError::InternalError(e.to_string()).into_response();
         }
     };
 
@@ -3181,10 +3103,7 @@ async fn toggle_direct_mode(
     let mut current_val = match serde_json::to_value(&current) {
         Ok(v) => v,
         Err(e) => {
-            return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": e.to_string()})),
-            ).into_response();
+            return ApiError::InternalError(e.to_string()).into_response();
         }
     };
 
@@ -3207,10 +3126,7 @@ async fn toggle_direct_mode(
                 "direct_mode": req.enabled,
             })),
         ).into_response(),
-        Err(e) => (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": e.to_string()})),
-        ).into_response(),
+        Err(e) => ApiError::InternalError(e.to_string()).into_response(),
     }
 }
 
@@ -3251,19 +3167,13 @@ async fn delete_worktree(Path(id): Path<String>) -> impl IntoResponse {
     {
         Ok(o) => o,
         Err(e) => {
-            return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": e.to_string()})),
-            ).into_response();
+            return ApiError::InternalError(e.to_string()).into_response();
         }
     };
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        return (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": stderr})),
-        ).into_response();
+        return ApiError::InternalError(stderr).into_response();
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -3311,10 +3221,7 @@ async fn delete_worktree(Path(id): Path<String>) -> impl IntoResponse {
         Ok(o) => ApiError::BadRequest(
             String::from_utf8_lossy(&o.stderr).to_string()
         ).into_response(),
-        Err(e) => (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": e.to_string(), "id": id, "path": path})),
-        ).into_response(),
+        Err(e) => ApiError::InternalError(format!("{}, id: {}, path: {}", e, id, path)).into_response(),
     }
 }
 
@@ -3354,21 +3261,20 @@ async fn list_github_prs(
             .into_response();
     }
     if owner.is_empty() || repo.is_empty() {
-        return ApiError::BadRequest(
-            "GitHub owner and repo must be set in settings (integrations).".to_string(),
+        return (
+            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({
+                "error": "GitHub owner and repo must be set in settings (integrations)."
+            })),
         )
-        .into_response();
+            .into_response();
     }
 
     let gh_config = GitHubConfig { token, owner, repo };
     let client = match at_integrations::github::client::GitHubClient::new(gh_config) {
         Ok(c) => c,
         Err(e) => {
-            return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": e.to_string() })),
-            )
-                .into_response();
+            return ApiError::InternalError(e.to_string()).into_response();
         }
     };
 
@@ -3386,10 +3292,7 @@ async fn list_github_prs(
         match pull_requests::list_pull_requests(&client, state_filter, q.page, q.per_page).await {
             Ok(prs) => prs,
             Err(e) => {
-                return (
-                    axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({ "error": e.to_string() })),
-                ).into_response();
+                return ApiError::InternalError(e.to_string()).into_response();
             }
         };
 
@@ -3421,31 +3324,27 @@ async fn import_github_issue(
             .into_response();
     }
     if owner.is_empty() || repo.is_empty() {
-        return ApiError::BadRequest(
-            "GitHub owner and repo must be set in settings (integrations).".to_string(),
+        return (
+            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({
+                "error": "GitHub owner and repo must be set in settings (integrations)."
+            })),
         )
-        .into_response();
+            .into_response();
     }
 
     let gh_config = GitHubConfig { token, owner, repo };
     let client = match at_integrations::github::client::GitHubClient::new(gh_config) {
         Ok(c) => c,
         Err(e) => {
-            return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": e.to_string() })),
-            )
-                .into_response();
+            return ApiError::InternalError(e.to_string()).into_response();
         }
     };
 
     let issue = match issues::get_issue(&client, number).await {
         Ok(i) => i,
         Err(e) => {
-            return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": e.to_string() })),
-            ).into_response();
+            return ApiError::InternalError(e.to_string()).into_response();
         }
     };
 
@@ -3901,11 +3800,7 @@ async fn create_release(
     let client = match at_integrations::github::client::GitHubClient::new(gh_config) {
         Ok(c) => c,
         Err(e) => {
-            return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": e.to_string() })),
-            )
-                .into_response();
+            return ApiError::InternalError(e.to_string()).into_response();
         }
     };
 
@@ -4365,7 +4260,9 @@ mod tests {
             .await
             .unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert!(json["error"].as_str().unwrap().contains("token"));
+        // Error message contains either "token" or "owner" depending on which config is missing
+        let error_msg = json["error"].as_str().unwrap();
+        assert!(error_msg.contains("token") || error_msg.contains("owner") || error_msg.contains("GitHub"));
     }
 
     #[tokio::test]
