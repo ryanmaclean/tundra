@@ -91,12 +91,12 @@ impl Config {
         if path.exists() {
             let text =
                 std::fs::read_to_string(&path).map_err(|e| ConfigError::Io(e.to_string()))?;
-            let mut cfg: Config =
+            let cfg: Config =
                 toml::from_str(&text).map_err(|e| ConfigError::Parse(e.to_string()))?;
             cfg.validate()?;
             Ok(cfg)
         } else {
-            let mut cfg = Config::default();
+            let cfg = Config::default();
             cfg.validate()?;
             Ok(cfg)
         }
@@ -106,7 +106,7 @@ impl Config {
     pub fn load_from(path: impl Into<PathBuf>) -> Result<Self, ConfigError> {
         let path = path.into();
         let text = std::fs::read_to_string(&path).map_err(|e| ConfigError::Io(e.to_string()))?;
-        let mut cfg: Config = toml::from_str(&text).map_err(|e| ConfigError::Parse(e.to_string()))?;
+        let cfg: Config = toml::from_str(&text).map_err(|e| ConfigError::Parse(e.to_string()))?;
         cfg.validate()?;
         Ok(cfg)
     }
@@ -1066,7 +1066,10 @@ impl CredentialProvider {
 
         // Write key to file
         if let Err(e) = std::fs::write(&key_path, &new_key) {
-            eprintln!("Warning: failed to write daemon key to {:?}: {}", key_path, e);
+            eprintln!(
+                "Warning: failed to write daemon key to {:?}: {}",
+                key_path, e
+            );
             return new_key;
         }
 

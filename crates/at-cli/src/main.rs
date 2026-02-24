@@ -101,6 +101,58 @@ enum Commands {
         out: Option<String>,
     },
 
+    /// Non-interactive CI/agent execution path (deterministic output, optional wait).
+    Exec {
+        /// Task prompt/title.
+        #[arg(short = 't', long)]
+        task: String,
+        /// Skill names to include (repeatable).
+        #[arg(short = 's', long = "skill")]
+        skills: Vec<String>,
+        /// Project root containing .claude/skills.
+        #[arg(short = 'p', long = "project-path", default_value = ".")]
+        project_path: String,
+        /// Optional model preference.
+        #[arg(short = 'm', long)]
+        model: Option<String>,
+        /// Optional max agent budget hint.
+        #[arg(short = 'n', long = "max-agents")]
+        max_agents: Option<u32>,
+        /// Lane for created bead.
+        #[arg(short = 'l', long, default_value = "standard")]
+        lane: String,
+        /// Task category.
+        #[arg(short = 'c', long, default_value = "feature")]
+        category: String,
+        /// Task priority.
+        #[arg(short = 'P', long, default_value = "medium")]
+        priority: String,
+        /// Task complexity.
+        #[arg(short = 'x', long, default_value = "medium")]
+        complexity: String,
+        /// Skip POST /api/tasks/{id}/execute.
+        #[arg(long, default_value_t = false)]
+        no_execute: bool,
+        /// Poll task status until terminal phase (done/failed/timeout).
+        #[arg(long, default_value_t = false)]
+        wait: bool,
+        /// Maximum seconds to wait when --wait is enabled.
+        #[arg(long, default_value_t = 600)]
+        timeout_secs: u64,
+        /// Poll interval in milliseconds when --wait is enabled.
+        #[arg(long, default_value_t = 1000)]
+        poll_ms: u64,
+        /// Exit non-zero when terminal phase is failed/timeout.
+        #[arg(short = 'S', long, default_value_t = false)]
+        strict: bool,
+        /// Output JSON.
+        #[arg(short = 'j', long, default_value_t = false)]
+        json: bool,
+        /// Write JSON artifact to this file path.
+        #[arg(short = 'o', long = "out")]
+        out: Option<String>,
+    },
+
     /// Run a named role/agent task (skill-aware).
     Agent {
         #[command(subcommand)]
@@ -320,6 +372,44 @@ async fn main() -> anyhow::Result<()> {
                 role: None,
             };
             commands::run_task::run(&api_url, opts).await?;
+        }
+        Some(Commands::Exec {
+            task,
+            skills,
+            project_path,
+            model,
+            max_agents,
+            lane,
+            category,
+            priority,
+            complexity,
+            no_execute,
+            wait,
+            timeout_secs,
+            poll_ms,
+            strict,
+            json,
+            out,
+        }) => {
+            let opts = commands::exec_task::ExecOptions {
+                task,
+                skills,
+                project_path,
+                model,
+                max_agents,
+                lane,
+                category,
+                priority,
+                complexity,
+                no_execute,
+                wait,
+                timeout_secs,
+                poll_ms,
+                strict,
+                json_output: json,
+                out_path: out,
+            };
+            commands::exec_task::run(&api_url, opts).await?;
         }
         Some(Commands::Agent { command }) => match command {
             AgentCommands::Run {
