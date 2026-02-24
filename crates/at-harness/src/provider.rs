@@ -211,6 +211,53 @@ pub enum Role {
     Tool,
 }
 
+/// A single message in an LLM conversation.
+///
+/// Messages form the backbone of LLM interactions, representing exchanges between
+/// the user, assistant, and system. Each message has a [`Role`] that determines
+/// how it's interpreted by the LLM.
+///
+/// # Fields
+///
+/// - `role`: The participant role ([`Role::User`], [`Role::Assistant`], etc.)
+/// - `content`: The message text content
+/// - `name`: Optional identifier for the message sender (for multi-user scenarios)
+/// - `tool_call_id`: Links tool result messages to their originating tool calls
+///
+/// # Examples
+///
+/// ```rust
+/// use at_harness::provider::Message;
+///
+/// // Simple user message
+/// let msg = Message::user("Hello, assistant!");
+///
+/// // System message with context
+/// let system = Message::system("You are a helpful coding assistant.");
+///
+/// // Assistant response
+/// let response = Message::assistant("Hello! How can I help you today?");
+/// ```
+///
+/// # Tool Calling Workflow
+///
+/// When working with tool calls, messages follow this pattern:
+///
+/// ```rust
+/// use at_harness::provider::{Message, Role};
+///
+/// // 1. User asks a question
+/// let user_msg = Message::user("What's the weather in Tokyo?");
+///
+/// // 2. Assistant responds with a tool call (handled by provider)
+/// // 3. Tool result is sent back with tool_call_id
+/// let tool_result = Message {
+///     role: Role::Tool,
+///     content: r#"{"temperature": 22, "condition": "sunny"}"#.to_string(),
+///     name: Some("get_weather".to_string()),
+///     tool_call_id: Some("call_abc123".to_string()),
+/// };
+/// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
     pub role: Role,
@@ -222,6 +269,20 @@ pub struct Message {
 }
 
 impl Message {
+    /// Create a system message with the given content.
+    ///
+    /// System messages set the context, behavior, and personality of the assistant.
+    /// They typically appear at the start of a conversation to provide instructions
+    /// or background information.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use at_harness::provider::Message;
+    ///
+    /// let msg = Message::system("You are a helpful assistant specializing in Rust.");
+    /// assert_eq!(msg.content, "You are a helpful assistant specializing in Rust.");
+    /// ```
     pub fn system(content: impl Into<String>) -> Self {
         Self {
             role: Role::System,
@@ -231,6 +292,20 @@ impl Message {
         }
     }
 
+    /// Create a user message with the given content.
+    ///
+    /// User messages represent input from the human user and drive the conversation
+    /// forward. They typically contain questions, requests, or information for the
+    /// assistant to process.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use at_harness::provider::Message;
+    ///
+    /// let msg = Message::user("What is the capital of France?");
+    /// assert_eq!(msg.content, "What is the capital of France?");
+    /// ```
     pub fn user(content: impl Into<String>) -> Self {
         Self {
             role: Role::User,
@@ -240,6 +315,20 @@ impl Message {
         }
     }
 
+    /// Create an assistant message with the given content.
+    ///
+    /// Assistant messages represent responses from the LLM. In multi-turn conversations,
+    /// including previous assistant messages helps maintain context and conversation
+    /// coherence.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use at_harness::provider::Message;
+    ///
+    /// let msg = Message::assistant("The capital of France is Paris.");
+    /// assert_eq!(msg.content, "The capital of France is Paris.");
+    /// ```
     pub fn assistant(content: impl Into<String>) -> Self {
         Self {
             role: Role::Assistant,
