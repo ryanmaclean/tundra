@@ -5625,6 +5625,10 @@ async fn github_oauth_status(State(state): State<Arc<ApiState>>) -> impl IntoRes
 
 /// POST /api/github/oauth/revoke — clear the stored OAuth token.
 async fn github_oauth_revoke(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
+    // Clear encrypted token
+    state.oauth_token_manager.write().await.clear_token().await;
+
+    // Clear legacy in-memory token
     *state.github_oauth_token.write().await = None;
     *state.github_oauth_user.write().await = None;
 
