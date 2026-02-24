@@ -175,6 +175,31 @@ pub fn App() -> impl IntoView {
                             "Assigned Tasks "
                             <span class="assigned-tasks-count">{move || app_state.beads.get().len()}</span>
                         </span>
+                        <span class="ws-status-indicator" title={move || {
+                            match conn_state.get() {
+                                events::WsConnectionState::Connected => "WebSocket: Connected",
+                                events::WsConnectionState::Connecting => "WebSocket: Connecting...",
+                                events::WsConnectionState::Disconnected => "WebSocket: Disconnected",
+                                events::WsConnectionState::Reconnecting => "WebSocket: Reconnecting...",
+                            }
+                        }}>
+                            {move || {
+                                let dot_svg = match conn_state.get() {
+                                    events::WsConnectionState::Connected => {
+                                        r##"<svg width="8" height="8" viewBox="0 0 8 8"><circle cx="4" cy="4" r="3" fill="#22c55e"><animate attributeName="r" values="3;3.5;3" dur="2s" repeatCount="indefinite"/></circle><circle cx="4" cy="4" r="3" fill="none" stroke="#22c55e" stroke-width="0.5" opacity="0.4"><animate attributeName="r" values="3;5;3" dur="2s" repeatCount="indefinite"/><animate attributeName="opacity" values="0.4;0;0.4" dur="2s" repeatCount="indefinite"/></circle></svg>"##
+                                    }
+                                    events::WsConnectionState::Connecting | events::WsConnectionState::Reconnecting => {
+                                        r##"<svg width="8" height="8" viewBox="0 0 8 8"><circle cx="4" cy="4" r="3" fill="#f59e0b"><animate attributeName="opacity" values="1;0.5;1" dur="1s" repeatCount="indefinite"/></circle></svg>"##
+                                    }
+                                    events::WsConnectionState::Disconnected => {
+                                        r##"<svg width="8" height="8" viewBox="0 0 8 8"><circle cx="4" cy="4" r="3" fill="#ef4444"/></svg>"##
+                                    }
+                                };
+                                view! {
+                                    <span class="status-dot-svg" inner_html=dot_svg></span>
+                                }
+                            }}
+                        </span>
                         <components::notification_bell::NotificationBell
                             unread_count=unread_count
                             set_unread_count=set_unread_count
