@@ -1,8 +1,10 @@
-use leptos::ev::MouseEvent;
+use leptos::ev::{KeyboardEvent, MouseEvent};
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use pulldown_cmark::{html, Parser};
+use web_sys;
 
+use crate::components::focus_trap::use_focus_trap;
 use crate::state::use_app_state;
 use crate::types::{BeadResponse, BeadStatus, Lane};
 
@@ -1276,9 +1278,27 @@ pub fn TaskDetail(
     let close_bg = on_close.clone();
     let initial_bead = beads.get().into_iter().find(|b| b.id == bead_id);
 
+    let focus_trap = use_focus_trap();
+    let on_close_clone = on_close.clone();
+
+    // Combined keydown handler for focus trap and Escape key
+    let handle_keydown = move |ev: KeyboardEvent| {
+        // Handle Escape key to close modal
+        if ev.key() == "Escape" {
+            // Create a synthetic MouseEvent for on_close
+            if let Ok(dummy_event) = web_sys::MouseEvent::new("click") {
+                on_close_clone(dummy_event);
+            }
+            return;
+        }
+
+        // Handle Tab/Shift+Tab for focus trapping
+        focus_trap(ev);
+    };
+
     view! {
         <div class="task-detail-overlay" on:click=move |ev| close_bg(ev)></div>
-        <div class="task-detail-modal">
+        <div class="task-detail-modal" on:keydown=handle_keydown>
             {match initial_bead {
                 None => view! {
                     <div class="task-detail-empty">
