@@ -37,6 +37,9 @@ struct TokenData {
     /// The OAuth access token (plaintext, will be encrypted when stored)
     access_token: String,
 
+    /// Optional refresh token (plaintext, will be encrypted when stored)
+    refresh_token: Option<String>,
+
     /// When the token was stored (not sensitive, skip zeroize)
     #[zeroize(skip)]
     stored_at: DateTime<Utc>,
@@ -57,8 +60,8 @@ struct TokenData {
 ///
 /// let manager = OAuthTokenManager::new();
 ///
-/// // Store a token with 1 hour expiration
-/// manager.store_token("ghp_abc123", Some(3600)).await;
+/// // Store a token with 1 hour expiration and refresh token
+/// manager.store_token("ghp_abc123", Some(3600), Some("ghr_refresh123")).await;
 ///
 /// // Check if token is still valid
 /// if manager.is_expired().await {
@@ -68,6 +71,11 @@ struct TokenData {
 /// // Get the decrypted token
 /// if let Some(token) = manager.get_token().await.ok() {
 ///     println!("Token retrieved successfully");
+/// }
+///
+/// // Get the refresh token if needed
+/// if let Some(refresh) = manager.get_refresh_token().await.ok() {
+///     println!("Refresh token available");
 /// }
 /// ```
 pub struct OAuthTokenManager {
@@ -100,11 +108,12 @@ impl OAuthTokenManager {
         }
     }
 
-    /// Store an OAuth access token with optional expiration time.
+    /// Store an OAuth access token with optional expiration time and refresh token.
     ///
     /// # Parameters
     /// - `access_token`: The OAuth access token to store
     /// - `expires_in`: Optional expiration time in seconds (from OAuth response)
+    /// - `refresh_token`: Optional refresh token for token renewal
     ///
     /// # Example
     /// ```no_run
@@ -112,11 +121,16 @@ impl OAuthTokenManager {
     /// # async fn example() {
     /// let manager = OAuthTokenManager::new();
     ///
-    /// // Store a token that expires in 1 hour (3600 seconds)
-    /// manager.store_token("ghp_abc123", Some(3600)).await;
+    /// // Store a token with refresh token that expires in 1 hour (3600 seconds)
+    /// manager.store_token("ghp_abc123", Some(3600), Some("ghr_refresh123")).await;
     /// # }
     /// ```
-    pub async fn store_token(&self, access_token: &str, expires_in: Option<u64>) {
+    pub async fn store_token(
+        &self,
+        access_token: &str,
+        expires_in: Option<u64>,
+        refresh_token: Option<&str>,
+    ) {
         let stored_at = Utc::now();
         let expires_at = expires_in.map(|seconds| {
             stored_at + Duration::seconds(seconds as i64)
@@ -125,6 +139,7 @@ impl OAuthTokenManager {
         // Create token data structure
         let token_data = TokenData {
             access_token: access_token.to_string(),
+            refresh_token: refresh_token.map(|t| t.to_string()),
             stored_at,
             expires_at,
         };
@@ -159,7 +174,7 @@ impl OAuthTokenManager {
     /// # use at_bridge::oauth_token_manager::OAuthTokenManager;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let manager = OAuthTokenManager::new();
-    /// manager.store_token("ghp_abc123", Some(3600)).await;
+    /// manager.store_token("ghp_abc123", Some(3600), None).await;
     ///
     /// let token = manager.get_token().await?;
     /// println!("Retrieved token: {}", token);
@@ -187,6 +202,40 @@ impl OAuthTokenManager {
         Ok(access_token)
     }
 
+    /// Retrieve and decrypt the stored OAuth refresh token.
+    ///
+    /// # Errors
+    /// - `TokenManagerError::NoToken`: No token has been stored or no refresh token available
+    /// - `TokenManagerError::Crypto`: Decryption failed
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use at_bridge::oauth_token_manager::OAuthTokenManager;
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let manager = OAuthTokenManager::new();
+    /// manager.store_token("ghp_abc123", Some(3600), Some("ghr_refresh123")).await;
+    ///
+    /// let refresh_token = manager.get_refresh_token().await?;
+    /// println!("Retrieved refresh token: {}", refresh_token);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn get_refresh_token(&self) -> Result<String> {
+        // Check if token exists
+        let encrypted = self.encrypted_token.read().await;
+        let encrypted_data = encrypted.as_ref().ok_or(TokenManagerError::NoToken)?;
+
+        // Decrypt token data
+        let plaintext = decrypt(&self.encryption_key, encrypted_data)?;
+        let mut token_data: TokenData = serde_json::from_slice(&plaintext)?;
+
+        // Extract refresh token and zero out the decrypted data
+        let refresh_token = token_data.refresh_token.clone().ok_or(TokenManagerError::NoToken)?;
+        token_data.zeroize();
+
+        Ok(refresh_token)
+    }
+
     /// Check if the stored token has expired.
     ///
     /// Returns `true` if:
@@ -202,7 +251,7 @@ impl OAuthTokenManager {
     /// # use at_bridge::oauth_token_manager::OAuthTokenManager;
     /// # async fn example() {
     /// let manager = OAuthTokenManager::new();
-    /// manager.store_token("ghp_abc123", Some(3600)).await;
+    /// manager.store_token("ghp_abc123", Some(3600), None).await;
     ///
     /// if manager.is_expired().await {
     ///     println!("Token needs refresh");
@@ -238,7 +287,7 @@ impl OAuthTokenManager {
     /// # use at_bridge::oauth_token_manager::OAuthTokenManager;
     /// # async fn example() {
     /// let manager = OAuthTokenManager::new();
-    /// manager.store_token("ghp_abc123", Some(3600)).await;
+    /// manager.store_token("ghp_abc123", Some(3600), None).await;
     ///
     /// if manager.should_refresh().await {
     ///     println!("Token should be refreshed proactively");
@@ -295,7 +344,7 @@ impl OAuthTokenManager {
     /// # use at_bridge::oauth_token_manager::OAuthTokenManager;
     /// # async fn example() {
     /// let manager = OAuthTokenManager::new();
-    /// manager.store_token("ghp_abc123", Some(3600)).await;
+    /// manager.store_token("ghp_abc123", Some(3600), None).await;
     ///
     /// // Revoke the token
     /// manager.clear_token().await;
@@ -332,7 +381,7 @@ mod tests {
         let manager = OAuthTokenManager::new();
         let token = "ghp_test_token_12345";
 
-        manager.store_token(token, Some(3600)).await;
+        manager.store_token(token, Some(3600), None).await;
 
         let retrieved = manager.get_token().await.unwrap();
         assert_eq!(retrieved, token);
@@ -352,7 +401,7 @@ mod tests {
         let manager = OAuthTokenManager::new();
 
         // Store a token that expires in 1 second
-        manager.store_token("ghp_short_lived", Some(1)).await;
+        manager.store_token("ghp_short_lived", Some(1), None).await;
 
         // Should not be expired immediately
         assert!(!manager.is_expired().await);
@@ -369,7 +418,7 @@ mod tests {
         let manager = OAuthTokenManager::new();
 
         // Store a token without expiration
-        manager.store_token("ghp_eternal_token", None).await;
+        manager.store_token("ghp_eternal_token", None, None).await;
 
         // Should never expire
         assert!(!manager.is_expired().await);
@@ -383,7 +432,7 @@ mod tests {
         let manager = OAuthTokenManager::new();
 
         // Store a token that expires in 3 minutes (180 seconds)
-        manager.store_token("ghp_refresh_test", Some(180)).await;
+        manager.store_token("ghp_refresh_test", Some(180), None).await;
 
         // Should recommend refresh (expires within 5 minutes)
         assert!(manager.should_refresh().await);
@@ -394,7 +443,7 @@ mod tests {
         let manager = OAuthTokenManager::new();
 
         // Store a token that expires in 1 hour (3600 seconds)
-        manager.store_token("ghp_long_lived", Some(3600)).await;
+        manager.store_token("ghp_long_lived", Some(3600), None).await;
 
         // Should not need refresh yet (expires in > 5 minutes)
         assert!(!manager.should_refresh().await);
@@ -405,7 +454,7 @@ mod tests {
         let manager = OAuthTokenManager::new();
 
         // Store a token without expiration
-        manager.store_token("ghp_no_expiry", None).await;
+        manager.store_token("ghp_no_expiry", None, None).await;
 
         // Should not recommend refresh for tokens without expiration
         assert!(!manager.should_refresh().await);
@@ -419,7 +468,7 @@ mod tests {
         assert!(!manager.has_valid_token().await);
 
         // Store valid token
-        manager.store_token("ghp_valid", Some(3600)).await;
+        manager.store_token("ghp_valid", Some(3600), None).await;
         assert!(manager.has_valid_token().await);
 
         // Clear token
@@ -431,7 +480,7 @@ mod tests {
     async fn test_clear_token() {
         let manager = OAuthTokenManager::new();
 
-        manager.store_token("ghp_to_clear", Some(3600)).await;
+        manager.store_token("ghp_to_clear", Some(3600), None).await;
         assert!(manager.has_valid_token().await);
 
         manager.clear_token().await;
@@ -448,7 +497,7 @@ mod tests {
         let manager2 = OAuthTokenManager::new();
 
         let token = "ghp_test_encryption";
-        manager1.store_token(token, Some(3600)).await;
+        manager1.store_token(token, Some(3600), None).await;
 
         // Different managers have different keys, so manager2 can't decrypt manager1's token
         // This test verifies that each manager has its own encryption key
@@ -460,7 +509,7 @@ mod tests {
         let manager = OAuthTokenManager::new();
 
         // Store a token that expires immediately
-        manager.store_token("ghp_expired", Some(1)).await;
+        manager.store_token("ghp_expired", Some(1), None).await;
 
         // Wait for expiration
         sleep(TokioDuration::from_secs(2)).await;
@@ -475,7 +524,7 @@ mod tests {
         let manager = OAuthTokenManager::new();
         let original_token = "ghp_serialization_test_1234567890";
 
-        manager.store_token(original_token, Some(7200)).await;
+        manager.store_token(original_token, Some(7200), None).await;
 
         let retrieved_token = manager.get_token().await.unwrap();
         assert_eq!(retrieved_token, original_token);
@@ -485,11 +534,50 @@ mod tests {
     async fn test_multiple_store_overwrites() {
         let manager = OAuthTokenManager::new();
 
-        manager.store_token("ghp_first_token", Some(3600)).await;
-        manager.store_token("ghp_second_token", Some(7200)).await;
+        manager.store_token("ghp_first_token", Some(3600), None).await;
+        manager.store_token("ghp_second_token", Some(7200), None).await;
 
         // Should retrieve the second token
         let token = manager.get_token().await.unwrap();
         assert_eq!(token, "ghp_second_token");
+    }
+
+    #[tokio::test]
+    async fn test_refresh() {
+        let manager = OAuthTokenManager::new();
+        let access_token = "ghp_test_access_token";
+        let refresh_token = "ghr_test_refresh_token";
+
+        // Store token with refresh token
+        manager.store_token(access_token, Some(3600), Some(refresh_token)).await;
+
+        // Should be able to retrieve access token
+        let retrieved_access = manager.get_token().await.unwrap();
+        assert_eq!(retrieved_access, access_token);
+
+        // Should be able to retrieve refresh token
+        let retrieved_refresh = manager.get_refresh_token().await.unwrap();
+        assert_eq!(retrieved_refresh, refresh_token);
+    }
+
+    #[tokio::test]
+    async fn test_refresh_token_without_refresh() {
+        let manager = OAuthTokenManager::new();
+
+        // Store token without refresh token
+        manager.store_token("ghp_no_refresh", Some(3600), None).await;
+
+        // get_refresh_token should return NoToken error
+        let result = manager.get_refresh_token().await;
+        assert!(matches!(result, Err(TokenManagerError::NoToken)));
+    }
+
+    #[tokio::test]
+    async fn test_refresh_token_no_token_stored() {
+        let manager = OAuthTokenManager::new();
+
+        // No token stored, should return NoToken error
+        let result = manager.get_refresh_token().await;
+        assert!(matches!(result, Err(TokenManagerError::NoToken)));
     }
 }

@@ -5703,6 +5703,7 @@ async fn github_oauth_callback(
     state.oauth_token_manager.write().await.store_token(
         &token_resp.access_token,
         token_resp.expires_in,
+        token_resp.refresh_token.as_deref(),
     ).await;
     // Keep backward compatibility with plaintext storage (will be removed in phase 4)
     *state.github_oauth_token.write().await = Some(token_resp.access_token.clone());
