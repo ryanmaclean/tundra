@@ -78,7 +78,11 @@ pub fn NotificationBell(
                     let count = unread_count.get();
                     if count > 0 {
                         Some(view! {
-                            <span class="notification-badge">{
+                            <span
+                                class="notification-badge"
+                                aria-live="polite"
+                                aria-label={format!("{} unread notification{}", count, if count == 1 { "" } else { "s" })}
+                            >{
                                 if count > 99 { "99+".to_string() } else { count.to_string() }
                             }</span>
                         })
