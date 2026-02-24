@@ -5614,10 +5614,8 @@ async fn github_oauth_callback(
 
 /// GET /api/github/oauth/status — check whether the user is authenticated.
 async fn github_oauth_status(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
-    let token = state.github_oauth_token.read().await;
+    let authenticated = state.oauth_token_manager.read().await.has_valid_token().await;
     let user = state.github_oauth_user.read().await;
-
-    let authenticated = token.is_some();
 
     Json(serde_json::json!({
         "authenticated": authenticated,
