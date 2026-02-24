@@ -219,6 +219,32 @@ code, pre, kbd, .config-block {
     font-family: 'JetBrains Mono', 'SF Mono', ui-monospace, 'Fira Code', monospace;
 }
 
+/* ── Skip Link (Accessibility) ── */
+.skip-link {
+    position: absolute;
+    top: -40px;
+    left: 0;
+    z-index: 10000;
+    padding: var(--space-3) var(--space-6);
+    background: var(--bg-surface-elevated);
+    color: var(--text-primary);
+    text-decoration: none;
+    font-size: var(--text-sm);
+    font-weight: var(--font-medium);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-focus);
+    box-shadow: var(--shadow-lg);
+    transition: top var(--transition-fast);
+    white-space: nowrap;
+}
+
+.skip-link:focus {
+    top: var(--space-4);
+    left: var(--space-4);
+    outline: 2px solid var(--border-focus);
+    outline-offset: 2px;
+}
+
 /* ── macOS light mode override (respects system preference) ── */
 @media (prefers-color-scheme: light) {
     :root:not([data-mode]) {
