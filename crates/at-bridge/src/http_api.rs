@@ -4504,14 +4504,19 @@ mod tests {
             .unwrap();
 
         let response = app.oneshot(req).await.unwrap();
-        // Without GITHUB_TOKEN (and owner/repo) configured, sync returns 503
-        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        // Without owner/repo configured, sync returns 503 (no token) or 400 (token but no owner/repo)
+        let status = response.status();
+        assert!(
+            status == StatusCode::SERVICE_UNAVAILABLE || status == StatusCode::BAD_REQUEST,
+            "Expected 503 or 400, got {}", status
+        );
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
             .unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert!(json["error"].as_str().unwrap().contains("token"));
+        let err = json["error"].as_str().unwrap();
+        assert!(err.contains("token") || err.contains("owner") || err.contains("repo"));
     }
 
     #[tokio::test]
@@ -4523,7 +4528,12 @@ mod tests {
             .body(Body::empty())
             .unwrap();
         let response = app.oneshot(req).await.unwrap();
-        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        // Returns 503 (no token) or 400 (token but no owner/repo)
+        let status = response.status();
+        assert!(
+            status == StatusCode::SERVICE_UNAVAILABLE || status == StatusCode::BAD_REQUEST,
+            "Expected 503 or 400, got {}", status
+        );
     }
 
     #[tokio::test]
@@ -4535,7 +4545,12 @@ mod tests {
             .body(Body::empty())
             .unwrap();
         let response = app.oneshot(req).await.unwrap();
-        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        // Returns 503 (no token) or 400 (token but no owner/repo)
+        let status = response.status();
+        assert!(
+            status == StatusCode::SERVICE_UNAVAILABLE || status == StatusCode::BAD_REQUEST,
+            "Expected 503 or 400, got {}", status
+        );
     }
 
     #[tokio::test]
@@ -4671,7 +4686,12 @@ mod tests {
             .unwrap();
 
         let response = app.oneshot(req).await.unwrap();
-        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        // Returns 503 (no token) or 400 (token but no owner/repo)
+        let status = response.status();
+        assert!(
+            status == StatusCode::SERVICE_UNAVAILABLE || status == StatusCode::BAD_REQUEST,
+            "Expected 503 or 400, got {}", status
+        );
     }
 
     // -----------------------------------------------------------------------

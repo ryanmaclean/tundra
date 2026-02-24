@@ -4,6 +4,9 @@ use at_bridge::event_bus::EventBus;
 use at_bridge::http_api::{api_router, ApiState};
 use serde_json::Value;
 
+// Mutex to serialize env var access across tests (prevents race conditions)
+static ENV_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// Spin up an API server on a random port, return the base URL.
 async fn start_test_server() -> (String, Arc<ApiState>) {
     let event_bus = EventBus::new();
@@ -24,6 +27,7 @@ async fn start_test_server() -> (String, Arc<ApiState>) {
 
 #[tokio::test]
 async fn test_oauth_csrf_authorize_generates_and_stores_state() {
+    let _lock = ENV_MUTEX.lock().unwrap();
     let (base, state) = start_test_server().await;
 
     // Set required env var for the test
@@ -53,6 +57,7 @@ async fn test_oauth_csrf_authorize_generates_and_stores_state() {
 
 #[tokio::test]
 async fn test_oauth_csrf_callback_rejects_missing_state() {
+    let _lock = ENV_MUTEX.lock().unwrap();
     let (base, _state) = start_test_server().await;
     let client = reqwest::Client::new();
 
@@ -83,6 +88,7 @@ async fn test_oauth_csrf_callback_rejects_missing_state() {
 
 #[tokio::test]
 async fn test_oauth_csrf_callback_rejects_invalid_state() {
+    let _lock = ENV_MUTEX.lock().unwrap();
     let (base, _state) = start_test_server().await;
     let client = reqwest::Client::new();
 
@@ -116,6 +122,7 @@ async fn test_oauth_csrf_callback_rejects_invalid_state() {
 
 #[tokio::test]
 async fn test_oauth_csrf_callback_accepts_valid_state_and_removes_it() {
+    let _lock = ENV_MUTEX.lock().unwrap();
     let (base, state) = start_test_server().await;
     let client = reqwest::Client::new();
 
@@ -170,6 +177,7 @@ async fn test_oauth_csrf_callback_accepts_valid_state_and_removes_it() {
 
 #[tokio::test]
 async fn test_oauth_csrf_callback_rejects_reused_state() {
+    let _lock = ENV_MUTEX.lock().unwrap();
     let (base, state) = start_test_server().await;
     let client = reqwest::Client::new();
 
@@ -227,6 +235,7 @@ async fn test_oauth_csrf_callback_rejects_reused_state() {
 
 #[tokio::test]
 async fn test_oauth_csrf_state_is_uuid_format() {
+    let _lock = ENV_MUTEX.lock().unwrap();
     let (base, _state) = start_test_server().await;
 
     // Set required env var for the test
@@ -252,6 +261,7 @@ async fn test_oauth_csrf_state_is_uuid_format() {
 
 #[tokio::test]
 async fn test_oauth_csrf_multiple_states_can_coexist() {
+    let _lock = ENV_MUTEX.lock().unwrap();
     let (base, state) = start_test_server().await;
 
     // Use a unique client ID for this test to avoid interference with other tests
