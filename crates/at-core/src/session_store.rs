@@ -158,15 +158,39 @@ impl SessionStore {
 
     /// Delete sessions whose `last_active_at` is older than `older_than`
     /// duration from now. Returns the number of sessions removed.
+    ///
+    /// Uses a lightweight partial deserialization to extract only the
+    /// `id` and `last_active_at` fields, avoiding full `SessionState`
+    /// parsing for sessions that will just be deleted.
     pub fn cleanup_old_sessions(&self, older_than: Duration) -> Result<usize, SessionStoreError> {
+        self.ensure_dir()?;
         let cutoff = Utc::now() - older_than;
-        let sessions = self.list_sessions()?;
         let mut removed = 0;
-        for session in sessions {
-            if session.last_active_at < cutoff {
-                if self.delete_session(&session.id)? {
-                    removed += 1;
-                }
+
+        // Lightweight struct for partial deserialization — only the fields we need.
+        #[derive(Deserialize)]
+        struct SessionMeta {
+            id: Uuid,
+            last_active_at: DateTime<Utc>,
+        }
+
+        for entry in std::fs::read_dir(&self.base_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("json") {
+                continue;
+            }
+            let data = match std::fs::read_to_string(&path) {
+                Ok(d) => d,
+                Err(_) => continue,
+            };
+            let meta: SessionMeta = match serde_json::from_str(&data) {
+                Ok(m) => m,
+                Err(_) => continue,
+            };
+            if meta.last_active_at < cutoff {
+                std::fs::remove_file(&path)?;
+                removed += 1;
             }
         }
         Ok(removed)

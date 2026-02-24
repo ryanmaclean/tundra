@@ -281,28 +281,34 @@ impl CacheDb {
     pub async fn compute_kpi_snapshot(&self) -> Result<KpiSnapshot, tokio_rusqlite::Error> {
         self.conn
             .call(|conn| {
-                let count = |status: &str| -> rusqlite::Result<u64> {
-                    let mut stmt = conn.prepare("SELECT COUNT(*) FROM beads WHERE status = ?1")?;
-                    stmt.query_row(rusqlite::params![status], |r| r.get::<_, u64>(0))
-                };
+                // Single GROUP BY query replaces 9 separate COUNT queries.
+                let mut counts = std::collections::HashMap::<String, u64>::new();
+                let mut stmt =
+                    conn.prepare("SELECT status, COUNT(*) FROM beads GROUP BY status")?;
+                let rows = stmt.query_map([], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, u64>(1)?))
+                })?;
+                for row in rows {
+                    let (status, count) = row?;
+                    counts.insert(status, count);
+                }
 
-                let total: u64 = conn
-                    .prepare("SELECT COUNT(*) FROM beads")?
-                    .query_row([], |r| r.get(0))?;
+                let get = |key: &str| -> u64 { counts.get(key).copied().unwrap_or(0) };
+                let total_beads: u64 = counts.values().sum();
 
                 let active_agents: u64 = conn
                     .prepare("SELECT COUNT(*) FROM agents WHERE status = 'active'")?
                     .query_row([], |r| r.get(0))?;
 
                 Ok(KpiSnapshot {
-                    total_beads: total,
-                    backlog: count("backlog")?,
-                    hooked: count("hooked")?,
-                    slung: count("slung")?,
-                    review: count("review")?,
-                    done: count("done")?,
-                    failed: count("failed")?,
-                    escalated: count("escalated")?,
+                    total_beads,
+                    backlog: get("backlog"),
+                    hooked: get("hooked"),
+                    slung: get("slung"),
+                    review: get("review"),
+                    done: get("done"),
+                    failed: get("failed"),
+                    escalated: get("escalated"),
                     active_agents,
                     timestamp: Utc::now(),
                 })

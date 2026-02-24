@@ -1,5 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::collections::VecDeque;
 use uuid::Uuid;
 
 use crate::protocol::{BridgeMessage, EventPayload};
@@ -28,17 +29,17 @@ pub struct Notification {
     pub action_url: Option<String>,
 }
 
-/// Ring-buffer backed notification store.
+/// Ring-buffer backed notification store using `VecDeque` for O(1) eviction.
 #[derive(Debug, Clone)]
 pub struct NotificationStore {
-    notifications: Vec<Notification>,
+    notifications: VecDeque<Notification>,
     max_stored: usize,
 }
 
 impl NotificationStore {
     pub fn new(max_stored: usize) -> Self {
         Self {
-            notifications: Vec::new(),
+            notifications: VecDeque::new(),
             max_stored,
         }
     }
@@ -62,10 +63,10 @@ impl NotificationStore {
             action_url: None,
         };
         let id = notification.id;
-        self.notifications.push(notification);
-        // Ring buffer: evict oldest when over capacity.
+        self.notifications.push_back(notification);
+        // Ring buffer: evict oldest when over capacity (O(1) with VecDeque).
         while self.notifications.len() > self.max_stored {
-            self.notifications.remove(0);
+            self.notifications.pop_front();
         }
         id
     }
@@ -108,7 +109,7 @@ impl NotificationStore {
     }
 
     /// Return a reference to all stored notifications (oldest first, raw order).
-    pub fn all_raw(&self) -> &[Notification] {
+    pub fn all_raw(&self) -> &VecDeque<Notification> {
         &self.notifications
     }
 
