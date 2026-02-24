@@ -330,6 +330,8 @@ pub struct SecurityConfig {
     pub sandbox: bool,
     #[serde(default)]
     pub allowed_paths: Vec<String>,
+    #[serde(default)]
+    pub allowed_origins: Vec<String>,
     #[serde(default = "default_auto_lock_timeout")]
     pub auto_lock_timeout_mins: u32,
     #[serde(default = "default_true")]
@@ -342,6 +344,7 @@ impl Default for SecurityConfig {
             allow_shell_exec: false,
             sandbox: true,
             allowed_paths: Vec::new(),
+            allowed_origins: Vec::new(),
             auto_lock_timeout_mins: default_auto_lock_timeout(),
             sandbox_mode: true,
         }
