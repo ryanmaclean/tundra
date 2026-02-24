@@ -35,7 +35,11 @@ async fn start_test_server() -> (String, Arc<ApiState>) {
 async fn start_authed_server(api_key: &str) -> (String, Arc<ApiState>) {
     let event_bus = EventBus::new();
     let state = Arc::new(ApiState::new(event_bus));
-    let router = api_router_with_auth(state.clone(), Some(api_key.to_string()));
+    let allowed_origins = vec![
+        "http://localhost".to_string(),
+        "http://127.0.0.1".to_string(),
+    ];
+    let router = api_router_with_auth(state.clone(), Some(api_key.to_string()), allowed_origins);
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
@@ -329,11 +333,59 @@ async fn test_task_create_rejects_empty_title() {
 // ===========================================================================
 
 #[tokio::test]
-async fn test_cors_headers_present() {
-    let (base, _state) = start_test_server().await;
+async fn test_cors_preflight() {
+    let (base, _state) = start_authed_server("test-key").await;
     let client = reqwest::Client::new();
 
-    // Send an OPTIONS preflight request.
+    // Test 1: Exact localhost origin (without port) should be allowed
+    let resp = client
+        .request(reqwest::Method::OPTIONS, format!("{base}/api/status"))
+        .header("Origin", "http://localhost")
+        .header("Access-Control-Request-Method", "GET")
+        .send()
+        .await
+        .unwrap();
+
+    assert!(
+        resp.status().is_success(),
+        "Localhost origin should be allowed for preflight, status: {}", resp.status()
+    );
+    let headers = resp.headers();
+    assert!(
+        headers.contains_key("access-control-allow-origin"),
+        "CORS allow-origin header should be present for localhost"
+    );
+    let allow_origin = headers.get("access-control-allow-origin").unwrap().to_str().unwrap();
+    assert_eq!(
+        allow_origin, "http://localhost",
+        "Allow-origin should echo localhost origin exactly, got: {}", allow_origin
+    );
+
+    // Test 2: Exact 127.0.0.1 origin (without port) should be allowed
+    let resp = client
+        .request(reqwest::Method::OPTIONS, format!("{base}/api/status"))
+        .header("Origin", "http://127.0.0.1")
+        .header("Access-Control-Request-Method", "GET")
+        .send()
+        .await
+        .unwrap();
+
+    assert!(
+        resp.status().is_success(),
+        "127.0.0.1 origin should be allowed for preflight, status: {}", resp.status()
+    );
+    let headers = resp.headers();
+    assert!(
+        headers.contains_key("access-control-allow-origin"),
+        "CORS allow-origin header should be present for 127.0.0.1"
+    );
+    let allow_origin = headers.get("access-control-allow-origin").unwrap().to_str().unwrap();
+    assert_eq!(
+        allow_origin, "http://127.0.0.1",
+        "Allow-origin should echo 127.0.0.1 origin exactly, got: {}", allow_origin
+    );
+
+    // Test 3: Localhost with non-standard port should be rejected (not in allowed list)
     let resp = client
         .request(reqwest::Method::OPTIONS, format!("{base}/api/status"))
         .header("Origin", "http://localhost:3001")
@@ -342,14 +394,34 @@ async fn test_cors_headers_present() {
         .await
         .unwrap();
 
-    // The CorsLayer::very_permissive() should return CORS headers.
+    // The preflight may succeed but should not echo the disallowed origin
     let headers = resp.headers();
-    assert!(
-        headers.contains_key("access-control-allow-origin")
-            || headers.contains_key("access-control-allow-methods")
-            || resp.status().is_success(),
-        "CORS headers or success status expected on preflight"
-    );
+    if let Some(allow_origin) = headers.get("access-control-allow-origin") {
+        let origin_str = allow_origin.to_str().unwrap();
+        assert!(
+            origin_str != "http://localhost:3001",
+            "Localhost with port should not be echoed (not in allowed list), got: {}", origin_str
+        );
+    }
+
+    // Test 4: Non-localhost origin should be rejected (no CORS headers for disallowed origin)
+    let resp = client
+        .request(reqwest::Method::OPTIONS, format!("{base}/api/status"))
+        .header("Origin", "http://evil.com")
+        .header("Access-Control-Request-Method", "GET")
+        .send()
+        .await
+        .unwrap();
+
+    // The preflight may succeed (200) but should not echo the disallowed origin
+    let headers = resp.headers();
+    if let Some(allow_origin) = headers.get("access-control-allow-origin") {
+        let origin_str = allow_origin.to_str().unwrap();
+        assert!(
+            !origin_str.contains("evil.com"),
+            "Disallowed origin should not be echoed in allow-origin header, got: {}", origin_str
+        );
+    }
 }
 
 #[tokio::test]
