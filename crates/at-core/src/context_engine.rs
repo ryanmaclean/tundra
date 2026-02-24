@@ -9,7 +9,10 @@
 //! Based on the agentskills.io specification and Claude Code patterns.
 
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Mutex, OnceLock};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -293,6 +296,33 @@ pub struct AgentDefinition {
 pub struct ProjectContextLoader {
     project_root: PathBuf,
 }
+
+#[derive(Debug, Clone)]
+pub struct ProjectContextSnapshot {
+    pub agents_md: Option<String>,
+    pub claude_md: Option<String>,
+    pub todo_md: Option<String>,
+    pub agent_definitions: Vec<AgentDefinition>,
+    pub skill_definitions: Vec<SkillDefinition>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
+pub struct ContextCacheStats {
+    pub hits: u64,
+    pub misses: u64,
+    pub rebuilds: u64,
+}
+
+#[derive(Debug, Clone)]
+struct CachedSnapshot {
+    fingerprint: u64,
+    snapshot: ProjectContextSnapshot,
+}
+
+static CONTEXT_CACHE: OnceLock<Mutex<HashMap<PathBuf, CachedSnapshot>>> = OnceLock::new();
+static CONTEXT_CACHE_HITS: AtomicU64 = AtomicU64::new(0);
+static CONTEXT_CACHE_MISSES: AtomicU64 = AtomicU64::new(0);
+static CONTEXT_CACHE_REBUILDS: AtomicU64 = AtomicU64::new(0);
 
 impl ProjectContextLoader {
     pub fn new(project_root: impl Into<PathBuf>) -> Self {
