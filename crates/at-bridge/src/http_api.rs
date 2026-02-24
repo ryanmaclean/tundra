@@ -157,6 +157,9 @@ pub struct ApiState {
     // ---- GitHub OAuth ---------------------------------------------------
     pub github_oauth_token: Arc<RwLock<Option<String>>>,
     pub github_oauth_user: Arc<RwLock<Option<serde_json::Value>>>,
+    /// Pending OAuth state parameters for CSRF protection.
+    /// Key: state parameter, Value: timestamp or session metadata.
+    pub oauth_pending_states: Arc<RwLock<std::collections::HashMap<String, String>>>,
     // ---- Projects --------------------------------------------------------
     pub projects: Arc<RwLock<Vec<Project>>>,
     // ---- PR polling -------------------------------------------------------
@@ -283,6 +286,7 @@ impl ApiState {
             kanban_columns: Arc::new(RwLock::new(default_kanban_columns())),
             github_oauth_token: Arc::new(RwLock::new(None)),
             github_oauth_user: Arc::new(RwLock::new(None)),
+            oauth_pending_states: Arc::new(RwLock::new(std::collections::HashMap::new())),
             pr_poll_registry: Arc::new(RwLock::new(std::collections::HashMap::new())),
             releases: Arc::new(RwLock::new(Vec::new())),
             archived_tasks: Arc::new(RwLock::new(Vec::new())),
