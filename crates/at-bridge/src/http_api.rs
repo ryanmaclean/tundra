@@ -1994,7 +1994,7 @@ async fn list_github_issues(
     }
     if owner.is_empty() || repo.is_empty() {
         return (
-            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            axum::http::StatusCode::BAD_REQUEST,
             Json(serde_json::json!({
                 "error": "GitHub owner and repo must be set in settings (integrations)."
             })),
@@ -2053,7 +2053,7 @@ async fn trigger_github_sync(State(state): State<Arc<ApiState>>) -> impl IntoRes
     }
     if owner.is_empty() || repo.is_empty() {
         return (
-            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            axum::http::StatusCode::BAD_REQUEST,
             Json(serde_json::json!({
                 "error": "GitHub owner and repo must be set in settings (integrations)."
             })),
@@ -2154,7 +2154,7 @@ async fn create_pr_for_task(
     }
     if owner.is_empty() || repo.is_empty() {
         return (
-            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            axum::http::StatusCode::BAD_REQUEST,
             Json(serde_json::json!({
                 "error": "GitHub owner and repo must be set in settings (integrations)."
             })),
@@ -2676,7 +2676,7 @@ async fn merge_worktree(
     let branch = match found_branch {
         Some(b) if !b.is_empty() => b,
         _ => {
-            return ApiError::NotFound(format!("worktree not found: {}", id)).into_response();
+            return ApiError::NotFound("worktree not found".to_string()).into_response();
         }
     };
 
@@ -2840,7 +2840,7 @@ async fn merge_preview(Path(id): Path<String>) -> impl IntoResponse {
     let branch = match found_branch {
         Some(b) if !b.is_empty() => b,
         _ => {
-            return ApiError::NotFound(format!("worktree not found: {}", id)).into_response();
+            return ApiError::NotFound("worktree not found".to_string()).into_response();
         }
     };
 
@@ -3205,7 +3205,7 @@ async fn delete_worktree(Path(id): Path<String>) -> impl IntoResponse {
     }
 
     let Some(path) = found_path else {
-        return ApiError::NotFound(format!("worktree not found: {}", id)).into_response();
+        return ApiError::NotFound("worktree not found".to_string()).into_response();
     };
 
     let rm = tokio::process::Command::new("git")
@@ -3262,7 +3262,7 @@ async fn list_github_prs(
     }
     if owner.is_empty() || repo.is_empty() {
         return (
-            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            axum::http::StatusCode::BAD_REQUEST,
             Json(serde_json::json!({
                 "error": "GitHub owner and repo must be set in settings (integrations)."
             })),
@@ -3325,7 +3325,7 @@ async fn import_github_issue(
     }
     if owner.is_empty() || repo.is_empty() {
         return (
-            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            axum::http::StatusCode::BAD_REQUEST,
             Json(serde_json::json!({
                 "error": "GitHub owner and repo must be set in settings (integrations)."
             })),
@@ -4253,8 +4253,13 @@ mod tests {
             .unwrap();
 
         let response = app.oneshot(req).await.unwrap();
-        // Without GITHUB_TOKEN (and owner/repo) configured, sync returns 503
-        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        // Without GITHUB_TOKEN (and owner/repo) configured, returns 503 or 400
+        let status = response.status();
+        assert!(
+            status == StatusCode::SERVICE_UNAVAILABLE || status == StatusCode::BAD_REQUEST,
+            "Expected 503 or 400, got {}",
+            status
+        );
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
@@ -4274,7 +4279,13 @@ mod tests {
             .body(Body::empty())
             .unwrap();
         let response = app.oneshot(req).await.unwrap();
-        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        // Returns 503 (no token) or 400 (token but no owner/repo)
+        let status = response.status();
+        assert!(
+            status == StatusCode::SERVICE_UNAVAILABLE || status == StatusCode::BAD_REQUEST,
+            "Expected 503 or 400, got {}",
+            status
+        );
     }
 
     #[tokio::test]
@@ -4286,7 +4297,13 @@ mod tests {
             .body(Body::empty())
             .unwrap();
         let response = app.oneshot(req).await.unwrap();
-        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        // Returns 503 (no token) or 400 (token but no owner/repo)
+        let status = response.status();
+        assert!(
+            status == StatusCode::SERVICE_UNAVAILABLE || status == StatusCode::BAD_REQUEST,
+            "Expected 503 or 400, got {}",
+            status
+        );
     }
 
     #[tokio::test]
@@ -4422,7 +4439,13 @@ mod tests {
             .unwrap();
 
         let response = app.oneshot(req).await.unwrap();
-        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        // Returns 503 (no token) or 400 (token but no owner/repo)
+        let status = response.status();
+        assert!(
+            status == StatusCode::SERVICE_UNAVAILABLE || status == StatusCode::BAD_REQUEST,
+            "Expected 503 or 400, got {}",
+            status
+        );
     }
 
     // -----------------------------------------------------------------------

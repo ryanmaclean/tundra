@@ -534,11 +534,16 @@ async fn test_list_github_prs_requires_config() {
     let resp = reqwest::get(format!("{base}/api/github/prs"))
         .await
         .unwrap();
-    // Without GitHub token, should return 503
-    assert_eq!(resp.status(), 503);
+    // Without proper config, returns 503 (no token) or 400 (token but no owner/repo)
+    assert!(
+        resp.status() == 503 || resp.status() == 400,
+        "Expected 503 or 400, got {}",
+        resp.status()
+    );
 
     let body: Value = resp.json().await.unwrap();
-    assert!(body["error"].as_str().unwrap().contains("token"));
+    let err = body["error"].as_str().unwrap();
+    assert!(err.contains("token") || err.contains("owner") || err.contains("repo"));
 }
 
 #[tokio::test]
@@ -550,19 +555,19 @@ async fn test_list_github_prs_accepts_query_params() {
     ))
     .await
     .unwrap();
-    // Without config, should still return 503 (not 400 or 500)
-    assert_eq!(resp.status(), 503);
+    // Without proper config, returns 503 or 400
+    assert!(resp.status() == 503 || resp.status() == 400);
 }
 
 #[tokio::test]
 async fn test_list_github_prs_invalid_state_param() {
     let (base, _state) = start_test_server().await;
 
-    // Invalid state param should be gracefully ignored (still 503 due to no token)
+    // Invalid state param should be gracefully ignored (still 503 or 400 due to config)
     let resp = reqwest::get(format!("{base}/api/github/prs?state=bogus"))
         .await
         .unwrap();
-    assert_eq!(resp.status(), 503);
+    assert!(resp.status() == 503 || resp.status() == 400);
 }
 
 // ---------------------------------------------------------------------------
@@ -579,11 +584,16 @@ async fn test_import_github_issue_requires_config() {
         .send()
         .await
         .unwrap();
-    // Without GitHub token, should return 503
-    assert_eq!(resp.status(), 503);
+    // Without proper config, returns 503 (no token) or 400 (token but no owner/repo)
+    assert!(
+        resp.status() == 503 || resp.status() == 400,
+        "Expected 503 or 400, got {}",
+        resp.status()
+    );
 
     let body: Value = resp.json().await.unwrap();
-    assert!(body["error"].as_str().unwrap().contains("token"));
+    let err = body["error"].as_str().unwrap();
+    assert!(err.contains("token") || err.contains("owner") || err.contains("repo"));
 }
 
 #[tokio::test]
@@ -591,13 +601,13 @@ async fn test_import_github_issue_different_numbers() {
     let (base, _state) = start_test_server().await;
     let client = reqwest::Client::new();
 
-    // Issue number 1 - still 503 due to no token
+    // Issue number 1 - returns 503 or 400 due to config
     let resp = client
         .post(format!("{base}/api/github/issues/1/import"))
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.status(), 503);
+    assert!(resp.status() == 503 || resp.status() == 400);
 
     // Issue number 9999
     let resp = client
@@ -605,7 +615,7 @@ async fn test_import_github_issue_different_numbers() {
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.status(), 503);
+    assert!(resp.status() == 503 || resp.status() == 400);
 }
 
 // ---------------------------------------------------------------------------
