@@ -577,7 +577,28 @@ pub fn api_router_with_auth(state: Arc<ApiState>, api_key: Option<String>, allow
         .layer(axum_middleware::from_fn(metrics_middleware))
         .layer(axum_middleware::from_fn(request_id_middleware))
         .layer(AuthLayer::new(api_key))
-        .layer(CorsLayer::very_permissive())
+        .layer(
+            CorsLayer::new()
+                .allow_origin(
+                    allowed_origins
+                        .iter()
+                        .map(|o| o.parse::<axum::http::HeaderValue>().unwrap())
+                        .collect::<Vec<_>>(),
+                )
+                .allow_methods([
+                    axum::http::Method::GET,
+                    axum::http::Method::POST,
+                    axum::http::Method::PUT,
+                    axum::http::Method::DELETE,
+                    axum::http::Method::PATCH,
+                    axum::http::Method::OPTIONS,
+                ])
+                .allow_headers([
+                    axum::http::header::CONTENT_TYPE,
+                    axum::http::header::AUTHORIZATION,
+                ])
+                .allow_credentials(true),
+        )
         .with_state(state)
 }
 
