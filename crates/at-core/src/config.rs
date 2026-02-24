@@ -560,6 +560,94 @@ fn default_display_font_size() -> u8 {
 }
 
 // ---------------------------------------------------------------------------
+// Kanban settings (planning poker, columns)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KanbanConfig {
+    #[serde(default = "default_kanban_column_mode")]
+    pub column_mode: String,
+    #[serde(default)]
+    pub planning_poker: PlanningPokerConfig,
+}
+
+impl Default for KanbanConfig {
+    fn default() -> Self {
+        Self {
+            column_mode: default_kanban_column_mode(),
+            planning_poker: PlanningPokerConfig::default(),
+        }
+    }
+}
+
+impl KanbanConfig {
+    pub fn validate(&self) -> Result<(), ConfigError> {
+        let mode = self.column_mode.trim();
+        if mode.is_empty() {
+            return Err(ConfigError::Validation(
+                "kanban.column_mode must not be empty".to_string(),
+            ));
+        }
+        self.planning_poker.validate()
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlanningPokerConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default = "default_poker_default_deck")]
+    pub default_deck: String,
+    #[serde(default = "default_true")]
+    pub allow_custom_deck: bool,
+    #[serde(default)]
+    pub reveal_requires_all_votes: bool,
+    #[serde(default = "default_poker_round_duration_seconds")]
+    pub round_duration_seconds: u64,
+}
+
+impl Default for PlanningPokerConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            default_deck: default_poker_default_deck(),
+            allow_custom_deck: true,
+            reveal_requires_all_votes: false,
+            round_duration_seconds: default_poker_round_duration_seconds(),
+        }
+    }
+}
+
+impl PlanningPokerConfig {
+    pub fn validate(&self) -> Result<(), ConfigError> {
+        let allowed = ["fibonacci", "modified_fibonacci", "powers_of_two", "tshirt"];
+        if !allowed.contains(&self.default_deck.as_str()) {
+            return Err(ConfigError::Validation(format!(
+                "kanban.planning_poker.default_deck '{}' is not supported",
+                self.default_deck
+            )));
+        }
+        if self.round_duration_seconds == 0 || self.round_duration_seconds > 86_400 {
+            return Err(ConfigError::Validation(
+                "kanban.planning_poker.round_duration_seconds must be between 1 and 86400"
+                    .to_string(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+fn default_kanban_column_mode() -> String {
+    "classic_8".into()
+}
+fn default_poker_default_deck() -> String {
+    "fibonacci".into()
+}
+fn default_poker_round_duration_seconds() -> u64 {
+    300
+}
+
+// ---------------------------------------------------------------------------
 // Terminal settings (UI-facing)
 // ---------------------------------------------------------------------------
 

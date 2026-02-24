@@ -662,6 +662,9 @@ pub fn api_router_with_auth(state: Arc<ApiState>, api_key: Option<String>, allow
 // Request / Response types
 // ---------------------------------------------------------------------------
 
+/// Response payload for GET /api/status.
+///
+/// Returns basic server status including version, uptime, and entity counts.
 #[derive(Debug, Serialize)]
 struct StatusResponse {
     version: String,
@@ -866,6 +869,21 @@ pub struct CompetitorAnalysisResult {
 // Handlers
 // ---------------------------------------------------------------------------
 
+/// GET /api/status -- returns basic server health and statistics.
+///
+/// Provides a lightweight status check that includes the API version,
+/// how long the server has been running, and counts of active agents and beads.
+/// Returns 200 OK with JSON body.
+///
+/// Example response:
+/// ```json
+/// {
+///   "version": "0.1.0",
+///   "uptime_seconds": 3600,
+///   "agent_count": 2,
+///   "bead_count": 42
+/// }
+/// ```
 async fn get_status(State(state): State<Arc<ApiState>>) -> Json<StatusResponse> {
     let beads = state.beads.read().await;
     let agents = state.agents.read().await;
@@ -877,11 +895,80 @@ async fn get_status(State(state): State<Arc<ApiState>>) -> Json<StatusResponse> 
     })
 }
 
+/// GET /api/beads -- retrieve all beads in the system.
+///
+/// Returns a JSON array of all beads with their current status, lane assignment,
+/// timestamps, and metadata. Beads represent high-level features or epics that
+/// contain multiple tasks.
+///
+/// **Response:** 200 OK with array of Bead objects.
+///
+/// **Example Response:**
+/// ```json
+/// [
+///   {
+///     "id": "550e8400-e29b-41d4-a716-446655440000",
+///     "title": "User Authentication System",
+///     "description": "OAuth2 and JWT-based auth",
+///     "status": "InProgress",
+///     "lane": "Standard",
+///     "priority": 10,
+///     "agent_id": null,
+///     "convoy_id": null,
+///     "created_at": "2026-02-23T10:00:00Z",
+///     "updated_at": "2026-02-23T10:30:00Z",
+///     "hooked_at": "2026-02-23T10:05:00Z",
+///     "slung_at": null,
+///     "done_at": null,
+///     "git_branch": "feature/auth-system",
+///     "metadata": {"tags": ["security", "backend"]}
+///   }
+/// ]
+/// ```
 async fn list_beads(State(state): State<Arc<ApiState>>) -> Json<Vec<Bead>> {
     let beads = state.beads.read().await;
     Json(beads.clone())
 }
 
+/// POST /api/beads -- create a new bead (feature/epic).
+///
+/// Creates a new bead with the specified title, optional description, lane assignment,
+/// and tags. The bead is initialized with Pending status and current timestamps.
+/// After creation, broadcasts an updated bead list via the event bus.
+///
+/// **Request Body:** CreateBeadRequest JSON object.
+/// **Response:** 201 Created with the newly created Bead object.
+///
+/// **Example Request:**
+/// ```json
+/// {
+///   "title": "User Authentication System",
+///   "description": "OAuth2 and JWT-based auth",
+///   "lane": "Standard",
+///   "tags": ["security", "backend"]
+/// }
+/// ```
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "id": "550e8400-e29b-41d4-a716-446655440000",
+///   "title": "User Authentication System",
+///   "description": "OAuth2 and JWT-based auth",
+///   "status": "Pending",
+///   "lane": "Standard",
+///   "priority": 0,
+///   "agent_id": null,
+///   "convoy_id": null,
+///   "created_at": "2026-02-23T10:00:00Z",
+///   "updated_at": "2026-02-23T10:00:00Z",
+///   "hooked_at": null,
+///   "slung_at": null,
+///   "done_at": null,
+///   "git_branch": null,
+///   "metadata": {"tags": ["security", "backend"]}
+/// }
+/// ```
 async fn create_bead(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<CreateBeadRequest>,
@@ -904,6 +991,58 @@ async fn create_bead(
     (axum::http::StatusCode::CREATED, Json(bead))
 }
 
+/// POST /api/beads/{id}/status -- update a bead's status.
+///
+/// Transitions a bead to a new status if the transition is valid according to
+/// the bead lifecycle (Pending → InProgress → Done, etc.). Updates the bead's
+/// `updated_at` timestamp and relevant lifecycle timestamps (hooked_at, slung_at,
+/// done_at) based on the new status.
+///
+/// **Path Parameters:** `id` - UUID of the bead to update.
+/// **Request Body:** UpdateBeadStatusRequest JSON object.
+/// **Response:** 200 OK with updated Bead, 404 if not found, 400 if invalid transition.
+///
+/// **Example Request:**
+/// ```json
+/// {
+///   "status": "InProgress"
+/// }
+/// ```
+///
+/// **Example Response (Success):**
+/// ```json
+/// {
+///   "id": "550e8400-e29b-41d4-a716-446655440000",
+///   "title": "User Authentication System",
+///   "description": "OAuth2 and JWT-based auth",
+///   "status": "InProgress",
+///   "lane": "Standard",
+///   "priority": 10,
+///   "agent_id": null,
+///   "convoy_id": null,
+///   "created_at": "2026-02-23T10:00:00Z",
+///   "updated_at": "2026-02-23T10:30:00Z",
+///   "hooked_at": "2026-02-23T10:30:00Z",
+///   "slung_at": null,
+///   "done_at": null,
+///   "git_branch": "feature/auth-system",
+///   "metadata": {"tags": ["security", "backend"]}
+/// }
+/// ```
+///
+/// **Example Response (Error - Not Found):**
+/// ```json
+/// {
+///   "error": "bead not found"
+/// }
+/// ```
+///
+/// **Example Response (Error - Invalid Transition):**
+/// ```json
+/// {
+///   "error": "invalid transition from Pending to Done"
+/// }
+/// ```
 async fn update_bead_status(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
@@ -943,11 +1082,64 @@ async fn update_bead_status(
     )
 }
 
+/// GET /api/agents -- retrieve all registered agents in the system.
+///
+/// Returns a JSON array of all agents with their current status, role, CLI type,
+/// process information, and metadata. Agents represent autonomous workers that
+/// can execute tasks (e.g., coder, QA, fixer roles).
+///
+/// # Response
+/// * `200 OK` - JSON array of Agent objects
+///
+/// # Example Response
+/// ```json
+/// [
+///   {
+///     "id": "550e8400-e29b-41d4-a716-446655440000",
+///     "name": "coder-01",
+///     "role": "Coder",
+///     "cli_type": "claude",
+///     "status": "Active",
+///     "rig": "mbp-16",
+///     "pid": 12345,
+///     "created_at": "2024-01-15T10:30:00Z",
+///     "last_seen": "2024-01-15T10:35:00Z"
+///   }
+/// ]
+/// ```
 async fn list_agents(State(state): State<Arc<ApiState>>) -> Json<Vec<Agent>> {
     let agents = state.agents.read().await;
     Json(agents.clone())
 }
 
+/// POST /api/agents/{id}/nudge -- signal an agent to wake up and check for work.
+///
+/// Transitions an agent from Active, Idle, or Unknown status to Pending, effectively
+/// nudging it to check for new tasks or assignments. If the agent is already Pending
+/// or Stopped, the request is acknowledged without state change. Updates the agent's
+/// `last_seen` timestamp.
+///
+/// # Path Parameters
+/// * `id` - UUID of the agent to nudge
+///
+/// # Response
+/// * `200 OK` - Agent updated successfully, returns updated Agent object
+/// * `404 NOT FOUND` - Agent with specified ID not found
+///
+/// # Example Request
+/// ```
+/// POST /api/agents/550e8400-e29b-41d4-a716-446655440000/nudge
+/// ```
+///
+/// # Example Response
+/// ```json
+/// {
+///   "id": "550e8400-e29b-41d4-a716-446655440000",
+///   "name": "coder-01",
+///   "status": "Pending",
+///   "last_seen": "2024-01-15T10:36:00Z"
+/// }
+/// ```
 async fn nudge_agent(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
@@ -978,6 +1170,33 @@ async fn nudge_agent(
     )
 }
 
+/// POST /api/agents/{id}/stop -- mark an agent as stopped.
+///
+/// Transitions an agent to Stopped status, indicating it should cease work and
+/// not accept new tasks. Updates the agent's `last_seen` timestamp. This is a
+/// graceful stop signal rather than forcefully terminating the agent process.
+///
+/// # Path Parameters
+/// * `id` - UUID of the agent to stop
+///
+/// # Response
+/// * `200 OK` - Agent stopped successfully, returns updated Agent object
+/// * `404 NOT FOUND` - Agent with specified ID not found
+///
+/// # Example Request
+/// ```
+/// POST /api/agents/550e8400-e29b-41d4-a716-446655440000/stop
+/// ```
+///
+/// # Example Response
+/// ```json
+/// {
+///   "id": "550e8400-e29b-41d4-a716-446655440000",
+///   "name": "coder-01",
+///   "status": "Stopped",
+///   "last_seen": "2024-01-15T10:37:00Z"
+/// }
+/// ```
 async fn stop_agent(State(state): State<Arc<ApiState>>, Path(id): Path<Uuid>) -> impl IntoResponse {
     let mut agents = state.agents.write().await;
     let Some(agent) = agents.iter_mut().find(|a| a.id == id) else {
@@ -1006,11 +1225,90 @@ async fn get_kpi(State(state): State<Arc<ApiState>>) -> Json<KpiSnapshot> {
 // Task handlers
 // ---------------------------------------------------------------------------
 
+/// GET /api/tasks -- retrieve all tasks in the system.
+///
+/// Returns a JSON array of all tasks with their complete state including phase,
+/// status, priority, complexity, agent assignment, timestamps, and metadata.
+/// Tasks represent individual work items that belong to beads (features/epics).
+///
+/// **Response:** 200 OK with array of Task objects.
+///
+/// **Example Response:**
+/// ```json
+/// [
+///   {
+///     "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+///     "title": "Implement JWT authentication",
+///     "description": "Add JWT token generation and validation",
+///     "bead_id": "550e8400-e29b-41d4-a716-446655440000",
+///     "category": "Backend",
+///     "priority": "High",
+///     "complexity": "Medium",
+///     "phase": "Pending",
+///     "impact": "Security",
+///     "agent_id": null,
+///     "agent_profile": "FullStack",
+///     "created_at": "2026-02-23T10:00:00Z",
+///     "updated_at": "2026-02-23T10:00:00Z",
+///     "started_at": null,
+///     "completed_at": null,
+///     "source": "Manual",
+///     "phase_configs": []
+///   }
+/// ]
+/// ```
 async fn list_tasks(State(state): State<Arc<ApiState>>) -> Json<Vec<Task>> {
     let tasks = state.tasks.read().await;
     Json(tasks.clone())
 }
 
+/// POST /api/tasks -- create a new task.
+///
+/// Creates a new task with specified title, category, priority, complexity, and optional
+/// metadata. The task is initialized in Pending phase with current timestamps. A valid
+/// bead_id must be provided to associate the task with a parent feature/epic.
+///
+/// **Request Body:** CreateTaskRequest JSON object.
+/// **Response:** 201 Created with the newly created Task object, 400 if validation fails.
+///
+/// **Example Request:**
+/// ```json
+/// {
+///   "title": "Implement JWT authentication",
+///   "description": "Add JWT token generation and validation",
+///   "bead_id": "550e8400-e29b-41d4-a716-446655440000",
+///   "category": "Backend",
+///   "priority": "High",
+///   "complexity": "Medium",
+///   "impact": "Security",
+///   "agent_profile": "FullStack",
+///   "source": "Manual",
+///   "phase_configs": []
+/// }
+/// ```
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+///   "title": "Implement JWT authentication",
+///   "description": "Add JWT token generation and validation",
+///   "bead_id": "550e8400-e29b-41d4-a716-446655440000",
+///   "category": "Backend",
+///   "priority": "High",
+///   "complexity": "Medium",
+///   "phase": "Pending",
+///   "impact": "Security",
+///   "agent_id": null,
+///   "agent_profile": "FullStack",
+///   "created_at": "2026-02-23T10:00:00Z",
+///   "updated_at": "2026-02-23T10:00:00Z",
+///   "started_at": null,
+///   "completed_at": null,
+///   "source": "Manual",
+///   "phase_configs": []
+/// }
+/// ```
 async fn create_task(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<CreateTaskRequest>,
@@ -1048,6 +1346,43 @@ async fn create_task(
         .into_response()
 }
 
+/// GET /api/tasks/{id} -- retrieve a specific task by ID.
+///
+/// Returns the complete task object including all metadata, phase information,
+/// timestamps, and agent assignment details.
+///
+/// **Path Parameters:** `id` - UUID of the task to retrieve.
+/// **Response:** 200 OK with Task object, 404 if not found.
+///
+/// **Example Response (Success):**
+/// ```json
+/// {
+///   "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+///   "title": "Implement JWT authentication",
+///   "description": "Add JWT token generation and validation",
+///   "bead_id": "550e8400-e29b-41d4-a716-446655440000",
+///   "category": "Backend",
+///   "priority": "High",
+///   "complexity": "Medium",
+///   "phase": "InProgress",
+///   "impact": "Security",
+///   "agent_id": "agent-123",
+///   "agent_profile": "FullStack",
+///   "created_at": "2026-02-23T10:00:00Z",
+///   "updated_at": "2026-02-23T10:30:00Z",
+///   "started_at": "2026-02-23T10:15:00Z",
+///   "completed_at": null,
+///   "source": "Manual",
+///   "phase_configs": []
+/// }
+/// ```
+///
+/// **Example Response (Not Found):**
+/// ```json
+/// {
+///   "error": "task not found"
+/// }
+/// ```
 async fn get_task(State(state): State<Arc<ApiState>>, Path(id): Path<Uuid>) -> impl IntoResponse {
     let tasks = state.tasks.read().await;
     let Some(task) = tasks.iter().find(|t| t.id == id) else {
@@ -1059,6 +1394,66 @@ async fn get_task(State(state): State<Arc<ApiState>>, Path(id): Path<Uuid>) -> i
     (axum::http::StatusCode::OK, Json(serde_json::json!(task)))
 }
 
+/// PATCH /api/tasks/{id} -- update an existing task.
+///
+/// Updates one or more fields of an existing task. All fields are optional; only provided
+/// fields will be updated. Updates the task's `updated_at` timestamp and broadcasts a
+/// TaskUpdate event via the event bus for real-time UI updates.
+///
+/// **Path Parameters:** `id` - UUID of the task to update.
+/// **Request Body:** UpdateTaskRequest JSON object with optional fields.
+/// **Response:** 200 OK with updated Task, 404 if not found, 400 if validation fails.
+///
+/// **Example Request:**
+/// ```json
+/// {
+///   "title": "Implement JWT authentication with refresh tokens",
+///   "priority": "Critical",
+///   "phase_configs": [
+///     {
+///       "phase": "Coding",
+///       "enabled": true,
+///       "config": {}
+///     }
+///   ]
+/// }
+/// ```
+///
+/// **Example Response (Success):**
+/// ```json
+/// {
+///   "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+///   "title": "Implement JWT authentication with refresh tokens",
+///   "description": "Add JWT token generation and validation",
+///   "bead_id": "550e8400-e29b-41d4-a716-446655440000",
+///   "category": "Backend",
+///   "priority": "Critical",
+///   "complexity": "Medium",
+///   "phase": "InProgress",
+///   "impact": "Security",
+///   "agent_id": "agent-123",
+///   "agent_profile": "FullStack",
+///   "created_at": "2026-02-23T10:00:00Z",
+///   "updated_at": "2026-02-23T11:00:00Z",
+///   "started_at": "2026-02-23T10:15:00Z",
+///   "completed_at": null,
+///   "source": "Manual",
+///   "phase_configs": [
+///     {
+///       "phase": "Coding",
+///       "enabled": true,
+///       "config": {}
+///     }
+///   ]
+/// }
+/// ```
+///
+/// **Example Response (Not Found):**
+/// ```json
+/// {
+///   "error": "task not found"
+/// }
+/// ```
 async fn update_task(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
@@ -1117,6 +1512,28 @@ async fn update_task(
     )
 }
 
+/// DELETE /api/tasks/{id} -- delete a task.
+///
+/// Permanently removes a task from the system. This operation cannot be undone.
+/// Use with caution, especially for tasks that have associated build logs or agent work.
+///
+/// **Path Parameters:** `id` - UUID of the task to delete.
+/// **Response:** 200 OK with deletion confirmation, 404 if not found.
+///
+/// **Example Response (Success):**
+/// ```json
+/// {
+///   "status": "deleted",
+///   "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+/// }
+/// ```
+///
+/// **Example Response (Not Found):**
+/// ```json
+/// {
+///   "error": "task not found"
+/// }
+/// ```
 async fn delete_task(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
@@ -1136,6 +1553,33 @@ async fn delete_task(
     )
 }
 
+/// POST /api/tasks/{id}/phase -- update a task's phase/stage.
+///
+/// Transitions a task to a new phase (Pending, Planning, Coding, QA, etc.) with
+/// validation to ensure the transition is valid according to the task lifecycle.
+/// Invalid transitions (e.g., Completed -> Pending) are rejected with 400.
+/// Publishes a TaskUpdate event for real-time WebSocket notifications.
+///
+/// **Request Body:** UpdateTaskPhaseRequest JSON object with target phase.
+/// **Response:** 200 OK with updated Task object, 404 if task not found, 400 if invalid transition.
+///
+/// **Example Request:**
+/// ```json
+/// {
+///   "phase": "Coding"
+/// }
+/// ```
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+///   "title": "Implement JWT authentication",
+///   "phase": "Coding",
+///   "updated_at": "2026-02-23T10:30:00Z",
+///   ...
+/// }
+/// ```
 async fn update_task_phase(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
@@ -1175,6 +1619,23 @@ async fn update_task_phase(
     )
 }
 
+/// GET /api/tasks/{id}/logs -- retrieve execution logs for a task.
+///
+/// Returns the accumulated log output from task execution phases (Planning, Coding, QA).
+/// Logs are captured from agent interactions and tool executions. Returns an array
+/// of log line strings in chronological order.
+///
+/// **Response:** 200 OK with array of log strings, 404 if task not found.
+///
+/// **Example Response:**
+/// ```json
+/// [
+///   "[2026-02-23T10:15:00Z] Starting Planning phase...",
+///   "[2026-02-23T10:15:12Z] Generated spec.md",
+///   "[2026-02-23T10:15:45Z] Transitioning to Coding phase...",
+///   "[2026-02-23T10:20:30Z] Created src/auth.rs"
+/// ]
+/// ```
 async fn get_task_logs(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
@@ -1214,6 +1675,29 @@ async fn get_pipeline_queue_status(
 /// immediately so the caller can follow progress via WebSocket events.
 ///
 /// Accepts an optional JSON body with `cli_type` to override the default CLI.
+/// Task must be in Planning or Queue phase; returns 400 for invalid phase transitions.
+///
+/// **Request Body:** Optional ExecuteTaskRequest JSON object with cli_type override.
+/// **Response:** 202 Accepted with task snapshot, 404 if task not found, 400 if invalid phase.
+///
+/// **Example Request:**
+/// ```json
+/// {
+///   "cli_type": "Claude"
+/// }
+/// ```
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+///   "title": "Implement JWT authentication",
+///   "phase": "Coding",
+///   "progress_percent": 0,
+///   "started_at": "2026-02-23T10:30:00Z",
+///   ...
+/// }
+/// ```
 async fn execute_task_pipeline(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
@@ -1610,7 +2094,33 @@ struct BuildLogsQuery {
 /// GET /api/tasks/{id}/build-logs -- return captured build output lines.
 ///
 /// Supports an optional `?since=<ISO-8601>` query parameter for incremental
-/// polling so clients only receive new lines since their last fetch.
+/// polling so clients only receive new lines since their last fetch. Returns
+/// array of BuildLogEntry objects with timestamps, stream type (stdout/stderr),
+/// and line content. Useful for displaying real-time build progress.
+///
+/// **Response:** 200 OK with array of BuildLogEntry objects, 404 if task not found,
+/// 400 if 'since' timestamp is invalid.
+///
+/// **Example Response:**
+/// ```json
+/// [
+///   {
+///     "timestamp": "2026-02-23T10:15:00Z",
+///     "stream": "stdout",
+///     "line": "Compiling auth v0.1.0"
+///   },
+///   {
+///     "timestamp": "2026-02-23T10:15:05Z",
+///     "stream": "stdout",
+///     "line": "Finished dev [unoptimized] target(s) in 5.23s"
+///   },
+///   {
+///     "timestamp": "2026-02-23T10:15:10Z",
+///     "stream": "stderr",
+///     "line": "warning: unused variable `token`"
+///   }
+/// ]
+/// ```
 async fn get_build_logs(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
@@ -1662,6 +2172,25 @@ struct BuildStatusSummary {
 }
 
 /// GET /api/tasks/{id}/build-status -- return a summary of the build.
+///
+/// Provides an aggregate view of build progress including phase, progress percentage,
+/// log line counts by stream type (stdout/stderr), error counts, and the most recent
+/// log line. Useful for dashboard widgets and progress indicators.
+///
+/// **Response:** 200 OK with BuildStatusSummary object, 404 if task not found.
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "phase": "Coding",
+///   "progress_percent": 45,
+///   "total_lines": 127,
+///   "stdout_lines": 120,
+///   "stderr_lines": 7,
+///   "error_count": 7,
+///   "last_line": "warning: unused variable `token`"
+/// }
+/// ```
 async fn get_build_status(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
@@ -1703,11 +2232,115 @@ async fn get_build_status(
 // Settings handlers
 // ---------------------------------------------------------------------------
 
+/// GET /api/settings -- retrieve the current application configuration.
+///
+/// Returns the full Config object loaded from persistent storage (typically
+/// `~/.auto-tundra/config.toml`). If no config file exists, returns the default
+/// configuration. The Config contains all application settings including general,
+/// security, UI, integrations, and agent profile configurations.
+///
+/// **Response:** 200 OK with Config JSON object.
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "general": {
+///     "project_name": "auto-tundra",
+///     "log_level": "info",
+///     "workspace_root": "/home/user/workspace"
+///   },
+///   "security": {
+///     "enable_auth": true,
+///     "api_key_header": "X-API-Key"
+///   },
+///   "ui": {
+///     "theme": "dark",
+///     "page_size": 50
+///   },
+///   "bridge": {
+///     "host": "127.0.0.1",
+///     "port": 8765
+///   },
+///   "agents": {
+///     "max_concurrent": 4,
+///     "timeout_seconds": 300
+///   }
+/// }
+/// ```
 async fn get_settings(State(state): State<Arc<ApiState>>) -> Json<Config> {
     let cfg = state.settings_manager.load_or_default();
     Json(cfg)
 }
 
+/// PUT /api/settings -- replace the entire application configuration.
+///
+/// Replaces the entire configuration with the provided Config object and persists it to disk.
+/// All sections of the config must be provided; any omitted sections will be reset to their
+/// default values. Use PATCH /api/settings for partial updates.
+///
+/// **Request Body:** Complete Config JSON object.
+/// **Response:** 200 OK with saved Config, 500 if save fails.
+///
+/// **Example Request:**
+/// ```json
+/// {
+///   "general": {
+///     "project_name": "my-project",
+///     "log_level": "debug",
+///     "workspace_root": "/home/user/my-workspace"
+///   },
+///   "security": {
+///     "enable_auth": false,
+///     "api_key_header": "X-API-Key"
+///   },
+///   "ui": {
+///     "theme": "light",
+///     "page_size": 100
+///   },
+///   "bridge": {
+///     "host": "0.0.0.0",
+///     "port": 8765
+///   },
+///   "agents": {
+///     "max_concurrent": 8,
+///     "timeout_seconds": 600
+///   }
+/// }
+/// ```
+///
+/// **Example Response (Success):**
+/// ```json
+/// {
+///   "general": {
+///     "project_name": "my-project",
+///     "log_level": "debug",
+///     "workspace_root": "/home/user/my-workspace"
+///   },
+///   "security": {
+///     "enable_auth": false,
+///     "api_key_header": "X-API-Key"
+///   },
+///   "ui": {
+///     "theme": "light",
+///     "page_size": 100
+///   },
+///   "bridge": {
+///     "host": "0.0.0.0",
+///     "port": 8765
+///   },
+///   "agents": {
+///     "max_concurrent": 8,
+///     "timeout_seconds": 600
+///   }
+/// }
+/// ```
+///
+/// **Example Response (Error):**
+/// ```json
+/// {
+///   "error": "failed to write config to disk: permission denied"
+/// }
+/// ```
 async fn put_settings(
     State(state): State<Arc<ApiState>>,
     Json(cfg): Json<Config>,
@@ -1721,6 +2354,83 @@ async fn put_settings(
     }
 }
 
+/// PATCH /api/settings -- partially update the application configuration.
+///
+/// Merges the provided partial configuration into the existing configuration and persists
+/// the updated result to disk. Only the fields present in the request body are updated;
+/// all other fields retain their current values. This is useful for updating specific
+/// settings (e.g., only the log level or theme) without having to send the entire Config.
+///
+/// The partial update is performed via JSON merge: nested objects are merged recursively,
+/// and arrays are replaced entirely (not merged element-wise).
+///
+/// **Request Body:** Partial Config JSON object with only the fields to update.
+/// **Response:** 200 OK with updated Config, 400 if merge creates invalid config, 500 if save fails.
+///
+/// **Example Request (Update log level only):**
+/// ```json
+/// {
+///   "general": {
+///     "log_level": "trace"
+///   }
+/// }
+/// ```
+///
+/// **Example Request (Update multiple sections):**
+/// ```json
+/// {
+///   "general": {
+///     "log_level": "debug"
+///   },
+///   "ui": {
+///     "theme": "dark"
+///   },
+///   "agents": {
+///     "max_concurrent": 6
+///   }
+/// }
+/// ```
+///
+/// **Example Response (Success):**
+/// ```json
+/// {
+///   "general": {
+///     "project_name": "auto-tundra",
+///     "log_level": "trace",
+///     "workspace_root": "/home/user/workspace"
+///   },
+///   "security": {
+///     "enable_auth": true,
+///     "api_key_header": "X-API-Key"
+///   },
+///   "ui": {
+///     "theme": "dark",
+///     "page_size": 50
+///   },
+///   "bridge": {
+///     "host": "127.0.0.1",
+///     "port": 8765
+///   },
+///   "agents": {
+///     "max_concurrent": 6,
+///     "timeout_seconds": 300
+///   }
+/// }
+/// ```
+///
+/// **Example Response (Invalid Merge):**
+/// ```json
+/// {
+///   "error": "invalid value: expected u16, found string \"not-a-number\" at line 1 column 23"
+/// }
+/// ```
+///
+/// **Example Response (Save Error):**
+/// ```json
+/// {
+///   "error": "failed to write config to disk: permission denied"
+/// }
+/// ```
 async fn patch_settings(
     State(state): State<Arc<ApiState>>,
     Json(partial): Json<serde_json::Value>,
@@ -1774,6 +2484,45 @@ struct ListGitLabIssuesQuery {
     pub per_page: Option<u32>,
 }
 
+/// GET /api/gitlab/issues -- retrieve issues from a GitLab project.
+///
+/// Fetches issues from the configured GitLab instance. Requires a GitLab API token
+/// to be set via environment variable (configured in settings.integrations.gitlab_token_env).
+///
+/// **Query Parameters:**
+/// - `project_id` (optional): GitLab project ID or path (e.g., "myorg/myproject"). Falls back to settings.integrations.gitlab_project_id.
+/// - `state` (optional): Filter by issue state - "opened", "closed", or omit for all states.
+/// - `page` (optional): Page number for pagination (default: 1).
+/// - `per_page` (optional): Number of issues per page (default: 20).
+///
+/// **Response:** 200 OK with array of GitLab issue objects, 400 if project_id is missing,
+/// 503 if GitLab token is not configured.
+///
+/// **Example Request:**
+/// ```
+/// GET /api/gitlab/issues?project_id=myorg/myproject&state=opened&page=1&per_page=10
+/// ```
+///
+/// **Example Response:**
+/// ```json
+/// [
+///   {
+///     "id": 42,
+///     "iid": 12,
+///     "title": "Fix authentication bug",
+///     "description": "Users cannot log in with SSO",
+///     "state": "opened",
+///     "created_at": "2026-02-20T10:30:00Z",
+///     "updated_at": "2026-02-23T14:20:00Z",
+///     "author": {
+///       "username": "alice",
+///       "name": "Alice Developer"
+///     },
+///     "labels": ["bug", "priority::high"],
+///     "web_url": "https://gitlab.com/myorg/myproject/-/issues/12"
+///   }
+/// ]
+/// ```
 async fn list_gitlab_issues(
     State(state): State<Arc<ApiState>>,
     Query(q): Query<ListGitLabIssuesQuery>,
@@ -1853,6 +2602,47 @@ struct ListGitLabMrsQuery {
     pub per_page: Option<u32>,
 }
 
+/// GET /api/gitlab/merge-requests -- retrieve merge requests from a GitLab project.
+///
+/// Fetches merge requests from the configured GitLab instance. Requires a GitLab API token
+/// to be set via environment variable (configured in settings.integrations.gitlab_token_env).
+///
+/// **Query Parameters:**
+/// - `project_id` (optional): GitLab project ID or path (e.g., "myorg/myproject"). Falls back to settings.integrations.gitlab_project_id.
+/// - `state` (optional): Filter by MR state - "opened", "merged", "closed", or omit for all states.
+/// - `page` (optional): Page number for pagination (default: 1).
+/// - `per_page` (optional): Number of merge requests per page (default: 20).
+///
+/// **Response:** 200 OK with array of GitLab merge request objects, 400 if project_id is missing,
+/// 503 if GitLab token is not configured.
+///
+/// **Example Request:**
+/// ```
+/// GET /api/gitlab/merge-requests?project_id=myorg/myproject&state=opened&page=1&per_page=5
+/// ```
+///
+/// **Example Response:**
+/// ```json
+/// [
+///   {
+///     "id": 123,
+///     "iid": 45,
+///     "title": "Add user authentication feature",
+///     "description": "Implements JWT-based authentication",
+///     "state": "opened",
+///     "created_at": "2026-02-22T09:15:00Z",
+///     "updated_at": "2026-02-23T11:30:00Z",
+///     "author": {
+///       "username": "bob",
+///       "name": "Bob Engineer"
+///     },
+///     "source_branch": "feature/auth",
+///     "target_branch": "main",
+///     "merge_status": "can_be_merged",
+///     "web_url": "https://gitlab.com/myorg/myproject/-/merge_requests/45"
+///   }
+/// ]
+/// ```
 async fn list_gitlab_merge_requests(
     State(state): State<Arc<ApiState>>,
     Query(q): Query<ListGitLabMrsQuery>,
@@ -1932,6 +2722,69 @@ struct ReviewGitLabMrBody {
     pub auto_approve: Option<bool>,
 }
 
+/// POST /api/gitlab/merge-requests/{iid}/review -- perform automated code review on a GitLab merge request.
+///
+/// Analyzes a GitLab merge request and provides automated code review feedback including
+/// security issues, code quality concerns, and best practice violations. Requires a GitLab
+/// API token to be set via environment variable (configured in settings.integrations.gitlab_token_env).
+///
+/// **Path Parameters:**
+/// - `iid`: GitLab merge request internal ID (IID) to review.
+///
+/// **Request Body:** Optional ReviewGitLabMrBody JSON object with review configuration.
+/// - `project_id` (optional): GitLab project ID or path. Falls back to settings.integrations.gitlab_project_id.
+/// - `severity_threshold` (optional): Minimum severity level to report - "low", "medium", "high", "critical".
+/// - `max_findings` (optional): Maximum number of findings to report (default: unlimited).
+/// - `auto_approve` (optional): Automatically approve MR if no critical issues found (default: false).
+///
+/// **Response:** 200 OK with MR review result containing findings and recommendations,
+/// 400 if project_id is missing, 503 if GitLab token is not configured.
+///
+/// **Example Request:**
+/// ```json
+/// POST /api/gitlab/merge-requests/45/review
+/// {
+///   "project_id": "myorg/myproject",
+///   "severity_threshold": "medium",
+///   "max_findings": 10,
+///   "auto_approve": false
+/// }
+/// ```
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "mr_iid": 45,
+///   "project_id": "myorg/myproject",
+///   "review_status": "completed",
+///   "findings": [
+///     {
+///       "severity": "high",
+///       "category": "security",
+///       "message": "Potential SQL injection vulnerability detected",
+///       "file": "src/database/queries.rs",
+///       "line": 42,
+///       "suggestion": "Use parameterized queries instead of string concatenation"
+///     },
+///     {
+///       "severity": "medium",
+///       "category": "code_quality",
+///       "message": "Function complexity exceeds threshold",
+///       "file": "src/handlers/auth.rs",
+///       "line": 128,
+///       "suggestion": "Consider breaking this function into smaller units"
+///     }
+///   ],
+///   "summary": {
+///     "total_findings": 2,
+///     "critical": 0,
+///     "high": 1,
+///     "medium": 1,
+///     "low": 0
+///   },
+///   "approved": false
+/// }
+/// ```
 async fn review_gitlab_merge_request(
     State(state): State<Arc<ApiState>>,
     Path(iid): Path<u32>,
@@ -2010,6 +2863,7 @@ struct ListLinearIssuesQuery {
     pub state: Option<String>,
 }
 
+/// GET /api/linear/issues — list Linear issues for a team.
 async fn list_linear_issues(
     State(state): State<Arc<ApiState>>,
     Query(q): Query<ListLinearIssuesQuery>,
@@ -2063,6 +2917,7 @@ struct ImportLinearBody {
     pub issue_ids: Vec<String>,
 }
 
+/// POST /api/linear/import — import Linear issues by IDs and create tasks.
 async fn import_linear_issues(
     State(state): State<Arc<ApiState>>,
     Json(body): Json<ImportLinearBody>,
@@ -2360,6 +3215,15 @@ async fn start_planning_poker(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<StartPlanningPokerRequest>,
 ) -> impl IntoResponse {
+    let cfg = state.settings_manager.load_or_default();
+    let poker_cfg = &cfg.kanban.planning_poker;
+    if !poker_cfg.enabled {
+        return (
+            axum::http::StatusCode::FORBIDDEN,
+            Json(serde_json::json!({"error": "planning poker is disabled by settings"})),
+        );
+    }
+
     let bead_exists = {
         let beads = state.beads.read().await;
         beads.iter().any(|b| b.id == req.bead_id)
@@ -2372,6 +3236,12 @@ async fn start_planning_poker(
     }
 
     let deck = if let Some(custom) = req.custom_deck {
+        if !poker_cfg.allow_custom_deck {
+            return (
+                axum::http::StatusCode::FORBIDDEN,
+                Json(serde_json::json!({"error": "custom deck is disabled by settings"})),
+            );
+        }
         let normalized = normalize_cards(&custom);
         if normalized.is_empty() {
             return (
@@ -2390,6 +3260,8 @@ async fn start_planning_poker(
                 );
             }
         }
+    } else if let Some(deck) = deck_preset(&poker_cfg.default_deck) {
+        deck
     } else {
         default_poker_deck()
     };
@@ -2401,7 +3273,9 @@ async fn start_planning_poker(
         votes: Vec::new(),
         participants: normalize_participants(&req.participants),
         deck,
-        round_duration_seconds: req.round_duration_seconds,
+        round_duration_seconds: req
+            .round_duration_seconds
+            .or(Some(poker_cfg.round_duration_seconds)),
         consensus_card: None,
         started_at: now,
         updated_at: now,
@@ -2588,6 +3462,7 @@ struct ListGitHubIssuesQuery {
     pub per_page: Option<u8>,
 }
 
+/// GET /api/integrations/github/issues — list GitHub issues with optional state filter.
 async fn list_github_issues(
     State(state): State<Arc<ApiState>>,
     Query(q): Query<ListGitHubIssuesQuery>,
@@ -2738,6 +3613,7 @@ async fn get_sync_status(State(state): State<Arc<ApiState>>) -> impl IntoRespons
     Json(serde_json::json!(*status))
 }
 
+/// POST /api/tasks/{task_id}/pr — create a GitHub pull request for a task's branch.
 async fn create_pr_for_task(
     State(state): State<Arc<ApiState>>,
     Path(task_id): Path<Uuid>,
@@ -2841,6 +3717,44 @@ async fn create_pr_for_task(
 // ---------------------------------------------------------------------------
 
 /// GET /api/notifications — list notifications with optional filters.
+/// GET /api/notifications -- retrieve notifications with optional filtering.
+///
+/// Returns a paginated list of notifications, optionally filtered to show only unread items.
+/// Supports pagination via limit/offset query parameters. Notifications track system events,
+/// task status changes, agent activity, and GitHub integration events.
+///
+/// **Query Parameters:**
+/// - `unread` (optional bool): If true, return only unread notifications
+/// - `limit` (optional usize): Maximum number of results (default: 50)
+/// - `offset` (optional usize): Number of results to skip (default: 0)
+///
+/// **Response:** 200 OK with array of Notification objects.
+///
+/// **Example Response:**
+/// ```json
+/// [
+///   {
+///     "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+///     "title": "Task Completed",
+///     "message": "Task 'Implement JWT auth' has been completed successfully",
+///     "level": "Success",
+///     "source": "TaskEngine",
+///     "created_at": "2026-02-23T10:15:30Z",
+///     "read": false,
+///     "action_url": "/tasks/550e8400-e29b-41d4-a716-446655440000"
+///   },
+///   {
+///     "id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+///     "title": "Agent Error",
+///     "message": "Agent backend-001 encountered an error during execution",
+///     "level": "Error",
+///     "source": "AgentMonitor",
+///     "created_at": "2026-02-23T10:10:15Z",
+///     "read": true,
+///     "action_url": null
+///   }
+/// ]
+/// ```
 async fn list_notifications(
     State(state): State<Arc<ApiState>>,
     Query(params): Query<NotificationQuery>,
@@ -2864,7 +3778,20 @@ async fn list_notifications(
     }
 }
 
-/// GET /api/notifications/count — return unread count.
+/// GET /api/notifications/count -- retrieve notification counts.
+///
+/// Returns the count of unread and total notifications in the system. Used for
+/// badge indicators and notification summary displays in the UI.
+///
+/// **Response:** 200 OK with count summary object.
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "unread": 3,
+///   "total": 42
+/// }
+/// ```
 async fn notification_count(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     let store = state.notification_store.read().await;
     Json(serde_json::json!({
@@ -2873,7 +3800,31 @@ async fn notification_count(State(state): State<Arc<ApiState>>) -> impl IntoResp
     }))
 }
 
-/// POST /api/notifications/{id}/read — mark a single notification as read.
+/// POST /api/notifications/{id}/read -- mark a single notification as read.
+///
+/// Marks the specified notification as read by its UUID. Used when a user views
+/// or acknowledges a notification. The read status persists until the notification
+/// is deleted or the store is cleared.
+///
+/// **Path Parameters:**
+/// - `id` (UUID): The unique identifier of the notification to mark as read
+///
+/// **Response:** 200 OK if successful, 404 Not Found if notification doesn't exist.
+///
+/// **Example Success Response:**
+/// ```json
+/// {
+///   "status": "read",
+///   "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+/// }
+/// ```
+///
+/// **Example Error Response:**
+/// ```json
+/// {
+///   "error": "notification not found"
+/// }
+/// ```
 async fn mark_notification_read(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
@@ -2892,14 +3843,51 @@ async fn mark_notification_read(
     }
 }
 
-/// POST /api/notifications/read-all — mark all notifications as read.
+/// POST /api/notifications/read-all -- mark all notifications as read.
+///
+/// Marks all notifications in the system as read in a single operation. Used for
+/// "mark all as read" bulk actions in the UI. This affects all notifications
+/// regardless of their current read status.
+///
+/// **Response:** 200 OK with status confirmation.
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "status": "all_read"
+/// }
+/// ```
 async fn mark_all_notifications_read(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     let mut store = state.notification_store.write().await;
     store.mark_all_read();
     Json(serde_json::json!({"status": "all_read"}))
 }
 
-/// DELETE /api/notifications/{id} — delete a notification.
+/// DELETE /api/notifications/{id} -- delete a notification.
+///
+/// Permanently removes the specified notification from the system by its UUID.
+/// Once deleted, the notification cannot be recovered. This is typically used
+/// when a user dismisses a notification they no longer need.
+///
+/// **Path Parameters:**
+/// - `id` (UUID): The unique identifier of the notification to delete
+///
+/// **Response:** 200 OK if successful, 404 Not Found if notification doesn't exist.
+///
+/// **Example Success Response:**
+/// ```json
+/// {
+///   "status": "deleted",
+///   "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+/// }
+/// ```
+///
+/// **Example Error Response:**
+/// ```json
+/// {
+///   "error": "notification not found"
+/// }
+/// ```
 async fn delete_notification(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
@@ -2923,6 +3911,18 @@ async fn delete_notification(
 // ---------------------------------------------------------------------------
 
 /// GET /api/metrics — Prometheus text format export.
+/// GET /api/metrics -- exports telemetry metrics in Prometheus text format.
+///
+/// Returns all collected metrics (request counts, durations, gauges, etc.)
+/// in the standard Prometheus exposition format for scraping by monitoring systems.
+/// Returns 200 OK with text/plain content type.
+///
+/// Example response:
+/// ```text
+/// # HELP http_requests_total Total HTTP requests
+/// # TYPE http_requests_total counter
+/// http_requests_total{method="GET",path="/api/status"} 42
+/// ```
 async fn get_metrics_prometheus() -> impl IntoResponse {
     let body = global_metrics().export_prometheus();
     (
@@ -2934,7 +3934,20 @@ async fn get_metrics_prometheus() -> impl IntoResponse {
     )
 }
 
-/// GET /api/metrics/json — JSON format export.
+/// GET /api/metrics/json -- exports telemetry metrics in JSON format.
+///
+/// Returns all collected metrics in a structured JSON format suitable for
+/// programmatic consumption by dashboards and monitoring tools. Returns 200 OK
+/// with application/json content type.
+///
+/// Example response:
+/// ```json
+/// {
+///   "counters": { "http_requests_total": 42 },
+///   "gauges": { "active_connections": 5 },
+///   "histograms": { "request_duration_ms": { "p50": 10, "p99": 100 } }
+/// }
+/// ```
 async fn get_metrics_json() -> impl IntoResponse {
     Json(global_metrics().export_json())
 }
@@ -2993,6 +4006,23 @@ async fn list_ui_sessions(State(state): State<Arc<ApiState>>) -> impl IntoRespon
 // WebSocket — legacy /ws handler
 // ---------------------------------------------------------------------------
 
+/// WebSocket /ws -- legacy real-time event streaming endpoint.
+///
+/// Upgrades HTTP connection to WebSocket and streams all events from the event bus
+/// to the connected client. This is the original WebSocket endpoint maintained for
+/// backward compatibility. New clients should use `/api/events/ws` instead.
+///
+/// **Response:** 101 Switching Protocols, then continuous event stream.
+///
+/// **Example Event Message:**
+/// ```json
+/// {
+///   "type": "TaskUpdate",
+///   "task_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+///   "phase": "InProgress",
+///   "timestamp": "2026-02-23T10:15:00Z"
+/// }
+/// ```
 async fn ws_handler(
     ws: WebSocketUpgrade,
     State(state): State<Arc<ApiState>>,
@@ -3025,6 +4055,37 @@ async fn handle_ws(mut socket: WebSocket, state: Arc<ApiState>) {
 // WebSocket — /api/events/ws with heartbeat + event-to-notification wiring
 // ---------------------------------------------------------------------------
 
+/// WebSocket /api/events/ws -- real-time event streaming with heartbeat.
+///
+/// Upgrades HTTP connection to WebSocket and provides bidirectional communication:
+/// - Server sends all event bus events as JSON messages to the client
+/// - Server sends heartbeat ping every 30 seconds to keep connection alive
+/// - Client can send messages including pong responses and close frames
+/// - Events are automatically converted to notifications and stored
+///
+/// This is the recommended WebSocket endpoint for new clients as it provides
+/// better connection management and automatic notification creation.
+///
+/// **Response:** 101 Switching Protocols, then continuous event stream.
+///
+/// **Example Event Message:**
+/// ```json
+/// {
+///   "type": "BuildUpdate",
+///   "task_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+///   "phase": "Building",
+///   "message": "Running cargo build",
+///   "timestamp": "2026-02-23T10:15:00Z"
+/// }
+/// ```
+///
+/// **Example Heartbeat Message:**
+/// ```json
+/// {
+///   "type": "ping",
+///   "timestamp": "2026-02-23T10:15:30Z"
+/// }
+/// ```
 async fn events_ws_handler(
     ws: WebSocketUpgrade,
     State(state): State<Arc<ApiState>>,
@@ -3233,6 +4294,7 @@ fn stable_worktree_id(path: &str, branch: &str) -> String {
         .collect()
 }
 
+/// GET /api/worktrees — list all git worktrees with path and branch info.
 async fn list_worktrees() -> impl IntoResponse {
     let output = match tokio::process::Command::new("git")
         .args(["worktree", "list", "--porcelain"])
@@ -4328,6 +5390,7 @@ struct AgentSessionEntry {
     duration: String,
 }
 
+/// GET /api/sessions — list all active agent sessions.
 async fn list_agent_sessions(State(state): State<Arc<ApiState>>) -> Json<Vec<AgentSessionEntry>> {
     let agents = state.agents.read().await;
     let sessions: Vec<AgentSessionEntry> = agents
@@ -4368,6 +5431,34 @@ async fn list_convoys() -> Json<Vec<ConvoyEntry>> {
 // Project handlers
 // ---------------------------------------------------------------------------
 
+/// GET /api/projects -- retrieve all projects in the system.
+///
+/// Returns a JSON array of all projects (workspaces/repositories) managed by the system.
+/// Each project includes its ID, name, path, creation timestamp, and active status.
+/// Only one project can be active at a time.
+///
+/// **Request:** No parameters required.
+/// **Response:** 200 OK with JSON array of Project objects.
+///
+/// **Example Response:**
+/// ```json
+/// [
+///   {
+///     "id": "550e8400-e29b-41d4-a716-446655440000",
+///     "name": "my-rust-project",
+///     "path": "/home/user/projects/rust-harness",
+///     "created_at": "2026-02-23T10:00:00Z",
+///     "is_active": true
+///   },
+///   {
+///     "id": "660e8400-e29b-41d4-a716-446655440001",
+///     "name": "web-app",
+///     "path": "/home/user/projects/webapp",
+///     "created_at": "2026-02-22T14:30:00Z",
+///     "is_active": false
+///   }
+/// ]
+/// ```
 async fn list_projects(State(state): State<Arc<ApiState>>) -> Json<Vec<Project>> {
     let projects = state.projects.read().await;
     Json(projects.clone())
@@ -4379,6 +5470,33 @@ struct CreateProjectRequest {
     path: String,
 }
 
+/// POST /api/projects -- create a new project.
+///
+/// Creates a new project (workspace/repository) with the specified name and filesystem path.
+/// The project is initialized with `is_active: false` and a current timestamp.
+/// To make it the active project, call the activate endpoint afterwards.
+///
+/// **Request Body:** CreateProjectRequest JSON object with `name` and `path` fields.
+/// **Response:** 201 Created with the newly created Project object.
+///
+/// **Example Request:**
+/// ```json
+/// {
+///   "name": "new-api-service",
+///   "path": "/home/user/projects/api-service"
+/// }
+/// ```
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "id": "770e8400-e29b-41d4-a716-446655440002",
+///   "name": "new-api-service",
+///   "path": "/home/user/projects/api-service",
+///   "created_at": "2026-02-23T11:30:00Z",
+///   "is_active": false
+/// }
+/// ```
 async fn create_project(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<CreateProjectRequest>,
@@ -4403,6 +5521,41 @@ struct UpdateProjectRequest {
     path: Option<String>,
 }
 
+/// PATCH /api/projects/{id} -- update a project's name or path.
+///
+/// Updates one or more fields of an existing project. Both `name` and `path` are optional;
+/// only the provided fields will be updated. The project's `is_active` status and other
+/// metadata are not modified by this endpoint.
+///
+/// **Path Parameters:** `id` - UUID of the project to update.
+/// **Request Body:** UpdateProjectRequest JSON object with optional `name` and `path` fields.
+/// **Response:** 200 OK with the updated Project object, 404 if project not found.
+///
+/// **Example Request:**
+/// ```json
+/// {
+///   "name": "renamed-project",
+///   "path": "/new/path/to/project"
+/// }
+/// ```
+///
+/// **Example Response (Success):**
+/// ```json
+/// {
+///   "id": "770e8400-e29b-41d4-a716-446655440002",
+///   "name": "renamed-project",
+///   "path": "/new/path/to/project",
+///   "created_at": "2026-02-23T11:30:00Z",
+///   "is_active": false
+/// }
+/// ```
+///
+/// **Example Response (Not Found):**
+/// ```json
+/// {
+///   "error": "project not found"
+/// }
+/// ```
 async fn update_project(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
@@ -4427,6 +5580,36 @@ async fn update_project(
     )
 }
 
+/// DELETE /api/projects/{id} -- delete a project.
+///
+/// Removes a project from the system. Cannot delete the last remaining project
+/// (returns 400 Bad Request if attempted). If the deleted project was the active one,
+/// automatically activates the first remaining project to ensure there is always
+/// an active project.
+///
+/// **Path Parameters:** `id` - UUID of the project to delete.
+/// **Response:** 200 OK with success confirmation, 404 if project not found, 400 if last project.
+///
+/// **Example Response (Success):**
+/// ```json
+/// {
+///   "ok": true
+/// }
+/// ```
+///
+/// **Example Response (Not Found):**
+/// ```json
+/// {
+///   "error": "project not found"
+/// }
+/// ```
+///
+/// **Example Response (Cannot Delete Last):**
+/// ```json
+/// {
+///   "error": "cannot delete last project"
+/// }
+/// ```
 async fn delete_project(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
@@ -4457,6 +5640,32 @@ async fn delete_project(
     )
 }
 
+/// POST /api/projects/{id}/activate -- set a project as the active project.
+///
+/// Activates the specified project and deactivates all other projects. Only one project
+/// can be active at a time. The active project is used as the default workspace for
+/// operations that require a project context.
+///
+/// **Path Parameters:** `id` - UUID of the project to activate.
+/// **Response:** 200 OK with the activated Project object, 404 if project not found.
+///
+/// **Example Response (Success):**
+/// ```json
+/// {
+///   "id": "770e8400-e29b-41d4-a716-446655440002",
+///   "name": "my-rust-project",
+///   "path": "/home/user/projects/rust-harness",
+///   "created_at": "2026-02-23T11:30:00Z",
+///   "is_active": true
+/// }
+/// ```
+///
+/// **Example Response (Not Found):**
+/// ```json
+/// {
+///   "error": "project not found"
+/// }
+/// ```
 async fn activate_project(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
@@ -4512,6 +5721,7 @@ pub fn spawn_pr_poller(
     })
 }
 
+/// POST /api/github/pr/{number}/watch — start watching a pull request for status updates.
 async fn watch_pr(
     State(state): State<Arc<ApiState>>,
     Path(number): Path<u32>,
@@ -4528,6 +5738,7 @@ async fn watch_pr(
     (axum::http::StatusCode::OK, Json(serde_json::json!(status)))
 }
 
+/// DELETE /api/github/pr/{number}/watch — stop watching a pull request.
 async fn unwatch_pr(
     State(state): State<Arc<ApiState>>,
     Path(number): Path<u32>,
@@ -4546,6 +5757,7 @@ async fn unwatch_pr(
     }
 }
 
+/// GET /api/github/pr/watched — list all currently watched pull requests.
 async fn list_watched_prs(State(state): State<Arc<ApiState>>) -> Json<Vec<PrPollStatus>> {
     let registry = state.pr_poll_registry.read().await;
     Json(registry.values().cloned().collect())
@@ -4566,6 +5778,7 @@ struct CreateReleaseRequest {
     prerelease: bool,
 }
 
+/// POST /api/releases — create a new GitHub release with tag, name, body, and metadata.
 async fn create_release(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<CreateReleaseRequest>,
@@ -4671,6 +5884,7 @@ async fn create_release(
     )
 }
 
+/// GET /api/releases — list all GitHub releases for the configured repository.
 async fn list_releases(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     let config = state.settings_manager.load_or_default();
     let int = &config.integrations;
@@ -4740,6 +5954,21 @@ async fn list_releases(State(state): State<Arc<ApiState>>) -> impl IntoResponse 
 // Task Archival
 // ---------------------------------------------------------------------------
 
+/// POST /api/tasks/{id}/archive -- archive a task to remove it from active views.
+///
+/// Marks a task as archived by adding its ID to the archived tasks list. Archived tasks
+/// are hidden from the main task list and Kanban board but remain accessible via the
+/// archived tasks endpoint. This is useful for completed or cancelled tasks that should
+/// be retained for historical reference but removed from day-to-day workflows.
+///
+/// **Response:** 200 OK with confirmation object.
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "archived": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+/// }
+/// ```
 async fn archive_task(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
@@ -4754,6 +5983,21 @@ async fn archive_task(
     )
 }
 
+/// POST /api/tasks/{id}/unarchive -- restore an archived task to active views.
+///
+/// Removes a task from the archived tasks list, making it visible again in the main
+/// task list and Kanban board. This is useful when an archived task needs to be
+/// reopened or reviewed. If the task is not currently archived, this operation has
+/// no effect but still returns success.
+///
+/// **Response:** 200 OK with confirmation object.
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "unarchived": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+/// }
+/// ```
 async fn unarchive_task(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
@@ -4766,6 +6010,22 @@ async fn unarchive_task(
     )
 }
 
+/// GET /api/tasks/archived -- retrieve all archived task IDs.
+///
+/// Returns an array of task IDs that have been archived. These IDs can be used to
+/// fetch the full task details from the main tasks endpoint if needed. This endpoint
+/// is useful for building an archive view or allowing users to browse and restore
+/// previously archived tasks.
+///
+/// **Response:** 200 OK with array of UUID strings.
+///
+/// **Example Response:**
+/// ```json
+/// [
+///   "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+///   "b2c3d4e5-f6a7-8901-bcde-f12345678901"
+/// ]
+/// ```
 async fn list_archived_tasks(State(state): State<Arc<ApiState>>) -> Json<Vec<Uuid>> {
     let archived = state.archived_tasks.read().await;
     Json(archived.clone())
@@ -4775,6 +6035,28 @@ async fn list_archived_tasks(State(state): State<Arc<ApiState>>) -> Json<Vec<Uui
 // Attachment handlers
 // ---------------------------------------------------------------------------
 
+/// GET /api/tasks/{task_id}/attachments -- list all attachments for a specific task.
+///
+/// Returns an array of attachment metadata for all files associated with the specified task.
+/// Each attachment includes metadata such as filename, content type, size, and upload timestamp.
+/// The actual file content is not included; this endpoint only returns metadata stubs for
+/// UI display and management purposes.
+///
+/// **Response:** 200 OK with array of Attachment objects.
+///
+/// **Example Response:**
+/// ```json
+/// [
+///   {
+///     "id": "d4e5f6a7-b8c9-0123-def4-567890abcdef",
+///     "task_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+///     "filename": "screenshot.png",
+///     "content_type": "image/png",
+///     "size_bytes": 524288,
+///     "uploaded_at": "2026-02-23T10:15:30Z"
+///   }
+/// ]
+/// ```
 async fn list_attachments(
     State(state): State<Arc<ApiState>>,
     Path(task_id): Path<Uuid>,
@@ -4788,6 +6070,37 @@ async fn list_attachments(
     Json(filtered)
 }
 
+/// POST /api/tasks/{task_id}/attachments -- add a new attachment to a task.
+///
+/// Creates a new attachment metadata record for a file associated with the specified task.
+/// This endpoint stores the attachment metadata (filename, content type, size) but does not
+/// handle actual file upload or storage. The caller is responsible for managing the file
+/// content separately. Useful for tracking screenshots, documents, or other files related
+/// to a task.
+///
+/// **Request Body:** JSON object with filename, content_type, and size_bytes fields.
+/// **Response:** 201 Created with the newly created Attachment object.
+///
+/// **Example Request:**
+/// ```json
+/// {
+///   "filename": "screenshot.png",
+///   "content_type": "image/png",
+///   "size_bytes": 524288
+/// }
+/// ```
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "id": "d4e5f6a7-b8c9-0123-def4-567890abcdef",
+///   "task_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+///   "filename": "screenshot.png",
+///   "content_type": "image/png",
+///   "size_bytes": 524288,
+///   "uploaded_at": "2026-02-23T10:15:30Z"
+/// }
+/// ```
 async fn add_attachment(
     State(state): State<Arc<ApiState>>,
     Path(task_id): Path<Uuid>,
@@ -4817,6 +6130,27 @@ async fn add_attachment(
     )
 }
 
+/// DELETE /api/tasks/{task_id}/attachments/{id} -- delete an attachment from a task.
+///
+/// Removes the attachment metadata record for the specified attachment ID. This does not
+/// delete the actual file content (if it exists); it only removes the metadata tracking
+/// record from the system. Returns 404 if the attachment ID does not exist.
+///
+/// **Response:** 200 OK with confirmation object, or 404 Not Found if attachment doesn't exist.
+///
+/// **Example Success Response:**
+/// ```json
+/// {
+///   "deleted": "d4e5f6a7-b8c9-0123-def4-567890abcdef"
+/// }
+/// ```
+///
+/// **Example Error Response:**
+/// ```json
+/// {
+///   "error": "attachment not found"
+/// }
+/// ```
 async fn delete_attachment(
     State(state): State<Arc<ApiState>>,
     Path((_task_id, attachment_id)): Path<(Uuid, Uuid)>,
@@ -4841,6 +6175,41 @@ async fn delete_attachment(
 // Task draft handlers
 // ---------------------------------------------------------------------------
 
+/// POST /api/tasks/drafts -- save or update a task draft for auto-save functionality.
+///
+/// Creates or updates a task draft with the provided content. Drafts are useful for
+/// auto-saving task creation forms so users don't lose work if they navigate away or
+/// close their browser. The draft ID should be provided by the client and remains stable
+/// across multiple saves of the same draft. The updated_at timestamp is automatically
+/// set to the current time on each save.
+///
+/// **Request Body:** TaskDraft JSON object with id, title, description, and optional fields.
+/// **Response:** 200 OK with the saved TaskDraft object including updated timestamp.
+///
+/// **Example Request:**
+/// ```json
+/// {
+///   "id": "e5f6a7b8-c9d0-1234-efab-cdef01234567",
+///   "title": "Implement user authentication",
+///   "description": "Add login and registration flow with JWT tokens",
+///   "category": "Backend",
+///   "priority": "High",
+///   "files": ["src/auth.rs", "src/routes.rs"]
+/// }
+/// ```
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "id": "e5f6a7b8-c9d0-1234-efab-cdef01234567",
+///   "title": "Implement user authentication",
+///   "description": "Add login and registration flow with JWT tokens",
+///   "category": "Backend",
+///   "priority": "High",
+///   "files": ["src/auth.rs", "src/routes.rs"],
+///   "updated_at": "2026-02-23T10:20:15Z"
+/// }
+/// ```
 async fn save_task_draft(
     State(state): State<Arc<ApiState>>,
     Json(mut draft): Json<TaskDraft>,
@@ -4851,6 +6220,33 @@ async fn save_task_draft(
     (axum::http::StatusCode::OK, Json(serde_json::json!(draft)))
 }
 
+/// GET /api/tasks/drafts/{id} -- retrieve a specific task draft by ID.
+///
+/// Fetches a previously saved task draft by its ID. This is useful for restoring draft
+/// content when a user returns to a task creation form. Returns 404 if no draft exists
+/// with the specified ID.
+///
+/// **Response:** 200 OK with TaskDraft object, or 404 Not Found if draft doesn't exist.
+///
+/// **Example Success Response:**
+/// ```json
+/// {
+///   "id": "e5f6a7b8-c9d0-1234-efab-cdef01234567",
+///   "title": "Implement user authentication",
+///   "description": "Add login and registration flow with JWT tokens",
+///   "category": "Backend",
+///   "priority": "High",
+///   "files": ["src/auth.rs", "src/routes.rs"],
+///   "updated_at": "2026-02-23T10:20:15Z"
+/// }
+/// ```
+///
+/// **Example Error Response:**
+/// ```json
+/// {
+///   "error": "draft not found"
+/// }
+/// ```
 async fn get_task_draft(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
@@ -4865,6 +6261,28 @@ async fn get_task_draft(
     }
 }
 
+/// DELETE /api/tasks/drafts/{id} -- delete a task draft.
+///
+/// Removes a task draft from storage. This is typically called when a user completes
+/// task creation (converting the draft to a real task) or explicitly discards a draft.
+/// Returns 404 if the draft doesn't exist, but this is not considered an error condition
+/// since the desired end state (draft not existing) is achieved.
+///
+/// **Response:** 200 OK with confirmation object, or 404 Not Found if draft doesn't exist.
+///
+/// **Example Success Response:**
+/// ```json
+/// {
+///   "deleted": "e5f6a7b8-c9d0-1234-efab-cdef01234567"
+/// }
+/// ```
+///
+/// **Example Error Response:**
+/// ```json
+/// {
+///   "error": "draft not found"
+/// }
+/// ```
 async fn delete_task_draft(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
@@ -4883,6 +6301,37 @@ async fn delete_task_draft(
     }
 }
 
+/// GET /api/tasks/drafts -- retrieve all saved task drafts.
+///
+/// Returns an array of all task drafts currently stored in the system. This is useful for
+/// showing users a list of their incomplete task creations so they can resume work on any
+/// of them. Drafts are ordered by their storage order (not necessarily by updated_at).
+///
+/// **Response:** 200 OK with array of TaskDraft objects.
+///
+/// **Example Response:**
+/// ```json
+/// [
+///   {
+///     "id": "e5f6a7b8-c9d0-1234-efab-cdef01234567",
+///     "title": "Implement user authentication",
+///     "description": "Add login and registration flow with JWT tokens",
+///     "category": "Backend",
+///     "priority": "High",
+///     "files": ["src/auth.rs", "src/routes.rs"],
+///     "updated_at": "2026-02-23T10:20:15Z"
+///   },
+///   {
+///     "id": "f6a7b8c9-d0e1-2345-fabc-def012345678",
+///     "title": "Fix CSS layout bug",
+///     "description": "Header alignment issue on mobile",
+///     "category": "Frontend",
+///     "priority": "Medium",
+///     "files": ["styles/header.css"],
+///     "updated_at": "2026-02-23T09:45:22Z"
+///   }
+/// ]
+/// ```
 async fn list_task_drafts(State(state): State<Arc<ApiState>>) -> Json<Vec<TaskDraft>> {
     let drafts = state.task_drafts.read().await;
     Json(drafts.values().cloned().collect())
@@ -4892,6 +6341,31 @@ async fn list_task_drafts(State(state): State<Arc<ApiState>>) -> Json<Vec<TaskDr
 // Column locking
 // ---------------------------------------------------------------------------
 
+/// POST /api/kanban/columns/lock -- lock or unlock a Kanban column to prevent drag-drop.
+///
+/// Toggles the lock state of a specified Kanban column. When locked, the column displays
+/// a lock emoji (🔒) prefix in its label and prevents tasks from being dragged into or out
+/// of the column. This is useful for protecting columns like "Done" or "PR Created" from
+/// accidental modifications.
+///
+/// **Request Body:** LockColumnRequest with column_id and locked boolean.
+/// **Response:** 200 OK with confirmation containing column_id and locked state.
+///
+/// **Example Request:**
+/// ```json
+/// {
+///   "column_id": "done",
+///   "locked": true
+/// }
+/// ```
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "column_id": "done",
+///   "locked": true
+/// }
+/// ```
 async fn lock_column(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<LockColumnRequest>,
@@ -4914,6 +6388,35 @@ async fn lock_column(
 // Task ordering persistence
 // ---------------------------------------------------------------------------
 
+/// POST /api/kanban/ordering -- persist the user's manual task ordering within a column.
+///
+/// Saves the order of tasks within a specific Kanban column after the user has manually
+/// reordered them via drag-and-drop. The ordering is persisted so that tasks appear in
+/// the same order when the board is reloaded. This endpoint accepts a column ID and an
+/// ordered array of task IDs.
+///
+/// **Request Body:** TaskOrderingRequest with column_id and array of task_ids in order.
+/// **Response:** 200 OK with confirmation containing column_id and task_count.
+///
+/// **Example Request:**
+/// ```json
+/// {
+///   "column_id": "in-progress",
+///   "task_ids": [
+///     "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+///     "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+///     "c3d4e5f6-a7b8-9012-cdef-123456789012"
+///   ]
+/// }
+/// ```
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "column_id": "in-progress",
+///   "task_count": 3
+/// }
+/// ```
 async fn save_task_ordering(
     State(_state): State<Arc<ApiState>>,
     Json(req): Json<TaskOrderingRequest>,
@@ -4932,6 +6435,30 @@ async fn save_task_ordering(
 // File watching
 // ---------------------------------------------------------------------------
 
+/// POST /api/files/watch -- start watching a file or directory for changes.
+///
+/// Initiates file system monitoring for the specified path. When files change,
+/// events will be published to the event bus for subscribers. This is useful for
+/// detecting external file modifications and triggering rebuilds or refreshes.
+///
+/// **Request Body:** FileWatchRequest with path and recursive flag.
+/// **Response:** 200 OK with watch confirmation.
+///
+/// **Example Request:**
+/// ```json
+/// {
+///   "path": "/path/to/project/src",
+///   "recursive": true
+/// }
+/// ```
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "watching": "/path/to/project/src",
+///   "recursive": true
+/// }
+/// ```
 async fn start_file_watch(
     State(_state): State<Arc<ApiState>>,
     Json(req): Json<FileWatchRequest>,
@@ -4946,6 +6473,29 @@ async fn start_file_watch(
     )
 }
 
+/// POST /api/files/unwatch -- stop watching a file or directory.
+///
+/// Stops file system monitoring for the specified path that was previously
+/// started with `/api/files/watch`. No more change events will be published
+/// for this path.
+///
+/// **Request Body:** FileWatchRequest with path to stop watching.
+/// **Response:** 200 OK with confirmation.
+///
+/// **Example Request:**
+/// ```json
+/// {
+///   "path": "/path/to/project/src",
+///   "recursive": true
+/// }
+/// ```
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "stopped": "/path/to/project/src"
+/// }
+/// ```
 async fn stop_file_watch(
     State(_state): State<Arc<ApiState>>,
     Json(req): Json<FileWatchRequest>,
@@ -4962,6 +6512,42 @@ async fn stop_file_watch(
 // Competitor analysis
 // ---------------------------------------------------------------------------
 
+/// POST /api/roadmap/competitor-analysis -- analyze a competitor's product.
+///
+/// Performs SWOT analysis (Strengths, Weaknesses, Opportunities, Threats) for
+/// a specified competitor. This helps inform roadmap planning by understanding
+/// the competitive landscape and identifying differentiation opportunities.
+///
+/// **Request Body:** CompetitorAnalysisRequest with competitor name and optional URL.
+/// **Response:** 200 OK with CompetitorAnalysisResult containing SWOT analysis.
+///
+/// **Example Request:**
+/// ```json
+/// {
+///   "competitor_name": "CompetitorX",
+///   "competitor_url": "https://competitor.com"
+/// }
+/// ```
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "competitor_name": "CompetitorX",
+///   "strengths": [
+///     "CompetitorX has strong market presence",
+///     "Large community and ecosystem"
+///   ],
+///   "weaknesses": [
+///     "Limited customization options",
+///     "Higher pricing tier"
+///   ],
+///   "opportunities": [
+///     "Underserved enterprise segment",
+///     "Better developer experience possible"
+///   ],
+///   "analyzed_at": "2026-02-23T10:15:00Z"
+/// }
+/// ```
 async fn run_competitor_analysis(
     State(_state): State<Arc<ApiState>>,
     Json(req): Json<CompetitorAnalysisRequest>,

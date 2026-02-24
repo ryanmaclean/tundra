@@ -29,16 +29,18 @@ impl SettingsManager {
         let text =
             std::fs::read_to_string(&self.path).map_err(|e| ConfigError::Io(e.to_string()))?;
         let cfg: Config = toml::from_str(&text).map_err(|e| ConfigError::Parse(e.to_string()))?;
+        cfg.validate()?;
         Ok(cfg)
     }
 
     /// Save config to the TOML file on disk, creating parent directories if
     /// they don't exist.
     pub fn save(&self, config: &Config) -> Result<(), ConfigError> {
+        config.validate()?;
         if let Some(parent) = self.path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| ConfigError::Io(e.to_string()))?;
         }
-        let text = toml::to_string_pretty(config).map_err(|e| ConfigError::Parse(e.to_string()))?;
+        let text = config.to_toml()?;
         std::fs::write(&self.path, text).map_err(|e| ConfigError::Io(e.to_string()))?;
         Ok(())
     }
@@ -164,6 +166,10 @@ project_name = "partial"
         assert_eq!(cfg.terminal.cursor_style, "block");
         assert_eq!(cfg.security.auto_lock_timeout_mins, 15);
         assert_eq!(cfg.security.sandbox_mode, true);
+        assert_eq!(cfg.security.active_execution_profile, "balanced");
+        assert!(!cfg.security.execution_profiles.is_empty());
+        assert_eq!(cfg.kanban.column_mode, "classic_8");
+        assert_eq!(cfg.kanban.planning_poker.default_deck, "fibonacci");
         assert_eq!(cfg.integrations.github_token_env, "GITHUB_TOKEN");
         assert_eq!(cfg.integrations.gitlab_token_env, "GITLAB_TOKEN");
         assert_eq!(cfg.integrations.linear_api_key_env, "LINEAR_API_KEY");
