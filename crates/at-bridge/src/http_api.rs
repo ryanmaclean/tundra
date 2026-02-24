@@ -403,11 +403,11 @@ impl ApiState {
 /// every request to carry a valid key. When `None`, all requests pass
 /// through (development mode).
 pub fn api_router(state: Arc<ApiState>) -> Router {
-    api_router_with_auth(state, None)
+    api_router_with_auth(state, None, vec![])
 }
 
 /// Build the API router with optional authentication.
-pub fn api_router_with_auth(state: Arc<ApiState>, api_key: Option<String>) -> Router {
+pub fn api_router_with_auth(state: Arc<ApiState>, api_key: Option<String>, allowed_origins: Vec<String>) -> Router {
     Router::new()
         .route("/api/status", get(get_status))
         .route("/api/beads", get(list_beads))
@@ -583,7 +583,41 @@ pub fn api_router_with_auth(state: Arc<ApiState>, api_key: Option<String>) -> Ro
         .layer(axum_middleware::from_fn(metrics_middleware))
         .layer(axum_middleware::from_fn(request_id_middleware))
         .layer(AuthLayer::new(api_key))
-        .layer(CorsLayer::very_permissive())
+        .layer(
+            CorsLayer::new()
+                .allow_origin(tower_http::cors::AllowOrigin::predicate(
+                    move |origin: &axum::http::HeaderValue, _request_parts: &axum::http::request::Parts| {
+                        // Parse the origin header to extract the host
+                        if let Ok(origin_str) = origin.to_str() {
+                            // Check if it's a localhost origin (with or without port)
+                            if origin_str.starts_with("http://localhost")
+                                || origin_str.starts_with("http://127.0.0.1")
+                                || origin_str.starts_with("https://localhost")
+                                || origin_str.starts_with("https://127.0.0.1")
+                            {
+                                return true;
+                            }
+                            // Also check against the exact allowed_origins list for any custom origins
+                            allowed_origins.iter().any(|allowed| origin_str == allowed)
+                        } else {
+                            false
+                        }
+                    },
+                ))
+                .allow_methods([
+                    axum::http::Method::GET,
+                    axum::http::Method::POST,
+                    axum::http::Method::PUT,
+                    axum::http::Method::DELETE,
+                    axum::http::Method::PATCH,
+                    axum::http::Method::OPTIONS,
+                ])
+                .allow_headers([
+                    axum::http::header::CONTENT_TYPE,
+                    axum::http::header::AUTHORIZATION,
+                ])
+                .allow_credentials(true),
+        )
         .with_state(state)
 }
 
