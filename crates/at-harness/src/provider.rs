@@ -343,11 +343,101 @@ impl Message {
 // Tool definition
 // ---------------------------------------------------------------------------
 
+/// Definition of a tool/function that the LLM can call.
+///
+/// Tools enable LLMs to interact with external functions, APIs, or systems by
+/// providing structured function definitions. The LLM can decide when to call
+/// a tool based on the conversation context and return structured arguments
+/// that your code can execute.
+///
+/// # Fields
+///
+/// - `name`: Unique identifier for the tool (e.g., "get_weather", "calculate")
+/// - `description`: Human-readable explanation of what the tool does and when to use it
+/// - `parameters`: JSON Schema defining the tool's input parameters
+///
+/// # Tool Calling Workflow
+///
+/// 1. Define tools with their schemas
+/// 2. Pass tools to [`LlmProvider::chat`]
+/// 3. LLM returns [`ToolCall`] instances in the [`Response`]
+/// 4. Execute the tool calls with the provided arguments
+/// 5. Send results back as [`Role::Tool`] messages
+///
+/// # Examples
+///
+/// ```rust
+/// use at_harness::provider::Tool;
+/// use serde_json::json;
+///
+/// // Simple tool with no parameters
+/// let ping = Tool {
+///     name: "ping".to_string(),
+///     description: "Check if the service is alive".to_string(),
+///     parameters: json!({
+///         "type": "object",
+///         "properties": {}
+///     }),
+/// };
+///
+/// // Tool with required and optional parameters
+/// let get_weather = Tool {
+///     name: "get_weather".to_string(),
+///     description: "Get current weather for a city".to_string(),
+///     parameters: json!({
+///         "type": "object",
+///         "properties": {
+///             "city": {
+///                 "type": "string",
+///                 "description": "City name"
+///             },
+///             "units": {
+///                 "type": "string",
+///                 "enum": ["celsius", "fahrenheit"],
+///                 "description": "Temperature units"
+///             }
+///         },
+///         "required": ["city"]
+///     }),
+/// };
+/// ```
+///
+/// # JSON Schema Format
+///
+/// The `parameters` field must be a valid JSON Schema (typically an object schema).
+/// Most providers support JSON Schema Draft 7 or similar. Common patterns:
+///
+/// - Use `"type": "object"` with `"properties"` to define structured inputs
+/// - Mark required fields in the `"required"` array
+/// - Use `"enum"` to restrict values to specific options
+/// - Add `"description"` fields to help the LLM understand each parameter
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Tool {
+    /// Unique name identifying this tool.
+    ///
+    /// Should be descriptive and follow snake_case convention (e.g., "get_weather",
+    /// "send_email"). This name is used by the LLM to reference the tool in
+    /// [`ToolCall`] responses.
     pub name: String,
+
+    /// Human-readable description of the tool's purpose and usage.
+    ///
+    /// This description helps the LLM decide when to use the tool. Be specific
+    /// about what the tool does, what inputs it expects, and what it returns.
+    ///
+    /// Good: "Get the current weather forecast for a specified city, returning
+    /// temperature, conditions, and humidity."
+    ///
+    /// Bad: "Weather tool"
     pub description: String,
-    /// JSON Schema for the tool parameters.
+
+    /// JSON Schema defining the tool's input parameters.
+    ///
+    /// This schema describes the structure and types of arguments the tool accepts.
+    /// The LLM uses this schema to generate valid arguments when calling the tool.
+    ///
+    /// Must be a JSON Schema object (typically `{"type": "object", "properties": {...}}`).
+    /// Most providers support JSON Schema Draft 7 or compatible formats.
     pub parameters: serde_json::Value,
 }
 
