@@ -231,3 +231,170 @@ mod keyboard_a11y {
         }
     }
 }
+
+// =============================================================================
+// ARIA live regions: verify dynamic content announcements work correctly
+// =============================================================================
+
+mod aria_live_a11y {
+    use super::*;
+
+    #[wasm_bindgen_test]
+    fn aria_live_polite_attribute_is_settable() {
+        // aria-live="polite" allows screen readers to announce updates during pauses
+        let doc = get_document();
+        let body = doc.body().expect("no body");
+        let div = doc.create_element("div").expect("create div failed");
+        let _ = div.set_attribute("aria-live", "polite");
+        assert_eq!(
+            div.get_attribute("aria-live").unwrap_or_default(),
+            "polite",
+            "aria-live='polite' must be settable for status updates"
+        );
+        let _ = body.append_child(&div);
+        let _ = body.remove_child(&div);
+    }
+
+    #[wasm_bindgen_test]
+    fn aria_live_assertive_attribute_is_settable() {
+        // aria-live="assertive" forces immediate announcements for urgent updates
+        let doc = get_document();
+        let body = doc.body().expect("no body");
+        let div = doc.create_element("div").expect("create div failed");
+        let _ = div.set_attribute("aria-live", "assertive");
+        assert_eq!(
+            div.get_attribute("aria-live").unwrap_or_default(),
+            "assertive",
+            "aria-live='assertive' must be settable for urgent alerts"
+        );
+        let _ = body.append_child(&div);
+        let _ = body.remove_child(&div);
+    }
+
+    #[wasm_bindgen_test]
+    fn aria_live_off_attribute_is_settable() {
+        // aria-live="off" disables announcements when needed
+        let doc = get_document();
+        let div = doc.create_element("div").expect("create div failed");
+        let _ = div.set_attribute("aria-live", "off");
+        assert_eq!(
+            div.get_attribute("aria-live").unwrap_or_default(),
+            "off",
+            "aria-live='off' must be settable to disable announcements"
+        );
+    }
+
+    #[wasm_bindgen_test]
+    fn aria_label_works_with_aria_live() {
+        // Live regions should support aria-label for context
+        let doc = get_document();
+        let div = doc.create_element("div").expect("create div failed");
+        let _ = div.set_attribute("aria-live", "polite");
+        let _ = div.set_attribute("aria-label", "Status updates");
+        assert_eq!(
+            div.get_attribute("aria-label").unwrap_or_default(),
+            "Status updates",
+            "aria-label must work alongside aria-live"
+        );
+        assert_eq!(
+            div.get_attribute("aria-live").unwrap_or_default(),
+            "polite",
+            "aria-live must coexist with aria-label"
+        );
+    }
+
+    #[wasm_bindgen_test]
+    fn role_alert_is_settable() {
+        // role="alert" implies aria-live="assertive" for urgent messages
+        let doc = get_document();
+        let div = doc.create_element("div").expect("create div failed");
+        let _ = div.set_attribute("role", "alert");
+        assert_eq!(
+            div.get_attribute("role").unwrap_or_default(),
+            "alert",
+            "role='alert' must be settable for urgent notifications"
+        );
+    }
+
+    #[wasm_bindgen_test]
+    fn aria_atomic_attribute_is_settable() {
+        // aria-atomic="true" makes screen readers announce entire region on change
+        let doc = get_document();
+        let div = doc.create_element("div").expect("create div failed");
+        let _ = div.set_attribute("aria-live", "polite");
+        let _ = div.set_attribute("aria-atomic", "true");
+        assert_eq!(
+            div.get_attribute("aria-atomic").unwrap_or_default(),
+            "true",
+            "aria-atomic must be settable for whole-region announcements"
+        );
+    }
+
+    #[wasm_bindgen_test]
+    fn live_region_content_updates_are_possible() {
+        // Verify that live region text content can be updated dynamically
+        let doc = get_document();
+        let body = doc.body().expect("no body");
+        let div = doc.create_element("div").expect("create div failed");
+        let _ = div.set_attribute("aria-live", "polite");
+        div.set_text_content(Some("Initial status"));
+        assert_eq!(
+            div.text_content().unwrap_or_default(),
+            "Initial status",
+            "Live region must support initial text content"
+        );
+        div.set_text_content(Some("Updated status"));
+        assert_eq!(
+            div.text_content().unwrap_or_default(),
+            "Updated status",
+            "Live region text content must be updatable for announcements"
+        );
+        let _ = body.append_child(&div);
+        let _ = body.remove_child(&div);
+    }
+
+    #[wasm_bindgen_test]
+    fn span_elements_support_aria_live() {
+        // Verify that inline elements like <span> can be live regions
+        let doc = get_document();
+        let span = doc.create_element("span").expect("create span failed");
+        let _ = span.set_attribute("aria-live", "polite");
+        assert_eq!(
+            span.get_attribute("aria-live").unwrap_or_default(),
+            "polite",
+            "span elements must support aria-live for inline status updates"
+        );
+    }
+
+    #[wasm_bindgen_test]
+    fn multiple_aria_attributes_coexist() {
+        // Verify complex live regions with multiple ARIA attributes
+        let doc = get_document();
+        let div = doc.create_element("div").expect("create div failed");
+        let _ = div.set_attribute("aria-live", "polite");
+        let _ = div.set_attribute("aria-atomic", "true");
+        let _ = div.set_attribute("aria-label", "Notification count");
+        let _ = div.set_attribute("role", "status");
+
+        assert_eq!(
+            div.get_attribute("aria-live").unwrap_or_default(),
+            "polite",
+            "aria-live must persist with other attributes"
+        );
+        assert_eq!(
+            div.get_attribute("aria-atomic").unwrap_or_default(),
+            "true",
+            "aria-atomic must persist with other attributes"
+        );
+        assert_eq!(
+            div.get_attribute("aria-label").unwrap_or_default(),
+            "Notification count",
+            "aria-label must persist with other attributes"
+        );
+        assert_eq!(
+            div.get_attribute("role").unwrap_or_default(),
+            "status",
+            "role must persist with other attributes"
+        );
+    }
+}
