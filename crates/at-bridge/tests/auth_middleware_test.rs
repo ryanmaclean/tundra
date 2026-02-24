@@ -250,3 +250,123 @@ async fn test_auth_error_response_is_json() {
         serde_json::from_slice(&body).expect("401 response body should be valid JSON");
     assert_eq!(json["error"], "unauthorized");
 }
+
+// ===========================================================================
+// Auto-Generated API Key Behavior
+// ===========================================================================
+// NOTE: In production, the daemon always has an API key. If AUTO_TUNDRA_API_KEY
+// is not set, the daemon auto-generates a UUID and stores it in ~/.auto-tundra/daemon.key.
+// These tests verify the authentication behavior when a key is configured (which is
+// now always the case in production). Dev mode (no authentication) only exists for
+// testing purposes and is not used in production.
+
+#[tokio::test]
+async fn test_auto_generated_key_enforces_authentication() {
+    // Simulate the production scenario: daemon always has an API key
+    // (either from AUTO_TUNDRA_API_KEY or auto-generated)
+    let simulated_auto_generated_key = "550e8400-e29b-41d4-a716-446655440000";
+    let app = auth_router(Some(simulated_auto_generated_key.into()));
+
+    // Requests without authentication should be rejected
+    let req = Request::builder().uri("/ping").body(Body::empty()).unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+
+    // Requests with correct key should be allowed
+    let app = auth_router(Some(simulated_auto_generated_key.into()));
+    let req = Request::builder()
+        .uri("/ping")
+        .header("X-API-Key", simulated_auto_generated_key)
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_env_var_key_takes_precedence() {
+    // This test documents the behavior where AUTO_TUNDRA_API_KEY (if set)
+    // takes precedence over the auto-generated key. In practice, this is
+    // handled in the daemon's CredentialProvider::ensure_daemon_api_key()
+    // function, but we document the expected behavior here.
+
+    // Simulate env var key being set
+    let env_var_key = "user-provided-key-from-env";
+    let app = auth_router(Some(env_var_key.into()));
+
+    // The env var key should work
+    let req = Request::builder()
+        .uri("/ping")
+        .header("X-API-Key", env_var_key)
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    // Other keys should not work
+    let app = auth_router(Some(env_var_key.into()));
+    let req = Request::builder()
+        .uri("/ping")
+        .header("X-API-Key", "some-other-key")
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn test_authenticated_requests_work_with_auto_generated_key() {
+    // Verify that all request types work correctly when authenticated
+    // with an auto-generated key (simulated as a UUID here)
+    let auto_key = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
+
+    // Test GET request
+    let app = auth_router(Some(auto_key.into()));
+    let req = Request::builder()
+        .uri("/ping")
+        .header("X-API-Key", auto_key)
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    // Test POST request
+    let app = auth_router(Some(auto_key.into()));
+    let req = Request::builder()
+        .method("POST")
+        .uri("/echo")
+        .header("X-API-Key", auto_key)
+        .header("content-type", "text/plain")
+        .body(Body::from("test payload"))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_bytes(resp).await;
+    assert_eq!(body, b"test payload");
+}
+
+#[tokio::test]
+async fn test_full_api_with_auto_generated_key() {
+    // Integration test: verify the full API router enforces authentication
+    // when an API key is configured (production scenario)
+    let auto_key = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
+    let app = full_api_router(Some(auto_key.into()));
+
+    // Request without auth should be rejected
+    let req = Request::builder()
+        .uri("/api/status")
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+
+    // Request with correct key should work
+    let app = full_api_router(Some(auto_key.into()));
+    let req = Request::builder()
+        .uri("/api/status")
+        .header("X-API-Key", auto_key)
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+}
