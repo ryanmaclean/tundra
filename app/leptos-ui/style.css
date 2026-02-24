@@ -7160,6 +7160,7 @@ code.file-path, code.branch-name {
     background: var(--bg-primary);
     border-radius: 8px;
     overflow: hidden;
+    position: relative;
     font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
     border: 1px solid rgba(255, 255, 255, 0.06);
     min-height: 0;
@@ -7216,6 +7217,19 @@ code.file-path, code.branch-name {
     color: var(--text-muted);
 }
 
+.terminal-profile-badge {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #d8b4fe;
+    background: rgba(192, 132, 252, 0.14);
+    border: 1px solid rgba(192, 132, 252, 0.4);
+    border-radius: 6px;
+    padding: 2px 6px;
+    white-space: nowrap;
+}
+
 .terminal-model-badge {
     font-size: 10px;
     color: var(--text-secondary);
@@ -7270,6 +7284,46 @@ code.file-path, code.branch-name {
     color: var(--text-primary);
     background: var(--bg-primary);
     min-height: 0;
+}
+
+.terminal-screen-xterm {
+    padding: 0;
+    overflow: hidden;
+    background:
+        radial-gradient(
+            circle at 20% 10%,
+            rgba(192, 132, 252, 0.07),
+            transparent 50%
+        ),
+        linear-gradient(180deg, rgba(8, 7, 16, 0.96), rgba(4, 4, 8, 0.98));
+}
+
+.terminal-screen-xterm .xterm {
+    height: 100%;
+    width: 100%;
+    padding: 8px 10px;
+}
+
+.terminal-screen-xterm .xterm-viewport {
+    overflow-y: auto !important;
+}
+
+.terminal-profile-card::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+      linear-gradient(115deg, transparent 20%, rgba(217, 180, 254, 0.08) 50%, transparent 80%),
+      repeating-linear-gradient(
+        0deg,
+        transparent 0px,
+        transparent 2px,
+        rgba(255, 255, 255, 0.012) 3px,
+        transparent 4px
+      );
+    mix-blend-mode: screen;
+    opacity: 0.35;
 }
 
 .terminal-screen::-webkit-scrollbar {
@@ -12645,6 +12699,28 @@ button.toggle-switch.active .toggle-knob {
   z-index: 1;
 }
 
+[data-mode="foil"] .terminal-screen-xterm {
+  background:
+      radial-gradient(circle at 10% 0%, rgba(192, 132, 252, 0.12), transparent 45%),
+      radial-gradient(circle at 90% 100%, rgba(34, 211, 238, 0.08), transparent 50%),
+      linear-gradient(180deg, rgba(12, 8, 24, 0.96), rgba(8, 6, 16, 0.98));
+}
+
+[data-mode="foil"] .terminal-screen-xterm::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+      125deg,
+      transparent 30%,
+      rgba(255, 255, 255, 0.06) 48%,
+      rgba(192, 132, 252, 0.1) 52%,
+      transparent 70%
+  );
+  animation: foilTerminalSweep 5s linear infinite;
+}
+
 [data-mode="foil"] .terminal-emulator:hover {
   border-color: rgba(139, 92, 246, 0.5);
   box-shadow: 0 0 30px rgba(139, 92, 246, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.08);
@@ -13163,6 +13239,28 @@ button.toggle-switch.active .toggle-knob {
   background: #000000;
   border: 1px solid #00cc00;
   border-radius: 0;
+}
+
+[data-mode="vt100"] .terminal-screen-xterm {
+  background: #000000;
+}
+
+[data-mode="vt100"] .terminal-screen-xterm .xterm-screen canvas {
+  image-rendering: pixelated;
+}
+
+[data-mode="vt100"] .terminal-profile-badge {
+  border-radius: 0;
+  border-color: #00aa00;
+  color: #00ff00;
+  background: rgba(0, 40, 0, 0.45);
+}
+
+@keyframes foilTerminalSweep {
+  0% { transform: translateX(-40%); opacity: 0.0; }
+  12% { opacity: 0.7; }
+  50% { transform: translateX(40%); opacity: 0.45; }
+  100% { transform: translateX(90%); opacity: 0.0; }
 }
 
 [data-mode="vt100"] .terminal-emulator:hover {

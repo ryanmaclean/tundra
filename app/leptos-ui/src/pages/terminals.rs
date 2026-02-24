@@ -21,6 +21,14 @@ pub struct TerminalInfo {
     pub rows: u16,
     #[serde(default = "default_font_size")]
     pub font_size: u16,
+    #[serde(default = "default_font_family")]
+    pub font_family: String,
+    #[serde(default = "default_line_height")]
+    pub line_height: f32,
+    #[serde(default = "default_letter_spacing")]
+    pub letter_spacing: f32,
+    #[serde(default = "default_profile")]
+    pub profile: String,
     #[serde(default = "default_cursor_style")]
     pub cursor_style: String,
     #[serde(default = "default_cursor_blink")]
@@ -32,7 +40,19 @@ pub struct TerminalInfo {
 }
 
 fn default_font_size() -> u16 {
-    14
+    12
+}
+fn default_font_family() -> String {
+    "\"Iosevka Term\",\"JetBrains Mono\",\"SF Mono\",\"Menlo\",monospace".to_string()
+}
+fn default_line_height() -> f32 {
+    1.02
+}
+fn default_letter_spacing() -> f32 {
+    0.15
+}
+fn default_profile() -> String {
+    "bundled-card".to_string()
 }
 fn default_cursor_style() -> String {
     "block".to_string()
@@ -272,6 +292,13 @@ pub fn TerminalsPage() -> impl IntoView {
                             terminal_title=title
                             cols=c
                             rows=r
+                            font_size=info.font_size
+                            font_family=info.font_family
+                            line_height=info.line_height
+                            letter_spacing=info.letter_spacing
+                            profile_name=info.profile
+                            cursor_style=info.cursor_style
+                            cursor_blink=info.cursor_blink
                             on_close=on_close
                         />
                     }

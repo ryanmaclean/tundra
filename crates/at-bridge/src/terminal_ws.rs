@@ -187,6 +187,10 @@ pub struct TerminalResponse {
     pub rows: u16,
     /// Font size in pixels.
     pub font_size: u16,
+    pub font_family: String,
+    pub line_height: f32,
+    pub letter_spacing: f32,
+    pub profile: String,
     /// Cursor appearance ("block", "underline", or "bar").
     pub cursor_style: String,
     /// Whether the cursor blinks.
@@ -216,6 +220,10 @@ impl From<&TerminalInfo> for TerminalResponse {
             cols: info.cols,
             rows: info.rows,
             font_size: info.font_size,
+            font_family: info.font_family.clone(),
+            line_height: info.line_height,
+            letter_spacing: info.letter_spacing,
+            profile: info.profile.clone(),
             cursor_style: info.cursor_style.clone(),
             cursor_blink: info.cursor_blink,
             auto_name: info.auto_name.clone(),
@@ -367,7 +375,12 @@ pub async fn create_terminal(State(state): State<Arc<ApiState>>) -> impl IntoRes
         status: TerminalStatus::Active,
         cols: 80,
         rows: 24,
-        font_size: 14,
+        font_size: 12,
+        font_family: "\"Iosevka Term\",\"JetBrains Mono\",\"SF Mono\",\"Menlo\",monospace"
+            .to_string(),
+        line_height: 1.02,
+        letter_spacing: 0.15,
+        profile: "bundled-card".to_string(),
         cursor_style: "block".to_string(),
         cursor_blink: true,
         auto_name: None,
@@ -741,6 +754,18 @@ pub async fn update_terminal_settings(
         if let Some(size) = req.get("font_size").and_then(|v| v.as_u64()) {
             terminal.font_size = size as u16;
         }
+        if let Some(font) = req.get("font_family").and_then(|v| v.as_str()) {
+            terminal.font_family = font.to_string();
+        }
+        if let Some(line_height) = req.get("line_height").and_then(|v| v.as_f64()) {
+            terminal.line_height = line_height as f32;
+        }
+        if let Some(letter_spacing) = req.get("letter_spacing").and_then(|v| v.as_f64()) {
+            terminal.letter_spacing = letter_spacing as f32;
+        }
+        if let Some(profile) = req.get("profile").and_then(|v| v.as_str()) {
+            terminal.profile = profile.to_string();
+        }
         if let Some(style) = req.get("cursor_style").and_then(|v| v.as_str()) {
             terminal.cursor_style = style.to_string();
         }
@@ -801,6 +826,10 @@ pub async fn list_persistent_terminals(State(state): State<Arc<ApiState>>) -> im
                 "id": t.id,
                 "name": t.auto_name.as_deref().unwrap_or(&t.title),
                 "font_size": t.font_size,
+                "font_family": t.font_family,
+                "line_height": t.line_height,
+                "letter_spacing": t.letter_spacing,
+                "profile": t.profile,
                 "cursor_style": t.cursor_style,
             })
         })

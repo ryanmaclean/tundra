@@ -156,6 +156,9 @@ pub struct ApiState {
     pub session_store: Arc<SessionStore>,
     /// Kanban column config (8 columns: Backlog, Queue, In Progress, …, PR Created, Error).
     pub kanban_columns: Arc<RwLock<KanbanColumnConfig>>,
+    /// Planning-poker sessions keyed by bead id.
+    pub planning_poker_sessions:
+        Arc<RwLock<std::collections::HashMap<Uuid, PlanningPokerSession>>>,
     // ---- GitHub OAuth ---------------------------------------------------
     pub github_oauth_token: Arc<RwLock<Option<String>>>,
     pub github_oauth_user: Arc<RwLock<Option<serde_json::Value>>>,
@@ -193,6 +196,22 @@ pub struct KanbanColumn {
     pub label: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub width_px: Option<u16>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlanningPokerVote {
+    pub voter: String,
+    pub card: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlanningPokerSession {
+    pub bead_id: Uuid,
+    pub revealed: bool,
+    pub votes: Vec<PlanningPokerVote>,
+    pub consensus_card: Option<String>,
+    pub started_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
 }
 
 fn default_kanban_columns() -> KanbanColumnConfig {
@@ -286,6 +305,7 @@ impl ApiState {
             notification_store: Arc::new(RwLock::new(NotificationStore::default())),
             session_store: Arc::new(SessionStore::default_path()),
             kanban_columns: Arc::new(RwLock::new(default_kanban_columns())),
+            planning_poker_sessions: Arc::new(RwLock::new(std::collections::HashMap::new())),
             github_oauth_token: Arc::new(RwLock::new(None)),
             github_oauth_user: Arc::new(RwLock::new(None)),
             oauth_pending_states: Arc::new(RwLock::new(std::collections::HashMap::new())),
@@ -480,6 +500,13 @@ pub fn api_router_with_auth(state: Arc<ApiState>, api_key: Option<String>, allow
         .route("/api/linear/import", post(import_linear_issues))
         .route("/api/kanban/columns", get(get_kanban_columns))
         .route("/api/kanban/columns", patch(patch_kanban_columns))
+        .route("/api/kanban/poker/start", post(start_planning_poker))
+        .route("/api/kanban/poker/vote", post(submit_planning_poker_vote))
+        .route("/api/kanban/poker/reveal", post(reveal_planning_poker))
+        .route(
+            "/api/kanban/poker/{bead_id}",
+            get(get_planning_poker_session),
+        )
         // MCP servers
         .route("/api/mcp/servers", get(list_mcp_servers))
         .route("/api/mcp/tools/call", post(call_mcp_tool))
@@ -745,6 +772,40 @@ pub struct LockColumnRequest {
 pub struct TaskOrderingRequest {
     pub column_id: String,
     pub task_ids: Vec<Uuid>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct StartPlanningPokerRequest {
+    pub bead_id: Uuid,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SubmitPlanningPokerVoteRequest {
+    pub bead_id: Uuid,
+    pub voter: String,
+    pub card: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RevealPlanningPokerRequest {
+    pub bead_id: Uuid,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlanningPokerVoteView {
+    pub voter: String,
+    pub card: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlanningPokerSessionResponse {
+    pub bead_id: Uuid,
+    pub revealed: bool,
+    pub vote_count: usize,
+    pub votes: Vec<PlanningPokerVoteView>,
+    pub consensus_card: Option<String>,
+    pub started_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
 }
 
 /// Request to start watching a file/directory for changes.
@@ -2032,6 +2093,186 @@ async fn patch_kanban_columns(
     (
         axum::http::StatusCode::OK,
         Json(serde_json::to_value(cols.clone()).unwrap()),
+    )
+}
+
+fn planning_poker_response(session: &PlanningPokerSession) -> PlanningPokerSessionResponse {
+    let votes = session
+        .votes
+        .iter()
+        .map(|vote| PlanningPokerVoteView {
+            voter: vote.voter.clone(),
+            card: if session.revealed {
+                Some(vote.card.clone())
+            } else {
+                None
+            },
+        })
+        .collect::<Vec<_>>();
+
+    PlanningPokerSessionResponse {
+        bead_id: session.bead_id,
+        revealed: session.revealed,
+        vote_count: session.votes.len(),
+        votes,
+        consensus_card: session.consensus_card.clone(),
+        started_at: session.started_at,
+        updated_at: session.updated_at,
+    }
+}
+
+fn consensus_card_from_votes(votes: &[PlanningPokerVote]) -> Option<String> {
+    if votes.is_empty() {
+        return None;
+    }
+    let mut counts = std::collections::BTreeMap::<String, usize>::new();
+    for vote in votes {
+        *counts.entry(vote.card.clone()).or_insert(0) += 1;
+    }
+
+    let mut best: Option<(String, usize)> = None;
+    let mut tie = false;
+    for (card, count) in counts {
+        match &best {
+            None => {
+                best = Some((card, count));
+                tie = false;
+            }
+            Some((_, best_count)) if count > *best_count => {
+                best = Some((card, count));
+                tie = false;
+            }
+            Some((_, best_count)) if count == *best_count => {
+                tie = true;
+            }
+            _ => {}
+        }
+    }
+
+    if tie {
+        None
+    } else {
+        best.map(|(card, _)| card)
+    }
+}
+
+async fn start_planning_poker(
+    State(state): State<Arc<ApiState>>,
+    Json(req): Json<StartPlanningPokerRequest>,
+) -> impl IntoResponse {
+    let bead_exists = {
+        let beads = state.beads.read().await;
+        beads.iter().any(|b| b.id == req.bead_id)
+    };
+    if !bead_exists {
+        return (
+            axum::http::StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "bead not found"})),
+        );
+    }
+
+    let now = chrono::Utc::now();
+    let session = PlanningPokerSession {
+        bead_id: req.bead_id,
+        revealed: false,
+        votes: Vec::new(),
+        consensus_card: None,
+        started_at: now,
+        updated_at: now,
+    };
+    let response = planning_poker_response(&session);
+
+    state
+        .planning_poker_sessions
+        .write()
+        .await
+        .insert(req.bead_id, session);
+
+    (
+        axum::http::StatusCode::CREATED,
+        Json(serde_json::to_value(response).unwrap()),
+    )
+}
+
+async fn submit_planning_poker_vote(
+    State(state): State<Arc<ApiState>>,
+    Json(req): Json<SubmitPlanningPokerVoteRequest>,
+) -> impl IntoResponse {
+    if req.voter.trim().is_empty() || req.card.trim().is_empty() {
+        return (
+            axum::http::StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "voter and card are required"})),
+        );
+    }
+
+    let mut sessions = state.planning_poker_sessions.write().await;
+    let Some(session) = sessions.get_mut(&req.bead_id) else {
+        return (
+            axum::http::StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "planning poker session not found"})),
+        );
+    };
+
+    if session.revealed {
+        return (
+            axum::http::StatusCode::CONFLICT,
+            Json(serde_json::json!({"error": "session already revealed"})),
+        );
+    }
+
+    if let Some(existing) = session.votes.iter_mut().find(|v| v.voter == req.voter) {
+        existing.card = req.card;
+    } else {
+        session.votes.push(PlanningPokerVote {
+            voter: req.voter,
+            card: req.card,
+        });
+    }
+    session.updated_at = chrono::Utc::now();
+
+    (
+        axum::http::StatusCode::OK,
+        Json(serde_json::to_value(planning_poker_response(session)).unwrap()),
+    )
+}
+
+async fn reveal_planning_poker(
+    State(state): State<Arc<ApiState>>,
+    Json(req): Json<RevealPlanningPokerRequest>,
+) -> impl IntoResponse {
+    let mut sessions = state.planning_poker_sessions.write().await;
+    let Some(session) = sessions.get_mut(&req.bead_id) else {
+        return (
+            axum::http::StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "planning poker session not found"})),
+        );
+    };
+
+    session.revealed = true;
+    session.consensus_card = consensus_card_from_votes(&session.votes);
+    session.updated_at = chrono::Utc::now();
+
+    (
+        axum::http::StatusCode::OK,
+        Json(serde_json::to_value(planning_poker_response(session)).unwrap()),
+    )
+}
+
+async fn get_planning_poker_session(
+    State(state): State<Arc<ApiState>>,
+    Path(bead_id): Path<Uuid>,
+) -> impl IntoResponse {
+    let sessions = state.planning_poker_sessions.read().await;
+    let Some(session) = sessions.get(&bead_id) else {
+        return (
+            axum::http::StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "planning poker session not found"})),
+        );
+    };
+
+    (
+        axum::http::StatusCode::OK,
+        Json(serde_json::to_value(planning_poker_response(session)).unwrap()),
     )
 }
 
@@ -5242,6 +5483,116 @@ mod tests {
             .unwrap();
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_planning_poker_roundtrip() {
+        let (app, _state) = test_app();
+
+        let create_body = serde_json::json!({
+            "title": "Estimate API migration",
+            "description": "Planning poker bead",
+            "lane": "standard"
+        });
+        let create_req = Request::builder()
+            .method("POST")
+            .uri("/api/beads")
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_vec(&create_body).unwrap()))
+            .unwrap();
+        let create_resp = app.clone().oneshot(create_req).await.unwrap();
+        assert_eq!(create_resp.status(), StatusCode::CREATED);
+        let create_bytes = axum::body::to_bytes(create_resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let created: serde_json::Value = serde_json::from_slice(&create_bytes).unwrap();
+        let bead_id = created["id"].as_str().unwrap();
+
+        let start_body = serde_json::json!({ "bead_id": bead_id });
+        let start_req = Request::builder()
+            .method("POST")
+            .uri("/api/kanban/poker/start")
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_vec(&start_body).unwrap()))
+            .unwrap();
+        let start_resp = app.clone().oneshot(start_req).await.unwrap();
+        assert_eq!(start_resp.status(), StatusCode::CREATED);
+
+        let vote_a = serde_json::json!({
+            "bead_id": bead_id,
+            "voter": "alice",
+            "card": "5"
+        });
+        let vote_a_req = Request::builder()
+            .method("POST")
+            .uri("/api/kanban/poker/vote")
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_vec(&vote_a).unwrap()))
+            .unwrap();
+        let vote_a_resp = app.clone().oneshot(vote_a_req).await.unwrap();
+        assert_eq!(vote_a_resp.status(), StatusCode::OK);
+
+        let vote_b = serde_json::json!({
+            "bead_id": bead_id,
+            "voter": "bob",
+            "card": "8"
+        });
+        let vote_b_req = Request::builder()
+            .method("POST")
+            .uri("/api/kanban/poker/vote")
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_vec(&vote_b).unwrap()))
+            .unwrap();
+        let vote_b_resp = app.clone().oneshot(vote_b_req).await.unwrap();
+        assert_eq!(vote_b_resp.status(), StatusCode::OK);
+
+        let get_req = Request::builder()
+            .method("GET")
+            .uri(format!("/api/kanban/poker/{bead_id}"))
+            .body(Body::empty())
+            .unwrap();
+        let get_resp = app.clone().oneshot(get_req).await.unwrap();
+        assert_eq!(get_resp.status(), StatusCode::OK);
+        let get_bytes = axum::body::to_bytes(get_resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let get_json: serde_json::Value = serde_json::from_slice(&get_bytes).unwrap();
+        assert_eq!(get_json["revealed"], false);
+        assert_eq!(get_json["vote_count"], 2);
+        assert!(get_json["votes"][0]["card"].is_null());
+        assert!(get_json["votes"][1]["card"].is_null());
+
+        let reveal_body = serde_json::json!({ "bead_id": bead_id });
+        let reveal_req = Request::builder()
+            .method("POST")
+            .uri("/api/kanban/poker/reveal")
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_vec(&reveal_body).unwrap()))
+            .unwrap();
+        let reveal_resp = app.clone().oneshot(reveal_req).await.unwrap();
+        assert_eq!(reveal_resp.status(), StatusCode::OK);
+        let reveal_bytes = axum::body::to_bytes(reveal_resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let reveal_json: serde_json::Value = serde_json::from_slice(&reveal_bytes).unwrap();
+        assert_eq!(reveal_json["revealed"], true);
+        assert_eq!(reveal_json["vote_count"], 2);
+        assert_eq!(reveal_json["votes"][0]["card"], "5");
+        assert_eq!(reveal_json["votes"][1]["card"], "8");
+    }
+
+    #[tokio::test]
+    async fn test_planning_poker_requires_existing_bead() {
+        let (app, _) = test_app();
+        let body = serde_json::json!({ "bead_id": Uuid::new_v4() });
+        let req = Request::builder()
+            .method("POST")
+            .uri("/api/kanban/poker/start")
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_vec(&body).unwrap()))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]

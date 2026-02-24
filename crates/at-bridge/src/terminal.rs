@@ -50,6 +50,14 @@ pub struct TerminalInfo {
     pub rows: u16,
     /// Font size for this terminal (default 14).
     pub font_size: u16,
+    /// Font family for deterministic bundled rendering profile.
+    pub font_family: String,
+    /// Line height used by the terminal renderer.
+    pub line_height: f32,
+    /// Letter spacing used by the terminal renderer.
+    pub letter_spacing: f32,
+    /// Renderer profile ID (e.g. "bundled-card").
+    pub profile: String,
     /// Cursor style: "block", "underline", or "bar".
     pub cursor_style: String,
     /// Whether to blink the cursor.
@@ -404,6 +412,11 @@ mod tests {
             cols: 80,
             rows: 24,
             font_size: 14,
+            font_family: "\"Iosevka Term\",\"JetBrains Mono\",\"SF Mono\",\"Menlo\",monospace"
+                .to_string(),
+            line_height: 1.02,
+            letter_spacing: 0.15,
+            profile: "bundled-card".to_string(),
             cursor_style: "block".to_string(),
             cursor_blink: true,
             auto_name: None,
@@ -488,6 +501,7 @@ mod tests {
     fn test_default_font_settings() {
         let info = make_terminal(TerminalStatus::Active);
         assert_eq!(info.font_size, 14);
+        assert_eq!(info.profile, "bundled-card");
         assert_eq!(info.cursor_style, "block");
         assert!(info.cursor_blink);
         assert!(info.auto_name.is_none());
@@ -537,11 +551,13 @@ mod tests {
 
         let terminal = reg.get_mut(&id).unwrap();
         terminal.font_size = 18;
+        terminal.profile = "bundled-card".to_string();
         terminal.cursor_style = "underline".to_string();
         terminal.cursor_blink = false;
 
         let t = reg.get(&id).unwrap();
         assert_eq!(t.font_size, 18);
+        assert_eq!(t.profile, "bundled-card");
         assert_eq!(t.cursor_style, "underline");
         assert!(!t.cursor_blink);
     }

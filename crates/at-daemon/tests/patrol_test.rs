@@ -81,6 +81,11 @@ fn make_test_terminal(status: TerminalStatus) -> TerminalInfo {
         cols: 80,
         rows: 24,
         font_size: 14,
+        font_family: "\"Iosevka Term\",\"JetBrains Mono\",\"SF Mono\",\"Menlo\",monospace"
+            .to_string(),
+        line_height: 1.02,
+        letter_spacing: 0.15,
+        profile: "bundled-card".to_string(),
         cursor_style: "block".to_string(),
         cursor_blink: true,
         auto_name: None,
