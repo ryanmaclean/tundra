@@ -175,6 +175,9 @@ impl Daemon {
         let intervals = self.intervals.clone();
         let shutdown = self.shutdown.clone();
 
+        // Spawn OAuth token refresh monitor
+        at_bridge::http_api::spawn_oauth_token_refresh_monitor(api_state.clone());
+
         tokio::spawn(async move {
             Self::run_loops(cache, api_state, event_bus, config, intervals, shutdown).await;
         });

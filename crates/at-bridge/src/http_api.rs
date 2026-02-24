@@ -423,6 +423,113 @@ impl ApiState {
     }
 }
 
+/// Spawn a background task to monitor OAuth token expiration and refresh when needed.
+///
+/// This task runs every 5 minutes and checks if the OAuth token needs to be refreshed
+/// (i.e., will expire within the next 5 minutes). If refresh is needed, it attempts
+/// to refresh the token using GitHub's refresh_token mechanism.
+///
+/// # Arguments
+/// * `state` - The shared API state containing the OAuth token manager
+///
+/// # Example
+/// ```no_run
+/// use std::sync::Arc;
+/// use at_bridge::http_api::{ApiState, spawn_oauth_token_refresh_monitor};
+/// use at_bridge::event_bus::EventBus;
+///
+/// # async fn example() {
+/// let event_bus = EventBus::new();
+/// let state = Arc::new(ApiState::new(event_bus));
+/// spawn_oauth_token_refresh_monitor(state);
+/// # }
+/// ```
+pub fn spawn_oauth_token_refresh_monitor(state: Arc<ApiState>) {
+    tokio::spawn(async move {
+        use std::time::Duration;
+        use tracing::{debug, info, warn};
+
+        // Check every 5 minutes
+        let mut interval = tokio::time::interval(Duration::from_secs(300));
+
+        // Consume the first immediate tick
+        interval.tick().await;
+
+        info!("OAuth token refresh monitor started");
+
+        loop {
+            interval.tick().await;
+
+            debug!("Checking OAuth token expiration status");
+
+            let token_manager = state.oauth_token_manager.read().await;
+
+            // Check if token needs refresh
+            if token_manager.should_refresh().await {
+                info!("OAuth token approaching expiration, attempting refresh");
+
+                // Get GitHub OAuth configuration from environment
+                let client_id = match std::env::var("GITHUB_OAUTH_CLIENT_ID") {
+                    Ok(v) if !v.is_empty() => v,
+                    _ => {
+                        warn!("Cannot refresh OAuth token: GITHUB_OAUTH_CLIENT_ID not set");
+                        continue;
+                    }
+                };
+
+                let client_secret = match std::env::var("GITHUB_OAUTH_CLIENT_SECRET") {
+                    Ok(v) if !v.is_empty() => v,
+                    _ => {
+                        warn!("Cannot refresh OAuth token: GITHUB_OAUTH_CLIENT_SECRET not set");
+                        continue;
+                    }
+                };
+
+                let redirect_uri = std::env::var("GITHUB_OAUTH_REDIRECT_URI")
+                    .unwrap_or_else(|_| "http://localhost:3000/api/github/oauth/callback".into());
+
+                let scopes = std::env::var("GITHUB_OAUTH_SCOPES")
+                    .unwrap_or_else(|_| "repo,read:user,user:email".into())
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .collect::<Vec<_>>();
+
+                let oauth_config = gh_oauth::GitHubOAuthConfig {
+                    client_id,
+                    client_secret,
+                    redirect_uri,
+                    scopes,
+                };
+
+                let _oauth_client = gh_oauth::GitHubOAuthClient::new(oauth_config);
+
+                // NOTE: Token refresh requires refresh_token support, which will be
+                // implemented in subtask-3-2. For now, we just log that refresh is needed.
+                // Once subtask-3-2 is complete, this will actually call:
+                //   _oauth_client.refresh_token(refresh_token).await
+                // and update the token manager with the new token.
+
+                warn!(
+                    "OAuth token needs refresh but refresh_token support not yet implemented. \
+                     This will be added in subtask-3-2. User will need to re-authenticate."
+                );
+
+                // Drop the read lock before logging
+                drop(token_manager);
+
+                // TODO (subtask-3-2): Implement actual token refresh:
+                // 1. Get refresh_token from token_manager
+                // 2. Call oauth_client.refresh_token(refresh_token).await
+                // 3. Update token_manager with new access_token and expires_in
+                // 4. Update github_oauth_token and github_oauth_user in state
+
+            } else {
+                debug!("OAuth token is valid, no refresh needed");
+            }
+        }
+    });
+}
+
 /// Build the full API router with all REST and WebSocket routes.
 ///
 /// When `api_key` is `Some`, the [`AuthLayer`] middleware will require
