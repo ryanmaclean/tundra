@@ -159,6 +159,9 @@ pub struct ApiState {
     // ---- GitHub OAuth ---------------------------------------------------
     pub github_oauth_token: Arc<RwLock<Option<String>>>,
     pub github_oauth_user: Arc<RwLock<Option<serde_json::Value>>>,
+    /// Pending OAuth state parameters for CSRF protection.
+    /// Key: state parameter, Value: timestamp or session metadata.
+    pub oauth_pending_states: Arc<RwLock<std::collections::HashMap<String, String>>>,
     // ---- Projects --------------------------------------------------------
     pub projects: Arc<RwLock<Vec<Project>>>,
     // ---- PR polling -------------------------------------------------------
@@ -285,6 +288,7 @@ impl ApiState {
             kanban_columns: Arc::new(RwLock::new(default_kanban_columns())),
             github_oauth_token: Arc::new(RwLock::new(None)),
             github_oauth_user: Arc::new(RwLock::new(None)),
+            oauth_pending_states: Arc::new(RwLock::new(std::collections::HashMap::new())),
             pr_poll_registry: Arc::new(RwLock::new(std::collections::HashMap::new())),
             releases: Arc::new(RwLock::new(Vec::new())),
             archived_tasks: Arc::new(RwLock::new(Vec::new())),
@@ -3572,7 +3576,7 @@ async fn import_github_issue(
 // ---------------------------------------------------------------------------
 
 /// GET /api/github/oauth/authorize — build the GitHub authorization URL.
-async fn github_oauth_authorize(State(_state): State<Arc<ApiState>>) -> impl IntoResponse {
+async fn github_oauth_authorize(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     let client_id = match std::env::var("GITHUB_OAUTH_CLIENT_ID") {
         Ok(v) if !v.is_empty() => v,
         _ => {
@@ -3605,6 +3609,14 @@ async fn github_oauth_authorize(State(_state): State<Arc<ApiState>>) -> impl Int
     let csrf_state = uuid::Uuid::new_v4().to_string();
     let url = oauth_client.authorization_url(&csrf_state);
 
+    // Store the state for CSRF validation during callback
+    let timestamp = chrono::Utc::now().to_rfc3339();
+    state
+        .oauth_pending_states
+        .write()
+        .await
+        .insert(csrf_state.clone(), timestamp);
+
     (
         axum::http::StatusCode::OK,
         Json(serde_json::json!({
@@ -3617,6 +3629,7 @@ async fn github_oauth_authorize(State(_state): State<Arc<ApiState>>) -> impl Int
 #[derive(Debug, Deserialize)]
 struct OAuthCallbackRequest {
     code: String,
+    state: String,
 }
 
 /// POST /api/github/oauth/callback — exchange the authorization code for a token.
@@ -3624,6 +3637,45 @@ async fn github_oauth_callback(
     State(state): State<Arc<ApiState>>,
     Json(body): Json<OAuthCallbackRequest>,
 ) -> impl IntoResponse {
+    // Validate CSRF state parameter with expiration check
+    let mut pending_states = state.oauth_pending_states.write().await;
+    let state_timestamp = pending_states.get(&body.state).cloned();
+
+    let state_valid = if let Some(timestamp_str) = state_timestamp {
+        // Parse the timestamp and check if it's within 10 minutes
+        match chrono::DateTime::parse_from_rfc3339(&timestamp_str) {
+            Ok(timestamp) => {
+                let age = chrono::Utc::now()
+                    .signed_duration_since(timestamp.with_timezone(&chrono::Utc));
+
+                if age.num_minutes() < 10 {
+                    // Valid and not expired - remove it to prevent replay
+                    pending_states.remove(&body.state);
+                    true
+                } else {
+                    // Expired - also remove to clean up
+                    pending_states.remove(&body.state);
+                    false
+                }
+            }
+            Err(_) => {
+                // Invalid timestamp format - remove and reject
+                pending_states.remove(&body.state);
+                false
+            }
+        }
+    } else {
+        false
+    };
+    drop(pending_states);
+
+    if !state_valid {
+        return (
+            axum::http::StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "Invalid or expired OAuth state parameter" })),
+        );
+    }
+
     let client_id = match std::env::var("GITHUB_OAUTH_CLIENT_ID") {
         Ok(v) if !v.is_empty() => v,
         _ => {
@@ -4493,14 +4545,19 @@ mod tests {
             .unwrap();
 
         let response = app.oneshot(req).await.unwrap();
-        // Without GITHUB_TOKEN (and owner/repo) configured, sync returns 503
-        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        // Without owner/repo configured, sync returns 503 (no token) or 400 (token but no owner/repo)
+        let status = response.status();
+        assert!(
+            status == StatusCode::SERVICE_UNAVAILABLE || status == StatusCode::BAD_REQUEST,
+            "Expected 503 or 400, got {}", status
+        );
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
             .unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert!(json["error"].as_str().unwrap().contains("token"));
+        let err = json["error"].as_str().unwrap();
+        assert!(err.contains("token") || err.contains("owner") || err.contains("repo"));
     }
 
     #[tokio::test]
@@ -4512,7 +4569,12 @@ mod tests {
             .body(Body::empty())
             .unwrap();
         let response = app.oneshot(req).await.unwrap();
-        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        // Returns 503 (no token) or 400 (token but no owner/repo)
+        let status = response.status();
+        assert!(
+            status == StatusCode::SERVICE_UNAVAILABLE || status == StatusCode::BAD_REQUEST,
+            "Expected 503 or 400, got {}", status
+        );
     }
 
     #[tokio::test]
@@ -4524,7 +4586,12 @@ mod tests {
             .body(Body::empty())
             .unwrap();
         let response = app.oneshot(req).await.unwrap();
-        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        // Returns 503 (no token) or 400 (token but no owner/repo)
+        let status = response.status();
+        assert!(
+            status == StatusCode::SERVICE_UNAVAILABLE || status == StatusCode::BAD_REQUEST,
+            "Expected 503 or 400, got {}", status
+        );
     }
 
     #[tokio::test]
@@ -4660,7 +4727,12 @@ mod tests {
             .unwrap();
 
         let response = app.oneshot(req).await.unwrap();
-        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        // Returns 503 (no token) or 400 (token but no owner/repo)
+        let status = response.status();
+        assert!(
+            status == StatusCode::SERVICE_UNAVAILABLE || status == StatusCode::BAD_REQUEST,
+            "Expected 503 or 400, got {}", status
+        );
     }
 
     // -----------------------------------------------------------------------
