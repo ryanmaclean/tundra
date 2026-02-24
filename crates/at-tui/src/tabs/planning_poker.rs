@@ -7,7 +7,7 @@ use ratatui::Frame;
 use crate::app::App;
 
 /// Tab: Planning Poker - displays estimation cards for agile planning sessions.
-pub fn render(frame: &mut Frame, app: &App, area: Rect) {
+pub fn render(frame: &mut Frame, _app: &App, area: Rect) {
     // Split into 2 rows for card grid (5 cards per row)
     let rows = Layout::default()
         .direction(Direction::Vertical)
