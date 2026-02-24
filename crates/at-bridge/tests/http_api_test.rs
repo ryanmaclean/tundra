@@ -188,7 +188,17 @@ async fn test_websocket_receives_events() {
     let (base, state) = start_test_server().await;
     let ws_url = base.replace("http://", "ws://") + "/ws";
 
-    let (mut ws_stream, _) = tokio_tungstenite::connect_async(&ws_url)
+    let request = tokio_tungstenite::tungstenite::http::Request::builder()
+        .uri(&ws_url)
+        .header("Host", "localhost")
+        .header("Origin", "http://localhost")
+        .header("Connection", "Upgrade")
+        .header("Upgrade", "websocket")
+        .header("Sec-WebSocket-Version", "13")
+        .header("Sec-WebSocket-Key", tokio_tungstenite::tungstenite::handshake::client::generate_key())
+        .body(())
+        .unwrap();
+    let (mut ws_stream, _) = tokio_tungstenite::connect_async(request)
         .await
         .expect("failed to connect to websocket");
 
@@ -537,7 +547,8 @@ async fn test_list_github_prs_requires_config() {
     // Without proper config, returns 503 (no token) or 400 (token but no owner/repo)
     assert!(
         resp.status() == 503 || resp.status() == 400,
-        "Expected 503 or 400, got {}", resp.status()
+        "Expected 503 or 400, got {}",
+        resp.status()
     );
 
     let body: Value = resp.json().await.unwrap();
@@ -557,7 +568,8 @@ async fn test_list_github_prs_accepts_query_params() {
     // Without proper config, returns 503 (no token) or 400 (token but no owner/repo)
     assert!(
         resp.status() == 503 || resp.status() == 400,
-        "Expected 503 or 400, got {}", resp.status()
+        "Expected 503 or 400, got {}",
+        resp.status()
     );
 }
 
@@ -572,7 +584,8 @@ async fn test_list_github_prs_invalid_state_param() {
     // Returns 503 (no token) or 400 (token but no owner/repo)
     assert!(
         resp.status() == 503 || resp.status() == 400,
-        "Expected 503 or 400, got {}", resp.status()
+        "Expected 503 or 400, got {}",
+        resp.status()
     );
 }
 
@@ -593,7 +606,8 @@ async fn test_import_github_issue_requires_config() {
     // Without proper config, returns 503 (no token) or 400 (token but no owner/repo)
     assert!(
         resp.status() == 503 || resp.status() == 400,
-        "Expected 503 or 400, got {}", resp.status()
+        "Expected 503 or 400, got {}",
+        resp.status()
     );
 
     let body: Value = resp.json().await.unwrap();
@@ -614,7 +628,8 @@ async fn test_import_github_issue_different_numbers() {
         .unwrap();
     assert!(
         resp.status() == 503 || resp.status() == 400,
-        "Expected 503 or 400, got {}", resp.status()
+        "Expected 503 or 400, got {}",
+        resp.status()
     );
 
     // Issue number 9999
@@ -625,7 +640,8 @@ async fn test_import_github_issue_different_numbers() {
         .unwrap();
     assert!(
         resp.status() == 503 || resp.status() == 400,
-        "Expected 503 or 400, got {}", resp.status()
+        "Expected 503 or 400, got {}",
+        resp.status()
     );
 }
 

@@ -403,7 +403,14 @@ impl ProjectContextLoader {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         self.project_root.to_string_lossy().hash(&mut hasher);
 
-        for name in ["AGENTS.md", "CLAUDE.md", "todo.md", "TODO.md", "plan.md", "PLAN.md"] {
+        for name in [
+            "AGENTS.md",
+            "CLAUDE.md",
+            "todo.md",
+            "TODO.md",
+            "plan.md",
+            "PLAN.md",
+        ] {
             self.hash_file_meta(&mut hasher, &self.project_root.join(name));
         }
 

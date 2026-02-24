@@ -79,7 +79,10 @@ async fn test_oauth_csrf_callback_rejects_missing_state() {
     assert_eq!(resp.status(), 400);
 
     let body: Value = resp.json().await.unwrap();
-    assert!(body["error"].as_str().unwrap().contains("Invalid or expired"));
+    assert!(body["error"]
+        .as_str()
+        .unwrap()
+        .contains("Invalid or expired"));
 
     // Clean up
     std::env::remove_var("GITHUB_OAUTH_CLIENT_ID");
@@ -272,7 +275,11 @@ async fn test_oauth_csrf_multiple_states_can_coexist() {
     let resp1 = reqwest::get(format!("{base}/api/github/oauth/authorize"))
         .await
         .unwrap();
-    assert_eq!(resp1.status(), 200, "First authorize request should succeed");
+    assert_eq!(
+        resp1.status(),
+        200,
+        "First authorize request should succeed"
+    );
     let body1: Value = resp1.json().await.unwrap();
     let state1 = body1["state"].as_str().unwrap().to_string();
 
@@ -282,7 +289,11 @@ async fn test_oauth_csrf_multiple_states_can_coexist() {
     let resp2 = reqwest::get(format!("{base}/api/github/oauth/authorize"))
         .await
         .unwrap();
-    assert_eq!(resp2.status(), 200, "Second authorize request should succeed");
+    assert_eq!(
+        resp2.status(),
+        200,
+        "Second authorize request should succeed"
+    );
     let body2: Value = resp2.json().await.unwrap();
     let state2 = body2["state"].as_str().unwrap().to_string();
 
@@ -292,7 +303,11 @@ async fn test_oauth_csrf_multiple_states_can_coexist() {
     let resp3 = reqwest::get(format!("{base}/api/github/oauth/authorize"))
         .await
         .unwrap();
-    assert_eq!(resp3.status(), 200, "Third authorize request should succeed");
+    assert_eq!(
+        resp3.status(),
+        200,
+        "Third authorize request should succeed"
+    );
     let body3: Value = resp3.json().await.unwrap();
     let state3 = body3["state"].as_str().unwrap().to_string();
 
@@ -347,7 +362,10 @@ async fn test_oauth_csrf_callback_rejects_expired_state() {
 
     let body: Value = resp.json().await.unwrap();
     assert!(
-        body["error"].as_str().unwrap().contains("Invalid or expired"),
+        body["error"]
+            .as_str()
+            .unwrap()
+            .contains("Invalid or expired"),
         "Error message should indicate state is invalid or expired"
     );
 

@@ -13,6 +13,23 @@ use uuid::Uuid;
 // Helpers
 // ---------------------------------------------------------------------------
 
+/// Build a WebSocket request with the required Origin header for origin validation.
+fn ws_request(url: &str) -> tokio_tungstenite::tungstenite::http::Request<()> {
+    tokio_tungstenite::tungstenite::http::Request::builder()
+        .uri(url)
+        .header("Host", "localhost")
+        .header("Origin", "http://localhost")
+        .header("Connection", "Upgrade")
+        .header("Upgrade", "websocket")
+        .header("Sec-WebSocket-Version", "13")
+        .header(
+            "Sec-WebSocket-Key",
+            tokio_tungstenite::tungstenite::handshake::client::generate_key(),
+        )
+        .body(())
+        .unwrap()
+}
+
 /// Spin up an API server on a random port with a PTY pool, return the base URL.
 async fn start_test_server() -> (String, Arc<ApiState>) {
     let event_bus = EventBus::new();
@@ -238,7 +255,7 @@ async fn test_terminal_ws_connect_valid_id() {
     let tid = terminal["id"].as_str().unwrap();
 
     let ws_url = base.replace("http://", "ws://") + &format!("/ws/terminal/{tid}");
-    let (mut ws_stream, _) = tokio_tungstenite::connect_async(&ws_url)
+    let (mut ws_stream, _) = tokio_tungstenite::connect_async(ws_request(&ws_url))
         .await
         .expect("failed to connect to terminal websocket");
 
@@ -260,7 +277,7 @@ async fn test_terminal_ws_connect_invalid_id_returns_error() {
     let ws_url = base.replace("http://", "ws://") + &format!("/ws/terminal/{fake_id}");
 
     // Connecting to a nonexistent terminal should fail or return an error.
-    let result = tokio_tungstenite::connect_async(&ws_url).await;
+    let result = tokio_tungstenite::connect_async(ws_request(&ws_url)).await;
 
     // The server should reject the upgrade (404), so the WS handshake fails.
     assert!(
@@ -281,7 +298,7 @@ async fn test_terminal_send_input_via_ws() {
     let tid = terminal["id"].as_str().unwrap();
 
     let ws_url = base.replace("http://", "ws://") + &format!("/ws/terminal/{tid}");
-    let (mut ws_stream, _) = tokio_tungstenite::connect_async(&ws_url)
+    let (mut ws_stream, _) = tokio_tungstenite::connect_async(ws_request(&ws_url))
         .await
         .expect("failed to connect");
 
@@ -341,7 +358,7 @@ async fn test_terminal_resize_event() {
     assert_eq!(terminal["rows"], 24);
 
     let ws_url = base.replace("http://", "ws://") + &format!("/ws/terminal/{tid}");
-    let (mut ws_stream, _) = tokio_tungstenite::connect_async(&ws_url)
+    let (mut ws_stream, _) = tokio_tungstenite::connect_async(ws_request(&ws_url))
         .await
         .expect("failed to connect");
 
@@ -384,7 +401,7 @@ async fn test_terminal_disconnect_cleanup() {
     let tid = terminal["id"].as_str().unwrap();
 
     let ws_url = base.replace("http://", "ws://") + &format!("/ws/terminal/{tid}");
-    let (mut ws_stream, _) = tokio_tungstenite::connect_async(&ws_url)
+    let (mut ws_stream, _) = tokio_tungstenite::connect_async(ws_request(&ws_url))
         .await
         .expect("failed to connect");
 
@@ -427,7 +444,7 @@ async fn test_terminal_output_buffer_capped() {
     use tokio_tungstenite::tungstenite::protocol::Message;
 
     let ws_url = base.replace("http://", "ws://") + &format!("/ws/terminal/{tid}");
-    let (mut ws_stream, _) = tokio_tungstenite::connect_async(&ws_url)
+    let (mut ws_stream, _) = tokio_tungstenite::connect_async(ws_request(&ws_url))
         .await
         .expect("failed to connect");
 
@@ -476,7 +493,7 @@ async fn test_terminal_reconnect_after_disconnect() {
 
     // First connection.
     {
-        let (mut ws_stream, _) = tokio_tungstenite::connect_async(&ws_url)
+        let (mut ws_stream, _) = tokio_tungstenite::connect_async(ws_request(&ws_url))
             .await
             .expect("first connect failed");
         ws_stream
@@ -488,7 +505,7 @@ async fn test_terminal_reconnect_after_disconnect() {
     tokio::time::sleep(Duration::from_millis(200)).await;
 
     // Second connection to the same terminal should work.
-    let result = tokio_tungstenite::connect_async(&ws_url).await;
+    let result = tokio_tungstenite::connect_async(ws_request(&ws_url)).await;
     assert!(
         result.is_ok(),
         "should be able to reconnect to terminal after disconnect"
@@ -561,7 +578,7 @@ async fn test_terminal_blank_after_project_switch() {
     use futures_util::StreamExt;
 
     let ws_url = base.replace("http://", "ws://") + &format!("/ws/terminal/{id2}");
-    let (mut ws_stream, _) = tokio_tungstenite::connect_async(&ws_url)
+    let (mut ws_stream, _) = tokio_tungstenite::connect_async(ws_request(&ws_url))
         .await
         .expect("failed to connect to new terminal");
 
@@ -606,10 +623,10 @@ async fn test_invite_all_sends_to_all_terminals() {
     let ws_url1 = base.replace("http://", "ws://") + &format!("/ws/terminal/{tid1}");
     let ws_url2 = base.replace("http://", "ws://") + &format!("/ws/terminal/{tid2}");
 
-    let (mut ws1, _) = tokio_tungstenite::connect_async(&ws_url1)
+    let (mut ws1, _) = tokio_tungstenite::connect_async(ws_request(&ws_url1))
         .await
         .expect("connect ws1 failed");
-    let (mut ws2, _) = tokio_tungstenite::connect_async(&ws_url2)
+    let (mut ws2, _) = tokio_tungstenite::connect_async(ws_request(&ws_url2))
         .await
         .expect("connect ws2 failed");
 
@@ -677,8 +694,8 @@ async fn test_concurrent_terminal_output() {
     let ws_url1 = base.replace("http://", "ws://") + &format!("/ws/terminal/{tid1}");
     let ws_url2 = base.replace("http://", "ws://") + &format!("/ws/terminal/{tid2}");
 
-    let (mut ws1, _) = tokio_tungstenite::connect_async(&ws_url1).await.unwrap();
-    let (mut ws2, _) = tokio_tungstenite::connect_async(&ws_url2).await.unwrap();
+    let (mut ws1, _) = tokio_tungstenite::connect_async(ws_request(&ws_url1)).await.unwrap();
+    let (mut ws2, _) = tokio_tungstenite::connect_async(ws_request(&ws_url2)).await.unwrap();
 
     tokio::time::sleep(Duration::from_millis(500)).await;
 
@@ -748,8 +765,8 @@ async fn test_terminal_isolation() {
     let ws_url1 = base.replace("http://", "ws://") + &format!("/ws/terminal/{tid1}");
     let ws_url2 = base.replace("http://", "ws://") + &format!("/ws/terminal/{tid2}");
 
-    let (mut ws1, _) = tokio_tungstenite::connect_async(&ws_url1).await.unwrap();
-    let (mut ws2, _) = tokio_tungstenite::connect_async(&ws_url2).await.unwrap();
+    let (mut ws1, _) = tokio_tungstenite::connect_async(ws_request(&ws_url1)).await.unwrap();
+    let (mut ws2, _) = tokio_tungstenite::connect_async(ws_request(&ws_url2)).await.unwrap();
 
     tokio::time::sleep(Duration::from_millis(500)).await;
 
@@ -1018,7 +1035,7 @@ async fn test_reconnect_within_grace_period_replays_buffer() {
 
     // First connection: connect and disconnect to trigger the Disconnected state.
     {
-        let (mut ws, _) = tokio_tungstenite::connect_async(&ws_url)
+        let (mut ws, _) = tokio_tungstenite::connect_async(ws_request(&ws_url))
             .await
             .expect("first connect failed");
 
@@ -1052,7 +1069,7 @@ async fn test_reconnect_within_grace_period_replays_buffer() {
 
     // Reconnect within the grace period.
     {
-        let (mut ws, _) = tokio_tungstenite::connect_async(&ws_url)
+        let (mut ws, _) = tokio_tungstenite::connect_async(ws_request(&ws_url))
             .await
             .expect("reconnect failed");
 
@@ -1132,7 +1149,7 @@ async fn test_terminal_dead_after_grace_period() {
 
     // Connect and immediately disconnect.
     {
-        let (mut ws, _) = tokio_tungstenite::connect_async(&ws_url)
+        let (mut ws, _) = tokio_tungstenite::connect_async(ws_request(&ws_url))
             .await
             .expect("connect failed");
         ws.send(Message::Close(None)).await.ok();
@@ -1199,7 +1216,7 @@ async fn test_terminal_dead_after_grace_period() {
     }
 
     // Attempting to reconnect to a Dead terminal should fail.
-    let result = tokio_tungstenite::connect_async(&ws_url).await;
+    let result = tokio_tungstenite::connect_async(ws_request(&ws_url)).await;
     assert!(
         result.is_err(),
         "should not be able to reconnect to a Dead terminal"

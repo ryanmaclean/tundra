@@ -136,16 +136,19 @@ pub async fn run(
             }),
         )
     } else {
-        (0, json!({
-            "cold_load_us": null,
-            "warm_load_us": null,
-            "speedup_x": null,
-            "hits": 0,
-            "misses": 0,
-            "rebuilds": 0,
-            "agent_defs": 0,
-            "skill_defs": 0,
-        }))
+        (
+            0,
+            json!({
+                "cold_load_us": null,
+                "warm_load_us": null,
+                "speedup_x": null,
+                "hits": 0,
+                "misses": 0,
+                "rebuilds": 0,
+                "agent_defs": 0,
+                "skill_defs": 0,
+            }),
+        )
     };
     if skill_count == 0 {
         failures += 1;

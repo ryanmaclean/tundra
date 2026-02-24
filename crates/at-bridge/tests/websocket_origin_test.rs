@@ -62,7 +62,10 @@ async fn create_terminal_with_server() -> (String, String, Arc<ApiState>) {
     assert_eq!(resp.status(), 201, "failed to create terminal");
 
     let body: serde_json::Value = resp.json().await.expect("failed to parse response");
-    let terminal_id = body["id"].as_str().expect("terminal id not found").to_string();
+    let terminal_id = body["id"]
+        .as_str()
+        .expect("terminal id not found")
+        .to_string();
 
     (base, terminal_id, state)
 }
@@ -77,10 +80,9 @@ async fn test_ws_valid_localhost_origin() {
     let ws_url = base.replace("http://", "ws://") + "/ws";
 
     let mut request = ws_url.into_client_request().unwrap();
-    request.headers_mut().insert(
-        "origin",
-        HeaderValue::from_static("http://localhost:3000"),
-    );
+    request
+        .headers_mut()
+        .insert("origin", HeaderValue::from_static("http://localhost:3000"));
 
     let result = tokio_tungstenite::connect_async(request).await;
     assert!(result.is_ok(), "Valid localhost origin should be accepted");
@@ -92,10 +94,9 @@ async fn test_ws_valid_127_0_0_1_origin() {
     let ws_url = base.replace("http://", "ws://") + "/ws";
 
     let mut request = ws_url.into_client_request().unwrap();
-    request.headers_mut().insert(
-        "origin",
-        HeaderValue::from_static("http://127.0.0.1:8080"),
-    );
+    request
+        .headers_mut()
+        .insert("origin", HeaderValue::from_static("http://127.0.0.1:8080"));
 
     let result = tokio_tungstenite::connect_async(request).await;
     assert!(result.is_ok(), "Valid 127.0.0.1 origin should be accepted");
@@ -107,13 +108,15 @@ async fn test_ws_valid_ipv6_localhost_origin() {
     let ws_url = base.replace("http://", "ws://") + "/ws";
 
     let mut request = ws_url.into_client_request().unwrap();
-    request.headers_mut().insert(
-        "origin",
-        HeaderValue::from_static("http://[::1]:9000"),
-    );
+    request
+        .headers_mut()
+        .insert("origin", HeaderValue::from_static("http://[::1]:9000"));
 
     let result = tokio_tungstenite::connect_async(request).await;
-    assert!(result.is_ok(), "Valid IPv6 localhost origin should be accepted");
+    assert!(
+        result.is_ok(),
+        "Valid IPv6 localhost origin should be accepted"
+    );
 }
 
 #[tokio::test]
@@ -122,10 +125,9 @@ async fn test_ws_invalid_external_origin() {
     let ws_url = base.replace("http://", "ws://") + "/ws";
 
     let mut request = ws_url.into_client_request().unwrap();
-    request.headers_mut().insert(
-        "origin",
-        HeaderValue::from_static("http://evil.com"),
-    );
+    request
+        .headers_mut()
+        .insert("origin", HeaderValue::from_static("http://evil.com"));
 
     let result = tokio_tungstenite::connect_async(request).await;
     assert!(result.is_err(), "External origin should be rejected");
@@ -199,10 +201,9 @@ async fn test_events_ws_valid_localhost_origin() {
     let ws_url = base.replace("http://", "ws://") + "/api/events/ws";
 
     let mut request = ws_url.into_client_request().unwrap();
-    request.headers_mut().insert(
-        "origin",
-        HeaderValue::from_static("http://localhost"),
-    );
+    request
+        .headers_mut()
+        .insert("origin", HeaderValue::from_static("http://localhost"));
 
     let result = tokio_tungstenite::connect_async(request).await;
     assert!(result.is_ok(), "Valid localhost origin should be accepted");
@@ -214,10 +215,9 @@ async fn test_events_ws_invalid_external_origin() {
     let ws_url = base.replace("http://", "ws://") + "/api/events/ws";
 
     let mut request = ws_url.into_client_request().unwrap();
-    request.headers_mut().insert(
-        "origin",
-        HeaderValue::from_static("http://attacker.com"),
-    );
+    request
+        .headers_mut()
+        .insert("origin", HeaderValue::from_static("http://attacker.com"));
 
     let result = tokio_tungstenite::connect_async(request).await;
     assert!(result.is_err(), "External origin should be rejected");
@@ -258,13 +258,16 @@ async fn test_events_ws_missing_origin_header() {
 #[tokio::test]
 async fn test_terminal_ws_valid_localhost_origin() {
     let (base, terminal_id, _state) = create_terminal_with_server().await;
-    let ws_url = format!("{}/ws/terminal/{}", base.replace("http://", "ws://"), terminal_id);
+    let ws_url = format!(
+        "{}/ws/terminal/{}",
+        base.replace("http://", "ws://"),
+        terminal_id
+    );
 
     let mut request = ws_url.into_client_request().unwrap();
-    request.headers_mut().insert(
-        "origin",
-        HeaderValue::from_static("https://localhost:8443"),
-    );
+    request
+        .headers_mut()
+        .insert("origin", HeaderValue::from_static("https://localhost:8443"));
 
     let result = tokio_tungstenite::connect_async(request).await;
     assert!(result.is_ok(), "Valid localhost origin should be accepted");
@@ -273,13 +276,16 @@ async fn test_terminal_ws_valid_localhost_origin() {
 #[tokio::test]
 async fn test_terminal_ws_valid_127_0_0_1_origin() {
     let (base, terminal_id, _state) = create_terminal_with_server().await;
-    let ws_url = format!("{}/ws/terminal/{}", base.replace("http://", "ws://"), terminal_id);
+    let ws_url = format!(
+        "{}/ws/terminal/{}",
+        base.replace("http://", "ws://"),
+        terminal_id
+    );
 
     let mut request = ws_url.into_client_request().unwrap();
-    request.headers_mut().insert(
-        "origin",
-        HeaderValue::from_static("https://127.0.0.1"),
-    );
+    request
+        .headers_mut()
+        .insert("origin", HeaderValue::from_static("https://127.0.0.1"));
 
     let result = tokio_tungstenite::connect_async(request).await;
     assert!(result.is_ok(), "Valid 127.0.0.1 origin should be accepted");
@@ -288,7 +294,11 @@ async fn test_terminal_ws_valid_127_0_0_1_origin() {
 #[tokio::test]
 async fn test_terminal_ws_invalid_external_origin() {
     let (base, terminal_id, _state) = create_terminal_with_server().await;
-    let ws_url = format!("{}/ws/terminal/{}", base.replace("http://", "ws://"), terminal_id);
+    let ws_url = format!(
+        "{}/ws/terminal/{}",
+        base.replace("http://", "ws://"),
+        terminal_id
+    );
 
     let mut request = ws_url.into_client_request().unwrap();
     request.headers_mut().insert(
@@ -311,7 +321,11 @@ async fn test_terminal_ws_invalid_external_origin() {
 #[tokio::test]
 async fn test_terminal_ws_missing_origin_header() {
     let (base, terminal_id, _state) = create_terminal_with_server().await;
-    let ws_url = format!("{}/ws/terminal/{}", base.replace("http://", "ws://"), terminal_id);
+    let ws_url = format!(
+        "{}/ws/terminal/{}",
+        base.replace("http://", "ws://"),
+        terminal_id
+    );
 
     let mut request = ws_url.into_client_request().unwrap();
     request.headers_mut().remove("origin");
@@ -331,7 +345,11 @@ async fn test_terminal_ws_missing_origin_header() {
 #[tokio::test]
 async fn test_terminal_ws_subdomain_origin_rejected() {
     let (base, terminal_id, _state) = create_terminal_with_server().await;
-    let ws_url = format!("{}/ws/terminal/{}", base.replace("http://", "ws://"), terminal_id);
+    let ws_url = format!(
+        "{}/ws/terminal/{}",
+        base.replace("http://", "ws://"),
+        terminal_id
+    );
 
     let mut request = ws_url.into_client_request().unwrap();
     request.headers_mut().insert(
@@ -382,7 +400,11 @@ async fn test_security_cross_site_websocket_hijacking_blocked() {
 async fn test_security_terminal_hijacking_blocked() {
     // This test simulates an attacker trying to hijack a terminal session
     let (base, terminal_id, _state) = create_terminal_with_server().await;
-    let ws_url = format!("{}/ws/terminal/{}", base.replace("http://", "ws://"), terminal_id);
+    let ws_url = format!(
+        "{}/ws/terminal/{}",
+        base.replace("http://", "ws://"),
+        terminal_id
+    );
 
     // Attacker's origin attempting to connect to the terminal
     let mut request = ws_url.into_client_request().unwrap();
@@ -416,10 +438,9 @@ async fn test_https_localhost_origins_accepted() {
 
     for origin in test_origins {
         let mut request = ws_url.clone().into_client_request().unwrap();
-        request.headers_mut().insert(
-            "origin",
-            HeaderValue::from_str(origin).unwrap(),
-        );
+        request
+            .headers_mut()
+            .insert("origin", HeaderValue::from_str(origin).unwrap());
 
         let result = tokio_tungstenite::connect_async(request).await;
         assert!(
