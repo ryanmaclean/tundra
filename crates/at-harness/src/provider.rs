@@ -583,18 +583,208 @@ pub struct ToolCall {
 // Response
 // ---------------------------------------------------------------------------
 
+/// Response from an LLM chat completion request.
+///
+/// This struct represents the complete response from an LLM provider after a
+/// chat completion request via [`LlmProvider::chat`]. It contains the assistant's
+/// message content, any tool calls the LLM wants to make, model information, and
+/// token usage statistics.
+///
+/// # Fields
+///
+/// - `content`: The text response from the assistant (may be `None` if only tool calls are returned)
+/// - `tool_calls`: Any tool/function calls the LLM wants to execute
+/// - `model`: The specific model that generated this response
+/// - `usage`: Token usage statistics for the request (may be `None` if provider doesn't report it)
+///
+/// # Response Types
+///
+/// Depending on the request and LLM decision, a response can contain:
+///
+/// - **Text only**: `content` is `Some`, `tool_calls` is empty
+/// - **Tool calls only**: `content` is `None`, `tool_calls` has entries
+/// - **Both**: `content` is `Some` with explanation, `tool_calls` has entries
+///
+/// # Examples
+///
+/// ## Simple Text Response
+///
+/// ```rust
+/// use at_harness::provider::{Response, Usage};
+///
+/// let response = Response {
+///     content: Some("The capital of France is Paris.".to_string()),
+///     tool_calls: vec![],
+///     model: "claude-sonnet-4-20250514".to_string(),
+///     usage: Some(Usage {
+///         input_tokens: 15,
+///         output_tokens: 8,
+///     }),
+/// };
+///
+/// if let Some(text) = &response.content {
+///     println!("Assistant: {}", text);
+/// }
+/// ```
+///
+/// ## Response with Tool Calls
+///
+/// ```rust
+/// use at_harness::provider::{Response, ToolCall};
+///
+/// # let response = Response {
+/// #     content: None,
+/// #     tool_calls: vec![ToolCall {
+/// #         id: "call_abc123".to_string(),
+/// #         name: "get_weather".to_string(),
+/// #         arguments: r#"{"city":"Tokyo"}"#.to_string(),
+/// #     }],
+/// #     model: "gpt-4".to_string(),
+/// #     usage: None,
+/// # };
+/// // Response with tool calls but no text
+/// for tool_call in &response.tool_calls {
+///     println!("LLM wants to call: {}", tool_call.name);
+///     println!("With arguments: {}", tool_call.arguments);
+/// }
+/// ```
+///
+/// ## Checking Usage
+///
+/// ```rust
+/// use at_harness::provider::Response;
+///
+/// # let response = Response {
+/// #     content: Some("Hello".to_string()),
+/// #     tool_calls: vec![],
+/// #     model: "claude-sonnet-4-20250514".to_string(),
+/// #     usage: Some(at_harness::provider::Usage {
+/// #         input_tokens: 10,
+/// #         output_tokens: 5,
+/// #     }),
+/// # };
+/// if let Some(usage) = &response.usage {
+///     let total = usage.input_tokens + usage.output_tokens;
+///     println!("Total tokens used: {}", total);
+/// }
+/// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Response {
+    /// The text content of the assistant's response.
+    ///
+    /// This field contains the LLM's natural language reply to the user's message.
+    /// It may be `None` in cases where the LLM only returns tool calls without
+    /// accompanying text.
+    ///
+    /// # When `None`
+    ///
+    /// - The LLM determined it needs to call tools without providing text
+    /// - Some providers return empty content when making tool calls
+    ///
+    /// # When `Some`
+    ///
+    /// - Normal conversational responses
+    /// - Explanations accompanying tool calls
+    /// - Answers derived from tool call results (in follow-up turns)
     pub content: Option<String>,
+
+    /// Tool/function calls requested by the LLM.
+    ///
+    /// When the LLM determines it needs to call one or more tools to answer the
+    /// user's question, it returns [`ToolCall`] instances in this vector. Each
+    /// tool call contains:
+    /// - A unique ID for tracking
+    /// - The tool name to execute
+    /// - JSON-encoded arguments for the function
+    ///
+    /// Execute these tool calls and send results back as [`Role::Tool`] messages
+    /// to continue the conversation. See [`ToolCall`] for a complete workflow example.
+    ///
+    /// This field defaults to an empty vector if the provider doesn't return tool calls.
     #[serde(default)]
     pub tool_calls: Vec<ToolCall>,
+
+    /// The specific model that generated this response.
+    ///
+    /// This is the exact model identifier used by the provider (e.g.,
+    /// "claude-sonnet-4-20250514", "gpt-4-turbo"). It may differ from the
+    /// requested model if the provider performs substitution or aliasing.
+    ///
+    /// Use this for logging, debugging, or tracking which model version
+    /// produced specific outputs.
     pub model: String,
+
+    /// Token usage statistics for this request.
+    ///
+    /// Contains the number of input and output tokens consumed by this chat
+    /// completion. Useful for:
+    /// - Tracking API costs (tokens typically map to pricing)
+    /// - Monitoring usage quotas
+    /// - Optimizing prompt efficiency
+    ///
+    /// May be `None` if the provider doesn't report usage statistics or if
+    /// usage tracking is disabled.
     pub usage: Option<Usage>,
 }
 
+/// Token usage statistics for an LLM request.
+///
+/// This struct tracks the number of tokens consumed by a chat completion request,
+/// split between input (prompt) and output (completion) tokens. Token counts are
+/// essential for:
+///
+/// - **Cost tracking**: Most LLM providers charge per token, often with different
+///   rates for input vs. output tokens
+/// - **Quota management**: Tracking usage against rate limits or subscription quotas
+/// - **Optimization**: Identifying opportunities to reduce prompt size or output length
+///
+/// # Token Counting
+///
+/// Token counts are determined by the provider using their specific tokenization
+/// algorithm (e.g., BPE, SentencePiece). The same text may have different token
+/// counts across providers.
+///
+/// - `input_tokens`: Includes all message content, system prompts, and tool definitions
+/// - `output_tokens`: Includes only the assistant's generated response
+///
+/// # Examples
+///
+/// ```rust
+/// use at_harness::provider::Usage;
+///
+/// let usage = Usage {
+///     input_tokens: 150,
+///     output_tokens: 75,
+/// };
+///
+/// let total = usage.input_tokens + usage.output_tokens;
+/// println!("Total tokens: {}", total);
+///
+/// // Calculate cost (example rates)
+/// let input_cost = usage.input_tokens as f64 * 0.001;  // $0.001 per token
+/// let output_cost = usage.output_tokens as f64 * 0.002; // $0.002 per token
+/// let total_cost = input_cost + output_cost;
+/// println!("Estimated cost: ${:.4}", total_cost);
+/// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Usage {
+    /// Number of tokens in the input (prompt).
+    ///
+    /// This includes:
+    /// - All user, assistant, and system messages in the conversation
+    /// - Tool definitions (if tools were provided)
+    /// - Any additional context or instructions
+    ///
+    /// Input tokens are typically cheaper than output tokens in provider pricing.
     pub input_tokens: u64,
+
+    /// Number of tokens in the output (completion).
+    ///
+    /// This includes:
+    /// - The assistant's text response
+    /// - Any tool call names and arguments (if applicable)
+    ///
+    /// Output tokens are typically more expensive than input tokens in provider pricing.
     pub output_tokens: u64,
 }
 
