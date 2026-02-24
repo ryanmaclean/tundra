@@ -1,3 +1,65 @@
+//! LLM provider abstraction for at-harness.
+//!
+//! Provides a unified async trait for interacting with LLM providers,
+//! supporting chat completions with optional tool calling capabilities.
+//!
+//! # Overview
+//!
+//! This module defines the core [`LlmProvider`] trait and supporting types
+//! for building LLM-powered test harnesses. The trait provides:
+//!
+//! - **Chat completions** via the [`LlmProvider::chat`] method
+//! - **Tool calling** support for function/API interactions
+//! - **Standardized error handling** through [`ProviderError`]
+//! - **Message formatting** with [`Message`] and [`Role`] types
+//!
+//! Concrete provider implementations (Anthropic, OpenAI, etc.) are provided
+//! by dependent crates. This crate includes a [`StubProvider`] for testing
+//! and placeholder scenarios.
+//!
+//! # Implementation Guide
+//!
+//! To implement a new provider:
+//!
+//! 1. Create a struct to hold client state (API key, HTTP client, etc.)
+//! 2. Implement [`LlmProvider`] with your provider's API calls
+//! 3. Map provider-specific errors to [`ProviderError`] variants
+//! 4. Handle tool calls if your provider supports them
+//!
+//! # Example
+//!
+//! ```rust,no_run
+//! use at_harness::provider::{LlmProvider, Message, Tool, ProviderError};
+//!
+//! async fn example(provider: impl LlmProvider) -> Result<(), ProviderError> {
+//!     // Simple chat completion
+//!     let messages = vec![Message::user("Hello, world!")];
+//!     let response = provider.chat(messages, None).await?;
+//!     println!("Response: {}", response.content.unwrap_or_default());
+//!
+//!     // Chat with tool calling
+//!     let messages = vec![Message::user("What's the weather in Tokyo?")];
+//!     let tools = vec![Tool {
+//!         name: "get_weather".to_string(),
+//!         description: "Get current weather for a city".to_string(),
+//!         parameters: serde_json::json!({
+//!             "type": "object",
+//!             "properties": {
+//!                 "city": {"type": "string"}
+//!             }
+//!         }),
+//!     }];
+//!     let response = provider.chat(messages, Some(tools)).await?;
+//!
+//!     // Handle tool calls in response
+//!     for tool_call in &response.tool_calls {
+//!         println!("Tool: {} - Args: {}", tool_call.name, tool_call.arguments);
+//!     }
+//!
+//!     Ok(())
+//! }
+//! ```
+
 use serde::{Deserialize, Serialize};
 
 // ---------------------------------------------------------------------------
