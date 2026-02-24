@@ -1159,6 +1159,14 @@ pub async fn generate_ideas() -> Result<Vec<ApiIdea>, String> {
     Ok(result.ideas)
 }
 
+pub async fn convert_idea_to_task(idea_id: &str) -> Result<serde_json::Value, String> {
+    post_empty(&format!(
+        "{}/api/ideation/ideas/{idea_id}/convert",
+        get_api_base()
+    ))
+    .await
+}
+
 pub async fn fetch_insights_sessions() -> Result<Vec<ApiInsightsSession>, String> {
     fetch_json(&format!("{}/api/insights/sessions", get_api_base())).await
 }

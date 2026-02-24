@@ -178,10 +178,10 @@ pub fn IdeationPage() -> impl IntoView {
             {move || filtered_ideas().into_iter().map(|idea| {
                 let iid = idea.id.clone();
                 let iid_click = idea.id.clone();
+                let convert_idea_id = idea.id.clone();
                 let is_expanded = move || expanded_id.get().as_deref() == Some(&iid);
                 let title = idea.title.clone();
                 let convert_title = idea.title.clone();
-                let convert_desc = idea.description.clone();
                 let desc_snippet = if idea.description.len() > 120 {
                     format!("{}...", &idea.description[..120])
                 } else {
@@ -227,18 +227,35 @@ pub fn IdeationPage() -> impl IntoView {
                             <button
                                 class="action-btn action-start"
                                 on:click={
+                                    let convert_idea_id = convert_idea_id.clone();
                                     let convert_title = convert_title.clone();
-                                    let convert_desc = convert_desc.clone();
                                     move |ev: web_sys::MouseEvent| {
                                         ev.stop_propagation();
+                                        let idea_id = convert_idea_id.clone();
                                         let t = convert_title.clone();
-                                        let d = convert_desc.clone();
                                         set_convert_msg.set(None);
                                         spawn_local(async move {
-                                            match api::create_bead(&t, Some(&d), Some("standard")).await {
-                                                Ok(bead) => set_convert_msg.set(Some(
-                                                    format!("Created task '{}' (id: {})", bead.title, bead.id)
-                                                )),
+                                            match api::convert_idea_to_task(&idea_id).await {
+                                                Ok(converted) => {
+                                                    let bead_id = converted
+                                                        .get("id")
+                                                        .and_then(|v| v.as_str())
+                                                        .unwrap_or("unknown");
+                                                    let poker = converted.get("planning_poker");
+                                                    let vote_count = poker
+                                                        .and_then(|p| p.get("vote_count"))
+                                                        .and_then(|v| v.as_u64())
+                                                        .unwrap_or(0);
+                                                    let consensus = poker
+                                                        .and_then(|p| p.get("consensus_card"))
+                                                        .and_then(|v| v.as_str())
+                                                        .unwrap_or("no consensus");
+
+                                                    set_convert_msg.set(Some(format!(
+                                                        "Created task '{}' (id: {}) — simulated {} votes, consensus: {}",
+                                                        t, bead_id, vote_count, consensus
+                                                    )));
+                                                }
                                                 Err(e) => set_convert_msg.set(Some(
                                                     format!("Failed to create task: {e}")
                                                 )),
