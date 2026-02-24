@@ -146,7 +146,7 @@ pub fn NotificationBell(
             })}
 
             // Toast notifications overlay
-            <div class="toast-container">
+            <div class="toast-container" role="alert" aria-live="assertive">
                 {move || {
                     toasts.get().into_iter().map(|toast| {
                         let toast_id = toast.id.clone();
