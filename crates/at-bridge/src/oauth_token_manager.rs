@@ -367,6 +367,16 @@ impl Default for OAuthTokenManager {
     }
 }
 
+impl std::fmt::Debug for OAuthTokenManager {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OAuthTokenManager")
+            .field("encrypted_token", &"[REDACTED]")
+            .field("encryption_key", &"[REDACTED]")
+            .field("metadata", &"<use getter methods>")
+            .finish()
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -579,5 +589,32 @@ mod tests {
         // No token stored, should return NoToken error
         let result = manager.get_refresh_token().await;
         assert!(matches!(result, Err(TokenManagerError::NoToken)));
+    }
+
+    #[tokio::test]
+    async fn test_debug_no_leak() {
+        let manager = OAuthTokenManager::new();
+        let secret_token = "ghp_super_secret_token_12345";
+        let refresh_token = "ghr_super_secret_refresh_67890";
+
+        // Store sensitive tokens
+        manager.store_token(secret_token, Some(3600), Some(refresh_token)).await;
+
+        // Get debug output
+        let debug_output = format!("{:?}", manager);
+
+        // Verify the debug output does NOT contain the actual tokens
+        assert!(!debug_output.contains(secret_token),
+                "Debug output leaked access token");
+        assert!(!debug_output.contains(refresh_token),
+                "Debug output leaked refresh token");
+
+        // Verify the debug output DOES contain redaction markers
+        assert!(debug_output.contains("[REDACTED]"),
+                "Debug output should contain [REDACTED] markers");
+
+        // Verify struct name is present
+        assert!(debug_output.contains("OAuthTokenManager"),
+                "Debug output should contain struct name");
     }
 }
