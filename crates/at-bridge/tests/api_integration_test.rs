@@ -11,7 +11,7 @@ use at_bridge::event_bus::EventBus;
 use at_bridge::http_api::{api_router, ApiState};
 use at_bridge::protocol::BridgeMessage;
 use at_core::settings::SettingsManager;
-use at_core::types::{Agent, AgentRole, AgentStatus, CliType};
+use at_core::types::{Agent, AgentRole, CliType};
 use serde_json::{json, Value};
 
 // ---------------------------------------------------------------------------

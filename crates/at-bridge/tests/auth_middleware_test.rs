@@ -22,7 +22,7 @@ fn auth_router(api_key: Option<String>) -> Router {
 fn full_api_router(api_key: Option<String>) -> Router {
     let event_bus = EventBus::new();
     let state = Arc::new(ApiState::new(event_bus));
-    api_router_with_auth(state, api_key)
+    api_router_with_auth(state, api_key, vec![])
 }
 
 /// Helper to read the response body as bytes.
