@@ -1,6 +1,7 @@
 pub mod agent;
 pub mod doctor;
 pub mod done;
+pub mod exec_task;
 pub mod hook;
 pub mod nudge;
 pub mod run_task;

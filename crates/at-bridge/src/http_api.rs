@@ -437,7 +437,11 @@ pub fn api_router(state: Arc<ApiState>) -> Router {
 }
 
 /// Build the API router with optional authentication.
-pub fn api_router_with_auth(state: Arc<ApiState>, api_key: Option<String>, allowed_origins: Vec<String>) -> Router {
+pub fn api_router_with_auth(
+    state: Arc<ApiState>,
+    api_key: Option<String>,
+    allowed_origins: Vec<String>,
+) -> Router {
     Router::new()
         .route("/api/status", get(get_status))
         .route("/api/beads", get(list_beads))
@@ -623,7 +627,8 @@ pub fn api_router_with_auth(state: Arc<ApiState>, api_key: Option<String>, allow
         .layer(
             CorsLayer::new()
                 .allow_origin(tower_http::cors::AllowOrigin::predicate(
-                    move |origin: &axum::http::HeaderValue, _request_parts: &axum::http::request::Parts| {
+                    move |origin: &axum::http::HeaderValue,
+                          _request_parts: &axum::http::request::Parts| {
                         // Parse the origin header to extract the host
                         if let Ok(origin_str) = origin.to_str() {
                             // Check if it's a localhost origin (with or without port)
@@ -3351,6 +3356,9 @@ async fn reveal_planning_poker(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<RevealPlanningPokerRequest>,
 ) -> impl IntoResponse {
+    let cfg = state.settings_manager.load_or_default();
+    let poker_cfg = &cfg.kanban.planning_poker;
+
     let mut sessions = state.planning_poker_sessions.write().await;
     let Some(session) = sessions.get_mut(&req.bead_id) else {
         return (
@@ -3364,6 +3372,25 @@ async fn reveal_planning_poker(
             axum::http::StatusCode::CONFLICT,
             Json(serde_json::json!({"error": "session already revealed"})),
         );
+    }
+    if poker_cfg.reveal_requires_all_votes && !session.participants.is_empty() {
+        let voted: std::collections::BTreeSet<String> =
+            session.votes.iter().map(|v| v.voter.clone()).collect();
+        let missing = session
+            .participants
+            .iter()
+            .filter(|p| !voted.contains((*p).as_str()))
+            .cloned()
+            .collect::<Vec<_>>();
+        if !missing.is_empty() {
+            return (
+                axum::http::StatusCode::CONFLICT,
+                Json(serde_json::json!({
+                    "error": "not all participants have voted",
+                    "missing": missing
+                })),
+            );
+        }
     }
 
     session.phase = PlanningPokerPhase::Revealed;
@@ -5226,8 +5253,8 @@ async fn github_oauth_callback(
         // Parse the timestamp and check if it's within 10 minutes
         match chrono::DateTime::parse_from_rfc3339(&timestamp_str) {
             Ok(timestamp) => {
-                let age = chrono::Utc::now()
-                    .signed_duration_since(timestamp.with_timezone(&chrono::Utc));
+                let age =
+                    chrono::Utc::now().signed_duration_since(timestamp.with_timezone(&chrono::Utc));
 
                 if age.num_minutes() < 10 {
                     // Valid and not expired - remove it to prevent replay
@@ -6654,7 +6681,8 @@ mod tests {
         let status = response.status();
         assert!(
             status == StatusCode::SERVICE_UNAVAILABLE || status == StatusCode::BAD_REQUEST,
-            "Expected 503 or 400, got {}", status
+            "Expected 503 or 400, got {}",
+            status
         );
 
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
@@ -6678,7 +6706,8 @@ mod tests {
         let status = response.status();
         assert!(
             status == StatusCode::SERVICE_UNAVAILABLE || status == StatusCode::BAD_REQUEST,
-            "Expected 503 or 400, got {}", status
+            "Expected 503 or 400, got {}",
+            status
         );
     }
 
@@ -6695,7 +6724,8 @@ mod tests {
         let status = response.status();
         assert!(
             status == StatusCode::SERVICE_UNAVAILABLE || status == StatusCode::BAD_REQUEST,
-            "Expected 503 or 400, got {}", status
+            "Expected 503 or 400, got {}",
+            status
         );
     }
 
@@ -6836,7 +6866,8 @@ mod tests {
         let status = response.status();
         assert!(
             status == StatusCode::SERVICE_UNAVAILABLE || status == StatusCode::BAD_REQUEST,
-            "Expected 503 or 400, got {}", status
+            "Expected 503 or 400, got {}",
+            status
         );
     }
 

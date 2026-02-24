@@ -88,6 +88,9 @@ jobs:
       - name: Clippy
         run: cargo clippy --workspace --exclude at-tauri --all-targets -- -A clippy::absurd_extreme_comparisons -A clippy::overly_complex_bool_expr
 
+      - name: Context policy lint (AGENTS/skills/todo)
+        run: ./scripts/validate_context_policy.sh
+
   security:
     name: Security
     runs-on: ubuntu-latest
