@@ -17690,6 +17690,45 @@ h2 .gh-icon {
     transform: none;
 }
 
+/* WebSocket Status Indicator */
+.ws-status-indicator {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 32px;
+    width: 32px;
+    height: 32px;
+    border-radius: 9px;
+    border: 1px solid rgba(124, 58, 237, 0.24);
+    background: rgba(124, 58, 237, 0.08);
+    color: var(--text-secondary);
+    cursor: help;
+    padding: 0;
+    transition: background 0.2s, border-color 0.2s;
+}
+
+.ws-status-indicator:hover {
+    background: rgba(124, 58, 237, 0.18);
+    border-color: rgba(124, 58, 237, 0.5);
+}
+
+.ws-status-dot-svg {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 8px;
+    height: 8px;
+}
+
+@keyframes wsPulse {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.5;
+    }
+}
+
 .page-toolbar .refresh-btn,
 .page-header .refresh-btn,
 .changelog-header-actions .refresh-btn {
