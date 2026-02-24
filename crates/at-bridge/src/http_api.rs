@@ -446,6 +446,7 @@ pub fn api_router_with_auth(
         .route("/api/status", get(get_status))
         .route("/api/beads", get(list_beads))
         .route("/api/beads", post(create_bead))
+        .route("/api/beads/{id}", axum::routing::delete(delete_bead))
         .route("/api/beads/{id}/status", post(update_bead_status))
         .route("/api/agents", get(list_agents))
         .route("/api/agents/{id}/nudge", post(nudge_agent))
@@ -1104,6 +1105,53 @@ async fn update_bead_status(
     (
         axum::http::StatusCode::OK,
         Json(serde_json::json!(bead_snapshot)),
+    )
+}
+
+/// DELETE /api/beads/{id} -- delete a bead by ID.
+///
+/// Removes a bead from the system and publishes an updated bead list event
+/// to notify connected WebSocket clients of the change.
+///
+/// **Path Parameters:** `id` - UUID of the bead to delete.
+/// **Response:** 200 OK if deleted, 404 if not found.
+///
+/// **Example Response (Success):**
+/// ```json
+/// {
+///   "status": "deleted",
+///   "id": "550e8400-e29b-41d4-a716-446655440000"
+/// }
+/// ```
+///
+/// **Example Response (Error - Not Found):**
+/// ```json
+/// {
+///   "error": "bead not found"
+/// }
+/// ```
+async fn delete_bead(
+    State(state): State<Arc<ApiState>>,
+    Path(id): Path<Uuid>,
+) -> impl IntoResponse {
+    let mut beads = state.beads.write().await;
+    let len_before = beads.len();
+    beads.retain(|b| b.id != id);
+    if beads.len() == len_before {
+        return (
+            axum::http::StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "bead not found"})),
+        );
+    }
+
+    // Publish updated bead list event
+    state
+        .event_bus
+        .publish(crate::protocol::BridgeMessage::BeadList(beads.clone()));
+
+    (
+        axum::http::StatusCode::OK,
+        Json(serde_json::json!({"status": "deleted", "id": id.to_string()})),
     )
 }
 
