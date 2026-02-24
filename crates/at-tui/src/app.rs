@@ -18,6 +18,7 @@ pub const TAB_NAMES: &[&str] = &[
     "MCP",
     "Roadmap",
     "Ideation",
+    "Planning Poker",
     "Worktrees",
     "GitHub Issues",
     "GitHub PRs",
