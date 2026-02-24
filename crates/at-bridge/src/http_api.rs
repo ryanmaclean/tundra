@@ -19,6 +19,7 @@ use tower_http::cors::CorsLayer;
 use tracing::warn;
 use uuid::Uuid;
 
+use crate::api_error::ApiError;
 use crate::auth::AuthLayer;
 use crate::event_bus::EventBus;
 use crate::intelligence_api;
@@ -780,10 +781,7 @@ async fn update_bead_status(
 ) -> impl IntoResponse {
     let mut beads = state.beads.write().await;
     let Some(bead) = beads.iter_mut().find(|b| b.id == id) else {
-        return (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "bead not found"})),
-        );
+        return ApiError::NotFound("bead not found".to_string()).into_response();
     };
 
     if !bead.status.can_transition_to(&req.status) {
@@ -795,7 +793,8 @@ async fn update_bead_status(
                     bead.status, req.status
                 )
             })),
-        );
+        )
+            .into_response();
     }
 
     bead.status = req.status;
@@ -810,6 +809,7 @@ async fn update_bead_status(
         axum::http::StatusCode::OK,
         Json(serde_json::json!(bead_snapshot)),
     )
+        .into_response()
 }
 
 async fn list_agents(State(state): State<Arc<ApiState>>) -> Json<Vec<Agent>> {
@@ -823,10 +823,7 @@ async fn nudge_agent(
 ) -> impl IntoResponse {
     let mut agents = state.agents.write().await;
     let Some(agent) = agents.iter_mut().find(|a| a.id == id) else {
-        return (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "agent not found"})),
-        );
+        return ApiError::NotFound("agent not found".to_string()).into_response();
     };
 
     use at_core::types::AgentStatus;
@@ -845,15 +842,13 @@ async fn nudge_agent(
         axum::http::StatusCode::OK,
         Json(serde_json::json!(snapshot)),
     )
+        .into_response()
 }
 
 async fn stop_agent(State(state): State<Arc<ApiState>>, Path(id): Path<Uuid>) -> impl IntoResponse {
     let mut agents = state.agents.write().await;
     let Some(agent) = agents.iter_mut().find(|a| a.id == id) else {
-        return (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "agent not found"})),
-        );
+        return ApiError::NotFound("agent not found".to_string()).into_response();
     };
 
     agent.status = at_core::types::AgentStatus::Stopped;
@@ -864,6 +859,7 @@ async fn stop_agent(State(state): State<Arc<ApiState>>, Path(id): Path<Uuid>) ->
         axum::http::StatusCode::OK,
         Json(serde_json::json!(snapshot)),
     )
+        .into_response()
 }
 
 async fn get_kpi(State(state): State<Arc<ApiState>>) -> Json<KpiSnapshot> {
@@ -920,12 +916,9 @@ async fn create_task(
 async fn get_task(State(state): State<Arc<ApiState>>, Path(id): Path<Uuid>) -> impl IntoResponse {
     let tasks = state.tasks.read().await;
     let Some(task) = tasks.iter().find(|t| t.id == id) else {
-        return (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "task not found"})),
-        );
+        return ApiError::NotFound("task not found".to_string()).into_response();
     };
-    (axum::http::StatusCode::OK, Json(serde_json::json!(task)))
+    (axum::http::StatusCode::OK, Json(serde_json::json!(task))).into_response()
 }
 
 async fn update_task(
@@ -935,10 +928,7 @@ async fn update_task(
 ) -> impl IntoResponse {
     let mut tasks = state.tasks.write().await;
     let Some(task) = tasks.iter_mut().find(|t| t.id == id) else {
-        return (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "task not found"})),
-        );
+        return ApiError::NotFound("task not found".to_string()).into_response();
     };
 
     if let Some(title) = req.title {
@@ -946,7 +936,8 @@ async fn update_task(
             return (
                 axum::http::StatusCode::BAD_REQUEST,
                 Json(serde_json::json!({"error": "title cannot be empty"})),
-            );
+            )
+                .into_response();
         }
         task.title = title;
     }
@@ -984,6 +975,7 @@ async fn update_task(
         axum::http::StatusCode::OK,
         Json(serde_json::json!(task_snapshot)),
     )
+        .into_response()
 }
 
 async fn delete_task(
@@ -994,15 +986,13 @@ async fn delete_task(
     let len_before = tasks.len();
     tasks.retain(|t| t.id != id);
     if tasks.len() == len_before {
-        return (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "task not found"})),
-        );
+        return ApiError::NotFound("task not found".to_string()).into_response();
     }
     (
         axum::http::StatusCode::OK,
         Json(serde_json::json!({"status": "deleted", "id": id.to_string()})),
     )
+        .into_response()
 }
 
 async fn update_task_phase(
@@ -1012,10 +1002,7 @@ async fn update_task_phase(
 ) -> impl IntoResponse {
     let mut tasks = state.tasks.write().await;
     let Some(task) = tasks.iter_mut().find(|t| t.id == id) else {
-        return (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "task not found"})),
-        );
+        return ApiError::NotFound("task not found".to_string()).into_response();
     };
 
     if !task.phase.can_transition_to(&req.phase) {
@@ -1027,7 +1014,8 @@ async fn update_task_phase(
                     task.phase, req.phase
                 )
             })),
-        );
+        )
+            .into_response();
     }
 
     task.set_phase(req.phase);
@@ -1042,6 +1030,7 @@ async fn update_task_phase(
         axum::http::StatusCode::OK,
         Json(serde_json::json!(task_snapshot)),
     )
+        .into_response()
 }
 
 async fn get_task_logs(
@@ -1050,15 +1039,13 @@ async fn get_task_logs(
 ) -> impl IntoResponse {
     let tasks = state.tasks.read().await;
     let Some(task) = tasks.iter().find(|t| t.id == id) else {
-        return (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "task not found"})),
-        );
+        return ApiError::NotFound("task not found".to_string()).into_response();
     };
     (
         axum::http::StatusCode::OK,
         Json(serde_json::json!(task.logs)),
     )
+        .into_response()
 }
 
 async fn get_pipeline_queue_status(
@@ -1090,10 +1077,7 @@ async fn execute_task_pipeline(
 ) -> impl IntoResponse {
     let mut tasks = state.tasks.write().await;
     let Some(task) = tasks.iter_mut().find(|t| t.id == id) else {
-        return (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "task not found"})),
-        );
+        return ApiError::NotFound("task not found".to_string()).into_response();
     };
 
     // The task must be in a phase that can transition to Coding.
@@ -1106,7 +1090,8 @@ async fn execute_task_pipeline(
                     task.phase
                 )
             })),
-        );
+        )
+            .into_response();
     }
 
     task.set_phase(TaskPhase::Coding);
@@ -1192,6 +1177,7 @@ async fn execute_task_pipeline(
         axum::http::StatusCode::ACCEPTED,
         Json(serde_json::json!({"status": "started", "task_id": id.to_string()})),
     )
+        .into_response()
 }
 
 /// Background pipeline driver: coding -> QA -> fix loop.
@@ -1487,10 +1473,7 @@ async fn get_build_logs(
 ) -> impl IntoResponse {
     let tasks = state.tasks.read().await;
     let Some(task) = tasks.iter().find(|t| t.id == id) else {
-        return (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "task not found"})),
-        );
+        return ApiError::NotFound("task not found".to_string()).into_response();
     };
 
     let logs: Vec<&BuildLogEntry> = if let Some(ref since_str) = q.since {
@@ -1508,14 +1491,15 @@ async fn get_build_logs(
                     Json(
                         serde_json::json!({"error": "invalid 'since' timestamp; use ISO-8601 / RFC-3339"}),
                     ),
-                );
+                )
+                    .into_response();
             }
         }
     } else {
         task.build_logs.iter().collect()
     };
 
-    (axum::http::StatusCode::OK, Json(serde_json::json!(logs)))
+    (axum::http::StatusCode::OK, Json(serde_json::json!(logs))).into_response()
 }
 
 /// Summary of the current build status for a task.
@@ -1537,10 +1521,7 @@ async fn get_build_status(
 ) -> impl IntoResponse {
     let tasks = state.tasks.read().await;
     let Some(task) = tasks.iter().find(|t| t.id == id) else {
-        return (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "task not found"})),
-        );
+        return ApiError::NotFound("task not found".to_string()).into_response();
     };
 
     let stdout_lines = task
@@ -1565,7 +1546,7 @@ async fn get_build_status(
         last_line,
     };
 
-    (axum::http::StatusCode::OK, Json(serde_json::json!(summary)))
+    (axum::http::StatusCode::OK, Json(serde_json::json!(summary))).into_response()
 }
 
 // ---------------------------------------------------------------------------
@@ -2080,7 +2061,8 @@ async fn list_github_issues(
                 "error": "GitHub token not configured. Set the environment variable.",
                 "env_var": int.github_token_env,
             })),
-        );
+        )
+            .into_response();
     }
     if owner.is_empty() || repo.is_empty() {
         return (
@@ -2088,7 +2070,8 @@ async fn list_github_issues(
             Json(serde_json::json!({
                 "error": "GitHub owner and repo must be set in settings (integrations).",
             })),
-        );
+        )
+            .into_response();
     }
 
     let gh_config = GitHubConfig { token, owner, repo };
@@ -2098,7 +2081,8 @@ async fn list_github_issues(
             return (
                 axum::http::StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({ "error": e.to_string() })),
-            );
+            )
+                .into_response();
         }
     };
 
@@ -2122,11 +2106,12 @@ async fn list_github_issues(
             return (
                 axum::http::StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({ "error": e.to_string() })),
-            );
+            )
+                .into_response();
         }
     };
 
-    (axum::http::StatusCode::OK, Json(serde_json::json!(list)))
+    (axum::http::StatusCode::OK, Json(serde_json::json!(list))).into_response()
 }
 
 async fn trigger_github_sync(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
@@ -2143,7 +2128,8 @@ async fn trigger_github_sync(State(state): State<Arc<ApiState>>) -> impl IntoRes
                 "error": "GitHub token not configured. Set the environment variable.",
                 "env_var": int.github_token_env,
             })),
-        );
+        )
+            .into_response();
     }
     if owner.is_empty() || repo.is_empty() {
         return (
@@ -2151,7 +2137,8 @@ async fn trigger_github_sync(State(state): State<Arc<ApiState>>) -> impl IntoRes
             Json(serde_json::json!({
                 "error": "GitHub owner and repo must be set in settings (integrations).",
             })),
-        );
+        )
+            .into_response();
     }
 
     let gh_config = GitHubConfig {
@@ -2165,7 +2152,8 @@ async fn trigger_github_sync(State(state): State<Arc<ApiState>>) -> impl IntoRes
             return (
                 axum::http::StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({ "error": e.to_string() })),
-            );
+            )
+                .into_response();
         }
     };
 
@@ -2184,7 +2172,8 @@ async fn trigger_github_sync(State(state): State<Arc<ApiState>>) -> impl IntoRes
             return (
                 axum::http::StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({ "error": e.to_string() })),
-            );
+            )
+                .into_response();
         }
     };
 
@@ -2206,6 +2195,7 @@ async fn trigger_github_sync(State(state): State<Arc<ApiState>>) -> impl IntoRes
             statuses_synced: 0,
         })),
     )
+        .into_response()
 }
 
 async fn get_sync_status(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
@@ -2222,10 +2212,7 @@ async fn create_pr_for_task(
     let task = match tasks.iter().find(|t| t.id == task_id) {
         Some(t) => t.clone(),
         None => {
-            return (
-                axum::http::StatusCode::NOT_FOUND,
-                Json(serde_json::json!({"error": "task not found"})),
-            );
+            return ApiError::NotFound("task not found".to_string()).into_response();
         }
     };
     drop(tasks);
@@ -2236,7 +2223,8 @@ async fn create_pr_for_task(
             Json(serde_json::json!({
                 "error": "Task has no branch. Create a worktree for this task first.",
             })),
-        );
+        )
+            .into_response();
     }
 
     let config = state.settings_manager.load_or_default();
@@ -2252,7 +2240,8 @@ async fn create_pr_for_task(
                 "error": "GitHub token not configured. Set the environment variable.",
                 "env_var": int.github_token_env,
             })),
-        );
+        )
+            .into_response();
     }
     if owner.is_empty() || repo.is_empty() {
         return (
@@ -2260,7 +2249,8 @@ async fn create_pr_for_task(
             Json(serde_json::json!({
                 "error": "GitHub owner and repo must be set in settings (integrations).",
             })),
-        );
+        )
+            .into_response();
     }
 
     let gh_config = GitHubConfig { token, owner, repo };
@@ -2270,7 +2260,8 @@ async fn create_pr_for_task(
             return (
                 axum::http::StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({ "error": e.to_string() })),
-            );
+            )
+                .into_response();
         }
     };
 
@@ -2286,7 +2277,8 @@ async fn create_pr_for_task(
             return (
                 axum::http::StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({ "error": e.to_string() })),
-            );
+            )
+                .into_response();
         }
     };
 
@@ -2309,6 +2301,7 @@ async fn create_pr_for_task(
             "pr_url": pr.html_url,
         })),
     )
+        .into_response()
 }
 
 // ---------------------------------------------------------------------------
@@ -2359,11 +2352,9 @@ async fn mark_notification_read(
             axum::http::StatusCode::OK,
             Json(serde_json::json!({"status": "read", "id": id.to_string()})),
         )
+            .into_response()
     } else {
-        (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "notification not found"})),
-        )
+        ApiError::NotFound("notification not found".to_string()).into_response()
     }
 }
 
@@ -2385,11 +2376,9 @@ async fn delete_notification(
             axum::http::StatusCode::OK,
             Json(serde_json::json!({"status": "deleted", "id": id.to_string()})),
         )
+            .into_response()
     } else {
-        (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "notification not found"})),
-        )
+        ApiError::NotFound("notification not found".to_string()).into_response()
     }
 }
 
@@ -2648,18 +2637,9 @@ async fn call_mcp_tool(
             } else {
                 axum::http::StatusCode::OK
             };
-            (status, Json(serde_json::to_value(result).unwrap()))
+            (status, Json(serde_json::to_value(result).unwrap())).into_response()
         }
-        None => (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({
-                "error": format!("unknown tool: {}", request.name),
-                "available_tools": at_harness::builtin_tools::builtin_tool_definitions()
-                    .iter()
-                    .map(|t| t.name.clone())
-                    .collect::<Vec<_>>()
-            })),
-        ),
+        None => ApiError::NotFound(format!("unknown tool: {}", request.name)).into_response(),
     }
 }
 
@@ -2776,7 +2756,7 @@ async fn merge_worktree(
             return (
                 axum::http::StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({"error": e.to_string()})),
-            );
+            ).into_response();
         }
     };
 
@@ -2812,10 +2792,7 @@ async fn merge_worktree(
     let branch = match found_branch {
         Some(b) if !b.is_empty() => b,
         _ => {
-            return (
-                axum::http::StatusCode::NOT_FOUND,
-                Json(serde_json::json!({"error": "worktree not found", "id": id})),
-            );
+            return ApiError::NotFound(format!("worktree not found: {}", id)).into_response();
         }
     };
 
@@ -2835,14 +2812,14 @@ async fn merge_worktree(
             return (
                 axum::http::StatusCode::OK,
                 Json(serde_json::json!({"status": "nothing_to_merge", "branch": branch})),
-            );
+            ).into_response();
         }
         Ok(_) => { /* has changes */ }
         Err(e) => {
             return (
                 axum::http::StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({"error": e.to_string()})),
-            );
+            ).into_response();
         }
     }
 
@@ -2879,7 +2856,7 @@ async fn merge_worktree(
             (
                 axum::http::StatusCode::OK,
                 Json(serde_json::json!({"status": "success", "branch": branch})),
-            )
+            ).into_response()
         }
         Ok(o) => {
             // Detect conflict files
@@ -2931,12 +2908,12 @@ async fn merge_worktree(
                     "branch": branch,
                     "files": conflict_files,
                 })),
-            )
+            ).into_response()
         }
         Err(e) => (
             axum::http::StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({"error": e.to_string()})),
-        ),
+        ).into_response(),
     }
 }
 
@@ -2956,7 +2933,7 @@ async fn merge_preview(Path(id): Path<String>) -> impl IntoResponse {
             return (
                 axum::http::StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({"error": e.to_string()})),
-            );
+            ).into_response();
         }
     };
 
@@ -2988,10 +2965,7 @@ async fn merge_preview(Path(id): Path<String>) -> impl IntoResponse {
     let branch = match found_branch {
         Some(b) if !b.is_empty() => b,
         _ => {
-            return (
-                axum::http::StatusCode::NOT_FOUND,
-                Json(serde_json::json!({"error": "worktree not found", "id": id})),
-            );
+            return ApiError::NotFound(format!("worktree not found: {}", id)).into_response();
         }
     };
 
@@ -3052,7 +3026,7 @@ async fn merge_preview(Path(id): Path<String>) -> impl IntoResponse {
             "has_conflicts": has_conflicts,
             "branch": branch,
         })),
-    )
+    ).into_response()
 }
 
 /// POST /api/worktrees/{id}/resolve — accept conflict resolution.
@@ -3189,17 +3163,14 @@ async fn reorder_queue(
         return (
             axum::http::StatusCode::BAD_REQUEST,
             Json(serde_json::json!({"error": "task_ids must not be empty"})),
-        );
+        ).into_response();
     }
 
     // Validate all task IDs exist
     let tasks = state.tasks.read().await;
     for task_id in &req.task_ids {
         if !tasks.iter().any(|t| t.id == *task_id) {
-            return (
-                axum::http::StatusCode::NOT_FOUND,
-                Json(serde_json::json!({"error": format!("task {} not found", task_id)})),
-            );
+            return ApiError::NotFound(format!("task {} not found", task_id)).into_response();
         }
     }
     drop(tasks);
@@ -3214,7 +3185,8 @@ async fn reorder_queue(
     (
         axum::http::StatusCode::OK,
         Json(serde_json::json!({"status": "ok"})),
-    )
+    ).into_response()
+
 }
 
 /// POST /api/queue/{task_id}/prioritize — bump a task's priority.
@@ -3225,10 +3197,7 @@ async fn prioritize_task(
 ) -> impl IntoResponse {
     let mut tasks = state.tasks.write().await;
     let Some(task) = tasks.iter_mut().find(|t| t.id == task_id) else {
-        return (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "task not found"})),
-        );
+        return ApiError::NotFound("task not found".to_string()).into_response();
     };
 
     task.priority = req.priority;
@@ -3247,6 +3216,7 @@ async fn prioritize_task(
         axum::http::StatusCode::OK,
         Json(serde_json::json!(task_snapshot)),
     )
+        .into_response()
 }
 
 // ---------------------------------------------------------------------------
@@ -3338,7 +3308,7 @@ async fn delete_worktree(Path(id): Path<String>) -> impl IntoResponse {
             return (
                 axum::http::StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({"error": e.to_string()})),
-            );
+            ).into_response();
         }
     };
 
@@ -3347,7 +3317,7 @@ async fn delete_worktree(Path(id): Path<String>) -> impl IntoResponse {
         return (
             axum::http::StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({"error": stderr})),
-        );
+        ).into_response();
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -3379,10 +3349,7 @@ async fn delete_worktree(Path(id): Path<String>) -> impl IntoResponse {
     }
 
     let Some(path) = found_path else {
-        return (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "worktree not found", "id": id})),
-        );
+        return ApiError::NotFound(format!("worktree not found: {}", id)).into_response();
     };
 
     let rm = tokio::process::Command::new("git")
@@ -3394,7 +3361,7 @@ async fn delete_worktree(Path(id): Path<String>) -> impl IntoResponse {
         Ok(o) if o.status.success() => (
             axum::http::StatusCode::OK,
             Json(serde_json::json!({"status": "deleted", "id": id, "path": path})),
-        ),
+        ).into_response(),
         Ok(o) => (
             axum::http::StatusCode::BAD_REQUEST,
             Json(serde_json::json!({
@@ -3402,11 +3369,11 @@ async fn delete_worktree(Path(id): Path<String>) -> impl IntoResponse {
                 "id": id,
                 "path": path
             })),
-        ),
+        ).into_response(),
         Err(e) => (
             axum::http::StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({"error": e.to_string(), "id": id, "path": path})),
-        ),
+        ).into_response(),
     }
 }
 
@@ -3442,7 +3409,8 @@ async fn list_github_prs(
                 "error": "GitHub token not configured. Set the environment variable.",
                 "env_var": int.github_token_env,
             })),
-        );
+        )
+            .into_response();
     }
     if owner.is_empty() || repo.is_empty() {
         return (
@@ -3450,7 +3418,8 @@ async fn list_github_prs(
             Json(serde_json::json!({
                 "error": "GitHub owner and repo must be set in settings (integrations).",
             })),
-        );
+        )
+            .into_response();
     }
 
     let gh_config = GitHubConfig { token, owner, repo };
@@ -3460,7 +3429,8 @@ async fn list_github_prs(
             return (
                 axum::http::StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({ "error": e.to_string() })),
-            );
+            )
+                .into_response();
         }
     };
 
@@ -3481,11 +3451,11 @@ async fn list_github_prs(
                 return (
                     axum::http::StatusCode::INTERNAL_SERVER_ERROR,
                     Json(serde_json::json!({ "error": e.to_string() })),
-                );
+                ).into_response();
             }
         };
 
-    (axum::http::StatusCode::OK, Json(serde_json::json!(list)))
+    (axum::http::StatusCode::OK, Json(serde_json::json!(list))).into_response()
 }
 
 // ---------------------------------------------------------------------------
@@ -3509,7 +3479,8 @@ async fn import_github_issue(
                 "error": "GitHub token not configured. Set the environment variable.",
                 "env_var": int.github_token_env,
             })),
-        );
+        )
+            .into_response();
     }
     if owner.is_empty() || repo.is_empty() {
         return (
@@ -3517,7 +3488,8 @@ async fn import_github_issue(
             Json(serde_json::json!({
                 "error": "GitHub owner and repo must be set in settings (integrations).",
             })),
-        );
+        )
+            .into_response();
     }
 
     let gh_config = GitHubConfig { token, owner, repo };
@@ -3527,7 +3499,8 @@ async fn import_github_issue(
             return (
                 axum::http::StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({ "error": e.to_string() })),
-            );
+            )
+                .into_response();
         }
     };
 
@@ -3537,7 +3510,7 @@ async fn import_github_issue(
             return (
                 axum::http::StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({ "error": e.to_string() })),
-            );
+            ).into_response();
         }
     };
 
@@ -3547,7 +3520,7 @@ async fn import_github_issue(
     (
         axum::http::StatusCode::CREATED,
         Json(serde_json::json!(bead)),
-    )
+    ).into_response()
 }
 
 // ---------------------------------------------------------------------------
@@ -3822,10 +3795,7 @@ async fn update_project(
 ) -> impl IntoResponse {
     let mut projects = state.projects.write().await;
     let Some(project) = projects.iter_mut().find(|p| p.id == id) else {
-        return (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "project not found"})),
-        );
+        return ApiError::NotFound("project not found".to_string()).into_response();
     };
     if let Some(name) = req.name {
         project.name = name;
@@ -3836,7 +3806,7 @@ async fn update_project(
     (
         axum::http::StatusCode::OK,
         Json(serde_json::json!(project.clone())),
-    )
+    ).into_response()
 }
 
 async fn delete_project(
@@ -3848,15 +3818,12 @@ async fn delete_project(
         return (
             axum::http::StatusCode::BAD_REQUEST,
             Json(serde_json::json!({"error": "cannot delete last project"})),
-        );
+        ).into_response();
     }
     let before = projects.len();
     projects.retain(|p| p.id != id);
     if projects.len() == before {
-        return (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "project not found"})),
-        );
+        return ApiError::NotFound("project not found".to_string()).into_response();
     }
     if !projects.iter().any(|p| p.is_active) {
         if let Some(first) = projects.first_mut() {
@@ -3866,7 +3833,7 @@ async fn delete_project(
     (
         axum::http::StatusCode::OK,
         Json(serde_json::json!({"ok": true})),
-    )
+    ).into_response()
 }
 
 async fn activate_project(
@@ -3876,10 +3843,7 @@ async fn activate_project(
     let mut projects = state.projects.write().await;
     let exists = projects.iter().any(|p| p.id == id);
     if !exists {
-        return (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "project not found"})),
-        );
+        return ApiError::NotFound("project not found".to_string()).into_response();
     }
     for p in projects.iter_mut() {
         p.is_active = p.id == id;
@@ -3888,7 +3852,7 @@ async fn activate_project(
     (
         axum::http::StatusCode::OK,
         Json(serde_json::json!(activated)),
-    )
+    ).into_response()
 }
 
 // ---------------------------------------------------------------------------
@@ -3949,12 +3913,9 @@ async fn unwatch_pr(
         (
             axum::http::StatusCode::OK,
             Json(serde_json::json!({"removed": number})),
-        )
+        ).into_response()
     } else {
-        (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "PR not watched"})),
-        )
+        ApiError::NotFound("PR not watched".to_string()).into_response()
     }
 }
 
@@ -4004,7 +3965,7 @@ async fn create_release(
         return (
             axum::http::StatusCode::CREATED,
             Json(serde_json::json!(release)),
-        );
+        ).into_response();
     }
 
     let gh_config = GitHubConfig { token, owner, repo };
@@ -4014,7 +3975,8 @@ async fn create_release(
             return (
                 axum::http::StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({ "error": e.to_string() })),
-            );
+            )
+                .into_response();
         }
     };
 
@@ -4033,7 +3995,7 @@ async fn create_release(
             return (
                 axum::http::StatusCode::BAD_GATEWAY,
                 Json(serde_json::json!({ "error": format!("GitHub release create failed: {e}") })),
-            );
+            ).into_response();
         }
     };
 
@@ -4080,7 +4042,7 @@ async fn create_release(
     (
         axum::http::StatusCode::CREATED,
         Json(serde_json::json!(release)),
-    )
+    ).into_response()
 }
 
 async fn list_releases(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
@@ -4240,12 +4202,9 @@ async fn delete_attachment(
         (
             axum::http::StatusCode::OK,
             Json(serde_json::json!({"deleted": attachment_id})),
-        )
+        ).into_response()
     } else {
-        (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "attachment not found"})),
-        )
+        ApiError::NotFound("attachment not found".to_string()).into_response()
     }
 }
 
@@ -4269,11 +4228,8 @@ async fn get_task_draft(
 ) -> impl IntoResponse {
     let drafts = state.task_drafts.read().await;
     match drafts.get(&id) {
-        Some(draft) => (axum::http::StatusCode::OK, Json(serde_json::json!(draft))),
-        None => (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "draft not found"})),
-        ),
+        Some(draft) => (axum::http::StatusCode::OK, Json(serde_json::json!(draft))).into_response(),
+        None => ApiError::NotFound("draft not found".to_string()).into_response(),
     }
 }
 
@@ -4286,12 +4242,9 @@ async fn delete_task_draft(
         (
             axum::http::StatusCode::OK,
             Json(serde_json::json!({"deleted": id})),
-        )
+        ).into_response()
     } else {
-        (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "draft not found"})),
-        )
+        ApiError::NotFound("draft not found".to_string()).into_response()
     }
 }
 
