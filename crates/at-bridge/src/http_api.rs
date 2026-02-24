@@ -5592,6 +5592,12 @@ async fn github_oauth_callback(
     };
 
     // Store token and user in shared state.
+    // Store encrypted token via OAuthTokenManager
+    state.oauth_token_manager.write().await.store_token(
+        &token_resp.access_token,
+        token_resp.expires_in,
+    ).await;
+    // Keep backward compatibility with plaintext storage (will be removed in phase 4)
     *state.github_oauth_token.write().await = Some(token_resp.access_token.clone());
     *state.github_oauth_user.write().await = Some(user.clone());
 
