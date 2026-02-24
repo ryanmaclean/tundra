@@ -1,3 +1,123 @@
+//! Terminal WebSocket handlers and REST API for managing PTY sessions.
+//!
+//! This module provides the HTTP REST API for terminal lifecycle management (create, list, delete)
+//! and WebSocket handlers for interactive terminal I/O with resilient reconnection support.
+//!
+//! # WebSocket Protocol
+//!
+//! The terminal WebSocket endpoint at `GET /ws/terminal/{id}` provides a bidirectional channel
+//! for terminal input and output. The protocol operates in two modes:
+//!
+//! ## Outgoing (Server → Client)
+//!
+//! - **Text Messages**: Terminal output (stdout/stderr) sent as UTF-8 text.
+//! - **Ping Messages**: Heartbeat frames sent every 30 seconds to detect stale connections.
+//!   Pong responses are handled automatically by the WebSocket library.
+//!
+//! ## Incoming (Client → Server)
+//!
+//! The client can send messages in two formats:
+//!
+//! ### 1. JSON Command Format (Structured)
+//!
+//! JSON-serialized [`WsIncoming`] commands for typed operations:
+//!
+//! ```json
+//! {"type": "input", "data": "ls -la\n"}
+//! ```
+//!
+//! ```json
+//! {"type": "resize", "cols": 120, "rows": 30}
+//! ```
+//!
+//! ### 2. Plain Text Format (Raw Input)
+//!
+//! Any text message that doesn't parse as JSON is treated as raw input and written
+//! directly to the PTY stdin. This allows simple clients to send keystrokes without
+//! JSON wrapping.
+//!
+//! ## Connection Lifecycle
+//!
+//! ### Active Connection
+//!
+//! When a WebSocket connection is established:
+//! 1. Terminal status transitions to `Active`
+//! 2. Any buffered output from a previous disconnection is replayed
+//! 3. Three concurrent tasks are spawned:
+//!    - **Reader**: Reads PTY output and sends to WebSocket (5-minute idle timeout)
+//!    - **Writer**: Reads WebSocket messages and writes to PTY stdin (5-minute idle timeout)
+//!    - **Heartbeat**: Sends Ping frames every 30 seconds to detect half-open connections
+//!
+//! ### Disconnection & Reconnection Grace Period
+//!
+//! When the WebSocket disconnects (network failure, tab close, etc.):
+//! 1. Terminal status transitions to `Disconnected` with timestamp
+//! 2. PTY process continues running in the background
+//! 3. Output is buffered (last 4KB) for **10 seconds** ([`WS_RECONNECT_GRACE`])
+//! 4. If client reconnects within grace period:
+//!    - Buffered output is replayed to restore terminal state
+//!    - Session resumes transparently
+//! 5. If grace period expires without reconnection:
+//!    - PTY process is killed
+//!    - Terminal status transitions to `Dead`
+//!    - Subsequent reconnect attempts receive 410 Gone
+//!
+//! This grace period ensures that brief network interruptions or page reloads don't
+//! terminate long-running terminal sessions.
+//!
+//! ## Timeouts
+//!
+//! - **Idle Timeout**: 5 minutes ([`WS_IDLE_TIMEOUT`]) — WebSocket closes if no data flows in either direction
+//! - **Heartbeat Interval**: 30 seconds ([`WS_HEARTBEAT_INTERVAL`]) — Ping frames detect half-open connections
+//! - **Reconnect Grace**: 10 seconds ([`WS_RECONNECT_GRACE`]) — Buffer output after disconnect
+//!
+//! # REST API Endpoints
+//!
+//! ## Terminal Lifecycle
+//!
+//! - `POST /api/terminals` — [`create_terminal`] — Spawn a new terminal session
+//! - `GET /api/terminals` — [`list_terminals`] — List all active terminals
+//! - `DELETE /api/terminals/{id}` — [`delete_terminal`] — Kill a terminal session
+//!
+//! ## Terminal Management
+//!
+//! - `POST /api/terminals/{id}/rename` — [`rename_terminal`] — Set custom terminal name
+//! - `POST /api/terminals/{id}/auto-name` — [`auto_name_terminal`] — Auto-generate name from first command
+//! - `PATCH /api/terminals/{id}/settings` — [`update_terminal_settings`] — Update font size, cursor style, persistence
+//! - `GET /api/terminals/persistent` — [`list_persistent_terminals`] — List persistent terminal sessions
+//!
+//! ## WebSocket
+//!
+//! - `GET /ws/terminal/{id}` — [`terminal_ws`] — Upgrade to WebSocket for terminal I/O
+//!
+//! # Examples
+//!
+//! ## Creating a Terminal and Connecting via WebSocket
+//!
+//! ```no_run
+//! use reqwest;
+//!
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! // 1. Create terminal via REST API
+//! let client = reqwest::Client::new();
+//! let response = client.post("http://localhost:3000/api/terminals")
+//!     .send()
+//!     .await?;
+//! let terminal: serde_json::Value = response.json().await?;
+//! let terminal_id = terminal["id"].as_str().unwrap();
+//!
+//! // 2. Connect to WebSocket
+//! // (Use a WebSocket client library to connect to ws://localhost:3000/ws/terminal/{terminal_id})
+//!
+//! // 3. Send input
+//! // Send JSON: {"type": "input", "data": "echo hello\n"}
+//!
+//! // 4. Receive output
+//! // Receive text messages with terminal output
+//! # Ok(())
+//! # }
+//! ```
+
 use axum::{
     extract::{
         ws::{Message, WebSocket, WebSocketUpgrade},
@@ -19,31 +139,69 @@ use crate::terminal::{
 };
 
 /// Idle timeout for terminal WebSocket connections (5 minutes).
+///
+/// If no data is sent or received on the WebSocket for this duration,
+/// the connection is automatically closed. This prevents resource leaks
+/// from abandoned connections.
 const WS_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
 
 /// Heartbeat interval for terminal WebSocket connections (30 seconds).
-/// Sends a Ping frame to detect half-open TCP connections.
+///
+/// Ping frames are sent at this interval to detect half-open TCP connections
+/// where the client has disconnected without sending a proper Close frame.
+/// Pong responses are handled automatically by the WebSocket library.
 const WS_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
 
 // ---------------------------------------------------------------------------
 // Request / Response types
 // ---------------------------------------------------------------------------
 
+/// REST API response representing a terminal session.
+///
+/// This structure is returned by terminal management endpoints like
+/// [`create_terminal`] and [`list_terminals`]. It provides a snapshot
+/// of the terminal's current state and configuration.
+///
+/// # Fields
+///
+/// - `id`: Unique terminal identifier (UUID)
+/// - `title`: Display name for the terminal
+/// - `status`: Current lifecycle state (active, idle, disconnected, closed, dead)
+/// - `cols`, `rows`: Terminal dimensions in characters
+/// - `font_size`: Font size in pixels
+/// - `cursor_style`: Cursor appearance ("block", "underline", "bar")
+/// - `cursor_blink`: Whether the cursor blinks
+/// - `auto_name`: Auto-generated name from first command (if any)
+/// - `persistent`: Whether this terminal should survive server restart
 #[derive(Debug, Serialize)]
 pub struct TerminalResponse {
+    /// Unique terminal identifier (UUID).
     pub id: String,
+    /// Display name for the terminal.
     pub title: String,
+    /// Current lifecycle state (active, idle, disconnected, closed, dead).
     pub status: String,
+    /// Terminal width in columns.
     pub cols: u16,
+    /// Terminal height in rows.
     pub rows: u16,
+    /// Font size in pixels.
     pub font_size: u16,
+    /// Cursor appearance ("block", "underline", or "bar").
     pub cursor_style: String,
+    /// Whether the cursor blinks.
     pub cursor_blink: bool,
+    /// Auto-generated name from first command (if any).
     pub auto_name: Option<String>,
+    /// Whether this terminal should survive server restart.
     pub persistent: bool,
 }
 
 impl From<&TerminalInfo> for TerminalResponse {
+    /// Converts internal [`TerminalInfo`] to API response format.
+    ///
+    /// This mapping serializes the terminal status enum to a string
+    /// and prepares all fields for JSON serialization.
     fn from(info: &TerminalInfo) -> Self {
         Self {
             id: info.id.to_string(),
@@ -66,20 +224,114 @@ impl From<&TerminalInfo> for TerminalResponse {
     }
 }
 
+/// WebSocket message types sent by clients to control terminal sessions.
+///
+/// This enum represents structured commands sent as JSON over the WebSocket.
+/// Messages are tagged with a `type` field for discriminated union deserialization.
+///
+/// # Message Format
+///
+/// Messages use serde's `tag` attribute with `snake_case` field naming:
+///
+/// ```json
+/// {"type": "input", "data": "ls -la\n"}
+/// {"type": "resize", "cols": 120, "rows": 30}
+/// ```
+///
+/// # Variants
+///
+/// - [`Input`](WsIncoming::Input): Send raw input data to PTY stdin (keystrokes, paste, etc.)
+/// - [`Resize`](WsIncoming::Resize): Change terminal dimensions (triggers `SIGWINCH` to child process)
+///
+/// # Fallback Behavior
+///
+/// If a WebSocket text message doesn't parse as JSON, it's treated as raw input
+/// and written directly to the PTY stdin. This allows simple clients to send
+/// keystrokes without JSON wrapping.
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum WsIncoming {
     /// Raw input data to write to PTY stdin.
-    Input { data: String },
-    /// Resize the terminal.
-    Resize { cols: u16, rows: u16 },
+    ///
+    /// This variant handles user input like keystrokes, paste operations,
+    /// or any data that should be written to the terminal's standard input.
+    ///
+    /// # Example
+    ///
+    /// ```json
+    /// {"type": "input", "data": "echo hello\n"}
+    /// ```
+    Input {
+        /// Raw input bytes as a UTF-8 string. Control characters like
+        /// `\n` (Enter), `\t` (Tab), or `\x03` (Ctrl-C) are supported.
+        data: String,
+    },
+
+    /// Resize the terminal dimensions.
+    ///
+    /// This triggers a PTY resize operation via `ioctl(TIOCSWINSZ)`, which
+    /// sends `SIGWINCH` to the child process. Most shells and terminal applications
+    /// handle this signal to adjust their display layout.
+    ///
+    /// # Example
+    ///
+    /// ```json
+    /// {"type": "resize", "cols": 120, "rows": 30}
+    /// ```
+    Resize {
+        /// New terminal width in character columns.
+        cols: u16,
+        /// New terminal height in character rows.
+        rows: u16,
+    },
 }
 
 // ---------------------------------------------------------------------------
 // REST Handlers
 // ---------------------------------------------------------------------------
 
-/// POST /api/terminals — spawn a new terminal session.
+/// `POST /api/terminals` — Spawn a new terminal session.
+///
+/// Creates a new PTY (pseudo-terminal) process running a shell and registers
+/// it in the terminal registry. The shell is automatically selected based on
+/// the operating system (zsh on macOS, bash elsewhere).
+///
+/// # Returns
+///
+/// - **201 Created**: Terminal created successfully
+///   - Response body: [`TerminalResponse`] with terminal metadata
+/// - **503 Service Unavailable**: PTY pool not available (server startup issue)
+/// - **500 Internal Server Error**: Failed to spawn shell process
+///
+/// # Process Details
+///
+/// The spawned shell process:
+/// - Runs with `TERM=xterm-256color` environment variable
+/// - Starts with default dimensions: 80 columns × 24 rows
+/// - Has a unique UUID identifier for WebSocket connection
+/// - Begins in `Active` status
+///
+/// # Example
+///
+/// ```bash
+/// curl -X POST http://localhost:3000/api/terminals
+/// ```
+///
+/// Response:
+/// ```json
+/// {
+///   "id": "550e8400-e29b-41d4-a716-446655440000",
+///   "title": "Terminal 550e8400",
+///   "status": "active",
+///   "cols": 80,
+///   "rows": 24,
+///   "font_size": 14,
+///   "cursor_style": "block",
+///   "cursor_blink": true,
+///   "auto_name": null,
+///   "persistent": false
+/// }
+/// ```
 pub async fn create_terminal(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     let pool = match &state.pty_pool {
         Some(pool) => pool.clone(),
@@ -141,7 +393,35 @@ pub async fn create_terminal(State(state): State<Arc<ApiState>>) -> impl IntoRes
     )
 }
 
-/// GET /api/terminals — list active terminals.
+/// `GET /api/terminals` — List all active terminal sessions.
+///
+/// Returns an array of all terminal sessions in the registry, regardless of status
+/// (active, disconnected, idle, etc.). Dead terminals are retained in the registry
+/// to allow clients to detect expired sessions.
+///
+/// # Returns
+///
+/// - **200 OK**: Array of [`TerminalResponse`] objects
+///
+/// # Example
+///
+/// ```bash
+/// curl http://localhost:3000/api/terminals
+/// ```
+///
+/// Response:
+/// ```json
+/// [
+///   {
+///     "id": "550e8400-e29b-41d4-a716-446655440000",
+///     "title": "Terminal 550e8400",
+///     "status": "active",
+///     "cols": 80,
+///     "rows": 24,
+///     ...
+///   }
+/// ]
+/// ```
 pub async fn list_terminals(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     let registry = state.terminal_registry.read().await;
     let terminals: Vec<TerminalResponse> = registry
@@ -152,7 +432,41 @@ pub async fn list_terminals(State(state): State<Arc<ApiState>>) -> impl IntoResp
     Json(serde_json::json!(terminals))
 }
 
-/// DELETE /api/terminals/{id} — kill a terminal session.
+/// `DELETE /api/terminals/{id}` — Kill a terminal session and clean up resources.
+///
+/// Forcefully terminates the terminal's PTY process, removes it from the registry,
+/// releases pool resources, and cleans up any disconnect buffers. This is the
+/// proper way to close a terminal session.
+///
+/// # Path Parameters
+///
+/// - `id`: Terminal UUID (e.g., `550e8400-e29b-41d4-a716-446655440000`)
+///
+/// # Returns
+///
+/// - **200 OK**: Terminal deleted successfully
+/// - **400 Bad Request**: Invalid UUID format
+/// - **404 Not Found**: Terminal not found in registry
+///
+/// # Cleanup Operations
+///
+/// This handler performs the following cleanup:
+/// 1. Unregister terminal from registry
+/// 2. Kill PTY child process (sends `SIGKILL`)
+/// 3. Remove PTY handle from tracking map
+/// 4. Release terminal ID from pool
+/// 5. Remove any disconnect buffer
+///
+/// # Example
+///
+/// ```bash
+/// curl -X DELETE http://localhost:3000/api/terminals/550e8400-e29b-41d4-a716-446655440000
+/// ```
+///
+/// Response:
+/// ```json
+/// {"status": "deleted", "id": "550e8400-e29b-41d4-a716-446655440000"}
+/// ```
 pub async fn delete_terminal(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<String>,
@@ -207,17 +521,55 @@ pub async fn delete_terminal(
 // Rename Handlers
 // ---------------------------------------------------------------------------
 
+/// Request body for renaming a terminal.
+///
+/// Used by the [`rename_terminal`] endpoint to set a custom display name.
 #[derive(Debug, Deserialize)]
 pub struct RenameRequest {
+    /// New display name for the terminal.
     pub name: String,
 }
 
+/// Request body for auto-generating a terminal name.
+///
+/// Used by the [`auto_name_terminal`] endpoint to generate a name
+/// from the first command sent to the terminal.
 #[derive(Debug, Deserialize)]
 pub struct AutoNameRequest {
+    /// The first command or message sent to the terminal.
+    /// Up to 40 characters will be extracted and used as the name.
     pub first_message: String,
 }
 
-/// POST /api/terminals/{id}/rename — rename a terminal session.
+/// `POST /api/terminals/{id}/rename` — Set a custom terminal name.
+///
+/// Updates the terminal's display name in the registry. This name is shown
+/// in the UI and persists until changed again or the terminal is deleted.
+///
+/// # Path Parameters
+///
+/// - `id`: Terminal UUID
+///
+/// # Request Body
+///
+/// [`RenameRequest`] JSON object:
+/// ```json
+/// {"name": "Backend Server"}
+/// ```
+///
+/// # Returns
+///
+/// - **200 OK**: Terminal renamed successfully
+/// - **400 Bad Request**: Invalid UUID format
+/// - **404 Not Found**: Terminal not found in registry
+///
+/// # Example
+///
+/// ```bash
+/// curl -X POST http://localhost:3000/api/terminals/550e8400.../rename \
+///   -H "Content-Type: application/json" \
+///   -d '{"name": "Backend Server"}'
+/// ```
 pub async fn rename_terminal(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<String>,
@@ -247,7 +599,47 @@ pub async fn rename_terminal(
     }
 }
 
-/// POST /api/terminals/{id}/auto-name — auto-generate a terminal name from first message.
+/// `POST /api/terminals/{id}/auto-name` — Auto-generate terminal name from first command.
+///
+/// Extracts up to 40 characters from the first command or message sent to the terminal
+/// and uses it as the terminal's display name. This provides context about what the
+/// terminal is being used for (e.g., "npm run dev", "docker logs -f").
+///
+/// # Path Parameters
+///
+/// - `id`: Terminal UUID
+///
+/// # Request Body
+///
+/// [`AutoNameRequest`] JSON object:
+/// ```json
+/// {"first_message": "npm run dev -- --port 3000"}
+/// ```
+///
+/// # Returns
+///
+/// - **200 OK**: Terminal auto-named successfully
+/// - **400 Bad Request**: Invalid UUID format
+/// - **404 Not Found**: Terminal not found in registry
+///
+/// # Behavior
+///
+/// - Extracts up to 40 characters from `first_message`
+/// - Trims leading/trailing whitespace
+/// - Sets both `title` and `auto_name` fields in the terminal registry
+///
+/// # Example
+///
+/// ```bash
+/// curl -X POST http://localhost:3000/api/terminals/550e8400.../auto-name \
+///   -H "Content-Type: application/json" \
+///   -d '{"first_message": "npm run dev"}'
+/// ```
+///
+/// Response:
+/// ```json
+/// {"status": "auto_named", "id": "550e8400...", "name": "npm run dev"}
+/// ```
 pub async fn auto_name_terminal(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<String>,
@@ -283,7 +675,52 @@ pub async fn auto_name_terminal(
     }
 }
 
-/// PATCH /api/terminals/{id}/settings — update terminal font/cursor settings.
+/// `PATCH /api/terminals/{id}/settings` — Update terminal display and persistence settings.
+///
+/// Allows partial updates to terminal configuration like font size, cursor style,
+/// cursor blinking, and persistence flag. Only provided fields are updated.
+///
+/// # Path Parameters
+///
+/// - `id`: Terminal UUID
+///
+/// # Request Body
+///
+/// JSON object with optional fields:
+/// ```json
+/// {
+///   "font_size": 16,
+///   "cursor_style": "bar",
+///   "cursor_blink": false,
+///   "persistent": true
+/// }
+/// ```
+///
+/// # Supported Fields
+///
+/// - `font_size` (u16): Font size in pixels (e.g., 12, 14, 16)
+/// - `cursor_style` (string): Cursor appearance ("block", "underline", "bar")
+/// - `cursor_blink` (bool): Whether the cursor should blink
+/// - `persistent` (bool): Whether terminal should survive server restart
+///
+/// # Returns
+///
+/// - **200 OK**: Settings updated successfully
+/// - **400 Bad Request**: Invalid UUID format
+/// - **404 Not Found**: Terminal not found in registry
+///
+/// # Example
+///
+/// ```bash
+/// curl -X PATCH http://localhost:3000/api/terminals/550e8400.../settings \
+///   -H "Content-Type: application/json" \
+///   -d '{"font_size": 16, "persistent": true}'
+/// ```
+///
+/// Response:
+/// ```json
+/// {"updated": "550e8400-e29b-41d4-a716-446655440000"}
+/// ```
 pub async fn update_terminal_settings(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<String>,
@@ -325,7 +762,35 @@ pub async fn update_terminal_settings(
     }
 }
 
-/// GET /api/terminals/persistent — list persistent terminal sessions that should survive restart.
+/// `GET /api/terminals/persistent` — List persistent terminal sessions.
+///
+/// Returns terminals marked with `persistent: true`, which indicates they should
+/// be preserved across server restarts. This endpoint is typically used during
+/// server initialization to restore terminal sessions.
+///
+/// # Returns
+///
+/// - **200 OK**: Array of persistent terminal metadata
+///
+/// # Response Format
+///
+/// Returns a simplified view of persistent terminals:
+/// ```json
+/// [
+///   {
+///     "id": "550e8400-e29b-41d4-a716-446655440000",
+///     "name": "Backend Server",
+///     "font_size": 14,
+///     "cursor_style": "block"
+///   }
+/// ]
+/// ```
+///
+/// # Example
+///
+/// ```bash
+/// curl http://localhost:3000/api/terminals/persistent
+/// ```
 pub async fn list_persistent_terminals(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     let registry = state.terminal_registry.read().await;
     let persistent: Vec<serde_json::Value> = registry
@@ -347,7 +812,52 @@ pub async fn list_persistent_terminals(State(state): State<Arc<ApiState>>) -> im
 // WebSocket Handler
 // ---------------------------------------------------------------------------
 
-/// GET /ws/terminal/{id} — WebSocket for terminal I/O.
+/// `GET /ws/terminal/{id}` — Upgrade HTTP connection to WebSocket for terminal I/O.
+///
+/// This is the entry point for establishing an interactive terminal session via WebSocket.
+/// It validates the terminal ID, checks the terminal status, and upgrades the connection
+/// to WebSocket protocol.
+///
+/// # Path Parameters
+///
+/// - `id`: Terminal UUID (must match an existing terminal)
+///
+/// # Returns
+///
+/// - **101 Switching Protocols**: WebSocket upgrade successful
+/// - **400 Bad Request**: Invalid UUID format
+/// - **404 Not Found**: Terminal not found in registry
+/// - **410 Gone**: Terminal is dead (grace period expired, no reconnection allowed)
+///
+/// # Connection States
+///
+/// ## Terminal Active or Disconnected
+///
+/// WebSocket upgrade proceeds normally. If the terminal is `Disconnected`,
+/// any buffered output from the previous connection will be replayed.
+///
+/// ## Terminal Dead
+///
+/// Returns 410 Gone, indicating the terminal's grace period expired and
+/// the PTY process was killed. The client must create a new terminal.
+///
+/// # Protocol
+///
+/// See module-level documentation for details on the WebSocket protocol,
+/// message formats, and reconnection behavior.
+///
+/// # Example
+///
+/// ```javascript
+/// // JavaScript WebSocket client
+/// const ws = new WebSocket('ws://localhost:3000/ws/terminal/550e8400-e29b-41d4-a716-446655440000');
+///
+/// ws.onmessage = (event) => {
+///   console.log('Terminal output:', event.data);
+/// };
+///
+/// ws.send(JSON.stringify({type: 'input', data: 'ls -la\n'}));
+/// ```
 pub async fn terminal_ws(
     ws: WebSocketUpgrade,
     State(state): State<Arc<ApiState>>,
@@ -389,6 +899,67 @@ pub async fn terminal_ws(
         .into_response()
 }
 
+/// Internal handler for managing WebSocket connection lifecycle.
+///
+/// This function implements the core WebSocket protocol logic, including:
+/// - Reconnection buffer replay
+/// - Bidirectional I/O between WebSocket and PTY
+/// - Heartbeat/keepalive mechanism
+/// - Idle timeout enforcement
+/// - Graceful disconnection with buffering
+///
+/// # Architecture
+///
+/// The handler spawns three concurrent tasks:
+///
+/// ## 1. Reader Task (PTY → WebSocket)
+///
+/// Reads output from the PTY's stdout/stderr channel and forwards it to the WebSocket
+/// as text messages. Applies a 5-minute idle timeout — if the PTY produces no output
+/// for 5 minutes, the WebSocket connection is closed to free resources.
+///
+/// ## 2. Writer Task (WebSocket → PTY)
+///
+/// Reads messages from the WebSocket and processes them:
+/// - JSON-formatted [`WsIncoming`] commands for typed operations (input, resize)
+/// - Plain text messages treated as raw PTY input
+///
+/// Also applies a 5-minute idle timeout on the receive side.
+///
+/// ## 3. Heartbeat Task
+///
+/// Sends WebSocket Ping frames every 30 seconds to detect half-open connections.
+/// If the client has disconnected without sending a Close frame (e.g., network failure),
+/// the Ping will fail and trigger connection cleanup.
+///
+/// # Reconnection Logic
+///
+/// When this handler is invoked:
+/// 1. Check for existing disconnect buffer (indicates reconnection)
+/// 2. If buffer exists, replay all buffered output to restore terminal state
+/// 3. Transition terminal status from `Disconnected` → `Active`
+///
+/// This allows clients to seamlessly resume sessions after brief network interruptions.
+///
+/// # Disconnection Handling
+///
+/// When any task exits (idle timeout, client disconnect, heartbeat failure):
+/// 1. Abort all spawned tasks to release PTY reader resources
+/// 2. Transition terminal status to `Disconnected` with timestamp
+/// 3. Create disconnect buffer (4KB ring buffer for PTY output)
+/// 4. Spawn background task to buffer output for 10 seconds
+/// 5. If no reconnection occurs, kill PTY and mark terminal `Dead`
+///
+/// # Grace Period Details
+///
+/// The 10-second grace period ([`WS_RECONNECT_GRACE`]) allows clients to:
+/// - Recover from transient network failures
+/// - Reload the page without losing session
+/// - Switch tabs without session termination
+///
+/// During this period, PTY output is buffered (last 4KB) and replayed on reconnection.
+/// If the grace period expires, the PTY process is killed and subsequent reconnection
+/// attempts receive 410 Gone.
 async fn handle_terminal_ws(socket: WebSocket, state: Arc<ApiState>, terminal_id: Uuid) {
     use futures_util::{SinkExt, StreamExt};
 
@@ -444,12 +1015,18 @@ async fn handle_terminal_ws(socket: WebSocket, state: Arc<ApiState>, terminal_id
         }
     };
 
-    // Task: PTY stdout -> WS (with 5-minute idle timeout)
+    // -----------------------------------------------------------------------
+    // Task 1: PTY stdout -> WebSocket (with 5-minute idle timeout)
+    // -----------------------------------------------------------------------
+    // Forwards PTY output to the WebSocket client. If no output is produced
+    // for WS_IDLE_TIMEOUT (5 minutes), the connection is closed to prevent
+    // resource leaks from idle terminals.
     let ws_sender_reader = ws_sender.clone();
     let reader_task_handle = tokio::spawn(async move {
         loop {
             match tokio::time::timeout(WS_IDLE_TIMEOUT, pty_reader.recv_async()).await {
                 Ok(Ok(data)) => {
+                    // Convert raw bytes to UTF-8 (with lossy conversion for invalid sequences).
                     let text = String::from_utf8_lossy(&data).into_owned();
                     if ws_sender_reader
                         .lock()
@@ -458,14 +1035,17 @@ async fn handle_terminal_ws(socket: WebSocket, state: Arc<ApiState>, terminal_id
                         .await
                         .is_err()
                     {
+                        // WebSocket send failed — client disconnected.
                         break;
                     }
                 }
                 Ok(Err(_)) => {
+                    // PTY reader channel closed — child process exited.
                     tracing::debug!("PTY reader closed");
                     break;
                 }
                 Err(_) => {
+                    // Idle timeout expired — no output for 5 minutes.
                     tracing::info!("terminal WebSocket idle timeout (5min), closing");
                     break;
                 }
@@ -475,7 +1055,11 @@ async fn handle_terminal_ws(socket: WebSocket, state: Arc<ApiState>, terminal_id
 
     let reader_abort = reader_task_handle.abort_handle();
 
-    // Task: WS -> PTY stdin (with 5-minute idle timeout)
+    // -----------------------------------------------------------------------
+    // Task 2: WebSocket -> PTY stdin (with 5-minute idle timeout)
+    // -----------------------------------------------------------------------
+    // Receives messages from the WebSocket client and forwards them to the PTY.
+    // Supports both structured JSON commands (WsIncoming) and plain text input.
     let writer_state = state.clone();
     let writer_terminal_id = terminal_id;
     let writer_task_handle = tokio::spawn(async move {
@@ -484,10 +1068,11 @@ async fn handle_terminal_ws(socket: WebSocket, state: Arc<ApiState>, terminal_id
                 Ok(Some(Ok(msg))) => {
                     match msg {
                         Message::Text(text) => {
-                            // Try to parse as JSON command.
+                            // Try to parse as JSON command first.
                             if let Ok(cmd) = serde_json::from_str::<WsIncoming>(&text) {
                                 match cmd {
                                     WsIncoming::Input { data } => {
+                                        // Write raw input to PTY stdin.
                                         let _ = pty_writer.send(data.into_bytes());
                                     }
                                     WsIncoming::Resize { cols, rows } => {
@@ -496,7 +1081,8 @@ async fn handle_terminal_ws(socket: WebSocket, state: Arc<ApiState>, terminal_id
                                             "terminal resize requested"
                                         );
 
-                                        // Resize the actual PTY via the master fd.
+                                        // Resize the actual PTY via ioctl(TIOCSWINSZ).
+                                        // This sends SIGWINCH to the child process.
                                         {
                                             let handles = writer_state.pty_handles.read().await;
                                             if let Some(handle) = handles.get(&writer_terminal_id) {
@@ -509,7 +1095,7 @@ async fn handle_terminal_ws(socket: WebSocket, state: Arc<ApiState>, terminal_id
                                             }
                                         }
 
-                                        // Update the terminal registry dimensions.
+                                        // Update the terminal registry dimensions for display.
                                         {
                                             let mut registry =
                                                 writer_state.terminal_registry.write().await;
@@ -523,19 +1109,27 @@ async fn handle_terminal_ws(socket: WebSocket, state: Arc<ApiState>, terminal_id
                                     }
                                 }
                             } else {
-                                // Plain text: send directly as input.
+                                // Not JSON — treat as plain text input.
+                                // This allows simple clients to send keystrokes without JSON wrapping.
                                 let _ = pty_writer.send(text.as_bytes().to_vec());
                             }
                         }
                         Message::Binary(data) => {
+                            // Binary data forwarded directly to PTY stdin.
                             let _ = pty_writer.send(data.to_vec());
                         }
                         Message::Close(_) => break,
-                        _ => {}
+                        _ => {
+                            // Ignore other message types (Ping, Pong — handled automatically).
+                        }
                     }
                 }
-                Ok(Some(Err(_))) | Ok(None) => break,
+                Ok(Some(Err(_))) | Ok(None) => {
+                    // WebSocket stream error or closed.
+                    break;
+                }
                 Err(_) => {
+                    // Idle timeout expired — no messages received for 5 minutes.
                     tracing::info!("terminal WebSocket idle timeout (5min), closing");
                     break;
                 }
@@ -545,7 +1139,11 @@ async fn handle_terminal_ws(socket: WebSocket, state: Arc<ApiState>, terminal_id
 
     let writer_abort = writer_task_handle.abort_handle();
 
-    // Task: Heartbeat — send Ping every 30s to detect stale connections.
+    // -----------------------------------------------------------------------
+    // Task 3: Heartbeat — send Ping frames every 30 seconds
+    // -----------------------------------------------------------------------
+    // Detects half-open TCP connections where the client has disconnected
+    // without sending a Close frame (e.g., network failure, process kill).
     // Pong responses are handled automatically by axum/tungstenite.
     let ws_sender_heartbeat = ws_sender.clone();
     let heartbeat_task_handle = tokio::spawn(async move {
@@ -559,6 +1157,7 @@ async fn handle_terminal_ws(socket: WebSocket, state: Arc<ApiState>, terminal_id
                 .await
                 .is_err()
             {
+                // Ping send failed — connection is dead.
                 tracing::debug!("heartbeat ping failed, connection lost");
                 break;
             }
@@ -567,20 +1166,25 @@ async fn handle_terminal_ws(socket: WebSocket, state: Arc<ApiState>, terminal_id
 
     let heartbeat_abort = heartbeat_task_handle.abort_handle();
 
-    // Wait for any task to finish — then the connection is done.
+    // -----------------------------------------------------------------------
+    // Wait for any task to complete — then the connection is done.
+    // -----------------------------------------------------------------------
     tokio::select! {
         _ = reader_task_handle => {},
         _ = writer_task_handle => {},
         _ = heartbeat_task_handle => {},
     }
 
-    // Abort all spawned tasks so they stop consuming the PTY reader channel.
-    // The reader_task must drop its Receiver clone before the background
-    // buffer task can successfully read from the channel.
+    // Abort all spawned tasks to release resources immediately.
+    // CRITICAL: The reader_task must drop its Receiver clone before the
+    // background buffer task can successfully read from the channel.
+    // Without this, the buffer task would hang waiting for the reader_task
+    // to release the channel.
     reader_abort.abort();
     writer_abort.abort();
     heartbeat_abort.abort();
-    // Yield to let the runtime process the aborts and drop task state.
+
+    // Yield to the runtime to ensure aborts are processed and task state is dropped.
     tokio::task::yield_now().await;
 
     // -----------------------------------------------------------------------
@@ -614,7 +1218,13 @@ async fn handle_terminal_ws(socket: WebSocket, state: Arc<ApiState>, terminal_id
         }
     };
 
-    // Spawn a background task that buffers PTY output during the grace period.
+    // -----------------------------------------------------------------------
+    // Spawn background task to buffer PTY output during grace period.
+    // -----------------------------------------------------------------------
+    // This task continues reading PTY output for WS_RECONNECT_GRACE (10 seconds)
+    // and buffers it (last 4KB) in case the client reconnects. If the grace
+    // period expires without reconnection, the PTY is killed and the terminal
+    // transitions to Dead status.
     let bg_state = state.clone();
     tokio::spawn(async move {
         let deadline = tokio::time::Instant::now() + WS_RECONNECT_GRACE;
@@ -622,17 +1232,21 @@ async fn handle_terminal_ws(socket: WebSocket, state: Arc<ApiState>, terminal_id
         loop {
             let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
             if remaining.is_zero() {
+                // Grace period expired.
                 break;
             }
 
             match tokio::time::timeout(remaining, pty_reader_bg.recv_async()).await {
                 Ok(Ok(data)) => {
-                    // Check if terminal was reconnected (buffer removed by new WS handler).
+                    // PTY produced output — add to disconnect buffer.
                     let mut buffers = bg_state.disconnect_buffers.write().await;
                     match buffers.get_mut(&terminal_id) {
-                        Some(buf) => buf.push(&data),
+                        Some(buf) => {
+                            // Buffer exists — push data (ring buffer overwrites oldest data).
+                            buf.push(&data);
+                        }
                         None => {
-                            // Buffer was consumed by a reconnecting client — stop.
+                            // Buffer was consumed by a reconnecting client — stop buffering.
                             tracing::debug!(
                                 %terminal_id,
                                 "disconnect buffer consumed, reconnect happened"
@@ -642,27 +1256,29 @@ async fn handle_terminal_ws(socket: WebSocket, state: Arc<ApiState>, terminal_id
                     }
                 }
                 Ok(Err(_)) => {
-                    // PTY closed during grace period.
+                    // PTY reader channel closed — child process exited during grace period.
                     tracing::debug!(%terminal_id, "PTY closed during disconnect grace period");
                     break;
                 }
                 Err(_) => {
-                    // Timeout — grace period expired.
+                    // Timeout — grace period expired without PTY output.
                     break;
                 }
             }
         }
 
-        // Grace period expired (or PTY closed). Check if still disconnected.
+        // -----------------------------------------------------------------------
+        // Grace period expired or PTY closed. Check if still disconnected.
+        // -----------------------------------------------------------------------
         {
             let registry = bg_state.terminal_registry.read().await;
             if let Some(info) = registry.get(&terminal_id) {
                 if !matches!(info.status, TerminalStatus::Disconnected { .. }) {
-                    // Terminal was reconnected or otherwise handled — don't kill.
+                    // Terminal was reconnected or manually deleted — don't kill.
                     return;
                 }
             } else {
-                // Terminal was removed from registry.
+                // Terminal was removed from registry (manually deleted).
                 return;
             }
         }
@@ -672,7 +1288,10 @@ async fn handle_terminal_ws(socket: WebSocket, state: Arc<ApiState>, terminal_id
             "reconnect grace period expired, killing terminal"
         );
 
-        // Kill the PTY.
+        // -----------------------------------------------------------------------
+        // Kill the PTY process and clean up all resources.
+        // -----------------------------------------------------------------------
+        // Kill the PTY child process (sends SIGKILL).
         {
             let mut handles = bg_state.pty_handles.write().await;
             if let Some(handle) = handles.remove(&terminal_id) {
@@ -680,18 +1299,18 @@ async fn handle_terminal_ws(socket: WebSocket, state: Arc<ApiState>, terminal_id
             }
         }
 
-        // Release from pool.
+        // Release terminal ID from pool tracking.
         if let Some(pool) = &bg_state.pty_pool {
             pool.release(terminal_id);
         }
 
-        // Set status to Dead.
+        // Set status to Dead — subsequent reconnect attempts will receive 410 Gone.
         {
             let mut registry = bg_state.terminal_registry.write().await;
             registry.update_status(&terminal_id, TerminalStatus::Dead);
         }
 
-        // Clean up the buffer.
+        // Clean up the disconnect buffer.
         {
             let mut buffers = bg_state.disconnect_buffers.write().await;
             buffers.remove(&terminal_id);
