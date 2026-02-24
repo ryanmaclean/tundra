@@ -40,12 +40,13 @@ pub fn HelpModal(on_close: impl Fn(MouseEvent) + 'static + Clone) -> impl IntoVi
         focus_trap(ev);
     };
 
+    let on_close_overlay = on_close.clone();
     let on_close_button = move |ev: MouseEvent| {
         on_close(ev);
     };
 
     view! {
-        <div class="help-overlay" on:click=on_close_button>
+        <div class="help-overlay" on:click=move |ev| on_close_overlay(ev)>
         </div>
         <div class="help-modal" on:keydown=handle_keydown>
             <h2>"Keyboard Shortcuts"</h2>
