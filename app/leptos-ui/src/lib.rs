@@ -47,7 +47,7 @@ pub fn App() -> impl IntoView {
     let (show_settings, set_show_settings) = signal(false);
 
     // Start the event WebSocket stream
-    let (_conn_state, _latest_event, toasts, set_toasts, unread_count, set_unread_count) =
+    let (conn_state, _latest_event, toasts, set_toasts, unread_count, set_unread_count) =
         events::use_event_stream();
 
     // Fetch notification count on startup so the bell shows the real unread count.
