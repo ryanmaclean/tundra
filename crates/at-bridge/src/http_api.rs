@@ -57,25 +57,17 @@ pub struct Project {
 }
 
 /// Sync status tracking for GitHub issue synchronization.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SyncStatus {
     pub last_sync_time: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(default)]
     pub issues_imported: u64,
+    #[serde(default)]
     pub issues_exported: u64,
+    #[serde(default)]
     pub statuses_synced: u64,
+    #[serde(default)]
     pub is_syncing: bool,
-}
-
-impl Default for SyncStatus {
-    fn default() -> Self {
-        Self {
-            last_sync_time: None,
-            issues_imported: 0,
-            issues_exported: 0,
-            statuses_synced: 0,
-            is_syncing: false,
-        }
-    }
 }
 
 /// Metadata stub for an image/screenshot attachment on a task.
@@ -955,9 +947,9 @@ async fn update_task(
     drop(tasks);
     state
         .event_bus
-        .publish(crate::protocol::BridgeMessage::TaskUpdate(
+        .publish(crate::protocol::BridgeMessage::TaskUpdate(Box::new(
             task_snapshot.clone(),
-        ));
+        )));
     (
         axum::http::StatusCode::OK,
         Json(serde_json::json!(task_snapshot)),
@@ -1005,9 +997,9 @@ async fn update_task_phase(
     drop(tasks);
     state
         .event_bus
-        .publish(crate::protocol::BridgeMessage::TaskUpdate(
+        .publish(crate::protocol::BridgeMessage::TaskUpdate(Box::new(
             task_snapshot.clone(),
-        ));
+        )));
     (
         axum::http::StatusCode::OK,
         Json(serde_json::json!(task_snapshot)),
@@ -1081,9 +1073,9 @@ async fn execute_task_pipeline(
     // Publish the phase change.
     state
         .event_bus
-        .publish(crate::protocol::BridgeMessage::TaskUpdate(
+        .publish(crate::protocol::BridgeMessage::TaskUpdate(Box::new(
             task_snapshot.clone(),
-        ));
+        )));
 
     // Spawn a background task to drive the pipeline phases.
     let tasks_store = state.tasks.clone();
@@ -1278,7 +1270,9 @@ async fn run_pipeline_background(
         let mut tasks = tasks_store.write().await;
         if let Some(t) = tasks.iter_mut().find(|t| t.id == task.id) {
             t.set_phase(TaskPhase::Qa);
-            event_bus.publish(crate::protocol::BridgeMessage::TaskUpdate(t.clone()));
+            event_bus.publish(crate::protocol::BridgeMessage::TaskUpdate(Box::new(
+                t.clone(),
+            )));
         }
     }
 
@@ -1345,7 +1339,9 @@ async fn run_pipeline_background(
             let mut tasks = tasks_store.write().await;
             if let Some(t) = tasks.iter_mut().find(|t| t.id == task.id) {
                 t.set_phase(TaskPhase::Fixing);
-                event_bus.publish(crate::protocol::BridgeMessage::TaskUpdate(t.clone()));
+                event_bus.publish(crate::protocol::BridgeMessage::TaskUpdate(Box::new(
+                    t.clone(),
+                )));
             }
         }
 
@@ -1354,7 +1350,9 @@ async fn run_pipeline_background(
             let mut tasks = tasks_store.write().await;
             if let Some(t) = tasks.iter_mut().find(|t| t.id == task.id) {
                 t.set_phase(TaskPhase::Qa);
-                event_bus.publish(crate::protocol::BridgeMessage::TaskUpdate(t.clone()));
+                event_bus.publish(crate::protocol::BridgeMessage::TaskUpdate(Box::new(
+                    t.clone(),
+                )));
             }
         }
 
@@ -1390,7 +1388,9 @@ async fn run_pipeline_background(
 
             let next_phase = report.next_phase();
             t.set_phase(next_phase);
-            event_bus.publish(crate::protocol::BridgeMessage::TaskUpdate(t.clone()));
+            event_bus.publish(crate::protocol::BridgeMessage::TaskUpdate(Box::new(
+                t.clone(),
+            )));
         }
     }
 
@@ -1601,7 +1601,8 @@ async fn list_gitlab_issues(
                 "error": "GitLab token not configured. Set the environment variable.",
                 "env_var": int.gitlab_token_env,
             })),
-        ).into_response();
+        )
+            .into_response();
     }
 
     let project_id = q
@@ -1673,7 +1674,8 @@ async fn list_gitlab_merge_requests(
                 "error": "GitLab token not configured. Set the environment variable.",
                 "env_var": int.gitlab_token_env,
             })),
-        ).into_response();
+        )
+            .into_response();
     }
 
     let project_id = q
@@ -1746,7 +1748,8 @@ async fn review_gitlab_merge_request(
                 "error": "GitLab token not configured. Set the environment variable.",
                 "env_var": int.gitlab_token_env,
             })),
-        ).into_response();
+        )
+            .into_response();
     }
 
     let req = body.map(|b| b.0).unwrap_or_default();
@@ -1819,7 +1822,8 @@ async fn list_linear_issues(
                 "error": "Linear API key not configured. Set the environment variable.",
                 "env_var": int.linear_api_key_env,
             })),
-        ).into_response();
+        )
+            .into_response();
     }
 
     let client =
@@ -1865,7 +1869,8 @@ async fn import_linear_issues(
                 "error": "Linear API key not configured. Set the environment variable.",
                 "env_var": int.linear_api_key_env,
             })),
-        ).into_response();
+        )
+            .into_response();
     }
 
     let client =
@@ -1877,7 +1882,9 @@ async fn import_linear_issues(
         };
 
     match client.import_issues(body.issue_ids).await {
-        Ok(results) => (axum::http::StatusCode::OK, Json(serde_json::json!(results))).into_response(),
+        Ok(results) => {
+            (axum::http::StatusCode::OK, Json(serde_json::json!(results))).into_response()
+        }
         Err(e) => ApiError::InternalError(e.to_string()).into_response(),
     }
 }
@@ -1901,7 +1908,8 @@ async fn patch_kanban_columns(
     (
         axum::http::StatusCode::OK,
         Json(serde_json::to_value(cols.clone()).unwrap()),
-    ).into_response()
+    )
+        .into_response()
 }
 
 /// GET /api/credentials/status — report which credential providers are available.
@@ -1982,7 +1990,7 @@ async fn list_github_issues(
     let owner = int.github_owner.as_deref().unwrap_or("").to_string();
     let repo = int.github_repo.as_deref().unwrap_or("").to_string();
 
-    if token.as_ref().map_or(true, |t| t.is_empty()) {
+    if token.as_ref().is_none_or(|t| t.is_empty()) {
         return (
             axum::http::StatusCode::SERVICE_UNAVAILABLE,
             Json(serde_json::json!({
@@ -2041,7 +2049,7 @@ async fn trigger_github_sync(State(state): State<Arc<ApiState>>) -> impl IntoRes
     let owner = int.github_owner.as_deref().unwrap_or("").to_string();
     let repo = int.github_repo.as_deref().unwrap_or("").to_string();
 
-    if token.as_ref().map_or(true, |t| t.is_empty()) {
+    if token.as_ref().is_none_or(|t| t.is_empty()) {
         return (
             axum::http::StatusCode::SERVICE_UNAVAILABLE,
             Json(serde_json::json!({
@@ -2061,11 +2069,7 @@ async fn trigger_github_sync(State(state): State<Arc<ApiState>>) -> impl IntoRes
             .into_response();
     }
 
-    let gh_config = GitHubConfig {
-        token: token,
-        owner,
-        repo,
-    };
+    let gh_config = GitHubConfig { token, owner, repo };
     let client = match at_integrations::github::client::GitHubClient::new(gh_config) {
         Ok(c) => c,
         Err(e) => {
@@ -2142,7 +2146,7 @@ async fn create_pr_for_task(
     let owner = int.github_owner.as_deref().unwrap_or("").to_string();
     let repo = int.github_repo.as_deref().unwrap_or("").to_string();
 
-    if token.as_ref().map_or(true, |t| t.is_empty()) {
+    if token.as_ref().is_none_or(|t| t.is_empty()) {
         return (
             axum::http::StatusCode::SERVICE_UNAVAILABLE,
             Json(serde_json::json!({
@@ -2340,7 +2344,8 @@ async fn list_ui_sessions(State(state): State<Arc<ApiState>>) -> impl IntoRespon
         Ok(sessions) => (
             axum::http::StatusCode::OK,
             Json(serde_json::json!(sessions)),
-        ).into_response(),
+        )
+            .into_response(),
         Err(e) => ApiError::InternalError(e.to_string()).into_response(),
     }
 }
@@ -2355,15 +2360,10 @@ async fn ws_handler(ws: WebSocketUpgrade, State(state): State<Arc<ApiState>>) ->
 
 async fn handle_ws(mut socket: WebSocket, state: Arc<ApiState>) {
     let rx = state.event_bus.subscribe();
-    loop {
-        match rx.recv_async().await {
-            Ok(msg) => {
-                let json = serde_json::to_string(&*msg).unwrap_or_default();
-                if socket.send(Message::Text(json.into())).await.is_err() {
-                    break;
-                }
-            }
-            Err(_) => break,
+    while let Ok(msg) = rx.recv_async().await {
+        let json = serde_json::to_string(&*msg).unwrap_or_default();
+        if socket.send(Message::Text(json.into())).await.is_err() {
+            break;
         }
     }
 }
@@ -2526,10 +2526,16 @@ async fn call_mcp_tool(
         Some(result) => {
             if result.is_error {
                 ApiError::BadRequest(
-                    serde_json::to_string(&result).unwrap_or_else(|_| "builtin tool error".to_string())
-                ).into_response()
+                    serde_json::to_string(&result)
+                        .unwrap_or_else(|_| "builtin tool error".to_string()),
+                )
+                .into_response()
             } else {
-                (axum::http::StatusCode::OK, Json(serde_json::to_value(result).unwrap())).into_response()
+                (
+                    axum::http::StatusCode::OK,
+                    Json(serde_json::to_value(result).unwrap()),
+                )
+                    .into_response()
             }
         }
         None => ApiError::NotFound(format!("unknown tool: {}", request.name)).into_response(),
@@ -2620,7 +2626,8 @@ async fn list_worktrees() -> impl IntoResponse {
     (
         axum::http::StatusCode::OK,
         Json(serde_json::json!(worktrees)),
-    ).into_response()
+    )
+        .into_response()
 }
 
 // ---------------------------------------------------------------------------
@@ -2696,7 +2703,8 @@ async fn merge_worktree(
             return (
                 axum::http::StatusCode::OK,
                 Json(serde_json::json!({"status": "nothing_to_merge", "branch": branch})),
-            ).into_response();
+            )
+                .into_response();
         }
         Ok(_) => { /* has changes */ }
         Err(e) => {
@@ -2737,7 +2745,8 @@ async fn merge_worktree(
             (
                 axum::http::StatusCode::OK,
                 Json(serde_json::json!({"status": "success", "branch": branch})),
-            ).into_response()
+            )
+                .into_response()
         }
         Ok(o) => {
             // Detect conflict files
@@ -2789,7 +2798,8 @@ async fn merge_worktree(
                     "branch": branch,
                     "files": conflict_files,
                 })),
-            ).into_response()
+            )
+                .into_response()
         }
         Err(e) => ApiError::InternalError(e.to_string()).into_response(),
     }
@@ -2831,10 +2841,11 @@ async fn merge_preview(Path(id): Path<String>) -> impl IntoResponse {
             current_branch = String::new();
         }
     }
-    if found_branch.is_none() && !current_path.is_empty() {
-        if current_branch.contains(&id) || current_path.contains(&id) {
-            found_branch = Some(current_branch);
-        }
+    if found_branch.is_none()
+        && !current_path.is_empty()
+        && (current_branch.contains(&id) || current_path.contains(&id))
+    {
+        found_branch = Some(current_branch);
     }
 
     let branch = match found_branch {
@@ -2901,7 +2912,8 @@ async fn merge_preview(Path(id): Path<String>) -> impl IntoResponse {
             "has_conflicts": has_conflicts,
             "branch": branch,
         })),
-    ).into_response()
+    )
+        .into_response()
 }
 
 /// POST /api/worktrees/{id}/resolve — accept conflict resolution.
@@ -2980,7 +2992,8 @@ async fn resolve_conflict(
             "file": req.file,
             "strategy": req.strategy,
         })),
-    ).into_response()
+    )
+        .into_response()
 }
 
 // ---------------------------------------------------------------------------
@@ -3056,8 +3069,8 @@ async fn reorder_queue(
     (
         axum::http::StatusCode::OK,
         Json(serde_json::json!({"status": "ok"})),
-    ).into_response()
-
+    )
+        .into_response()
 }
 
 /// POST /api/queue/{task_id}/prioritize — bump a task's priority.
@@ -3079,9 +3092,9 @@ async fn prioritize_task(
 
     state
         .event_bus
-        .publish(crate::protocol::BridgeMessage::TaskUpdate(
+        .publish(crate::protocol::BridgeMessage::TaskUpdate(Box::new(
             task_snapshot.clone(),
-        ));
+        )));
 
     (
         axum::http::StatusCode::OK,
@@ -3125,7 +3138,8 @@ async fn toggle_direct_mode(
                 "status": "ok",
                 "direct_mode": req.enabled,
             })),
-        ).into_response(),
+        )
+            .into_response(),
         Err(e) => ApiError::InternalError(e.to_string()).into_response(),
     }
 }
@@ -3217,11 +3231,14 @@ async fn delete_worktree(Path(id): Path<String>) -> impl IntoResponse {
         Ok(o) if o.status.success() => (
             axum::http::StatusCode::OK,
             Json(serde_json::json!({"status": "deleted", "id": id, "path": path})),
-        ).into_response(),
-        Ok(o) => ApiError::BadRequest(
-            String::from_utf8_lossy(&o.stderr).to_string()
-        ).into_response(),
-        Err(e) => ApiError::InternalError(format!("{}, id: {}, path: {}", e, id, path)).into_response(),
+        )
+            .into_response(),
+        Ok(o) => {
+            ApiError::BadRequest(String::from_utf8_lossy(&o.stderr).to_string()).into_response()
+        }
+        Err(e) => {
+            ApiError::InternalError(format!("{}, id: {}, path: {}", e, id, path)).into_response()
+        }
     }
 }
 
@@ -3250,7 +3267,7 @@ async fn list_github_prs(
     let owner = int.github_owner.as_deref().unwrap_or("").to_string();
     let repo = int.github_repo.as_deref().unwrap_or("").to_string();
 
-    if token.as_ref().map_or(true, |t| t.is_empty()) {
+    if token.as_ref().is_none_or(|t| t.is_empty()) {
         return (
             axum::http::StatusCode::SERVICE_UNAVAILABLE,
             Json(serde_json::json!({
@@ -3313,7 +3330,7 @@ async fn import_github_issue(
     let owner = int.github_owner.as_deref().unwrap_or("").to_string();
     let repo = int.github_repo.as_deref().unwrap_or("").to_string();
 
-    if token.as_ref().map_or(true, |t| t.is_empty()) {
+    if token.as_ref().is_none_or(|t| t.is_empty()) {
         return (
             axum::http::StatusCode::SERVICE_UNAVAILABLE,
             Json(serde_json::json!({
@@ -3354,7 +3371,8 @@ async fn import_github_issue(
     (
         axum::http::StatusCode::CREATED,
         Json(serde_json::json!(bead)),
-    ).into_response()
+    )
+        .into_response()
 }
 
 // ---------------------------------------------------------------------------
@@ -3420,7 +3438,8 @@ async fn github_oauth_callback(
             return (
                 axum::http::StatusCode::SERVICE_UNAVAILABLE,
                 Json(serde_json::json!({ "error": "GITHUB_OAUTH_CLIENT_ID not set" })),
-            ).into_response();
+            )
+                .into_response();
         }
     };
     let client_secret = match std::env::var("GITHUB_OAUTH_CLIENT_SECRET") {
@@ -3429,7 +3448,8 @@ async fn github_oauth_callback(
             return (
                 axum::http::StatusCode::SERVICE_UNAVAILABLE,
                 Json(serde_json::json!({ "error": "GITHUB_OAUTH_CLIENT_SECRET not set" })),
-            ).into_response();
+            )
+                .into_response();
         }
     };
     let redirect_uri = std::env::var("GITHUB_OAUTH_REDIRECT_URI")
@@ -3478,7 +3498,8 @@ async fn github_oauth_callback(
             "scope": token_resp.scope,
             "expires_in": token_resp.expires_in,
         })),
-    ).into_response()
+    )
+        .into_response()
 }
 
 /// GET /api/github/oauth/status — check whether the user is authenticated.
@@ -3637,7 +3658,8 @@ async fn update_project(
     (
         axum::http::StatusCode::OK,
         Json(serde_json::json!(project.clone())),
-    ).into_response()
+    )
+        .into_response()
 }
 
 async fn delete_project(
@@ -3661,7 +3683,8 @@ async fn delete_project(
     (
         axum::http::StatusCode::OK,
         Json(serde_json::json!({"ok": true})),
-    ).into_response()
+    )
+        .into_response()
 }
 
 async fn activate_project(
@@ -3680,7 +3703,8 @@ async fn activate_project(
     (
         axum::http::StatusCode::OK,
         Json(serde_json::json!(activated)),
-    ).into_response()
+    )
+        .into_response()
 }
 
 // ---------------------------------------------------------------------------
@@ -3741,7 +3765,8 @@ async fn unwatch_pr(
         (
             axum::http::StatusCode::OK,
             Json(serde_json::json!({"removed": number})),
-        ).into_response()
+        )
+            .into_response()
     } else {
         ApiError::NotFound("PR not watched".to_string()).into_response()
     }
@@ -3777,7 +3802,7 @@ async fn create_release(
     let owner = int.github_owner.as_deref().unwrap_or("").to_string();
     let repo = int.github_repo.as_deref().unwrap_or("").to_string();
 
-    if token.as_ref().map_or(true, |t| t.is_empty()) || owner.is_empty() || repo.is_empty() {
+    if token.as_ref().is_none_or(|t| t.is_empty()) || owner.is_empty() || repo.is_empty() {
         let release = GitHubRelease {
             tag_name: req.tag_name,
             name: req.name,
@@ -3793,7 +3818,8 @@ async fn create_release(
         return (
             axum::http::StatusCode::CREATED,
             Json(serde_json::json!(release)),
-        ).into_response();
+        )
+            .into_response();
     }
 
     let gh_config = GitHubConfig { token, owner, repo };
@@ -3819,7 +3845,8 @@ async fn create_release(
             return (
                 axum::http::StatusCode::BAD_GATEWAY,
                 Json(serde_json::json!({ "error": format!("GitHub release create failed: {e}") })),
-            ).into_response();
+            )
+                .into_response();
         }
     };
 
@@ -3866,7 +3893,8 @@ async fn create_release(
     (
         axum::http::StatusCode::CREATED,
         Json(serde_json::json!(release)),
-    ).into_response()
+    )
+        .into_response()
 }
 
 async fn list_releases(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
@@ -3876,7 +3904,7 @@ async fn list_releases(State(state): State<Arc<ApiState>>) -> impl IntoResponse 
     let owner = int.github_owner.as_deref().unwrap_or("").to_string();
     let repo = int.github_repo.as_deref().unwrap_or("").to_string();
 
-    if token.as_ref().map_or(false, |t| !t.is_empty()) && !owner.is_empty() && !repo.is_empty() {
+    if token.as_ref().is_some_and(|t| !t.is_empty()) && !owner.is_empty() && !repo.is_empty() {
         let gh_config = GitHubConfig { token, owner, repo };
         if let Ok(client) = at_integrations::github::client::GitHubClient::new(gh_config) {
             let route = format!("/repos/{}/{}/releases", client.owner(), client.repo());
@@ -4026,7 +4054,8 @@ async fn delete_attachment(
         (
             axum::http::StatusCode::OK,
             Json(serde_json::json!({"deleted": attachment_id})),
-        ).into_response()
+        )
+            .into_response()
     } else {
         ApiError::NotFound("attachment not found".to_string()).into_response()
     }
@@ -4066,7 +4095,8 @@ async fn delete_task_draft(
         (
             axum::http::StatusCode::OK,
             Json(serde_json::json!({"deleted": id})),
-        ).into_response()
+        )
+            .into_response()
     } else {
         ApiError::NotFound("draft not found".to_string()).into_response()
     }
@@ -4267,7 +4297,11 @@ mod tests {
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         // Error message contains either "token" or "owner" depending on which config is missing
         let error_msg = json["error"].as_str().unwrap();
-        assert!(error_msg.contains("token") || error_msg.contains("owner") || error_msg.contains("GitHub"));
+        assert!(
+            error_msg.contains("token")
+                || error_msg.contains("owner")
+                || error_msg.contains("GitHub")
+        );
     }
 
     #[tokio::test]
