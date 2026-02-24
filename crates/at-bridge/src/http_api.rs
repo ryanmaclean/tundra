@@ -1200,7 +1200,7 @@ async fn list_agents(State(state): State<Arc<ApiState>>) -> Json<Vec<Agent>> {
 /// * `404 NOT FOUND` - Agent with specified ID not found
 ///
 /// # Example Request
-/// ```
+/// ```text
 /// POST /api/agents/550e8400-e29b-41d4-a716-446655440000/nudge
 /// ```
 ///
@@ -1257,7 +1257,7 @@ async fn nudge_agent(
 /// * `404 NOT FOUND` - Agent with specified ID not found
 ///
 /// # Example Request
-/// ```
+/// ```text
 /// POST /api/agents/550e8400-e29b-41d4-a716-446655440000/stop
 /// ```
 ///
@@ -2572,7 +2572,7 @@ struct ListGitLabIssuesQuery {
 /// 503 if GitLab token is not configured.
 ///
 /// **Example Request:**
-/// ```
+/// ```text
 /// GET /api/gitlab/issues?project_id=myorg/myproject&state=opened&page=1&per_page=10
 /// ```
 ///
@@ -2690,7 +2690,7 @@ struct ListGitLabMrsQuery {
 /// 503 if GitLab token is not configured.
 ///
 /// **Example Request:**
-/// ```
+/// ```text
 /// GET /api/gitlab/merge-requests?project_id=myorg/myproject&state=opened&page=1&per_page=5
 /// ```
 ///
