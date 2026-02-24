@@ -581,7 +581,18 @@ fn render_ideation_navigation_updates_detail() {
 }
 
 // ===========================================================================
-// Tab 11: Worktrees
+// Tab 11: Planning Poker
+// ===========================================================================
+
+#[test]
+fn planning_poker_tab_renders() {
+    let output = render_tab(11);
+    // Just rendering without panic is the main verification
+    assert!(!output.is_empty());
+}
+
+// ===========================================================================
+// Tab 12: Worktrees
 // ===========================================================================
 
 #[test]
