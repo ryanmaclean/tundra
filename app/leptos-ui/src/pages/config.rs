@@ -843,20 +843,24 @@ pub fn ConfigPage(#[prop(optional)] on_close: Option<Callback<()>>) -> impl Into
         ("Re-run Wizard", "Start the setup wizard again", false, true),
     ];
 
-    let close_modal = move |_| {
+    let close_action = move || {
         if let Some(cb) = on_close {
             cb.run(());
         }
     };
 
+    let close_modal = move |_: web_sys::MouseEvent| {
+        close_action();
+    };
+
     let focus_trap = use_focus_trap();
-    let close_modal_for_escape = close_modal.clone();
+    let close_modal_for_escape = close_action;
 
     // Combined keydown handler for focus trap and Escape key
     let handle_keydown = move |ev: KeyboardEvent| {
         // Handle Escape key to close modal
         if ev.key() == "Escape" {
-            close_modal_for_escape(());
+            close_modal_for_escape();
             return;
         }
 
@@ -865,7 +869,7 @@ pub fn ConfigPage(#[prop(optional)] on_close: Option<Callback<()>>) -> impl Into
     };
 
     view! {
-        <div class="settings-modal-overlay" on:click=close_modal.clone()>
+        <div class="settings-modal-overlay" on:click=close_modal>
             <div class="settings-modal" on:click=move |ev: web_sys::MouseEvent| ev.stop_propagation() on:keydown=handle_keydown>
                 // Modal header
                 <div class="settings-modal-header">
@@ -876,7 +880,7 @@ pub fn ConfigPage(#[prop(optional)] on_close: Option<Callback<()>>) -> impl Into
                             <div class="settings-modal-subtitle">"App Settings & Project Settings"</div>
                         </div>
                     </div>
-                    <button class="settings-modal-close" on:click=close_modal.clone() aria-label="Close settings">
+                    <button class="settings-modal-close" on:click=close_modal aria-label="Close settings">
                         <span inner_html=r#"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18"/><path d="M6 6l12 12"/></svg>"#></span>
                     </button>
                 </div>
@@ -2315,7 +2319,7 @@ pub fn ConfigPage(#[prop(optional)] on_close: Option<Callback<()>>) -> impl Into
 
                 // Modal footer
                 <div class="settings-modal-footer">
-                    <button class="settings-modal-cancel-btn" on:click=close_modal.clone()>
+                    <button class="settings-modal-cancel-btn" on:click=close_modal>
                         "Cancel"
                     </button>
                     <button class="settings-modal-save-btn" on:click=on_save>

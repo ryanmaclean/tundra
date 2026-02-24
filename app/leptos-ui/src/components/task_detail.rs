@@ -703,7 +703,6 @@ fn TaskDetailInner(
                                     </div>
 
                                     {(!desc.is_empty()).then(|| {
-                                        let d = desc.clone();
                                         view! {
                                             <div class="td-spec-section">
                                                 <h4 class="td-spec-heading">"Description"</h4>
@@ -897,7 +896,7 @@ fn TaskDetailInner(
                     // Logs tab
                     {move || (active_tab.get() == 2).then(|| {
                         let logs = logs.clone();
-                        let (all_pass, checks, suggestions) = qa_report.get();
+                        let (_all_pass, checks, suggestions) = qa_report.get();
                         let rerun = rerun_qa_logs.clone();
                         view! {
                             <div class="task-tab-logs">

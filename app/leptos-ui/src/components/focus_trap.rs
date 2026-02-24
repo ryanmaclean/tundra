@@ -8,7 +8,7 @@ use web_sys::HtmlElement;
 /// Returns a closure that can be used with `on:keydown` event handler.
 ///
 /// # Example
-/// ```rust
+/// ```rust,ignore
 /// let handle_keydown = use_focus_trap();
 /// view! {
 ///     <div on:keydown=handle_keydown>
