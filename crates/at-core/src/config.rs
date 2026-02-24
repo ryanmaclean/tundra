@@ -901,6 +901,71 @@ impl CredentialProvider {
         std::env::var("AUTO_TUNDRA_API_KEY").ok()
     }
 
+    /// Ensure a daemon API key is available, auto-generating one if needed.
+    /// Returns a valid API key (never None).
+    ///
+    /// Behavior:
+    /// 1. If `AUTO_TUNDRA_API_KEY` env var is set, returns it
+    /// 2. Otherwise, reads or generates `~/.auto-tundra/daemon.key`
+    /// 3. Auto-generated keys are stored with 0o600 permissions (owner read/write only)
+    pub fn ensure_daemon_api_key() -> String {
+        // Check env var first (takes precedence)
+        if let Ok(key) = std::env::var("AUTO_TUNDRA_API_KEY") {
+            return key;
+        }
+
+        // Otherwise, generate or read from file
+        Self::generate_and_store_api_key()
+    }
+
+    /// Generate and store a new API key, or read existing one from disk.
+    /// Creates `~/.auto-tundra/daemon.key` with 0o600 permissions if it doesn't exist.
+    fn generate_and_store_api_key() -> String {
+        let key_path = Self::daemon_key_path();
+
+        // Read existing key if it exists
+        if key_path.exists() {
+            if let Ok(key) = std::fs::read_to_string(&key_path) {
+                return key.trim().to_string();
+            }
+        }
+
+        // Generate new key
+        let new_key = uuid::Uuid::new_v4().to_string();
+
+        // Ensure parent directory exists
+        if let Some(parent) = key_path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+
+        // Write key to file
+        if let Err(e) = std::fs::write(&key_path, &new_key) {
+            eprintln!("Warning: failed to write daemon key to {:?}: {}", key_path, e);
+            return new_key;
+        }
+
+        // Set file permissions to 0o600 (owner read/write only)
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if let Ok(metadata) = std::fs::metadata(&key_path) {
+                let mut perms = metadata.permissions();
+                perms.set_mode(0o600);
+                let _ = std::fs::set_permissions(&key_path, perms);
+            }
+        }
+
+        new_key
+    }
+
+    /// Get the path to the daemon key file.
+    fn daemon_key_path() -> PathBuf {
+        dirs::home_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join(".auto-tundra")
+            .join("daemon.key")
+    }
+
     /// Read the Anthropic API key from the `ANTHROPIC_API_KEY` env var.
     pub fn anthropic_api_key() -> Option<String> {
         std::env::var("ANTHROPIC_API_KEY").ok()
