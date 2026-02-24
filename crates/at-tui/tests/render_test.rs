@@ -608,6 +608,14 @@ fn card_unicode_fallback() {
     std::env::set_var("TERM", "xterm-256color");
 }
 
+#[test]
+fn planning_poker_all_card_values_rendered() {
+    let output = render_tab(11);
+
+    // Verify all 10 card values are rendered: 0, 1, 2, 3, 5, 8, 13, 21, ?, ∞
+    assert_contains_all(&output, &["0", "1", "2", "3", "5", "8", "13", "21", "?", "∞"]);
+}
+
 // ===========================================================================
 // Tab 12: Worktrees
 // ===========================================================================
