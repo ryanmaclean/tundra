@@ -5,8 +5,10 @@ use crate::api::{
     ApiNotificationSettings, ApiPathsSettings, ApiPhaseConfig, ApiSecuritySettings, ApiSettings,
     ApiTerminalSettings, ApiUpdatesSettings,
 };
+use crate::components::focus_trap::use_focus_trap;
 use crate::i18n::Locale;
 use crate::state::{use_app_state, DisplayMode};
+use leptos::ev::KeyboardEvent;
 use leptos::prelude::*;
 
 fn settings_tab_icon_svg(label: &str) -> &'static str {
@@ -847,9 +849,24 @@ pub fn ConfigPage(#[prop(optional)] on_close: Option<Callback<()>>) -> impl Into
         }
     };
 
+    let focus_trap = use_focus_trap();
+    let close_modal_for_escape = close_modal.clone();
+
+    // Combined keydown handler for focus trap and Escape key
+    let handle_keydown = move |ev: KeyboardEvent| {
+        // Handle Escape key to close modal
+        if ev.key() == "Escape" {
+            close_modal_for_escape(());
+            return;
+        }
+
+        // Handle Tab/Shift+Tab for focus trapping
+        focus_trap(ev);
+    };
+
     view! {
         <div class="settings-modal-overlay" on:click=close_modal.clone()>
-            <div class="settings-modal" on:click=move |ev: web_sys::MouseEvent| ev.stop_propagation()>
+            <div class="settings-modal" on:click=move |ev: web_sys::MouseEvent| ev.stop_propagation() on:keydown=handle_keydown>
                 // Modal header
                 <div class="settings-modal-header">
                     <div class="settings-modal-header-left">
