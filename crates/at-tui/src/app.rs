@@ -18,13 +18,13 @@ pub const TAB_NAMES: &[&str] = &[
     "MCP",
     "Roadmap",
     "Ideation",
-    "Planning Poker",
     "Worktrees",
     "GitHub Issues",
     "GitHub PRs",
     "Stacks",
     "Context",
     "Changelog",
+    "Planning Poker",
 ];
 
 // ---------------------------------------------------------------------------
@@ -605,6 +605,10 @@ impl App {
                 self.current_tab = 16;
                 self.selected_index = 0;
             } // Changelog
+            KeyCode::Char('K') => {
+                self.current_tab = 17;
+                self.selected_index = 0;
+            } // Planning Poker
 
             // List navigation
             KeyCode::Char('j') | KeyCode::Down => {

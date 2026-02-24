@@ -121,6 +121,7 @@ fn switch_to_tab(app: &mut app::App, tab: usize) {
         14 => app.on_key(key(KeyCode::Char('S'))),
         15 => app.on_key(key(KeyCode::Char('X'))),
         16 => app.on_key(key(KeyCode::Char('L'))),
+        17 => app.on_key(key(KeyCode::Char('K'))),
         _ => {}
     }
 }
@@ -598,7 +599,7 @@ fn card_unicode_fallback() {
     std::env::remove_var("LANG");
     std::env::remove_var("LC_ALL");
 
-    let output = render_tab(11);
+    let output = render_tab(17);
 
     // Verify ASCII fallback: card values should appear as text
     // The cards are: 0, 1, 2, 3, 5, 8, 13, 21, ?, ∞
@@ -610,7 +611,7 @@ fn card_unicode_fallback() {
 
 #[test]
 fn planning_poker_all_card_values_rendered() {
-    let output = render_tab(11);
+    let output = render_tab(17);
 
     // Verify all 10 card values are rendered: 0, 1, 2, 3, 5, 8, 13, 21, ?, ∞
     assert_contains_all(&output, &["0", "1", "2", "3", "5", "8", "13", "21", "?", "∞"]);

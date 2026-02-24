@@ -174,13 +174,13 @@ fn render_content(frame: &mut Frame, app: &App, area: Rect) {
         8 => tabs::mcp::render(frame, app, area),
         9 => tabs::roadmap::render(frame, app, area),
         10 => tabs::ideation::render(frame, app, area),
-        11 => tabs::planning_poker::render(frame, app, area),
-        12 => tabs::worktrees::render(frame, app, area),
-        13 => tabs::github_issues::render(frame, app, area),
-        14 => tabs::github_prs::render(frame, app, area),
-        15 => tabs::stacks::render(frame, app, area),
-        16 => tabs::context::render(frame, app, area),
-        17 => tabs::changelog::render(frame, app, area),
+        11 => tabs::worktrees::render(frame, app, area),
+        12 => tabs::github_issues::render(frame, app, area),
+        13 => tabs::github_prs::render(frame, app, area),
+        14 => tabs::stacks::render(frame, app, area),
+        15 => tabs::context::render(frame, app, area),
+        16 => tabs::changelog::render(frame, app, area),
+        17 => tabs::planning_poker::render(frame, app, area),
         _ => {}
     }
 }
