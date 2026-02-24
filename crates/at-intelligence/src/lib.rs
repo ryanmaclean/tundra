@@ -1,3 +1,15 @@
+//! Intelligence layer for auto-tundra — LLM orchestration, cost optimization,
+//! and task execution management.
+//!
+//! This crate provides the core intelligence capabilities for the auto-tundra system:
+//! - **LLM Integration**: Multi-provider support (Anthropic, OpenAI) with failover
+//! - **Cost Optimization**: Token budgets, caching, and intelligent model routing
+//! - **Task Management**: Roadmaps, ideation, insights, and session tracking
+//! - **Observability**: Cost tracking with LetsMetrics and QcaScore
+//!
+//! The intelligence layer sits between the agent orchestration (`at-agents`) and
+//! the underlying LLM APIs, providing smart routing, caching, and cost control.
+
 pub mod api_profiles;
 pub mod changelog;
 pub mod cost_tracker;

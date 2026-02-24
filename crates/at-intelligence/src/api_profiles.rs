@@ -31,7 +31,7 @@ pub struct ApiProfile {
     pub id: Uuid,
     pub name: String,
     pub provider: ProviderKind,
-    /// Base URL for the API (e.g., "https://api.anthropic.com").
+    /// Base URL for the API (e.g., "<https://api.anthropic.com>").
     pub base_url: String,
     /// Name of the environment variable holding the API key.
     pub api_key_env: String,

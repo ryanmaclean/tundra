@@ -10,7 +10,7 @@ struct Subscriber {
 
 /// A broadcast-style event bus built on top of flume channels.
 ///
-/// Each call to [`subscribe`] creates a new receiver that will receive all
+/// Each call to [`Self::subscribe`] creates a new receiver that will receive all
 /// messages published after the subscription was created. The bus is
 /// thread-safe and can be cloned cheaply (it wraps its internals in an `Arc`).
 ///
@@ -19,7 +19,7 @@ struct Subscriber {
 /// count is incremented per subscriber.
 ///
 /// Filtered subscriptions allow subscribers to only receive messages that
-/// match a predicate. See [`subscribe_filtered`] and [`subscribe_for_agent`].
+/// match a predicate. See [`Self::subscribe_filtered`] and [`Self::subscribe_for_agent`].
 #[derive(Clone)]
 pub struct EventBus {
     inner: Arc<Mutex<Vec<Subscriber>>>,

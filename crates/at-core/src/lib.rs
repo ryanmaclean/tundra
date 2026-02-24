@@ -1,3 +1,14 @@
+//! Core library for auto-tundra — provides foundational types, context management,
+//! repository operations, and RLM patterns.
+//!
+//! This crate is the heart of the auto-tundra system and provides:
+//! - Context assembly and steering for AI agent execution
+//! - Repository and worktree management primitives
+//! - RLM (Recursive Language Model) decomposition and refinement
+//! - Session and cache management
+//! - Configuration and settings infrastructure
+//! - File watching and change detection
+
 pub mod cache;
 pub mod config;
 pub mod context_engine;

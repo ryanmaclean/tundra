@@ -1,3 +1,13 @@
+//! Agent execution, orchestration, and lifecycle management for auto-tundra.
+//!
+//! This crate provides the agent layer that coordinates Claude AI agents,
+//! managing their execution, state, and task progression. It includes:
+//! - Task orchestration and execution engines
+//! - Agent lifecycle management and state machines
+//! - Session and profile management
+//! - Approval workflows and supervision
+//! - Prompt registries and role definitions
+
 pub mod approval;
 pub mod claude_runtime;
 pub mod claude_session;
