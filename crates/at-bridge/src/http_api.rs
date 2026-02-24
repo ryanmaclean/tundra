@@ -397,11 +397,11 @@ impl ApiState {
 /// every request to carry a valid key. When `None`, all requests pass
 /// through (development mode).
 pub fn api_router(state: Arc<ApiState>) -> Router {
-    api_router_with_auth(state, None)
+    api_router_with_auth(state, None, vec![])
 }
 
 /// Build the API router with optional authentication.
-pub fn api_router_with_auth(state: Arc<ApiState>, api_key: Option<String>) -> Router {
+pub fn api_router_with_auth(state: Arc<ApiState>, api_key: Option<String>, allowed_origins: Vec<String>) -> Router {
     Router::new()
         .route("/api/status", get(get_status))
         .route("/api/beads", get(list_beads))
