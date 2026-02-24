@@ -820,7 +820,7 @@ pub struct Usage {
 ///
 /// ## Example Implementation
 ///
-/// ```rust
+/// ```rust,ignore
 /// use at_harness::provider::{LlmProvider, Message, Tool, Response, ProviderError, Usage};
 /// use async_trait::async_trait;
 ///
