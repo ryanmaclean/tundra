@@ -22,7 +22,7 @@ use at_intelligence::{
     roadmap::{FeatureStatus, RoadmapFeature},
 };
 
-use crate::http_api::ApiState;
+use crate::{api_error::ApiError, http_api::ApiState};
 
 // ---------------------------------------------------------------------------
 // Request / query types
@@ -179,11 +179,9 @@ async fn delete_session(
             axum::http::StatusCode::OK,
             Json(serde_json::json!({"deleted": true})),
         )
+            .into_response()
     } else {
-        (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "session not found"})),
-        )
+        ApiError::NotFound("session not found".to_string()).into_response()
     }
 }
 
@@ -196,11 +194,9 @@ async fn get_session_messages(
         Some(session) => (
             axum::http::StatusCode::OK,
             Json(serde_json::json!(session.messages)),
-        ),
-        None => (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "session not found"})),
-        ),
+        )
+            .into_response(),
+        None => ApiError::NotFound("session not found".to_string()).into_response(),
     }
 }
 
@@ -214,11 +210,9 @@ async fn add_message(
         Ok(()) => (
             axum::http::StatusCode::CREATED,
             Json(serde_json::json!({"ok": true})),
-        ),
-        Err(e) => (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": e.to_string()})),
-        ),
+        )
+            .into_response(),
+        Err(e) => ApiError::NotFound(e.to_string()).into_response(),
     }
 }
 
@@ -259,11 +253,8 @@ async fn convert_idea(
 ) -> impl IntoResponse {
     let engine = state.ideation_engine.read().await;
     match engine.convert_to_task(&id) {
-        Some(bead) => (axum::http::StatusCode::OK, Json(serde_json::json!(bead))),
-        None => (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "idea not found"})),
-        ),
+        Some(bead) => (axum::http::StatusCode::OK, Json(serde_json::json!(bead))).into_response(),
+        None => ApiError::NotFound("idea not found".to_string()).into_response(),
     }
 }
 
@@ -314,11 +305,8 @@ async fn add_feature(
     let feature = RoadmapFeature::new(&req.title, &req.description, req.priority);
     let feature_json = serde_json::json!(feature);
     match engine.add_feature(&id, feature) {
-        Ok(()) => (axum::http::StatusCode::CREATED, Json(feature_json)),
-        Err(e) => (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": e.to_string()})),
-        ),
+        Ok(()) => (axum::http::StatusCode::CREATED, Json(feature_json)).into_response(),
+        Err(e) => ApiError::NotFound(e.to_string()).into_response(),
     }
 }
 
@@ -352,11 +340,8 @@ async fn add_feature_to_latest(
     let feature = RoadmapFeature::new(&req.title, &req.description, priority);
     let feature_json = serde_json::json!(feature);
     match engine.add_feature(&roadmap_id, feature) {
-        Ok(()) => (axum::http::StatusCode::CREATED, Json(feature_json)),
-        Err(e) => (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": e.to_string()})),
-        ),
+        Ok(()) => (axum::http::StatusCode::CREATED, Json(feature_json)).into_response(),
+        Err(e) => ApiError::NotFound(e.to_string()).into_response(),
     }
 }
 
@@ -370,11 +355,9 @@ async fn update_feature_status(
         Ok(()) => (
             axum::http::StatusCode::OK,
             Json(serde_json::json!({"updated": true})),
-        ),
-        Err(e) => (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": e.to_string()})),
-        ),
+        )
+            .into_response(),
+        Err(e) => ApiError::NotFound(e.to_string()).into_response(),
     }
 }
 
@@ -397,16 +380,11 @@ async fn update_feature_status_by_id(
             Ok(()) => (
                 axum::http::StatusCode::OK,
                 Json(serde_json::json!({"updated": true})),
-            ),
-            Err(e) => (
-                axum::http::StatusCode::NOT_FOUND,
-                Json(serde_json::json!({"error": e.to_string()})),
-            ),
+            )
+                .into_response(),
+            Err(e) => ApiError::NotFound(e.to_string()).into_response(),
         },
-        None => (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "feature not found in any roadmap"})),
-        ),
+        None => ApiError::NotFound("feature not found in any roadmap".to_string()).into_response(),
     }
 }
 
@@ -453,11 +431,9 @@ async fn delete_memory(
             axum::http::StatusCode::OK,
             Json(serde_json::json!({"deleted": true})),
         )
+            .into_response()
     } else {
-        (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "memory entry not found"})),
-        )
+        ApiError::NotFound("memory entry not found".to_string()).into_response()
     }
 }
 
