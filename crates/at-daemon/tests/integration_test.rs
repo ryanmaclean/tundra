@@ -385,7 +385,7 @@ async fn test_cors_preflight() {
         "Allow-origin should echo 127.0.0.1 origin exactly, got: {}", allow_origin
     );
 
-    // Test 3: Localhost with non-standard port should be rejected (not in allowed list)
+    // Test 3: Localhost with non-standard port should be allowed (wildcard port matching)
     let resp = client
         .request(reqwest::Method::OPTIONS, format!("{base}/api/status"))
         .header("Origin", "http://localhost:3001")
@@ -394,15 +394,20 @@ async fn test_cors_preflight() {
         .await
         .unwrap();
 
-    // The preflight may succeed but should not echo the disallowed origin
+    assert!(
+        resp.status().is_success(),
+        "Localhost with port should be allowed for preflight (wildcard port matching), status: {}", resp.status()
+    );
     let headers = resp.headers();
-    if let Some(allow_origin) = headers.get("access-control-allow-origin") {
-        let origin_str = allow_origin.to_str().unwrap();
-        assert!(
-            origin_str != "http://localhost:3001",
-            "Localhost with port should not be echoed (not in allowed list), got: {}", origin_str
-        );
-    }
+    assert!(
+        headers.contains_key("access-control-allow-origin"),
+        "CORS allow-origin header should be present for localhost:3001"
+    );
+    let allow_origin = headers.get("access-control-allow-origin").unwrap().to_str().unwrap();
+    assert_eq!(
+        allow_origin, "http://localhost:3001",
+        "Allow-origin should echo localhost:3001 origin exactly (wildcard port matching), got: {}", allow_origin
+    );
 
     // Test 4: Non-localhost origin should be rejected (no CORS headers for disallowed origin)
     let resp = client
@@ -421,6 +426,76 @@ async fn test_cors_preflight() {
             !origin_str.contains("evil.com"),
             "Disallowed origin should not be echoed in allow-origin header, got: {}", origin_str
         );
+    }
+}
+
+#[tokio::test]
+async fn test_cors_wildcard_port_matching() {
+    let (base, _state) = start_authed_server("test-key").await;
+    let client = reqwest::Client::new();
+
+    // Test localhost with various ports - all should be allowed
+    let test_origins = vec![
+        "http://localhost:3000",
+        "http://localhost:8080",
+        "http://localhost:9000",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:8080",
+        "http://127.0.0.1:9000",
+    ];
+
+    for origin in test_origins {
+        let resp = client
+            .request(reqwest::Method::OPTIONS, format!("{base}/api/status"))
+            .header("Origin", origin)
+            .header("Access-Control-Request-Method", "GET")
+            .send()
+            .await
+            .unwrap();
+
+        assert!(
+            resp.status().is_success(),
+            "Localhost origin with port {} should be allowed for preflight, status: {}",
+            origin,
+            resp.status()
+        );
+
+        let headers = resp.headers();
+        assert!(
+            headers.contains_key("access-control-allow-origin"),
+            "CORS allow-origin header should be present for {}", origin
+        );
+
+        let allow_origin = headers.get("access-control-allow-origin").unwrap().to_str().unwrap();
+        assert_eq!(
+            allow_origin, origin,
+            "Allow-origin should echo the localhost origin {} exactly, got: {}", origin, allow_origin
+        );
+    }
+
+    // Verify that non-localhost origins with ports are still rejected
+    let disallowed_origins = vec![
+        "http://evil.com:3000",
+        "http://malicious.com:8080",
+    ];
+
+    for origin in disallowed_origins {
+        let resp = client
+            .request(reqwest::Method::OPTIONS, format!("{base}/api/status"))
+            .header("Origin", origin)
+            .header("Access-Control-Request-Method", "GET")
+            .send()
+            .await
+            .unwrap();
+
+        let headers = resp.headers();
+        if let Some(allow_origin) = headers.get("access-control-allow-origin") {
+            let origin_str = allow_origin.to_str().unwrap();
+            assert!(
+                origin_str != origin,
+                "Disallowed origin {} should not be echoed, got: {}", origin, origin_str
+            );
+        }
     }
 }
 

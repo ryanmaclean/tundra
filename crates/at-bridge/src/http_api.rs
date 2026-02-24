@@ -579,12 +579,25 @@ pub fn api_router_with_auth(state: Arc<ApiState>, api_key: Option<String>, allow
         .layer(AuthLayer::new(api_key))
         .layer(
             CorsLayer::new()
-                .allow_origin(
-                    allowed_origins
-                        .iter()
-                        .map(|o| o.parse::<axum::http::HeaderValue>().unwrap())
-                        .collect::<Vec<_>>(),
-                )
+                .allow_origin(tower_http::cors::AllowOrigin::predicate(
+                    move |origin: &axum::http::HeaderValue, _request_parts: &axum::http::request::Parts| {
+                        // Parse the origin header to extract the host
+                        if let Ok(origin_str) = origin.to_str() {
+                            // Check if it's a localhost origin (with or without port)
+                            if origin_str.starts_with("http://localhost")
+                                || origin_str.starts_with("http://127.0.0.1")
+                                || origin_str.starts_with("https://localhost")
+                                || origin_str.starts_with("https://127.0.0.1")
+                            {
+                                return true;
+                            }
+                            // Also check against the exact allowed_origins list for any custom origins
+                            allowed_origins.iter().any(|allowed| origin_str == allowed)
+                        } else {
+                            false
+                        }
+                    },
+                ))
                 .allow_methods([
                     axum::http::Method::GET,
                     axum::http::Method::POST,
