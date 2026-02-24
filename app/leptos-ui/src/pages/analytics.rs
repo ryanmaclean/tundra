@@ -1,8 +1,7 @@
-use crate::duckdb;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
-use serde::{Deserialize, Serialize};
 
+use crate::analytics_store;
 use crate::api;
 use crate::i18n::t;
 
@@ -13,22 +12,44 @@ pub fn AnalyticsPage() -> impl IntoView {
     let (loading, set_loading) = signal(true);
     let (error_msg, set_error_msg) = signal(Option::<String>::None);
 
-    let do_refresh = move || {
-        // Initialize DuckDB WASM in the background
-        spawn_local(async move {
-            duckdb::init_duckdb().await;
-        });
+    // DuckDB-powered analytics
+    let (phase_counts, set_phase_counts) = signal(Vec::<analytics_store::PhaseCount>::new());
+    let (avg_durations, set_avg_durations) = signal(Vec::<analytics_store::AvgDuration>::new());
+    let (cost_by_provider, set_cost_by_provider) =
+        signal(Vec::<analytics_store::ProviderCost>::new());
 
+    let do_refresh = move || {
         set_loading.set(true);
         set_error_msg.set(None);
         spawn_local(async move {
+            // Initialize DuckDB and load data
+            match analytics_store::init_and_load().await {
+                Ok(client) => {
+                    // Run analytical queries
+                    let phases = analytics_store::tasks_by_phase(&client).await;
+                    set_phase_counts.set(phases);
+
+                    let durations = analytics_store::avg_duration_by_phase(&client).await;
+                    set_avg_durations.set(durations);
+
+                    let providers = analytics_store::cost_by_provider(&client).await;
+                    set_cost_by_provider.set(providers);
+                }
+                Err(e) => {
+                    web_sys::console::warn_1(
+                        &format!("DuckDB init failed: {e}").into(),
+                    );
+                }
+            }
+
+            // Also fetch direct KPI for the summary cards
             match api::fetch_kpi().await {
                 Ok(data) => set_kpi.set(Some(data)),
                 Err(e) => set_error_msg.set(Some(format!("Failed to fetch KPI: {e}"))),
             }
             match api::fetch_agents().await {
                 Ok(data) => set_agents.set(data),
-                Err(_) => {} // non-critical
+                Err(_) => {}
             }
             set_loading.set(false);
         });
@@ -102,37 +123,127 @@ pub fn AnalyticsPage() -> impl IntoView {
             </div>
         </div>
 
+        // DuckDB-powered: Tasks by Phase
         <div class="section">
-            <h3>"Bead Status Breakdown"</h3>
+            <h3>"Tasks by Phase (DuckDB)"</h3>
             <div style="margin-top: 12px;">
-                // Bar chart using CSS
                 {move || {
-                    let items = vec![
-                        ("Backlog", backlog(), "#8b949e"),
-                        ("In Progress", hooked(), "#1f6feb"),
-                        ("Review", review(), "#a371f7"),
-                        ("Done", done_count(), "#238636"),
-                        ("Failed", failed(), "#da3633"),
-                    ];
-                    let max_val = items.iter().map(|(_, v, _)| *v).max().unwrap_or(1).max(1);
-                    items.into_iter().map(|(label, val, color)| {
-                        let pct = (val as f64 / max_val as f64 * 100.0) as u64;
-                        view! {
-                            <div style="display: flex; align-items: center; margin-bottom: 8px;">
-                                <span style="width: 100px; font-size: 0.85em;">{label}</span>
-                                <div style="flex: 1; background: #21262d; border-radius: 4px; height: 24px; overflow: hidden;">
-                                    <div style={format!(
-                                        "width: {}%; background: {}; height: 100%; border-radius: 4px; transition: width 0.3s; min-width: 2px;",
-                                        pct, color
-                                    )}></div>
+                    let phases = phase_counts.get();
+                    {
+                        // Build a unified list of (label, count, color)
+                        let items: Vec<(String, i64, String)> = if phases.is_empty() {
+                            vec![
+                                ("Backlog".to_string(), backlog() as i64, "#8b949e".to_string()),
+                                ("In Progress".to_string(), hooked() as i64, "#1f6feb".to_string()),
+                                ("Review".to_string(), review() as i64, "#a371f7".to_string()),
+                                ("Done".to_string(), done_count() as i64, "#238636".to_string()),
+                                ("Failed".to_string(), failed() as i64, "#da3633".to_string()),
+                            ]
+                        } else {
+                            phases.iter().cloned().map(|p| {
+                                let color = match p.phase.to_lowercase().as_str() {
+                                    "done" => "#238636",
+                                    "failed" => "#da3633",
+                                    "backlog" => "#8b949e",
+                                    "review" | "ai review" | "human review" => "#a371f7",
+                                    _ => "#1f6feb",
+                                };
+                                (p.phase, p.count, color.to_string())
+                            }).collect()
+                        };
+                        let max_val = items.iter().map(|(_, v, _)| *v).max().unwrap_or(1).max(1);
+                        items.into_iter().map(|(label, val, color)| {
+                            let pct = (val as f64 / max_val as f64 * 100.0) as u64;
+                            view! {
+                                <div style="display: flex; align-items: center; margin-bottom: 8px;">
+                                    <span style="width: 100px; font-size: 0.85em;">{label}</span>
+                                    <div style="flex: 1; background: #21262d; border-radius: 4px; height: 24px; overflow: hidden;">
+                                        <div style={format!(
+                                            "width: {}%; background: {}; height: 100%; border-radius: 4px; transition: width 0.3s; min-width: 2px;",
+                                            pct, color
+                                        )}></div>
+                                    </div>
+                                    <span style="width: 50px; text-align: right; font-size: 0.85em;">{format!("{}", val)}</span>
                                 </div>
-                                <span style="width: 50px; text-align: right; font-size: 0.85em;">{format!("{}", val)}</span>
-                            </div>
-                        }
-                    }).collect::<Vec<_>>()
+                            }
+                        }).collect::<Vec<_>>()
+                    }
                 }}
             </div>
         </div>
+
+        // DuckDB-powered: Average Duration by Phase
+        {move || {
+            let durations = avg_durations.get();
+            if durations.is_empty() {
+                Vec::new()
+            } else {
+                vec![view! {
+                    <div class="section">
+                        <h3>"Average Duration by Phase (DuckDB)"</h3>
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>"Phase"</th>
+                                    <th>"Avg Duration"</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {durations.iter().cloned().map(|d| {
+                                    let formatted = if d.avg_seconds < 60.0 {
+                                        format!("{:.0}s", d.avg_seconds)
+                                    } else if d.avg_seconds < 3600.0 {
+                                        format!("{:.1}m", d.avg_seconds / 60.0)
+                                    } else {
+                                        format!("{:.1}h", d.avg_seconds / 3600.0)
+                                    };
+                                    view! {
+                                        <tr>
+                                            <td>{d.phase}</td>
+                                            <td>{formatted}</td>
+                                        </tr>
+                                    }
+                                }).collect::<Vec<_>>()}
+                            </tbody>
+                        </table>
+                    </div>
+                }]
+            }
+        }}
+
+        // DuckDB-powered: Cost by Provider
+        {move || {
+            let providers = cost_by_provider.get();
+            if providers.is_empty() {
+                Vec::new()
+            } else {
+                vec![view! {
+                    <div class="section">
+                        <h3>"Cost by Provider (DuckDB)"</h3>
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>"Provider"</th>
+                                    <th>"Total Tokens"</th>
+                                    <th>"Total Cost"</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {providers.iter().cloned().map(|p| {
+                                    view! {
+                                        <tr>
+                                            <td>{p.provider}</td>
+                                            <td>{format!("{}", p.total_tokens)}</td>
+                                            <td>{format!("${:.4}", p.total_cost)}</td>
+                                        </tr>
+                                    }
+                                }).collect::<Vec<_>>()}
+                            </tbody>
+                        </table>
+                    </div>
+                }]
+            }
+        }}
 
         <div class="section">
             <h3>"Agent Utilization"</h3>

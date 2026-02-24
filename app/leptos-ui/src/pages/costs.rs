@@ -1,8 +1,6 @@
-use crate::duckdb;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
-use serde::{Deserialize, Serialize};
-
+use crate::analytics_store;
 use crate::api;
 use crate::i18n::t;
 
@@ -12,24 +10,41 @@ pub fn CostsPage() -> impl IntoView {
     let (loading, set_loading) = signal(true);
     let (error_msg, set_error_msg) = signal(Option::<String>::None);
 
-    let do_refresh = move || {
-        // Initialize DuckDB WASM in the background
-        spawn_local(async move {
-            duckdb::init_duckdb().await;
-        });
+    // DuckDB-powered breakdowns
+    let (by_provider, set_by_provider) = signal(Vec::<analytics_store::ProviderCost>::new());
+    let (by_model, set_by_model) = signal(Vec::<analytics_store::ModelCost>::new());
+    let (daily_trend, set_daily_trend) = signal(Vec::<analytics_store::DailyCost>::new());
 
+    let do_refresh = move || {
         set_loading.set(true);
         set_error_msg.set(None);
         spawn_local(async move {
-            // Try /api/costs first, fall back to /api/kpi
+            // Initialize DuckDB and load cost data
+            match analytics_store::init_and_load().await {
+                Ok(client) => {
+                    let providers = analytics_store::cost_by_provider(&client).await;
+                    set_by_provider.set(providers);
+
+                    let models = analytics_store::cost_by_model(&client).await;
+                    set_by_model.set(models);
+
+                    let trend = analytics_store::daily_cost_trend(&client).await;
+                    set_daily_trend.set(trend);
+                }
+                Err(e) => {
+                    web_sys::console::warn_1(
+                        &format!("DuckDB init failed: {e}").into(),
+                    );
+                }
+            }
+
+            // Also fetch direct costs for the summary cards
             match api::fetch_costs().await {
                 Ok(data) => set_costs.set(Some(data)),
                 Err(_) => {
-                    // Fallback: build cost data from KPI
                     match api::fetch_kpi().await {
                         Ok(kpi) => {
-                            // Estimate tokens from KPI fields
-                            let est_input = kpi.total_beads * 5000; // rough estimate
+                            let est_input = kpi.total_beads * 5000;
                             let est_output = kpi.total_beads * 2000;
                             set_costs.set(Some(api::ApiCosts {
                                 input_tokens: est_input,
@@ -134,7 +149,109 @@ pub fn CostsPage() -> impl IntoView {
             </div>
         </div>
 
-        // Per-session breakdown
+        // DuckDB-powered: Cost by Provider
+        {move || {
+            let providers = by_provider.get();
+            if providers.is_empty() {
+                Vec::new()
+            } else {
+                let max_cost = providers.iter().map(|p| p.total_cost).fold(0.0_f64, f64::max).max(0.01);
+                vec![view! {
+                    <div class="section">
+                        <h3>"Cost by Provider (DuckDB)"</h3>
+                        <div style="margin-top: 12px;">
+                            {providers.iter().cloned().map(|p| {
+                                let pct = (p.total_cost / max_cost * 100.0) as u64;
+                                view! {
+                                    <div style="display: flex; align-items: center; margin-bottom: 8px;">
+                                        <span style="width: 120px; font-size: 0.85em;">{p.provider.clone()}</span>
+                                        <div style="flex: 1; background: #21262d; border-radius: 4px; height: 24px; overflow: hidden;">
+                                            <div style={format!(
+                                                "width: {}%; background: #1f6feb; height: 100%; border-radius: 4px; min-width: 2px;",
+                                                pct
+                                            )}></div>
+                                        </div>
+                                        <span style="width: 80px; text-align: right; font-size: 0.85em;">
+                                            {format!("${:.4}", p.total_cost)}
+                                        </span>
+                                    </div>
+                                }
+                            }).collect::<Vec<_>>()}
+                        </div>
+                    </div>
+                }]
+            }
+        }}
+
+        // DuckDB-powered: Cost by Model
+        {move || {
+            let models = by_model.get();
+            if models.is_empty() {
+                Vec::new()
+            } else {
+                vec![view! {
+                    <div class="section">
+                        <h3>"Cost by Model (DuckDB)"</h3>
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>"Model"</th>
+                                    <th>"Total Tokens"</th>
+                                    <th>"Total Cost"</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {models.iter().cloned().map(|m| {
+                                    view! {
+                                        <tr>
+                                            <td>{m.model}</td>
+                                            <td>{format!("{}", m.total_tokens)}</td>
+                                            <td>{format!("${:.4}", m.total_cost)}</td>
+                                        </tr>
+                                    }
+                                }).collect::<Vec<_>>()}
+                            </tbody>
+                        </table>
+                    </div>
+                }]
+            }
+        }}
+
+        // DuckDB-powered: Daily Cost Trend (window function)
+        {move || {
+            let trend = daily_trend.get();
+            if trend.is_empty() {
+                Vec::new()
+            } else {
+                vec![view! {
+                    <div class="section">
+                        <h3>"Daily Cost Trend (DuckDB)"</h3>
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>"Date"</th>
+                                    <th>"Daily Cost"</th>
+                                    <th>"Cumulative"</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {trend.iter().cloned().map(|d| {
+                                    view! {
+                                        <tr>
+                                            <td>{d.day}</td>
+                                            <td>{format!("${:.4}", d.total_cost)}</td>
+                                            <td>{format!("${:.4}", d.cumulative_cost)}</td>
+                                        </tr>
+                                    }
+                                }).collect::<Vec<_>>()}
+                            </tbody>
+                        </table>
+                    </div>
+                }]
+            }
+        }}
+
+        // Per-session breakdown (direct from API)
         {move || {
             let sessions = costs.get().map(|c| c.sessions).unwrap_or_default();
             if sessions.is_empty() {
