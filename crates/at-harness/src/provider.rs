@@ -792,16 +792,246 @@ pub struct Usage {
 // LlmProvider trait
 // ---------------------------------------------------------------------------
 
+/// Async trait for LLM provider implementations.
+///
+/// This trait defines the interface for interacting with LLM providers such as
+/// Anthropic, OpenAI, or custom implementations. Implementations handle the
+/// provider-specific API calls, authentication, and response mapping.
+///
+/// # Required Methods
+///
+/// - [`chat`](LlmProvider::chat): Send a chat completion request with optional tool calling
+/// - [`name`](LlmProvider::name): Return a human-readable provider identifier
+///
+/// # Thread Safety
+///
+/// Implementations must be `Send + Sync` to support concurrent usage across async tasks.
+/// Most providers use an internal HTTP client (like `reqwest::Client`) which is already
+/// `Send + Sync`, making this requirement straightforward to satisfy.
+///
+/// # Implementation Guide
+///
+/// To create a new provider implementation:
+///
+/// 1. **Define a provider struct** with necessary client state (API key, HTTP client, etc.)
+/// 2. **Implement the `LlmProvider` trait** with provider-specific API logic
+/// 3. **Map provider errors** to the standardized [`ProviderError`] variants
+/// 4. **Handle tool calling** if your provider supports function calling
+///
+/// ## Example Implementation
+///
+/// ```rust
+/// use at_harness::provider::{LlmProvider, Message, Tool, Response, ProviderError, Usage};
+/// use async_trait::async_trait;
+///
+/// /// Custom LLM provider implementation.
+/// pub struct MyCustomProvider {
+///     client: reqwest::Client,
+///     api_key: String,
+///     base_url: String,
+/// }
+///
+/// impl MyCustomProvider {
+///     /// Create a new provider instance.
+///     pub fn new(api_key: impl Into<String>) -> Self {
+///         Self {
+///             client: reqwest::Client::new(),
+///             api_key: api_key.into(),
+///             base_url: "https://api.example.com".to_string(),
+///         }
+///     }
+///
+///     /// Build the provider-specific request payload.
+///     fn build_request_body(
+///         &self,
+///         messages: &[Message],
+///         tools: Option<&[Tool]>,
+///     ) -> serde_json::Value {
+///         // Transform our standard Message format to provider's API format
+///         let api_messages: Vec<_> = messages
+///             .iter()
+///             .map(|msg| {
+///                 serde_json::json!({
+///                     "role": msg.role,
+///                     "content": msg.content,
+///                 })
+///             })
+///             .collect();
+///
+///         let mut body = serde_json::json!({
+///             "messages": api_messages,
+///             "model": "my-model-v1",
+///         });
+///
+///         // Add tools if provided
+///         if let Some(tools) = tools {
+///             body["tools"] = serde_json::json!(tools);
+///         }
+///
+///         body
+///     }
+/// }
+///
+/// #[async_trait]
+/// impl LlmProvider for MyCustomProvider {
+///     async fn chat(
+///         &self,
+///         messages: Vec<Message>,
+///         tools: Option<Vec<Tool>>,
+///     ) -> Result<Response, ProviderError> {
+///         // Build the request payload
+///         let body = self.build_request_body(&messages, tools.as_deref());
+///
+///         // Make the API request
+///         let response = self
+///             .client
+///             .post(format!("{}/v1/chat/completions", self.base_url))
+///             .header("Authorization", format!("Bearer {}", self.api_key))
+///             .json(&body)
+///             .send()
+///             .await
+///             .map_err(|e| {
+///                 if e.is_timeout() {
+///                     ProviderError::Timeout
+///                 } else {
+///                     ProviderError::Other(e.to_string())
+///                 }
+///             })?;
+///
+///         // Handle rate limiting
+///         if response.status() == 429 {
+///             let retry_after_ms = response
+///                 .headers()
+///                 .get("retry-after")
+///                 .and_then(|h| h.to_str().ok())
+///                 .and_then(|s| s.parse::<u64>().ok())
+///                 .unwrap_or(1000);
+///
+///             return Err(ProviderError::RateLimited { retry_after_ms });
+///         }
+///
+///         // Handle API errors
+///         if !response.status().is_success() {
+///             let error_text = response.text().await.unwrap_or_default();
+///             return Err(ProviderError::Api(format!(
+///                 "HTTP {}: {}",
+///                 response.status(),
+///                 error_text
+///             )));
+///         }
+///
+///         // Parse the response
+///         let api_response: serde_json::Value = response
+///             .json()
+///             .await
+///             .map_err(|e| ProviderError::Other(format!("parse error: {}", e)))?;
+///
+///         // Map to our standard Response format
+///         Ok(Response {
+///             content: api_response["choices"][0]["message"]["content"]
+///                 .as_str()
+///                 .map(String::from),
+///             tool_calls: vec![], // Parse tool calls if provider supports them
+///             model: api_response["model"]
+///                 .as_str()
+///                 .unwrap_or("unknown")
+///                 .to_string(),
+///             usage: api_response.get("usage").map(|u| Usage {
+///                 input_tokens: u["prompt_tokens"].as_u64().unwrap_or(0),
+///                 output_tokens: u["completion_tokens"].as_u64().unwrap_or(0),
+///             }),
+///         })
+///     }
+///
+///     fn name(&self) -> &str {
+///         "my-custom-provider"
+///     }
+/// }
+/// ```
+///
+/// ## Error Mapping
+///
+/// Map provider-specific errors to [`ProviderError`] variants:
+///
+/// - **Authentication/configuration issues** → [`ProviderError::NotConfigured`]
+/// - **API errors (4xx/5xx)** → [`ProviderError::Api`]
+/// - **Rate limits (HTTP 429)** → [`ProviderError::RateLimited`]
+/// - **Timeouts** → [`ProviderError::Timeout`]
+/// - **Other errors** → [`ProviderError::Other`]
+///
+/// ## Tool Calling Support
+///
+/// If your provider supports tool calling:
+///
+/// 1. Include tools in the request payload when `tools` parameter is `Some`
+/// 2. Parse tool calls from the API response
+/// 3. Map them to [`ToolCall`] instances in [`Response::tool_calls`]
+///
+/// See the [`Tool`] and [`ToolCall`] documentation for the complete workflow.
 #[async_trait::async_trait]
 pub trait LlmProvider: Send + Sync {
-    /// Send a chat completion request.
+    /// Send a chat completion request with optional tool calling.
+    ///
+    /// This method sends a conversation to the LLM and returns the assistant's response.
+    /// It supports multi-turn conversations by accepting a history of messages, and
+    /// enables tool calling by accepting an optional list of tool definitions.
+    ///
+    /// # Parameters
+    ///
+    /// - `messages`: The conversation history, including user, assistant, system, and tool messages
+    /// - `tools`: Optional list of tools the LLM can call (enables function calling)
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(Response)`: The LLM's response, potentially including tool calls
+    /// - `Err(ProviderError)`: An error from the provider or network layer
+    ///
+    /// # Errors
+    ///
+    /// This method can return various [`ProviderError`] variants:
+    ///
+    /// - [`NotConfigured`](ProviderError::NotConfigured): Missing API credentials
+    /// - [`Api`](ProviderError::Api): Provider API returned an error
+    /// - [`RateLimited`](ProviderError::RateLimited): Request was rate limited
+    /// - [`Timeout`](ProviderError::Timeout): Request timed out
+    /// - [`Other`](ProviderError::Other): Network or parsing errors
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use at_harness::provider::{LlmProvider, Message, ProviderError};
+    ///
+    /// async fn simple_chat(provider: impl LlmProvider) -> Result<(), ProviderError> {
+    ///     let messages = vec![
+    ///         Message::system("You are a helpful assistant."),
+    ///         Message::user("What is 2+2?"),
+    ///     ];
+    ///
+    ///     let response = provider.chat(messages, None).await?;
+    ///     println!("Assistant: {}", response.content.unwrap_or_default());
+    ///     Ok(())
+    /// }
+    /// ```
     async fn chat(
         &self,
         messages: Vec<Message>,
         tools: Option<Vec<Tool>>,
     ) -> Result<Response, ProviderError>;
 
-    /// Human-readable provider name (e.g. "anthropic", "openai").
+    /// Return a human-readable provider name.
+    ///
+    /// This method returns a string identifier for the provider, used for logging,
+    /// debugging, and display purposes. Common examples include "anthropic", "openai",
+    /// "gemini", etc.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use at_harness::provider::{LlmProvider, StubProvider};
+    ///
+    /// let provider = StubProvider::new("test-provider");
+    /// assert_eq!(provider.name(), "test-provider");
+    /// ```
     fn name(&self) -> &str;
 }
 
