@@ -194,11 +194,11 @@ impl AgentRegistry {
     /// `.claude/agents/*.md` and `.claude/skills/*/SKILL.md`.
     pub fn load_from_project(&mut self, project_root: &Path) -> Result<LoadResult, RegistryError> {
         let loader = ProjectContextLoader::new(project_root.to_path_buf());
+        let snapshot = loader.load_snapshot_cached();
         let mut result = LoadResult::default();
 
         // Load agents
-        let agents = loader.load_agent_definitions();
-        for def in agents {
+        for def in snapshot.agent_definitions {
             let name = def.name.clone();
             match self.register_agent(PluginAgent::new(def)) {
                 Ok(()) => result.agents_loaded += 1,
@@ -211,8 +211,7 @@ impl AgentRegistry {
         }
 
         // Load skills
-        let skills = loader.load_skill_definitions();
-        for def in skills {
+        for def in snapshot.skill_definitions {
             let name = def.name.clone();
             match self.register_skill(PluginSkill::new(def)) {
                 Ok(()) => result.skills_loaded += 1,

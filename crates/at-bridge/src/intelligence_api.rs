@@ -565,25 +565,30 @@ async fn get_context(Query(query): Query<ContextQuery>) -> impl IntoResponse {
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| ".".into()));
 
     let loader = ProjectContextLoader::new(project_root);
+    let snapshot = loader.load_snapshot_cached();
+    let cache_stats = ProjectContextLoader::context_cache_stats();
 
     // Load project context files
     let mut context_summary = serde_json::json!({
-        "claude_md": loader.load_claude_md(),
-        "agents_md": loader.load_agents_md(),
-        "todo_md": loader.load_todo_md(),
-        "agent_definitions_count": loader.load_agent_definitions().len(),
-        "skill_definitions_count": loader.load_skill_definitions().len(),
+        "claude_md": snapshot.claude_md,
+        "agents_md": snapshot.agents_md,
+        "todo_md": snapshot.todo_md,
+        "agent_definitions_count": snapshot.agent_definitions.len(),
+        "skill_definitions_count": snapshot.skill_definitions.len(),
+        "cache": {
+            "hits": cache_stats.hits,
+            "misses": cache_stats.misses,
+            "rebuilds": cache_stats.rebuilds,
+        },
         "budget": query.budget,
     });
 
     // If budget allows, include more details
     if query.budget > 2000 {
-        let agents = loader.load_agent_definitions();
-        let skills = loader.load_skill_definitions();
         context_summary["agent_definitions"] =
-            serde_json::json!(agents.iter().map(|a| &a.name).collect::<Vec<_>>());
+            serde_json::json!(snapshot.agent_definitions.iter().map(|a| &a.name).collect::<Vec<_>>());
         context_summary["skill_definitions"] =
-            serde_json::json!(skills.iter().map(|s| &s.name).collect::<Vec<_>>());
+            serde_json::json!(snapshot.skill_definitions.iter().map(|s| &s.name).collect::<Vec<_>>());
     }
 
     Json(context_summary)

@@ -331,6 +331,111 @@ impl ProjectContextLoader {
         }
     }
 
+    /// Returns global context-cache statistics for this process.
+    pub fn context_cache_stats() -> ContextCacheStats {
+        ContextCacheStats {
+            hits: CONTEXT_CACHE_HITS.load(Ordering::Relaxed),
+            misses: CONTEXT_CACHE_MISSES.load(Ordering::Relaxed),
+            rebuilds: CONTEXT_CACHE_REBUILDS.load(Ordering::Relaxed),
+        }
+    }
+
+    /// Load a fully parsed project context snapshot with fingerprint-based caching.
+    ///
+    /// Cache invalidation is driven by a filesystem fingerprint over known
+    /// context paths (`AGENTS.md`, `CLAUDE.md`, `todo/plan`, `.claude/agents`,
+    /// `.claude/skills`).
+    pub fn load_snapshot_cached(&self) -> ProjectContextSnapshot {
+        let key = std::fs::canonicalize(&self.project_root).unwrap_or(self.project_root.clone());
+        let fingerprint = self.compute_context_fingerprint();
+        let cache = CONTEXT_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+
+        {
+            let guard = cache.lock().expect("context cache lock poisoned");
+            if let Some(entry) = guard.get(&key) {
+                if entry.fingerprint == fingerprint {
+                    CONTEXT_CACHE_HITS.fetch_add(1, Ordering::Relaxed);
+                    return entry.snapshot.clone();
+                }
+            }
+        }
+
+        CONTEXT_CACHE_MISSES.fetch_add(1, Ordering::Relaxed);
+        let snapshot = self.load_snapshot_uncached();
+        {
+            let mut guard = cache.lock().expect("context cache lock poisoned");
+            guard.insert(
+                key,
+                CachedSnapshot {
+                    fingerprint,
+                    snapshot: snapshot.clone(),
+                },
+            );
+        }
+        CONTEXT_CACHE_REBUILDS.fetch_add(1, Ordering::Relaxed);
+        snapshot
+    }
+
+    fn load_snapshot_uncached(&self) -> ProjectContextSnapshot {
+        ProjectContextSnapshot {
+            agents_md: self.load_agents_md(),
+            claude_md: self.load_claude_md(),
+            todo_md: self.load_todo_md(),
+            agent_definitions: self.load_agent_definitions(),
+            skill_definitions: self.load_skill_definitions(),
+        }
+    }
+
+    fn hash_file_meta<H: Hasher>(&self, hasher: &mut H, path: &Path) {
+        path.to_string_lossy().hash(hasher);
+        if let Ok(meta) = std::fs::metadata(path) {
+            meta.len().hash(hasher);
+            if let Ok(modified) = meta.modified() {
+                if let Ok(dur) = modified.duration_since(std::time::UNIX_EPOCH) {
+                    dur.as_secs().hash(hasher);
+                    dur.subsec_nanos().hash(hasher);
+                }
+            }
+        }
+    }
+
+    fn compute_context_fingerprint(&self) -> u64 {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        self.project_root.to_string_lossy().hash(&mut hasher);
+
+        for name in ["AGENTS.md", "CLAUDE.md", "todo.md", "TODO.md", "plan.md", "PLAN.md"] {
+            self.hash_file_meta(&mut hasher, &self.project_root.join(name));
+        }
+
+        let agents_dir = self.project_root.join(".claude").join("agents");
+        if let Ok(entries) = std::fs::read_dir(&agents_dir) {
+            let mut paths: Vec<PathBuf> = entries
+                .flatten()
+                .map(|e| e.path())
+                .filter(|p| p.extension().map_or(false, |ext| ext == "md"))
+                .collect();
+            paths.sort();
+            for path in paths {
+                self.hash_file_meta(&mut hasher, &path);
+            }
+        }
+
+        let skills_dir = self.project_root.join(".claude").join("skills");
+        if let Ok(entries) = std::fs::read_dir(&skills_dir) {
+            let mut paths = Vec::new();
+            for entry in entries.flatten() {
+                let skill_md = entry.path().join("SKILL.md");
+                paths.push(skill_md);
+            }
+            paths.sort();
+            for path in paths {
+                self.hash_file_meta(&mut hasher, &path);
+            }
+        }
+
+        hasher.finish()
+    }
+
     /// Load the AGENTS.md file if it exists.
     pub fn load_agents_md(&self) -> Option<String> {
         let path = self.project_root.join("AGENTS.md");
@@ -400,9 +505,10 @@ impl ProjectContextLoader {
     /// Build a context graph from all discovered project context.
     pub fn build_context_graph(&self) -> ContextGraph {
         let mut graph = ContextGraph::new();
+        let snapshot = self.load_snapshot_cached();
 
         // AGENTS.md
-        if let Some(content) = self.load_agents_md() {
+        if let Some(content) = snapshot.agents_md {
             graph.insert(ContextNode::new(
                 ContextNodeKind::ProjectConfig,
                 "AGENTS.md",
@@ -411,7 +517,7 @@ impl ProjectContextLoader {
         }
 
         // CLAUDE.md
-        if let Some(content) = self.load_claude_md() {
+        if let Some(content) = snapshot.claude_md {
             graph.insert(ContextNode::new(
                 ContextNodeKind::ProjectConfig,
                 "CLAUDE.md",
@@ -420,12 +526,12 @@ impl ProjectContextLoader {
         }
 
         // todo.md
-        if let Some(content) = self.load_todo_md() {
+        if let Some(content) = snapshot.todo_md {
             graph.insert(ContextNode::new(ContextNodeKind::Task, "todo.md", content));
         }
 
         // Agent definitions
-        for agent in self.load_agent_definitions() {
+        for agent in snapshot.agent_definitions {
             graph.insert(ContextNode::new(
                 ContextNodeKind::ProjectConfig,
                 format!("agent:{}", agent.name),
@@ -434,7 +540,7 @@ impl ProjectContextLoader {
         }
 
         // Skill definitions
-        for skill in self.load_skill_definitions() {
+        for skill in snapshot.skill_definitions {
             graph.insert(ContextNode::new(
                 ContextNodeKind::Skill,
                 format!("skill:{}", skill.name),

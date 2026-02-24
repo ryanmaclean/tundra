@@ -7,6 +7,19 @@ Last updated: 2026-02-24
 - [ ] Validate `/Users/studio/rust-harness/.github/workflows/e2e-integration.yml` on `github-hosted` runner end-to-end (daemon + Ollama + `at-tui` e2e suite).
 - [ ] Stand up a tagged self-hosted runner (`self-hosted,linux,x64`) for deterministic E2E and compare runtime/cost against GitHub-hosted.
 
+## Immediate performance wave (new)
+
+- [x] Add project-context snapshot caching with fingerprint invalidation and cache stats (`hits/misses/rebuilds`) in `at-core`.
+- [x] Expose context-cache stats in CLI doctor output and `/api/context`.
+- [x] Add repeatable perf probe script: `/Users/studio/rust-harness/scripts/perf_probe.sh`.
+- [x] Parallelize `at-tui` refresh fan-out (`fetch_all`) to remove sequential endpoint waits.
+- [ ] Add `/api/bootstrap` endpoint to replace multi-endpoint TUI refresh with one snapshot request.
+- [ ] Convert `ApiState` ID-addressed collections from `Vec<T>` to `HashMap<Uuid, T>` for O(1) lookup/update paths.
+- [ ] Replace full-list mutation broadcasts (`BridgeMessage::BeadList(beads.clone())`) with incremental events (`BeadUpdated/BeadCreated`).
+- [ ] Replace queue-like `Vec::remove(0)` with `VecDeque::pop_front()` in bridge/tui/daemon/intelligence/core queue structures.
+- [ ] Consolidate KPI snapshot SQL from multiple COUNT queries into one grouped aggregate query.
+- [ ] Move blocking session-store FS hot paths to async-safe flow (`spawn_blocking` or DB-backed index/cache).
+
 ## Cache and data-structure track
 
 - [ ] Define app-level cache strategy for 2026 Rust SOTA: TinyLFU/Window-TinyLFU (`moka`) vs scan-resistant alternatives (`quick_cache`) for hot path lookups.
@@ -53,4 +66,3 @@ Last updated: 2026-02-24
 - [ ] Define GitHub as source-of-truth sync policy with GitLab mirror and divergence detection rules.
 - [ ] Add guardrails to prevent asymmetric repo state (one-side-only commits/files).
 - [ ] Add automated parity report job (branches/tags/default branch HEAD parity + drift alerts).
-

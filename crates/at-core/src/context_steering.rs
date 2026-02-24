@@ -528,9 +528,17 @@ impl ContextSteerer {
     /// Load project context from the filesystem.
     pub fn load_project(&mut self) {
         let loader = ProjectContextLoader::new(&self.project_root);
+        let snapshot = loader.load_snapshot_cached();
+
+        // Avoid duplicate blocks if load_project is called multiple times.
+        self.project_context.clear();
+        self.agent_definitions.clear();
+        self.skill_definitions.clear();
+        self.conventions.clear();
+        self.memories.clear();
 
         // L1: CLAUDE.md
-        if let Some(content) = loader.load_claude_md() {
+        if let Some(content) = snapshot.claude_md {
             self.conventions = extract_conventions(&content);
             self.project_context.push(ContextBlock::new(
                 "CLAUDE.md",
@@ -540,7 +548,7 @@ impl ContextSteerer {
         }
 
         // L1: AGENTS.md
-        if let Some(content) = loader.load_agents_md() {
+        if let Some(content) = snapshot.agents_md {
             self.project_context.push(ContextBlock::new(
                 "AGENTS.md",
                 content,
@@ -549,14 +557,14 @@ impl ContextSteerer {
         }
 
         // L1: todo.md
-        if let Some(content) = loader.load_todo_md() {
+        if let Some(content) = snapshot.todo_md {
             self.project_context
                 .push(ContextBlock::new("todo.md", content, DisclosureLevel::Task));
         }
 
         // Load agent and skill definitions
-        self.agent_definitions = loader.load_agent_definitions();
-        self.skill_definitions = loader.load_skill_definitions();
+        self.agent_definitions = snapshot.agent_definitions;
+        self.skill_definitions = snapshot.skill_definitions;
 
         // Load MEMORY.md if present — L0 core memory (always included)
         let memory_path = self.project_root.join(".claude").join("MEMORY.md");

@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
-use at_core::context_engine::ProjectContextLoader;
+use at_core::context_engine::{ContextCacheStats, ProjectContextLoader};
 use serde::Deserialize;
 use serde_json::json;
 
@@ -104,11 +105,47 @@ pub async fn run(
         failures += 1;
     }
 
-    let skill_count = if project_exists {
+    let (skill_count, context_cache) = if project_exists {
         let loader = ProjectContextLoader::new(project_path);
-        loader.load_skill_definitions().len()
+        let start_cold = Instant::now();
+        let cold = loader.load_snapshot_cached();
+        let cold_us = start_cold.elapsed().as_micros() as u64;
+
+        let start_warm = Instant::now();
+        let warm = loader.load_snapshot_cached();
+        let warm_us = start_warm.elapsed().as_micros() as u64;
+
+        let stats: ContextCacheStats = ProjectContextLoader::context_cache_stats();
+        let speedup = if warm_us == 0 {
+            None
+        } else {
+            Some(cold_us as f64 / warm_us as f64)
+        };
+
+        (
+            warm.skill_definitions.len(),
+            json!({
+                "cold_load_us": cold_us,
+                "warm_load_us": warm_us,
+                "speedup_x": speedup,
+                "hits": stats.hits,
+                "misses": stats.misses,
+                "rebuilds": stats.rebuilds,
+                "agent_defs": cold.agent_definitions.len(),
+                "skill_defs": cold.skill_definitions.len(),
+            }),
+        )
     } else {
-        0
+        (0, json!({
+            "cold_load_us": null,
+            "warm_load_us": null,
+            "speedup_x": null,
+            "hits": 0,
+            "misses": 0,
+            "rebuilds": 0,
+            "agent_defs": 0,
+            "skill_defs": 0,
+        }))
     };
     if skill_count == 0 {
         failures += 1;
@@ -119,6 +156,7 @@ pub async fn run(
         "project_path": project_path,
         "project_exists": project_exists,
         "skill_count": skill_count,
+        "context_cache": context_cache,
         "env": env_checks,
         "failures": failures,
     });
@@ -145,6 +183,23 @@ pub async fn run(
             if project_exists { "exists" } else { "missing" }
         );
         println!("Skills: {}", skill_count);
+        println!(
+            "Context cache: cold={}us warm={}us hits={} misses={} rebuilds={}",
+            result["context_cache"]["cold_load_us"]
+                .as_u64()
+                .map(|v| v.to_string())
+                .unwrap_or_else(|| "-".to_string()),
+            result["context_cache"]["warm_load_us"]
+                .as_u64()
+                .map(|v| v.to_string())
+                .unwrap_or_else(|| "-".to_string()),
+            result["context_cache"]["hits"].as_u64().unwrap_or(0),
+            result["context_cache"]["misses"].as_u64().unwrap_or(0),
+            result["context_cache"]["rebuilds"].as_u64().unwrap_or(0),
+        );
+        if let Some(speedup) = result["context_cache"]["speedup_x"].as_f64() {
+            println!("  warm-load speedup: {:.2}x", speedup);
+        }
         println!("Env vars:");
         if let Some(items) = result["env"].as_array() {
             for item in items {

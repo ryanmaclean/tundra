@@ -4,6 +4,7 @@
 //! background `std::thread` without an async runtime.
 
 use serde::Deserialize;
+use std::time::Instant;
 
 /// Reusable blocking client + base URL.
 pub struct ApiClient {
@@ -41,7 +42,7 @@ pub struct ApiBead {
     pub category: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Default)]
 pub struct ApiKpi {
     #[serde(default)]
     pub total_beads: u64,
@@ -89,7 +90,7 @@ pub struct ApiConvoy {
     pub bead_ids: Vec<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Default)]
 pub struct ApiCosts {
     #[serde(default)]
     pub input_tokens: u64,
@@ -385,37 +386,97 @@ impl ApiClient {
     /// Fetch all data in one go. Individual failures are logged but don't
     /// block the rest — each endpoint returns its fallback default.
     pub fn fetch_all(&self) -> AppData {
-        AppData {
-            agents: self.fetch_agents().unwrap_or_default(),
-            beads: self.fetch_beads().unwrap_or_default(),
-            kpi: self.fetch_kpi().unwrap_or_else(|_| ApiKpi {
-                total_beads: 0,
-                backlog: 0,
-                hooked: 0,
-                slung: 0,
-                review: 0,
-                done: 0,
-                failed: 0,
-                active_agents: 0,
-            }),
-            sessions: self.fetch_sessions().unwrap_or_default(),
-            convoys: self.fetch_convoys().unwrap_or_default(),
-            costs: self.fetch_costs().unwrap_or_else(|_| ApiCosts {
-                input_tokens: 0,
-                output_tokens: 0,
-                sessions: vec![],
-            }),
-            mcp_servers: self.fetch_mcp_servers().unwrap_or_default(),
-            worktrees: self.fetch_worktrees().unwrap_or_default(),
-            github_issues: self.fetch_github_issues().unwrap_or_default(),
-            github_prs: self.fetch_github_prs().unwrap_or_default(),
-            roadmap_items: self.fetch_roadmap().unwrap_or_default(),
-            ideas: self.fetch_ideas().unwrap_or_default(),
-            stacks: self.fetch_stacks().unwrap_or_default(),
-            changelog: self.fetch_changelog().unwrap_or_default(),
-            memory: self.fetch_memory().unwrap_or_default(),
+        let profile = std::env::var_os("AT_TUI_PROFILE").is_some();
+        let started = Instant::now();
+
+        let data = std::thread::scope(|scope| {
+            let agents = scope.spawn(|| {
+                timed_fetch(profile, "agents", || self.fetch_agents().unwrap_or_default())
+            });
+            let beads = scope
+                .spawn(|| timed_fetch(profile, "beads", || self.fetch_beads().unwrap_or_default()));
+            let kpi =
+                scope.spawn(|| timed_fetch(profile, "kpi", || self.fetch_kpi().unwrap_or_default()));
+            let sessions = scope.spawn(|| {
+                timed_fetch(profile, "sessions", || self.fetch_sessions().unwrap_or_default())
+            });
+            let convoys = scope.spawn(|| {
+                timed_fetch(profile, "convoys", || self.fetch_convoys().unwrap_or_default())
+            });
+            let costs = scope.spawn(|| {
+                timed_fetch(profile, "costs", || self.fetch_costs().unwrap_or_default())
+            });
+            let mcp_servers = scope.spawn(|| {
+                timed_fetch(profile, "mcp_servers", || {
+                    self.fetch_mcp_servers().unwrap_or_default()
+                })
+            });
+            let worktrees = scope.spawn(|| {
+                timed_fetch(profile, "worktrees", || self.fetch_worktrees().unwrap_or_default())
+            });
+            let github_issues = scope.spawn(|| {
+                timed_fetch(profile, "github_issues", || {
+                    self.fetch_github_issues().unwrap_or_default()
+                })
+            });
+            let github_prs = scope.spawn(|| {
+                timed_fetch(profile, "github_prs", || {
+                    self.fetch_github_prs().unwrap_or_default()
+                })
+            });
+            let roadmap_items = scope.spawn(|| {
+                timed_fetch(profile, "roadmap", || self.fetch_roadmap().unwrap_or_default())
+            });
+            let ideas =
+                scope.spawn(|| timed_fetch(profile, "ideas", || self.fetch_ideas().unwrap_or_default()));
+            let stacks = scope.spawn(|| {
+                timed_fetch(profile, "stacks", || self.fetch_stacks().unwrap_or_default())
+            });
+            let changelog = scope.spawn(|| {
+                timed_fetch(profile, "changelog", || self.fetch_changelog().unwrap_or_default())
+            });
+            let memory = scope.spawn(|| {
+                timed_fetch(profile, "memory", || self.fetch_memory().unwrap_or_default())
+            });
+
+            AppData {
+                agents: agents.join().unwrap_or_default(),
+                beads: beads.join().unwrap_or_default(),
+                kpi: kpi.join().unwrap_or_default(),
+                sessions: sessions.join().unwrap_or_default(),
+                convoys: convoys.join().unwrap_or_default(),
+                costs: costs.join().unwrap_or_default(),
+                mcp_servers: mcp_servers.join().unwrap_or_default(),
+                worktrees: worktrees.join().unwrap_or_default(),
+                github_issues: github_issues.join().unwrap_or_default(),
+                github_prs: github_prs.join().unwrap_or_default(),
+                roadmap_items: roadmap_items.join().unwrap_or_default(),
+                ideas: ideas.join().unwrap_or_default(),
+                stacks: stacks.join().unwrap_or_default(),
+                changelog: changelog.join().unwrap_or_default(),
+                memory: memory.join().unwrap_or_default(),
+            }
+        });
+
+        if profile {
+            eprintln!("[at-tui] fetch_all total={}ms", started.elapsed().as_millis());
         }
+
+        data
     }
+}
+
+fn timed_fetch<T, F>(enabled: bool, label: &'static str, fetch: F) -> T
+where
+    F: FnOnce() -> T,
+{
+    if !enabled {
+        return fetch();
+    }
+    let started = Instant::now();
+    let out = fetch();
+    eprintln!("[at-tui] fetch {label}={}ms", started.elapsed().as_millis());
+    out
 }
 
 fn flatten_roadmaps(roadmaps: Vec<ApiRoadmap>) -> Vec<ApiRoadmapItem> {
