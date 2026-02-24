@@ -11,6 +11,7 @@ pub mod github_issues;
 pub mod github_prs;
 pub mod ideation;
 pub mod mcp;
+pub mod planning_poker;
 pub mod roadmap;
 pub mod sessions;
 pub mod stacks;
