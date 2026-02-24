@@ -583,7 +583,7 @@ impl ContextSteerer {
         if let Ok(entries) = std::fs::read_dir(&memory_dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
-                if path.extension().map_or(false, |e| e == "md") {
+                if path.extension().is_some_and(|e| e == "md") {
                     if let Ok(content) = std::fs::read_to_string(&path) {
                         let name = path.file_stem().unwrap_or_default().to_string_lossy();
                         self.memories.push(MemoryEntry {
@@ -843,7 +843,7 @@ fn score_relevance(
 
     // Normalize
     if matches > 0 {
-        (score / matches as f64).min(1.0).max(0.0) + 0.1
+        (score / matches as f64).clamp(0.0, 1.0) + 0.1
     } else {
         0.0
     }

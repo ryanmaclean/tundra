@@ -6,7 +6,7 @@ use std::path::PathBuf;
 /// **Security**: This struct NEVER stores API keys, tokens, or secrets.
 /// All credentials are read from environment variables at runtime.
 /// See [`CredentialProvider`] for the env-var-based credential model.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Default)]
 pub struct Config {
     #[serde(default)]
     pub general: GeneralConfig,
@@ -28,6 +28,8 @@ pub struct Config {
     pub bridge: BridgeConfig,
     #[serde(default)]
     pub display: DisplayConfig,
+    #[serde(default)]
+    pub kanban: KanbanConfig,
     #[serde(default)]
     pub terminal: TerminalConfig,
     #[serde(default)]
@@ -64,6 +66,7 @@ impl std::fmt::Debug for Config {
             .field("daemon", &self.daemon)
             .field("ui", &self.ui)
             .field("display", &self.display)
+            .field("kanban", &self.kanban)
             .field("terminal", &self.terminal)
             .field("integrations", &self.integrations)
             .field("appearance", &self.appearance)
@@ -80,35 +83,6 @@ impl std::fmt::Debug for Config {
     }
 }
 
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            general: GeneralConfig::default(),
-            dolt: DoltConfig::default(),
-            cache: CacheConfig::default(),
-            providers: ProvidersConfig::default(),
-            agents: AgentsConfig::default(),
-            security: SecurityConfig::default(),
-            daemon: DaemonConfig::default(),
-            ui: UiConfig::default(),
-            bridge: BridgeConfig::default(),
-            display: DisplayConfig::default(),
-            terminal: TerminalConfig::default(),
-            integrations: IntegrationConfig::default(),
-            appearance: AppearanceConfig::default(),
-            language: LanguageConfig::default(),
-            dev_tools: DevToolsConfig::default(),
-            agent_profile: AgentProfileConfig::default(),
-            paths: PathsConfig::default(),
-            api_profiles: ApiProfilesConfig::default(),
-            updates: UpdatesConfig::default(),
-            notifications: NotificationConfig::default(),
-            debug: DebugConfig::default(),
-            memory: MemoryConfig::default(),
-        }
-    }
-}
-
 impl Config {
     /// Load config from `~/.auto-tundra/config.toml`, falling back to
     /// defaults when the file does not exist.
@@ -117,11 +91,14 @@ impl Config {
         if path.exists() {
             let text =
                 std::fs::read_to_string(&path).map_err(|e| ConfigError::Io(e.to_string()))?;
-            let cfg: Config =
+            let mut cfg: Config =
                 toml::from_str(&text).map_err(|e| ConfigError::Parse(e.to_string()))?;
+            cfg.validate()?;
             Ok(cfg)
         } else {
-            Ok(Config::default())
+            let mut cfg = Config::default();
+            cfg.validate()?;
+            Ok(cfg)
         }
     }
 
@@ -129,13 +106,22 @@ impl Config {
     pub fn load_from(path: impl Into<PathBuf>) -> Result<Self, ConfigError> {
         let path = path.into();
         let text = std::fs::read_to_string(&path).map_err(|e| ConfigError::Io(e.to_string()))?;
-        let cfg: Config = toml::from_str(&text).map_err(|e| ConfigError::Parse(e.to_string()))?;
+        let mut cfg: Config = toml::from_str(&text).map_err(|e| ConfigError::Parse(e.to_string()))?;
+        cfg.validate()?;
         Ok(cfg)
     }
 
     /// Serialize config to TOML string.
     pub fn to_toml(&self) -> Result<String, ConfigError> {
+        self.validate()?;
         toml::to_string_pretty(self).map_err(|e| ConfigError::Parse(e.to_string()))
+    }
+
+    /// Semantic validation for settings that are not fully expressible via type checks.
+    pub fn validate(&self) -> Result<(), ConfigError> {
+        self.kanban.validate()?;
+        self.security.validate_profiles()?;
+        Ok(())
     }
 
     fn default_path() -> PathBuf {
@@ -156,6 +142,8 @@ pub enum ConfigError {
     Io(String),
     #[error("parse: {0}")]
     Parse(String),
+    #[error("validation: {0}")]
+    Validation(String),
 }
 
 // ---------------------------------------------------------------------------
@@ -336,6 +324,12 @@ pub struct SecurityConfig {
     pub auto_lock_timeout_mins: u32,
     #[serde(default = "default_true")]
     pub sandbox_mode: bool,
+    /// Active execution profile name in `execution_profiles`.
+    #[serde(default = "default_execution_profile")]
+    pub active_execution_profile: String,
+    /// Sandbox/approval profile matrix used by CLI/agent executors.
+    #[serde(default = "default_execution_profiles")]
+    pub execution_profiles: Vec<ExecutionProfile>,
 }
 
 impl Default for SecurityConfig {
@@ -347,7 +341,68 @@ impl Default for SecurityConfig {
             allowed_origins: Vec::new(),
             auto_lock_timeout_mins: default_auto_lock_timeout(),
             sandbox_mode: true,
+            active_execution_profile: default_execution_profile(),
+            execution_profiles: default_execution_profiles(),
         }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ApprovalMode {
+    Never,
+    OnFailure,
+    Always,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExecutionProfile {
+    pub name: String,
+    #[serde(default = "default_true")]
+    pub sandbox: bool,
+    #[serde(default)]
+    pub allow_network: bool,
+    #[serde(default)]
+    pub allow_shell_exec: bool,
+    #[serde(default = "default_approval_mode")]
+    pub approval_mode: ApprovalMode,
+}
+
+impl SecurityConfig {
+    pub fn validate_profiles(&self) -> Result<(), ConfigError> {
+        if self.execution_profiles.is_empty() {
+            return Err(ConfigError::Validation(
+                "security.execution_profiles must not be empty".to_string(),
+            ));
+        }
+        let mut names = std::collections::BTreeSet::new();
+        for profile in &self.execution_profiles {
+            let name = profile.name.trim();
+            if name.is_empty() {
+                return Err(ConfigError::Validation(
+                    "security.execution_profiles entries must have non-empty name".to_string(),
+                ));
+            }
+            if !names.insert(name.to_string()) {
+                return Err(ConfigError::Validation(format!(
+                    "security.execution_profiles contains duplicate profile '{}'",
+                    name
+                )));
+            }
+        }
+        if !names.contains(self.active_execution_profile.trim()) {
+            return Err(ConfigError::Validation(format!(
+                "security.active_execution_profile '{}' not found in execution_profiles",
+                self.active_execution_profile
+            )));
+        }
+        Ok(())
+    }
+
+    pub fn active_profile(&self) -> Option<&ExecutionProfile> {
+        self.execution_profiles
+            .iter()
+            .find(|p| p.name == self.active_execution_profile)
     }
 }
 
@@ -356,6 +411,37 @@ fn default_true() -> bool {
 }
 fn default_auto_lock_timeout() -> u32 {
     15
+}
+fn default_execution_profile() -> String {
+    "balanced".into()
+}
+fn default_approval_mode() -> ApprovalMode {
+    ApprovalMode::OnFailure
+}
+fn default_execution_profiles() -> Vec<ExecutionProfile> {
+    vec![
+        ExecutionProfile {
+            name: "safe".to_string(),
+            sandbox: true,
+            allow_network: false,
+            allow_shell_exec: false,
+            approval_mode: ApprovalMode::Always,
+        },
+        ExecutionProfile {
+            name: "balanced".to_string(),
+            sandbox: true,
+            allow_network: true,
+            allow_shell_exec: true,
+            approval_mode: ApprovalMode::OnFailure,
+        },
+        ExecutionProfile {
+            name: "trusted".to_string(),
+            sandbox: false,
+            allow_network: true,
+            allow_shell_exec: true,
+            approval_mode: ApprovalMode::Never,
+        },
+    ]
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -730,7 +816,7 @@ fn default_agent_framework() -> String {
 // Paths settings (UI-facing)
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PathsConfig {
     #[serde(default)]
     pub python_path: String,
@@ -742,18 +828,6 @@ pub struct PathsConfig {
     pub claude_cli_path: String,
     #[serde(default)]
     pub auto_claude_path: String,
-}
-
-impl Default for PathsConfig {
-    fn default() -> Self {
-        Self {
-            python_path: String::new(),
-            git_path: String::new(),
-            github_cli_path: String::new(),
-            claude_cli_path: String::new(),
-            auto_claude_path: String::new(),
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -770,25 +844,17 @@ pub struct ApiProfileEntry {
     pub api_key_env: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ApiProfilesConfig {
     #[serde(default)]
     pub profiles: Vec<ApiProfileEntry>,
-}
-
-impl Default for ApiProfilesConfig {
-    fn default() -> Self {
-        Self {
-            profiles: Vec::new(),
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------
 // Updates settings (UI-facing)
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct UpdatesConfig {
     #[serde(default)]
     pub version: String,
@@ -798,17 +864,6 @@ pub struct UpdatesConfig {
     pub auto_update_projects: bool,
     #[serde(default)]
     pub beta_updates: bool,
-}
-
-impl Default for UpdatesConfig {
-    fn default() -> Self {
-        Self {
-            version: String::new(),
-            is_latest: false,
-            auto_update_projects: false,
-            beta_updates: false,
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -842,25 +897,17 @@ impl Default for NotificationConfig {
 // Debug settings (UI-facing)
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct DebugConfig {
     #[serde(default)]
     pub anonymous_error_reporting: bool,
-}
-
-impl Default for DebugConfig {
-    fn default() -> Self {
-        Self {
-            anonymous_error_reporting: false,
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------
 // Memory settings (UI-facing)
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MemoryConfig {
     #[serde(default)]
     pub enable_memory: bool,
@@ -872,18 +919,6 @@ pub struct MemoryConfig {
     pub embedding_provider: String,
     #[serde(default)]
     pub embedding_model: String,
-}
-
-impl Default for MemoryConfig {
-    fn default() -> Self {
-        Self {
-            enable_memory: false,
-            enable_agent_memory_access: false,
-            graphiti_server_url: String::new(),
-            embedding_provider: String::new(),
-            embedding_model: String::new(),
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------

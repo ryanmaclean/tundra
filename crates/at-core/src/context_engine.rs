@@ -467,7 +467,7 @@ impl ProjectContextLoader {
         if let Ok(entries) = std::fs::read_dir(&agents_dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
-                if path.extension().map_or(false, |ext| ext == "md") {
+                if path.extension().is_some_and(|ext| ext == "md") {
                     if let Ok(content) = std::fs::read_to_string(&path) {
                         if let Some(agent) = parse_agent_definition(&path, &content) {
                             agents.push(agent);

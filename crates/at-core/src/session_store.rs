@@ -9,19 +9,14 @@ use uuid::Uuid;
 // ---------------------------------------------------------------------------
 
 /// The layout of terminal panels in the UI.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum TerminalLayout {
+    #[default]
     Single,
     SplitHorizontal,
     SplitVertical,
     Grid2x2,
-}
-
-impl Default for TerminalLayout {
-    fn default() -> Self {
-        Self::Single
-    }
 }
 
 /// Persisted UI session state.
@@ -170,6 +165,7 @@ impl SessionStore {
         // Lightweight struct for partial deserialization — only the fields we need.
         #[derive(Deserialize)]
         struct SessionMeta {
+            #[allow(dead_code)]
             id: Uuid,
             last_active_at: DateTime<Utc>,
         }
