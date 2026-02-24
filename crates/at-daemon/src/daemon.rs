@@ -140,17 +140,13 @@ impl Daemon {
     pub async fn start_embedded(&self) -> Result<u16> {
         self.log_profile_bootstrap();
 
-        let api_key = CredentialProvider::daemon_api_key();
-        if api_key.is_some() {
-            info!("daemon API key found — authentication enabled");
-        } else {
-            warn!("AUTO_TUNDRA_API_KEY not set — running without authentication (dev mode)");
-        }
+        let api_key = CredentialProvider::ensure_daemon_api_key();
+        info!("daemon API key ready — authentication enabled");
 
         // Seed demo data so the UI is functional on first launch.
         self.api_state.seed_demo_data().await;
 
-        let api_router = at_bridge::http_api::api_router_with_auth(self.api_state.clone(), api_key);
+        let api_router = at_bridge::http_api::api_router_with_auth(self.api_state.clone(), Some(api_key));
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
         let port = listener.local_addr()?.port();
 
@@ -343,16 +339,12 @@ impl Daemon {
             "daemon starting event loop"
         );
 
-        let api_key = CredentialProvider::daemon_api_key();
-        if api_key.is_some() {
-            info!("daemon API key found — authentication enabled");
-        } else {
-            warn!("AUTO_TUNDRA_API_KEY not set — running without authentication (dev mode)");
-        }
+        let api_key = CredentialProvider::ensure_daemon_api_key();
+        info!("daemon API key ready — authentication enabled");
         // Seed demo data so the UI is functional on first launch.
         self.api_state.seed_demo_data().await;
 
-        let api_router = at_bridge::http_api::api_router_with_auth(self.api_state.clone(), api_key);
+        let api_router = at_bridge::http_api::api_router_with_auth(self.api_state.clone(), Some(api_key));
         let bind_addr = listener.local_addr()?;
         let api_handle = tokio::spawn(async move {
             if let Err(e) = axum::serve(listener, api_router).await {
@@ -417,16 +409,12 @@ impl Daemon {
             "daemon starting event loop"
         );
 
-        let api_key = CredentialProvider::daemon_api_key();
-        if api_key.is_some() {
-            info!("daemon API key found — authentication enabled");
-        } else {
-            warn!("AUTO_TUNDRA_API_KEY not set — running without authentication (dev mode)");
-        }
+        let api_key = CredentialProvider::ensure_daemon_api_key();
+        info!("daemon API key ready — authentication enabled");
         // Seed demo data so the UI is functional on first launch.
         self.api_state.seed_demo_data().await;
 
-        let api_router = at_bridge::http_api::api_router_with_auth(self.api_state.clone(), api_key);
+        let api_router = at_bridge::http_api::api_router_with_auth(self.api_state.clone(), Some(api_key));
         let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
         let api_handle = tokio::spawn(async move {
             if let Err(e) = axum::serve(listener, api_router).await {
