@@ -25,6 +25,7 @@ use crate::auth::AuthLayer;
 use crate::event_bus::EventBus;
 use crate::intelligence_api;
 use crate::notifications::{notification_from_event, NotificationStore};
+use crate::oauth_token_manager::OAuthTokenManager;
 use crate::origin_validation::{get_default_allowed_origins, validate_websocket_origin};
 use crate::terminal::TerminalRegistry;
 use crate::terminal_ws;
@@ -153,6 +154,7 @@ pub struct ApiState {
     /// Pending OAuth state parameters for CSRF protection.
     /// Key: state parameter, Value: timestamp or session metadata.
     pub oauth_pending_states: Arc<RwLock<std::collections::HashMap<String, String>>>,
+    pub oauth_token_manager: Arc<RwLock<OAuthTokenManager>>,
     // ---- Projects --------------------------------------------------------
     pub projects: Arc<RwLock<Vec<Project>>>,
     // ---- PR polling -------------------------------------------------------
@@ -308,6 +310,7 @@ impl ApiState {
             github_oauth_token: Arc::new(RwLock::new(None)),
             github_oauth_user: Arc::new(RwLock::new(None)),
             oauth_pending_states: Arc::new(RwLock::new(std::collections::HashMap::new())),
+            oauth_token_manager: Arc::new(RwLock::new(OAuthTokenManager::new())),
             pr_poll_registry: Arc::new(RwLock::new(std::collections::HashMap::new())),
             releases: Arc::new(RwLock::new(Vec::new())),
             archived_tasks: Arc::new(RwLock::new(Vec::new())),
