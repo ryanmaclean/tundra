@@ -105,12 +105,13 @@ fn render_tab_bar(frame: &mut Frame, app: &App, area: Rect) {
             } else {
                 let shortcut = match i {
                     10 => "I",
-                    11 => "W",
-                    12 => "G",
-                    13 => "P",
-                    14 => "S",
-                    15 => "X",
-                    16 => "L",
+                    11 => "K",
+                    12 => "W",
+                    13 => "G",
+                    14 => "P",
+                    15 => "S",
+                    16 => "X",
+                    17 => "L",
                     _ => "?",
                 };
                 format!("{}:{}{}", shortcut, t, badge)
@@ -151,11 +152,11 @@ fn tab_count(app: &App, tab: usize) -> usize {
         8 => app.mcp_servers.len(),
         9 => app.roadmap_items.len(),
         10 => app.ideas.len(),
-        11 => app.worktrees.len(),
-        12 => app.github_issues.len(),
-        13 => app.github_prs.len(),
-        14 => app.stacks.len(),
-        16 => app.changelog.len(),
+        12 => app.worktrees.len(),
+        13 => app.github_issues.len(),
+        14 => app.github_prs.len(),
+        15 => app.stacks.len(),
+        17 => app.changelog.len(),
         _ => 0,
     }
 }
@@ -173,12 +174,13 @@ fn render_content(frame: &mut Frame, app: &App, area: Rect) {
         8 => tabs::mcp::render(frame, app, area),
         9 => tabs::roadmap::render(frame, app, area),
         10 => tabs::ideation::render(frame, app, area),
-        11 => tabs::worktrees::render(frame, app, area),
-        12 => tabs::github_issues::render(frame, app, area),
-        13 => tabs::github_prs::render(frame, app, area),
-        14 => tabs::stacks::render(frame, app, area),
-        15 => tabs::context::render(frame, app, area),
-        16 => tabs::changelog::render(frame, app, area),
+        11 => tabs::planning_poker::render(frame, app, area),
+        12 => tabs::worktrees::render(frame, app, area),
+        13 => tabs::github_issues::render(frame, app, area),
+        14 => tabs::github_prs::render(frame, app, area),
+        15 => tabs::stacks::render(frame, app, area),
+        16 => tabs::context::render(frame, app, area),
+        17 => tabs::changelog::render(frame, app, area),
         _ => {}
     }
 }
