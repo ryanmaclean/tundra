@@ -591,6 +591,23 @@ fn planning_poker_tab_renders() {
     assert!(!output.is_empty());
 }
 
+#[test]
+fn card_unicode_fallback() {
+    // Set environment variables to force ASCII mode (disable Unicode)
+    std::env::set_var("TERM", "vt100");
+    std::env::remove_var("LANG");
+    std::env::remove_var("LC_ALL");
+
+    let output = render_tab(11);
+
+    // Verify ASCII fallback: card values should appear as text
+    // The cards are: 0, 1, 2, 3, 5, 8, 13, 21, ?, ∞
+    assert_contains_all(&output, &["0", "1", "2", "3", "5", "8", "13", "21", "?"]);
+
+    // Restore environment for other tests
+    std::env::set_var("TERM", "xterm-256color");
+}
+
 // ===========================================================================
 // Tab 12: Worktrees
 // ===========================================================================
