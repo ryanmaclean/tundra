@@ -10668,6 +10668,20 @@ button.toggle-switch.active .toggle-knob {
     background: linear-gradient(90deg, rgba(255, 255, 255, 0.3), rgba(255, 255, 255, 0.5));
 }
 
+/* Toast Progress Bar Color Variants */
+
+.toast-item.toast-info .toast-progress-fill {
+    background: linear-gradient(90deg, var(--accent-blue), rgba(59, 130, 246, 0.8));
+}
+
+.toast-item.toast-success .toast-progress-fill {
+    background: linear-gradient(90deg, var(--accent-green), rgba(34, 197, 94, 0.8));
+}
+
+.toast-item.toast-warning .toast-progress-fill {
+    background: linear-gradient(90deg, var(--accent-yellow), rgba(234, 179, 8, 0.8));
+}
+
 /* ── Onboarding Wizard ── */
 
 .onboarding-container {
