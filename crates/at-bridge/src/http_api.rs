@@ -1469,6 +1469,18 @@ async fn get_kpi(State(state): State<Arc<ApiState>>) -> Json<KpiSnapshot> {
 // Task handlers
 // ---------------------------------------------------------------------------
 
+#[derive(Debug, Deserialize)]
+struct TaskListQuery {
+    #[serde(default)]
+    pub phase: Option<String>,
+    #[serde(default)]
+    pub category: Option<String>,
+    #[serde(default)]
+    pub priority: Option<String>,
+    #[serde(default)]
+    pub source: Option<String>,
+}
+
 /// GET /api/tasks -- retrieve all tasks in the system.
 ///
 /// Returns a JSON array of all tasks with their complete state including phase,
