@@ -219,6 +219,13 @@ pub fn NotificationBell(
                             });
                         };
 
+                        // Calculate progress for this toast
+                        let frac = remaining_fraction(&toast);
+                        let bar_width: usize = 30; // Fixed width for progress bar
+                        let filled = ((bar_width as f64) * frac).round() as usize;
+                        let empty = bar_width.saturating_sub(filled);
+                        let progress_bar = format!("{}{}", "━".repeat(filled), " ".repeat(empty));
+
                         view! {
                             <div
                                 class={format!("toast-item {level_class}")}
@@ -235,6 +242,7 @@ pub fn NotificationBell(
                                     </button>
                                 </div>
                                 <div class="toast-body">{toast.message}</div>
+                                <div class="toast-progress-bar">{progress_bar}</div>
                             </div>
                         }
                     }).collect::<Vec<_>>()
