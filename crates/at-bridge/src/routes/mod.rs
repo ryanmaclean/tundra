@@ -7,4 +7,5 @@
 //! function that returns a Router<Arc<ApiState>>.
 
 pub mod github;
+pub mod kanban;
 pub mod tasks;
