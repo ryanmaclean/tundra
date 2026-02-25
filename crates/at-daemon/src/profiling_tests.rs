@@ -1,5 +1,5 @@
+#![allow(dead_code)]
 use anyhow::Result;
-use futures;
 use std::time::Duration;
 use tokio::time::timeout;
 

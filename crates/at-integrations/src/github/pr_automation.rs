@@ -125,7 +125,7 @@ impl PrAutomation {
             mergeable: pr.mergeable,
             checks_passing: pr.mergeable.unwrap_or(false),
             review_count: pr.reviewers.len() as u32,
-            approved: pr.reviewers.len() > 0 && pr.mergeable.unwrap_or(false),
+            approved: !pr.reviewers.is_empty() && pr.mergeable.unwrap_or(false),
         })
     }
 }

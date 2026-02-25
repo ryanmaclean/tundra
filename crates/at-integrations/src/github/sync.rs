@@ -30,7 +30,7 @@ impl IssueSyncEngine {
         let new_beads: Vec<Bead> = open_issues
             .iter()
             .filter(|issue| !imported_numbers.contains(&issue.number))
-            .map(|issue| issues::import_issue_as_task(issue))
+            .map(issues::import_issue_as_task)
             .collect();
 
         Ok(new_beads)
@@ -89,7 +89,7 @@ impl IssueSyncEngine {
 
 /// Extract the set of already-imported issue numbers from bead metadata.
 fn extract_imported_issue_numbers(beads: &[Bead]) -> Vec<u64> {
-    beads.iter().filter_map(|b| bead_issue_number(b)).collect()
+    beads.iter().filter_map(bead_issue_number).collect()
 }
 
 /// Read `metadata.issue_number` from a bead, if present.
@@ -206,7 +206,7 @@ mod tests {
         let new_beads: Vec<Bead> = incoming_issues
             .iter()
             .filter(|issue| !imported_numbers.contains(&issue.number))
-            .map(|issue| issues::import_issue_as_task(issue))
+            .map(issues::import_issue_as_task)
             .collect();
 
         assert_eq!(new_beads.len(), 2);

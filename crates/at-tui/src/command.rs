@@ -7,8 +7,6 @@
 //! Query commands return serialized state as JSON strings so that agents can
 //! inspect the TUI without needing direct struct access.
 
-use serde_json;
-
 use crate::app::{App, TAB_NAMES};
 
 // ---------------------------------------------------------------------------

@@ -705,6 +705,7 @@ impl LlmProvider for LocalProvider {
 pub struct MockProvider {
     responses: Arc<Mutex<Vec<Result<LlmResponse, LlmError>>>>,
     /// Captured request bodies for test assertions.
+    #[allow(clippy::type_complexity)]
     captured_requests: Arc<Mutex<Vec<(Vec<LlmMessage>, LlmConfig)>>>,
 }
 

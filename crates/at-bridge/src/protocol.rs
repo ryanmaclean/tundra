@@ -44,7 +44,7 @@ pub enum BridgeMessage {
     },
     Event(EventPayload),
     /// Real-time task update (phase change, progress, subtasks). Subscribe on /api/events/ws.
-    TaskUpdate(at_core::types::Task),
+    TaskUpdate(Box<at_core::types::Task>),
     /// Merge completed or conflict detected on a worktree branch.
     MergeResult {
         worktree_id: String,

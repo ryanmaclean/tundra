@@ -137,7 +137,7 @@ async fn main() -> Result<()> {
     .await?;
 
     // Record LLM profile bootstrap metrics after daemon creation
-    let reg = at_intelligence::ResilientRegistry::from_config(&daemon.config());
+    let reg = at_intelligence::ResilientRegistry::from_config(daemon.config());
     let total_count = reg.count();
     if let Some(best) = reg.registry.best_available() {
         let provider_name = format!("{:?}", best.provider);
