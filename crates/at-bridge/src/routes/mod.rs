@@ -8,4 +8,5 @@
 
 pub mod github;
 pub mod kanban;
+pub mod notifications;
 pub mod tasks;
