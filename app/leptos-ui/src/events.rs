@@ -33,6 +33,9 @@ pub struct Toast {
     pub title: String,
     pub message: String,
     pub level: String, // "info", "success", "warning", "error"
+    pub created_at: f64, // JavaScript timestamp from js_sys::Date::now()
+    pub duration_ms: Option<f64>, // Duration in milliseconds, None for infinite (errors)
+    pub paused: bool, // Whether the auto-dismiss timer is paused
 }
 
 /// Start the WebSocket event subscription. Returns signals for connection state,
@@ -296,6 +299,9 @@ fn event_to_toast(value: &serde_json::Value) -> Option<Toast> {
                 title,
                 message,
                 level,
+                created_at: 0.0, // Will be set properly in subtask-2-5
+                duration_ms: Some(5000.0), // Will be set properly in subtask-2-5
+                paused: false,
             })
         }
         _ => None,
