@@ -60,8 +60,7 @@ pub struct Project {
 }
 
 /// Sync status tracking for GitHub issue synchronization.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SyncStatus {
     pub last_sync_time: Option<chrono::DateTime<chrono::Utc>>,
     pub issues_imported: u64,
@@ -1539,9 +1538,9 @@ async fn update_task(
     drop(tasks);
     state
         .event_bus
-        .publish(crate::protocol::BridgeMessage::TaskUpdate(
-            Box::new(task_snapshot.clone()),
-        ));
+        .publish(crate::protocol::BridgeMessage::TaskUpdate(Box::new(
+            task_snapshot.clone(),
+        )));
     (
         axum::http::StatusCode::OK,
         Json(serde_json::json!(task_snapshot)),
@@ -1646,9 +1645,9 @@ async fn update_task_phase(
     drop(tasks);
     state
         .event_bus
-        .publish(crate::protocol::BridgeMessage::TaskUpdate(
-            Box::new(task_snapshot.clone()),
-        ));
+        .publish(crate::protocol::BridgeMessage::TaskUpdate(Box::new(
+            task_snapshot.clone(),
+        )));
     (
         axum::http::StatusCode::OK,
         Json(serde_json::json!(task_snapshot)),
@@ -1770,9 +1769,9 @@ async fn execute_task_pipeline(
     // Publish the phase change.
     state
         .event_bus
-        .publish(crate::protocol::BridgeMessage::TaskUpdate(
-            Box::new(task_snapshot.clone()),
-        ));
+        .publish(crate::protocol::BridgeMessage::TaskUpdate(Box::new(
+            task_snapshot.clone(),
+        )));
 
     // Spawn a background task to drive the pipeline phases.
     let tasks_store = state.tasks.clone();
@@ -1966,7 +1965,9 @@ async fn run_pipeline_background(
         let mut tasks = tasks_store.write().await;
         if let Some(t) = tasks.iter_mut().find(|t| t.id == task.id) {
             t.set_phase(TaskPhase::Qa);
-            event_bus.publish(crate::protocol::BridgeMessage::TaskUpdate(Box::new(t.clone())));
+            event_bus.publish(crate::protocol::BridgeMessage::TaskUpdate(Box::new(
+                t.clone(),
+            )));
         }
     }
 
@@ -2033,7 +2034,9 @@ async fn run_pipeline_background(
             let mut tasks = tasks_store.write().await;
             if let Some(t) = tasks.iter_mut().find(|t| t.id == task.id) {
                 t.set_phase(TaskPhase::Fixing);
-                event_bus.publish(crate::protocol::BridgeMessage::TaskUpdate(Box::new(t.clone())));
+                event_bus.publish(crate::protocol::BridgeMessage::TaskUpdate(Box::new(
+                    t.clone(),
+                )));
             }
         }
 
@@ -2042,7 +2045,9 @@ async fn run_pipeline_background(
             let mut tasks = tasks_store.write().await;
             if let Some(t) = tasks.iter_mut().find(|t| t.id == task.id) {
                 t.set_phase(TaskPhase::Qa);
-                event_bus.publish(crate::protocol::BridgeMessage::TaskUpdate(Box::new(t.clone())));
+                event_bus.publish(crate::protocol::BridgeMessage::TaskUpdate(Box::new(
+                    t.clone(),
+                )));
             }
         }
 
@@ -2078,7 +2083,9 @@ async fn run_pipeline_background(
 
             let next_phase = report.next_phase();
             t.set_phase(next_phase);
-            event_bus.publish(crate::protocol::BridgeMessage::TaskUpdate(Box::new(t.clone())));
+            event_bus.publish(crate::protocol::BridgeMessage::TaskUpdate(Box::new(
+                t.clone(),
+            )));
         }
     }
 
@@ -3830,11 +3837,7 @@ async fn trigger_github_sync(State(state): State<Arc<ApiState>>) -> impl IntoRes
         );
     }
 
-    let gh_config = GitHubConfig {
-        token,
-        owner,
-        repo,
-    };
+    let gh_config = GitHubConfig { token, owner, repo };
     let client = match at_integrations::github::client::GitHubClient::new(gh_config) {
         Ok(c) => c,
         Err(e) => {
@@ -4852,8 +4855,10 @@ async fn merge_preview(Path(id): Path<String>) -> impl IntoResponse {
             current_branch = String::new();
         }
     }
-    if found_branch.is_none() && !current_path.is_empty()
-        && (current_branch.contains(&id) || current_path.contains(&id)) {
+    if found_branch.is_none()
+        && !current_path.is_empty()
+        && (current_branch.contains(&id) || current_path.contains(&id))
+    {
         found_branch = Some(current_branch);
     }
 
@@ -5111,9 +5116,9 @@ async fn prioritize_task(
 
     state
         .event_bus
-        .publish(crate::protocol::BridgeMessage::TaskUpdate(
-            Box::new(task_snapshot.clone()),
-        ));
+        .publish(crate::protocol::BridgeMessage::TaskUpdate(Box::new(
+            task_snapshot.clone(),
+        )));
 
     (
         axum::http::StatusCode::OK,
