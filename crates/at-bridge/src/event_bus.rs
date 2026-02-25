@@ -3,9 +3,11 @@ use std::sync::{Arc, Mutex};
 use crate::protocol::BridgeMessage;
 
 /// A subscriber entry holding its sender channel and an optional filter.
+type FilterFn = Box<dyn Fn(&BridgeMessage) -> bool + Send + Sync>;
+
 struct Subscriber {
     tx: flume::Sender<Arc<BridgeMessage>>,
-    filter: Option<Box<dyn Fn(&BridgeMessage) -> bool + Send + Sync>>,
+    filter: Option<FilterFn>,
 }
 
 /// A broadcast-style event bus built on top of flume channels.

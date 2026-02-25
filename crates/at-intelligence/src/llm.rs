@@ -702,10 +702,12 @@ impl LlmProvider for LocalProvider {
 ///
 /// Returns pre-configured responses. Each call to `complete` pops the next
 /// response from the queue. If the queue is empty, returns a default response.
+type CapturedRequests = Arc<Mutex<Vec<(Vec<LlmMessage>, LlmConfig)>>>;
+
 pub struct MockProvider {
     responses: Arc<Mutex<Vec<Result<LlmResponse, LlmError>>>>,
     /// Captured request bodies for test assertions.
-    captured_requests: Arc<Mutex<Vec<(Vec<LlmMessage>, LlmConfig)>>>,
+    captured_requests: CapturedRequests,
 }
 
 impl MockProvider {

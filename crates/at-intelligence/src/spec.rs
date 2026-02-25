@@ -113,22 +113,12 @@ pub enum ArtifactKind {
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct PhaseMetrics {
     pub tokens_used: usize,
     pub duration_ms: u64,
     pub files_read: usize,
     pub llm_calls: usize,
-}
-
-impl Default for PhaseMetrics {
-    fn default() -> Self {
-        Self {
-            tokens_used: 0,
-            duration_ms: 0,
-            files_read: 0,
-            llm_calls: 0,
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -375,7 +365,7 @@ impl SpecPipeline {
         let spec = self
             .specs
             .get_mut(spec_id)
-            .ok_or_else(|| SpecError::NotFound(*spec_id))?;
+            .ok_or(SpecError::NotFound(*spec_id))?;
         spec.add_phase_result(result);
         Ok(())
     }

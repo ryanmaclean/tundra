@@ -51,22 +51,12 @@ pub enum RunnerStatus {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct RunnerMetrics {
     pub total_tokens: usize,
     pub total_duration_ms: u64,
     pub phases_completed: usize,
     pub errors: usize,
-}
-
-impl Default for RunnerMetrics {
-    fn default() -> Self {
-        Self {
-            total_tokens: 0,
-            total_duration_ms: 0,
-            phases_completed: 0,
-            errors: 0,
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------

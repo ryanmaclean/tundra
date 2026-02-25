@@ -231,7 +231,7 @@ impl GitLabClient {
     ) -> Result<Vec<GitLabIssue>> {
         if self.is_stub_token() {
             let s = state.unwrap_or("opened");
-            let count = per_page.min(5) as u32;
+            let count = per_page.min(5);
             let issues = (1..=count)
                 .map(|i| Self::stub_issue(project_id, i, s))
                 .collect();
@@ -275,7 +275,7 @@ impl GitLabClient {
     ) -> Result<Vec<GitLabMergeRequest>> {
         if self.is_stub_token() {
             let s = state.unwrap_or("opened");
-            let count = per_page.min(5) as u32;
+            let count = per_page.min(5);
             let mrs = (1..=count)
                 .map(|i| Self::stub_mr(project_id, i, s))
                 .collect();

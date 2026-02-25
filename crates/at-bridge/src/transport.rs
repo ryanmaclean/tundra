@@ -247,6 +247,7 @@ impl TransportRouter {
     }
 
     /// Broadcast a message to all connected transports.
+    #[allow(clippy::await_holding_lock)]
     pub async fn broadcast(&self, msg: BridgeMessage) -> Vec<(Uuid, TransportError)> {
         let session_ids: Vec<Uuid> = {
             let ts = self.transports.lock().expect("router lock");
@@ -269,15 +270,21 @@ impl TransportRouter {
             };
 
             if result.is_some() {
-                let ts = self.transports.lock().expect("router lock");
-                if let Some(t) = ts.get(&sid) {
-                    if let Err(e) = t.send(msg.clone()).await {
-                        errors.push((sid, e));
+                let send_result = {
+                    let ts = self.transports.lock().expect("router lock");
+                    if let Some(t) = ts.get(&sid) {
+                        Some(t.send(msg.clone()).await)
                     } else {
-                        let mut ms = self.metrics.lock().expect("metrics lock");
-                        if let Some(m) = ms.get_mut(&sid) {
-                            m.messages_sent += 1;
-                        }
+                        None
+                    }
+                };
+
+                if let Some(Err(e)) = send_result {
+                    errors.push((sid, e));
+                } else if send_result.is_some() {
+                    let mut ms = self.metrics.lock().expect("metrics lock");
+                    if let Some(m) = ms.get_mut(&sid) {
+                        m.messages_sent += 1;
                     }
                 }
             }
