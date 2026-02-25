@@ -909,7 +909,7 @@ pub struct CompetitorAnalysisResult {
 ///   "bead_count": 42
 /// }
 /// ```
-async fn get_status(State(state): State<Arc<ApiState>>) -> Json<StatusResponse> {
+pub async fn get_status(State(state): State<Arc<ApiState>>) -> Json<StatusResponse> {
     let beads = state.beads.read().await;
     let agents = state.agents.read().await;
     Json(StatusResponse {
@@ -950,7 +950,7 @@ async fn get_status(State(state): State<Arc<ApiState>>) -> Json<StatusResponse> 
 ///   }
 /// ]
 /// ```
-async fn list_beads(State(state): State<Arc<ApiState>>) -> Json<Vec<Bead>> {
+pub async fn list_beads(State(state): State<Arc<ApiState>>) -> Json<Vec<Bead>> {
     let beads = state.beads.read().await;
     Json(beads.clone())
 }
@@ -994,7 +994,7 @@ async fn list_beads(State(state): State<Arc<ApiState>>) -> Json<Vec<Bead>> {
 ///   "metadata": {"tags": ["security", "backend"]}
 /// }
 /// ```
-async fn create_bead(
+pub async fn create_bead(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<CreateBeadRequest>,
 ) -> impl IntoResponse {
@@ -1068,7 +1068,7 @@ async fn create_bead(
 ///   "error": "invalid transition from Pending to Done"
 /// }
 /// ```
-async fn update_bead_status(
+pub async fn update_bead_status(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateBeadStatusRequest>,
@@ -1132,7 +1132,7 @@ async fn update_bead_status(
 ///   }
 /// ]
 /// ```
-async fn list_agents(State(state): State<Arc<ApiState>>) -> Json<Vec<Agent>> {
+pub async fn list_agents(State(state): State<Arc<ApiState>>) -> Json<Vec<Agent>> {
     let agents = state.agents.read().await;
     Json(agents.clone())
 }
@@ -1165,7 +1165,7 @@ async fn list_agents(State(state): State<Arc<ApiState>>) -> Json<Vec<Agent>> {
 ///   "last_seen": "2024-01-15T10:36:00Z"
 /// }
 /// ```
-async fn nudge_agent(
+pub async fn nudge_agent(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
 ) -> impl IntoResponse {
@@ -1222,7 +1222,7 @@ async fn nudge_agent(
 ///   "last_seen": "2024-01-15T10:37:00Z"
 /// }
 /// ```
-async fn stop_agent(State(state): State<Arc<ApiState>>, Path(id): Path<Uuid>) -> impl IntoResponse {
+pub async fn stop_agent(State(state): State<Arc<ApiState>>, Path(id): Path<Uuid>) -> impl IntoResponse {
     let mut agents = state.agents.write().await;
     let Some(agent) = agents.iter_mut().find(|a| a.id == id) else {
         return (
@@ -1241,7 +1241,7 @@ async fn stop_agent(State(state): State<Arc<ApiState>>, Path(id): Path<Uuid>) ->
     )
 }
 
-async fn get_kpi(State(state): State<Arc<ApiState>>) -> Json<KpiSnapshot> {
+pub async fn get_kpi(State(state): State<Arc<ApiState>>) -> Json<KpiSnapshot> {
     let kpi = state.kpi.read().await;
     Json(kpi.clone())
 }
@@ -2548,7 +2548,7 @@ struct ListGitLabIssuesQuery {
 ///   }
 /// ]
 /// ```
-async fn list_gitlab_issues(
+pub async fn list_gitlab_issues(
     State(state): State<Arc<ApiState>>,
     Query(q): Query<ListGitLabIssuesQuery>,
 ) -> impl IntoResponse {
@@ -2668,7 +2668,7 @@ struct ListGitLabMrsQuery {
 ///   }
 /// ]
 /// ```
-async fn list_gitlab_merge_requests(
+pub async fn list_gitlab_merge_requests(
     State(state): State<Arc<ApiState>>,
     Query(q): Query<ListGitLabMrsQuery>,
 ) -> impl IntoResponse {
@@ -2810,7 +2810,7 @@ struct ReviewGitLabMrBody {
 ///   "approved": false
 /// }
 /// ```
-async fn review_gitlab_merge_request(
+pub async fn review_gitlab_merge_request(
     State(state): State<Arc<ApiState>>,
     Path(iid): Path<u32>,
     body: Option<Json<ReviewGitLabMrBody>>,
@@ -2889,7 +2889,7 @@ struct ListLinearIssuesQuery {
 }
 
 /// GET /api/linear/issues — list Linear issues for a team.
-async fn list_linear_issues(
+pub async fn list_linear_issues(
     State(state): State<Arc<ApiState>>,
     Query(q): Query<ListLinearIssuesQuery>,
 ) -> impl IntoResponse {
@@ -2943,7 +2943,7 @@ struct ImportLinearBody {
 }
 
 /// POST /api/linear/import — import Linear issues by IDs and create tasks.
-async fn import_linear_issues(
+pub async fn import_linear_issues(
     State(state): State<Arc<ApiState>>,
     Json(body): Json<ImportLinearBody>,
 ) -> impl IntoResponse {
@@ -4188,7 +4188,7 @@ async fn delete_notification(
 /// # TYPE http_requests_total counter
 /// http_requests_total{method="GET",path="/api/status"} 42
 /// ```
-async fn get_metrics_prometheus() -> impl IntoResponse {
+pub async fn get_metrics_prometheus() -> impl IntoResponse {
     let body = global_metrics().export_prometheus();
     (
         [(
@@ -4213,7 +4213,7 @@ async fn get_metrics_prometheus() -> impl IntoResponse {
 ///   "histograms": { "request_duration_ms": { "p50": 10, "p99": 100 } }
 /// }
 /// ```
-async fn get_metrics_json() -> impl IntoResponse {
+pub async fn get_metrics_json() -> impl IntoResponse {
     Json(global_metrics().export_json())
 }
 
@@ -4222,7 +4222,7 @@ async fn get_metrics_json() -> impl IntoResponse {
 // ---------------------------------------------------------------------------
 
 /// GET /api/sessions/ui — load the most recent UI session (or return null).
-async fn get_ui_session(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
+pub async fn get_ui_session(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     match state.session_store.list_sessions() {
         Ok(sessions) => {
             if let Some(session) = sessions.into_iter().next() {
@@ -4239,7 +4239,7 @@ async fn get_ui_session(State(state): State<Arc<ApiState>>) -> impl IntoResponse
 }
 
 /// PUT /api/sessions/ui — save a UI session state.
-async fn save_ui_session(
+pub async fn save_ui_session(
     State(state): State<Arc<ApiState>>,
     Json(mut session): Json<SessionState>,
 ) -> impl IntoResponse {
@@ -4254,7 +4254,7 @@ async fn save_ui_session(
 }
 
 /// GET /api/sessions/ui/list — list all saved sessions.
-async fn list_ui_sessions(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
+pub async fn list_ui_sessions(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     match state.session_store.list_sessions() {
         Ok(sessions) => (
             axum::http::StatusCode::OK,
@@ -4418,13 +4418,13 @@ async fn handle_events_ws(socket: WebSocket, state: Arc<ApiState>) {
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct McpServer {
+pub struct McpServer {
     name: String,
     status: String,
     tools: Vec<String>,
 }
 
-async fn list_mcp_servers() -> Json<Vec<McpServer>> {
+pub async fn list_mcp_servers() -> Json<Vec<McpServer>> {
     // Build a registry with built-in tools to report them dynamically.
     let registry = at_harness::mcp::McpToolRegistry::with_builtins();
 
@@ -4497,7 +4497,7 @@ async fn list_mcp_servers() -> Json<Vec<McpServer>> {
 // MCP tool call handler
 // ---------------------------------------------------------------------------
 
-async fn call_mcp_tool(
+pub async fn call_mcp_tool(
     State(state): State<Arc<ApiState>>,
     Json(request): Json<at_harness::mcp::ToolCallRequest>,
 ) -> impl IntoResponse {
@@ -5166,7 +5166,7 @@ async fn toggle_direct_mode(
 }
 
 /// GET /api/cli/available — detect which CLI tools are installed on the system.
-async fn list_available_clis() -> impl IntoResponse {
+pub async fn list_available_clis() -> impl IntoResponse {
     let cli_names = ["claude", "codex", "gemini", "opencode"];
     let mut entries = Vec::new();
 
@@ -5620,7 +5620,7 @@ async fn github_oauth_revoke(State(state): State<Arc<ApiState>>) -> impl IntoRes
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct CostResponse {
+pub struct CostResponse {
     input_tokens: u64,
     output_tokens: u64,
     sessions: Vec<CostSessionEntry>,
@@ -5634,7 +5634,7 @@ struct CostSessionEntry {
     output_tokens: u64,
 }
 
-async fn get_costs() -> Json<CostResponse> {
+pub async fn get_costs() -> Json<CostResponse> {
     Json(CostResponse {
         input_tokens: 0,
         output_tokens: 0,
@@ -5647,7 +5647,7 @@ async fn get_costs() -> Json<CostResponse> {
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct AgentSessionEntry {
+pub struct AgentSessionEntry {
     id: String,
     agent_name: String,
     cli_type: String,
@@ -5656,7 +5656,7 @@ struct AgentSessionEntry {
 }
 
 /// GET /api/sessions — list all active agent sessions.
-async fn list_agent_sessions(State(state): State<Arc<ApiState>>) -> Json<Vec<AgentSessionEntry>> {
+pub async fn list_agent_sessions(State(state): State<Arc<ApiState>>) -> Json<Vec<AgentSessionEntry>> {
     let agents = state.agents.read().await;
     let sessions: Vec<AgentSessionEntry> = agents
         .iter()
@@ -5681,14 +5681,14 @@ async fn list_agent_sessions(State(state): State<Arc<ApiState>>) -> Json<Vec<Age
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct ConvoyEntry {
+pub struct ConvoyEntry {
     id: String,
     name: String,
     bead_count: u32,
     status: String,
 }
 
-async fn list_convoys() -> Json<Vec<ConvoyEntry>> {
+pub async fn list_convoys() -> Json<Vec<ConvoyEntry>> {
     Json(Vec::new())
 }
 
@@ -6724,7 +6724,7 @@ async fn save_task_ordering(
 ///   "recursive": true
 /// }
 /// ```
-async fn start_file_watch(
+pub async fn start_file_watch(
     State(_state): State<Arc<ApiState>>,
     Json(req): Json<FileWatchRequest>,
 ) -> impl IntoResponse {
@@ -6761,7 +6761,7 @@ async fn start_file_watch(
 ///   "stopped": "/path/to/project/src"
 /// }
 /// ```
-async fn stop_file_watch(
+pub async fn stop_file_watch(
     State(_state): State<Arc<ApiState>>,
     Json(req): Json<FileWatchRequest>,
 ) -> impl IntoResponse {
