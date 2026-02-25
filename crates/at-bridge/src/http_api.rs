@@ -1304,9 +1304,9 @@ async fn get_kpi(State(state): State<Arc<ApiState>>) -> Json<KpiSnapshot> {
 ///   }
 /// ]
 /// ```
-async fn list_tasks(State(state): State<Arc<ApiState>>) -> Json<Vec<Task>> {
+async fn list_tasks(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     let tasks = state.tasks.read().await;
-    Json(tasks.clone())
+    JsonFromReadGuard::from_guard(tasks)
 }
 
 /// POST /api/tasks -- create a new task.
