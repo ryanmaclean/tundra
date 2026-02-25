@@ -7688,6 +7688,33 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_bead_pagination() {
+        let (_app, state) = test_app();
+
+        {
+            let mut beads = state.beads.write().await;
+            for i in 0..10 {
+                beads.push(Bead::new(format!("bead{i}"), Lane::Standard));
+            }
+        }
+
+        let app = api_router(state.clone());
+        let req = Request::builder()
+            .method("GET")
+            .uri("/api/beads?limit=3&offset=0")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json.len(), 3);
+        // First bead returned
+        assert_eq!(json[0]["title"], "bead0");
+    }
+
+    #[tokio::test]
     async fn test_delete_notification_not_found() {
         let (app, _state) = test_app();
 
