@@ -1154,9 +1154,9 @@ async fn update_bead_status(
 ///   }
 /// ]
 /// ```
-async fn list_agents(State(state): State<Arc<ApiState>>) -> Json<Vec<Agent>> {
+async fn list_agents(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     let agents = state.agents.read().await;
-    Json(agents.clone())
+    JsonFromReadGuard::from_guard(agents)
 }
 
 /// POST /api/agents/{id}/nudge -- signal an agent to wake up and check for work.
