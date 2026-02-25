@@ -22,6 +22,7 @@ pub mod event_bus;
 pub mod http_api;
 pub mod intelligence_api;
 pub mod ipc;
+pub mod json_response;
 pub mod notifications;
 pub mod origin_validation;
 pub mod protocol;
