@@ -294,13 +294,21 @@ fn event_to_toast(value: &serde_json::Value) -> Option<Toast> {
                 _ => return None,
             };
 
+            // Set duration based on toast level
+            let duration_ms = match level.as_str() {
+                "info" | "success" => Some(5000.0),   // 5 seconds
+                "warning" => Some(8000.0),            // 8 seconds
+                "error" => None,                      // Never auto-dismiss
+                _ => Some(5000.0),                    // Default fallback
+            };
+
             Some(Toast {
                 id: uuid::Uuid::new_v4().to_string(),
                 title,
                 message,
                 level,
-                created_at: 0.0, // Will be set properly in subtask-2-5
-                duration_ms: Some(5000.0), // Will be set properly in subtask-2-5
+                created_at: js_sys::Date::now(),
+                duration_ms,
                 paused: false,
             })
         }
