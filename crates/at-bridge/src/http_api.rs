@@ -24,6 +24,7 @@ use uuid::Uuid;
 use crate::auth::AuthLayer;
 use crate::event_bus::EventBus;
 use crate::intelligence_api;
+use crate::json_response::JsonFromReadGuard;
 use crate::notifications::{notification_from_event, NotificationStore};
 use crate::origin_validation::{get_default_allowed_origins, validate_websocket_origin};
 use crate::terminal::TerminalRegistry;
@@ -971,9 +972,9 @@ async fn get_status(State(state): State<Arc<ApiState>>) -> Json<StatusResponse> 
 ///   }
 /// ]
 /// ```
-async fn list_beads(State(state): State<Arc<ApiState>>) -> Json<Vec<Bead>> {
+async fn list_beads(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     let beads = state.beads.read().await;
-    Json(beads.clone())
+    JsonFromReadGuard::from_guard(beads)
 }
 
 /// POST /api/beads -- create a new bead (feature/epic).
