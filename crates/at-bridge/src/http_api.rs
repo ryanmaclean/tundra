@@ -1145,9 +1145,13 @@ async fn update_bead_status(
 
 /// GET /api/agents -- retrieve all registered agents in the system.
 ///
-/// Returns a JSON array of all agents with their current status, role, CLI type,
+/// Returns a paginated JSON array of all agents with their current status, role, CLI type,
 /// process information, and metadata. Agents represent autonomous workers that
 /// can execute tasks (e.g., coder, QA, fixer roles).
+///
+/// **Query Parameters:**
+/// - `limit` (optional usize): Maximum number of results (default: 50)
+/// - `offset` (optional usize): Number of results to skip (default: 0)
 ///
 /// # Response
 /// * `200 OK` - JSON array of Agent objects
@@ -1168,9 +1172,22 @@ async fn update_bead_status(
 ///   }
 /// ]
 /// ```
-async fn list_agents(State(state): State<Arc<ApiState>>) -> Json<Vec<Agent>> {
+async fn list_agents(
+    State(state): State<Arc<ApiState>>,
+    Query(params): Query<AgentQuery>,
+) -> Json<Vec<Agent>> {
     let agents = state.agents.read().await;
-    Json(agents.clone())
+    let limit = params.limit.unwrap_or(50);
+    let offset = params.offset.unwrap_or(0);
+
+    let paginated: Vec<Agent> = agents
+        .iter()
+        .skip(offset)
+        .take(limit)
+        .cloned()
+        .collect();
+
+    Json(paginated)
 }
 
 /// POST /api/agents/{id}/nudge -- signal an agent to wake up and check for work.
