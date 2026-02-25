@@ -4560,7 +4560,7 @@ fn stable_worktree_id(path: &str, branch: &str) -> String {
 }
 
 /// GET /api/worktrees — list all git worktrees with path and branch info.
-async fn list_worktrees() -> impl IntoResponse {
+pub async fn list_worktrees() -> impl IntoResponse {
     let output = match tokio::process::Command::new("git")
         .args(["worktree", "list", "--porcelain"])
         .output()
@@ -4628,7 +4628,7 @@ async fn list_worktrees() -> impl IntoResponse {
 // ---------------------------------------------------------------------------
 
 /// POST /api/worktrees/{id}/merge — trigger merge to main for a worktree branch.
-async fn merge_worktree(
+pub async fn merge_worktree(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
@@ -4808,7 +4808,7 @@ async fn merge_worktree(
 }
 
 /// GET /api/worktrees/{id}/merge-preview — dry-run merge preview.
-async fn merge_preview(Path(id): Path<String>) -> impl IntoResponse {
+pub async fn merge_preview(Path(id): Path<String>) -> impl IntoResponse {
     let base_dir = std::env::current_dir().unwrap_or_default();
     let base_dir_str = base_dir.to_str().unwrap_or(".");
 
@@ -4923,7 +4923,7 @@ async fn merge_preview(Path(id): Path<String>) -> impl IntoResponse {
 }
 
 /// POST /api/worktrees/{id}/resolve — accept conflict resolution.
-async fn resolve_conflict(
+pub async fn resolve_conflict(
     Path(id): Path<String>,
     Json(req): Json<ResolveConflictRequest>,
 ) -> impl IntoResponse {
@@ -5194,7 +5194,7 @@ fn detect_cli_binary(name: &str) -> (bool, Option<String>) {
 }
 
 /// DELETE /api/worktrees/{id} — remove a git worktree by path.
-async fn delete_worktree(Path(id): Path<String>) -> impl IntoResponse {
+pub async fn delete_worktree(Path(id): Path<String>) -> impl IntoResponse {
     let output = match tokio::process::Command::new("git")
         .args(["worktree", "list", "--porcelain"])
         .output()
