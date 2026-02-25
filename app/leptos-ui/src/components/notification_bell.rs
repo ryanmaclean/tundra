@@ -16,6 +16,51 @@ pub fn NotificationBell(
     let (notifications, set_notifications) = signal(Vec::<api::ApiNotification>::new());
     let (loading, set_loading) = signal(false);
 
+    // Set up periodic timer to check and remove expired toasts
+    {
+        use gloo_timers::callback::Interval;
+        use send_wrapper::SendWrapper;
+        use std::cell::RefCell;
+        use std::rc::Rc;
+
+        let interval_handle: Rc<RefCell<Option<Interval>>> = Rc::new(RefCell::new(None));
+        let interval_handle_cleanup = SendWrapper::new(interval_handle.clone());
+
+        // Start interval immediately - check every 100ms
+        let set_toasts_tick = set_toasts;
+        let interval = Interval::new(100, move || {
+            let now = js_sys::Date::now();
+            set_toasts_tick.update(|list| {
+                // First, advance created_at for paused toasts to "freeze" their timers
+                for toast in list.iter_mut() {
+                    if toast.paused {
+                        toast.created_at += 100.0; // Advance by tick interval
+                    }
+                }
+
+                // Then remove expired toasts
+                list.retain(|toast| {
+                    // Keep toast if it has no duration (infinite) or if it's not expired
+                    match toast.duration_ms {
+                        None => true, // infinite duration (errors)
+                        Some(duration) => {
+                            let elapsed = now - toast.created_at;
+                            elapsed < duration
+                        }
+                    }
+                });
+            });
+        });
+        *interval_handle.borrow_mut() = Some(interval);
+
+        // Clean up interval on component unmount
+        on_cleanup(move || {
+            if let Some(interval) = interval_handle_cleanup.borrow_mut().take() {
+                drop(interval);
+            }
+        });
+    }
+
     // Fetch notifications when panel is opened
     let fetch_notifs = move || {
         set_loading.set(true);
@@ -151,9 +196,38 @@ pub fn NotificationBell(
                     toasts.get().into_iter().map(|toast| {
                         let toast_id = toast.id.clone();
                         let dismiss_id = toast_id.clone();
+                        let hover_enter_id = toast_id.clone();
+                        let hover_leave_id = toast_id.clone();
                         let level_class = format!("toast-{}", toast.level);
+
+                        // Handlers to pause/resume timer on hover
+                        let pause_timer = move |_| {
+                            let id = hover_enter_id.clone();
+                            set_toasts.update(|list| {
+                                if let Some(t) = list.iter_mut().find(|t| t.id == id) {
+                                    t.paused = true;
+                                }
+                            });
+                        };
+
+                        let resume_timer = move |_| {
+                            let id = hover_leave_id.clone();
+                            set_toasts.update(|list| {
+                                if let Some(t) = list.iter_mut().find(|t| t.id == id) {
+                                    t.paused = false;
+                                }
+                            });
+                        };
+
+                        // Calculate progress percentage for this toast
+                        let progress_percent = (remaining_fraction(&toast) * 100.0) as u32;
+
                         view! {
-                            <div class={format!("toast-item {level_class}")}>
+                            <div
+                                class={format!("toast-item {level_class}")}
+                                on:mouseenter=pause_timer
+                                on:mouseleave=resume_timer
+                            >
                                 <div class="toast-header">
                                     <span class="toast-title">{toast.title}</span>
                                     <button
@@ -164,6 +238,11 @@ pub fn NotificationBell(
                                     </button>
                                 </div>
                                 <div class="toast-body">{toast.message}</div>
+                                {toast.duration_ms.map(|_| view! {
+                                    <div class="toast-progress-bar">
+                                        <div class="toast-progress-fill" style={format!("width: {}%", progress_percent)}></div>
+                                    </div>
+                                })}
                             </div>
                         }
                     }).collect::<Vec<_>>()
@@ -193,4 +272,21 @@ fn format_time_ago(timestamp: &str) -> String {
         }
         Err(_) => timestamp.to_string(),
     }
+}
+
+/// Returns the fraction of time remaining for a toast, from 1.0 (just created) to 0.0 (expired).
+fn remaining_fraction(toast: &Toast) -> f64 {
+    // If duration is None (infinite, typically for errors), always return 1.0
+    let Some(duration_ms) = toast.duration_ms else {
+        return 1.0;
+    };
+
+    if duration_ms <= 0.0 {
+        return 0.0;
+    }
+
+    let now = js_sys::Date::now();
+    let elapsed_ms = now - toast.created_at;
+    let fraction = (1.0 - (elapsed_ms / duration_ms)).max(0.0);
+    fraction
 }
