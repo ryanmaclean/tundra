@@ -1,16 +1,30 @@
 {
-  "bead_id": "10d085ec-074f-4c6a-a22f-530be1dd922e",
-  "execute_result": {
-    "body": {
-      "error": "cannot start pipeline: task is in Discovery phase"
+  "failures": [],
+  "headless": false,
+  "result": {
+    "audioCue": {
+      "cue": "consensus",
+      "error": null,
+      "ok": true,
+      "state": null
     },
-    "status": 400
+    "audioWarmup": {
+      "cue": null,
+      "error": null,
+      "ok": true,
+      "state": "running"
+    },
+    "errors": [],
+    "scriptsPresent": {
+      "pokerAudio": true,
+      "webgpuAnalytics": true
+    },
+    "url": "http://127.0.0.1:3001",
+    "webgpu": {
+      "error": null,
+      "supported": true
+    }
   },
-  "executed": true,
-  "skills": [
-    "diagnostics",
-    "integration-hardening"
-  ],
-  "task_id": "e84603c5-0f18-45ed-8b47-11a9da3d1ee4",
-  "title": "[qa-reviewer] Audit auth edge cases"
+  "served_dist": true,
+  "url": "http://127.0.0.1:3001"
 }

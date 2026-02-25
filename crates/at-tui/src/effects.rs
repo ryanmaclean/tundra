@@ -105,6 +105,42 @@ pub fn particle_burst() -> Effect {
     fx::sequence(&[out, back])
 }
 
+/// Flash success: brief green tint that fades over 250 ms.
+///
+/// Use this for success notifications (task complete, build pass, etc.).
+pub fn flash_success() -> Effect {
+    let green = Color::Green;
+    fx::fade_from(green, green, (250, Interpolation::QuadOut))
+}
+
+/// Flash error: brief red tint that fades over 300 ms.
+///
+/// Use this for error notifications (build fail, connection lost, etc.).
+pub fn flash_error() -> Effect {
+    let red = Color::Red;
+    fx::fade_from(red, red, (300, Interpolation::QuadOut))
+}
+
+/// Slide-in effect: content slides in from `direction` over 250 ms.
+///
+/// Similar to sweep_in but with a tighter gradient for a crisper panel slide.
+pub fn slide_in(direction: SweepDirection) -> Effect {
+    fx::sweep_in(
+        direction.into(),
+        5,            // tight gradient for panel slide
+        1,            // minimal randomness
+        Color::Black,
+        (250, Interpolation::CubicOut),
+    )
+}
+
+/// Coalesce-in effect: cells appear from noise over 350 ms.
+///
+/// The inverse of dissolve — content materialises from scattered pixels.
+pub fn coalesce_in() -> Effect {
+    fx::coalesce((350, Interpolation::QuadOut))
+}
+
 // ---------------------------------------------------------------------------
 // EffectManager
 // ---------------------------------------------------------------------------
@@ -115,6 +151,9 @@ pub fn particle_burst() -> Effect {
 /// the draw closure, after widgets have been rendered to the buffer.
 pub struct EffectManager {
     inner: TachyonManager<String>,
+    /// Track the number of effects added (decremented isn't possible via
+    /// the tachyonfx API, so we use a simple count that resets on `remove_all`).
+    active_count: usize,
 }
 
 impl EffectManager {
@@ -122,18 +161,21 @@ impl EffectManager {
     pub fn new() -> Self {
         Self {
             inner: TachyonManager::default(),
+            active_count: 0,
         }
     }
 
     /// Add a one-shot effect that runs to completion then is dropped.
     pub fn add(&mut self, effect: Effect) {
         self.inner.add_effect(effect);
+        self.active_count += 1;
     }
 
     /// Add a named (unique) effect.  If an effect with the same `key` is
     /// already running it is cancelled and replaced.
     pub fn add_named(&mut self, key: &str, effect: Effect) {
         self.inner.add_unique_effect(key.to_string(), effect);
+        self.active_count += 1;
     }
 
     /// Advance all active effects by `delta` and paint them into `buf`.
@@ -147,11 +189,13 @@ impl EffectManager {
     /// Remove all active effects immediately.
     pub fn remove_all(&mut self) {
         self.inner = TachyonManager::default();
+        self.active_count = 0;
     }
 
-    /// Returns `true` when there are no active effects remaining.
+    /// Returns `true` when no effects have been added since creation or
+    /// the last `remove_all()` call.
     pub fn is_idle(&self) -> bool {
-        false
+        self.active_count == 0
     }
 }
 
@@ -270,9 +314,59 @@ mod tests {
     }
 
     #[test]
-    fn effect_manager_default_is_idle_equivalent() {
+    fn effect_manager_default_is_idle() {
         let mgr = EffectManager::default();
-        // Default manager starts empty; is_idle is a non-panicking stub.
-        let _ = mgr.is_idle();
+        assert!(mgr.is_idle(), "fresh manager should be idle");
+    }
+
+    #[test]
+    fn effect_manager_not_idle_after_add() {
+        let mut mgr = EffectManager::new();
+        mgr.add(fade_in());
+        assert!(!mgr.is_idle(), "manager with effect should not be idle");
+    }
+
+    #[test]
+    fn flash_success_effect_is_running_initially() {
+        let mut effect = flash_success();
+        assert!(!effect.done(), "flash_success should not be done immediately");
+    }
+
+    #[test]
+    fn flash_error_effect_is_running_initially() {
+        let mut effect = flash_error();
+        assert!(!effect.done(), "flash_error should not be done immediately");
+    }
+
+    #[test]
+    fn slide_in_all_directions_create_effects() {
+        let directions = [
+            SweepDirection::LeftToRight,
+            SweepDirection::RightToLeft,
+            SweepDirection::UpToDown,
+            SweepDirection::DownToUp,
+        ];
+        for dir in directions {
+            let mut effect = slide_in(dir);
+            assert!(
+                !effect.done(),
+                "slide_in({dir:?}) should not be done immediately"
+            );
+        }
+    }
+
+    #[test]
+    fn coalesce_in_effect_is_running_initially() {
+        let mut effect = coalesce_in();
+        assert!(!effect.done(), "coalesce_in should not be done immediately");
+    }
+
+    #[test]
+    fn effect_manager_remove_all_makes_idle() {
+        let mut mgr = EffectManager::new();
+        mgr.add(glow_pulse());
+        assert!(!mgr.is_idle());
+        mgr.remove_all();
+        assert!(mgr.is_idle(), "remove_all should make manager idle");
     }
 }

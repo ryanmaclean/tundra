@@ -561,6 +561,8 @@ impl App {
             KeyCode::Tab => {
                 self.current_tab = (self.current_tab + 1) % TAB_NAMES.len();
                 self.selected_index = 0;
+                self.effects
+                    .add_named("tab", crate::effects::slide_in(crate::effects::SweepDirection::LeftToRight));
             }
             KeyCode::BackTab => {
                 self.current_tab = if self.current_tab == 0 {
@@ -569,6 +571,8 @@ impl App {
                     self.current_tab - 1
                 };
                 self.selected_index = 0;
+                self.effects
+                    .add_named("tab", crate::effects::slide_in(crate::effects::SweepDirection::RightToLeft));
             }
 
             // Quick-jump letter shortcuts for tabs >9
