@@ -16,6 +16,43 @@ pub fn NotificationBell(
     let (notifications, set_notifications) = signal(Vec::<api::ApiNotification>::new());
     let (loading, set_loading) = signal(false);
 
+    // Set up periodic timer to check and remove expired toasts
+    {
+        use gloo_timers::callback::Interval;
+        use send_wrapper::SendWrapper;
+        use std::cell::RefCell;
+        use std::rc::Rc;
+
+        let interval_handle: Rc<RefCell<Option<Interval>>> = Rc::new(RefCell::new(None));
+        let interval_handle_cleanup = SendWrapper::new(interval_handle.clone());
+
+        // Start interval immediately - check every 100ms
+        let set_toasts_tick = set_toasts;
+        let interval = Interval::new(100, move || {
+            let now = js_sys::Date::now();
+            set_toasts_tick.update(|list| {
+                list.retain(|toast| {
+                    // Keep toast if it has no duration (infinite) or if it's not expired
+                    match toast.duration_ms {
+                        None => true, // infinite duration (errors)
+                        Some(duration) => {
+                            let elapsed = now - toast.created_at;
+                            elapsed < duration
+                        }
+                    }
+                });
+            });
+        });
+        *interval_handle.borrow_mut() = Some(interval);
+
+        // Clean up interval on component unmount
+        on_cleanup(move || {
+            if let Some(interval) = interval_handle_cleanup.borrow_mut().take() {
+                drop(interval);
+            }
+        });
+    }
+
     // Fetch notifications when panel is opened
     let fetch_notifs = move || {
         set_loading.set(true);
