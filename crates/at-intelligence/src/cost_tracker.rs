@@ -313,8 +313,8 @@ pub struct CostTracker {
 }
 
 impl CostTracker {
-    pub fn new() -> Self {
-        Self::with_capacity(10_000, 100_000)
+    pub fn new(max_records: usize, max_latencies: usize) -> Self {
+        Self::with_capacity(max_records, max_latencies)
     }
 
     pub fn with_capacity(max_records: usize, max_latencies: usize) -> Self {
@@ -508,7 +508,7 @@ impl CostTracker {
 
 impl Default for CostTracker {
     fn default() -> Self {
-        Self::new()
+        Self::new(10_000, 100_000)
     }
 }
 
@@ -634,7 +634,7 @@ mod tests {
 
     #[tokio::test]
     async fn tracker_starts_empty() {
-        let tracker = CostTracker::new();
+        let tracker = CostTracker::new(10_000, 100_000);
         assert_eq!(tracker.total_cost().await, 0.0);
         assert_eq!(tracker.total_tokens().await, 0);
         assert_eq!(tracker.request_count().await, 0);
@@ -642,7 +642,7 @@ mod tests {
 
     #[tokio::test]
     async fn tracker_records_request() {
-        let tracker = CostTracker::new();
+        let tracker = CostTracker::new(10_000, 100_000);
         tracker
             .record_request(RequestRecord {
                 model: "claude-sonnet-4-20250514".into(),
@@ -665,7 +665,7 @@ mod tests {
 
     #[tokio::test]
     async fn tracker_cost_by_model() {
-        let tracker = CostTracker::new();
+        let tracker = CostTracker::new(10_000, 100_000);
         for (model, cost) in [("model-a", 0.10), ("model-b", 0.20), ("model-a", 0.15)] {
             tracker
                 .record_request(RequestRecord {
@@ -690,7 +690,7 @@ mod tests {
 
     #[tokio::test]
     async fn tracker_budget_enforcement() {
-        let tracker = CostTracker::new();
+        let tracker = CostTracker::new(10_000, 100_000);
         tracker
             .set_budget("task-1".into(), TokenBudget::new(5000, 0.50, 10))
             .await;
@@ -712,7 +712,7 @@ mod tests {
 
     #[tokio::test]
     async fn tracker_no_budget_allows_all() {
-        let tracker = CostTracker::new();
+        let tracker = CostTracker::new(10_000, 100_000);
         assert!(tracker
             .check_budget("no-budget-key", 999_999, 999.0)
             .await
@@ -721,7 +721,7 @@ mod tests {
 
     #[tokio::test]
     async fn tracker_compute_lets_metrics() {
-        let tracker = CostTracker::new();
+        let tracker = CostTracker::new(10_000, 100_000);
         let now = Utc::now();
 
         for i in 0..5 {
@@ -751,7 +751,7 @@ mod tests {
 
     #[tokio::test]
     async fn tracker_custom_pricing() {
-        let tracker = CostTracker::new();
+        let tracker = CostTracker::new(10_000, 100_000);
         tracker
             .set_pricing(ModelPricing {
                 model: "custom-model".into(),
@@ -771,7 +771,7 @@ mod tests {
 
     #[tokio::test]
     async fn tracker_unknown_model_zero_cost() {
-        let tracker = CostTracker::new();
+        let tracker = CostTracker::new(10_000, 100_000);
         let cost = tracker.calculate_cost("nonexistent", 1000, 1000).await;
         assert_eq!(cost, 0.0);
     }
