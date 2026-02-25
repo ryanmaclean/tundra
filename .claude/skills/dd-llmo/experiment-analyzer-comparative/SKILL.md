@@ -1,6 +1,6 @@
 ---
-name: experiment-analzyer-comparative
-description: Analyze two llmo experiements in a comparative manner. Use when user says "analyze two experiments", "comparative experiment analysis", "evaluate experiments" "analyze against baseline". Requires two experiment_id as arguments to perform a comparative analysis, first is the baseline, second the candidate.
+name: experiment-analyzer-comparative
+description: Analyze two llmo experiments in a comparative manner. Use when user says "analyze two experiments", "comparative experiment analysis", "evaluate experiments" "analyze against baseline". Requires two experiment_id as arguments to perform a comparative analysis, first is the baseline, second the candidate.
 ---
 
 # Comparative Experiment Analyzer
