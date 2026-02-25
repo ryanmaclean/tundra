@@ -13,11 +13,8 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use uuid::Uuid;
 
-use at_core::{
-    bead::Bead,
-    credential_provider::CredentialProvider,
-    task::Task,
-};
+use at_core::config::CredentialProvider;
+use at_core::types::{Bead, Task};
 use at_integrations::github::{
     issues, oauth as gh_oauth, pr_automation::PrAutomation, pull_requests, sync::IssueSyncEngine,
 };

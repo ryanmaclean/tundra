@@ -25,6 +25,7 @@ pub mod ipc;
 pub mod notifications;
 pub mod origin_validation;
 pub mod protocol;
+pub mod routes;
 pub mod terminal;
 pub mod terminal_ws;
 pub mod transport;

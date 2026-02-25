@@ -443,184 +443,20 @@ pub fn api_router_with_auth(
     allowed_origins: Vec<String>,
 ) -> Router {
     Router::new()
-        .route("/api/status", get(get_status))
-        .route("/api/beads", get(list_beads))
-        .route("/api/beads", post(create_bead))
-        .route("/api/beads/{id}/status", post(update_bead_status))
-        .route("/api/agents", get(list_agents))
-        .route("/api/agents/{id}/nudge", post(nudge_agent))
-        .route("/api/agents/{id}/stop", post(stop_agent))
-        .route("/api/kpi", get(get_kpi))
-        .route("/api/tasks", get(list_tasks))
-        .route("/api/tasks", post(create_task))
-        .route("/api/tasks/{id}", get(get_task))
-        .route("/api/tasks/{id}", put(update_task))
-        .route("/api/tasks/{id}", axum::routing::delete(delete_task))
-        .route("/api/tasks/{id}/phase", post(update_task_phase))
-        .route("/api/tasks/{id}/logs", get(get_task_logs))
-        .route("/api/tasks/{id}/execute", post(execute_task_pipeline))
-        .route("/api/tasks/{id}/build-logs", get(get_build_logs))
-        .route("/api/tasks/{id}/build-status", get(get_build_status))
-        .route("/api/pipeline/queue", get(get_pipeline_queue_status))
-        .route("/api/terminals", get(terminal_ws::list_terminals))
-        .route("/api/terminals", post(terminal_ws::create_terminal))
-        .route(
-            "/api/terminals/{id}",
-            axum::routing::delete(terminal_ws::delete_terminal),
-        )
-        .route("/ws/terminal/{id}", get(terminal_ws::terminal_ws))
-        .route(
-            "/api/terminals/{id}/settings",
-            patch(terminal_ws::update_terminal_settings),
-        )
-        .route(
-            "/api/terminals/{id}/auto-name",
-            post(terminal_ws::auto_name_terminal),
-        )
-        .route(
-            "/api/terminals/persistent",
-            get(terminal_ws::list_persistent_terminals),
-        )
-        .route("/api/settings", get(get_settings))
-        .route("/api/settings", put(put_settings))
-        .route("/api/settings", patch(patch_settings))
-        .route("/api/credentials/status", get(get_credentials_status))
-        .route("/api/github/sync", post(trigger_github_sync))
-        .route("/api/github/sync/status", get(get_sync_status))
-        .route("/api/github/issues", get(list_github_issues))
-        .route(
-            "/api/github/issues/{number}/import",
-            post(import_github_issue),
-        )
-        .route("/api/github/prs", get(list_github_prs))
-        .route("/api/github/pr/{task_id}", post(create_pr_for_task))
-        // GitHub OAuth
-        .route("/api/github/oauth/authorize", get(github_oauth_authorize))
-        .route("/api/github/oauth/callback", post(github_oauth_callback))
-        .route("/api/github/oauth/status", get(github_oauth_status))
-        .route("/api/github/oauth/revoke", post(github_oauth_revoke))
-        // GitLab integration
-        .route("/api/gitlab/issues", get(list_gitlab_issues))
-        .route(
-            "/api/gitlab/merge-requests",
-            get(list_gitlab_merge_requests),
-        )
-        .route(
-            "/api/gitlab/merge-requests/{iid}/review",
-            post(review_gitlab_merge_request),
-        )
-        // Linear integration
-        .route("/api/linear/issues", get(list_linear_issues))
-        .route("/api/linear/import", post(import_linear_issues))
-        .route("/api/kanban/columns", get(get_kanban_columns))
-        .route("/api/kanban/columns", patch(patch_kanban_columns))
-        .route("/api/kanban/poker/start", post(start_planning_poker))
-        .route("/api/kanban/poker/vote", post(submit_planning_poker_vote))
-        .route("/api/kanban/poker/reveal", post(reveal_planning_poker))
-        .route("/api/kanban/poker/simulate", post(simulate_planning_poker))
-        .route(
-            "/api/kanban/poker/{bead_id}",
-            get(get_planning_poker_session),
-        )
-        // MCP servers
-        .route("/api/mcp/servers", get(list_mcp_servers))
-        .route("/api/mcp/tools/call", post(call_mcp_tool))
-        // Worktrees
-        .route("/api/worktrees", get(list_worktrees))
-        .route(
-            "/api/worktrees/{id}",
-            axum::routing::delete(delete_worktree),
-        )
-        .route("/api/worktrees/{id}/merge", post(merge_worktree))
-        .route("/api/worktrees/{id}/merge-preview", get(merge_preview))
-        .route("/api/worktrees/{id}/resolve", post(resolve_conflict))
-        // Agent Queue
-        .route("/api/queue", get(list_queue))
-        .route("/api/queue/reorder", post(reorder_queue))
-        .route("/api/queue/{task_id}/prioritize", post(prioritize_task))
-        // Direct mode
-        .route("/api/settings/direct-mode", post(toggle_direct_mode))
-        // Costs
-        .route("/api/costs", get(get_costs))
-        // CLI availability
-        .route("/api/cli/available", get(list_available_clis))
-        // Agent sessions
-        .route("/api/sessions", get(list_agent_sessions))
-        // Convoys
-        .route("/api/convoys", get(list_convoys))
-        // Notification endpoints
-        .route("/api/notifications", get(list_notifications))
-        .route("/api/notifications/count", get(notification_count))
-        .route("/api/notifications/{id}/read", post(mark_notification_read))
-        .route(
-            "/api/notifications/read-all",
-            post(mark_all_notifications_read),
-        )
-        .route(
-            "/api/notifications/{id}",
-            axum::routing::delete(delete_notification),
-        )
-        // Metrics endpoints
-        .route("/api/metrics", get(get_metrics_prometheus))
-        .route("/api/metrics/json", get(get_metrics_json))
-        // Session endpoints
-        .route("/api/sessions/ui", get(get_ui_session))
-        .route("/api/sessions/ui", put(save_ui_session))
-        .route("/api/sessions/ui/list", get(list_ui_sessions))
-        // Projects
-        .route("/api/projects", get(list_projects))
-        .route("/api/projects", post(create_project))
-        .route("/api/projects/{id}", put(update_project))
-        .route("/api/projects/{id}", axum::routing::delete(delete_project))
-        .route("/api/projects/{id}/activate", post(activate_project))
-        // PR polling
-        .route("/api/github/pr/{number}/watch", post(watch_pr))
-        .route(
-            "/api/github/pr/{number}/watch",
-            axum::routing::delete(unwatch_pr),
-        )
-        .route("/api/github/pr/watched", get(list_watched_prs))
-        // GitHub releases
-        .route("/api/github/releases", post(create_release))
-        .route("/api/github/releases", get(list_releases))
-        // Task archival
-        .route("/api/tasks/{id}/archive", post(archive_task))
-        .route("/api/tasks/{id}/unarchive", post(unarchive_task))
-        .route("/api/tasks/archived", get(list_archived_tasks))
-        // Attachments
-        .route("/api/tasks/{task_id}/attachments", get(list_attachments))
-        .route("/api/tasks/{task_id}/attachments", post(add_attachment))
-        .route(
-            "/api/tasks/{task_id}/attachments/{id}",
-            axum::routing::delete(delete_attachment),
-        )
-        // Task drafts
-        .route("/api/tasks/drafts", get(list_task_drafts))
-        .route("/api/tasks/drafts", post(save_task_draft))
-        .route("/api/tasks/drafts/{id}", get(get_task_draft))
-        .route(
-            "/api/tasks/drafts/{id}",
-            axum::routing::delete(delete_task_draft),
-        )
-        // Kanban column locking
-        .route("/api/kanban/columns/lock", post(lock_column))
-        // Task ordering
-        .route("/api/kanban/ordering", post(save_task_ordering))
-        // File watching
-        .route("/api/files/watch", post(start_file_watch))
-        .route("/api/files/unwatch", post(stop_file_watch))
-        // Competitor analysis
-        .route(
-            "/api/roadmap/competitor-analysis",
-            post(run_competitor_analysis),
-        )
-        // Profile swap notification
-        .route("/api/notifications/profile-swap", post(notify_profile_swap))
-        // App update check
-        .route("/api/notifications/app-update", get(check_app_update))
         // WebSocket endpoints
         .route("/ws", get(ws_handler))
         .route("/api/events/ws", get(events_ws_handler))
+        // Merge all domain-specific sub-routers
+        .merge(crate::routes::misc::misc_router())
+        .merge(crate::routes::tasks::tasks_router())
+        .merge(crate::routes::github::github_router())
+        .merge(crate::routes::kanban::kanban_router())
+        .merge(crate::routes::notifications::notifications_router())
+        .merge(crate::routes::worktrees::worktrees_router())
+        .merge(crate::routes::settings::settings_router())
+        .merge(crate::routes::projects::projects_router())
+        .merge(crate::routes::terminals::terminals_router())
+        .merge(crate::routes::queue::queue_router())
         .merge(intelligence_api::intelligence_router())
         .layer(axum_middleware::from_fn(metrics_middleware))
         .layer(axum_middleware::from_fn(request_id_middleware))
@@ -672,7 +508,7 @@ pub fn api_router_with_auth(
 ///
 /// Returns basic server status including version, uptime, and entity counts.
 #[derive(Debug, Serialize)]
-struct StatusResponse {
+pub struct StatusResponse {
     version: String,
     uptime_seconds: u64,
     agent_count: usize,
@@ -2110,7 +1946,7 @@ async fn run_pipeline_background(
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Default, Deserialize)]
-struct BuildLogsQuery {
+pub struct BuildLogsQuery {
     /// ISO-8601 timestamp; only return entries newer than this.
     #[serde(default)]
     pub since: Option<String>,
@@ -2292,7 +2128,7 @@ pub async fn get_build_status(
 ///   }
 /// }
 /// ```
-async fn get_settings(State(state): State<Arc<ApiState>>) -> Json<Config> {
+pub async fn get_settings(State(state): State<Arc<ApiState>>) -> Json<Config> {
     let cfg = state.settings_manager.load_or_default();
     Json(cfg)
 }
@@ -2366,7 +2202,7 @@ async fn get_settings(State(state): State<Arc<ApiState>>) -> Json<Config> {
 ///   "error": "failed to write config to disk: permission denied"
 /// }
 /// ```
-async fn put_settings(
+pub async fn put_settings(
     State(state): State<Arc<ApiState>>,
     Json(cfg): Json<Config>,
 ) -> impl IntoResponse {
@@ -2456,7 +2292,7 @@ async fn put_settings(
 ///   "error": "failed to write config to disk: permission denied"
 /// }
 /// ```
-async fn patch_settings(
+pub async fn patch_settings(
     State(state): State<Arc<ApiState>>,
     Json(partial): Json<serde_json::Value>,
 ) -> impl IntoResponse {
@@ -2498,7 +2334,7 @@ async fn patch_settings(
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Default, Deserialize)]
-struct ListGitLabIssuesQuery {
+pub struct ListGitLabIssuesQuery {
     #[serde(default)]
     pub project_id: Option<String>,
     #[serde(default)]
@@ -2616,7 +2452,7 @@ pub async fn list_gitlab_issues(
 }
 
 #[derive(Debug, Default, Deserialize)]
-struct ListGitLabMrsQuery {
+pub struct ListGitLabMrsQuery {
     #[serde(default)]
     pub project_id: Option<String>,
     #[serde(default)]
@@ -2736,7 +2572,7 @@ pub async fn list_gitlab_merge_requests(
 }
 
 #[derive(Debug, Default, Deserialize)]
-struct ReviewGitLabMrBody {
+pub struct ReviewGitLabMrBody {
     #[serde(default)]
     pub project_id: Option<String>,
     #[serde(default)]
@@ -2881,7 +2717,7 @@ pub async fn review_gitlab_merge_request(
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Default, Deserialize)]
-struct ListLinearIssuesQuery {
+pub struct ListLinearIssuesQuery {
     #[serde(default)]
     pub team_id: Option<String>,
     #[serde(default)]
@@ -2938,7 +2774,7 @@ pub async fn list_linear_issues(
 }
 
 #[derive(Debug, Deserialize)]
-struct ImportLinearBody {
+pub struct ImportLinearBody {
     pub issue_ids: Vec<String>,
 }
 
@@ -2982,13 +2818,13 @@ pub async fn import_linear_issues(
 }
 
 /// GET /api/kanban/columns — return the 8-column Kanban config (order, labels, optional width).
-async fn get_kanban_columns(State(state): State<Arc<ApiState>>) -> Json<KanbanColumnConfig> {
+pub async fn get_kanban_columns(State(state): State<Arc<ApiState>>) -> Json<KanbanColumnConfig> {
     let cols = state.kanban_columns.read().await;
     Json(cols.clone())
 }
 
 /// PATCH /api/kanban/columns — update column config (e.g. order, labels, width_px).
-async fn patch_kanban_columns(
+pub async fn patch_kanban_columns(
     State(state): State<Arc<ApiState>>,
     Json(patch): Json<KanbanColumnConfig>,
 ) -> impl IntoResponse {
@@ -3463,7 +3299,7 @@ fn consensus_card_from_votes(votes: &[PlanningPokerVote]) -> Option<String> {
     }
 }
 
-async fn start_planning_poker(
+pub async fn start_planning_poker(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<StartPlanningPokerRequest>,
 ) -> impl IntoResponse {
@@ -3524,7 +3360,7 @@ async fn start_planning_poker(
     )
 }
 
-async fn submit_planning_poker_vote(
+pub async fn submit_planning_poker_vote(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<SubmitPlanningPokerVoteRequest>,
 ) -> impl IntoResponse {
@@ -3577,7 +3413,7 @@ async fn submit_planning_poker_vote(
     )
 }
 
-async fn reveal_planning_poker(
+pub async fn reveal_planning_poker(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<RevealPlanningPokerRequest>,
 ) -> impl IntoResponse {
@@ -3628,7 +3464,7 @@ async fn reveal_planning_poker(
     )
 }
 
-async fn simulate_planning_poker(
+pub async fn simulate_planning_poker(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<SimulatePlanningPokerRequest>,
 ) -> impl IntoResponse {
@@ -3641,7 +3477,7 @@ async fn simulate_planning_poker(
     }
 }
 
-async fn get_planning_poker_session(
+pub async fn get_planning_poker_session(
     State(state): State<Arc<ApiState>>,
     Path(bead_id): Path<Uuid>,
 ) -> impl IntoResponse {
@@ -3660,7 +3496,7 @@ async fn get_planning_poker_session(
 }
 
 /// GET /api/credentials/status — report which credential providers are available.
-async fn get_credentials_status() -> impl IntoResponse {
+pub async fn get_credentials_status() -> impl IntoResponse {
     let providers: Vec<&str> = CredentialProvider::available_providers();
     let daemon_auth = CredentialProvider::daemon_api_key().is_some();
     Json(serde_json::json!({
@@ -4020,7 +3856,7 @@ async fn create_pr_for_task(
 ///   }
 /// ]
 /// ```
-async fn list_notifications(
+pub async fn list_notifications(
     State(state): State<Arc<ApiState>>,
     Query(params): Query<NotificationQuery>,
 ) -> impl IntoResponse {
@@ -4057,7 +3893,7 @@ async fn list_notifications(
 ///   "total": 42
 /// }
 /// ```
-async fn notification_count(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
+pub async fn notification_count(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     let store = state.notification_store.read().await;
     Json(serde_json::json!({
         "unread": store.unread_count(),
@@ -4090,7 +3926,7 @@ async fn notification_count(State(state): State<Arc<ApiState>>) -> impl IntoResp
 ///   "error": "notification not found"
 /// }
 /// ```
-async fn mark_notification_read(
+pub async fn mark_notification_read(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
 ) -> impl IntoResponse {
@@ -4122,7 +3958,7 @@ async fn mark_notification_read(
 ///   "status": "all_read"
 /// }
 /// ```
-async fn mark_all_notifications_read(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
+pub async fn mark_all_notifications_read(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     let mut store = state.notification_store.write().await;
     store.mark_all_read();
     Json(serde_json::json!({"status": "all_read"}))
@@ -4153,7 +3989,7 @@ async fn mark_all_notifications_read(State(state): State<Arc<ApiState>>) -> impl
 ///   "error": "notification not found"
 /// }
 /// ```
-async fn delete_notification(
+pub async fn delete_notification(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
 ) -> impl IntoResponse {
@@ -5121,7 +4957,7 @@ async fn prioritize_task(
 // ---------------------------------------------------------------------------
 
 /// POST /api/settings/direct-mode — toggle direct mode (agents work in repo root).
-async fn toggle_direct_mode(
+pub async fn toggle_direct_mode(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<DirectModeRequest>,
 ) -> impl IntoResponse {
@@ -5724,13 +5560,13 @@ pub async fn list_convoys() -> Json<Vec<ConvoyEntry>> {
 ///   }
 /// ]
 /// ```
-async fn list_projects(State(state): State<Arc<ApiState>>) -> Json<Vec<Project>> {
+pub async fn list_projects(State(state): State<Arc<ApiState>>) -> Json<Vec<Project>> {
     let projects = state.projects.read().await;
     Json(projects.clone())
 }
 
 #[derive(Debug, Deserialize)]
-struct CreateProjectRequest {
+pub struct CreateProjectRequest {
     name: String,
     path: String,
 }
@@ -5762,7 +5598,7 @@ struct CreateProjectRequest {
 ///   "is_active": false
 /// }
 /// ```
-async fn create_project(
+pub async fn create_project(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<CreateProjectRequest>,
 ) -> impl IntoResponse {
@@ -5779,7 +5615,7 @@ async fn create_project(
 }
 
 #[derive(Debug, Deserialize)]
-struct UpdateProjectRequest {
+pub struct UpdateProjectRequest {
     #[serde(default)]
     name: Option<String>,
     #[serde(default)]
@@ -5821,7 +5657,7 @@ struct UpdateProjectRequest {
 ///   "error": "project not found"
 /// }
 /// ```
-async fn update_project(
+pub async fn update_project(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateProjectRequest>,
@@ -5875,7 +5711,7 @@ async fn update_project(
 ///   "error": "cannot delete last project"
 /// }
 /// ```
-async fn delete_project(
+pub async fn delete_project(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
 ) -> impl IntoResponse {
@@ -5931,7 +5767,7 @@ async fn delete_project(
 ///   "error": "project not found"
 /// }
 /// ```
-async fn activate_project(
+pub async fn activate_project(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
 ) -> impl IntoResponse {
@@ -6631,7 +6467,7 @@ pub async fn list_task_drafts(State(state): State<Arc<ApiState>>) -> Json<Vec<Ta
 ///   "locked": true
 /// }
 /// ```
-async fn lock_column(
+pub async fn lock_column(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<LockColumnRequest>,
 ) -> impl IntoResponse {
@@ -6682,7 +6518,7 @@ async fn lock_column(
 ///   "task_count": 3
 /// }
 /// ```
-async fn save_task_ordering(
+pub async fn save_task_ordering(
     State(_state): State<Arc<ApiState>>,
     Json(req): Json<TaskOrderingRequest>,
 ) -> impl IntoResponse {
