@@ -14,7 +14,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use at_core::config::CredentialProvider;
-use at_core::types::{Bead, Task};
+use at_core::types::Bead;
 use at_integrations::github::{
     issues, oauth as gh_oauth, pr_automation::PrAutomation, pull_requests, sync::IssueSyncEngine,
 };
@@ -138,7 +138,7 @@ async fn trigger_github_sync(State(state): State<Arc<ApiState>>) -> impl IntoRes
     let owner = int.github_owner.as_deref().unwrap_or("").to_string();
     let repo = int.github_repo.as_deref().unwrap_or("").to_string();
 
-    if token.as_ref().map_or(true, |t| t.is_empty()) {
+    if token.as_ref().is_none_or(|t| t.is_empty()) {
         return (
             axum::http::StatusCode::SERVICE_UNAVAILABLE,
             Json(serde_json::json!({
@@ -156,11 +156,7 @@ async fn trigger_github_sync(State(state): State<Arc<ApiState>>) -> impl IntoRes
         );
     }
 
-    let gh_config = GitHubConfig {
-        token: token,
-        owner,
-        repo,
-    };
+    let gh_config = GitHubConfig { token, owner, repo };
     let client = match at_integrations::github::client::GitHubClient::new(gh_config) {
         Ok(c) => c,
         Err(e) => {
@@ -230,7 +226,7 @@ async fn list_github_issues(
     let owner = int.github_owner.as_deref().unwrap_or("").to_string();
     let repo = int.github_repo.as_deref().unwrap_or("").to_string();
 
-    if token.as_ref().map_or(true, |t| t.is_empty()) {
+    if token.as_ref().is_none_or(|t| t.is_empty()) {
         return (
             axum::http::StatusCode::SERVICE_UNAVAILABLE,
             Json(serde_json::json!({
@@ -296,7 +292,7 @@ async fn import_github_issue(
     let owner = int.github_owner.as_deref().unwrap_or("").to_string();
     let repo = int.github_repo.as_deref().unwrap_or("").to_string();
 
-    if token.as_ref().map_or(true, |t| t.is_empty()) {
+    if token.as_ref().is_none_or(|t| t.is_empty()) {
         return (
             axum::http::StatusCode::SERVICE_UNAVAILABLE,
             Json(serde_json::json!({
@@ -358,7 +354,7 @@ async fn list_github_prs(
     let owner = int.github_owner.as_deref().unwrap_or("").to_string();
     let repo = int.github_repo.as_deref().unwrap_or("").to_string();
 
-    if token.as_ref().map_or(true, |t| t.is_empty()) {
+    if token.as_ref().is_none_or(|t| t.is_empty()) {
         return (
             axum::http::StatusCode::SERVICE_UNAVAILABLE,
             Json(serde_json::json!({
@@ -444,7 +440,7 @@ async fn create_pr_for_task(
     let owner = int.github_owner.as_deref().unwrap_or("").to_string();
     let repo = int.github_repo.as_deref().unwrap_or("").to_string();
 
-    if token.as_ref().map_or(true, |t| t.is_empty()) {
+    if token.as_ref().is_none_or(|t| t.is_empty()) {
         return (
             axum::http::StatusCode::SERVICE_UNAVAILABLE,
             Json(serde_json::json!({
@@ -759,7 +755,7 @@ async fn create_release(
     let owner = int.github_owner.as_deref().unwrap_or("").to_string();
     let repo = int.github_repo.as_deref().unwrap_or("").to_string();
 
-    if token.as_ref().map_or(true, |t| t.is_empty()) || owner.is_empty() || repo.is_empty() {
+    if token.as_ref().is_none_or(|t| t.is_empty()) || owner.is_empty() || repo.is_empty() {
         let release = GitHubRelease {
             tag_name: req.tag_name,
             name: req.name,
@@ -862,7 +858,7 @@ async fn list_releases(State(state): State<Arc<ApiState>>) -> impl IntoResponse 
     let owner = int.github_owner.as_deref().unwrap_or("").to_string();
     let repo = int.github_repo.as_deref().unwrap_or("").to_string();
 
-    if token.as_ref().map_or(false, |t| !t.is_empty()) && !owner.is_empty() && !repo.is_empty() {
+    if token.as_ref().is_some_and(|t| !t.is_empty()) && !owner.is_empty() && !repo.is_empty() {
         let gh_config = GitHubConfig { token, owner, repo };
         if let Ok(client) = at_integrations::github::client::GitHubClient::new(gh_config) {
             let route = format!("/repos/{}/{}/releases", client.owner(), client.repo());

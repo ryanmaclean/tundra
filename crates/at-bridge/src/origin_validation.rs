@@ -74,8 +74,8 @@ pub fn validate_websocket_origin(
         if origin.starts_with(allowed) {
             let remainder = &origin[allowed.len()..];
             // Check if the remainder is a port (starts with ':' followed by digits)
-            if remainder.starts_with(':') {
-                return remainder[1..].chars().all(|c| c.is_ascii_digit());
+            if let Some(port) = remainder.strip_prefix(':') {
+                return port.chars().all(|c| c.is_ascii_digit());
             }
         }
 

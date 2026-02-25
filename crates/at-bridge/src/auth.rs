@@ -32,7 +32,7 @@ impl AuthLayer {
     /// * `api_key` -- `Some(key)` to enforce auth, `None` to allow all.
     pub fn new(api_key: Option<String>) -> Self {
         Self {
-            api_key: api_key.map(|k| Arc::new(k)),
+            api_key: api_key.map(Arc::new),
         }
     }
 }

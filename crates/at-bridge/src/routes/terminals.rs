@@ -40,13 +40,7 @@ pub fn terminals_router() -> Router<Arc<ApiState>> {
             "/api/terminals/{id}/settings",
             axum::routing::patch(update_terminal_settings),
         )
-        .route(
-            "/api/terminals/{id}/auto-name",
-            post(auto_name_terminal),
-        )
-        .route(
-            "/api/terminals/persistent",
-            get(list_persistent_terminals),
-        )
+        .route("/api/terminals/{id}/auto-name", post(auto_name_terminal))
+        .route("/api/terminals/persistent", get(list_persistent_terminals))
         .route("/ws/terminal/{id}", get(terminal_ws))
 }

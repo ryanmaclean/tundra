@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use axum::{
     extract::{
         ws::{Message, WebSocket, WebSocketUpgrade},
@@ -6,7 +8,7 @@ use axum::{
     http::HeaderMap,
     middleware as axum_middleware,
     response::IntoResponse,
-    routing::{get, patch, post, put},
+    routing::get,
     Json, Router,
 };
 use futures_util::{SinkExt, StreamExt};
@@ -26,7 +28,6 @@ use crate::intelligence_api;
 use crate::notifications::{notification_from_event, NotificationStore};
 use crate::origin_validation::{get_default_allowed_origins, validate_websocket_origin};
 use crate::terminal::TerminalRegistry;
-use crate::terminal_ws;
 use at_core::config::{Config, CredentialProvider};
 use at_core::session_store::{SessionState, SessionStore};
 use at_core::settings::SettingsManager;
@@ -58,25 +59,13 @@ pub struct Project {
 }
 
 /// Sync status tracking for GitHub issue synchronization.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SyncStatus {
     pub last_sync_time: Option<chrono::DateTime<chrono::Utc>>,
     pub issues_imported: u64,
     pub issues_exported: u64,
     pub statuses_synced: u64,
     pub is_syncing: bool,
-}
-
-impl Default for SyncStatus {
-    fn default() -> Self {
-        Self {
-            last_sync_time: None,
-            issues_imported: 0,
-            issues_exported: 0,
-            statuses_synced: 0,
-            is_syncing: false,
-        }
-    }
 }
 
 /// Metadata stub for an image/screenshot attachment on a task.
@@ -1058,7 +1047,10 @@ pub async fn nudge_agent(
 ///   "last_seen": "2024-01-15T10:37:00Z"
 /// }
 /// ```
-pub async fn stop_agent(State(state): State<Arc<ApiState>>, Path(id): Path<Uuid>) -> impl IntoResponse {
+pub async fn stop_agent(
+    State(state): State<Arc<ApiState>>,
+    Path(id): Path<Uuid>,
+) -> impl IntoResponse {
     let mut agents = state.agents.write().await;
     let Some(agent) = agents.iter_mut().find(|a| a.id == id) else {
         return (
@@ -1244,7 +1236,10 @@ pub async fn create_task(
 ///   "error": "task not found"
 /// }
 /// ```
-pub async fn get_task(State(state): State<Arc<ApiState>>, Path(id): Path<Uuid>) -> impl IntoResponse {
+pub async fn get_task(
+    State(state): State<Arc<ApiState>>,
+    Path(id): Path<Uuid>,
+) -> impl IntoResponse {
     let tasks = state.tasks.read().await;
     let Some(task) = tasks.iter().find(|t| t.id == id) else {
         return (
@@ -3061,12 +3056,10 @@ pub(crate) async fn simulate_planning_poker_for_bead(
     )?;
 
     let mut participants = normalize_participants(&req.virtual_agents);
-    let desired_count = req.agent_count.unwrap_or_else(|| {
-        if participants.is_empty() {
-            5
-        } else {
-            participants.len()
-        }
+    let desired_count = req.agent_count.unwrap_or(if participants.is_empty() {
+        5
+    } else {
+        participants.len()
     });
 
     if desired_count == 0 || desired_count > 64 {
@@ -3574,7 +3567,7 @@ async fn list_github_issues(
     let owner = int.github_owner.as_deref().unwrap_or("").to_string();
     let repo = int.github_repo.as_deref().unwrap_or("").to_string();
 
-    if token.as_ref().map_or(true, |t| t.is_empty()) {
+    if token.as_ref().is_none_or(|t| t.is_empty()) {
         return (
             axum::http::StatusCode::SERVICE_UNAVAILABLE,
             Json(serde_json::json!({
@@ -3637,7 +3630,7 @@ async fn trigger_github_sync(State(state): State<Arc<ApiState>>) -> impl IntoRes
     let owner = int.github_owner.as_deref().unwrap_or("").to_string();
     let repo = int.github_repo.as_deref().unwrap_or("").to_string();
 
-    if token.as_ref().map_or(true, |t| t.is_empty()) {
+    if token.as_ref().is_none_or(|t| t.is_empty()) {
         return (
             axum::http::StatusCode::SERVICE_UNAVAILABLE,
             Json(serde_json::json!({
@@ -3655,11 +3648,7 @@ async fn trigger_github_sync(State(state): State<Arc<ApiState>>) -> impl IntoRes
         );
     }
 
-    let gh_config = GitHubConfig {
-        token: token,
-        owner,
-        repo,
-    };
+    let gh_config = GitHubConfig { token, owner, repo };
     let client = match at_integrations::github::client::GitHubClient::new(gh_config) {
         Ok(c) => c,
         Err(e) => {
@@ -3747,7 +3736,7 @@ async fn create_pr_for_task(
     let owner = int.github_owner.as_deref().unwrap_or("").to_string();
     let repo = int.github_repo.as_deref().unwrap_or("").to_string();
 
-    if token.as_ref().map_or(true, |t| t.is_empty()) {
+    if token.as_ref().is_none_or(|t| t.is_empty()) {
         return (
             axum::http::StatusCode::SERVICE_UNAVAILABLE,
             Json(serde_json::json!({
@@ -4139,15 +4128,10 @@ async fn ws_handler(
 
 async fn handle_ws(mut socket: WebSocket, state: Arc<ApiState>) {
     let rx = state.event_bus.subscribe();
-    loop {
-        match rx.recv_async().await {
-            Ok(msg) => {
-                let json = serde_json::to_string(&*msg).unwrap_or_default();
-                if socket.send(Message::Text(json.into())).await.is_err() {
-                    break;
-                }
-            }
-            Err(_) => break,
+    while let Ok(msg) = rx.recv_async().await {
+        let json = serde_json::to_string(&*msg).unwrap_or_default();
+        if socket.send(Message::Text(json.into())).await.is_err() {
+            break;
         }
     }
 }
@@ -4682,10 +4666,11 @@ pub async fn merge_preview(Path(id): Path<String>) -> impl IntoResponse {
             current_branch = String::new();
         }
     }
-    if found_branch.is_none() && !current_path.is_empty() {
-        if current_branch.contains(&id) || current_path.contains(&id) {
-            found_branch = Some(current_branch);
-        }
+    if found_branch.is_none()
+        && !current_path.is_empty()
+        && (current_branch.contains(&id) || current_path.contains(&id))
+    {
+        found_branch = Some(current_branch);
     }
 
     let branch = match found_branch {
@@ -5138,7 +5123,7 @@ async fn list_github_prs(
     let owner = int.github_owner.as_deref().unwrap_or("").to_string();
     let repo = int.github_repo.as_deref().unwrap_or("").to_string();
 
-    if token.as_ref().map_or(true, |t| t.is_empty()) {
+    if token.as_ref().is_none_or(|t| t.is_empty()) {
         return (
             axum::http::StatusCode::SERVICE_UNAVAILABLE,
             Json(serde_json::json!({
@@ -5205,7 +5190,7 @@ async fn import_github_issue(
     let owner = int.github_owner.as_deref().unwrap_or("").to_string();
     let repo = int.github_repo.as_deref().unwrap_or("").to_string();
 
-    if token.as_ref().map_or(true, |t| t.is_empty()) {
+    if token.as_ref().is_none_or(|t| t.is_empty()) {
         return (
             axum::http::StatusCode::SERVICE_UNAVAILABLE,
             Json(serde_json::json!({
@@ -5492,7 +5477,9 @@ pub struct AgentSessionEntry {
 }
 
 /// GET /api/sessions — list all active agent sessions.
-pub async fn list_agent_sessions(State(state): State<Arc<ApiState>>) -> Json<Vec<AgentSessionEntry>> {
+pub async fn list_agent_sessions(
+    State(state): State<Arc<ApiState>>,
+) -> Json<Vec<AgentSessionEntry>> {
     let agents = state.agents.read().await;
     let sessions: Vec<AgentSessionEntry> = agents
         .iter()
@@ -5890,7 +5877,7 @@ async fn create_release(
     let owner = int.github_owner.as_deref().unwrap_or("").to_string();
     let repo = int.github_repo.as_deref().unwrap_or("").to_string();
 
-    if token.as_ref().map_or(true, |t| t.is_empty()) || owner.is_empty() || repo.is_empty() {
+    if token.as_ref().is_none_or(|t| t.is_empty()) || owner.is_empty() || repo.is_empty() {
         let release = GitHubRelease {
             tag_name: req.tag_name,
             name: req.name,
@@ -5993,7 +5980,7 @@ async fn list_releases(State(state): State<Arc<ApiState>>) -> impl IntoResponse 
     let owner = int.github_owner.as_deref().unwrap_or("").to_string();
     let repo = int.github_repo.as_deref().unwrap_or("").to_string();
 
-    if token.as_ref().map_or(false, |t| !t.is_empty()) && !owner.is_empty() && !repo.is_empty() {
+    if token.as_ref().is_some_and(|t| !t.is_empty()) && !owner.is_empty() && !repo.is_empty() {
         let gh_config = GitHubConfig { token, owner, repo };
         if let Ok(client) = at_integrations::github::client::GitHubClient::new(gh_config) {
             let route = format!("/repos/{}/{}/releases", client.owner(), client.repo());

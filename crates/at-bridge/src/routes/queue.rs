@@ -13,10 +13,7 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
-use std::sync::{
-    atomic::Ordering,
-    Arc,
-};
+use std::sync::{atomic::Ordering, Arc};
 use uuid::Uuid;
 
 use at_core::types::{TaskPhase, TaskPriority};

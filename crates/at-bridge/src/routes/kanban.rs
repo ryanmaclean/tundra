@@ -7,7 +7,7 @@
 //! router using `.merge()` or `.nest()`.
 
 use axum::{
-    routing::{get, patch, post},
+    routing::{get, post},
     Router,
 };
 use std::sync::Arc;

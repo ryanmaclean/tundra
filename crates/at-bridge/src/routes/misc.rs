@@ -8,21 +8,18 @@
 //! router using `.merge()`.
 
 use axum::{
-    extract::{Path, State},
-    response::IntoResponse,
     routing::{get, post},
-    Json, Router,
+    Router,
 };
 use std::sync::Arc;
-use uuid::Uuid;
 
 use crate::http_api::{
     call_mcp_tool, create_bead, get_costs, get_kpi, get_metrics_json, get_metrics_prometheus,
     get_status, get_ui_session, import_linear_issues, list_agent_sessions, list_agents,
-    list_available_clis, list_beads, list_convoys, list_gitlab_issues,
-    list_gitlab_merge_requests, list_linear_issues, list_mcp_servers, list_ui_sessions,
-    nudge_agent, review_gitlab_merge_request, save_ui_session, start_file_watch, stop_agent,
-    stop_file_watch, update_bead_status, ApiState,
+    list_available_clis, list_beads, list_convoys, list_gitlab_issues, list_gitlab_merge_requests,
+    list_linear_issues, list_mcp_servers, list_ui_sessions, nudge_agent,
+    review_gitlab_merge_request, save_ui_session, start_file_watch, stop_agent, stop_file_watch,
+    update_bead_status, ApiState,
 };
 
 // ---------------------------------------------------------------------------

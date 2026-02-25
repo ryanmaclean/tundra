@@ -4,6 +4,7 @@ use uuid::Uuid;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload")]
 #[serde(rename_all = "snake_case")]
+#[allow(clippy::large_enum_variant)]
 pub enum BridgeMessage {
     // Frontend -> Backend
     GetStatus,

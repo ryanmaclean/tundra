@@ -7,7 +7,7 @@
 //! router using `.merge()` or `.nest()`.
 
 use axum::{
-    routing::{get, post, put},
+    routing::{get, post},
     Router,
 };
 use std::sync::Arc;
@@ -38,9 +38,7 @@ pub fn tasks_router() -> Router<Arc<ApiState>> {
         .route("/api/tasks", get(list_tasks).post(create_task))
         .route(
             "/api/tasks/{id}",
-            get(get_task)
-                .put(update_task)
-                .delete(delete_task),
+            get(get_task).put(update_task).delete(delete_task),
         )
         // Task phase and execution
         .route("/api/tasks/{id}/phase", post(update_task_phase))
