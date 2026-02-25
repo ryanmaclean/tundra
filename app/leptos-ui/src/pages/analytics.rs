@@ -102,13 +102,38 @@ pub fn AnalyticsPage() -> impl IntoView {
             0
         }
     };
+    let webgpu_health = move || match webgpu_probe.get() {
+        None => "unchecked".to_string(),
+        Some(r) => {
+            if r.supported {
+                "supported".to_string()
+            } else {
+                r.error
+                    .unwrap_or_else(|| "unsupported (no adapter)".to_string())
+            }
+        }
+    };
 
     view! {
         <div class="page-header">
             <h2>{t("analytics-title")}</h2>
-            <button class="refresh-btn dashboard-refresh-btn" on:click=move |_| do_refresh()>
-                {format!("\u{21BB} {}", t("btn-refresh"))}
-            </button>
+            <div class="page-header-actions">
+                <span
+                    class=(move || format!(
+                        "runtime-health-pill {}",
+                        if webgpu_probe.get().is_some_and(|r| r.supported) {
+                            "is-ready"
+                        } else {
+                            "is-warning"
+                        }
+                    ))
+                >
+                    {move || format!("WebGPU: {}", webgpu_health())}
+                </span>
+                <button class="refresh-btn dashboard-refresh-btn" on:click=move |_| do_refresh()>
+                    {format!("\u{21BB} {}", t("btn-refresh"))}
+                </button>
+            </div>
         </div>
 
         {move || error_msg.get().map(|msg| view! {

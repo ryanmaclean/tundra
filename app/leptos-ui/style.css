@@ -18605,3 +18605,30 @@ h2 .gh-icon {
     color: #9bff9b;
     font-family: "JetBrains Mono", monospace;
 }
+
+.runtime-health-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: rgba(255, 255, 255, 0.03);
+    color: var(--text-secondary);
+    font-size: 11px;
+    letter-spacing: 0.02em;
+    margin-right: 8px;
+    white-space: nowrap;
+}
+
+.runtime-health-pill.is-ready {
+    border-color: rgba(34, 197, 94, 0.45);
+    background: rgba(34, 197, 94, 0.14);
+    color: #86efac;
+}
+
+.runtime-health-pill.is-warning {
+    border-color: rgba(245, 158, 11, 0.45);
+    background: rgba(245, 158, 11, 0.12);
+    color: #fcd34d;
+}

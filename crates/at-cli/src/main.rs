@@ -180,6 +180,31 @@ enum Commands {
         #[command(subcommand)]
         command: IdeationCommands,
     },
+
+    /// Run browser runtime smoke checks (WebGPU probe + poker audio cues).
+    Smoke {
+        /// UI URL to test.
+        #[arg(long, default_value = "http://127.0.0.1:3001")]
+        ui_url: String,
+        /// Project root; used to auto-serve app/leptos-ui/dist when enabled.
+        #[arg(short = 'p', long = "project-path", default_value = ".")]
+        project_path: String,
+        /// Run Chromium in headed mode (default is headless).
+        #[arg(long, default_value_t = false)]
+        headful: bool,
+        /// Disable auto-serving dist via python http.server.
+        #[arg(long = "no-serve-dist", action = clap::ArgAction::SetFalse, default_value_t = true)]
+        serve_dist: bool,
+        /// Exit non-zero when smoke failures are found.
+        #[arg(short = 'S', long, default_value_t = false)]
+        strict: bool,
+        /// Output JSON.
+        #[arg(short = 'j', long, default_value_t = false)]
+        json: bool,
+        /// Write JSON artifact to this file path.
+        #[arg(short = 'o', long = "out")]
+        out: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -461,6 +486,26 @@ async fn main() -> anyhow::Result<()> {
                 commands::ideation::convert(&api_url, &idea_id).await?;
             }
         },
+        Some(Commands::Smoke {
+            ui_url,
+            project_path,
+            headful,
+            serve_dist,
+            strict,
+            json,
+            out,
+        }) => {
+            commands::smoke::run(
+                &ui_url,
+                &project_path,
+                headful,
+                serve_dist,
+                strict,
+                json,
+                out.as_deref(),
+            )
+            .await?;
+        }
     }
 
     Ok(())

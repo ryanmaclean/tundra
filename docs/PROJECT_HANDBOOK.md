@@ -331,6 +331,7 @@ at --help
 | `run` | Create skill-aware task | backlog + task | `at run -t "Fix OAuth" -s integration-hardening -p .` |
 | `agent run` | Role-scoped skill-aware task | backlog + task + execute | `at agent run -r qa-reviewer -t "Audit PR flow" -s wave-execution -p .` |
 | `doctor` | Environment/connectivity checks | — | `at doctor -p . -S` |
+| `smoke` | Browser runtime smoke (WebGPU + audio cues) | — | `at smoke -p . -S` |
 
 ### Core Commands
 
@@ -379,9 +380,13 @@ at agent run -r qa-reviewer -t "Review auth" -s wave-execution -p . -m sonnet -n
 
 # Doctor checks (JSON + strict for CI)
 at doctor -p . -j -S
+
+# Browser runtime smoke (auto-serves app/leptos-ui/dist)
+at smoke -p . -S
 ```
 
 `doctor` validates: daemon reachability, env vars, project path, `.claude/skills/*/SKILL.md` count.
+`smoke` validates: JS bridges loaded, WebGPU probe callable, AudioWorklet warmup + cue playback.
 
 ## 2.4 Workflows
 

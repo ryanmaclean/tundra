@@ -7,6 +7,7 @@ pub mod nudge;
 pub mod run_task;
 pub mod skill;
 pub mod sling;
+pub mod smoke;
 pub mod status;
 
 /// Build a reqwest client, handling connection errors with a friendly message.
