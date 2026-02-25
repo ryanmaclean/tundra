@@ -31,6 +31,14 @@ pub fn NotificationBell(
         let interval = Interval::new(100, move || {
             let now = js_sys::Date::now();
             set_toasts_tick.update(|list| {
+                // First, advance created_at for paused toasts to "freeze" their timers
+                for toast in list.iter_mut() {
+                    if toast.paused {
+                        toast.created_at += 100.0; // Advance by tick interval
+                    }
+                }
+
+                // Then remove expired toasts
                 list.retain(|toast| {
                     // Keep toast if it has no duration (infinite) or if it's not expired
                     match toast.duration_ms {
@@ -188,9 +196,35 @@ pub fn NotificationBell(
                     toasts.get().into_iter().map(|toast| {
                         let toast_id = toast.id.clone();
                         let dismiss_id = toast_id.clone();
+                        let hover_enter_id = toast_id.clone();
+                        let hover_leave_id = toast_id.clone();
                         let level_class = format!("toast-{}", toast.level);
+
+                        // Handlers to pause/resume timer on hover
+                        let pause_timer = move |_| {
+                            let id = hover_enter_id.clone();
+                            set_toasts.update(|list| {
+                                if let Some(t) = list.iter_mut().find(|t| t.id == id) {
+                                    t.paused = true;
+                                }
+                            });
+                        };
+
+                        let resume_timer = move |_| {
+                            let id = hover_leave_id.clone();
+                            set_toasts.update(|list| {
+                                if let Some(t) = list.iter_mut().find(|t| t.id == id) {
+                                    t.paused = false;
+                                }
+                            });
+                        };
+
                         view! {
-                            <div class={format!("toast-item {level_class}")}>
+                            <div
+                                class={format!("toast-item {level_class}")}
+                                on:mouseenter=pause_timer
+                                on:mouseleave=resume_timer
+                            >
                                 <div class="toast-header">
                                     <span class="toast-title">{toast.title}</span>
                                     <button
