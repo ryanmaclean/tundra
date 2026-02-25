@@ -1513,9 +1513,76 @@ struct TaskListQuery {
 ///   }
 /// ]
 /// ```
-async fn list_tasks(State(state): State<Arc<ApiState>>) -> Json<Vec<Task>> {
+async fn list_tasks(
+    State(state): State<Arc<ApiState>>,
+    Query(query): Query<TaskListQuery>,
+) -> Json<Vec<Task>> {
     let tasks = state.tasks.read().await;
-    Json(tasks.values().cloned().collect())
+
+
+    let filtered: Vec<Task> = tasks
+        .values()
+        .filter(|task| {
+            // Filter by phase if specified
+            if let Some(ref phase_str) = query.phase {
+                let task_phase_str = serde_json::to_string(&task.phase)
+                    .unwrap_or_default()
+                    .trim_matches('"')
+                    .to_lowercase();
+                if !task_phase_str.eq_ignore_ascii_case(phase_str) {
+                    return false;
+                }
+            }
+
+            // Filter by category if specified
+            if let Some(ref category_str) = query.category {
+                let task_category_str = serde_json::to_string(&task.category)
+                    .unwrap_or_default()
+                    .trim_matches('"')
+                    .to_lowercase();
+                if !task_category_str.eq_ignore_ascii_case(category_str) {
+                    return false;
+                }
+            }
+
+            // Filter by priority if specified
+            if let Some(ref priority_str) = query.priority {
+                let task_priority_str = serde_json::to_string(&task.priority)
+                    .unwrap_or_default()
+                    .trim_matches('"')
+                    .to_lowercase();
+                if !task_priority_str.eq_ignore_ascii_case(priority_str) {
+                    return false;
+                }
+            }
+
+            // Filter by source if specified
+            if let Some(ref source_str) = query.source {
+                if let Some(ref task_source) = task.source {
+                    let task_source_str = match task_source {
+                        TaskSource::Manual => "manual".to_string(),
+                        TaskSource::GithubIssue { .. } => "github_issue".to_string(),
+                        TaskSource::GithubPr { .. } => "github_pr".to_string(),
+                        TaskSource::GitlabIssue { .. } => "gitlab_issue".to_string(),
+                        TaskSource::LinearIssue { .. } => "linear_issue".to_string(),
+                        TaskSource::Import => "import".to_string(),
+                        TaskSource::Ideation { .. } => "ideation".to_string(),
+                    };
+                    if !task_source_str.eq_ignore_ascii_case(source_str) {
+                        return false;
+                    }
+                } else {
+                    // Task has no source, but filter requires one
+                    return false;
+                }
+            }
+
+            true
+        })
+        .cloned()
+        .collect();
+
+    Json(filtered)
 }
 
 /// POST /api/tasks -- create a new task.
