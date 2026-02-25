@@ -1,10 +1,15 @@
 //! API route organization by domain.
 //!
-//! This module organizes API routes into domain-specific sub-routers
-//! using Axum's Router::nest() and Router::merge() patterns.
+//! ## Router organization
 //!
-//! Each domain router is defined in its own file and exposes a public
-//! function that returns a Router<Arc<ApiState>>.
+//! This module organizes API routes into domain-specific sub-routers
+//! using Axum's Router::nest() and Router::merge() patterns. Each domain
+//! (github, kanban, projects, tasks, etc.) is defined in its own module
+//! and exposes a public function that returns a Router<Arc<ApiState>>.
+//!
+//! The domain routers are merged into the main application router in
+//! `http_api.rs`, providing a clean separation of concerns and making
+//! it easy to locate and maintain related endpoints.
 
 pub mod github;
 pub mod kanban;
