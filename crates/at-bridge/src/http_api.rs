@@ -870,6 +870,19 @@ pub struct NotificationQuery {
     pub offset: Option<usize>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct BeadQuery {
+    pub status: Option<BeadStatus>,
+    pub limit: Option<usize>,
+    pub offset: Option<usize>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AgentQuery {
+    pub limit: Option<usize>,
+    pub offset: Option<usize>,
+}
+
 // ---------------------------------------------------------------------------
 // Merge / Queue / DirectMode request types
 // ---------------------------------------------------------------------------
