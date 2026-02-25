@@ -7715,6 +7715,37 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_agent_pagination() {
+        let (_app, state) = test_app();
+
+        {
+            let mut agents = state.agents.write().await;
+            for i in 0..10 {
+                agents.push(Agent::new(
+                    format!("agent{i}"),
+                    at_core::types::AgentRole::Crew,
+                    CliType::Claude,
+                ));
+            }
+        }
+
+        let app = api_router(state.clone());
+        let req = Request::builder()
+            .method("GET")
+            .uri("/api/agents?limit=3&offset=0")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json.len(), 3);
+        // First agent returned
+        assert_eq!(json[0]["name"], "agent0");
+    }
+
+    #[tokio::test]
     async fn test_delete_notification_not_found() {
         let (app, _state) = test_app();
 
