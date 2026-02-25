@@ -816,4 +816,171 @@ mod tests {
         assert!((deser.latency_total_ms - 200.0).abs() < 0.001);
         assert_eq!(deser.scalability_active_agents, 4);
     }
+
+    // -- Ring Buffer Capacity Tests --
+
+    #[tokio::test]
+    async fn ring_buffer_evicts_oldest_records() {
+        // Create tracker with capacity of 3 records
+        let tracker = CostTracker::new(3, 100);
+        let now = Utc::now();
+
+        // Add 5 records
+        for i in 0..5 {
+            tracker
+                .record_request(RequestRecord {
+                    model: format!("model-{}", i),
+                    provider: "test".into(),
+                    input_tokens: 100 + i as u64,
+                    output_tokens: 50,
+                    cost_usd: 0.01 * (i + 1) as f64,
+                    latency_ms: 200,
+                    cache_hit: false,
+                    task_id: None,
+                    agent_id: None,
+                    timestamp: now + chrono::Duration::seconds(i as i64),
+                })
+                .await;
+        }
+
+        // Should only have the last 3 records (indices 2, 3, 4)
+        assert_eq!(tracker.request_count().await, 3);
+
+        // Check cost is only from last 3 records (0.03 + 0.04 + 0.05 = 0.12)
+        let total_cost = tracker.total_cost().await;
+        assert!((total_cost - 0.12).abs() < 0.001);
+
+        // Verify oldest records were evicted by checking model breakdown
+        let by_model = tracker.cost_by_model().await;
+        assert!(!by_model.contains_key("model-0"));
+        assert!(!by_model.contains_key("model-1"));
+        assert!(by_model.contains_key("model-2"));
+        assert!(by_model.contains_key("model-3"));
+        assert!(by_model.contains_key("model-4"));
+    }
+
+    #[tokio::test]
+    async fn ring_buffer_evicts_oldest_latencies() {
+        // Create tracker with small latency capacity of 3
+        let tracker = CostTracker::new(100, 3);
+        let now = Utc::now();
+
+        // Add 5 records with different latencies
+        let latencies = [100, 200, 300, 400, 500];
+        for (i, &latency) in latencies.iter().enumerate() {
+            tracker
+                .record_request(RequestRecord {
+                    model: "test".into(),
+                    provider: "test".into(),
+                    input_tokens: 100,
+                    output_tokens: 50,
+                    cost_usd: 0.01,
+                    latency_ms: latency,
+                    cache_hit: false,
+                    task_id: None,
+                    agent_id: None,
+                    timestamp: now + chrono::Duration::seconds(i as i64),
+                })
+                .await;
+        }
+
+        // Compute metrics to check latency calculations
+        let metrics = tracker.compute_lets_metrics(1).await;
+
+        // Average should be only from last 3 latencies: (300 + 400 + 500) / 3 = 400
+        assert!((metrics.latency_total_ms - 400.0).abs() < 0.1);
+
+        // P95 should be 500 (the highest in the last 3)
+        assert!((metrics.latency_p95_ms - 500.0).abs() < 0.1);
+    }
+
+    #[tokio::test]
+    async fn ring_buffer_handles_exact_capacity() {
+        // Create tracker with capacity of 3
+        let tracker = CostTracker::new(3, 100);
+        let now = Utc::now();
+
+        // Add exactly 3 records
+        for i in 0..3 {
+            tracker
+                .record_request(RequestRecord {
+                    model: format!("model-{}", i),
+                    provider: "test".into(),
+                    input_tokens: 100,
+                    output_tokens: 50,
+                    cost_usd: 0.01,
+                    latency_ms: 200,
+                    cache_hit: false,
+                    task_id: None,
+                    agent_id: None,
+                    timestamp: now + chrono::Duration::seconds(i as i64),
+                })
+                .await;
+        }
+
+        // Should have all 3 records
+        assert_eq!(tracker.request_count().await, 3);
+
+        // Add one more
+        tracker
+            .record_request(RequestRecord {
+                model: "model-3".into(),
+                provider: "test".into(),
+                input_tokens: 100,
+                output_tokens: 50,
+                cost_usd: 0.01,
+                latency_ms: 200,
+                cache_hit: false,
+                task_id: None,
+                agent_id: None,
+                timestamp: now + chrono::Duration::seconds(3),
+            })
+            .await;
+
+        // Should still have 3 records, oldest evicted
+        assert_eq!(tracker.request_count().await, 3);
+
+        let by_model = tracker.cost_by_model().await;
+        assert!(!by_model.contains_key("model-0"));
+        assert!(by_model.contains_key("model-1"));
+        assert!(by_model.contains_key("model-2"));
+        assert!(by_model.contains_key("model-3"));
+    }
+
+    #[tokio::test]
+    async fn ring_buffer_independent_capacities() {
+        // Create tracker with different capacities for records and latencies
+        let tracker = CostTracker::new(2, 5);
+        let now = Utc::now();
+
+        // Add 3 records
+        for i in 0..3 {
+            tracker
+                .record_request(RequestRecord {
+                    model: format!("model-{}", i),
+                    provider: "test".into(),
+                    input_tokens: 100,
+                    output_tokens: 50,
+                    cost_usd: 0.01,
+                    latency_ms: 100 + i as u64 * 100,
+                    cache_hit: false,
+                    task_id: None,
+                    agent_id: None,
+                    timestamp: now + chrono::Duration::seconds(i as i64),
+                })
+                .await;
+        }
+
+        // Records should be capped at 2 (last 2 records)
+        assert_eq!(tracker.request_count().await, 2);
+
+        // Latencies buffer has capacity 5, so all 3 latencies are kept (100, 200, 300)
+        // Average latency = (100 + 200 + 300) / 3 = 200
+        let metrics = tracker.compute_lets_metrics(1).await;
+        assert!((metrics.latency_total_ms - 200.0).abs() < 0.1);
+
+        // Cost should be only from 2 records (the last 2)
+        let total_cost = tracker.total_cost().await;
+        assert!((total_cost - 0.02).abs() < 0.001);
+    }
 }
