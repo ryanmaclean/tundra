@@ -10,6 +10,7 @@ pub mod github;
 pub mod kanban;
 pub mod notifications;
 pub mod projects;
+pub mod queue;
 pub mod settings;
 pub mod tasks;
 pub mod terminals;
