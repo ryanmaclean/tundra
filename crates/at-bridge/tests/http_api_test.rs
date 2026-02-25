@@ -747,9 +747,11 @@ async fn test_list_tasks_with_filters_multiple_combined() {
     assert_eq!(body.len(), 0);
 
     // Filter by all three: phase=discovery AND category=feature AND priority=high
-    let resp = reqwest::get(format!("{base}/api/tasks?phase=discovery&category=feature&priority=high"))
-        .await
-        .unwrap();
+    let resp = reqwest::get(format!(
+        "{base}/api/tasks?phase=discovery&category=feature&priority=high"
+    ))
+    .await
+    .unwrap();
     let body: Vec<Value> = resp.json().await.unwrap();
     assert_eq!(body.len(), 1);
     assert_eq!(body[0]["title"], "High Priority Feature");
@@ -776,12 +778,7 @@ async fn test_list_tasks_with_filters_case_insensitive() {
         .unwrap();
 
     // Test case-insensitive filtering with various casings
-    let test_cases = vec![
-        "discovery",
-        "Discovery",
-        "DISCOVERY",
-        "DiScOvErY",
-    ];
+    let test_cases = vec!["discovery", "Discovery", "DISCOVERY", "DiScOvErY"];
 
     for phase_value in test_cases {
         let resp = reqwest::get(format!("{base}/api/tasks?phase={phase_value}"))
@@ -800,7 +797,12 @@ async fn test_list_tasks_with_filters_case_insensitive() {
             .await
             .unwrap();
         let body: Vec<Value> = resp.json().await.unwrap();
-        assert_eq!(body.len(), 1, "Failed for category value: {}", category_value);
+        assert_eq!(
+            body.len(),
+            1,
+            "Failed for category value: {}",
+            category_value
+        );
     }
 
     // Test priority case-insensitivity
@@ -810,7 +812,12 @@ async fn test_list_tasks_with_filters_case_insensitive() {
             .await
             .unwrap();
         let body: Vec<Value> = resp.json().await.unwrap();
-        assert_eq!(body.len(), 1, "Failed for priority value: {}", priority_value);
+        assert_eq!(
+            body.len(),
+            1,
+            "Failed for priority value: {}",
+            priority_value
+        );
     }
 }
 
