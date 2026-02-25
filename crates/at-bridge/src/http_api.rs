@@ -1101,9 +1101,34 @@ async fn get_status(State(state): State<Arc<ApiState>>) -> Json<StatusResponse> 
 ///   }
 /// ]
 /// ```
-async fn list_beads(State(state): State<Arc<ApiState>>) -> Json<Vec<Bead>> {
+async fn list_beads(
+    State(state): State<Arc<ApiState>>,
+    Query(params): Query<BeadQuery>,
+) -> Json<Vec<Bead>> {
     let beads = state.beads.read().await;
-    Json(beads.values().cloned().collect())
+===
+    let limit = params.limit.unwrap_or(50);
+    let offset = params.offset.unwrap_or(0);
+
+    let filtered: Vec<Bead> = if let Some(status) = params.status {
+        beads
+            .values()
+            .filter(|b| b.status == status)
+            .skip(offset)
+            .take(limit)
+            .cloned()
+            .collect()
+    } else {
+        beads
+            .values()
+            .skip(offset)
+            .take(limit)
+            .cloned()
+            .collect()
+    };
+
+    Json(filtered)
+>>>>>>> 0323275 (auto-claude: subtask-1-2 - Update list_beads handler with pagination and status filtering)
 }
 
 /// POST /api/beads -- create a new bead (feature/epic).
