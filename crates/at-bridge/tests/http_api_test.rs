@@ -425,6 +425,463 @@ async fn test_get_task_logs() {
 }
 
 #[tokio::test]
+async fn test_list_tasks_with_filters_by_phase() {
+    let (base, _state) = start_test_server().await;
+    let client = reqwest::Client::new();
+
+    // Create tasks with different phases
+    let bead_id = uuid::Uuid::new_v4();
+
+    // Task 1: discovery phase (default)
+    client
+        .post(format!("{base}/api/tasks"))
+        .json(&json!({
+            "title": "Task 1",
+            "bead_id": bead_id,
+            "category": "feature",
+            "priority": "high",
+            "complexity": "medium"
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    // Task 2: context_gathering phase
+    let resp = client
+        .post(format!("{base}/api/tasks"))
+        .json(&json!({
+            "title": "Task 2",
+            "bead_id": bead_id,
+            "category": "feature",
+            "priority": "medium",
+            "complexity": "medium"
+        }))
+        .send()
+        .await
+        .unwrap();
+    let task2: Value = resp.json().await.unwrap();
+    let task2_id = task2["id"].as_str().unwrap();
+
+    // Update task 2 to context_gathering phase (valid: discovery -> context_gathering)
+    client
+        .post(format!("{base}/api/tasks/{task2_id}/phase"))
+        .json(&json!({ "phase": "context_gathering" }))
+        .send()
+        .await
+        .unwrap();
+
+    // Task 3: spec_creation phase
+    let resp = client
+        .post(format!("{base}/api/tasks"))
+        .json(&json!({
+            "title": "Task 3",
+            "bead_id": bead_id,
+            "category": "bug_fix",
+            "priority": "urgent",
+            "complexity": "small"
+        }))
+        .send()
+        .await
+        .unwrap();
+    let task3: Value = resp.json().await.unwrap();
+    let task3_id = task3["id"].as_str().unwrap();
+
+    // Update task 3 to spec_creation phase
+    client
+        .post(format!("{base}/api/tasks/{task3_id}/phase"))
+        .json(&json!({ "phase": "context_gathering" }))
+        .send()
+        .await
+        .unwrap();
+
+    client
+        .post(format!("{base}/api/tasks/{task3_id}/phase"))
+        .json(&json!({ "phase": "spec_creation" }))
+        .send()
+        .await
+        .unwrap();
+
+    // Filter by phase=discovery (should return 1 task)
+    let resp = reqwest::get(format!("{base}/api/tasks?phase=discovery"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let body: Vec<Value> = resp.json().await.unwrap();
+    assert_eq!(body.len(), 1);
+    assert_eq!(body[0]["title"], "Task 1");
+    assert_eq!(body[0]["phase"], "discovery");
+
+    // Filter by phase=context_gathering (should return 1 task)
+    let resp = reqwest::get(format!("{base}/api/tasks?phase=context_gathering"))
+        .await
+        .unwrap();
+    let body: Vec<Value> = resp.json().await.unwrap();
+    assert_eq!(body.len(), 1);
+    assert_eq!(body[0]["title"], "Task 2");
+    assert_eq!(body[0]["phase"], "context_gathering");
+
+    // Filter by phase=spec_creation (should return 1 task)
+    let resp = reqwest::get(format!("{base}/api/tasks?phase=spec_creation"))
+        .await
+        .unwrap();
+    let body: Vec<Value> = resp.json().await.unwrap();
+    assert_eq!(body.len(), 1);
+    assert_eq!(body[0]["title"], "Task 3");
+    assert_eq!(body[0]["phase"], "spec_creation");
+
+    // Filter by phase=complete (should return 0 tasks)
+    let resp = reqwest::get(format!("{base}/api/tasks?phase=complete"))
+        .await
+        .unwrap();
+    let body: Vec<Value> = resp.json().await.unwrap();
+    assert_eq!(body.len(), 0);
+
+    // No filter (should return all 3 tasks)
+    let resp = reqwest::get(format!("{base}/api/tasks")).await.unwrap();
+    let body: Vec<Value> = resp.json().await.unwrap();
+    assert_eq!(body.len(), 3);
+}
+
+#[tokio::test]
+async fn test_list_tasks_with_filters_by_category() {
+    let (base, _state) = start_test_server().await;
+    let client = reqwest::Client::new();
+
+    // Create tasks with different categories
+    client
+        .post(format!("{base}/api/tasks"))
+        .json(&json!({
+            "title": "Feature Task",
+            "bead_id": uuid::Uuid::new_v4(),
+            "category": "feature",
+            "priority": "high",
+            "complexity": "medium"
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    client
+        .post(format!("{base}/api/tasks"))
+        .json(&json!({
+            "title": "Bug Fix Task",
+            "bead_id": uuid::Uuid::new_v4(),
+            "category": "bug_fix",
+            "priority": "urgent",
+            "complexity": "small"
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    client
+        .post(format!("{base}/api/tasks"))
+        .json(&json!({
+            "title": "Documentation Task",
+            "bead_id": uuid::Uuid::new_v4(),
+            "category": "documentation",
+            "priority": "low",
+            "complexity": "trivial"
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    // Filter by category=feature
+    let resp = reqwest::get(format!("{base}/api/tasks?category=feature"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let body: Vec<Value> = resp.json().await.unwrap();
+    assert_eq!(body.len(), 1);
+    assert_eq!(body[0]["title"], "Feature Task");
+    assert_eq!(body[0]["category"], "feature");
+
+    // Filter by category=bug_fix
+    let resp = reqwest::get(format!("{base}/api/tasks?category=bug_fix"))
+        .await
+        .unwrap();
+    let body: Vec<Value> = resp.json().await.unwrap();
+    assert_eq!(body.len(), 1);
+    assert_eq!(body[0]["title"], "Bug Fix Task");
+    assert_eq!(body[0]["category"], "bug_fix");
+
+    // Filter by category=documentation
+    let resp = reqwest::get(format!("{base}/api/tasks?category=documentation"))
+        .await
+        .unwrap();
+    let body: Vec<Value> = resp.json().await.unwrap();
+    assert_eq!(body.len(), 1);
+    assert_eq!(body[0]["title"], "Documentation Task");
+
+    // Filter by category=security (should return 0 tasks)
+    let resp = reqwest::get(format!("{base}/api/tasks?category=security"))
+        .await
+        .unwrap();
+    let body: Vec<Value> = resp.json().await.unwrap();
+    assert_eq!(body.len(), 0);
+}
+
+#[tokio::test]
+async fn test_list_tasks_with_filters_by_priority() {
+    let (base, _state) = start_test_server().await;
+    let client = reqwest::Client::new();
+
+    // Create tasks with different priorities
+    client
+        .post(format!("{base}/api/tasks"))
+        .json(&json!({
+            "title": "Low Priority Task",
+            "bead_id": uuid::Uuid::new_v4(),
+            "category": "feature",
+            "priority": "low",
+            "complexity": "medium"
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    client
+        .post(format!("{base}/api/tasks"))
+        .json(&json!({
+            "title": "High Priority Task",
+            "bead_id": uuid::Uuid::new_v4(),
+            "category": "bug_fix",
+            "priority": "high",
+            "complexity": "large"
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    client
+        .post(format!("{base}/api/tasks"))
+        .json(&json!({
+            "title": "Urgent Priority Task",
+            "bead_id": uuid::Uuid::new_v4(),
+            "category": "security",
+            "priority": "urgent",
+            "complexity": "medium"
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    // Filter by priority=low
+    let resp = reqwest::get(format!("{base}/api/tasks?priority=low"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let body: Vec<Value> = resp.json().await.unwrap();
+    assert_eq!(body.len(), 1);
+    assert_eq!(body[0]["title"], "Low Priority Task");
+    assert_eq!(body[0]["priority"], "low");
+
+    // Filter by priority=high
+    let resp = reqwest::get(format!("{base}/api/tasks?priority=high"))
+        .await
+        .unwrap();
+    let body: Vec<Value> = resp.json().await.unwrap();
+    assert_eq!(body.len(), 1);
+    assert_eq!(body[0]["title"], "High Priority Task");
+    assert_eq!(body[0]["priority"], "high");
+
+    // Filter by priority=urgent
+    let resp = reqwest::get(format!("{base}/api/tasks?priority=urgent"))
+        .await
+        .unwrap();
+    let body: Vec<Value> = resp.json().await.unwrap();
+    assert_eq!(body.len(), 1);
+    assert_eq!(body[0]["title"], "Urgent Priority Task");
+    assert_eq!(body[0]["priority"], "urgent");
+
+    // Filter by priority=medium (should return 0 tasks)
+    let resp = reqwest::get(format!("{base}/api/tasks?priority=medium"))
+        .await
+        .unwrap();
+    let body: Vec<Value> = resp.json().await.unwrap();
+    assert_eq!(body.len(), 0);
+}
+
+#[tokio::test]
+async fn test_list_tasks_with_filters_multiple_combined() {
+    let (base, _state) = start_test_server().await;
+    let client = reqwest::Client::new();
+
+    let bead_id = uuid::Uuid::new_v4();
+
+    // Create diverse tasks
+    client
+        .post(format!("{base}/api/tasks"))
+        .json(&json!({
+            "title": "High Priority Feature",
+            "bead_id": bead_id,
+            "category": "feature",
+            "priority": "high",
+            "complexity": "medium"
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    client
+        .post(format!("{base}/api/tasks"))
+        .json(&json!({
+            "title": "High Priority Bug",
+            "bead_id": bead_id,
+            "category": "bug_fix",
+            "priority": "high",
+            "complexity": "small"
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    client
+        .post(format!("{base}/api/tasks"))
+        .json(&json!({
+            "title": "Low Priority Feature",
+            "bead_id": bead_id,
+            "category": "feature",
+            "priority": "low",
+            "complexity": "trivial"
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    // Filter by category=feature AND priority=high (should return 1 task)
+    let resp = reqwest::get(format!("{base}/api/tasks?category=feature&priority=high"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let body: Vec<Value> = resp.json().await.unwrap();
+    assert_eq!(body.len(), 1);
+    assert_eq!(body[0]["title"], "High Priority Feature");
+    assert_eq!(body[0]["category"], "feature");
+    assert_eq!(body[0]["priority"], "high");
+
+    // Filter by category=feature AND priority=low (should return 1 task)
+    let resp = reqwest::get(format!("{base}/api/tasks?category=feature&priority=low"))
+        .await
+        .unwrap();
+    let body: Vec<Value> = resp.json().await.unwrap();
+    assert_eq!(body.len(), 1);
+    assert_eq!(body[0]["title"], "Low Priority Feature");
+
+    // Filter by priority=high (should return 2 tasks)
+    let resp = reqwest::get(format!("{base}/api/tasks?priority=high"))
+        .await
+        .unwrap();
+    let body: Vec<Value> = resp.json().await.unwrap();
+    assert_eq!(body.len(), 2);
+
+    // Filter by category=feature AND priority=urgent (should return 0 tasks)
+    let resp = reqwest::get(format!("{base}/api/tasks?category=feature&priority=urgent"))
+        .await
+        .unwrap();
+    let body: Vec<Value> = resp.json().await.unwrap();
+    assert_eq!(body.len(), 0);
+
+    // Filter by all three: phase=discovery AND category=feature AND priority=high
+    let resp = reqwest::get(format!("{base}/api/tasks?phase=discovery&category=feature&priority=high"))
+        .await
+        .unwrap();
+    let body: Vec<Value> = resp.json().await.unwrap();
+    assert_eq!(body.len(), 1);
+    assert_eq!(body[0]["title"], "High Priority Feature");
+}
+
+#[tokio::test]
+async fn test_list_tasks_with_filters_case_insensitive() {
+    let (base, _state) = start_test_server().await;
+    let client = reqwest::Client::new();
+
+    let bead_id = uuid::Uuid::new_v4();
+
+    client
+        .post(format!("{base}/api/tasks"))
+        .json(&json!({
+            "title": "Test Task",
+            "bead_id": bead_id,
+            "category": "feature",
+            "priority": "high",
+            "complexity": "medium"
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    // Test case-insensitive filtering with various casings
+    let test_cases = vec![
+        "discovery",
+        "Discovery",
+        "DISCOVERY",
+        "DiScOvErY",
+    ];
+
+    for phase_value in test_cases {
+        let resp = reqwest::get(format!("{base}/api/tasks?phase={phase_value}"))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200);
+        let body: Vec<Value> = resp.json().await.unwrap();
+        assert_eq!(body.len(), 1, "Failed for phase value: {}", phase_value);
+        assert_eq!(body[0]["title"], "Test Task");
+    }
+
+    // Test category case-insensitivity
+    let category_test_cases = vec!["feature", "Feature", "FEATURE", "FEaTuRe"];
+    for category_value in category_test_cases {
+        let resp = reqwest::get(format!("{base}/api/tasks?category={category_value}"))
+            .await
+            .unwrap();
+        let body: Vec<Value> = resp.json().await.unwrap();
+        assert_eq!(body.len(), 1, "Failed for category value: {}", category_value);
+    }
+
+    // Test priority case-insensitivity
+    let priority_test_cases = vec!["high", "High", "HIGH", "HiGh"];
+    for priority_value in priority_test_cases {
+        let resp = reqwest::get(format!("{base}/api/tasks?priority={priority_value}"))
+            .await
+            .unwrap();
+        let body: Vec<Value> = resp.json().await.unwrap();
+        assert_eq!(body.len(), 1, "Failed for priority value: {}", priority_value);
+    }
+}
+
+#[tokio::test]
+async fn test_list_tasks_with_filters_no_filters_returns_all() {
+    let (base, _state) = start_test_server().await;
+    let client = reqwest::Client::new();
+
+    let bead_id = uuid::Uuid::new_v4();
+
+    // Create 5 tasks with various attributes
+    for i in 1..=5 {
+        client
+            .post(format!("{base}/api/tasks"))
+            .json(&json!({
+                "title": format!("Task {}", i),
+                "bead_id": bead_id,
+                "category": if i % 2 == 0 { "feature" } else { "bug_fix" },
+                "priority": if i <= 2 { "high" } else { "low" },
+                "complexity": "medium"
+            }))
+            .send()
+            .await
+            .unwrap();
+    }
+
+    // No filters - should return all 5 tasks
+    let resp = reqwest::get(format!("{base}/api/tasks")).await.unwrap();
+    assert_eq!(resp.status(), 200);
+    let body: Vec<Value> = resp.json().await.unwrap();
+    assert_eq!(body.len(), 5);
+}
+
+#[tokio::test]
 async fn test_kanban_columns_get_and_patch() {
     let (base, _state) = start_test_server().await;
     let client = reqwest::Client::new();
