@@ -194,3 +194,20 @@ fn format_time_ago(timestamp: &str) -> String {
         Err(_) => timestamp.to_string(),
     }
 }
+
+/// Returns the fraction of time remaining for a toast, from 1.0 (just created) to 0.0 (expired).
+fn remaining_fraction(toast: &Toast) -> f64 {
+    // If duration is None (infinite, typically for errors), always return 1.0
+    let Some(duration_ms) = toast.duration_ms else {
+        return 1.0;
+    };
+
+    if duration_ms <= 0.0 {
+        return 0.0;
+    }
+
+    let now = js_sys::Date::now();
+    let elapsed_ms = now - toast.created_at;
+    let fraction = (1.0 - (elapsed_ms / duration_ms)).max(0.0);
+    fraction
+}
