@@ -1,0 +1,8 @@
+//! API route organization by domain.
+//!
+//! This module organizes API routes into domain-specific sub-routers
+//! using Axum's Router::nest() and Router::merge() patterns.
+//!
+//! Each domain router is defined in its own file and exposes a public
+//! function that returns a Router<Arc<ApiState>>.
+
