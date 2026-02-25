@@ -12,4 +12,5 @@ pub mod notifications;
 pub mod projects;
 pub mod settings;
 pub mod tasks;
+pub mod terminals;
 pub mod worktrees;
