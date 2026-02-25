@@ -5,6 +5,7 @@ use leptos::task::spawn_local;
 
 use crate::api;
 use crate::i18n::t;
+use crate::poker_audio;
 
 #[component]
 pub fn IdeationPage() -> impl IntoView {
@@ -19,6 +20,20 @@ pub fn IdeationPage() -> impl IntoView {
     let (convert_msg, set_convert_msg) = signal(Option::<String>::None);
     let (sort_by, set_sort_by) = signal("Impact".to_string());
     let (sort_asc, set_sort_asc) = signal(false);
+    let (audio_health, set_audio_health) = signal("uninitialized".to_string());
+
+    Effect::new(move |_| {
+        spawn_local(async move {
+            match poker_audio::init_audio().await {
+                Ok(r) if r.ok => set_audio_health.set("ready".to_string()),
+                Ok(r) => set_audio_health.set(
+                    r.error
+                        .unwrap_or_else(|| "locked (gesture required)".to_string()),
+                ),
+                Err(e) => set_audio_health.set(format!("unavailable ({e})")),
+            }
+        });
+    });
 
     let do_refresh = move || {
         set_loading.set(true);
@@ -35,6 +50,16 @@ pub fn IdeationPage() -> impl IntoView {
     do_refresh();
 
     let on_generate = move |_| {
+        spawn_local(async move {
+            match poker_audio::cue("deal").await {
+                Ok(r) if r.ok => set_audio_health.set("ready".to_string()),
+                Ok(r) => set_audio_health.set(
+                    r.error
+                        .unwrap_or_else(|| "locked (gesture required)".to_string()),
+                ),
+                Err(e) => set_audio_health.set(format!("unavailable ({e})")),
+            }
+        });
         set_generating.set(true);
         set_error_msg.set(None);
         spawn_local(async move {
@@ -99,6 +124,18 @@ pub fn IdeationPage() -> impl IntoView {
                 </span>
             </div>
             <p class="ideation-subtitle">"Generate ideas for your project"</p>
+            <div
+                class=(move || format!(
+                    "runtime-health-pill {}",
+                    if audio_health.get() == "ready" {
+                        "is-ready"
+                    } else {
+                        "is-warning"
+                    }
+                ))
+            >
+                {move || format!("Audio cues: {}", audio_health.get())}
+            </div>
             <div class="page-header-actions">
                 <button
                     class="action-btn action-start"
@@ -255,10 +292,33 @@ pub fn IdeationPage() -> impl IntoView {
                                                         "Created task '{}' (id: {}) — simulated {} votes, consensus: {}",
                                                         t, bead_id, vote_count, consensus
                                                     )));
+                                                    let cue_name =
+                                                        if vote_count > 0 && consensus != "no consensus" {
+                                                            "consensus"
+                                                        } else {
+                                                            "success"
+                                                        };
+                                                    match poker_audio::cue(cue_name).await {
+                                                        Ok(r) if r.ok => set_audio_health.set("ready".to_string()),
+                                                        Ok(r) => set_audio_health.set(
+                                                            r.error
+                                                                .unwrap_or_else(|| "locked (gesture required)".to_string()),
+                                                        ),
+                                                        Err(e) => set_audio_health.set(format!("unavailable ({e})")),
+                                                    }
                                                 }
-                                                Err(e) => set_convert_msg.set(Some(
-                                                    format!("Failed to create task: {e}")
-                                                )),
+                                                Err(e) => {
+                                                    set_convert_msg
+                                                        .set(Some(format!("Failed to create task: {e}")));
+                                                    match poker_audio::cue("error").await {
+                                                        Ok(r) if r.ok => set_audio_health.set("ready".to_string()),
+                                                        Ok(r) => set_audio_health.set(
+                                                            r.error
+                                                                .unwrap_or_else(|| "locked (gesture required)".to_string()),
+                                                        ),
+                                                        Err(err) => set_audio_health.set(format!("unavailable ({err})")),
+                                                    }
+                                                }
                                             }
                                         });
                                     }

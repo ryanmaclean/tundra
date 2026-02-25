@@ -168,6 +168,7 @@ cargo run --bin at -- sling "Fix bug #123"      # Create new task (bead)
 cargo run --bin at -- hook <bead-id>            # Start working on task
 cargo run --bin at -- done <bead-id>            # Mark task complete
 cargo run --bin at -- nudge <agent-id>          # Restart stuck agent
+cargo run --bin at -- smoke -p . -S             # Browser smoke (WebGPU + audio cues)
 
 # Security & Quality
 make deny               # Check dependencies for security issues

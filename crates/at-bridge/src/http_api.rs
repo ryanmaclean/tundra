@@ -1,11 +1,12 @@
 use axum::{
+    body::Body,
     extract::{
         ws::{Message, WebSocket, WebSocketUpgrade},
-        Path, Query, State,
+        Path, Query, Request, State,
     },
     http::HeaderMap,
-    middleware as axum_middleware,
-    response::IntoResponse,
+    middleware::{self as axum_middleware, Next},
+    response::{IntoResponse, Response},
     routing::{get, patch, post, put},
     Json, Router,
 };
@@ -436,6 +437,25 @@ pub fn api_router(state: Arc<ApiState>) -> Router {
     api_router_with_auth(state, None, vec![])
 }
 
+/// Add browser cross-origin isolation headers needed for threaded WASM paths.
+async fn isolation_headers_middleware(request: Request<Body>, next: Next) -> Response {
+    let mut response = next.run(request).await;
+    let headers = response.headers_mut();
+    headers.insert(
+        "Cross-Origin-Opener-Policy",
+        axum::http::HeaderValue::from_static("same-origin"),
+    );
+    headers.insert(
+        "Cross-Origin-Embedder-Policy",
+        axum::http::HeaderValue::from_static("credentialless"),
+    );
+    headers.insert(
+        "Cross-Origin-Resource-Policy",
+        axum::http::HeaderValue::from_static("same-origin"),
+    );
+    response
+}
+
 /// Build the API router with optional authentication.
 pub fn api_router_with_auth(
     state: Arc<ApiState>,
@@ -624,6 +644,7 @@ pub fn api_router_with_auth(
         .merge(intelligence_api::intelligence_router())
         .layer(axum_middleware::from_fn(metrics_middleware))
         .layer(axum_middleware::from_fn(request_id_middleware))
+        .layer(axum_middleware::from_fn(isolation_headers_middleware))
         .layer(AuthLayer::new(api_key))
         .layer(
             CorsLayer::new()

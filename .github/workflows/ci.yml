@@ -37,6 +37,12 @@ jobs:
       - name: Build (exclude tauri on Linux CI)
         run: cargo build --workspace --exclude at-tauri
 
+      - name: Install wasm target
+        run: rustup target add wasm32-unknown-unknown
+
+      - name: WASM SIMD gate (size + build parity)
+        run: ./scripts/wasm_simd_gate.sh
+
       - name: Run tests (nextest + JUnit XML)
         run: cargo nextest run --workspace --exclude at-tauri --profile ci -E 'not (package(at-tui) and test(/^e2e_/))'
 
