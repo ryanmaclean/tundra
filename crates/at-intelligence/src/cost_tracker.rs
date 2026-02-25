@@ -4,7 +4,7 @@
 //! quality/cost/accuracy tradeoffs. Provides LETS metrics (Latency,
 //! Efficiency, Throughput, Scalability) for monitoring agent swarms.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -301,25 +301,34 @@ impl QcaScore {
 // ---------------------------------------------------------------------------
 
 /// Thread-safe cost tracker for all LLM requests across the system.
+/// Ring-buffer backed using `VecDeque` for O(1) eviction.
 #[derive(Clone)]
 pub struct CostTracker {
     pricing: Arc<RwLock<HashMap<String, ModelPricing>>>,
-    records: Arc<RwLock<Vec<RequestRecord>>>,
+    records: Arc<RwLock<VecDeque<RequestRecord>>>,
+    max_records: usize,
     budgets: Arc<RwLock<HashMap<String, TokenBudget>>>,
-    latencies: Arc<RwLock<Vec<u64>>>,
+    latencies: Arc<RwLock<VecDeque<u64>>>,
+    max_latencies: usize,
 }
 
 impl CostTracker {
     pub fn new() -> Self {
+        Self::with_capacity(10_000, 100_000)
+    }
+
+    pub fn with_capacity(max_records: usize, max_latencies: usize) -> Self {
         let mut pricing_map = HashMap::new();
         for p in default_pricing_table() {
             pricing_map.insert(p.model.clone(), p);
         }
         Self {
             pricing: Arc::new(RwLock::new(pricing_map)),
-            records: Arc::new(RwLock::new(Vec::new())),
+            records: Arc::new(RwLock::new(VecDeque::new())),
+            max_records,
             budgets: Arc::new(RwLock::new(HashMap::new())),
-            latencies: Arc::new(RwLock::new(Vec::new())),
+            latencies: Arc::new(RwLock::new(VecDeque::new())),
+            max_latencies,
         }
     }
 
@@ -345,10 +354,18 @@ impl CostTracker {
     /// Record a completed request.
     pub async fn record_request(&self, record: RequestRecord) {
         let mut latencies = self.latencies.write().await;
-        latencies.push(record.latency_ms);
+        latencies.push_back(record.latency_ms);
+        // Ring buffer: evict oldest when over capacity (O(1) with VecDeque).
+        while latencies.len() > self.max_latencies {
+            latencies.pop_front();
+        }
 
         let mut records = self.records.write().await;
-        records.push(record);
+        records.push_back(record);
+        // Ring buffer: evict oldest when over capacity (O(1) with VecDeque).
+        while records.len() > self.max_records {
+            records.pop_front();
+        }
     }
 
     /// Set a token budget for a task or agent.
@@ -425,7 +442,7 @@ impl CostTracker {
         let p95_latency = if latencies.is_empty() {
             0.0
         } else {
-            let mut sorted: Vec<u64> = latencies.clone();
+            let mut sorted: Vec<u64> = latencies.iter().copied().collect();
             sorted.sort_unstable();
             let idx = ((sorted.len() as f64) * 0.95) as usize;
             sorted[idx.min(sorted.len() - 1)] as f64
@@ -450,8 +467,8 @@ impl CostTracker {
 
         // Throughput — computed over the time window of all records
         let (tps, rpm) = if records.len() >= 2 {
-            let first = records.first().unwrap().timestamp;
-            let last = records.last().unwrap().timestamp;
+            let first = records.front().unwrap().timestamp;
+            let last = records.back().unwrap().timestamp;
             let duration_secs = (last - first).num_seconds().max(1) as f64;
             let tps = total_output as f64 / duration_secs;
             let rpm = total_requests / (duration_secs / 60.0);
