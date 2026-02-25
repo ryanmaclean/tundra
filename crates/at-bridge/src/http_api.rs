@@ -963,9 +963,32 @@ async fn get_status(State(state): State<Arc<ApiState>>) -> Json<StatusResponse> 
 ///   }
 /// ]
 /// ```
-async fn list_beads(State(state): State<Arc<ApiState>>) -> Json<Vec<Bead>> {
+async fn list_beads(
+    State(state): State<Arc<ApiState>>,
+    Query(params): Query<BeadQuery>,
+) -> Json<Vec<Bead>> {
     let beads = state.beads.read().await;
-    Json(beads.clone())
+    let limit = params.limit.unwrap_or(50);
+    let offset = params.offset.unwrap_or(0);
+
+    let filtered: Vec<Bead> = if let Some(status) = params.status {
+        beads
+            .iter()
+            .filter(|b| b.status == status)
+            .skip(offset)
+            .take(limit)
+            .cloned()
+            .collect()
+    } else {
+        beads
+            .iter()
+            .skip(offset)
+            .take(limit)
+            .cloned()
+            .collect()
+    };
+
+    Json(filtered)
 }
 
 /// POST /api/beads -- create a new bead (feature/epic).
