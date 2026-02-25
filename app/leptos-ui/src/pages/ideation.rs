@@ -5,6 +5,7 @@ use leptos::task::spawn_local;
 
 use crate::api;
 use crate::i18n::t;
+use crate::poker_audio;
 
 #[component]
 pub fn IdeationPage() -> impl IntoView {
@@ -35,6 +36,9 @@ pub fn IdeationPage() -> impl IntoView {
     do_refresh();
 
     let on_generate = move |_| {
+        spawn_local(async move {
+            let _ = poker_audio::cue("deal").await;
+        });
         set_generating.set(true);
         set_error_msg.set(None);
         spawn_local(async move {
@@ -255,10 +259,19 @@ pub fn IdeationPage() -> impl IntoView {
                                                         "Created task '{}' (id: {}) — simulated {} votes, consensus: {}",
                                                         t, bead_id, vote_count, consensus
                                                     )));
+                                                    let cue_name =
+                                                        if vote_count > 0 && consensus != "no consensus" {
+                                                            "consensus"
+                                                        } else {
+                                                            "success"
+                                                        };
+                                                    let _ = poker_audio::cue(cue_name).await;
                                                 }
-                                                Err(e) => set_convert_msg.set(Some(
-                                                    format!("Failed to create task: {e}")
-                                                )),
+                                                Err(e) => {
+                                                    set_convert_msg
+                                                        .set(Some(format!("Failed to create task: {e}")));
+                                                    let _ = poker_audio::cue("error").await;
+                                                }
                                             }
                                         });
                                     }

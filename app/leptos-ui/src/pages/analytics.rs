@@ -4,6 +4,7 @@ use leptos::task::spawn_local;
 use crate::analytics_store;
 use crate::api;
 use crate::i18n::t;
+use crate::webgpu;
 
 #[component]
 pub fn AnalyticsPage() -> impl IntoView {
@@ -17,6 +18,25 @@ pub fn AnalyticsPage() -> impl IntoView {
     let (avg_durations, set_avg_durations) = signal(Vec::<analytics_store::AvgDuration>::new());
     let (cost_by_provider, set_cost_by_provider) =
         signal(Vec::<analytics_store::ProviderCost>::new());
+    let (webgpu_probe, set_webgpu_probe) = signal(Option::<webgpu::WebGpuProbeReport>::None);
+    let (webgpu_running, set_webgpu_running) = signal(false);
+
+    let run_webgpu_probe = move || {
+        set_webgpu_running.set(true);
+        spawn_local(async move {
+            match webgpu::probe(256).await {
+                Ok(report) => set_webgpu_probe.set(Some(report)),
+                Err(e) => {
+                    set_webgpu_probe.set(Some(webgpu::WebGpuProbeReport {
+                        supported: false,
+                        error: Some(e),
+                        ..Default::default()
+                    }));
+                }
+            }
+            set_webgpu_running.set(false);
+        });
+    };
 
     let do_refresh = move || {
         set_loading.set(true);
@@ -53,6 +73,7 @@ pub fn AnalyticsPage() -> impl IntoView {
             }
             set_loading.set(false);
         });
+        run_webgpu_probe();
     };
 
     do_refresh();
@@ -121,6 +142,60 @@ pub fn AnalyticsPage() -> impl IntoView {
                 <div class="value">{move || format!("{}%", completion_pct())}</div>
                 <div class="label">"Completion Rate"</div>
             </div>
+        </div>
+
+        <div class="section">
+            <div style="display:flex;align-items:center;justify-content:space-between;">
+                <h3>"WebGPU Probe (M-series)"</h3>
+                <button
+                    class="refresh-btn dashboard-refresh-btn"
+                    on:click=move |_| run_webgpu_probe()
+                    disabled=move || webgpu_running.get()
+                >
+                    {move || if webgpu_running.get() { "Running...".to_string() } else { "Run Probe".to_string() }}
+                </button>
+            </div>
+            {move || {
+                match webgpu_probe.get() {
+                    None => view! {
+                        <p style="color:#8b949e;font-size:0.85em;">"No probe data yet."</p>
+                    }.into_any(),
+                    Some(report) => {
+                        if report.supported {
+                            view! {
+                                <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:8px;">
+                                    <div class="kpi-chip">
+                                        <span class="kpi-chip-label">"Adapter"</span>
+                                        <span class="kpi-chip-value">{report.adapter.unwrap_or_else(|| "unknown".to_string())}</span>
+                                    </div>
+                                    <div class="kpi-chip">
+                                        <span class="kpi-chip-label">"Elapsed (ms)"</span>
+                                        <span class="kpi-chip-value">
+                                            {format!("{:.3}", report.elapsed_ms.unwrap_or(0.0))}
+                                        </span>
+                                    </div>
+                                    <div class="kpi-chip">
+                                        <span class="kpi-chip-label">"Architecture"</span>
+                                        <span class="kpi-chip-value">{report.architecture.unwrap_or_else(|| "n/a".to_string())}</span>
+                                    </div>
+                                    <div class="kpi-chip">
+                                        <span class="kpi-chip-label">"Sample Output"</span>
+                                        <span class="kpi-chip-value">
+                                            {format!("{:?}", report.sample)}
+                                        </span>
+                                    </div>
+                                </div>
+                            }.into_any()
+                        } else {
+                            view! {
+                                <p style="color:#f85149;font-size:0.85em;margin-top:8px;">
+                                    {report.error.unwrap_or_else(|| "WebGPU unavailable".to_string())}
+                                </p>
+                            }.into_any()
+                        }
+                    }
+                }
+            }}
         </div>
 
         // DuckDB-powered: Tasks by Phase

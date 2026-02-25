@@ -207,6 +207,27 @@ fn load_config(home: &str) -> Result<Config> {
     }
 }
 
+async fn frontend_isolation_headers_middleware(
+    request: axum::extract::Request<axum::body::Body>,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let mut response = next.run(request).await;
+    let headers = response.headers_mut();
+    headers.insert(
+        "Cross-Origin-Opener-Policy",
+        axum::http::HeaderValue::from_static("same-origin"),
+    );
+    headers.insert(
+        "Cross-Origin-Embedder-Policy",
+        axum::http::HeaderValue::from_static("credentialless"),
+    );
+    headers.insert(
+        "Cross-Origin-Resource-Policy",
+        axum::http::HeaderValue::from_static("same-origin"),
+    );
+    response
+}
+
 /// Serve the Leptos dist/ directory as static files on a dynamic port.
 ///
 /// Injects `<script>window.__TUNDRA_API_PORT__={api_port};</script>` into
@@ -262,7 +283,10 @@ async fn serve_frontend(api_port: u16, port_tx: tokio::sync::oneshot::Sender<u16
         .route("/", get(make_index_handler(api_port)))
         .fallback_service(
             ServeDir::new(&dist_dir).fallback(axum::routing::get(make_index_handler(api_port))),
-        );
+        )
+        .layer(axum::middleware::from_fn(
+            frontend_isolation_headers_middleware,
+        ));
 
     // Bind to port 0 — OS assigns an ephemeral port.
     let listener = match tokio::net::TcpListener::bind("[::]:0").await {

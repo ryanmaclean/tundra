@@ -301,3 +301,5 @@ pub fn mount() {
 }
 pub mod analytics_store;
 pub mod duckdb;
+pub mod poker_audio;
+pub mod webgpu;
