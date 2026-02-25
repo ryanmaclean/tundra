@@ -6,3 +6,4 @@
 //! Each domain router is defined in its own file and exposes a public
 //! function that returns a Router<Arc<ApiState>>.
 
+pub mod tasks;

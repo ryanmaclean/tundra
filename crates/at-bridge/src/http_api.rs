@@ -1282,7 +1282,7 @@ async fn get_kpi(State(state): State<Arc<ApiState>>) -> Json<KpiSnapshot> {
 ///   }
 /// ]
 /// ```
-async fn list_tasks(State(state): State<Arc<ApiState>>) -> Json<Vec<Task>> {
+pub async fn list_tasks(State(state): State<Arc<ApiState>>) -> Json<Vec<Task>> {
     let tasks = state.tasks.read().await;
     Json(tasks.clone())
 }
@@ -1334,7 +1334,7 @@ async fn list_tasks(State(state): State<Arc<ApiState>>) -> Json<Vec<Task>> {
 ///   "phase_configs": []
 /// }
 /// ```
-async fn create_task(
+pub async fn create_task(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<CreateTaskRequest>,
 ) -> impl IntoResponse {
@@ -1408,7 +1408,7 @@ async fn create_task(
 ///   "error": "task not found"
 /// }
 /// ```
-async fn get_task(State(state): State<Arc<ApiState>>, Path(id): Path<Uuid>) -> impl IntoResponse {
+pub async fn get_task(State(state): State<Arc<ApiState>>, Path(id): Path<Uuid>) -> impl IntoResponse {
     let tasks = state.tasks.read().await;
     let Some(task) = tasks.iter().find(|t| t.id == id) else {
         return (
@@ -1479,7 +1479,7 @@ async fn get_task(State(state): State<Arc<ApiState>>, Path(id): Path<Uuid>) -> i
 ///   "error": "task not found"
 /// }
 /// ```
-async fn update_task(
+pub async fn update_task(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateTaskRequest>,
@@ -1559,7 +1559,7 @@ async fn update_task(
 ///   "error": "task not found"
 /// }
 /// ```
-async fn delete_task(
+pub async fn delete_task(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
 ) -> impl IntoResponse {
@@ -1605,7 +1605,7 @@ async fn delete_task(
 ///   ...
 /// }
 /// ```
-async fn update_task_phase(
+pub async fn update_task_phase(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateTaskPhaseRequest>,
@@ -1661,7 +1661,7 @@ async fn update_task_phase(
 ///   "[2026-02-23T10:20:30Z] Created src/auth.rs"
 /// ]
 /// ```
-async fn get_task_logs(
+pub async fn get_task_logs(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
 ) -> impl IntoResponse {
@@ -1723,7 +1723,7 @@ async fn get_pipeline_queue_status(
 ///   ...
 /// }
 /// ```
-async fn execute_task_pipeline(
+pub async fn execute_task_pipeline(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
     body: Option<Json<ExecuteTaskRequest>>,
@@ -2146,7 +2146,7 @@ struct BuildLogsQuery {
 ///   }
 /// ]
 /// ```
-async fn get_build_logs(
+pub async fn get_build_logs(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
     Query(q): Query<BuildLogsQuery>,
@@ -2216,7 +2216,7 @@ struct BuildStatusSummary {
 ///   "last_line": "warning: unused variable `token`"
 /// }
 /// ```
-async fn get_build_status(
+pub async fn get_build_status(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
 ) -> impl IntoResponse {
@@ -6234,7 +6234,7 @@ async fn list_releases(State(state): State<Arc<ApiState>>) -> impl IntoResponse 
 ///   "archived": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
 /// }
 /// ```
-async fn archive_task(
+pub async fn archive_task(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
 ) -> impl IntoResponse {
@@ -6263,7 +6263,7 @@ async fn archive_task(
 ///   "unarchived": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
 /// }
 /// ```
-async fn unarchive_task(
+pub async fn unarchive_task(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
 ) -> impl IntoResponse {
@@ -6291,7 +6291,7 @@ async fn unarchive_task(
 ///   "b2c3d4e5-f6a7-8901-bcde-f12345678901"
 /// ]
 /// ```
-async fn list_archived_tasks(State(state): State<Arc<ApiState>>) -> Json<Vec<Uuid>> {
+pub async fn list_archived_tasks(State(state): State<Arc<ApiState>>) -> Json<Vec<Uuid>> {
     let archived = state.archived_tasks.read().await;
     Json(archived.clone())
 }
@@ -6322,7 +6322,7 @@ async fn list_archived_tasks(State(state): State<Arc<ApiState>>) -> Json<Vec<Uui
 ///   }
 /// ]
 /// ```
-async fn list_attachments(
+pub async fn list_attachments(
     State(state): State<Arc<ApiState>>,
     Path(task_id): Path<Uuid>,
 ) -> Json<Vec<Attachment>> {
@@ -6366,7 +6366,7 @@ async fn list_attachments(
 ///   "uploaded_at": "2026-02-23T10:15:30Z"
 /// }
 /// ```
-async fn add_attachment(
+pub async fn add_attachment(
     State(state): State<Arc<ApiState>>,
     Path(task_id): Path<Uuid>,
     Json(req): Json<serde_json::Value>,
@@ -6416,7 +6416,7 @@ async fn add_attachment(
 ///   "error": "attachment not found"
 /// }
 /// ```
-async fn delete_attachment(
+pub async fn delete_attachment(
     State(state): State<Arc<ApiState>>,
     Path((_task_id, attachment_id)): Path<(Uuid, Uuid)>,
 ) -> impl IntoResponse {
@@ -6475,7 +6475,7 @@ async fn delete_attachment(
 ///   "updated_at": "2026-02-23T10:20:15Z"
 /// }
 /// ```
-async fn save_task_draft(
+pub async fn save_task_draft(
     State(state): State<Arc<ApiState>>,
     Json(mut draft): Json<TaskDraft>,
 ) -> impl IntoResponse {
@@ -6512,7 +6512,7 @@ async fn save_task_draft(
 ///   "error": "draft not found"
 /// }
 /// ```
-async fn get_task_draft(
+pub async fn get_task_draft(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
 ) -> impl IntoResponse {
@@ -6548,7 +6548,7 @@ async fn get_task_draft(
 ///   "error": "draft not found"
 /// }
 /// ```
-async fn delete_task_draft(
+pub async fn delete_task_draft(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
 ) -> impl IntoResponse {
@@ -6597,7 +6597,7 @@ async fn delete_task_draft(
 ///   }
 /// ]
 /// ```
-async fn list_task_drafts(State(state): State<Arc<ApiState>>) -> Json<Vec<TaskDraft>> {
+pub async fn list_task_drafts(State(state): State<Arc<ApiState>>) -> Json<Vec<TaskDraft>> {
     let drafts = state.task_drafts.read().await;
     Json(drafts.values().cloned().collect())
 }
