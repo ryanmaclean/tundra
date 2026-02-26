@@ -373,6 +373,7 @@ impl ApiState {
         b3.metadata = Some(serde_json::json!({"tags":["native-ux","macos"]}));
 
         beads.extend([b1, b2, b3]);
+        self.bead_count.fetch_add(3, Ordering::SeqCst);
 
         let mut agents = self.agents.write().await;
         if agents.is_empty() {
@@ -1031,6 +1032,7 @@ async fn create_bead(
 
     let mut beads = state.beads.write().await;
     beads.push(bead.clone());
+    state.bead_count.fetch_add(1, Ordering::SeqCst);
 
     // Publish event
     state
