@@ -1,25 +1,25 @@
 {
   "active": true,
-  "spec": "025-use-sessionstore-async-i-o-and-add-in-memory-lru-c",
+  "spec": "052-replace-sequential-rwlock-acquisitions-with-atomic",
   "state": "building",
   "subtasks": {
-    "completed": 6,
-    "total": 7,
+    "completed": 1,
+    "total": 8,
     "in_progress": 1,
     "failed": 0
   },
   "phase": {
-    "current": "SessionStore Async Conversion & LRU Cache",
+    "current": "Add Atomic Counters",
     "id": null,
-    "total": 7
+    "total": 6
   },
   "workers": {
     "active": 0,
     "max": 1
   },
   "session": {
-    "number": 8,
-    "started_at": "2026-02-23T09:00:12.662108"
+    "number": 3,
+    "started_at": "2026-02-25T22:09:11.459421"
   },
-  "last_update": "2026-02-23T09:34:51.720353"
+  "last_update": "2026-02-25T22:17:39.692797"
 }
