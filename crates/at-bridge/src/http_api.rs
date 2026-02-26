@@ -1050,13 +1050,11 @@ pub struct CompetitorAnalysisResult {
 /// }
 /// ```
 async fn get_status(State(state): State<Arc<ApiState>>) -> Json<StatusResponse> {
-    let beads = state.beads.read().await;
-    let agents = state.agents.read().await;
     Json(StatusResponse {
         version: env!("CARGO_PKG_VERSION").to_string(),
         uptime_seconds: state.start_time.elapsed().as_secs(),
-        agent_count: agents.len(),
-        bead_count: beads.len(),
+        agent_count: state.agent_count.load(Ordering::SeqCst),
+        bead_count: state.bead_count.load(Ordering::SeqCst),
     })
 }
 
