@@ -387,6 +387,7 @@ impl ApiState {
                 at_core::types::AgentRole::SpecCritic,
                 CliType::Claude,
             ));
+            self.agent_count.fetch_add(2, Ordering::SeqCst);
         }
 
         let snapshot = KpiSnapshot {
