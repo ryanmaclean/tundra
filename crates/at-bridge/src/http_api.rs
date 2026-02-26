@@ -125,6 +125,12 @@ pub struct ApiState {
     pub pipeline_waiting: Arc<AtomicUsize>,
     /// Number of task executions currently running.
     pub pipeline_running: Arc<AtomicUsize>,
+    /// Cached count of beads for lock-free status queries.
+    pub bead_count: Arc<AtomicUsize>,
+    /// Cached count of agents for lock-free status queries.
+    pub agent_count: Arc<AtomicUsize>,
+    /// Cached count of tasks for lock-free status queries.
+    pub task_count: Arc<AtomicUsize>,
     pub start_time: std::time::Instant,
     pub pty_pool: Option<Arc<at_session::pty_pool::PtyPool>>,
     pub terminal_registry: Arc<RwLock<TerminalRegistry>>,
@@ -292,6 +298,9 @@ impl ApiState {
             pipeline_max_concurrent,
             pipeline_waiting: Arc::new(AtomicUsize::new(0)),
             pipeline_running: Arc::new(AtomicUsize::new(0)),
+            bead_count: Arc::new(AtomicUsize::new(0)),
+            agent_count: Arc::new(AtomicUsize::new(0)),
+            task_count: Arc::new(AtomicUsize::new(0)),
             start_time: std::time::Instant::now(),
             pty_pool: None,
             terminal_registry: Arc::new(RwLock::new(TerminalRegistry::new())),
