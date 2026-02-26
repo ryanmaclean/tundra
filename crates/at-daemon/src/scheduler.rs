@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -64,14 +65,15 @@ impl TaskScheduler {
     ///
     /// Returns `None` when the backlog is empty.
     pub async fn next_bead(&self, cache: &CacheDb) -> Option<Bead> {
-        let mut backlog = cache.list_beads_by_status(BeadStatus::Backlog).await.ok()?;
+        let backlog = cache.list_beads_by_status(BeadStatus::Backlog).await.ok()?;
+        let mut backlog = VecDeque::from(backlog);
 
         if backlog.is_empty() {
             return None;
         }
 
         // Sort: Critical > Standard > Experimental, then priority desc, then created_at asc.
-        backlog.sort_by(|a, b| {
+        backlog.make_contiguous().sort_by(|a, b| {
             let lane_ord = lane_rank(&b.lane).cmp(&lane_rank(&a.lane));
             if lane_ord != std::cmp::Ordering::Equal {
                 return lane_ord;
@@ -90,7 +92,7 @@ impl TaskScheduler {
             "next bead selected"
         );
 
-        Some(backlog.remove(0))
+        backlog.pop_front()
     }
 
     /// Assign a bead to an agent by transitioning it to `Hooked` status.

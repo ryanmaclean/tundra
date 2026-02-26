@@ -3,6 +3,7 @@
 //! Provides a unified async trait for interacting with various LLM providers
 //! (Anthropic, OpenAI, etc.) along with a mock provider for testing.
 
+use std::collections::VecDeque;
 use std::fmt;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -703,7 +704,7 @@ impl LlmProvider for LocalProvider {
 /// Returns pre-configured responses. Each call to `complete` pops the next
 /// response from the queue. If the queue is empty, returns a default response.
 pub struct MockProvider {
-    responses: Arc<Mutex<Vec<Result<LlmResponse, LlmError>>>>,
+    responses: Arc<Mutex<VecDeque<Result<LlmResponse, LlmError>>>>,
     /// Captured request bodies for test assertions.
     #[allow(clippy::type_complexity)]
     captured_requests: Arc<Mutex<Vec<(Vec<LlmMessage>, LlmConfig)>>>,
@@ -713,20 +714,20 @@ impl MockProvider {
     /// Create a mock provider with no pre-configured responses (returns defaults).
     pub fn new() -> Self {
         Self {
-            responses: Arc::new(Mutex::new(Vec::new())),
+            responses: Arc::new(Mutex::new(VecDeque::new())),
             captured_requests: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
     /// Queue a successful response.
     pub fn with_response(self, response: LlmResponse) -> Self {
-        self.responses.lock().unwrap().push(Ok(response));
+        self.responses.lock().unwrap().push_back(Ok(response));
         self
     }
 
     /// Queue an error response.
     pub fn with_error(self, error: LlmError) -> Self {
-        self.responses.lock().unwrap().push(Err(error));
+        self.responses.lock().unwrap().push_back(Err(error));
         self
     }
 
@@ -768,7 +769,7 @@ impl LlmProvider for MockProvider {
         if queue.is_empty() {
             Ok(Self::default_response(&config.model))
         } else {
-            queue.remove(0)
+            queue.pop_front().unwrap()
         }
     }
 

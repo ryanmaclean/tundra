@@ -604,8 +604,10 @@ mod tests {
     #[test]
     fn orchestrator_rlm_disabled() {
         let dir = tempfile::tempdir().unwrap();
-        let mut config = OrchestratorConfig::default();
-        config.enable_rlm = false;
+        let config = OrchestratorConfig {
+            enable_rlm: false,
+            ..Default::default()
+        };
 
         let mut orch = Orchestrator::new(dir.path(), config);
         let id = orch.start_task("task", "desc", AgentRole::Mayor);

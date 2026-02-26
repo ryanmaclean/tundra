@@ -7514,7 +7514,7 @@ mod tests {
         let id = Uuid::new_v4();
         let req = Request::builder()
             .method("GET")
-            .uri(&format!("/api/tasks/{id}/attachments"))
+            .uri(format!("/api/tasks/{id}/attachments"))
             .body(Body::empty())
             .unwrap();
         let resp = app.oneshot(req).await.unwrap();

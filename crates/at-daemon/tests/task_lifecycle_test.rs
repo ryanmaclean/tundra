@@ -3,7 +3,6 @@
 //!
 //! These tests exercise at-core types directly (no network, no real PTY).
 
-use std::sync::Arc;
 use std::time::Duration;
 
 use at_core::types::*;
@@ -564,7 +563,7 @@ fn multiple_qa_reports_reruns() {
     let report2 = QaReport::new(task_id, QaStatus::Failed);
     let report3 = QaReport::new(task_id, QaStatus::Passed);
 
-    let reports = vec![report1, report2, report3];
+    let reports = [report1, report2, report3];
     assert_eq!(reports.len(), 3);
     // Each has unique id
     assert_ne!(reports[0].id, reports[1].id);

@@ -332,7 +332,7 @@ impl ModelRouter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::llm::{LlmMessage, LlmResponse, MockProvider};
+    use crate::llm::{LlmMessage, MockProvider};
     use crate::token_cache::TokenCacheConfig;
 
     fn make_router(strategy: RoutingStrategy) -> ModelRouter {

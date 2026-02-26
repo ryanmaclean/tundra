@@ -365,7 +365,7 @@ fn subtask_acceptance_criteria_as_titles() {
 
 #[test]
 fn subtask_all_statuses_represented() {
-    let statuses = vec![
+    let statuses = [
         SubtaskStatus::Pending,
         SubtaskStatus::InProgress,
         SubtaskStatus::Complete,
@@ -576,7 +576,7 @@ fn phase_based_log_grouping() {
             .push(entry);
     }
     assert_eq!(groups.len(), 3);
-    for (_, entries) in &groups {
+    for entries in groups.values() {
         assert_eq!(entries.len(), 3);
     }
 }

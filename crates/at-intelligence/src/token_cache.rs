@@ -315,7 +315,7 @@ fn compute_user_content_hash(messages: &[LlmMessage]) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::llm::{LlmConfig, LlmMessage, LlmResponse, LlmRole};
+    use crate::llm::{LlmConfig, LlmMessage, LlmResponse};
 
     fn test_config() -> LlmConfig {
         LlmConfig {

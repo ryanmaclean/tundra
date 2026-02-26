@@ -623,7 +623,7 @@ async fn test_scheduler_concurrent_enqueue() {
 
     // Highest priority should be picked first (priority = 9).
     let picked = next.unwrap();
-    assert_eq!(picked.priority, (num_beads - 1) as i32);
+    assert_eq!(picked.priority, num_beads - 1);
 }
 
 // ===========================================================================
@@ -638,7 +638,7 @@ async fn test_daemon_start() {
 
     // Verify daemon can provide handles.
     let shutdown_handle = daemon.shutdown_handle();
-    assert!(daemon.event_bus().subscriber_count() == 0 || true);
+    assert!(daemon.event_bus().subscriber_count() == 0);
     assert!(daemon.api_state().kpi.try_read().is_ok());
 
     // Clean up.

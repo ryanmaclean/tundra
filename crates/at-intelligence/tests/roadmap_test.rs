@@ -641,7 +641,7 @@ fn test_serde_roundtrip_feature_status() {
 
 #[test]
 fn test_feature_status_variants_are_distinct() {
-    let all = vec![
+    let all = [
         FeatureStatus::Proposed,
         FeatureStatus::Planned,
         FeatureStatus::InProgress,
