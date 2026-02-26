@@ -198,7 +198,7 @@ impl CacheDb {
         let status_str = enum_to_sql(&status);
         self.conn
             .call(move |conn| {
-                let mut stmt = conn.prepare(
+                let mut stmt = conn.prepare_cached(
                     "SELECT id, title, description, status, lane, priority,
                             agent_id, convoy_id, created_at, updated_at,
                             hooked_at, slung_at, done_at, git_branch, metadata
