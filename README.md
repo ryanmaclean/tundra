@@ -1,3 +1,9 @@
+TEST REPO! 
+SHAMELESS COPY OF GAS TOWN 
+DISGUISED AS A KANBAN BOARD IN RUST
+
+USED FOR CICD MONITORING TESTING AND PR BOT DEMOS
+
 # Auto-Tundra
 
 > **A production-grade, multi-agent orchestration platform for Rust** with context-aware LLM integration, extensible agent/skill definitions, and multi-provider AI support.
