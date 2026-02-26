@@ -429,6 +429,12 @@ impl ApiState {
             timestamp: chrono::Utc::now(),
         };
         *self.kpi.write().await = snapshot;
+
+        // Initialize atomic counters to reflect seeded demo data
+        self.bead_count.store(beads.len(), Ordering::Relaxed);
+        self.agent_count.store(agents.len(), Ordering::Relaxed);
+        let tasks = self.tasks.read().await;
+        self.task_count.store(tasks.len(), Ordering::Relaxed);
     }
 }
 
