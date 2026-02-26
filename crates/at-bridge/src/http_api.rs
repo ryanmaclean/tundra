@@ -1390,6 +1390,7 @@ async fn create_task(
 
     let mut tasks = state.tasks.write().await;
     tasks.push(task.clone());
+    state.task_count.fetch_add(1, Ordering::SeqCst);
 
     (
         axum::http::StatusCode::CREATED,
@@ -1599,6 +1600,7 @@ async fn delete_task(
             Json(serde_json::json!({"error": "task not found"})),
         );
     }
+    state.task_count.fetch_sub(1, Ordering::SeqCst);
     (
         axum::http::StatusCode::OK,
         Json(serde_json::json!({"status": "deleted", "id": id.to_string()})),
@@ -7040,6 +7042,7 @@ mod tests {
         {
             let mut tasks = state.tasks.write().await;
             tasks.push(task);
+            state.task_count.fetch_add(1, Ordering::SeqCst);
         }
 
         let req = Request::builder()
@@ -7075,6 +7078,7 @@ mod tests {
         {
             let mut tasks = state.tasks.write().await;
             tasks.push(task);
+            state.task_count.fetch_add(1, Ordering::SeqCst);
         }
 
         let req = Request::builder()
@@ -7111,6 +7115,7 @@ mod tests {
         {
             let mut tasks = state.tasks.write().await;
             tasks.push(task);
+            state.task_count.fetch_add(1, Ordering::SeqCst);
         }
 
         let req = Request::builder()
@@ -7453,6 +7458,7 @@ mod tests {
         );
         let task_id = task.id;
         state.tasks.write().await.push(task);
+        state.task_count.fetch_add(1, Ordering::SeqCst);
 
         let req = Request::builder()
             .method("POST")
@@ -7479,6 +7485,7 @@ mod tests {
         task.set_phase(TaskPhase::Planning);
         let task_id = task.id;
         state.tasks.write().await.push(task);
+        state.task_count.fetch_add(1, Ordering::SeqCst);
 
         let req = Request::builder()
             .method("POST")
