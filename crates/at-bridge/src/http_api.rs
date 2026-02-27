@@ -3212,7 +3212,47 @@ struct ListLinearIssuesQuery {
     pub state: Option<String>,
 }
 
-/// GET /api/linear/issues — list Linear issues for a team.
+/// GET /api/linear/issues -- retrieve issues from a Linear team.
+///
+/// Fetches issues from Linear using the GraphQL API. Requires a Linear API key
+/// to be set via environment variable (configured in settings.integrations.linear_api_key_env).
+///
+/// **Query Parameters:**
+/// - `team_id` (optional): Linear team ID to fetch issues from. Falls back to settings.integrations.linear_team_id.
+/// - `state` (optional): Filter by issue state - "active", "completed", "canceled", or omit for all states.
+///
+/// **Response:** 200 OK with array of Linear issue objects, 400 if team_id is missing,
+/// 503 if Linear API key is not configured.
+///
+/// **Example Request:**
+/// ```
+/// GET /api/linear/issues?team_id=TEAM123&state=active
+/// ```
+///
+/// **Example Response:**
+/// ```json
+/// [
+///   {
+///     "id": "ISS-123",
+///     "identifier": "ENG-42",
+///     "title": "Implement user authentication",
+///     "description": "Add JWT-based auth system",
+///     "state": {
+///       "name": "In Progress",
+///       "type": "started"
+///     },
+///     "priority": 1,
+///     "assignee": {
+///       "id": "USER-456",
+///       "name": "Alice Developer",
+///       "email": "alice@example.com"
+///     },
+///     "createdAt": "2026-02-20T10:30:00.000Z",
+///     "updatedAt": "2026-02-25T14:20:00.000Z",
+///     "url": "https://linear.app/team/issue/ENG-42"
+///   }
+/// ]
+/// ```
 async fn list_linear_issues(
     State(state): State<Arc<ApiState>>,
     Query(q): Query<ListLinearIssuesQuery>,
@@ -3266,7 +3306,52 @@ struct ImportLinearBody {
     pub issue_ids: Vec<String>,
 }
 
-/// POST /api/linear/import — import Linear issues by IDs and create tasks.
+/// POST /api/linear/import -- import Linear issues by IDs and create corresponding tasks.
+///
+/// Imports specified Linear issues into the local task system, creating new Task entries
+/// for each Linear issue. Requires a Linear API key to be set via environment variable
+/// (configured in settings.integrations.linear_api_key_env).
+///
+/// **Request Body:** ImportLinearBody JSON object.
+/// - `issue_ids` (required): Array of Linear issue IDs to import (e.g., ["ISS-123", "ISS-456"]).
+///
+/// **Response:** 200 OK with import results showing success/failure for each issue,
+/// 503 if Linear API key is not configured.
+///
+/// **Example Request:**
+/// ```json
+/// POST /api/linear/import
+/// {
+///   "issue_ids": ["ISS-123", "ISS-456", "ISS-789"]
+/// }
+/// ```
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "imported": 2,
+///   "failed": 1,
+///   "results": [
+///     {
+///       "issue_id": "ISS-123",
+///       "status": "success",
+///       "task_id": "550e8400-e29b-41d4-a716-446655440000",
+///       "message": "Issue imported successfully"
+///     },
+///     {
+///       "issue_id": "ISS-456",
+///       "status": "success",
+///       "task_id": "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+///       "message": "Issue imported successfully"
+///     },
+///     {
+///       "issue_id": "ISS-789",
+///       "status": "error",
+///       "message": "Issue not found or access denied"
+///     }
+///   ]
+/// }
+/// ```
 async fn import_linear_issues(
     State(state): State<Arc<ApiState>>,
     Json(body): Json<ImportLinearBody>,
