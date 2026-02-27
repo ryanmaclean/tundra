@@ -3391,12 +3391,94 @@ async fn import_linear_issues(
 }
 
 /// GET /api/kanban/columns — return the 8-column Kanban config (order, labels, optional width).
+///
+/// Retrieves the current Kanban column configuration including column IDs, display labels,
+/// and optional width settings. Returns the 8 default columns (Backlog, Queue, In Progress,
+/// Review, QA, Done, PR Created, Error) or custom configuration if modified.
+///
+/// **Response:** 200 OK with KanbanColumnConfig containing array of columns.
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "columns": [
+///     {
+///       "id": "backlog",
+///       "label": "Backlog",
+///       "width_px": 200
+///     },
+///     {
+///       "id": "queue",
+///       "label": "Queue",
+///       "width_px": 180
+///     },
+///     {
+///       "id": "in_progress",
+///       "label": "In Progress",
+///       "width_px": 220
+///     }
+///   ]
+/// }
+/// ```
 async fn get_kanban_columns(State(state): State<Arc<ApiState>>) -> Json<KanbanColumnConfig> {
     let cols = state.kanban_columns.read().await;
     Json(cols.clone())
 }
 
 /// PATCH /api/kanban/columns — update column config (e.g. order, labels, width_px).
+///
+/// Updates the Kanban column configuration allowing reordering, relabeling, or resizing
+/// of columns. The entire column configuration is replaced with the provided config.
+/// Columns array must not be empty.
+///
+/// **Request Body:** KanbanColumnConfig with array of columns to replace current config.
+/// **Response:** 200 OK with updated KanbanColumnConfig, or 400 BAD_REQUEST if columns empty.
+///
+/// **Example Request:**
+/// ```json
+/// {
+///   "columns": [
+///     {
+///       "id": "backlog",
+///       "label": "📋 Backlog",
+///       "width_px": 250
+///     },
+///     {
+///       "id": "queue",
+///       "label": "⏳ Queue",
+///       "width_px": 200
+///     },
+///     {
+///       "id": "in_progress",
+///       "label": "🚀 In Progress",
+///       "width_px": 240
+///     }
+///   ]
+/// }
+/// ```
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "columns": [
+///     {
+///       "id": "backlog",
+///       "label": "📋 Backlog",
+///       "width_px": 250
+///     },
+///     {
+///       "id": "queue",
+///       "label": "⏳ Queue",
+///       "width_px": 200
+///     },
+///     {
+///       "id": "in_progress",
+///       "label": "🚀 In Progress",
+///       "width_px": 240
+///     }
+///   ]
+/// }
+/// ```
 async fn patch_kanban_columns(
     State(state): State<Arc<ApiState>>,
     Json(patch): Json<KanbanColumnConfig>,
@@ -3872,6 +3954,43 @@ fn consensus_card_from_votes(votes: &[PlanningPokerVote]) -> Option<String> {
     }
 }
 
+/// POST /api/kanban/poker/start — start a planning poker session for a bead.
+///
+/// Initiates a planning poker voting session for estimating a bead (task idea). Participants
+/// vote using cards from a configurable deck (Fibonacci, T-shirt sizes, etc.). The session
+/// starts in voting phase and can be revealed once all participants have voted.
+///
+/// **Request Body:** StartPlanningPokerRequest with bead_id, optional participants list,
+/// deck configuration, and round duration.
+/// **Response:** 201 CREATED with PlanningPokerSessionResponse, or 404 if bead not found,
+/// or 403 if planning poker is disabled.
+///
+/// **Example Request:**
+/// ```json
+/// {
+///   "bead_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+///   "participants": ["Alice", "Bob", "Charlie"],
+///   "deck_preset": "fibonacci",
+///   "round_duration_seconds": 300
+/// }
+/// ```
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "bead_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+///   "phase": "voting",
+///   "revealed": false,
+///   "deck": ["0", "1", "2", "3", "5", "8", "13", "21", "?"],
+///   "round_duration_seconds": 300,
+///   "vote_count": 0,
+///   "votes": [],
+///   "consensus_card": null,
+///   "stats": null,
+///   "started_at": "2024-01-15T10:30:00Z",
+///   "updated_at": "2024-01-15T10:30:00Z"
+/// }
+/// ```
 async fn start_planning_poker(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<StartPlanningPokerRequest>,
@@ -3933,6 +4052,47 @@ async fn start_planning_poker(
     )
 }
 
+/// POST /api/kanban/poker/vote — submit or update a vote in an active planning poker session.
+///
+/// Allows a participant to cast or update their vote during the voting phase. The card
+/// must be from the active deck. If the voter already voted, their vote is updated.
+/// New voters are automatically added to the participants list.
+///
+/// **Request Body:** SubmitPlanningPokerVoteRequest with bead_id, voter name, and card.
+/// **Response:** 200 OK with updated PlanningPokerSessionResponse, 404 if session not found,
+/// 400 if card not in deck, or 409 if session not in voting phase.
+///
+/// **Example Request:**
+/// ```json
+/// {
+///   "bead_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+///   "voter": "Alice",
+///   "card": "5"
+/// }
+/// ```
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "bead_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+///   "phase": "voting",
+///   "revealed": false,
+///   "deck": ["0", "1", "2", "3", "5", "8", "13", "21", "?"],
+///   "round_duration_seconds": 300,
+///   "vote_count": 1,
+///   "votes": [
+///     {
+///       "participant": "Alice",
+///       "voted": true,
+///       "card": null
+///     }
+///   ],
+///   "consensus_card": null,
+///   "stats": null,
+///   "started_at": "2024-01-15T10:30:00Z",
+///   "updated_at": "2024-01-15T10:31:00Z"
+/// }
+/// ```
 async fn submit_planning_poker_vote(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<SubmitPlanningPokerVoteRequest>,
@@ -3986,6 +4146,63 @@ async fn submit_planning_poker_vote(
     )
 }
 
+/// POST /api/kanban/poker/reveal — reveal all votes and calculate consensus for a poker session.
+///
+/// Transitions the session from voting phase to revealed phase, exposing all participant votes
+/// and calculating statistics. If settings require all participants to vote, the reveal will
+/// fail with 409 CONFLICT listing missing voters. Once revealed, no more votes can be submitted.
+///
+/// **Request Body:** RevealPlanningPokerRequest with bead_id.
+/// **Response:** 200 OK with revealed PlanningPokerSessionResponse including vote stats,
+/// 404 if session not found, or 409 if already revealed or missing required votes.
+///
+/// **Example Request:**
+/// ```json
+/// {
+///   "bead_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+/// }
+/// ```
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "bead_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+///   "phase": "revealed",
+///   "revealed": true,
+///   "deck": ["0", "1", "2", "3", "5", "8", "13", "21", "?"],
+///   "round_duration_seconds": 300,
+///   "vote_count": 3,
+///   "votes": [
+///     {
+///       "participant": "Alice",
+///       "voted": true,
+///       "card": "5"
+///     },
+///     {
+///       "participant": "Bob",
+///       "voted": true,
+///       "card": "5"
+///     },
+///     {
+///       "participant": "Charlie",
+///       "voted": true,
+///       "card": "8"
+///     }
+///   ],
+///   "consensus_card": "5",
+///   "stats": {
+///     "min": "5",
+///     "max": "8",
+///     "mode": "5",
+///     "distribution": {
+///       "5": 2,
+///       "8": 1
+///     }
+///   },
+///   "started_at": "2024-01-15T10:30:00Z",
+///   "updated_at": "2024-01-15T10:35:00Z"
+/// }
+/// ```
 async fn reveal_planning_poker(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<RevealPlanningPokerRequest>,
@@ -4037,6 +4254,68 @@ async fn reveal_planning_poker(
     )
 }
 
+/// POST /api/kanban/poker/simulate — run a simulated planning poker session with virtual agents.
+///
+/// Creates and immediately completes a planning poker session using AI-powered virtual agents
+/// to vote. Useful for rapid estimation when human participants are unavailable. Virtual agents
+/// analyze the bead description and vote based on complexity heuristics. The session is
+/// automatically revealed with consensus calculated.
+///
+/// **Request Body:** SimulatePlanningPokerRequest with bead_id, optional virtual agent names,
+/// agent count, deck config, focus card, seed for reproducibility, and auto_reveal flag.
+/// **Response:** 200 OK with revealed PlanningPokerSessionResponse, or 404 if bead not found.
+///
+/// **Example Request:**
+/// ```json
+/// {
+///   "bead_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+///   "virtual_agents": ["AI-Alice", "AI-Bob", "AI-Charlie"],
+///   "deck_preset": "fibonacci",
+///   "focus_card": "5",
+///   "auto_reveal": true
+/// }
+/// ```
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "bead_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+///   "phase": "revealed",
+///   "revealed": true,
+///   "deck": ["0", "1", "2", "3", "5", "8", "13", "21", "?"],
+///   "round_duration_seconds": null,
+///   "vote_count": 3,
+///   "votes": [
+///     {
+///       "participant": "AI-Alice",
+///       "voted": true,
+///       "card": "5"
+///     },
+///     {
+///       "participant": "AI-Bob",
+///       "voted": true,
+///       "card": "5"
+///     },
+///     {
+///       "participant": "AI-Charlie",
+///       "voted": true,
+///       "card": "8"
+///     }
+///   ],
+///   "consensus_card": "5",
+///   "stats": {
+///     "min": "5",
+///     "max": "8",
+///     "mode": "5",
+///     "distribution": {
+///       "5": 2,
+///       "8": 1
+///     }
+///   },
+///   "started_at": "2024-01-15T10:30:00Z",
+///   "updated_at": "2024-01-15T10:30:05Z"
+/// }
+/// ```
 async fn simulate_planning_poker(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<SimulatePlanningPokerRequest>,
@@ -4050,6 +4329,93 @@ async fn simulate_planning_poker(
     }
 }
 
+/// GET /api/kanban/poker/{bead_id} — retrieve current state of a planning poker session.
+///
+/// Fetches the current state of an active or completed planning poker session for a bead.
+/// Returns vote counts, participants, phase, and revealed votes if in revealed phase.
+/// Useful for polling session state during voting or retrieving historical results.
+///
+/// **Path Parameter:** bead_id (UUID) of the bead with an active poker session.
+/// **Response:** 200 OK with PlanningPokerSessionResponse, or 404 if session not found.
+///
+/// **Example Request:**
+/// ```
+/// GET /api/kanban/poker/a1b2c3d4-e5f6-7890-abcd-ef1234567890
+/// ```
+///
+/// **Example Response (Voting Phase):**
+/// ```json
+/// {
+///   "bead_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+///   "phase": "voting",
+///   "revealed": false,
+///   "deck": ["0", "1", "2", "3", "5", "8", "13", "21", "?"],
+///   "round_duration_seconds": 300,
+///   "vote_count": 2,
+///   "votes": [
+///     {
+///       "participant": "Alice",
+///       "voted": true,
+///       "card": null
+///     },
+///     {
+///       "participant": "Bob",
+///       "voted": true,
+///       "card": null
+///     },
+///     {
+///       "participant": "Charlie",
+///       "voted": false,
+///       "card": null
+///     }
+///   ],
+///   "consensus_card": null,
+///   "stats": null,
+///   "started_at": "2024-01-15T10:30:00Z",
+///   "updated_at": "2024-01-15T10:32:00Z"
+/// }
+/// ```
+///
+/// **Example Response (Revealed Phase):**
+/// ```json
+/// {
+///   "bead_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+///   "phase": "revealed",
+///   "revealed": true,
+///   "deck": ["0", "1", "2", "3", "5", "8", "13", "21", "?"],
+///   "round_duration_seconds": 300,
+///   "vote_count": 3,
+///   "votes": [
+///     {
+///       "participant": "Alice",
+///       "voted": true,
+///       "card": "5"
+///     },
+///     {
+///       "participant": "Bob",
+///       "voted": true,
+///       "card": "5"
+///     },
+///     {
+///       "participant": "Charlie",
+///       "voted": true,
+///       "card": "8"
+///     }
+///   ],
+///   "consensus_card": "5",
+///   "stats": {
+///     "min": "5",
+///     "max": "8",
+///     "mode": "5",
+///     "distribution": {
+///       "5": 2,
+///       "8": 1
+///     }
+///   },
+///   "started_at": "2024-01-15T10:30:00Z",
+///   "updated_at": "2024-01-15T10:35:00Z"
+/// }
+/// ```
 async fn get_planning_poker_session(
     State(state): State<Arc<ApiState>>,
     Path(bead_id): Path<Uuid>,
