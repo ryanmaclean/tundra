@@ -18,6 +18,7 @@
 pub mod auth;
 pub mod command_registry;
 pub mod commands;
+pub mod error_response;
 pub mod event_bus;
 pub mod http_api;
 pub mod intelligence_api;
