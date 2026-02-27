@@ -1063,11 +1063,15 @@ pub struct CompetitorAnalysisResult {
 /// }
 /// ```
 async fn get_status(State(state): State<Arc<ApiState>>) -> Json<StatusResponse> {
+    // Read live counts from the HashMaps for accuracy (atomics may be stale
+    // if collections are modified outside seed_demo_data).
+    let agent_count = state.agents.read().await.len();
+    let bead_count = state.beads.read().await.len();
     Json(StatusResponse {
         version: env!("CARGO_PKG_VERSION").to_string(),
         uptime_seconds: state.start_time.elapsed().as_secs(),
-        agent_count: state.agent_count.load(Ordering::SeqCst),
-        bead_count: state.bead_count.load(Ordering::SeqCst),
+        agent_count,
+        bead_count,
     })
 }
 

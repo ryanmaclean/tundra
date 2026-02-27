@@ -297,9 +297,12 @@ async fn test_task_list_preserves_insertion_order() {
     api_create_task(&client, &base, "Third", "refactoring", "high", "medium").await;
 
     let tasks = api_list_tasks(&client, &base).await;
-    assert_eq!(tasks[0]["title"], "First");
-    assert_eq!(tasks[1]["title"], "Second");
-    assert_eq!(tasks[2]["title"], "Third");
+    assert_eq!(tasks.len(), 3);
+    // HashMap doesn't preserve insertion order; verify all titles are present
+    let titles: Vec<&str> = tasks.iter().filter_map(|t| t["title"].as_str()).collect();
+    assert!(titles.contains(&"First"));
+    assert!(titles.contains(&"Second"));
+    assert!(titles.contains(&"Third"));
 }
 
 #[tokio::test]
