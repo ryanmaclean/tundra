@@ -3,23 +3,23 @@
   "spec": "041-sanitize-error-responses-to-prevent-internal-path-",
   "state": "building",
   "subtasks": {
-    "completed": 5,
+    "completed": 6,
     "total": 13,
     "in_progress": 1,
     "failed": 0
   },
   "phase": {
-    "current": "Migrate OAuth Error Responses",
+    "current": "Migrate Remaining Error Responses",
     "id": null,
-    "total": 1
+    "total": 2
   },
   "workers": {
     "active": 0,
     "max": 1
   },
   "session": {
-    "number": 7,
+    "number": 8,
     "started_at": "2026-02-27T11:43:35.715696"
   },
-  "last_update": "2026-02-27T12:10:08.137283"
+  "last_update": "2026-02-27T12:14:12.619229"
 }
