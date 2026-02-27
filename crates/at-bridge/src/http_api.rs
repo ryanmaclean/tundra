@@ -363,7 +363,9 @@ impl ApiState {
         b3.priority = 4;
         b3.metadata = Some(serde_json::json!({"tags":["native-ux","macos"]}));
 
-        beads.extend([b1, b2, b3]);
+        beads.insert(b1.id, b1);
+        beads.insert(b2.id, b2);
+        beads.insert(b3.id, b3);
 
         let mut agents = self.agents.write().await;
         if agents.is_empty() {
@@ -384,31 +386,31 @@ impl ApiState {
         let snapshot = KpiSnapshot {
             total_beads: beads.len() as u64,
             backlog: beads
-                .iter()
+                .values()
                 .filter(|b| b.status == BeadStatus::Backlog)
                 .count() as u64,
             hooked: beads
-                .iter()
+                .values()
                 .filter(|b| b.status == BeadStatus::Hooked)
                 .count() as u64,
             slung: beads
-                .iter()
+                .values()
                 .filter(|b| b.status == BeadStatus::Slung)
                 .count() as u64,
             review: beads
-                .iter()
+                .values()
                 .filter(|b| b.status == BeadStatus::Review)
                 .count() as u64,
             done: beads
-                .iter()
+                .values()
                 .filter(|b| b.status == BeadStatus::Done)
                 .count() as u64,
             failed: beads
-                .iter()
+                .values()
                 .filter(|b| b.status == BeadStatus::Failed)
                 .count() as u64,
             escalated: beads
-                .iter()
+                .values()
                 .filter(|b| b.status == BeadStatus::Escalated)
                 .count() as u64,
             active_agents: agents.len() as u64,
@@ -963,7 +965,7 @@ async fn get_status(State(state): State<Arc<ApiState>>) -> Json<StatusResponse> 
 /// ```
 async fn list_beads(State(state): State<Arc<ApiState>>) -> Json<Vec<Bead>> {
     let beads = state.beads.read().await;
-    Json(beads.clone())
+    Json(beads.values().cloned().collect())
 }
 
 /// POST /api/beads -- create a new bead (feature/epic).
@@ -1017,7 +1019,7 @@ async fn create_bead(
     }
 
     let mut beads = state.beads.write().await;
-    beads.push(bead.clone());
+    beads.insert(bead.id, bead.clone());
 
     // Publish event
     state
@@ -1085,7 +1087,7 @@ async fn update_bead_status(
     Json(req): Json<UpdateBeadStatusRequest>,
 ) -> impl IntoResponse {
     let mut beads = state.beads.write().await;
-    let Some(bead) = beads.iter_mut().find(|b| b.id == id) else {
+    let Some(bead) = beads.get_mut(&id) else {
         return (
             axum::http::StatusCode::NOT_FOUND,
             Json(serde_json::json!({"error": "bead not found"})),
@@ -3219,7 +3221,7 @@ pub(crate) async fn simulate_planning_poker_for_bead(
 
     let bead = {
         let beads = state.beads.read().await;
-        beads.iter().find(|b| b.id == req.bead_id).cloned()
+        beads.get(&req.bead_id).cloned()
     }
     .ok_or_else(|| {
         (
@@ -3488,7 +3490,7 @@ async fn start_planning_poker(
 
     let bead_exists = {
         let beads = state.beads.read().await;
-        beads.iter().any(|b| b.id == req.bead_id)
+        beads.contains_key(&req.bead_id)
     };
     if !bead_exists {
         return (
@@ -3849,7 +3851,7 @@ async fn trigger_github_sync(State(state): State<Arc<ApiState>>) -> impl IntoRes
         status.is_syncing = true;
     }
 
-    let existing_beads: Vec<Bead> = state.beads.read().await.clone();
+    let existing_beads: Vec<Bead> = state.beads.read().await.values().cloned().collect();
     let engine = IssueSyncEngine::new(client);
     let new_beads = match engine.import_open_issues(&existing_beads).await {
         Ok(b) => b,
@@ -3864,7 +3866,12 @@ async fn trigger_github_sync(State(state): State<Arc<ApiState>>) -> impl IntoRes
     };
 
     let imported_count = new_beads.len() as u64;
-    state.beads.write().await.extend(new_beads);
+    {
+        let mut beads = state.beads.write().await;
+        for b in new_beads {
+            beads.insert(b.id, b);
+        }
+    }
 
     {
         let mut status = state.sync_status.write().await;
@@ -5413,7 +5420,7 @@ async fn import_github_issue(
     };
 
     let bead = issues::import_issue_as_task(&issue);
-    state.beads.write().await.push(bead.clone());
+    state.beads.write().await.insert(bead.id, bead.clone());
 
     (
         axum::http::StatusCode::CREATED,

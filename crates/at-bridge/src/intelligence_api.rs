@@ -276,7 +276,7 @@ async fn convert_idea(
 
     {
         let mut beads = state.beads.write().await;
-        beads.push(bead.clone());
+        beads.insert(bead.id, bead.clone());
     }
 
     let simulation = simulate_planning_poker_for_bead(
