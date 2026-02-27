@@ -1,25 +1,25 @@
 {
   "active": true,
-  "spec": "025-use-sessionstore-async-i-o-and-add-in-memory-lru-c",
+  "spec": "047-document-the-pty-pool-and-terminal-session-managem",
   "state": "building",
   "subtasks": {
-    "completed": 6,
-    "total": 7,
+    "completed": 2,
+    "total": 3,
     "in_progress": 1,
     "failed": 0
   },
   "phase": {
-    "current": "SessionStore Async Conversion & LRU Cache",
+    "current": "Create README Documentation",
     "id": null,
-    "total": 7
+    "total": 3
   },
   "workers": {
     "active": 0,
     "max": 1
   },
   "session": {
-    "number": 8,
-    "started_at": "2026-02-23T09:00:12.662108"
+    "number": 4,
+    "started_at": "2026-02-27T08:12:15.896307"
   },
-  "last_update": "2026-02-23T09:34:51.720353"
+  "last_update": "2026-02-27T08:22:42.435464"
 }
