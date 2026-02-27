@@ -47,6 +47,7 @@ use serde_json::{json, Value};
 pub fn sanitized_error(message: &str, request_id: &str) -> (StatusCode, Json<Value>) {
     (
         StatusCode::INTERNAL_SERVER_ERROR,
+        // Return standardized JSON: { "error": "...", "request_id": "..." }
         Json(json!({
             "error": message,
             "request_id": request_id,
@@ -83,6 +84,7 @@ pub fn sanitized_error_with_status(
 ) -> (StatusCode, Json<Value>) {
     (
         status,
+        // Return standardized JSON with custom status code
         Json(json!({
             "error": message,
             "request_id": request_id,
@@ -113,6 +115,7 @@ pub fn sanitized_error_with_status(
 pub fn sanitized_500(request_id: &str) -> (StatusCode, Json<Value>) {
     (
         StatusCode::INTERNAL_SERVER_ERROR,
+        // Return generic error message to hide all implementation details
         Json(json!({
             "error": "Internal server error",
             "request_id": request_id,
@@ -139,6 +142,7 @@ pub fn sanitized_500(request_id: &str) -> (StatusCode, Json<Value>) {
 pub fn sanitized_503(message: &str, request_id: &str) -> (StatusCode, Json<Value>) {
     (
         StatusCode::SERVICE_UNAVAILABLE,
+        // Return service unavailable status for temporary outages
         Json(json!({
             "error": message,
             "request_id": request_id,
@@ -171,10 +175,10 @@ pub fn sanitized_503(message: &str, request_id: &str) -> (StatusCode, Json<Value
 /// ```
 pub fn extract_request_id(headers: &axum::http::HeaderMap) -> String {
     headers
-        .get("x-request-id")
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| "unknown".to_string())
+        .get("x-request-id") // Try to get the x-request-id header
+        .and_then(|v| v.to_str().ok()) // Convert HeaderValue to &str, ignoring non-UTF8 values
+        .map(|s| s.to_string()) // Convert &str to owned String
+        .unwrap_or_else(|| "unknown".to_string()) // Fall back to "unknown" if header is missing or invalid
 }
 
 // ---------------------------------------------------------------------------
@@ -183,17 +187,44 @@ pub fn extract_request_id(headers: &axum::http::HeaderMap) -> String {
 
 /// Wrapper type that automatically converts to an Axum response.
 ///
-/// This allows returning error tuples directly from handlers.
+/// This allows returning error tuples directly from handlers without
+/// manually calling `.into_response()` on the tuple.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// fn create_error(request_id: &str) -> SanitizedErrorResponse {
+///     SanitizedErrorResponse::new(
+///         StatusCode::INTERNAL_SERVER_ERROR,
+///         "Operation failed",
+///         request_id
+///     )
+/// }
+/// ```
 pub struct SanitizedErrorResponse {
+    /// HTTP status code for the error response
     status: StatusCode,
+    /// JSON body containing the error message and request ID
     body: Json<Value>,
 }
 
 impl SanitizedErrorResponse {
     /// Creates a new sanitized error response.
+    ///
+    /// # Arguments
+    ///
+    /// * `status` - HTTP status code for the error
+    /// * `message` - User-friendly error message (must not contain sensitive details)
+    /// * `request_id` - Correlation ID for log tracing
+    ///
+    /// # Returns
+    ///
+    /// A `SanitizedErrorResponse` that can be returned from Axum handlers.
     pub fn new(status: StatusCode, message: &str, request_id: &str) -> Self {
         Self {
             status,
+            // Create JSON body with standardized error structure:
+            // { "error": "<message>", "request_id": "<id>" }
             body: Json(json!({
                 "error": message,
                 "request_id": request_id,
@@ -203,7 +234,12 @@ impl SanitizedErrorResponse {
 }
 
 impl IntoResponse for SanitizedErrorResponse {
+    /// Converts the sanitized error into an Axum HTTP response.
+    ///
+    /// This implementation allows `SanitizedErrorResponse` to be returned
+    /// directly from Axum handlers via the `IntoResponse` trait.
     fn into_response(self) -> Response {
+        // Convert the (StatusCode, Json) tuple into an Axum response
         (self.status, self.body).into_response()
     }
 }
@@ -212,15 +248,24 @@ impl IntoResponse for SanitizedErrorResponse {
 // Tests
 // ---------------------------------------------------------------------------
 
+/// Unit tests for error response sanitization functions.
+///
+/// These tests verify that:
+/// - Error responses have the correct HTTP status codes
+/// - JSON structure matches the expected format (error + request_id)
+/// - Request ID extraction handles both present and missing headers
+/// - The wrapper type correctly implements IntoResponse
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_sanitized_error() {
+        // Test that sanitized_error creates a 500 response with proper JSON structure
         let (status, body) = sanitized_error("Test error", "test-id-123");
         assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
 
+        // Verify JSON structure contains both error message and request ID
         let json_value = body.0;
         assert_eq!(json_value["error"], "Test error");
         assert_eq!(json_value["request_id"], "test-id-123");
@@ -271,6 +316,7 @@ mod tests {
 
     #[test]
     fn test_extract_request_id_missing() {
+        // Verify fallback behavior when x-request-id header is not present
         let headers = axum::http::HeaderMap::new();
         let request_id = extract_request_id(&headers);
         assert_eq!(request_id, "unknown");
