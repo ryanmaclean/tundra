@@ -1984,6 +1984,24 @@ async fn get_task_logs(
     )
 }
 
+/// GET /api/pipeline/queue -- returns the current pipeline queue status.
+///
+/// Provides real-time metrics about the task execution pipeline including concurrency
+/// limits, number of tasks waiting in queue, currently running tasks, and available
+/// execution slots. The pipeline uses a semaphore to limit concurrent task executions,
+/// preventing resource exhaustion. Useful for monitoring system load and queue depth.
+///
+/// **Response:** 200 OK with PipelineQueueStatus object.
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "limit": 3,
+///   "waiting": 2,
+///   "running": 3,
+///   "available_permits": 0
+/// }
+/// ```
 async fn get_pipeline_queue_status(
     State(state): State<Arc<ApiState>>,
 ) -> Json<PipelineQueueStatus> {
@@ -5312,6 +5330,33 @@ async fn resolve_conflict(
 // ---------------------------------------------------------------------------
 
 /// GET /api/queue — list queued tasks sorted by priority.
+///
+/// Returns all tasks in the Discovery phase that have not yet started execution,
+/// sorted by priority (Urgent → High → Medium → Low). Each task includes its ID,
+/// title, priority level, queued timestamp, and position in the queue. The queue
+/// represents tasks waiting to be picked up by agents for execution.
+///
+/// **Response:** 200 OK with array of queued task summaries.
+///
+/// **Example Response:**
+/// ```json
+/// [
+///   {
+///     "task_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+///     "title": "Implement user authentication",
+///     "priority": "High",
+///     "queued_at": "2026-02-23T09:15:00Z",
+///     "position": 1
+///   },
+///   {
+///     "task_id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+///     "title": "Add logging middleware",
+///     "priority": "Medium",
+///     "queued_at": "2026-02-23T09:20:00Z",
+///     "position": 2
+///   }
+/// ]
+/// ```
 async fn list_queue(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     let tasks = state.tasks.read().await;
 
@@ -5353,6 +5398,32 @@ async fn list_queue(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
 }
 
 /// POST /api/queue/reorder — reorder the task queue.
+///
+/// Manually reorder tasks in the queue by providing a new ordered list of task IDs.
+/// All task IDs must exist, and at least one task ID must be provided. The new order
+/// is broadcast to all connected clients via WebSocket events. This allows users to
+/// manually override the default priority-based ordering when needed.
+///
+/// **Request Body:** QueueReorderRequest JSON object with array of task IDs in desired order.
+/// **Response:** 200 OK on success, 400 if task_ids empty, 404 if any task ID not found.
+///
+/// **Example Request:**
+/// ```json
+/// {
+///   "task_ids": [
+///     "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+///     "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+///     "c3d4e5f6-a7b8-9012-cdef-123456789012"
+///   ]
+/// }
+/// ```
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "status": "ok"
+/// }
+/// ```
 async fn reorder_queue(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<QueueReorderRequest>,
@@ -5390,6 +5461,35 @@ async fn reorder_queue(
 }
 
 /// POST /api/queue/{task_id}/prioritize — bump a task's priority.
+///
+/// Updates the priority level of a specific task. Valid priorities are Low, Medium,
+/// High, or Urgent. Higher priority tasks are processed first by the queue. The
+/// updated task is broadcast to all connected clients via WebSocket, and the
+/// full updated task object is returned in the response.
+///
+/// **Request Body:** PrioritizeRequest JSON object with new priority level.
+/// **Response:** 200 OK with updated task object, 404 if task not found.
+///
+/// **Example Request:**
+/// ```json
+/// {
+///   "priority": "Urgent"
+/// }
+/// ```
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+///   "title": "Implement user authentication",
+///   "description": "Add JWT-based auth to API",
+///   "priority": "Urgent",
+///   "phase": "Discovery",
+///   "created_at": "2026-02-23T09:15:00Z",
+///   "updated_at": "2026-02-23T10:30:00Z",
+///   ...
+/// }
+/// ```
 async fn prioritize_task(
     State(state): State<Arc<ApiState>>,
     Path(task_id): Path<Uuid>,
