@@ -5406,15 +5406,25 @@ async fn call_mcp_tool(
 // Worktrees handler
 // ---------------------------------------------------------------------------
 
+/// Represents a git worktree entry returned by the list endpoint.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct WorktreeEntry {
+    /// Stable identifier derived from path or branch name
     id: String,
+    /// Absolute filesystem path to the worktree
     path: String,
+    /// Git branch name (empty for detached HEAD)
     branch: String,
+    /// Associated bead ID (currently unused, reserved for future)
     bead_id: String,
+    /// Worktree status ("active" for all current worktrees)
     status: String,
 }
 
+/// Generates a stable, filesystem-safe identifier for a worktree.
+///
+/// Prefers branch name over path for consistency. Sanitizes the result by
+/// replacing non-alphanumeric characters (except `-`, `_`, `.`) with underscores.
 fn stable_worktree_id(path: &str, branch: &str) -> String {
     let raw = if branch.is_empty() {
         format!("path:{path}")
@@ -5433,6 +5443,25 @@ fn stable_worktree_id(path: &str, branch: &str) -> String {
 }
 
 /// GET /api/worktrees — list all git worktrees with path and branch info.
+///
+/// Returns an array of all git worktrees in the repository, including the main
+/// worktree and any linked worktrees created for task isolation.
+///
+/// # Response
+/// ```json
+/// [
+///   {
+///     "id": "branch_task_042_implement_feature_x",
+///     "path": "/path/to/worktree",
+///     "branch": "task/042-implement-feature-x",
+///     "bead_id": "",
+///     "status": "active"
+///   }
+/// ]
+/// ```
+///
+/// # Errors
+/// - `500 INTERNAL_SERVER_ERROR` if git command fails
 async fn list_worktrees() -> impl IntoResponse {
     let output = match tokio::process::Command::new("git")
         .args(["worktree", "list", "--porcelain"])
@@ -5501,6 +5530,42 @@ async fn list_worktrees() -> impl IntoResponse {
 // ---------------------------------------------------------------------------
 
 /// POST /api/worktrees/{id}/merge — trigger merge to main for a worktree branch.
+///
+/// Attempts to merge the specified worktree's branch into the main branch using
+/// a no-fast-forward merge. If conflicts are detected, the merge is aborted and
+/// conflict files are returned. On success, the merge is committed automatically.
+///
+/// # Path Parameters
+/// - `id`: Worktree ID (stable ID, branch name, or path substring)
+///
+/// # Response (Success)
+/// ```json
+/// {
+///   "status": "success",
+///   "branch": "task/042-implement-feature-x"
+/// }
+/// ```
+///
+/// # Response (Conflict)
+/// ```json
+/// {
+///   "status": "conflict",
+///   "branch": "task/042-implement-feature-x",
+///   "files": ["src/main.rs", "Cargo.toml"]
+/// }
+/// ```
+///
+/// # Response (Nothing to Merge)
+/// ```json
+/// {
+///   "status": "nothing_to_merge",
+///   "branch": "task/042-implement-feature-x"
+/// }
+/// ```
+///
+/// # Errors
+/// - `404 NOT_FOUND` if worktree does not exist
+/// - `500 INTERNAL_SERVER_ERROR` if git command fails
 async fn merge_worktree(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<String>,
@@ -5681,6 +5746,28 @@ async fn merge_worktree(
 }
 
 /// GET /api/worktrees/{id}/merge-preview — dry-run merge preview.
+///
+/// Provides a preview of what would happen if the worktree's branch were merged
+/// into main, without actually performing the merge. Returns commit counts,
+/// changed files, and potential conflict indicators.
+///
+/// # Path Parameters
+/// - `id`: Worktree ID (stable ID, branch name, or path substring)
+///
+/// # Response
+/// ```json
+/// {
+///   "ahead": 5,
+///   "behind": 2,
+///   "files_changed": ["src/main.rs", "Cargo.toml", "README.md"],
+///   "has_conflicts": false,
+///   "branch": "task/042-implement-feature-x"
+/// }
+/// ```
+///
+/// # Errors
+/// - `404 NOT_FOUND` if worktree does not exist
+/// - `500 INTERNAL_SERVER_ERROR` if git command fails
 async fn merge_preview(Path(id): Path<String>) -> impl IntoResponse {
     let base_dir = std::env::current_dir().unwrap_or_default();
     let base_dir_str = base_dir.to_str().unwrap_or(".");
@@ -5795,6 +5882,37 @@ async fn merge_preview(Path(id): Path<String>) -> impl IntoResponse {
 }
 
 /// POST /api/worktrees/{id}/resolve — accept conflict resolution.
+///
+/// Resolves a merge conflict for a specific file using one of three strategies:
+/// - `ours`: Keep the current branch's version
+/// - `theirs`: Accept the incoming branch's version
+/// - `manual`: Mark the file as resolved (assumes user has manually edited it)
+///
+/// After resolution, the file is automatically staged for commit.
+///
+/// # Path Parameters
+/// - `id`: Worktree ID (not currently used but reserved for future routing)
+///
+/// # Request Body
+/// ```json
+/// {
+///   "strategy": "ours",
+///   "file": "src/main.rs"
+/// }
+/// ```
+///
+/// # Response
+/// ```json
+/// {
+///   "status": "resolved",
+///   "worktree_id": "branch_task_042_implement_feature_x",
+///   "file": "src/main.rs",
+///   "strategy": "ours"
+/// }
+/// ```
+///
+/// # Errors
+/// - `400 BAD_REQUEST` if strategy is not one of: ours, theirs, manual
 async fn resolve_conflict(
     Path(id): Path<String>,
     Json(req): Json<ResolveConflictRequest>,
@@ -6148,6 +6266,27 @@ fn detect_cli_binary(name: &str) -> (bool, Option<String>) {
 }
 
 /// DELETE /api/worktrees/{id} — remove a git worktree by path.
+///
+/// Forcibly removes a git worktree and its associated working directory. This
+/// operation is irreversible and will delete uncommitted changes in the worktree.
+/// The branch itself is not deleted, only the worktree checkout.
+///
+/// # Path Parameters
+/// - `id`: Worktree ID (stable ID, branch name, or path substring)
+///
+/// # Response
+/// ```json
+/// {
+///   "status": "deleted",
+///   "id": "branch_task_042_implement_feature_x",
+///   "path": "/path/to/worktree"
+/// }
+/// ```
+///
+/// # Errors
+/// - `404 NOT_FOUND` if worktree does not exist
+/// - `400 BAD_REQUEST` if git worktree remove fails
+/// - `500 INTERNAL_SERVER_ERROR` if git command fails
 async fn delete_worktree(Path(id): Path<String>) -> impl IntoResponse {
     let output = match tokio::process::Command::new("git")
         .args(["worktree", "list", "--porcelain"])
