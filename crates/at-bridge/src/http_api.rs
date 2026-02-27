@@ -1106,7 +1106,6 @@ async fn list_beads(
     Query(params): Query<BeadQuery>,
 ) -> Json<Vec<Bead>> {
     let beads = state.beads.read().await;
-===
     let limit = params.limit.unwrap_or(50);
     let offset = params.offset.unwrap_or(0);
 
@@ -1128,7 +1127,6 @@ async fn list_beads(
     };
 
     Json(filtered)
->>>>>>> 0323275 (auto-claude: subtask-1-2 - Update list_beads handler with pagination and status filtering)
 }
 
 /// POST /api/beads -- create a new bead (feature/epic).
