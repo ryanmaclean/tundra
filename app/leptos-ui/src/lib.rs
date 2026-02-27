@@ -130,6 +130,8 @@ pub fn App() -> impl IntoView {
     }
 
     view! {
+        <a href="#main-content" class="skip-link">"Skip to main content"</a>
+
         <components::project_tabs::ProjectTabs />
 
         <div class="app-layout">
@@ -163,7 +165,7 @@ pub fn App() -> impl IntoView {
                 on_new_task=set_show_new_task
             />
 
-            <div class="main-area" role="main" style="position: relative; z-index: 2;">
+            <div id="main-content" class="main-area" role="main" style="position: relative; z-index: 2;">
                 <header class="top-bar">
                     <div class="top-bar-left">
                         <span class="top-bar-project">{move || project_name.get()}</span>

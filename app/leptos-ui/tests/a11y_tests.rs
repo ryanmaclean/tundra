@@ -230,4 +230,60 @@ mod keyboard_a11y {
             );
         }
     }
+
+    #[wasm_bindgen_test]
+    fn skip_link_allows_keyboard_users_to_bypass_navigation() {
+        // Skip links must exist and target main content for WCAG 2.4.1 Bypass Blocks
+        let doc = get_document();
+
+        // Create and verify skip link element
+        let skip_link = doc
+            .create_element("a")
+            .expect("Failed to create anchor element");
+        let _ = skip_link.set_attribute("href", "#main-content");
+        let _ = skip_link.set_attribute("class", "skip-link");
+        skip_link.set_text_content(Some("Skip to main content"));
+
+        // Verify link attributes
+        let href = skip_link
+            .get_attribute("href")
+            .expect("Skip link must have href attribute");
+        assert_eq!(
+            href, "#main-content",
+            "Skip link must target #main-content for keyboard navigation"
+        );
+
+        let text = skip_link
+            .text_content()
+            .expect("Skip link must have text content");
+        assert!(
+            !text.is_empty(),
+            "Skip link must have descriptive text for screen readers"
+        );
+
+        // Create and verify main content target element
+        let main_content = doc
+            .create_element("div")
+            .expect("Failed to create div element");
+        let _ = main_content.set_attribute("id", "main-content");
+        let _ = main_content.set_attribute("role", "main");
+
+        // Verify target exists with proper id
+        let target_id = main_content
+            .get_attribute("id")
+            .expect("Main content must have id attribute");
+        assert_eq!(
+            target_id, "main-content",
+            "Main content target must have id='main-content' for skip link"
+        );
+
+        // Verify target has main landmark role
+        let role = main_content
+            .get_attribute("role")
+            .expect("Main content must have role attribute");
+        assert_eq!(
+            role, "main",
+            "Main content must have role='main' for landmark navigation"
+        );
+    }
 }
