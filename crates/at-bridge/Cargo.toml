@@ -26,6 +26,7 @@ async-trait = { workspace = true }
 futures-util = "0.3"
 ahash = { workspace = true }
 subtle = { workspace = true }
+lru = "0.12"
 
 [features]
 default = ["libgit2"]
