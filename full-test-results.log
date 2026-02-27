@@ -1,0 +1,433 @@
+
+running 134 tests
+test approval::tests::approve_nonexistent_returns_error ... ok
+test approval::tests::custom_policy_override ... ok
+test approval::tests::default_policies_delete_deny ... ok
+test approval::tests::permissive_system_defaults_to_require_approval_for_unknown ... ok
+test approval::tests::default_policies_file_read_auto_approve ... ok
+test approval::tests::default_policies_file_write_require_approval ... ok
+test approval::tests::default_policies_git_push_require_approval ... ok
+test approval::tests::default_policies_shell_execute_require_approval ... ok
+test approval::tests::multiple_pending_approvals ... ok
+test approval::tests::request_approve_flow ... ok
+test approval::tests::request_deny_flow ... ok
+test approval::tests::role_override_takes_precedence ... ok
+test approval::tests::unknown_tool_requires_approval ... ok
+test claude_session::tests::session_add_messages ... ok
+test claude_session::tests::session_clear_history ... ok
+test claude_session::tests::session_config_default ... ok
+test claude_session::tests::session_creation ... ok
+test claude_session::tests::session_error_display ... ok
+test claude_session::tests::session_llm_config ... ok
+test claude_session::tests::session_metadata_recording ... ok
+test claude_session::tests::session_serialization_roundtrip ... ok
+test claude_session::tests::session_trim_history ... ok
+test claude_session::tests::session_trim_history_unlimited ... ok
+test executor::tests::build_prompt_includes_task_info ... ok
+test executor::tests::execute_task_detects_tool_use_errors ... ok
+test executor::tests::execute_task_parses_json_events ... ok
+test executor::tests::abort_task_removes_from_active ... ok
+test executor::tests::execute_task_publishes_events_to_bus ... ok
+test executor::tests::parse_agent_event_error ... ok
+test executor::tests::execute_task_parses_progress_markers ... ok
+test executor::tests::parse_agent_event_json ... ok
+test executor::tests::parse_agent_event_plain_text_returns_none ... ok
+test executor::tests::execute_task_produces_result_with_output ... ok
+test executor::tests::parse_agent_event_progress ... ok
+test executor::tests::parse_tool_use_error_multiple ... ok
+test executor::tests::parse_tool_use_error_no_such_tool ... ok
+test executor::tests::parse_tool_use_error_none ... ok
+test executor::tests::parse_tool_use_error_tool_quoted ... ok
+test executor::tests::parse_tool_use_error_unclosed_tag ... ok
+test executor::tests::tool_fallback_map_custom_fallback ... ok
+test executor::tests::tool_fallback_map_recover_no_available ... ok
+test executor::tests::tool_fallback_map_recover_with_available ... ok
+test executor::tests::tool_fallback_map_suggests_alternatives ... ok
+test executor::tests::tool_fallback_map_unknown_tool ... ok
+test orchestrator::tests::orchestrator_complete_task ... ok
+test orchestrator::tests::orchestrator_build_prompt ... ok
+test orchestrator::tests::orchestrator_assemble_context ... ok
+test orchestrator::tests::orchestrator_config_defaults ... ok
+test orchestrator::tests::orchestrator_config_serialization ... ok
+test orchestrator::tests::orchestrator_decompose ... ok
+test orchestrator::tests::orchestrator_nonexistent_execution ... ok
+test orchestrator::tests::orchestrator_execution_summary ... ok
+test orchestrator::tests::orchestrator_record_phase ... ok
+test orchestrator::tests::orchestrator_record_output_stuck ... ok
+test orchestrator::tests::orchestrator_rlm_disabled ... ok
+test orchestrator::tests::orchestrator_recovery ... ok
+test orchestrator::tests::orchestrator_refinement ... ok
+test orchestrator::tests::task_execution_serialization ... ok
+test profiles::tests::agent_config_serialization_roundtrip ... ok
+test profiles::tests::binary_name_matches_cli_type ... ok
+test orchestrator::tests::orchestrator_session_memory ... ok
+test profiles::tests::claude_cli_args_with_thinking ... ok
+test profiles::tests::claude_cli_args_without_thinking ... ok
+test profiles::tests::codex_cli_args ... ok
+test orchestrator::tests::orchestrator_start_task ... ok
+test profiles::tests::default_for_coding_phase_has_high_thinking ... ok
+test profiles::tests::default_for_discovery_phase_has_low_thinking ... ok
+test profiles::tests::default_for_phase_uses_correct_model ... ok
+test profiles::tests::gemini_cli_args ... ok
+test profiles::tests::opencode_cli_args ... ok
+test profiles::tests::thinking_level_budget_none_returns_none ... ok
+test profiles::tests::thinking_level_budget_values ... ok
+test prompts::tests::built_in_templates_not_empty ... ok
+test prompts::tests::prompt_registry_has_defaults ... ok
+test prompts::tests::prompt_registry_override ... ok
+test prompts::tests::prompt_registry_roles_list ... ok
+test prompts::tests::prompt_render_preserves_unknown_vars ... ok
+test prompts::tests::prompt_template_render ... ok
+test prompts::tests::prompt_template_render_with_context ... ok
+test prompts::tests::prompt_template_serialization ... ok
+test prompts::tests::role_from_prompt_name_mapping ... ok
+test registry::tests::agent_names_list ... ok
+test registry::tests::clone_agent_missing ... ok
+test registry::tests::clone_agent_registered ... ok
+test registry::tests::context_summary_empty_registry ... ok
+test registry::tests::context_summary_includes_agents_and_skills ... ok
+test prompts::tests::prompt_registry_ignores_unknown_files ... ok
+test registry::tests::default_registry_is_empty ... ok
+test registry::tests::get_missing_agent_returns_none ... ok
+test registry::tests::get_missing_skill_returns_none ... ok
+test prompts::tests::prompt_registry_load_from_project ... ok
+test registry::tests::load_from_empty_project ... ok
+test registry::tests::load_from_project_with_agents ... ok
+test registry::tests::load_result_total ... ok
+test registry::tests::load_from_project_with_skills ... ok
+test registry::tests::plugin_agent_implements_role_config ... ok
+test registry::tests::plugin_skill_to_prompt ... ok
+test registry::tests::register_and_get_agent ... ok
+test registry::tests::register_and_get_skill ... ok
+test registry::tests::register_duplicate_agent_fails ... ok
+test registry::tests::register_duplicate_skill_fails ... ok
+test registry::tests::skill_names_list ... ok
+test registry::tests::unregister_agent ... ok
+test registry::tests::unregister_skill ... ok
+test registry::tests::load_from_project_with_both ... ok
+test registry::tests::load_skips_duplicates_on_reload ... ok
+test task_orchestrator::tests::coding_phase_with_subtasks ... ok
+test task_orchestrator::tests::pipeline_result_serializable ... ok
+test task_orchestrator::tests::full_pipeline_emits_events ... ok
+test task_orchestrator::tests::coding_phase_produces_result ... ok
+test task_runner::tests::build_steered_prompt_fallback ... ok
+test task_orchestrator::tests::qa_fix_loop_terminates_at_max_iterations ... ok
+test task_orchestrator::tests::qa_phase_returns_report ... ok
+test task_runner::tests::phase_events_published ... ok
+test task_runner::tests::phase_to_steering_name_mapping ... ok
+test task_runner::tests::build_steered_prompt_with_project ... ok
+test task_runner::tests::prompt_for_coding_contains_title ... ok
+test task_runner::tests::prompt_for_discovery_contains_title ... ok
+test task_runner::tests::prompt_for_qa_contains_review ... ok
+test task_runner::tests::task_runner_custom_timeout ... ok
+test task_runner::tests::task_runner_default_no_steering ... ok
+test task_runner::tests::task_runner_default_timeout ... ok
+test task_runner::tests::task_runner_with_role ... ok
+test task_runner::tests::task_runner_with_token_budget ... ok
+test task_runner::tests::transition_to_error_sets_state ... ok
+test task_runner::tests::reset_stuck_detector_works ... ok
+test task_runner::tests::task_runner_with_project_has_steering ... ok
+test claude_session::tests::manager_remove_session ... ok
+test claude_session::tests::manager_list_sessions ... ok
+test claude_runtime::tests::manager_runtime_starts_and_lists_sessions ... ok
+test claude_session::tests::manager_with_base_url ... ok
+test claude_session::tests::manager_create_and_get_session ... ok
+test claude_session::tests::manager_remove_nonexistent ... ok
+test claude_runtime::tests::manager_runtime_close_session ... ok
+
+test result: ok. 134 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+
+running 63 tests
+test test_agent_event_display ... ok
+test test_agent_state_can_transition ... ok
+test test_agent_state_idle_to_spawning ... ok
+test test_agent_state_history_tracking ... ok
+test test_agent_defaults ... ok
+test test_agent_state_display ... ok
+test test_agent_state_invalid_transition ... ok
+test test_agent_state_failure_and_recovery ... ok
+test test_agent_state_running_to_stopped ... ok
+test test_agent_state_pause_resume_cycle ... ok
+test test_agent_state_serialization_roundtrip ... ok
+test test_agent_state_spawning_to_running ... ok
+test test_agent_supervisor_list ... ok
+test test_agent_supervisor_heartbeat ... ok
+test test_agent_supervisor_spawn_all_roles ... ok
+test test_agent_supervisor_spawn ... ok
+test test_agent_supervisor_stop ... ok
+test test_agent_supervisor_stop_nonexistent ... ok
+test test_all_roles_have_preferred_model ... ok
+test test_all_six_roles_defined ... ok
+test test_approval_check_returns_correct_action ... ok
+test test_approval_deny_flow ... ok
+test test_approval_multiple_pending ... ok
+test test_approval_nonexistent_id ... ok
+test test_approval_policies_per_role ... ok
+test test_approval_policy_serialization_roundtrip ... ok
+test test_approval_store_records_decisions ... ok
+test test_auto_approve_policy ... ok
+test test_crew_allowed_tools_include_write_and_git ... ok
+test test_deacon_allowed_tools_include_git_review ... ok
+test test_deacon_post_execute_reports_issues ... ok
+test test_deacon_role_has_system_prompt ... ok
+test test_default_profile_is_auto_optimized ... ok
+test test_deny_policy ... ok
+test test_mayor_allowed_tools_include_orchestration ... ok
+test test_mayor_pre_execute_contains_task ... ok
+test test_mayor_role_has_system_prompt ... ok
+test test_permissive_approval_system ... ok
+test test_phase_config_binary_names ... ok
+test test_phase_config_cli_args_generation ... ok
+test test_phase_config_has_code_review ... ok
+test test_phase_config_has_implementation ... ok
+test test_phase_config_has_open_creation ... ok
+test test_phase_config_model_per_phase ... ok
+test test_phase_config_thinking_level_per_phase ... ok
+test test_polecat_allowed_tools_include_security_scanning ... ok
+test test_polecat_post_execute_detects_critical ... ok
+test test_profile_balanced_exists ... ok
+test test_profile_complex_tasks_exists ... ok
+test test_profile_has_model_config ... ok
+test test_profile_has_thinking_level ... ok
+test test_profile_quick_edits_exists ... ok
+test test_profile_serialization_roundtrip ... ok
+test test_refinery_allowed_tools_include_write_and_shell ... ok
+test test_refinery_role_has_system_prompt ... ok
+test test_require_approval_policy ... ok
+test test_role_display_names ... ok
+test test_role_max_turns_vary_by_role ... ok
+test test_role_serialization_roundtrip ... ok
+test test_thinking_level_serialization_roundtrip ... ok
+test test_witness_allowed_tools_include_shell_execute ... ok
+test test_witness_post_execute_detects_failures ... ok
+test test_witness_role_has_system_prompt ... ok
+
+test result: ok. 63 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 26 tests
+test all_roles_have_positive_max_turns ... ok
+test all_roles_have_preferred_model ... ok
+test crew_has_full_dev_tools ... ok
+test approval_system_default_policies_match_spec ... ok
+test crew_has_nonempty_system_prompt ... ok
+test crew_pre_execute_returns_preamble ... ok
+test approval_deny_prevents_execution ... ok
+test deacon_cannot_write_files ... ok
+test approval_full_lifecycle ... ok
+test deacon_has_nonempty_system_prompt ... ok
+test deacon_post_execute_reports_clean ... ok
+test deacon_post_execute_reports_issues ... ok
+test executor_build_prompt_includes_system_prompt ... ok
+test mayor_cannot_write_files ... ok
+test mayor_has_highest_turn_limit ... ok
+test mayor_has_nonempty_system_prompt ... ok
+test mayor_pre_execute_returns_preamble ... ok
+test polecat_cannot_write_files ... ok
+test polecat_has_nonempty_system_prompt ... ok
+test refinery_can_read_and_write ... ok
+test refinery_has_nonempty_system_prompt ... ok
+test role_config_for_returns_correct_prompts ... ok
+test witness_can_execute_shell ... ok
+test witness_has_nonempty_system_prompt ... ok
+test witness_post_execute_detects_failures ... ok
+test witness_post_execute_detects_success ... ok
+
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 8 tests
+test can_transition_checks ... ok
+test failure_and_recovery ... ok
+test invalid_idle_to_active ... ok
+test full_lifecycle_idle_to_stopped ... ok
+test pause_and_resume ... ok
+test paused_stop_goes_to_stopping ... ok
+test spawning_fail_goes_to_failed ... ok
+test valid_idle_to_spawning_to_active ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 5 tests
+test spawn_and_list ... ok
+test stop_nonexistent_agent_errors ... ok
+test stop_agent ... ok
+test heartbeat_all ... ok
+test spawn_all_roles ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 9 tests
+test full_pipeline_with_subtasks ... ok
+test cli_type_selection_uses_configured_type ... ok
+test direct_mode_skips_worktree_requirement ... ok
+test direct_mode_defaults_to_false ... ok
+test cli_type_defaults_to_claude ... ok
+test qa_phase_produces_report_with_task_id ... ok
+test pipeline_phases_transition_correctly ... ok
+test event_bus_receives_phase_transition_events ... ok
+test qa_fix_loop_respects_max_iterations ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 115 tests
+test command_registry::tests::command_category_display ... ok
+test command_registry::tests::available_from_filter ... ok
+test command_registry::tests::by_category ... ok
+test command_registry::tests::command_context_params ... ok
+test command_registry::tests::command_output_constructors ... ok
+test command_registry::tests::command_not_found ... ok
+test auth::tests::missing_key_returns_401 ... ok
+test auth::tests::valid_bearer_token ... ok
+test auth::tests::valid_x_api_key_header ... ok
+test auth::tests::wrong_bearer_returns_401 ... ok
+test auth::tests::no_key_configured_allows_all ... ok
+test auth::tests::wrong_key_returns_401 ... ok
+test command_registry::tests::command_source_display ... ok
+test command_registry::tests::disabled_command_rejected ... ok
+test command_registry::tests::has_and_get_descriptor ... ok
+test command_registry::tests::keybinding_lookup ... ok
+test command_registry::tests::list_commands ... ok
+test command_registry::tests::register_and_execute ... ok
+test command_registry::tests::search_commands ... ok
+test commands::tests::create_bead_missing_title ... ok
+test command_registry::tests::source_restriction ... ok
+test commands::tests::get_kpi_command ... ok
+test commands::tests::create_bead_via_command ... ok
+test commands::tests::list_agents_empty ... ok
+test commands::tests::list_beads_empty ... ok
+test commands::tests::stop_agent_not_found ... ok
+test event_bus::tests::agent_specific_subscription ... ok
+test event_bus::tests::disconnected_filtered_subscribers_are_pruned ... ok
+test event_bus::tests::disconnected_unfiltered_subscribers_are_pruned ... ok
+test event_bus::tests::existing_subscribe_still_works ... ok
+test event_bus::tests::filtered_subscriber_only_gets_matching ... ok
+test event_bus::tests::mixed_filtered_and_unfiltered ... ok
+test event_bus::tests::unfiltered_subscriber_gets_all_messages ... ok
+test http_api::tests::test_app_update_check ... ok
+test http_api::tests::test_create_pr_for_existing_task_no_branch ... ok
+test http_api::tests::test_delete_notification_not_found ... ok
+test http_api::tests::test_create_pr_task_not_found ... ok
+test http_api::tests::test_execute_pipeline_accepts_from_planning ... ok
+test http_api::tests::test_create_pr_for_existing_task_with_branch_no_token ... ok
+test http_api::tests::test_create_pr_stacked_base_branch_accepted ... FAILED
+test http_api::tests::test_competitor_analysis ... ok
+test http_api::tests::test_execute_pipeline_task_not_found ... ok
+test http_api::tests::test_execute_pipeline_wrong_phase ... ok
+test http_api::tests::test_file_watch ... ok
+test http_api::tests::test_get_sync_status_default ... ok
+test http_api::tests::test_lock_column ... ok
+test http_api::tests::test_list_github_issues_accepts_query_params ... FAILED
+test http_api::tests::test_list_attachments_empty ... ok
+test http_api::tests::test_list_github_issues_requires_config ... FAILED
+test http_api::tests::test_list_drafts ... ok
+test http_api::tests::test_mark_read_not_found ... ok
+test http_api::tests::test_notification_count_empty ... ok
+test http_api::tests::test_pipeline_queue_status_endpoint ... ok
+test http_api::tests::test_save_and_get_draft ... ok
+test intelligence_api::tests::test_changelog_generate_empty_commits ... ok
+test intelligence_api::tests::test_api_state_has_intelligence_engines ... ok
+test http_api::tests::test_notification_pagination ... ok
+test intelligence_api::tests::test_changelog_generate_from_commits ... ok
+test intelligence_api::tests::test_roadmap_generate_empty_input ... ok
+test intelligence_api::tests::test_roadmap_generate_from_codebase ... ok
+test notifications::tests::test_add_and_list ... ok
+test http_api::tests::test_notifications_empty ... ok
+test notifications::tests::test_add_with_url ... ok
+test http_api::tests::test_notification_unread_filter ... ok
+test notifications::tests::test_delete_not_found ... ok
+test notifications::tests::test_delete ... ok
+test notifications::tests::test_list_unread ... ok
+test notifications::tests::test_mark_all_read ... ok
+test http_api::tests::test_mark_all_read ... ok
+test notifications::tests::test_mark_read ... ok
+test notifications::tests::test_mark_read_not_found ... ok
+test notifications::tests::test_notification_from_event_agent_crashed ... ok
+test notifications::tests::test_notification_from_event_bead_state ... ok
+test notifications::tests::test_notification_from_event_task_completed ... ok
+test notifications::tests::test_notification_from_event_unknown_type ... ok
+test notifications::tests::test_notification_from_non_event ... ok
+test notifications::tests::test_pagination ... ok
+test http_api::tests::test_save_task_ordering ... ok
+test notifications::tests::test_ring_buffer_overflow ... ok
+test notifications::tests::test_unread_count ... ok
+test terminal::tests::test_auto_naming ... ok
+test terminal::tests::test_dead_status_variant ... ok
+test terminal::tests::test_default_font_settings ... ok
+test terminal::tests::test_disconnect_buffer_bounded ... ok
+test terminal::tests::test_disconnect_buffer_drain_empties ... ok
+test terminal::tests::test_disconnect_buffer_push_and_drain ... ok
+test terminal::tests::test_disconnected_status_variant ... ok
+test terminal::tests::test_get ... ok
+test terminal::tests::test_get_mut ... ok
+test terminal::tests::test_list ... ok
+test terminal::tests::test_list_active ... ok
+test terminal::tests::test_persistent_flag ... ok
+test terminal::tests::test_register ... ok
+test http_api::tests::test_trigger_sync_returns_ok ... FAILED
+test terminal::tests::test_serde_roundtrip ... ok
+test terminal::tests::test_unregister ... ok
+test terminal::tests::test_unregister_not_found ... ok
+test terminal::tests::test_update_status ... ok
+test terminal::tests::test_update_status_not_found ... ok
+test transport::tests::in_process_disconnect_prevents_send ... ok
+test transport::tests::in_process_pair_send_recv ... ok
+test transport::tests::in_process_bidirectional ... ok
+test transport::tests::in_process_connect_errors_when_connected ... ok
+test transport::tests::router_metrics_tracking ... ok
+test transport::tests::router_sessions_list ... ok
+test transport::tests::router_unregister ... ok
+test transport::tests::router_register_and_broadcast ... ok
+test transport::tests::transport_kind_display_and_serialize ... ok
+test transport::tests::transport_metrics_default ... ok
+test terminal_ws::tests::test_list_terminals_empty ... ok
+test terminal_ws::tests::test_delete_terminal_not_found ... ok
+test http_api::tests::test_notification_crud ... ok
+test terminal_ws::tests::test_create_terminal ... ok
+test terminal_ws::tests::test_create_then_list_terminals ... ok
+test terminal_ws::tests::test_create_then_delete_terminal ... ok
+
+failures:
+
+---- http_api::tests::test_create_pr_stacked_base_branch_accepted stdout ----
+
+thread 'http_api::tests::test_create_pr_stacked_base_branch_accepted' (25487208) panicked at crates/at-bridge/src/http_api.rs:4655:9:
+assertion `left == right` failed
+  left: 400
+ right: 503
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- http_api::tests::test_list_github_issues_accepts_query_params stdout ----
+
+thread 'http_api::tests::test_list_github_issues_accepts_query_params' (25487218) panicked at crates/at-bridge/src/http_api.rs:4519:9:
+assertion `left == right` failed
+  left: 400
+ right: 503
+
+---- http_api::tests::test_list_github_issues_requires_config stdout ----
+
+thread 'http_api::tests::test_list_github_issues_requires_config' (25487219) panicked at crates/at-bridge/src/http_api.rs:4507:9:
+assertion `left == right` failed
+  left: 400
+ right: 503
+
+---- http_api::tests::test_trigger_sync_returns_ok stdout ----
+
+thread 'http_api::tests::test_trigger_sync_returns_ok' (25487231) panicked at crates/at-bridge/src/http_api.rs:4489:9:
+assertion `left == right` failed
+  left: 400
+ right: 503
+
+
+failures:
+    http_api::tests::test_create_pr_stacked_base_branch_accepted
+    http_api::tests::test_list_github_issues_accepts_query_params
+    http_api::tests::test_list_github_issues_requires_config
+    http_api::tests::test_trigger_sync_returns_ok
+
+test result: FAILED. 111 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+

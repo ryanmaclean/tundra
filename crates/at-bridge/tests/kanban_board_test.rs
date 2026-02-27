@@ -119,7 +119,7 @@ async fn inject_bead(state: &ApiState, title: &str, status: BeadStatus) -> Uuid 
     let mut bead = Bead::new(title, Lane::Standard);
     bead.status = status;
     let id = bead.id;
-    state.beads.write().await.push(bead);
+    state.beads.write().await.insert(id, bead);
     id
 }
 
@@ -127,7 +127,7 @@ async fn inject_bead(state: &ApiState, title: &str, status: BeadStatus) -> Uuid 
 async fn inject_agent(state: &ApiState, name: &str) -> Uuid {
     let agent = Agent::new(name, AgentRole::Crew, CliType::Claude);
     let id = agent.id;
-    state.agents.write().await.push(agent);
+    state.agents.write().await.insert(id, agent);
     id
 }
 
@@ -151,7 +151,7 @@ async fn test_kanban_lists_all_seven_status_lanes() {
 
     let beads = state.beads.read().await;
     let statuses: Vec<String> = beads
-        .iter()
+        .values()
         .map(|b| {
             serde_json::to_value(&b.status)
                 .unwrap()
@@ -246,10 +246,10 @@ async fn test_create_task_with_priority_level() {
     let mut bead = Bead::new("priority-test", Lane::Standard);
     bead.priority = 5;
     let id = bead.id;
-    state.beads.write().await.push(bead);
+    state.beads.write().await.insert(id, bead);
 
     let beads = state.beads.read().await;
-    let found = beads.iter().find(|b| b.id == id).unwrap();
+    let found = beads.get(&id).unwrap();
     assert_eq!(found.priority, 5);
 }
 
@@ -261,10 +261,10 @@ async fn test_create_task_with_labels() {
     let mut bead = Bead::new("labeled-task", Lane::Standard);
     bead.metadata = Some(json!({ "labels": ["bug", "frontend", "urgent"] }));
     let id = bead.id;
-    state.beads.write().await.push(bead);
+    state.beads.write().await.insert(id, bead);
 
     let beads = state.beads.read().await;
-    let found = beads.iter().find(|b| b.id == id).unwrap();
+    let found = beads.get(&id).unwrap();
     let labels = found.metadata.as_ref().unwrap()["labels"]
         .as_array()
         .unwrap();
@@ -302,7 +302,7 @@ async fn test_delete_task_removes_from_lane() {
     assert_eq!(state.beads.read().await.len(), 1);
 
     // Remove.
-    state.beads.write().await.retain(|b| b.id != id);
+    state.beads.write().await.remove(&id);
     assert_eq!(state.beads.read().await.len(), 0);
 }
 
@@ -313,13 +313,13 @@ async fn test_update_task_title() {
     let id = inject_bead(&state, "old-title", BeadStatus::Backlog).await;
     {
         let mut beads = state.beads.write().await;
-        let bead = beads.iter_mut().find(|b| b.id == id).unwrap();
+        let bead = beads.get_mut(&id).unwrap();
         bead.title = "new-title".to_string();
         bead.updated_at = chrono::Utc::now();
     }
 
     let beads = state.beads.read().await;
-    let bead = beads.iter().find(|b| b.id == id).unwrap();
+    let bead = beads.get(&id).unwrap();
     assert_eq!(bead.title, "new-title");
 }
 
@@ -330,13 +330,13 @@ async fn test_update_task_description() {
     let id = inject_bead(&state, "desc-test", BeadStatus::Backlog).await;
     {
         let mut beads = state.beads.write().await;
-        let bead = beads.iter_mut().find(|b| b.id == id).unwrap();
+        let bead = beads.get_mut(&id).unwrap();
         bead.description = Some("Updated description content".to_string());
         bead.updated_at = chrono::Utc::now();
     }
 
     let beads = state.beads.read().await;
-    let bead = beads.iter().find(|b| b.id == id).unwrap();
+    let bead = beads.get(&id).unwrap();
     assert_eq!(
         bead.description.as_deref(),
         Some("Updated description content")
@@ -631,12 +631,12 @@ async fn test_assign_agent_to_task() {
 
     {
         let mut beads = state.beads.write().await;
-        let bead = beads.iter_mut().find(|b| b.id == bead_id).unwrap();
+        let bead = beads.get_mut(&bead_id).unwrap();
         bead.agent_id = Some(agent_id);
     }
 
     let beads = state.beads.read().await;
-    let bead = beads.iter().find(|b| b.id == bead_id).unwrap();
+    let bead = beads.get(&bead_id).unwrap();
     assert_eq!(bead.agent_id, Some(agent_id));
 }
 
@@ -650,19 +650,19 @@ async fn test_unassign_agent_from_task() {
     // Assign.
     {
         let mut beads = state.beads.write().await;
-        let bead = beads.iter_mut().find(|b| b.id == bead_id).unwrap();
+        let bead = beads.get_mut(&bead_id).unwrap();
         bead.agent_id = Some(agent_id);
     }
 
     // Unassign.
     {
         let mut beads = state.beads.write().await;
-        let bead = beads.iter_mut().find(|b| b.id == bead_id).unwrap();
+        let bead = beads.get_mut(&bead_id).unwrap();
         bead.agent_id = None;
     }
 
     let beads = state.beads.read().await;
-    let bead = beads.iter().find(|b| b.id == bead_id).unwrap();
+    let bead = beads.get(&bead_id).unwrap();
     assert!(bead.agent_id.is_none());
 }
 
@@ -677,7 +677,7 @@ async fn test_agent_badge_appears_on_assigned_tasks() {
 
     {
         let mut beads = state.beads.write().await;
-        let bead = beads.iter_mut().find(|b| b.id == bead_id).unwrap();
+        let bead = beads.get_mut(&bead_id).unwrap();
         bead.agent_id = Some(agent_id);
     }
 
@@ -705,18 +705,18 @@ async fn test_multiple_agents_on_same_task() {
 
     {
         let mut beads = state.beads.write().await;
-        let b1 = beads.iter_mut().find(|b| b.id == bead_1).unwrap();
+        let b1 = beads.get_mut(&bead_1).unwrap();
         b1.agent_id = Some(agent_a);
         b1.convoy_id = Some(convoy_id);
 
-        let b2 = beads.iter_mut().find(|b| b.id == bead_2).unwrap();
+        let b2 = beads.get_mut(&bead_2).unwrap();
         b2.agent_id = Some(agent_b);
         b2.convoy_id = Some(convoy_id);
     }
 
     let beads = state.beads.read().await;
     let convoy_beads: Vec<_> = beads
-        .iter()
+        .values()
         .filter(|b| b.convoy_id == Some(convoy_id))
         .collect();
     assert_eq!(convoy_beads.len(), 2);
@@ -762,19 +762,19 @@ async fn test_filter_tasks_by_agent() {
 
     {
         let mut beads = state.beads.write().await;
-        beads.iter_mut().find(|b| b.id == bead_1).unwrap().agent_id = Some(agent_a);
-        beads.iter_mut().find(|b| b.id == bead_2).unwrap().agent_id = Some(agent_b);
+        beads.get_mut(&bead_1).unwrap().agent_id = Some(agent_a);
+        beads.get_mut(&bead_2).unwrap().agent_id = Some(agent_b);
     }
 
     let beads = state.beads.read().await;
     let agent_a_tasks: Vec<_> = beads
-        .iter()
+        .values()
         .filter(|b| b.agent_id == Some(agent_a))
         .collect();
     assert_eq!(agent_a_tasks.len(), 1);
     assert_eq!(agent_a_tasks[0].title, "agent-a-task");
 
-    let unassigned: Vec<_> = beads.iter().filter(|b| b.agent_id.is_none()).collect();
+    let unassigned: Vec<_> = beads.values().filter(|b| b.agent_id.is_none()).collect();
     assert_eq!(unassigned.len(), 1);
 }
 
@@ -788,17 +788,16 @@ async fn test_filter_tasks_by_priority() {
 
     {
         let mut beads = state.beads.write().await;
-        beads.iter_mut().find(|b| b.id == id_low).unwrap().priority = 1;
-        beads.iter_mut().find(|b| b.id == id_high).unwrap().priority = 5;
+        beads.get_mut(&id_low).unwrap().priority = 1;
+        beads.get_mut(&id_high).unwrap().priority = 5;
         beads
-            .iter_mut()
-            .find(|b| b.id == id_urgent)
+            .get_mut(&id_urgent)
             .unwrap()
             .priority = 10;
     }
 
     let beads = state.beads.read().await;
-    let high_pri: Vec<_> = beads.iter().filter(|b| b.priority >= 5).collect();
+    let high_pri: Vec<_> = beads.values().filter(|b| b.priority >= 5).collect();
     assert_eq!(high_pri.len(), 2);
 }
 
@@ -812,7 +811,7 @@ async fn test_sort_tasks_by_created_date() {
     inject_bead(&state, "newest", BeadStatus::Backlog).await;
 
     let beads = state.beads.read().await;
-    let mut sorted: Vec<_> = beads.iter().collect();
+    let mut sorted: Vec<_> = beads.values().collect();
     sorted.sort_by_key(|b| b.created_at);
 
     // Oldest first.
@@ -830,13 +829,13 @@ async fn test_sort_tasks_by_priority() {
 
     {
         let mut beads = state.beads.write().await;
-        beads.iter_mut().find(|b| b.id == id_a).unwrap().priority = 3;
-        beads.iter_mut().find(|b| b.id == id_b).unwrap().priority = 1;
-        beads.iter_mut().find(|b| b.id == id_c).unwrap().priority = 7;
+        beads.get_mut(&id_a).unwrap().priority = 3;
+        beads.get_mut(&id_b).unwrap().priority = 1;
+        beads.get_mut(&id_c).unwrap().priority = 7;
     }
 
     let beads = state.beads.read().await;
-    let mut sorted: Vec<_> = beads.iter().collect();
+    let mut sorted: Vec<_> = beads.values().collect();
     sorted.sort_by(|a, b| b.priority.cmp(&a.priority)); // Descending.
 
     assert_eq!(sorted[0].title, "pri-7");
@@ -1101,7 +1100,7 @@ async fn test_bead_metadata_roundtrip_via_api() {
         "source": "github"
     }));
     let id = bead.id;
-    state.beads.write().await.push(bead);
+    state.beads.write().await.insert(id, bead);
 
     let beads = api_list_beads(&client, &base).await;
     let found = beads
@@ -1163,10 +1162,10 @@ async fn test_git_branch_field_on_bead() {
     let mut bead = Bead::new("branch-test", Lane::Standard);
     bead.git_branch = Some("feat/kanban-refresh".to_string());
     let id = bead.id;
-    state.beads.write().await.push(bead);
+    state.beads.write().await.insert(id, bead);
 
     let beads = state.beads.read().await;
-    let found = beads.iter().find(|b| b.id == id).unwrap();
+    let found = beads.get(&id).unwrap();
     assert_eq!(found.git_branch.as_deref(), Some("feat/kanban-refresh"));
 }
 
@@ -1181,18 +1180,18 @@ async fn test_convoy_groups_beads_together() {
 
     {
         let mut beads = state.beads.write().await;
-        beads.iter_mut().find(|b| b.id == b1).unwrap().convoy_id = Some(convoy_id);
-        beads.iter_mut().find(|b| b.id == b2).unwrap().convoy_id = Some(convoy_id);
+        beads.get_mut(&b1).unwrap().convoy_id = Some(convoy_id);
+        beads.get_mut(&b2).unwrap().convoy_id = Some(convoy_id);
     }
 
     let beads = state.beads.read().await;
     let convoy_beads: Vec<_> = beads
-        .iter()
+        .values()
         .filter(|b| b.convoy_id == Some(convoy_id))
         .collect();
     assert_eq!(convoy_beads.len(), 2);
 
-    let solo_beads: Vec<_> = beads.iter().filter(|b| b.convoy_id.is_none()).collect();
+    let solo_beads: Vec<_> = beads.values().filter(|b| b.convoy_id.is_none()).collect();
     assert_eq!(solo_beads.len(), 1);
 }
 
@@ -1204,20 +1203,20 @@ async fn test_hooked_at_timestamp_set_on_transition() {
 
     {
         let beads = state.beads.read().await;
-        let bead = beads.iter().find(|b| b.id == id).unwrap();
+        let bead = beads.get(&id).unwrap();
         assert!(bead.hooked_at.is_none());
     }
 
     // Simulate the transition by setting the timestamp.
     {
         let mut beads = state.beads.write().await;
-        let bead = beads.iter_mut().find(|b| b.id == id).unwrap();
+        let bead = beads.get_mut(&id).unwrap();
         bead.status = BeadStatus::Hooked;
         bead.hooked_at = Some(chrono::Utc::now());
     }
 
     let beads = state.beads.read().await;
-    let bead = beads.iter().find(|b| b.id == id).unwrap();
+    let bead = beads.get(&id).unwrap();
     assert!(bead.hooked_at.is_some());
 }
 
@@ -1229,13 +1228,13 @@ async fn test_done_at_timestamp_set_on_completion() {
 
     {
         let mut beads = state.beads.write().await;
-        let bead = beads.iter_mut().find(|b| b.id == id).unwrap();
+        let bead = beads.get_mut(&id).unwrap();
         bead.status = BeadStatus::Done;
         bead.done_at = Some(chrono::Utc::now());
     }
 
     let beads = state.beads.read().await;
-    let bead = beads.iter().find(|b| b.id == id).unwrap();
+    let bead = beads.get(&id).unwrap();
     assert!(bead.done_at.is_some());
 }
 
@@ -1247,13 +1246,13 @@ async fn test_slung_at_timestamp_set_on_ai_review() {
 
     {
         let mut beads = state.beads.write().await;
-        let bead = beads.iter_mut().find(|b| b.id == id).unwrap();
+        let bead = beads.get_mut(&id).unwrap();
         bead.status = BeadStatus::Slung;
         bead.slung_at = Some(chrono::Utc::now());
     }
 
     let beads = state.beads.read().await;
-    let bead = beads.iter().find(|b| b.id == id).unwrap();
+    let bead = beads.get(&id).unwrap();
     assert!(bead.slung_at.is_some());
 }
 

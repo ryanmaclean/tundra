@@ -23,8 +23,8 @@ pub type Result<T> = std::result::Result<T, IpcError>;
 /// Handles incoming IPC messages and produces responses.
 pub struct IpcHandler {
     event_bus: EventBus,
-    beads: Arc<RwLock<Vec<Bead>>>,
-    agents: Arc<RwLock<Vec<Agent>>>,
+    beads: Arc<RwLock<std::collections::HashMap<Uuid, Bead>>>,
+    agents: Arc<RwLock<std::collections::HashMap<Uuid, Agent>>>,
     start_time: std::time::Instant,
 }
 
@@ -32,8 +32,8 @@ impl IpcHandler {
     /// Create a new handler wired to the given event bus with shared state.
     pub fn new(
         event_bus: EventBus,
-        beads: Arc<RwLock<Vec<Bead>>>,
-        agents: Arc<RwLock<Vec<Agent>>>,
+        beads: Arc<RwLock<std::collections::HashMap<Uuid, Bead>>>,
+        agents: Arc<RwLock<std::collections::HashMap<Uuid, Agent>>>,
         start_time: std::time::Instant,
     ) -> Self {
         Self {
@@ -48,8 +48,8 @@ impl IpcHandler {
     pub fn new_stub(event_bus: EventBus) -> Self {
         Self {
             event_bus,
-            beads: Arc::new(RwLock::new(Vec::new())),
-            agents: Arc::new(RwLock::new(Vec::new())),
+            beads: Arc::new(RwLock::new(std::collections::HashMap::new())),
+            agents: Arc::new(RwLock::new(std::collections::HashMap::new())),
             start_time: std::time::Instant::now(),
         }
     }
@@ -91,7 +91,7 @@ impl IpcHandler {
         let agents = self.agents.read().await;
         let beads = self.beads.read().await;
         let beads_active = beads
-            .iter()
+            .values()
             .filter(|b| !matches!(b.status, BeadStatus::Done | BeadStatus::Failed))
             .count() as u32;
         Ok(BridgeMessage::StatusUpdate(StatusPayload {
@@ -106,7 +106,7 @@ impl IpcHandler {
         let beads = self.beads.read().await;
         let filtered: Vec<Bead> = match status {
             Some(ref s) => beads
-                .iter()
+                .values()
                 .filter(|b| {
                     // Compare against the snake_case serde representation
                     let bead_status_str = serde_json::to_value(&b.status)
@@ -117,14 +117,14 @@ impl IpcHandler {
                 })
                 .cloned()
                 .collect(),
-            None => beads.clone(),
+            None => beads.values().cloned().collect(),
         };
         Ok(BridgeMessage::BeadList(filtered))
     }
 
     async fn handle_list_agents(&self) -> Result<BridgeMessage> {
         let agents = self.agents.read().await;
-        Ok(BridgeMessage::AgentList(agents.clone()))
+        Ok(BridgeMessage::AgentList(agents.values().cloned().collect()))
     }
 
     async fn handle_get_kpi(&self) -> Result<BridgeMessage> {
@@ -138,7 +138,7 @@ impl IpcHandler {
         let mut done: u64 = 0;
         let mut failed: u64 = 0;
 
-        for bead in beads.iter() {
+        for bead in beads.values() {
             match bead.status {
                 BeadStatus::Backlog => backlog += 1,
                 BeadStatus::Hooked => hooked += 1,

@@ -112,10 +112,10 @@ pub struct PipelineQueueStatus {
 /// Shared application state for all HTTP/WS handlers.
 pub struct ApiState {
     pub event_bus: EventBus,
-    pub beads: Arc<RwLock<Vec<Bead>>>,
-    pub agents: Arc<RwLock<Vec<Agent>>>,
+    pub beads: Arc<RwLock<std::collections::HashMap<Uuid, Bead>>>,
+    pub agents: Arc<RwLock<std::collections::HashMap<Uuid, Agent>>>,
     pub kpi: Arc<RwLock<KpiSnapshot>>,
-    pub tasks: Arc<RwLock<Vec<Task>>>,
+    pub tasks: Arc<RwLock<std::collections::HashMap<Uuid, Task>>>,
     /// Queue gate for task pipeline execution.
     pub pipeline_semaphore: Arc<Semaphore>,
     /// Max number of concurrently executing task pipelines.
@@ -271,8 +271,8 @@ impl ApiState {
 
         Self {
             event_bus,
-            beads: Arc::new(RwLock::new(Vec::new())),
-            agents: Arc::new(RwLock::new(Vec::new())),
+            beads: Arc::new(RwLock::new(std::collections::HashMap::new())),
+            agents: Arc::new(RwLock::new(std::collections::HashMap::new())),
             kpi: Arc::new(RwLock::new(KpiSnapshot {
                 total_beads: 0,
                 backlog: 0,
@@ -285,7 +285,7 @@ impl ApiState {
                 active_agents: 0,
                 timestamp: chrono::Utc::now(),
             })),
-            tasks: Arc::new(RwLock::new(Vec::new())),
+            tasks: Arc::new(RwLock::new(std::collections::HashMap::new())),
             pipeline_semaphore: Arc::new(Semaphore::new(pipeline_max_concurrent)),
             pipeline_max_concurrent,
             pipeline_waiting: Arc::new(AtomicUsize::new(0)),
@@ -363,50 +363,54 @@ impl ApiState {
         b3.priority = 4;
         b3.metadata = Some(serde_json::json!({"tags":["native-ux","macos"]}));
 
-        beads.extend([b1, b2, b3]);
+        beads.insert(b1.id, b1);
+        beads.insert(b2.id, b2);
+        beads.insert(b3.id, b3);
 
         let mut agents = self.agents.write().await;
         if agents.is_empty() {
-            agents.push(Agent::new(
+            let agent1 = Agent::new(
                 "Crew",
                 at_core::types::AgentRole::Crew,
                 CliType::Claude,
-            ));
-            agents.push(Agent::new(
+            );
+            let agent2 = Agent::new(
                 "Reviewer",
                 at_core::types::AgentRole::SpecCritic,
                 CliType::Claude,
-            ));
+            );
+            agents.insert(agent1.id, agent1);
+            agents.insert(agent2.id, agent2);
         }
 
         let snapshot = KpiSnapshot {
             total_beads: beads.len() as u64,
             backlog: beads
-                .iter()
+                .values()
                 .filter(|b| b.status == BeadStatus::Backlog)
                 .count() as u64,
             hooked: beads
-                .iter()
+                .values()
                 .filter(|b| b.status == BeadStatus::Hooked)
                 .count() as u64,
             slung: beads
-                .iter()
+                .values()
                 .filter(|b| b.status == BeadStatus::Slung)
                 .count() as u64,
             review: beads
-                .iter()
+                .values()
                 .filter(|b| b.status == BeadStatus::Review)
                 .count() as u64,
             done: beads
-                .iter()
+                .values()
                 .filter(|b| b.status == BeadStatus::Done)
                 .count() as u64,
             failed: beads
-                .iter()
+                .values()
                 .filter(|b| b.status == BeadStatus::Failed)
                 .count() as u64,
             escalated: beads
-                .iter()
+                .values()
                 .filter(|b| b.status == BeadStatus::Escalated)
                 .count() as u64,
             active_agents: agents.len() as u64,
@@ -961,7 +965,7 @@ async fn get_status(State(state): State<Arc<ApiState>>) -> Json<StatusResponse> 
 /// ```
 async fn list_beads(State(state): State<Arc<ApiState>>) -> Json<Vec<Bead>> {
     let beads = state.beads.read().await;
-    Json(beads.clone())
+    Json(beads.values().cloned().collect())
 }
 
 /// POST /api/beads -- create a new bead (feature/epic).
@@ -1015,7 +1019,7 @@ async fn create_bead(
     }
 
     let mut beads = state.beads.write().await;
-    beads.push(bead.clone());
+    beads.insert(bead.id, bead.clone());
 
     // Publish event
     state
@@ -1083,7 +1087,7 @@ async fn update_bead_status(
     Json(req): Json<UpdateBeadStatusRequest>,
 ) -> impl IntoResponse {
     let mut beads = state.beads.write().await;
-    let Some(bead) = beads.iter_mut().find(|b| b.id == id) else {
+    let Some(bead) = beads.get_mut(&id) else {
         return (
             axum::http::StatusCode::NOT_FOUND,
             Json(serde_json::json!({"error": "bead not found"})),
@@ -1143,7 +1147,7 @@ async fn update_bead_status(
 /// ```
 async fn list_agents(State(state): State<Arc<ApiState>>) -> Json<Vec<Agent>> {
     let agents = state.agents.read().await;
-    Json(agents.clone())
+    Json(agents.values().cloned().collect())
 }
 
 /// POST /api/agents/{id}/nudge -- signal an agent to wake up and check for work.
@@ -1179,7 +1183,7 @@ async fn nudge_agent(
     Path(id): Path<Uuid>,
 ) -> impl IntoResponse {
     let mut agents = state.agents.write().await;
-    let Some(agent) = agents.iter_mut().find(|a| a.id == id) else {
+    let Some(agent) = agents.get_mut(&id) else {
         return (
             axum::http::StatusCode::NOT_FOUND,
             Json(serde_json::json!({"error": "agent not found"})),
@@ -1233,7 +1237,7 @@ async fn nudge_agent(
 /// ```
 async fn stop_agent(State(state): State<Arc<ApiState>>, Path(id): Path<Uuid>) -> impl IntoResponse {
     let mut agents = state.agents.write().await;
-    let Some(agent) = agents.iter_mut().find(|a| a.id == id) else {
+    let Some(agent) = agents.get_mut(&id) else {
         return (
             axum::http::StatusCode::NOT_FOUND,
             Json(serde_json::json!({"error": "agent not found"})),
@@ -1293,7 +1297,7 @@ async fn get_kpi(State(state): State<Arc<ApiState>>) -> Json<KpiSnapshot> {
 /// ```
 async fn list_tasks(State(state): State<Arc<ApiState>>) -> Json<Vec<Task>> {
     let tasks = state.tasks.read().await;
-    Json(tasks.clone())
+    Json(tasks.values().cloned().collect())
 }
 
 /// POST /api/tasks -- create a new task.
@@ -1371,7 +1375,7 @@ async fn create_task(
     }
 
     let mut tasks = state.tasks.write().await;
-    tasks.push(task.clone());
+    tasks.insert(task.id, task.clone());
 
     (
         axum::http::StatusCode::CREATED,
@@ -1419,7 +1423,7 @@ async fn create_task(
 /// ```
 async fn get_task(State(state): State<Arc<ApiState>>, Path(id): Path<Uuid>) -> impl IntoResponse {
     let tasks = state.tasks.read().await;
-    let Some(task) = tasks.iter().find(|t| t.id == id) else {
+    let Some(task) = tasks.get(&id) else {
         return (
             axum::http::StatusCode::NOT_FOUND,
             Json(serde_json::json!({"error": "task not found"})),
@@ -1494,7 +1498,7 @@ async fn update_task(
     Json(req): Json<UpdateTaskRequest>,
 ) -> impl IntoResponse {
     let mut tasks = state.tasks.write().await;
-    let Some(task) = tasks.iter_mut().find(|t| t.id == id) else {
+    let Some(task) = tasks.get_mut(&id) else {
         return (
             axum::http::StatusCode::NOT_FOUND,
             Json(serde_json::json!({"error": "task not found"})),
@@ -1574,9 +1578,7 @@ async fn delete_task(
     Path(id): Path<Uuid>,
 ) -> impl IntoResponse {
     let mut tasks = state.tasks.write().await;
-    let len_before = tasks.len();
-    tasks.retain(|t| t.id != id);
-    if tasks.len() == len_before {
+    if tasks.remove(&id).is_none() {
         return (
             axum::http::StatusCode::NOT_FOUND,
             Json(serde_json::json!({"error": "task not found"})),
@@ -1621,7 +1623,7 @@ async fn update_task_phase(
     Json(req): Json<UpdateTaskPhaseRequest>,
 ) -> impl IntoResponse {
     let mut tasks = state.tasks.write().await;
-    let Some(task) = tasks.iter_mut().find(|t| t.id == id) else {
+    let Some(task) = tasks.get_mut(&id) else {
         return (
             axum::http::StatusCode::NOT_FOUND,
             Json(serde_json::json!({"error": "task not found"})),
@@ -1676,7 +1678,7 @@ async fn get_task_logs(
     Path(id): Path<Uuid>,
 ) -> impl IntoResponse {
     let tasks = state.tasks.read().await;
-    let Some(task) = tasks.iter().find(|t| t.id == id) else {
+    let Some(task) = tasks.get(&id) else {
         return (
             axum::http::StatusCode::NOT_FOUND,
             Json(serde_json::json!({"error": "task not found"})),
@@ -1739,7 +1741,7 @@ async fn execute_task_pipeline(
     body: Option<Json<ExecuteTaskRequest>>,
 ) -> impl IntoResponse {
     let mut tasks = state.tasks.write().await;
-    let Some(task) = tasks.iter_mut().find(|t| t.id == id) else {
+    let Some(task) = tasks.get_mut(&id) else {
         return (
             axum::http::StatusCode::NOT_FOUND,
             Json(serde_json::json!({"error": "task not found"})),
@@ -1850,7 +1852,7 @@ async fn execute_task_pipeline(
 /// event bus as it progresses through phases.
 async fn run_pipeline_background(
     task: Task,
-    tasks_store: Arc<RwLock<Vec<Task>>>,
+    tasks_store: Arc<RwLock<std::collections::HashMap<Uuid, Task>>>,
     event_bus: EventBus,
     pty_pool: Option<Arc<at_session::pty_pool::PtyPool>>,
     _cli_type: CliType,
@@ -1872,7 +1874,7 @@ async fn run_pipeline_background(
 
     // Helper: record a build log line on the task and publish it over the
     // event bus so WebSocket subscribers see it in real time.
-    let emit_build_log = |tasks_store: &Arc<RwLock<Vec<Task>>>,
+    let emit_build_log = |tasks_store: &Arc<RwLock<std::collections::HashMap<Uuid, Task>>>,
                           event_bus: &EventBus,
                           task_id: Uuid,
                           bead_id: Uuid,
@@ -1898,7 +1900,7 @@ async fn run_pipeline_background(
         // Return a future that stores the entry on the task.
         async move {
             let mut tasks = ts.write().await;
-            if let Some(t) = tasks.iter_mut().find(|t| t.id == task_id) {
+            if let Some(t) = tasks.get_mut(&task_id) {
                 t.build_logs.push(BuildLogEntry {
                     timestamp: chrono::Utc::now(),
                     stream,
@@ -1963,7 +1965,7 @@ async fn run_pipeline_background(
     // Transition to QA
     {
         let mut tasks = tasks_store.write().await;
-        if let Some(t) = tasks.iter_mut().find(|t| t.id == task.id) {
+        if let Some(t) = tasks.get_mut(&task.id) {
             t.set_phase(TaskPhase::Qa);
             event_bus.publish(crate::protocol::BridgeMessage::TaskUpdate(Box::new(t.clone())));
         }
@@ -2030,7 +2032,7 @@ async fn run_pipeline_background(
         // Transition to Fixing
         {
             let mut tasks = tasks_store.write().await;
-            if let Some(t) = tasks.iter_mut().find(|t| t.id == task.id) {
+            if let Some(t) = tasks.get_mut(&task.id) {
                 t.set_phase(TaskPhase::Fixing);
                 event_bus.publish(crate::protocol::BridgeMessage::TaskUpdate(Box::new(t.clone())));
             }
@@ -2039,7 +2041,7 @@ async fn run_pipeline_background(
         // Re-run QA
         {
             let mut tasks = tasks_store.write().await;
-            if let Some(t) = tasks.iter_mut().find(|t| t.id == task.id) {
+            if let Some(t) = tasks.get_mut(&task.id) {
                 t.set_phase(TaskPhase::Qa);
                 event_bus.publish(crate::protocol::BridgeMessage::TaskUpdate(Box::new(t.clone())));
             }
@@ -2072,7 +2074,7 @@ async fn run_pipeline_background(
     // Store the QA report on the task
     {
         let mut tasks = tasks_store.write().await;
-        if let Some(t) = tasks.iter_mut().find(|t| t.id == task.id) {
+        if let Some(t) = tasks.get_mut(&task.id) {
             t.qa_report = Some(report.clone());
 
             let next_phase = report.next_phase();
@@ -2162,7 +2164,7 @@ async fn get_build_logs(
     Query(q): Query<BuildLogsQuery>,
 ) -> impl IntoResponse {
     let tasks = state.tasks.read().await;
-    let Some(task) = tasks.iter().find(|t| t.id == id) else {
+    let Some(task) = tasks.get(&id) else {
         return (
             axum::http::StatusCode::NOT_FOUND,
             Json(serde_json::json!({"error": "task not found"})),
@@ -2231,7 +2233,7 @@ async fn get_build_status(
     Path(id): Path<Uuid>,
 ) -> impl IntoResponse {
     let tasks = state.tasks.read().await;
-    let Some(task) = tasks.iter().find(|t| t.id == id) else {
+    let Some(task) = tasks.get(&id) else {
         return (
             axum::http::StatusCode::NOT_FOUND,
             Json(serde_json::json!({"error": "task not found"})),
@@ -3219,7 +3221,7 @@ pub(crate) async fn simulate_planning_poker_for_bead(
 
     let bead = {
         let beads = state.beads.read().await;
-        beads.iter().find(|b| b.id == req.bead_id).cloned()
+        beads.get(&req.bead_id).cloned()
     }
     .ok_or_else(|| {
         (
@@ -3488,7 +3490,7 @@ async fn start_planning_poker(
 
     let bead_exists = {
         let beads = state.beads.read().await;
-        beads.iter().any(|b| b.id == req.bead_id)
+        beads.contains_key(&req.bead_id)
     };
     if !bead_exists {
         return (
@@ -3849,7 +3851,7 @@ async fn trigger_github_sync(State(state): State<Arc<ApiState>>) -> impl IntoRes
         status.is_syncing = true;
     }
 
-    let existing_beads: Vec<Bead> = state.beads.read().await.clone();
+    let existing_beads: Vec<Bead> = state.beads.read().await.values().cloned().collect();
     let engine = IssueSyncEngine::new(client);
     let new_beads = match engine.import_open_issues(&existing_beads).await {
         Ok(b) => b,
@@ -3864,7 +3866,12 @@ async fn trigger_github_sync(State(state): State<Arc<ApiState>>) -> impl IntoRes
     };
 
     let imported_count = new_beads.len() as u64;
-    state.beads.write().await.extend(new_beads);
+    {
+        let mut beads = state.beads.write().await;
+        for b in new_beads {
+            beads.insert(b.id, b);
+        }
+    }
 
     {
         let mut status = state.sync_status.write().await;
@@ -3895,7 +3902,7 @@ async fn create_pr_for_task(
     body: Option<Json<CreatePrRequest>>,
 ) -> impl IntoResponse {
     let tasks = state.tasks.read().await;
-    let task = match tasks.iter().find(|t| t.id == task_id) {
+    let task = match tasks.get(&task_id) {
         Some(t) => t.clone(),
         None => {
             return (
@@ -5016,7 +5023,7 @@ async fn list_queue(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
 
     // Filter to tasks in Discovery phase (queued/not-yet-started)
     let mut queued: Vec<_> = tasks
-        .iter()
+        .values()
         .filter(|t| t.phase == TaskPhase::Discovery && t.started_at.is_none())
         .cloned()
         .collect();
@@ -5066,7 +5073,7 @@ async fn reorder_queue(
     // Validate all task IDs exist
     let tasks = state.tasks.read().await;
     for task_id in &req.task_ids {
-        if !tasks.iter().any(|t| t.id == *task_id) {
+        if !tasks.contains_key(task_id) {
             return (
                 axum::http::StatusCode::NOT_FOUND,
                 Json(serde_json::json!({"error": format!("task {} not found", task_id)})),
@@ -5095,7 +5102,7 @@ async fn prioritize_task(
     Json(req): Json<PrioritizeRequest>,
 ) -> impl IntoResponse {
     let mut tasks = state.tasks.write().await;
-    let Some(task) = tasks.iter_mut().find(|t| t.id == task_id) else {
+    let Some(task) = tasks.get_mut(&task_id) else {
         return (
             axum::http::StatusCode::NOT_FOUND,
             Json(serde_json::json!({"error": "task not found"})),
@@ -5413,7 +5420,7 @@ async fn import_github_issue(
     };
 
     let bead = issues::import_issue_as_task(&issue);
-    state.beads.write().await.push(bead.clone());
+    state.beads.write().await.insert(bead.id, bead.clone());
 
     (
         axum::http::StatusCode::CREATED,
@@ -5663,7 +5670,7 @@ struct AgentSessionEntry {
 async fn list_agent_sessions(State(state): State<Arc<ApiState>>) -> Json<Vec<AgentSessionEntry>> {
     let agents = state.agents.read().await;
     let sessions: Vec<AgentSessionEntry> = agents
-        .iter()
+        .values()
         .map(|a| {
             let duration_secs = (chrono::Utc::now() - a.created_at).num_seconds().max(0) as u64;
             let mins = duration_secs / 60;
@@ -7022,7 +7029,7 @@ mod tests {
         let task_id = task.id;
         {
             let mut tasks = state.tasks.write().await;
-            tasks.push(task);
+            tasks.insert(task_id, task);
         }
 
         let req = Request::builder()
@@ -7057,7 +7064,7 @@ mod tests {
         let task_id = task.id;
         {
             let mut tasks = state.tasks.write().await;
-            tasks.push(task);
+            tasks.insert(task_id, task);
         }
 
         let req = Request::builder()
@@ -7093,7 +7100,7 @@ mod tests {
         let task_id = task.id;
         {
             let mut tasks = state.tasks.write().await;
-            tasks.push(task);
+            tasks.insert(task_id, task);
         }
 
         let req = Request::builder()
@@ -7435,7 +7442,7 @@ mod tests {
             TaskComplexity::Small,
         );
         let task_id = task.id;
-        state.tasks.write().await.push(task);
+        state.tasks.write().await.insert(task_id, task);
 
         let req = Request::builder()
             .method("POST")
@@ -7461,7 +7468,7 @@ mod tests {
         );
         task.set_phase(TaskPhase::Planning);
         let task_id = task.id;
-        state.tasks.write().await.push(task);
+        state.tasks.write().await.insert(task_id, task);
 
         let req = Request::builder()
             .method("POST")
@@ -7480,7 +7487,7 @@ mod tests {
 
         // Verify task phase was updated to Coding
         let tasks = state.tasks.read().await;
-        let t = tasks.iter().find(|t| t.id == task_id).unwrap();
+        let t = tasks.get(&task_id).unwrap();
         assert_eq!(t.phase, TaskPhase::Coding);
     }
 

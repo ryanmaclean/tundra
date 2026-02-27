@@ -1,0 +1,1579 @@
+warning: profile package spec `at-leptos-ui` in profile `release` did not match any packages
+   Compiling at-tauri v0.1.0 (/Users/studio/rust-harness/.auto-claude/worktrees/tasks/021-replace-vec-based-collections-with-hashmap-lookups/app/tauri)
+warning: unused import: `tracing::info`
+ --> crates/at-daemon/src/metrics.rs:5:5
+  |
+5 | use tracing::info;
+  |     ^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `total_events`
+   --> crates/at-daemon/src/benchmarks.rs:212:13
+    |
+212 |         let total_events = events_per_second * duration_seconds;
+    |             ^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_total_events`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: struct `PerformanceBenchmarks` is never constructed
+ --> crates/at-daemon/src/benchmarks.rs:7:12
+  |
+7 | pub struct PerformanceBenchmarks;
+  |            ^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: multiple associated functions are never used
+   --> crates/at-daemon/src/benchmarks.rs:11:18
+    |
+  9 | impl PerformanceBenchmarks {
+    | -------------------------- associated functions in this implementation
+ 10 |     /// Benchmark 1: Span creation overhead
+ 11 |     pub async fn benchmark_span_creation() -> Result<()> {
+    |                  ^^^^^^^^^^^^^^^^^^^^^^^
+...
+ 45 |     pub async fn benchmark_metrics_recording() -> Result<()> {
+    |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+ 87 |     pub async fn benchmark_concurrent_operations() -> Result<()> {
+    |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+155 |     pub async fn benchmark_memory_usage() -> Result<()> {
+    |                  ^^^^^^^^^^^^^^^^^^^^^^
+...
+207 |     pub async fn benchmark_datadog_throughput() -> Result<()> {
+    |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+262 |     fn get_memory_usage() -> u64 {
+    |        ^^^^^^^^^^^^^^^^
+...
+284 |     pub async fn run_all_benchmarks() -> Result<()> {
+    |                  ^^^^^^^^^^^^^^^^^^
+
+warning: field `histograms` is never read
+  --> crates/at-daemon/src/metrics.rs:12:5
+   |
+ 9 | pub struct MetricsCollector {
+   |            ---------------- field in this struct
+...
+12 |     histograms: Arc<RwLock<HashMap<String, Vec<f64>>>>,
+   |     ^^^^^^^^^^
+   |
+   = note: `MetricsCollector` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+
+warning: methods `record_histogram`, `get_metrics_snapshot`, and `reset` are never used
+  --> crates/at-daemon/src/metrics.rs:51:18
+   |
+15 | impl MetricsCollector {
+   | --------------------- methods in this implementation
+...
+51 |     pub async fn record_histogram(&self, name: &str, value: f64, tags: &[(&str, &str)]) {
+   |                  ^^^^^^^^^^^^^^^^
+...
+66 |     pub async fn get_metrics_snapshot(&self) -> MetricsSnapshot {
+   |                  ^^^^^^^^^^^^^^^^^^^^
+...
+93 |     pub async fn reset(&self) {
+   |                  ^^^^^
+
+warning: struct `MetricsSnapshot` is never constructed
+   --> crates/at-daemon/src/metrics.rs:102:12
+    |
+102 | pub struct MetricsSnapshot {
+    |            ^^^^^^^^^^^^^^^
+
+warning: method `histogram_stats` is never used
+   --> crates/at-daemon/src/metrics.rs:110:12
+    |
+108 | impl MetricsSnapshot {
+    | -------------------- method in this implementation
+109 |     /// Calculate histogram statistics
+110 |     pub fn histogram_stats(&self, key: &str) -> Option<HistogramStats> {
+    |            ^^^^^^^^^^^^^^^
+
+warning: struct `HistogramStats` is never constructed
+   --> crates/at-daemon/src/metrics.rs:144:12
+    |
+144 | pub struct HistogramStats {
+    |            ^^^^^^^^^^^^^^
+
+warning: multiple associated functions are never used
+   --> crates/at-daemon/src/metrics.rs:210:18
+    |
+197 | impl AppMetrics {
+    | --------------- associated functions in this implementation
+...
+210 |     pub async fn api_request(method: &str, endpoint: &str, status: u16, duration_ms: f64) {
+    |                  ^^^^^^^^^^^
+...
+226 |     pub async fn frontend_request(path: &str, status: u16, duration_ms: f64) {
+    |                  ^^^^^^^^^^^^^^^^
+...
+236 |     pub async fn task_executed(task_type: &str, success: bool, duration_ms: f64) {
+    |                  ^^^^^^^^^^^^^
+...
+246 |     pub async fn llm_request(
+    |                  ^^^^^^^^^^^
+...
+292 |     pub async fn llm_agent_execution(
+    |                  ^^^^^^^^^^^^^^^^^^^
+...
+313 |     pub async fn memory_usage_mb(usage_mb: f64) {
+    |                  ^^^^^^^^^^^^^^^
+...
+318 |     pub async fn cpu_usage_percent(percent: f64) {
+    |                  ^^^^^^^^^^^^^^^^^
+...
+323 |     pub async fn active_connections(count: u64) {
+    |                  ^^^^^^^^^^^^^^^^^^
+...
+328 |     pub async fn error_occurred(error_type: &str, component: &str) {
+    |                  ^^^^^^^^^^^^^^
+
+warning: function `profile_function` is never used
+  --> crates/at-daemon/src/profiling.rs:89:8
+   |
+89 | pub fn profile_function<F, R>(name: &str, f: F) -> R
+   |        ^^^^^^^^^^^^^^^^
+
+warning: struct `ProfilingTests` is never constructed
+  --> crates/at-daemon/src/profiling_tests.rs:10:12
+   |
+10 | pub struct ProfilingTests;
+   |            ^^^^^^^^^^^^^^
+
+warning: multiple associated functions are never used
+   --> crates/at-daemon/src/profiling_tests.rs:14:18
+    |
+ 12 | impl ProfilingTests {
+    | ------------------- associated functions in this implementation
+ 13 |     /// Test 1: Basic profiling functionality
+ 14 |     pub async fn test_basic_profiling() -> Result<()> {
+    |                  ^^^^^^^^^^^^^^^^^^^^
+...
+ 38 |     pub async fn test_llm_observability() -> Result<()> {
+    |                  ^^^^^^^^^^^^^^^^^^^^^^
+...
+ 56 |     pub async fn test_performance_load() -> Result<()> {
+    |                  ^^^^^^^^^^^^^^^^^^^^^
+...
+ 82 |     pub async fn test_error_handling() -> Result<()> {
+    |                  ^^^^^^^^^^^^^^^^^^^
+...
+105 |     pub async fn test_concurrent_operations() -> Result<()> {
+    |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+145 |     pub async fn test_resource_usage() -> Result<()> {
+    |                  ^^^^^^^^^^^^^^^^^^^
+...
+174 |     pub async fn test_datadog_integration() -> Result<()> {
+    |                  ^^^^^^^^^^^^^^^^^^^^^^^^
+...
+227 |     pub async fn run_all_tests() -> Result<()> {
+    |                  ^^^^^^^^^^^^^
+
+warning: `at-daemon` (bin "at-daemon") generated 13 warnings (run `cargo fix --bin "at-daemon"` to apply 1 suggestion)
+warning: variable does not need to be mutable
+   --> crates/at-tui/tests/../src/effects.rs:190:13
+    |
+190 |         let mut effect = fade_in();
+    |             ----^^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+   --> crates/at-tui/tests/../src/effects.rs:198:13
+    |
+198 |         let mut effect = dissolve();
+    |             ----^^^^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> crates/at-tui/tests/../src/effects.rs:211:17
+    |
+211 |             let mut effect = sweep_in(dir);
+    |                 ----^^^^^^
+    |                 |
+    |                 help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> crates/at-tui/tests/../src/effects.rs:222:13
+    |
+222 |         let mut effect = glow_pulse();
+    |             ----^^^^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> crates/at-tui/tests/../src/effects.rs:231:13
+    |
+231 |         let mut effect = particle_burst();
+    |             ----^^^^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: struct `ApiClient` is never constructed
+ --> crates/at-tui/tests/../src/api_client.rs:9:12
+  |
+9 | pub struct ApiClient {
+  |            ^^^^^^^^^
+  |
+  = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: struct `ApiAgent` is never constructed
+  --> crates/at-tui/tests/../src/api_client.rs:17:12
+   |
+17 | pub struct ApiAgent {
+   |            ^^^^^^^^
+
+warning: struct `ApiBead` is never constructed
+  --> crates/at-tui/tests/../src/api_client.rs:29:12
+   |
+29 | pub struct ApiBead {
+   |            ^^^^^^^
+
+warning: struct `ApiKpi` is never constructed
+  --> crates/at-tui/tests/../src/api_client.rs:45:12
+   |
+45 | pub struct ApiKpi {
+   |            ^^^^^^
+
+warning: struct `ApiSession` is never constructed
+  --> crates/at-tui/tests/../src/api_client.rs:65:12
+   |
+65 | pub struct ApiSession {
+   |            ^^^^^^^^^^
+
+warning: struct `ApiConvoy` is never constructed
+  --> crates/at-tui/tests/../src/api_client.rs:79:12
+   |
+79 | pub struct ApiConvoy {
+   |            ^^^^^^^^^
+
+warning: struct `ApiCosts` is never constructed
+  --> crates/at-tui/tests/../src/api_client.rs:93:12
+   |
+93 | pub struct ApiCosts {
+   |            ^^^^^^^^
+
+warning: struct `ApiCostSession` is never constructed
+   --> crates/at-tui/tests/../src/api_client.rs:103:12
+    |
+103 | pub struct ApiCostSession {
+    |            ^^^^^^^^^^^^^^
+
+warning: struct `ApiMcpServer` is never constructed
+   --> crates/at-tui/tests/../src/api_client.rs:115:12
+    |
+115 | pub struct ApiMcpServer {
+    |            ^^^^^^^^^^^^
+
+warning: struct `ApiWorktree` is never constructed
+   --> crates/at-tui/tests/../src/api_client.rs:125:12
+    |
+125 | pub struct ApiWorktree {
+    |            ^^^^^^^^^^^
+
+warning: struct `ApiGithubIssue` is never constructed
+   --> crates/at-tui/tests/../src/api_client.rs:139:12
+    |
+139 | pub struct ApiGithubIssue {
+    |            ^^^^^^^^^^^^^^
+
+warning: struct `ApiGithubPr` is never constructed
+   --> crates/at-tui/tests/../src/api_client.rs:155:12
+    |
+155 | pub struct ApiGithubPr {
+    |            ^^^^^^^^^^^
+
+warning: struct `ApiRoadmapFeature` is never constructed
+   --> crates/at-tui/tests/../src/api_client.rs:171:12
+    |
+171 | pub struct ApiRoadmapFeature {
+    |            ^^^^^^^^^^^^^^^^^
+
+warning: struct `ApiRoadmap` is never constructed
+   --> crates/at-tui/tests/../src/api_client.rs:185:12
+    |
+185 | pub struct ApiRoadmap {
+    |            ^^^^^^^^^^
+
+warning: struct `ApiRoadmapItem` is never constructed
+   --> crates/at-tui/tests/../src/api_client.rs:195:12
+    |
+195 | pub struct ApiRoadmapItem {
+    |            ^^^^^^^^^^^^^^
+
+warning: struct `ApiIdea` is never constructed
+   --> crates/at-tui/tests/../src/api_client.rs:204:12
+    |
+204 | pub struct ApiIdea {
+    |            ^^^^^^^
+
+warning: struct `ApiStackNode` is never constructed
+   --> crates/at-tui/tests/../src/api_client.rs:220:12
+    |
+220 | pub struct ApiStackNode {
+    |            ^^^^^^^^^^^^
+
+warning: struct `ApiStack` is never constructed
+   --> crates/at-tui/tests/../src/api_client.rs:236:12
+    |
+236 | pub struct ApiStack {
+    |            ^^^^^^^^
+
+warning: struct `ApiChangelogSection` is never constructed
+   --> crates/at-tui/tests/../src/api_client.rs:245:12
+    |
+245 | pub struct ApiChangelogSection {
+    |            ^^^^^^^^^^^^^^^^^^^
+
+warning: struct `ApiChangelogEntry` is never constructed
+   --> crates/at-tui/tests/../src/api_client.rs:253:12
+    |
+253 | pub struct ApiChangelogEntry {
+    |            ^^^^^^^^^^^^^^^^^
+
+warning: struct `ApiMemoryEntry` is never constructed
+   --> crates/at-tui/tests/../src/api_client.rs:265:12
+    |
+265 | pub struct ApiMemoryEntry {
+    |            ^^^^^^^^^^^^^^
+
+warning: struct `AppData` is never constructed
+   --> crates/at-tui/tests/../src/api_client.rs:279:12
+    |
+279 | pub struct AppData {
+    |            ^^^^^^^
+
+warning: multiple associated items are never used
+   --> crates/at-tui/tests/../src/api_client.rs:298:12
+    |
+297 | impl ApiClient {
+    | -------------- associated items in this implementation
+298 |     pub fn new(base: &str) -> Self {
+    |            ^^^
+...
+309 |     fn get<T: for<'de> Deserialize<'de>>(&self, path: &str) -> Result<T, String> {
+    |        ^^^
+...
+324 |     pub fn fetch_agents(&self) -> Result<Vec<ApiAgent>, String> {
+    |            ^^^^^^^^^^^^
+...
+328 |     pub fn fetch_beads(&self) -> Result<Vec<ApiBead>, String> {
+    |            ^^^^^^^^^^^
+...
+332 |     pub fn fetch_kpi(&self) -> Result<ApiKpi, String> {
+    |            ^^^^^^^^^
+...
+336 |     pub fn fetch_sessions(&self) -> Result<Vec<ApiSession>, String> {
+    |            ^^^^^^^^^^^^^^
+...
+340 |     pub fn fetch_convoys(&self) -> Result<Vec<ApiConvoy>, String> {
+    |            ^^^^^^^^^^^^^
+...
+344 |     pub fn fetch_costs(&self) -> Result<ApiCosts, String> {
+    |            ^^^^^^^^^^^
+...
+348 |     pub fn fetch_mcp_servers(&self) -> Result<Vec<ApiMcpServer>, String> {
+    |            ^^^^^^^^^^^^^^^^^
+...
+352 |     pub fn fetch_worktrees(&self) -> Result<Vec<ApiWorktree>, String> {
+    |            ^^^^^^^^^^^^^^^
+...
+356 |     pub fn fetch_github_issues(&self) -> Result<Vec<ApiGithubIssue>, String> {
+    |            ^^^^^^^^^^^^^^^^^^^
+...
+360 |     pub fn fetch_github_prs(&self) -> Result<Vec<ApiGithubPr>, String> {
+    |            ^^^^^^^^^^^^^^^^
+...
+364 |     pub fn fetch_roadmap(&self) -> Result<Vec<ApiRoadmapItem>, String> {
+    |            ^^^^^^^^^^^^^
+...
+369 |     pub fn fetch_ideas(&self) -> Result<Vec<ApiIdea>, String> {
+    |            ^^^^^^^^^^^
+...
+373 |     pub fn fetch_stacks(&self) -> Result<Vec<ApiStack>, String> {
+    |            ^^^^^^^^^^^^
+...
+377 |     pub fn fetch_changelog(&self) -> Result<Vec<ApiChangelogEntry>, String> {
+    |            ^^^^^^^^^^^^^^^
+...
+381 |     pub fn fetch_memory(&self) -> Result<Vec<ApiMemoryEntry>, String> {
+    |            ^^^^^^^^^^^^
+...
+387 |     pub fn fetch_all(&self) -> AppData {
+    |            ^^^^^^^^^
+
+warning: function `flatten_roadmaps` is never used
+   --> crates/at-tui/tests/../src/api_client.rs:421:4
+    |
+421 | fn flatten_roadmaps(roadmaps: Vec<ApiRoadmap>) -> Vec<ApiRoadmapItem> {
+    |    ^^^^^^^^^^^^^^^^
+
+warning: fields `timestamp` and `message` are never read
+  --> crates/at-tui/tests/../src/app.rs:88:9
+   |
+87 | pub struct ActivityEntry {
+   |            ------------- fields in this struct
+88 |     pub timestamp: DateTime<Utc>,
+   |         ^^^^^^^^^
+89 |     pub message: String,
+   |         ^^^^^^^
+   |
+   = note: `ActivityEntry` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: fields `active_agents`, `total_beads`, `active_convoys`, and `total_cost` are never read
+   --> crates/at-tui/tests/../src/app.rs:172:9
+    |
+171 | pub struct KpiView {
+    |            ------- fields in this struct
+172 |     pub active_agents: u64,
+    |         ^^^^^^^^^^^^^
+173 |     pub total_beads: u64,
+    |         ^^^^^^^^^^^
+174 |     pub active_convoys: u64,
+    |         ^^^^^^^^^^^^^^
+175 |     pub total_cost: f64,
+    |         ^^^^^^^^^^
+    |
+    = note: `KpiView` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: fields `activity`, `kpi`, `effects`, `last_tick`, and `toasts` are never read
+   --> crates/at-tui/tests/../src/app.rs:201:9
+    |
+182 | pub struct App {
+    |            --- fields in this struct
+...
+201 |     pub activity: Vec<ActivityEntry>,
+    |         ^^^^^^^^
+202 |     pub kpi: KpiView,
+    |         ^^^
+203 |     pub config_text: String,
+204 |     pub effects: crate::effects::EffectManager,
+    |         ^^^^^^^
+205 |     pub last_tick: std::time::Instant,
+    |         ^^^^^^^^^
+...
+228 |     pub toasts: crate::widgets::toast::ToastManager,
+    |         ^^^^^^
+
+warning: method `apply_data` is never used
+   --> crates/at-tui/tests/../src/app.rs:271:12
+    |
+231 | impl App {
+    | -------- method in this implementation
+...
+271 |     pub fn apply_data(&mut self, data: api_client::AppData) {
+    |            ^^^^^^^^^^
+
+warning: function `parse_role` is never used
+   --> crates/at-tui/tests/../src/app.rs:704:4
+    |
+704 | fn parse_role(s: &str) -> AgentRole {
+    |    ^^^^^^^^^^
+
+warning: function `parse_agent_status` is never used
+   --> crates/at-tui/tests/../src/app.rs:717:4
+    |
+717 | fn parse_agent_status(s: &str) -> AgentStatus {
+    |    ^^^^^^^^^^^^^^^^^^
+
+warning: function `parse_bead_status` is never used
+   --> crates/at-tui/tests/../src/app.rs:727:4
+    |
+727 | fn parse_bead_status(s: &str) -> BeadStatus {
+    |    ^^^^^^^^^^^^^^^^^
+
+warning: function `parse_lane` is never used
+   --> crates/at-tui/tests/../src/app.rs:738:4
+    |
+738 | fn parse_lane(s: &str) -> Lane {
+    |    ^^^^^^^^^^
+
+warning: function `parse_cli_type` is never used
+   --> crates/at-tui/tests/../src/app.rs:746:4
+    |
+746 | fn parse_cli_type(s: &str) -> CliType {
+    |    ^^^^^^^^^^^^^^
+
+warning: function `parse_convoy_status` is never used
+   --> crates/at-tui/tests/../src/app.rs:755:4
+    |
+755 | fn parse_convoy_status(s: &str) -> ConvoyStatus {
+    |    ^^^^^^^^^^^^^^^^^^^
+
+warning: function `render` is never used
+ --> crates/at-tui/tests/../src/tabs/agents.rs:9:8
+  |
+9 | pub fn render(frame: &mut Frame, app: &App, area: Rect) {
+  |        ^^^^^^
+
+warning: function `render` is never used
+  --> crates/at-tui/tests/../src/tabs/analytics.rs:10:8
+   |
+10 | pub fn render(frame: &mut Frame, _app: &App, area: Rect) {
+   |        ^^^^^^
+
+warning: function `render` is never used
+  --> crates/at-tui/tests/../src/tabs/beads.rs:10:8
+   |
+10 | pub fn render(frame: &mut Frame, app: &App, area: Rect) {
+   |        ^^^^^^
+
+warning: function `render` is never used
+ --> crates/at-tui/tests/../src/tabs/changelog.rs:9:8
+  |
+9 | pub fn render(frame: &mut Frame, app: &App, area: Rect) {
+  |        ^^^^^^
+
+warning: function `render` is never used
+  --> crates/at-tui/tests/../src/tabs/config.rs:10:8
+   |
+10 | pub fn render(frame: &mut Frame, app: &App, area: Rect) {
+   |        ^^^^^^
+
+warning: function `render` is never used
+ --> crates/at-tui/tests/../src/tabs/context.rs:9:8
+  |
+9 | pub fn render(frame: &mut Frame, app: &App, area: Rect) {
+  |        ^^^^^^
+
+warning: function `render_index` is never used
+  --> crates/at-tui/tests/../src/tabs/context.rs:43:4
+   |
+43 | fn render_index(frame: &mut Frame, _app: &App, area: Rect) {
+   |    ^^^^^^^^^^^^
+
+warning: function `render_memory` is never used
+  --> crates/at-tui/tests/../src/tabs/context.rs:90:4
+   |
+90 | fn render_memory(frame: &mut Frame, app: &App, area: Rect) {
+   |    ^^^^^^^^^^^^^
+
+warning: function `render` is never used
+  --> crates/at-tui/tests/../src/tabs/convoys.rs:10:8
+   |
+10 | pub fn render(frame: &mut Frame, app: &App, area: Rect) {
+   |        ^^^^^^
+
+warning: function `render` is never used
+  --> crates/at-tui/tests/../src/tabs/costs.rs:10:8
+   |
+10 | pub fn render(frame: &mut Frame, app: &App, area: Rect) {
+   |        ^^^^^^
+
+warning: function `render` is never used
+  --> crates/at-tui/tests/../src/tabs/dashboard.rs:10:8
+   |
+10 | pub fn render(frame: &mut Frame, app: &App, area: Rect) {
+   |        ^^^^^^
+
+warning: function `render_kpi_cards` is never used
+  --> crates/at-tui/tests/../src/tabs/dashboard.rs:30:4
+   |
+30 | fn render_kpi_cards(frame: &mut Frame, app: &App, area: Rect) {
+   |    ^^^^^^^^^^^^^^^^
+
+warning: function `render_agent_summary` is never used
+  --> crates/at-tui/tests/../src/tabs/dashboard.rs:71:4
+   |
+71 | fn render_agent_summary(frame: &mut Frame, app: &App, area: Rect) {
+   |    ^^^^^^^^^^^^^^^^^^^^
+
+warning: function `render_activity_feed` is never used
+  --> crates/at-tui/tests/../src/tabs/dashboard.rs:92:4
+   |
+92 | fn render_activity_feed(frame: &mut Frame, app: &App, area: Rect) {
+   |    ^^^^^^^^^^^^^^^^^^^^
+
+warning: function `glyph_color` is never used
+   --> crates/at-tui/tests/../src/tabs/dashboard.rs:109:4
+    |
+109 | fn glyph_color(glyph: &str) -> Color {
+    |    ^^^^^^^^^^^
+
+warning: function `format_role` is never used
+   --> crates/at-tui/tests/../src/tabs/dashboard.rs:120:4
+    |
+120 | fn format_role(role: &at_core::types::AgentRole) -> &'static str {
+    |    ^^^^^^^^^^^
+
+warning: function `render` is never used
+ --> crates/at-tui/tests/../src/tabs/github_issues.rs:9:8
+  |
+9 | pub fn render(frame: &mut Frame, app: &App, area: Rect) {
+  |        ^^^^^^
+
+warning: function `render` is never used
+ --> crates/at-tui/tests/../src/tabs/github_prs.rs:9:8
+  |
+9 | pub fn render(frame: &mut Frame, app: &App, area: Rect) {
+  |        ^^^^^^
+
+warning: function `render` is never used
+ --> crates/at-tui/tests/../src/tabs/ideation.rs:9:8
+  |
+9 | pub fn render(frame: &mut Frame, app: &App, area: Rect) {
+  |        ^^^^^^
+
+warning: function `render` is never used
+ --> crates/at-tui/tests/../src/tabs/mcp.rs:9:8
+  |
+9 | pub fn render(frame: &mut Frame, app: &App, area: Rect) {
+  |        ^^^^^^
+
+warning: function `render` is never used
+ --> crates/at-tui/tests/../src/tabs/roadmap.rs:9:8
+  |
+9 | pub fn render(frame: &mut Frame, app: &App, area: Rect) {
+  |        ^^^^^^
+
+warning: function `render` is never used
+ --> crates/at-tui/tests/../src/tabs/sessions.rs:9:8
+  |
+9 | pub fn render(frame: &mut Frame, app: &App, area: Rect) {
+  |        ^^^^^^
+
+warning: function `render` is never used
+ --> crates/at-tui/tests/../src/tabs/stacks.rs:9:8
+  |
+9 | pub fn render(frame: &mut Frame, app: &App, area: Rect) {
+  |        ^^^^^^
+
+warning: function `render` is never used
+ --> crates/at-tui/tests/../src/tabs/worktrees.rs:9:8
+  |
+9 | pub fn render(frame: &mut Frame, app: &App, area: Rect) {
+  |        ^^^^^^
+
+warning: function `render` is never used
+  --> crates/at-tui/tests/../src/ui.rs:12:8
+   |
+12 | pub fn render(frame: &mut Frame, app: &mut App) {
+   |        ^^^^^^
+
+warning: function `render_command_bar` is never used
+  --> crates/at-tui/tests/../src/ui.rs:60:4
+   |
+60 | fn render_command_bar(frame: &mut Frame, app: &App, area: Rect) {
+   |    ^^^^^^^^^^^^^^^^^^
+
+warning: function `render_tab_bar` is never used
+  --> crates/at-tui/tests/../src/ui.rs:90:4
+   |
+90 | fn render_tab_bar(frame: &mut Frame, app: &App, area: Rect) {
+   |    ^^^^^^^^^^^^^^
+
+warning: function `tab_count` is never used
+   --> crates/at-tui/tests/../src/ui.rs:145:4
+    |
+145 | fn tab_count(app: &App, tab: usize) -> usize {
+    |    ^^^^^^^^^
+
+warning: function `render_content` is never used
+   --> crates/at-tui/tests/../src/ui.rs:163:4
+    |
+163 | fn render_content(frame: &mut Frame, app: &App, area: Rect) {
+    |    ^^^^^^^^^^^^^^
+
+warning: function `render` is never used
+ --> crates/at-tui/tests/../src/widgets/help_modal.rs:8:8
+  |
+8 | pub fn render(frame: &mut Frame) {
+  |        ^^^^^^
+
+warning: function `help_line` is never used
+  --> crates/at-tui/tests/../src/widgets/help_modal.rs:50:4
+   |
+50 | fn help_line(key: &str, desc: &str) -> Line<'static> {
+   |    ^^^^^^^^^
+
+warning: function `centered_rect` is never used
+  --> crates/at-tui/tests/../src/widgets/help_modal.rs:64:4
+   |
+64 | fn centered_rect(percent_x: u16, percent_y: u16, parent: Rect) -> Rect {
+   |    ^^^^^^^^^^^^^
+
+warning: function `render` is never used
+  --> crates/at-tui/tests/../src/widgets/status_bar.rs:11:8
+   |
+11 | pub fn render(frame: &mut Frame, app: &App, area: Rect) {
+   |        ^^^^^^
+
+warning: variant `Warning` is never constructed
+  --> crates/at-tui/tests/../src/widgets/toast.rs:13:5
+   |
+10 | pub enum ToastLevel {
+   |          ---------- variant in this enum
+...
+13 |     Warning,
+   |     ^^^^^^^
+   |
+   = note: `ToastLevel` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: methods `color` and `icon` are never used
+  --> crates/at-tui/tests/../src/widgets/toast.rs:18:8
+   |
+17 | impl ToastLevel {
+   | --------------- methods in this implementation
+18 |     fn color(&self) -> Color {
+   |        ^^^^^
+...
+27 |     fn icon(&self) -> &'static str {
+   |        ^^^^
+
+warning: fields `message` and `level` are never read
+  --> crates/at-tui/tests/../src/widgets/toast.rs:39:9
+   |
+38 | pub struct Toast {
+   |            ----- fields in this struct
+39 |     pub message: String,
+   |         ^^^^^^^
+40 |     pub level: ToastLevel,
+   |         ^^^^^
+   |
+   = note: `Toast` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: method `remaining_fraction` is never used
+  --> crates/at-tui/tests/../src/widgets/toast.rs:65:8
+   |
+45 | impl Toast {
+   | ---------- method in this implementation
+...
+65 |     fn remaining_fraction(&self) -> f64 {
+   |        ^^^^^^^^^^^^^^^^^^
+
+warning: constant `TOAST_WIDTH` is never used
+  --> crates/at-tui/tests/../src/widgets/toast.rs:76:7
+   |
+76 | const TOAST_WIDTH: u16 = 40;
+   |       ^^^^^^^^^^^
+
+warning: constant `TOAST_HEIGHT` is never used
+  --> crates/at-tui/tests/../src/widgets/toast.rs:77:7
+   |
+77 | const TOAST_HEIGHT: u16 = 3;
+   |       ^^^^^^^^^^^^
+
+warning: methods `is_empty` and `render` are never used
+   --> crates/at-tui/tests/../src/widgets/toast.rs:108:12
+    |
+ 84 | impl ToastManager {
+    | ----------------- methods in this implementation
+...
+108 |     pub fn is_empty(&self) -> bool {
+    |            ^^^^^^^^
+...
+113 |     pub fn render(&self, frame: &mut Frame, area: Rect) {
+    |            ^^^^^^
+
+warning: variable does not need to be mutable
+   --> crates/at-tui/src/effects.rs:190:13
+    |
+190 |         let mut effect = fade_in();
+    |             ----^^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+   --> crates/at-tui/src/effects.rs:198:13
+    |
+198 |         let mut effect = dissolve();
+    |             ----^^^^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> crates/at-tui/src/effects.rs:211:17
+    |
+211 |             let mut effect = sweep_in(dir);
+    |                 ----^^^^^^
+    |                 |
+    |                 help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> crates/at-tui/src/effects.rs:222:13
+    |
+222 |         let mut effect = glow_pulse();
+    |             ----^^^^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> crates/at-tui/src/effects.rs:231:13
+    |
+231 |         let mut effect = particle_burst();
+    |             ----^^^^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: field `id` is never read
+  --> crates/at-tui/src/api_client.rs:19:9
+   |
+17 | pub struct ApiAgent {
+   |            -------- field in this struct
+18 |     #[serde(default)]
+19 |     pub id: String,
+   |         ^^
+   |
+   = note: `ApiAgent` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: fields `priority` and `category` are never read
+  --> crates/at-tui/src/api_client.rs:39:9
+   |
+29 | pub struct ApiBead {
+   |            ------- fields in this struct
+...
+39 |     pub priority: i32,
+   |         ^^^^^^^^
+40 |     #[serde(default)]
+41 |     pub category: Option<String>,
+   |         ^^^^^^^^
+   |
+   = note: `ApiBead` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: fields `backlog`, `hooked`, `slung`, `review`, `done`, and `failed` are never read
+  --> crates/at-tui/src/api_client.rs:49:9
+   |
+45 | pub struct ApiKpi {
+   |            ------ fields in this struct
+...
+49 |     pub backlog: u64,
+   |         ^^^^^^^
+50 |     #[serde(default)]
+51 |     pub hooked: u64,
+   |         ^^^^^^
+52 |     #[serde(default)]
+53 |     pub slung: u64,
+   |         ^^^^^
+54 |     #[serde(default)]
+55 |     pub review: u64,
+   |         ^^^^^^
+56 |     #[serde(default)]
+57 |     pub done: u64,
+   |         ^^^^
+58 |     #[serde(default)]
+59 |     pub failed: u64,
+   |         ^^^^^^
+   |
+   = note: `ApiKpi` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: fields `id` and `bead_ids` are never read
+  --> crates/at-tui/src/api_client.rs:81:9
+   |
+79 | pub struct ApiConvoy {
+   |            --------- fields in this struct
+80 |     #[serde(default)]
+81 |     pub id: String,
+   |         ^^
+...
+89 |     pub bead_ids: Vec<String>,
+   |         ^^^^^^^^
+   |
+   = note: `ApiConvoy` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: fields `input_tokens` and `output_tokens` are never read
+  --> crates/at-tui/src/api_client.rs:95:9
+   |
+93 | pub struct ApiCosts {
+   |            -------- fields in this struct
+94 |     #[serde(default)]
+95 |     pub input_tokens: u64,
+   |         ^^^^^^^^^^^^
+96 |     #[serde(default)]
+97 |     pub output_tokens: u64,
+   |         ^^^^^^^^^^^^^
+   |
+   = note: `ApiCosts` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: fields `session_id` and `agent_name` are never read
+   --> crates/at-tui/src/api_client.rs:105:9
+    |
+103 | pub struct ApiCostSession {
+    |            -------------- fields in this struct
+104 |     #[serde(default)]
+105 |     pub session_id: String,
+    |         ^^^^^^^^^^
+106 |     #[serde(default)]
+107 |     pub agent_name: String,
+    |         ^^^^^^^^^^
+    |
+    = note: `ApiCostSession` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: fields `id` and `name` are never read
+   --> crates/at-tui/src/api_client.rs:187:9
+    |
+185 | pub struct ApiRoadmap {
+    |            ---------- fields in this struct
+186 |     #[serde(default)]
+187 |     pub id: String,
+    |         ^^
+188 |     #[serde(default)]
+189 |     pub name: String,
+    |         ^^^^
+    |
+    = note: `ApiRoadmap` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: field `stack_position` is never read
+   --> crates/at-tui/src/api_client.rs:232:9
+    |
+220 | pub struct ApiStackNode {
+    |            ------------ field in this struct
+...
+232 |     pub stack_position: u32,
+    |         ^^^^^^^^^^^^^^
+    |
+    = note: `ApiStackNode` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: field `total` is never read
+   --> crates/at-tui/src/api_client.rs:241:9
+    |
+236 | pub struct ApiStack {
+    |            -------- field in this struct
+...
+241 |     pub total: u32,
+    |         ^^^^^
+    |
+    = note: `ApiStack` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: field `id` is never read
+   --> crates/at-tui/src/api_client.rs:255:9
+    |
+253 | pub struct ApiChangelogEntry {
+    |            ----------------- field in this struct
+254 |     #[serde(default)]
+255 |     pub id: String,
+    |         ^^
+    |
+    = note: `ApiChangelogEntry` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: function `status_glyph` is never used
+   --> crates/at-tui/src/app.rs:689:8
+    |
+689 | pub fn status_glyph(status: &str) -> &'static str {
+    |        ^^^^^^^^^^^^
+
+warning: variant `Warning` is never constructed
+  --> crates/at-tui/src/widgets/toast.rs:13:5
+   |
+10 | pub enum ToastLevel {
+   |          ---------- variant in this enum
+...
+13 |     Warning,
+   |     ^^^^^^^
+   |
+   = note: `ToastLevel` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: method `is_empty` is never used
+   --> crates/at-tui/src/widgets/toast.rs:108:12
+    |
+ 84 | impl ToastManager {
+    | ----------------- method in this implementation
+...
+108 |     pub fn is_empty(&self) -> bool {
+    |            ^^^^^^^^
+
+warning: unused import: `layout::Rect`
+ --> crates/at-tui/tests/render_test.rs:9:53
+  |
+9 | use ratatui::{backend::TestBackend, buffer::Buffer, layout::Rect, Terminal};
+  |                                                     ^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `status_glyph` is never used
+   --> crates/at-tui/tests/../src/app.rs:689:8
+    |
+689 | pub fn status_glyph(status: &str) -> &'static str {
+    |        ^^^^^^^^^^^^
+
+warning: method `is_empty` is never used
+   --> crates/at-tui/tests/../src/widgets/toast.rs:108:12
+    |
+ 84 | impl ToastManager {
+    | ----------------- method in this implementation
+...
+108 |     pub fn is_empty(&self) -> bool {
+    |            ^^^^^^^^
+
+warning: unused import: `Shader`
+  --> crates/at-tui/src/effects.rs:27:85
+   |
+27 | use tachyonfx::{fx, Effect, EffectManager as TachyonManager, Interpolation, Motion, Shader};
+   |                                                                                     ^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `dissolve` is never used
+  --> crates/at-tui/src/effects.rs:70:8
+   |
+70 | pub fn dissolve() -> Effect {
+   |        ^^^^^^^^
+
+warning: function `sweep_in` is never used
+  --> crates/at-tui/src/effects.rs:77:8
+   |
+77 | pub fn sweep_in(direction: SweepDirection) -> Effect {
+   |        ^^^^^^^^
+
+warning: function `glow_pulse` is never used
+  --> crates/at-tui/src/effects.rs:91:8
+   |
+91 | pub fn glow_pulse() -> Effect {
+   |        ^^^^^^^^^^
+
+warning: function `particle_burst` is never used
+   --> crates/at-tui/src/effects.rs:102:8
+    |
+102 | pub fn particle_burst() -> Effect {
+    |        ^^^^^^^^^^^^^^
+
+warning: methods `add_named`, `remove_all`, and `is_idle` are never used
+   --> crates/at-tui/src/effects.rs:135:12
+    |
+120 | impl EffectManager {
+    | ------------------ methods in this implementation
+...
+135 |     pub fn add_named(&mut self, key: &str, effect: Effect) {
+    |            ^^^^^^^^^
+...
+148 |     pub fn remove_all(&mut self) {
+    |            ^^^^^^^^^^
+...
+153 |     pub fn is_idle(&self) -> bool {
+    |            ^^^^^^^
+
+warning: function `render_gauge` is never used
+  --> crates/at-tui/src/widgets/gauge_bar.rs:13:8
+   |
+13 | pub fn render_gauge(frame: &mut Frame, area: Rect, label: &str, progress: u16, color: Color) {
+   |        ^^^^^^^^^^^^
+
+warning: variants `Info`, `Success`, `Warning`, and `Error` are never constructed
+  --> crates/at-tui/src/widgets/toast.rs:11:5
+   |
+10 | pub enum ToastLevel {
+   |          ---------- variants in this enum
+11 |     Info,
+   |     ^^^^
+12 |     Success,
+   |     ^^^^^^^
+13 |     Warning,
+   |     ^^^^^^^
+14 |     Error,
+   |     ^^^^^
+   |
+   = note: `ToastLevel` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: associated items `new` and `with_duration` are never used
+  --> crates/at-tui/src/widgets/toast.rs:46:12
+   |
+45 | impl Toast {
+   | ---------- associated items in this implementation
+46 |     pub fn new(message: impl Into<String>, level: ToastLevel) -> Self {
+   |            ^^^
+...
+55 |     pub fn with_duration(mut self, duration: Duration) -> Self {
+   |            ^^^^^^^^^^^^^
+
+warning: constant `MAX_TOASTS` is never used
+  --> crates/at-tui/src/widgets/toast.rs:75:7
+   |
+75 | const MAX_TOASTS: usize = 5;
+   |       ^^^^^^^^^^
+
+warning: methods `push`, `len`, and `is_empty` are never used
+   --> crates/at-tui/src/widgets/toast.rs:90:12
+    |
+ 84 | impl ToastManager {
+    | ----------------- methods in this implementation
+...
+ 90 |     pub fn push(&mut self, toast: Toast) {
+    |            ^^^^
+...
+103 |     pub fn len(&self) -> usize {
+    |            ^^^
+...
+108 |     pub fn is_empty(&self) -> bool {
+    |            ^^^^^^^^
+
+warning: field `status` is never read
+  --> crates/at-tui/tests/../src/api_client.rs:25:9
+   |
+17 | pub struct ApiAgent {
+   |            -------- field in this struct
+...
+25 |     pub status: String,
+   |         ^^^^^^
+   |
+   = note: `ApiAgent` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: fields `lane`, `priority`, and `category` are never read
+  --> crates/at-tui/tests/../src/api_client.rs:37:9
+   |
+29 | pub struct ApiBead {
+   |            ------- fields in this struct
+...
+37 |     pub lane: String,
+   |         ^^^^
+38 |     #[serde(default)]
+39 |     pub priority: i32,
+   |         ^^^^^^^^
+40 |     #[serde(default)]
+41 |     pub category: Option<String>,
+   |         ^^^^^^^^
+   |
+   = note: `ApiBead` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: field `active_agents` is never read
+  --> crates/at-tui/tests/../src/api_client.rs:61:9
+   |
+45 | pub struct ApiKpi {
+   |            ------ field in this struct
+...
+61 |     pub active_agents: u64,
+   |         ^^^^^^^^^^^^^
+   |
+   = note: `ApiKpi` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: fields `cli_type` and `status` are never read
+  --> crates/at-tui/tests/../src/api_client.rs:71:9
+   |
+65 | pub struct ApiSession {
+   |            ---------- fields in this struct
+...
+71 |     pub cli_type: String,
+   |         ^^^^^^^^
+72 |     #[serde(default)]
+73 |     pub status: String,
+   |         ^^^^^^
+   |
+   = note: `ApiSession` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: fields `id`, `name`, `bead_count`, `status`, and `bead_ids` are never read
+  --> crates/at-tui/tests/../src/api_client.rs:81:9
+   |
+79 | pub struct ApiConvoy {
+   |            --------- fields in this struct
+80 |     #[serde(default)]
+81 |     pub id: String,
+   |         ^^
+82 |     #[serde(default)]
+83 |     pub name: String,
+   |         ^^^^
+84 |     #[serde(default)]
+85 |     pub bead_count: u32,
+   |         ^^^^^^^^^^
+86 |     #[serde(default)]
+87 |     pub status: String,
+   |         ^^^^^^
+88 |     #[serde(default)]
+89 |     pub bead_ids: Vec<String>,
+   |         ^^^^^^^^
+   |
+   = note: `ApiConvoy` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: field `sessions` is never read
+  --> crates/at-tui/tests/../src/api_client.rs:99:9
+   |
+93 | pub struct ApiCosts {
+   |            -------- field in this struct
+...
+99 |     pub sessions: Vec<ApiCostSession>,
+   |         ^^^^^^^^
+   |
+   = note: `ApiCosts` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: fields `session_id`, `agent_name`, `input_tokens`, and `output_tokens` are never read
+   --> crates/at-tui/tests/../src/api_client.rs:105:9
+    |
+103 | pub struct ApiCostSession {
+    |            -------------- fields in this struct
+104 |     #[serde(default)]
+105 |     pub session_id: String,
+    |         ^^^^^^^^^^
+106 |     #[serde(default)]
+107 |     pub agent_name: String,
+    |         ^^^^^^^^^^
+108 |     #[serde(default)]
+109 |     pub input_tokens: u64,
+    |         ^^^^^^^^^^^^
+110 |     #[serde(default)]
+111 |     pub output_tokens: u64,
+    |         ^^^^^^^^^^^^^
+    |
+    = note: `ApiCostSession` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: fields `name`, `status`, and `tools` are never read
+   --> crates/at-tui/tests/../src/api_client.rs:117:9
+    |
+115 | pub struct ApiMcpServer {
+    |            ------------ fields in this struct
+116 |     #[serde(default)]
+117 |     pub name: String,
+    |         ^^^^
+118 |     #[serde(default)]
+119 |     pub status: String,
+    |         ^^^^^^
+120 |     #[serde(default)]
+121 |     pub tools: Vec<String>,
+    |         ^^^^^
+    |
+    = note: `ApiMcpServer` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: fields `id`, `path`, `branch`, `bead_id`, and `status` are never read
+   --> crates/at-tui/tests/../src/api_client.rs:127:9
+    |
+125 | pub struct ApiWorktree {
+    |            ----------- fields in this struct
+126 |     #[serde(default)]
+127 |     pub id: String,
+    |         ^^
+128 |     #[serde(default)]
+129 |     pub path: String,
+    |         ^^^^
+130 |     #[serde(default)]
+131 |     pub branch: String,
+    |         ^^^^^^
+132 |     #[serde(default)]
+133 |     pub bead_id: String,
+    |         ^^^^^^^
+134 |     #[serde(default)]
+135 |     pub status: String,
+    |         ^^^^^^
+    |
+    = note: `ApiWorktree` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: fields `labels`, `assignee`, `state`, and `created` are never read
+   --> crates/at-tui/tests/../src/api_client.rs:145:9
+    |
+139 | pub struct ApiGithubIssue {
+    |            -------------- fields in this struct
+...
+145 |     pub labels: Vec<String>,
+    |         ^^^^^^
+146 |     #[serde(default)]
+147 |     pub assignee: Option<String>,
+    |         ^^^^^^^^
+148 |     #[serde(default)]
+149 |     pub state: String,
+    |         ^^^^^
+150 |     #[serde(default)]
+151 |     pub created: String,
+    |         ^^^^^^^
+    |
+    = note: `ApiGithubIssue` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: fields `author`, `status`, `reviewers`, and `created` are never read
+   --> crates/at-tui/tests/../src/api_client.rs:161:9
+    |
+155 | pub struct ApiGithubPr {
+    |            ----------- fields in this struct
+...
+161 |     pub author: String,
+    |         ^^^^^^
+162 |     #[serde(default)]
+163 |     pub status: String,
+    |         ^^^^^^
+164 |     #[serde(default)]
+165 |     pub reviewers: Vec<String>,
+    |         ^^^^^^^^^
+166 |     #[serde(default)]
+167 |     pub created: String,
+    |         ^^^^^^^
+    |
+    = note: `ApiGithubPr` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: fields `id` and `name` are never read
+   --> crates/at-tui/tests/../src/api_client.rs:187:9
+    |
+185 | pub struct ApiRoadmap {
+    |            ---------- fields in this struct
+186 |     #[serde(default)]
+187 |     pub id: String,
+    |         ^^
+188 |     #[serde(default)]
+189 |     pub name: String,
+    |         ^^^^
+    |
+    = note: `ApiRoadmap` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: fields `id`, `title`, `description`, `status`, and `priority` are never read
+   --> crates/at-tui/tests/../src/api_client.rs:196:9
+    |
+195 | pub struct ApiRoadmapItem {
+    |            -------------- fields in this struct
+196 |     pub id: String,
+    |         ^^
+197 |     pub title: String,
+    |         ^^^^^
+198 |     pub description: String,
+    |         ^^^^^^^^^^^
+199 |     pub status: String,
+    |         ^^^^^^
+200 |     pub priority: String,
+    |         ^^^^^^^^
+    |
+    = note: `ApiRoadmapItem` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: fields `id`, `title`, `description`, `category`, `impact`, and `effort` are never read
+   --> crates/at-tui/tests/../src/api_client.rs:206:9
+    |
+204 | pub struct ApiIdea {
+    |            ------- fields in this struct
+205 |     #[serde(default)]
+206 |     pub id: String,
+    |         ^^
+207 |     #[serde(default)]
+208 |     pub title: String,
+    |         ^^^^^
+209 |     #[serde(default)]
+210 |     pub description: String,
+    |         ^^^^^^^^^^^
+211 |     #[serde(default)]
+212 |     pub category: String,
+    |         ^^^^^^^^
+213 |     #[serde(default)]
+214 |     pub impact: String,
+    |         ^^^^^^
+215 |     #[serde(default)]
+216 |     pub effort: String,
+    |         ^^^^^^
+    |
+    = note: `ApiIdea` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: fields `id`, `title`, `phase`, `git_branch`, `pr_number`, and `stack_position` are never read
+   --> crates/at-tui/tests/../src/api_client.rs:222:9
+    |
+220 | pub struct ApiStackNode {
+    |            ------------ fields in this struct
+221 |     #[serde(default)]
+222 |     pub id: String,
+    |         ^^
+223 |     #[serde(default)]
+224 |     pub title: String,
+    |         ^^^^^
+225 |     #[serde(default)]
+226 |     pub phase: String,
+    |         ^^^^^
+227 |     #[serde(default)]
+228 |     pub git_branch: Option<String>,
+    |         ^^^^^^^^^^
+229 |     #[serde(default)]
+230 |     pub pr_number: Option<u32>,
+    |         ^^^^^^^^^
+231 |     #[serde(default)]
+232 |     pub stack_position: u32,
+    |         ^^^^^^^^^^^^^^
+    |
+    = note: `ApiStackNode` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: fields `root`, `children`, and `total` are never read
+   --> crates/at-tui/tests/../src/api_client.rs:237:9
+    |
+236 | pub struct ApiStack {
+    |            -------- fields in this struct
+237 |     pub root: ApiStackNode,
+    |         ^^^^
+238 |     #[serde(default)]
+239 |     pub children: Vec<ApiStackNode>,
+    |         ^^^^^^^^
+240 |     #[serde(default)]
+241 |     pub total: u32,
+    |         ^^^^^
+    |
+    = note: `ApiStack` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: fields `category` and `items` are never read
+   --> crates/at-tui/tests/../src/api_client.rs:247:9
+    |
+245 | pub struct ApiChangelogSection {
+    |            ------------------- fields in this struct
+246 |     #[serde(default)]
+247 |     pub category: String,
+    |         ^^^^^^^^
+248 |     #[serde(default)]
+249 |     pub items: Vec<String>,
+    |         ^^^^^
+    |
+    = note: `ApiChangelogSection` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: fields `id`, `version`, `date`, and `sections` are never read
+   --> crates/at-tui/tests/../src/api_client.rs:255:9
+    |
+253 | pub struct ApiChangelogEntry {
+    |            ----------------- fields in this struct
+254 |     #[serde(default)]
+255 |     pub id: String,
+    |         ^^
+256 |     #[serde(default)]
+257 |     pub version: String,
+    |         ^^^^^^^
+258 |     #[serde(default)]
+259 |     pub date: String,
+    |         ^^^^
+260 |     #[serde(default)]
+261 |     pub sections: Vec<ApiChangelogSection>,
+    |         ^^^^^^^^
+    |
+    = note: `ApiChangelogEntry` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: fields `id`, `category`, `content`, and `created_at` are never read
+   --> crates/at-tui/tests/../src/api_client.rs:267:9
+    |
+265 | pub struct ApiMemoryEntry {
+    |            -------------- fields in this struct
+266 |     #[serde(default)]
+267 |     pub id: String,
+    |         ^^
+268 |     #[serde(default)]
+269 |     pub category: String,
+    |         ^^^^^^^^
+270 |     #[serde(default)]
+271 |     pub content: String,
+    |         ^^^^^^^
+272 |     #[serde(default)]
+273 |     pub created_at: String,
+    |         ^^^^^^^^^^
+    |
+    = note: `ApiMemoryEntry` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: fields `kpi` and `costs` are never read
+   --> crates/at-tui/tests/../src/api_client.rs:282:9
+    |
+279 | pub struct AppData {
+    |            ------- fields in this struct
+...
+282 |     pub kpi: ApiKpi,
+    |         ^^^
+...
+285 |     pub costs: ApiCosts,
+    |         ^^^^^
+    |
+    = note: `AppData` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: comparison is useless due to type limits
+   --> crates/at-tui/tests/e2e_test.rs:257:13
+    |
+257 |     assert!(costs.input_tokens >= 0);
+    |             ^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(unused_comparisons)]` on by default
+
+warning: comparison is useless due to type limits
+   --> crates/at-tui/tests/e2e_test.rs:258:13
+    |
+258 |     assert!(costs.output_tokens >= 0);
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused variable: `span`
+   --> crates/at-daemon/src/profiling.rs:137:13
+    |
+137 |         let span = traced_span!("test_operation", user_id = "123", action = "test");
+    |             ^^^^ help: if this is intentional, prefix it with an underscore: `_span`
+
+warning: method `reset` is never used
+  --> crates/at-daemon/src/metrics.rs:93:18
+   |
+15 | impl MetricsCollector {
+   | --------------------- method in this implementation
+...
+93 |     pub async fn reset(&self) {
+   |                  ^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: fields `p95` and `p99` are never read
+   --> crates/at-daemon/src/metrics.rs:150:9
+    |
+144 | pub struct HistogramStats {
+    |            -------------- fields in this struct
+...
+150 |     pub p95: f64,
+    |         ^^^
+151 |     pub p99: f64,
+    |         ^^^
+    |
+    = note: `HistogramStats` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: unused `SemaphorePermit` that must be used
+   --> crates/at-daemon/tests/scheduler_test.rs:212:9
+    |
+212 |         gate2.acquire().await.expect("acquire permit");
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(unused_must_use)]` (part of `#[warn(unused)]`) on by default
+help: use `let _ = ...` to ignore the resulting value
+    |
+212 |         let _ = gate2.acquire().await.expect("acquire permit");
+    |         +++++++
+
+warning: `at-tui` (test "tui_test") generated 79 warnings (run `cargo fix --test "tui_test"` to apply 5 suggestions)
+warning: `at-tui` (bin "at-tui" test) generated 18 warnings (run `cargo fix --bin "at-tui" --tests` to apply 5 suggestions)
+warning: `at-tui` (test "render_test") generated 40 warnings (37 duplicates) (run `cargo fix --test "render_test"` to apply 1 suggestion)
+warning: `at-tui` (bin "at-tui") generated 22 warnings (11 duplicates) (run `cargo fix --bin "at-tui"` to apply 1 suggestion)
+warning: `at-tui` (test "e2e_test") generated 22 warnings
+warning: `at-daemon` (bin "at-daemon" test) generated 5 warnings (2 duplicates)
+warning: `at-daemon` (test "scheduler_test") generated 1 warning
+warning: unused import: `std::sync::Arc`
+ --> crates/at-daemon/tests/task_lifecycle_test.rs:6:5
+  |
+6 | use std::sync::Arc;
+  |     ^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `at-daemon` (test "task_lifecycle_test") generated 1 warning (run `cargo fix --test "task_lifecycle_test"` to apply 1 suggestion)
+warning: unused import: `AgentStatus`
+  --> crates/at-bridge/tests/api_integration_test.rs:14:40
+   |
+14 | use at_core::types::{Agent, AgentRole, AgentStatus, CliType};
+   |                                        ^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `at-bridge` (test "api_integration_test") generated 1 warning (run `cargo fix --test "api_integration_test"` to apply 1 suggestion)
+warning: unused import: `chrono::Utc`
+  --> crates/at-integrations/tests/gitlab_integration_test.rs:16:5
+   |
+16 | use chrono::Utc;
+   |     ^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `at-integrations` (test "gitlab_integration_test") generated 1 warning (run `cargo fix --test "gitlab_integration_test"` to apply 1 suggestion)
+warning: unused import: `LlmResponse`
+   --> crates/at-intelligence/src/model_router.rs:335:34
+    |
+335 |     use crate::llm::{LlmMessage, LlmResponse, MockProvider};
+    |                                  ^^^^^^^^^^^
+    |
+    = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `LlmRole`
+   --> crates/at-intelligence/src/token_cache.rs:318:58
+    |
+318 |     use crate::llm::{LlmConfig, LlmMessage, LlmResponse, LlmRole};
+    |                                                          ^^^^^^^
+
+warning: `at-intelligence` (lib test) generated 2 warnings (run `cargo fix --lib -p at-intelligence --tests` to apply 2 suggestions)
+error: proc macro panicked
+   --> app/tauri/src/main.rs:103:14
+    |
+103 |         .run(tauri::generate_context!())
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: message: The `frontendDist` configuration is set to `"../leptos-ui/dist"` but this path doesn't exist
+
+error: could not compile `at-tauri` (bin "auto-tundra") due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
+error: could not compile `at-tauri` (bin "auto-tundra" test) due to 1 previous error

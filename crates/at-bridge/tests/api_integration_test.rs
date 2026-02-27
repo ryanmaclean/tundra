@@ -187,7 +187,7 @@ async fn test_agent_lifecycle_via_state_injection() {
     // Inject an agent directly into state.
     let agent = Agent::new("test-worker", AgentRole::Crew, CliType::Claude);
     let agent_id = agent.id;
-    state.agents.write().await.push(agent);
+    state.agents.write().await.insert(agent_id, agent);
 
     // List agents.
     let resp = client

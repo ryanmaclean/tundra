@@ -1,6 +1,7 @@
 use at_bridge::event_bus::EventBus;
 use at_bridge::ipc::IpcHandler;
 use at_bridge::protocol::BridgeMessage;
+use std::collections::HashMap;
 use uuid::Uuid;
 
 fn make_handler() -> IpcHandler {
@@ -198,8 +199,8 @@ async fn test_handle_list_beads_with_populated_data() {
             b
         },
     ];
-    let beads = Arc::new(RwLock::new(beads));
-    let agents = Arc::new(RwLock::new(Vec::new()));
+    let beads = Arc::new(RwLock::new(beads.into_iter().map(|b| (b.id, b)).collect::<HashMap<_, _>>()));
+    let agents = Arc::new(RwLock::new(HashMap::new()));
     let handler = IpcHandler::new(EventBus::new(), beads, agents, std::time::Instant::now());
 
     // List all beads
@@ -242,8 +243,8 @@ async fn test_handle_get_status_with_populated_data() {
             b
         },
     ];
-    let beads = Arc::new(RwLock::new(beads));
-    let agents = Arc::new(RwLock::new(Vec::new()));
+    let beads = Arc::new(RwLock::new(beads.into_iter().map(|b| (b.id, b)).collect::<HashMap<_, _>>()));
+    let agents = Arc::new(RwLock::new(HashMap::new()));
     let handler = IpcHandler::new(EventBus::new(), beads, agents, std::time::Instant::now());
 
     let resp = handler
@@ -288,8 +289,8 @@ async fn test_handle_get_kpi_with_populated_data() {
             b
         },
     ];
-    let beads = Arc::new(RwLock::new(beads));
-    let agents = Arc::new(RwLock::new(Vec::new()));
+    let beads = Arc::new(RwLock::new(beads.into_iter().map(|b| (b.id, b)).collect::<HashMap<_, _>>()));
+    let agents = Arc::new(RwLock::new(HashMap::new()));
     let handler = IpcHandler::new(EventBus::new(), beads, agents, std::time::Instant::now());
 
     let resp = handler.handle_message(BridgeMessage::GetKpi).await.unwrap();

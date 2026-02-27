@@ -276,7 +276,7 @@ async fn convert_idea(
 
     {
         let mut beads = state.beads.write().await;
-        beads.push(bead.clone());
+        beads.insert(bead.id, bead.clone());
     }
 
     let simulation = simulate_planning_poker_for_bead(
@@ -541,7 +541,7 @@ async fn get_changelog(
     if query.source.as_deref() == Some("tasks") {
         let tasks = state.tasks.read().await;
         let completed_tasks: Vec<_> = tasks
-            .iter()
+            .values()
             .filter(|t| t.phase == at_core::types::TaskPhase::Complete)
             .collect();
 
