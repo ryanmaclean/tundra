@@ -2762,16 +2762,20 @@ async fn put_settings(
 /// ```
 async fn patch_settings(
     State(state): State<Arc<ApiState>>,
+    headers: HeaderMap,
     Json(partial): Json<serde_json::Value>,
 ) -> impl IntoResponse {
+    let request_id = extract_request_id(&headers);
     let mut current = state.settings_manager.load_or_default();
     let mut current_val = match serde_json::to_value(&current) {
         Ok(v) => v,
         Err(e) => {
-            return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": e.to_string()})),
+            tracing::error!(
+                request_id = %request_id,
+                error = %e,
+                "Failed to serialize current settings"
             );
+            return sanitized_error("Failed to serialize current settings", &request_id).into_response();
         }
     };
 
@@ -2781,19 +2785,29 @@ async fn patch_settings(
     current = match serde_json::from_value(current_val) {
         Ok(c) => c,
         Err(e) => {
-            return (
-                axum::http::StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": e.to_string()})),
+            tracing::error!(
+                request_id = %request_id,
+                error = %e,
+                "Failed to deserialize merged settings"
             );
+            return crate::error_response::sanitized_error_with_status(
+                axum::http::StatusCode::BAD_REQUEST,
+                "Invalid settings configuration",
+                &request_id
+            ).into_response();
         }
     };
 
     match state.settings_manager.save(&current) {
-        Ok(()) => (axum::http::StatusCode::OK, Json(serde_json::json!(current))),
-        Err(e) => (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": e.to_string()})),
-        ),
+        Ok(()) => (axum::http::StatusCode::OK, Json(serde_json::json!(current))).into_response(),
+        Err(e) => {
+            tracing::error!(
+                request_id = %request_id,
+                error = %e,
+                "Failed to save settings"
+            );
+            sanitized_error("Failed to save settings", &request_id).into_response()
+        }
     }
 }
 
