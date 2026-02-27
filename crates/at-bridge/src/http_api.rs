@@ -1272,9 +1272,7 @@ async fn delete_bead(
     Path(id): Path<Uuid>,
 ) -> impl IntoResponse {
     let mut beads = state.beads.write().await;
-    let len_before = beads.len();
-    beads.retain(|b| b.id != id);
-    if beads.len() == len_before {
+    if beads.remove(&id).is_none() {
         return (
             axum::http::StatusCode::NOT_FOUND,
             Json(serde_json::json!({"error": "bead not found"})),
@@ -1284,7 +1282,7 @@ async fn delete_bead(
     // Publish updated bead list event
     state
         .event_bus
-        .publish(crate::protocol::BridgeMessage::BeadList(beads.clone()));
+        .publish(crate::protocol::BridgeMessage::BeadList(beads.values().cloned().collect()));
 
     (
         axum::http::StatusCode::OK,
