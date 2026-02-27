@@ -11,12 +11,14 @@ use axum::{
     Json, Router,
 };
 use futures_util::{SinkExt, StreamExt};
+use lru::LruCache;
 use serde::{Deserialize, Serialize};
+use std::num::NonZeroUsize;
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc,
 };
-use tokio::sync::{RwLock, Semaphore};
+use tokio::sync::{Mutex, RwLock, Semaphore};
 use tower_http::cors::CorsLayer;
 use tracing::warn;
 use uuid::Uuid;
@@ -152,7 +154,8 @@ pub struct ApiState {
     pub github_oauth_user: Arc<RwLock<Option<serde_json::Value>>>,
     /// Pending OAuth state parameters for CSRF protection.
     /// Key: state parameter, Value: timestamp or session metadata.
-    pub oauth_pending_states: Arc<RwLock<std::collections::HashMap<String, String>>>,
+    /// Uses LRU cache with bounded capacity to prevent unbounded growth.
+    pub oauth_pending_states: Arc<Mutex<LruCache<String, String>>>,
     // ---- Projects --------------------------------------------------------
     pub projects: Arc<RwLock<Vec<Project>>>,
     // ---- PR polling -------------------------------------------------------
@@ -307,7 +310,9 @@ impl ApiState {
             planning_poker_sessions: Arc::new(RwLock::new(std::collections::HashMap::new())),
             github_oauth_token: Arc::new(RwLock::new(None)),
             github_oauth_user: Arc::new(RwLock::new(None)),
-            oauth_pending_states: Arc::new(RwLock::new(std::collections::HashMap::new())),
+            oauth_pending_states: Arc::new(Mutex::new(LruCache::new(
+                NonZeroUsize::new(100).expect("100 is non-zero"),
+            ))),
             pr_poll_registry: Arc::new(RwLock::new(std::collections::HashMap::new())),
             releases: Arc::new(RwLock::new(Vec::new())),
             archived_tasks: Arc::new(RwLock::new(Vec::new())),
@@ -5470,9 +5475,9 @@ async fn github_oauth_authorize(State(state): State<Arc<ApiState>>) -> impl Into
     let timestamp = chrono::Utc::now().to_rfc3339();
     state
         .oauth_pending_states
-        .write()
+        .lock()
         .await
-        .insert(csrf_state.clone(), timestamp);
+        .put(csrf_state.clone(), timestamp);
 
     (
         axum::http::StatusCode::OK,
@@ -5495,7 +5500,7 @@ async fn github_oauth_callback(
     Json(body): Json<OAuthCallbackRequest>,
 ) -> impl IntoResponse {
     // Validate CSRF state parameter with expiration check
-    let mut pending_states = state.oauth_pending_states.write().await;
+    let mut pending_states = state.oauth_pending_states.lock().await;
     let state_timestamp = pending_states.get(&body.state).cloned();
 
     let state_valid = if let Some(timestamp_str) = state_timestamp {
@@ -5507,17 +5512,17 @@ async fn github_oauth_callback(
 
                 if age.num_minutes() < 10 {
                     // Valid and not expired - remove it to prevent replay
-                    pending_states.remove(&body.state);
+                    pending_states.pop(&body.state);
                     true
                 } else {
                     // Expired - also remove to clean up
-                    pending_states.remove(&body.state);
+                    pending_states.pop(&body.state);
                     false
                 }
             }
             Err(_) => {
                 // Invalid timestamp format - remove and reject
-                pending_states.remove(&body.state);
+                pending_states.pop(&body.state);
                 false
             }
         }
