@@ -22,6 +22,7 @@ use tracing::warn;
 use uuid::Uuid;
 
 use crate::auth::AuthLayer;
+use crate::error_response::{extract_request_id, sanitized_error};
 use crate::event_bus::EventBus;
 use crate::intelligence_api;
 use crate::notifications::{notification_from_event, NotificationStore};
@@ -2665,14 +2666,20 @@ async fn get_settings(State(state): State<Arc<ApiState>>) -> Json<Config> {
 /// ```
 async fn put_settings(
     State(state): State<Arc<ApiState>>,
+    headers: HeaderMap,
     Json(cfg): Json<Config>,
 ) -> impl IntoResponse {
     match state.settings_manager.save(&cfg) {
         Ok(()) => (axum::http::StatusCode::OK, Json(serde_json::json!(cfg))),
-        Err(e) => (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": e.to_string()})),
-        ),
+        Err(e) => {
+            let request_id = extract_request_id(&headers);
+            tracing::error!(
+                request_id = %request_id,
+                error = %e,
+                "Failed to save settings"
+            );
+            sanitized_error("Failed to save settings", &request_id)
+        }
     }
 }
 
