@@ -22,7 +22,7 @@ use tracing::warn;
 use uuid::Uuid;
 
 use crate::auth::AuthLayer;
-use crate::error_response::{extract_request_id, sanitized_error, sanitized_503};
+use crate::error_response::{extract_request_id, sanitized_error, sanitized_error_with_status, sanitized_503};
 use crate::event_bus::EventBus;
 use crate::intelligence_api;
 use crate::notifications::{notification_from_event, NotificationStore};
@@ -1246,8 +1246,11 @@ async fn create_bead(
 async fn update_bead_status(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
+    headers: HeaderMap,
     Json(req): Json<UpdateBeadStatusRequest>,
 ) -> impl IntoResponse {
+    let request_id = extract_request_id(&headers);
+
     let mut beads = state.beads.write().await;
     let Some(bead) = beads.get_mut(&id) else {
         return (
@@ -1257,14 +1260,17 @@ async fn update_bead_status(
     };
 
     if !bead.status.can_transition_to(&req.status) {
-        return (
+        tracing::error!(
+            request_id = %request_id,
+            bead_id = %id,
+            from_status = ?bead.status,
+            to_status = ?req.status,
+            "Invalid bead status transition"
+        );
+        return sanitized_error_with_status(
             axum::http::StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": format!(
-                    "invalid transition from {:?} to {:?}",
-                    bead.status, req.status
-                )
-            })),
+            "Invalid status transition",
+            &request_id
         );
     }
 
@@ -1906,8 +1912,11 @@ async fn delete_task(
 async fn update_task_phase(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
+    headers: HeaderMap,
     Json(req): Json<UpdateTaskPhaseRequest>,
 ) -> impl IntoResponse {
+    let request_id = extract_request_id(&headers);
+
     let mut tasks = state.tasks.write().await;
     let Some(task) = tasks.get_mut(&id) else {
         return (
@@ -1917,14 +1926,17 @@ async fn update_task_phase(
     };
 
     if !task.phase.can_transition_to(&req.phase) {
-        return (
+        tracing::error!(
+            request_id = %request_id,
+            task_id = %id,
+            from_phase = ?task.phase,
+            to_phase = ?req.phase,
+            "Invalid task phase transition"
+        );
+        return sanitized_error_with_status(
             axum::http::StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": format!(
-                    "invalid phase transition from {:?} to {:?}",
-                    task.phase, req.phase
-                )
-            })),
+            "Invalid phase transition",
+            &request_id
         );
     }
 
@@ -2024,8 +2036,11 @@ async fn get_pipeline_queue_status(
 async fn execute_task_pipeline(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
+    headers: HeaderMap,
     body: Option<Json<ExecuteTaskRequest>>,
 ) -> impl IntoResponse {
+    let request_id = extract_request_id(&headers);
+
     let mut tasks = state.tasks.write().await;
     let Some(task) = tasks.get_mut(&id) else {
         return (
@@ -2036,14 +2051,16 @@ async fn execute_task_pipeline(
 
     // The task must be in a phase that can transition to Coding.
     if !task.phase.can_transition_to(&TaskPhase::Coding) {
-        return (
+        tracing::error!(
+            request_id = %request_id,
+            task_id = %id,
+            current_phase = ?task.phase,
+            "Cannot start pipeline: invalid phase"
+        );
+        return sanitized_error_with_status(
             axum::http::StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": format!(
-                    "cannot start pipeline: task is in {:?} phase",
-                    task.phase
-                )
-            })),
+            "Cannot start pipeline from current phase",
+            &request_id
         );
     }
 
@@ -6011,11 +6028,15 @@ async fn github_oauth_refresh(
     let token_resp = match oauth_client.refresh_token(&refresh_token).await {
         Ok(t) => t,
         Err(e) => {
-            return (
+            tracing::error!(
+                request_id = %request_id,
+                error = %e,
+                "Failed to refresh OAuth token"
+            );
+            return sanitized_error_with_status(
                 axum::http::StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({
-                    "error": format!("Failed to refresh token: {}", e)
-                })),
+                "Failed to refresh token",
+                &request_id
             );
         }
     };
@@ -6470,8 +6491,11 @@ struct CreateReleaseRequest {
 /// POST /api/releases — create a new GitHub release with tag, name, body, and metadata.
 async fn create_release(
     State(state): State<Arc<ApiState>>,
+    headers: HeaderMap,
     Json(req): Json<CreateReleaseRequest>,
 ) -> impl IntoResponse {
+    let request_id = extract_request_id(&headers);
+
     let config = state.settings_manager.load_or_default();
     let int = &config.integrations;
     let token = CredentialProvider::from_env(&int.github_token_env);
@@ -6501,10 +6525,12 @@ async fn create_release(
     let client = match at_integrations::github::client::GitHubClient::new(gh_config) {
         Ok(c) => c,
         Err(e) => {
-            return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": e.to_string() })),
+            tracing::error!(
+                request_id = %request_id,
+                error = %e,
+                "Failed to create GitHub client"
             );
+            return sanitized_error("Failed to initialize GitHub client", &request_id);
         }
     };
 
@@ -6520,9 +6546,15 @@ async fn create_release(
     let created: serde_json::Value = match client.inner().post(route, Some(&payload)).await {
         Ok(v) => v,
         Err(e) => {
-            return (
+            tracing::error!(
+                request_id = %request_id,
+                error = %e,
+                "Failed to create GitHub release"
+            );
+            return sanitized_error_with_status(
                 axum::http::StatusCode::BAD_GATEWAY,
-                Json(serde_json::json!({ "error": format!("GitHub release create failed: {e}") })),
+                "Failed to create GitHub release",
+                &request_id
             );
         }
     };
