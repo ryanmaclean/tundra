@@ -5149,23 +5149,58 @@ async fn list_ui_sessions(State(state): State<Arc<ApiState>>) -> impl IntoRespon
 // WebSocket — legacy /ws handler
 // ---------------------------------------------------------------------------
 
-/// WebSocket /ws -- legacy real-time event streaming endpoint.
+/// WebSocket GET /ws -- legacy real-time event streaming endpoint.
 ///
 /// Upgrades HTTP connection to WebSocket and streams all events from the event bus
 /// to the connected client. This is the original WebSocket endpoint maintained for
 /// backward compatibility. New clients should use `/api/events/ws` instead.
 ///
-/// **Response:** 101 Switching Protocols, then continuous event stream.
+/// **Connection Flow:**
+/// 1. Client sends GET request with Upgrade: websocket header
+/// 2. Server validates Origin header to prevent CSRF attacks
+/// 3. Server responds with 101 Switching Protocols
+/// 4. Server begins streaming all event bus events as JSON text messages
+/// 5. Connection remains open until client closes or network error occurs
 ///
-/// **Example Event Message:**
+/// **Security:** Origin header validation is enforced. Only requests from allowed
+/// origins (default: localhost on configured ports) are accepted. Cross-origin
+/// requests return 403 Forbidden.
+///
+/// **Response:** 101 Switching Protocols on success, 403 if origin validation fails.
+///
+/// **Server-to-Client Messages:** JSON-encoded event objects sent as WebSocket text frames.
+/// Events include task updates, build progress, agent state changes, and system notifications.
+///
+/// **Client-to-Server Messages:** Not supported. Client messages are ignored; this is a
+/// unidirectional stream from server to client.
+///
+/// **Example TaskUpdate Event:**
 /// ```json
 /// {
 ///   "type": "TaskUpdate",
 ///   "task_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
 ///   "phase": "InProgress",
+///   "progress_percent": 45,
 ///   "timestamp": "2026-02-23T10:15:00Z"
 /// }
 /// ```
+///
+/// **Example BuildUpdate Event:**
+/// ```json
+/// {
+///   "type": "BuildUpdate",
+///   "task_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+///   "message": "Running tests...",
+///   "level": "Info",
+///   "timestamp": "2026-02-23T10:15:15Z"
+/// }
+/// ```
+///
+/// **Connection Lifecycle:**
+/// - Connection persists indefinitely until closed by client or network failure
+/// - No heartbeat mechanism; relies on TCP keepalive for connection health
+/// - Server closes connection if send fails (e.g., client disconnected)
+/// - Automatic reconnection must be handled by client
 async fn ws_handler(
     ws: WebSocketUpgrade,
     State(state): State<Arc<ApiState>>,
@@ -5193,37 +5228,99 @@ async fn handle_ws(mut socket: WebSocket, state: Arc<ApiState>) {
 // WebSocket — /api/events/ws with heartbeat + event-to-notification wiring
 // ---------------------------------------------------------------------------
 
-/// WebSocket /api/events/ws -- real-time event streaming with heartbeat.
+/// WebSocket GET /api/events/ws -- real-time event streaming with heartbeat and notification integration.
 ///
-/// Upgrades HTTP connection to WebSocket and provides bidirectional communication:
-/// - Server sends all event bus events as JSON messages to the client
-/// - Server sends heartbeat ping every 30 seconds to keep connection alive
-/// - Client can send messages including pong responses and close frames
-/// - Events are automatically converted to notifications and stored
+/// Upgrades HTTP connection to WebSocket and provides bidirectional communication
+/// with enhanced features over the legacy `/ws` endpoint. This is the recommended
+/// WebSocket endpoint for new clients.
 ///
-/// This is the recommended WebSocket endpoint for new clients as it provides
-/// better connection management and automatic notification creation.
+/// **Features:**
+/// - Server streams all event bus events as JSON text messages
+/// - Server sends heartbeat ping every 30 seconds to detect stale connections
+/// - Client can send messages (pong, close frames) for connection management
+/// - Events are automatically converted to notifications and stored in notification store
+/// - Proper connection lifecycle management with graceful shutdown
 ///
-/// **Response:** 101 Switching Protocols, then continuous event stream.
+/// **Connection Flow:**
+/// 1. Client sends GET request with Upgrade: websocket header
+/// 2. Server validates Origin header to prevent CSRF attacks
+/// 3. Server responds with 101 Switching Protocols
+/// 4. Server splits socket into sender (ws_tx) and receiver (ws_rx)
+/// 5. Server enters event loop handling three concurrent tasks:
+///    a. Forward event bus events to client as JSON
+///    b. Send heartbeat ping every 30 seconds
+///    c. Receive and process client messages (pong, close)
+/// 6. Loop continues until client closes connection or network error
 ///
-/// **Example Event Message:**
+/// **Security:** Origin header validation is enforced. Only requests from allowed
+/// origins (default: localhost on configured ports) are accepted. Cross-origin
+/// requests return 403 Forbidden.
+///
+/// **Response:** 101 Switching Protocols on success, 403 if origin validation fails.
+///
+/// **Server-to-Client Messages:** JSON-encoded event objects and heartbeat pings
+/// sent as WebSocket text frames.
+///
+/// **Client-to-Server Messages:** Optional. Clients may send:
+/// - Close frames to gracefully terminate connection
+/// - Pong frames in response to WebSocket ping (automatic in most clients)
+/// - Other messages are accepted but ignored by server
+///
+/// **Example TaskUpdate Event:**
+/// ```json
+/// {
+///   "type": "TaskUpdate",
+///   "task_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+///   "phase": "Coding",
+///   "progress_percent": 45,
+///   "status": "In Progress",
+///   "timestamp": "2026-02-23T10:15:00Z"
+/// }
+/// ```
+///
+/// **Example BuildUpdate Event:**
 /// ```json
 /// {
 ///   "type": "BuildUpdate",
 ///   "task_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
 ///   "phase": "Building",
-///   "message": "Running cargo build",
-///   "timestamp": "2026-02-23T10:15:00Z"
+///   "message": "Running cargo build --release",
+///   "level": "Info",
+///   "timestamp": "2026-02-23T10:15:15Z"
 /// }
 /// ```
 ///
-/// **Example Heartbeat Message:**
+/// **Example Heartbeat Ping:**
 /// ```json
 /// {
 ///   "type": "ping",
 ///   "timestamp": "2026-02-23T10:15:30Z"
 /// }
 /// ```
+///
+/// **Example BeadUpdate Event:**
+/// ```json
+/// {
+///   "type": "BeadUpdate",
+///   "bead_id": "b1c2d3e4-f5a6-7890-bcde-f12345678901",
+///   "status": "Active",
+///   "progress_percent": 60,
+///   "timestamp": "2026-02-23T10:16:00Z"
+/// }
+/// ```
+///
+/// **Connection Lifecycle:**
+/// - Heartbeat pings sent every 30 seconds to keep connection alive and detect failures
+/// - Server closes connection gracefully on client Close frame
+/// - Server closes connection on send/receive errors (network failure, client disconnect)
+/// - Events are converted to notifications and stored before forwarding to client
+/// - Automatic reconnection must be handled by client with exponential backoff recommended
+///
+/// **Notification Integration:**
+/// Each event is passed through `notification_from_event()` which extracts relevant
+/// information (title, message, level, source, action URL) and stores it in the
+/// notification store. This allows the UI to display a notification history even if
+/// the WebSocket connection is temporarily lost.
 async fn events_ws_handler(
     ws: WebSocketUpgrade,
     State(state): State<Arc<ApiState>>,
