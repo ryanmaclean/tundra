@@ -1020,7 +1020,7 @@ async fn create_bead(
     // Publish event
     state
         .event_bus
-        .publish(crate::protocol::BridgeMessage::BeadList(beads.clone()));
+        .publish(crate::protocol::BridgeMessage::BeadCreated(bead.clone()));
 
     (axum::http::StatusCode::CREATED, Json(bead))
 }
@@ -1108,7 +1108,7 @@ async fn update_bead_status(
     let bead_snapshot = bead.clone();
     state
         .event_bus
-        .publish(crate::protocol::BridgeMessage::BeadList(beads.clone()));
+        .publish(crate::protocol::BridgeMessage::BeadUpdated(bead_snapshot.clone()));
 
     (
         axum::http::StatusCode::OK,
@@ -1535,14 +1535,15 @@ async fn update_task(
 
     let task_snapshot = task.clone();
     drop(tasks);
+    let response_json = serde_json::json!(task_snapshot);
     state
         .event_bus
         .publish(crate::protocol::BridgeMessage::TaskUpdate(
-            Box::new(task_snapshot.clone()),
+            Box::new(task_snapshot),
         ));
     (
         axum::http::StatusCode::OK,
-        Json(serde_json::json!(task_snapshot)),
+        Json(response_json),
     )
 }
 

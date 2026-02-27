@@ -178,9 +178,19 @@ pub fn configure_app() -> Result<()> {
 mod tests {
     use super::*;
     use std::env;
+    use std::sync::Mutex;
+
+    // Mutex to serialize tests that modify environment variables
+    static ENV_TEST_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn test_default_env_vars() {
+        let _lock = ENV_TEST_LOCK.lock().unwrap();
+        // Save original values to restore later
+        let orig_service = env::var("DD_SERVICE").ok();
+        let orig_env = env::var("DD_ENV").ok();
+        let orig_version = env::var("DD_VERSION").ok();
+
         // Clear existing env vars
         env::remove_var("DD_SERVICE");
         env::remove_var("DD_ENV");
@@ -191,10 +201,35 @@ mod tests {
         assert_eq!(env::var("DD_SERVICE").unwrap(), "at-daemon");
         assert_eq!(env::var("DD_ENV").unwrap(), "development");
         assert_eq!(env::var("DD_VERSION").unwrap(), "0.1.0");
+
+        // Restore original values
+        if let Some(v) = orig_service {
+            env::set_var("DD_SERVICE", v);
+        } else {
+            env::remove_var("DD_SERVICE");
+        }
+        if let Some(v) = orig_env {
+            env::set_var("DD_ENV", v);
+        } else {
+            env::remove_var("DD_ENV");
+        }
+        if let Some(v) = orig_version {
+            env::set_var("DD_VERSION", v);
+        } else {
+            env::remove_var("DD_VERSION");
+        }
     }
 
     #[test]
     fn test_validate_environment() {
+        let _lock = ENV_TEST_LOCK.lock().unwrap();
+
+        // Save original values
+        let orig_service = env::var("DD_SERVICE").ok();
+        let orig_env = env::var("DD_ENV").ok();
+        let orig_version = env::var("DD_VERSION").ok();
+        let orig_url = env::var("DD_TRACE_AGENT_URL").ok();
+
         env::set_var("DD_SERVICE", "test-service");
         env::set_var("DD_ENV", "test");
         env::set_var("DD_VERSION", "1.0.0");
@@ -204,5 +239,27 @@ mod tests {
 
         env::remove_var("DD_SERVICE");
         assert!(validate_environment().is_err());
+
+        // Restore original values
+        if let Some(v) = orig_service {
+            env::set_var("DD_SERVICE", v);
+        } else {
+            env::remove_var("DD_SERVICE");
+        }
+        if let Some(v) = orig_env {
+            env::set_var("DD_ENV", v);
+        } else {
+            env::remove_var("DD_ENV");
+        }
+        if let Some(v) = orig_version {
+            env::set_var("DD_VERSION", v);
+        } else {
+            env::remove_var("DD_VERSION");
+        }
+        if let Some(v) = orig_url {
+            env::set_var("DD_TRACE_AGENT_URL", v);
+        } else {
+            env::remove_var("DD_TRACE_AGENT_URL");
+        }
     }
 }

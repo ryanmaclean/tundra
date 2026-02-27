@@ -335,7 +335,7 @@ async fn test_bead_creation_publishes_event_on_bus() {
     // Subscribe to events BEFORE creating a bead.
     let rx = state.event_bus.subscribe();
 
-    // Create a bead (the handler publishes a BeadList event).
+    // Create a bead (the handler publishes a BeadCreated event).
     let resp = client
         .post(format!("{base}/api/beads"))
         .json(&json!({ "title": "Event test bead" }))
@@ -347,16 +347,16 @@ async fn test_bead_creation_publishes_event_on_bus() {
     // Give time for event propagation.
     tokio::time::sleep(Duration::from_millis(50)).await;
 
-    // Drain events and find the BeadList message.
-    let mut found_bead_list = false;
+    // Drain events and find the BeadCreated message.
+    let mut found_bead_created = false;
     while let Ok(msg) = rx.try_recv() {
-        if matches!(&*msg, BridgeMessage::BeadList(_)) {
-            found_bead_list = true;
+        if matches!(&*msg, BridgeMessage::BeadCreated(_)) {
+            found_bead_created = true;
         }
     }
     assert!(
-        found_bead_list,
-        "creating a bead should publish BeadList event"
+        found_bead_created,
+        "creating a bead should publish BeadCreated event"
     );
 }
 
@@ -567,4 +567,156 @@ async fn test_notification_store_add_and_read_via_api() {
     let body: Value = resp.json().await.unwrap();
     assert_eq!(body["unread"], 0);
     assert_eq!(body["total"], 1);
+}
+
+// ===========================================================================
+// Notification generation from BeadCreated/BeadUpdated events
+// ===========================================================================
+
+#[tokio::test]
+async fn test_bead_created_event_generates_notification() {
+    use at_bridge::notifications::{notification_from_event, NotificationLevel};
+    use at_core::types::{Bead, Lane};
+
+    // Create a BeadCreated event.
+    let bead = Bead::new("Test Bead", Lane::Standard);
+    let bead_id = bead.id;
+    let event = BridgeMessage::BeadCreated(bead);
+
+    // Convert to notification.
+    let result = notification_from_event(&event);
+
+    // Verify notification is generated.
+    assert!(
+        result.is_some(),
+        "BeadCreated event should generate a notification"
+    );
+
+    let (title, message, level, source, action_url) = result.unwrap();
+    assert_eq!(title, "Bead Created");
+    assert_eq!(message, "Created bead: Test Bead");
+    assert_eq!(level, NotificationLevel::Success);
+    assert_eq!(source, "system");
+    assert_eq!(action_url, Some(format!("/beads/{}", bead_id)));
+}
+
+#[tokio::test]
+async fn test_bead_updated_event_generates_notification() {
+    use at_bridge::notifications::{notification_from_event, NotificationLevel};
+    use at_core::types::{Bead, Lane};
+
+    // Create a BeadUpdated event.
+    let bead = Bead::new("Updated Bead", Lane::Critical);
+    let bead_id = bead.id;
+    let event = BridgeMessage::BeadUpdated(bead);
+
+    // Convert to notification.
+    let result = notification_from_event(&event);
+
+    // Verify notification is generated.
+    assert!(
+        result.is_some(),
+        "BeadUpdated event should generate a notification"
+    );
+
+    let (title, message, level, source, action_url) = result.unwrap();
+    assert_eq!(title, "Bead Updated");
+    assert_eq!(message, "Updated bead: Updated Bead");
+    assert_eq!(level, NotificationLevel::Info);
+    assert_eq!(source, "system");
+    assert_eq!(action_url, Some(format!("/beads/{}", bead_id)));
+}
+
+#[tokio::test]
+async fn test_bead_creation_flow_with_notification() {
+    use at_bridge::notifications::notification_from_event;
+
+    let (base, state) = start_test_server().await;
+    let client = reqwest::Client::new();
+
+    // Subscribe to events BEFORE creating a bead.
+    let rx = state.event_bus.subscribe();
+
+    // Create a bead.
+    let resp = client
+        .post(format!("{base}/api/beads"))
+        .json(&json!({ "title": "Notification test bead" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 201);
+
+    // Give time for event propagation.
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    // Find the BeadCreated event and verify notification can be generated.
+    let mut found_valid_notification = false;
+    while let Ok(msg) = rx.try_recv() {
+        if let BridgeMessage::BeadCreated(_) = &*msg {
+            let notification = notification_from_event(&msg);
+            assert!(
+                notification.is_some(),
+                "BeadCreated event should generate notification"
+            );
+            let (title, _, _, _, _) = notification.unwrap();
+            assert_eq!(title, "Bead Created");
+            found_valid_notification = true;
+        }
+    }
+    assert!(
+        found_valid_notification,
+        "Should have received and validated BeadCreated notification"
+    );
+}
+
+#[tokio::test]
+async fn test_bead_update_flow_with_notification() {
+    use at_bridge::notifications::notification_from_event;
+
+    let (base, state) = start_test_server().await;
+    let client = reqwest::Client::new();
+
+    // Create a bead first.
+    let resp = client
+        .post(format!("{base}/api/beads"))
+        .json(&json!({ "title": "Update notification bead" }))
+        .send()
+        .await
+        .unwrap();
+    let bead: Value = resp.json().await.unwrap();
+    let id = bead["id"].as_str().unwrap();
+
+    // Subscribe to events BEFORE updating.
+    let rx = state.event_bus.subscribe();
+
+    // Update bead status.
+    let resp = client
+        .post(format!("{base}/api/beads/{id}/status"))
+        .json(&json!({ "status": "hooked" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    // Give time for event propagation.
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    // Find the BeadUpdated event and verify notification can be generated.
+    let mut found_valid_notification = false;
+    while let Ok(msg) = rx.try_recv() {
+        if let BridgeMessage::BeadUpdated(_) = &*msg {
+            let notification = notification_from_event(&msg);
+            assert!(
+                notification.is_some(),
+                "BeadUpdated event should generate notification"
+            );
+            let (title, _, _, _, _) = notification.unwrap();
+            assert_eq!(title, "Bead Updated");
+            found_valid_notification = true;
+        }
+    }
+    assert!(
+        found_valid_notification,
+        "Should have received and validated BeadUpdated notification"
+    );
 }

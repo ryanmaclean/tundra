@@ -638,6 +638,10 @@ impl Default for ResilientRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    // Mutex to serialize tests that modify CUSTOM_API_KEY environment variable
+    static ENV_TEST_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn api_profile_creation() {
@@ -832,6 +836,7 @@ mod tests {
 
     #[test]
     fn failover_skips_current() {
+        let _lock = ENV_TEST_LOCK.lock().unwrap();
         // Require API key so failover_for returns a candidate
         std::env::set_var("CUSTOM_API_KEY", "test-key");
         let mut reg = ProfileRegistry::new();
@@ -970,6 +975,7 @@ mod tests {
 
     #[tokio::test]
     async fn resilient_registry_call_with_failover_success() {
+        let _lock = ENV_TEST_LOCK.lock().unwrap();
         std::env::set_var("CUSTOM_API_KEY", "test-key");
         let mut reg = ResilientRegistry::new();
         let mut p = ApiProfile::new("primary", ProviderKind::Custom);
@@ -991,6 +997,7 @@ mod tests {
 
     #[tokio::test]
     async fn resilient_registry_call_with_failover_to_secondary() {
+        let _lock = ENV_TEST_LOCK.lock().unwrap();
         std::env::set_var("CUSTOM_API_KEY", "test-key");
         let mut reg = ResilientRegistry::new();
 
@@ -1025,6 +1032,7 @@ mod tests {
 
     #[tokio::test]
     async fn resilient_registry_all_providers_exhausted() {
+        let _lock = ENV_TEST_LOCK.lock().unwrap();
         std::env::set_var("CUSTOM_API_KEY", "test-key");
         let mut reg = ResilientRegistry::new();
 
@@ -1046,6 +1054,7 @@ mod tests {
 
     #[tokio::test]
     async fn resilient_registry_exhausted_when_no_api_key() {
+        let _lock = ENV_TEST_LOCK.lock().unwrap();
         // Don't set any API key, so all profiles should be skipped.
         std::env::remove_var("CUSTOM_API_KEY");
         let mut reg = ResilientRegistry::new();
@@ -1064,6 +1073,7 @@ mod tests {
 
     #[tokio::test]
     async fn resilient_registry_rate_limit_causes_failover() {
+        let _lock = ENV_TEST_LOCK.lock().unwrap();
         std::env::set_var("CUSTOM_API_KEY", "test-key");
         let mut reg = ResilientRegistry::new();
 
@@ -1114,6 +1124,7 @@ mod tests {
 
     #[tokio::test]
     async fn resilient_registry_circuit_opens_after_failures() {
+        let _lock = ENV_TEST_LOCK.lock().unwrap();
         std::env::set_var("CUSTOM_API_KEY", "test-key");
         let mut reg = ResilientRegistry::new();
 

@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 //! auto-tundra daemon — starts the API server, patrol loops, and
 //! serves the Leptos WASM frontend.
 

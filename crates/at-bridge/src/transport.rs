@@ -269,6 +269,7 @@ impl TransportRouter {
                 }
             };
 
+            #[allow(clippy::await_holding_lock)]
             if result.is_some() {
                 let ts = self.transports.lock().expect("router lock");
                 if let Some(t) = ts.get(&sid) {
