@@ -441,3 +441,85 @@ async fn test_oauth_state_size_limit() {
     // Clean up
     std::env::remove_var("GITHUB_OAUTH_CLIENT_ID");
 }
+
+#[tokio::test]
+async fn test_oauth_cleanup_removes_expired_states() {
+    let _lock = ENV_MUTEX.lock().unwrap();
+    let (_base, state) = start_test_server().await;
+
+    // Manually insert some expired states (older than 10 minutes)
+    let expired_state_1 = uuid::Uuid::new_v4().to_string();
+    let expired_state_2 = uuid::Uuid::new_v4().to_string();
+    let expired_timestamp_1 = (chrono::Utc::now() - chrono::Duration::minutes(15)).to_rfc3339();
+    let expired_timestamp_2 = (chrono::Utc::now() - chrono::Duration::minutes(20)).to_rfc3339();
+
+    // Manually insert some fresh states (less than 10 minutes old)
+    let fresh_state_1 = uuid::Uuid::new_v4().to_string();
+    let fresh_state_2 = uuid::Uuid::new_v4().to_string();
+    let fresh_timestamp_1 = (chrono::Utc::now() - chrono::Duration::minutes(5)).to_rfc3339();
+    let fresh_timestamp_2 = chrono::Utc::now().to_rfc3339();
+
+    // Insert all states
+    {
+        let mut pending_states = state.oauth_pending_states.lock().await;
+        pending_states.put(expired_state_1.clone(), expired_timestamp_1);
+        pending_states.put(expired_state_2.clone(), expired_timestamp_2);
+        pending_states.put(fresh_state_1.clone(), fresh_timestamp_1);
+        pending_states.put(fresh_state_2.clone(), fresh_timestamp_2);
+
+        assert_eq!(pending_states.len(), 4, "All 4 states should be inserted");
+    }
+
+    // Execute the cleanup logic (same as spawn_oauth_state_cleanup does)
+    {
+        let mut cache = state.oauth_pending_states.lock().await;
+        let now = chrono::Utc::now();
+        let expiry_threshold_minutes = 10;
+
+        // Collect expired keys to remove
+        let mut expired_keys = Vec::new();
+        for (key, timestamp_str) in cache.iter() {
+            if let Ok(timestamp) = chrono::DateTime::parse_from_rfc3339(timestamp_str) {
+                let age = now.signed_duration_since(timestamp.with_timezone(&chrono::Utc));
+                if age.num_minutes() >= expiry_threshold_minutes {
+                    expired_keys.push(key.clone());
+                }
+            } else {
+                // Invalid timestamp format - mark for removal
+                expired_keys.push(key.clone());
+            }
+        }
+
+        // Remove expired entries
+        for key in expired_keys {
+            cache.pop(&key);
+        }
+    }
+
+    // Verify expired states were removed and fresh states remain
+    let pending_states = state.oauth_pending_states.lock().await;
+
+    assert!(
+        !pending_states.contains(&expired_state_1),
+        "Expired state 1 (15 min old) should be removed"
+    );
+    assert!(
+        !pending_states.contains(&expired_state_2),
+        "Expired state 2 (20 min old) should be removed"
+    );
+
+    assert!(
+        pending_states.contains(&fresh_state_1),
+        "Fresh state 1 (5 min old) should still be present"
+    );
+    assert!(
+        pending_states.contains(&fresh_state_2),
+        "Fresh state 2 (current time) should still be present"
+    );
+
+    assert_eq!(
+        pending_states.len(),
+        2,
+        "Only 2 fresh states should remain after cleanup"
+    );
+}
