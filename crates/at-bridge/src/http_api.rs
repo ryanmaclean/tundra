@@ -22,7 +22,7 @@ use tracing::warn;
 use uuid::Uuid;
 
 use crate::auth::AuthLayer;
-use crate::error_response::{extract_request_id, sanitized_error};
+use crate::error_response::{extract_request_id, sanitized_error, sanitized_503};
 use crate::event_bus::EventBus;
 use crate::intelligence_api;
 use crate::notifications::{notification_from_event, NotificationStore};
@@ -5739,16 +5739,19 @@ async fn import_github_issue(
 // ---------------------------------------------------------------------------
 
 /// GET /api/github/oauth/authorize — build the GitHub authorization URL.
-async fn github_oauth_authorize(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
+async fn github_oauth_authorize(
+    State(state): State<Arc<ApiState>>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    let request_id = extract_request_id(&headers);
     let client_id = match std::env::var("GITHUB_OAUTH_CLIENT_ID") {
         Ok(v) if !v.is_empty() => v,
         _ => {
-            return (
-                axum::http::StatusCode::SERVICE_UNAVAILABLE,
-                Json(serde_json::json!({
-                    "error": "GITHUB_OAUTH_CLIENT_ID not set",
-                })),
+            tracing::error!(
+                request_id = %request_id,
+                "GitHub OAuth configuration missing: GITHUB_OAUTH_CLIENT_ID not set"
             );
+            return sanitized_503("GitHub OAuth not configured", &request_id);
         }
     };
 
@@ -5798,8 +5801,10 @@ struct OAuthCallbackRequest {
 /// POST /api/github/oauth/callback — exchange the authorization code for a token.
 async fn github_oauth_callback(
     State(state): State<Arc<ApiState>>,
+    headers: HeaderMap,
     Json(body): Json<OAuthCallbackRequest>,
 ) -> impl IntoResponse {
+    let request_id = extract_request_id(&headers);
     // Validate CSRF state parameter with expiration check
     let mut pending_states = state.oauth_pending_states.write().await;
     let state_timestamp = pending_states.get(&body.state).cloned();
@@ -5842,19 +5847,21 @@ async fn github_oauth_callback(
     let client_id = match std::env::var("GITHUB_OAUTH_CLIENT_ID") {
         Ok(v) if !v.is_empty() => v,
         _ => {
-            return (
-                axum::http::StatusCode::SERVICE_UNAVAILABLE,
-                Json(serde_json::json!({ "error": "GITHUB_OAUTH_CLIENT_ID not set" })),
+            tracing::error!(
+                request_id = %request_id,
+                "GitHub OAuth configuration missing: GITHUB_OAUTH_CLIENT_ID not set"
             );
+            return sanitized_503("GitHub OAuth not configured", &request_id);
         }
     };
     let client_secret = match std::env::var("GITHUB_OAUTH_CLIENT_SECRET") {
         Ok(v) if !v.is_empty() => v,
         _ => {
-            return (
-                axum::http::StatusCode::SERVICE_UNAVAILABLE,
-                Json(serde_json::json!({ "error": "GITHUB_OAUTH_CLIENT_SECRET not set" })),
+            tracing::error!(
+                request_id = %request_id,
+                "GitHub OAuth configuration missing: GITHUB_OAUTH_CLIENT_SECRET not set"
             );
+            return sanitized_503("GitHub OAuth not configured", &request_id);
         }
     };
     let redirect_uri = std::env::var("GITHUB_OAUTH_REDIRECT_URI")
@@ -5942,7 +5949,12 @@ async fn github_oauth_revoke(State(state): State<Arc<ApiState>>) -> impl IntoRes
 }
 
 /// POST /api/github/oauth/refresh — manually refresh the OAuth token using refresh token.
-async fn github_oauth_refresh(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
+async fn github_oauth_refresh(
+    State(state): State<Arc<ApiState>>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    let request_id = extract_request_id(&headers);
+
     // Get refresh token from token manager
     let refresh_token = match state.oauth_token_manager.read().await.get_refresh_token().await {
         Ok(token) => token,
@@ -5960,23 +5972,21 @@ async fn github_oauth_refresh(State(state): State<Arc<ApiState>>) -> impl IntoRe
     let client_id = match std::env::var("GITHUB_OAUTH_CLIENT_ID") {
         Ok(v) if !v.is_empty() => v,
         _ => {
-            return (
-                axum::http::StatusCode::SERVICE_UNAVAILABLE,
-                Json(serde_json::json!({
-                    "error": "GITHUB_OAUTH_CLIENT_ID not set"
-                })),
+            tracing::error!(
+                request_id = %request_id,
+                "GitHub OAuth configuration missing: GITHUB_OAUTH_CLIENT_ID not set"
             );
+            return sanitized_503("GitHub OAuth not configured", &request_id);
         }
     };
     let client_secret = match std::env::var("GITHUB_OAUTH_CLIENT_SECRET") {
         Ok(v) if !v.is_empty() => v,
         _ => {
-            return (
-                axum::http::StatusCode::SERVICE_UNAVAILABLE,
-                Json(serde_json::json!({
-                    "error": "GITHUB_OAUTH_CLIENT_SECRET not set"
-                })),
+            tracing::error!(
+                request_id = %request_id,
+                "GitHub OAuth configuration missing: GITHUB_OAUTH_CLIENT_SECRET not set"
             );
+            return sanitized_503("GitHub OAuth not configured", &request_id);
         }
     };
     let redirect_uri = std::env::var("GITHUB_OAUTH_REDIRECT_URI")
