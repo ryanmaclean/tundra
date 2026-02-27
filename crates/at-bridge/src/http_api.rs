@@ -7771,7 +7771,8 @@ mod tests {
         {
             let mut beads = state.beads.write().await;
             for i in 0..10 {
-                beads.push(Bead::new(format!("bead{i}"), Lane::Standard));
+                let bead = Bead::new(format!("bead{i}"), Lane::Standard);
+                beads.insert(bead.id, bead);
             }
         }
 
@@ -7798,11 +7799,12 @@ mod tests {
         {
             let mut agents = state.agents.write().await;
             for i in 0..10 {
-                agents.push(Agent::new(
+                let agent = Agent::new(
                     format!("agent{i}"),
                     at_core::types::AgentRole::Crew,
                     CliType::Claude,
-                ));
+                );
+                agents.insert(agent.id, agent);
             }
         }
 

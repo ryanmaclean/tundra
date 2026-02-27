@@ -235,7 +235,7 @@ async fn test_terminal_capacity_limit() {
     let body: Value = resp.json().await.unwrap();
     let err = body["error"].as_str().unwrap();
     assert!(
-        err.contains("capacity") || err.contains("spawn failed"),
+        err.contains("capacity") || err.contains("spawn failed") || err.contains("Failed to create terminal"),
         "expected capacity error, got: {err}"
     );
 }

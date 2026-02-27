@@ -132,6 +132,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use uuid::Uuid;
 
+use crate::error_response::{extract_request_id, sanitized_error};
 use crate::http_api::ApiState;
 use crate::origin_validation::{get_default_allowed_origins, validate_websocket_origin};
 use crate::terminal::{
@@ -340,7 +341,10 @@ pub enum WsIncoming {
 ///   "persistent": false
 /// }
 /// ```
-pub async fn create_terminal(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
+pub async fn create_terminal(
+    State(state): State<Arc<ApiState>>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
     let pool = match &state.pty_pool {
         Some(pool) => pool.clone(),
         None => {
@@ -360,10 +364,13 @@ pub async fn create_terminal(State(state): State<Arc<ApiState>>) -> impl IntoRes
     let handle = match pool.spawn(shell, &[], &[("TERM", "xterm-256color")]) {
         Ok(h) => h,
         Err(e) => {
-            return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": format!("spawn failed: {e}")})),
+            let request_id = extract_request_id(&headers);
+            tracing::error!(
+                request_id = %request_id,
+                error = %e,
+                "Failed to spawn terminal"
             );
+            return sanitized_error("Failed to create terminal", &request_id);
         }
     };
 
