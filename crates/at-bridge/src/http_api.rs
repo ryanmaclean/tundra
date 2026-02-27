@@ -5099,7 +5099,46 @@ async fn get_metrics_json() -> impl IntoResponse {
 // Session handlers
 // ---------------------------------------------------------------------------
 
-/// GET /api/sessions/ui — load the most recent UI session (or return null).
+/// GET /api/sessions/ui -- retrieve the most recent UI session state.
+///
+/// Loads the most recently saved UI session from persistent storage. UI sessions
+/// store workspace state such as open tabs, selected views, filter settings, and
+/// scroll positions to enable seamless restoration after browser refresh or restart.
+/// Returns null if no sessions have been saved yet.
+///
+/// **Response:** 200 OK with SessionState object or null, 500 on storage error.
+///
+/// **Example Response (Session exists):**
+/// ```json
+/// {
+///   "id": "session-2026-02-23T10-30-15",
+///   "workspace_id": "my-workspace",
+///   "active_view": "kanban",
+///   "selected_task_id": "550e8400-e29b-41d4-a716-446655440000",
+///   "filter_settings": {
+///     "status": "in_progress",
+///     "priority": null
+///   },
+///   "scroll_position": {
+///     "x": 0,
+///     "y": 120
+///   },
+///   "created_at": "2026-02-23T10:30:15Z",
+///   "last_active_at": "2026-02-23T14:45:22Z"
+/// }
+/// ```
+///
+/// **Example Response (No sessions):**
+/// ```json
+/// null
+/// ```
+///
+/// **Example Response (Error):**
+/// ```json
+/// {
+///   "error": "failed to read session storage: permission denied"
+/// }
+/// ```
 async fn get_ui_session(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     match state.session_store.list_sessions().await {
         Ok(sessions) => {
@@ -5116,7 +5155,61 @@ async fn get_ui_session(State(state): State<Arc<ApiState>>) -> impl IntoResponse
     }
 }
 
-/// PUT /api/sessions/ui — save a UI session state.
+/// PUT /api/sessions/ui -- save or update UI session state.
+///
+/// Persists the current UI session state to disk for restoration across browser refreshes
+/// or application restarts. The session includes all UI workspace state: active views,
+/// selected items, filter settings, scroll positions, and other user preferences.
+/// The `last_active_at` timestamp is automatically updated to the current time.
+///
+/// **Request Body:** SessionState object with all workspace state fields.
+/// **Response:** 200 OK with saved SessionState, 500 on save error.
+///
+/// **Example Request:**
+/// ```json
+/// {
+///   "id": "session-2026-02-23T10-30-15",
+///   "workspace_id": "my-workspace",
+///   "active_view": "kanban",
+///   "selected_task_id": "550e8400-e29b-41d4-a716-446655440000",
+///   "filter_settings": {
+///     "status": "in_progress",
+///     "priority": "high"
+///   },
+///   "scroll_position": {
+///     "x": 0,
+///     "y": 120
+///   },
+///   "created_at": "2026-02-23T10:30:15Z"
+/// }
+/// ```
+///
+/// **Example Response (Success):**
+/// ```json
+/// {
+///   "id": "session-2026-02-23T10-30-15",
+///   "workspace_id": "my-workspace",
+///   "active_view": "kanban",
+///   "selected_task_id": "550e8400-e29b-41d4-a716-446655440000",
+///   "filter_settings": {
+///     "status": "in_progress",
+///     "priority": "high"
+///   },
+///   "scroll_position": {
+///     "x": 0,
+///     "y": 120
+///   },
+///   "created_at": "2026-02-23T10:30:15Z",
+///   "last_active_at": "2026-02-23T15:00:00Z"
+/// }
+/// ```
+///
+/// **Example Response (Error):**
+/// ```json
+/// {
+///   "error": "failed to write session to disk: no space left on device"
+/// }
+/// ```
 async fn save_ui_session(
     State(state): State<Arc<ApiState>>,
     Json(mut session): Json<SessionState>,
@@ -5131,7 +5224,56 @@ async fn save_ui_session(
     }
 }
 
-/// GET /api/sessions/ui/list — list all saved sessions.
+/// GET /api/sessions/ui/list -- retrieve all saved UI sessions.
+///
+/// Returns a list of all persisted UI sessions sorted by most recent activity.
+/// This endpoint is useful for session management UIs where users can select,
+/// restore, or delete previous workspace states. Each session includes metadata
+/// about when it was created and last accessed.
+///
+/// **Response:** 200 OK with array of SessionState objects, 500 on storage error.
+///
+/// **Example Response (Success):**
+/// ```json
+/// [
+///   {
+///     "id": "session-2026-02-23T15-00-00",
+///     "workspace_id": "my-workspace",
+///     "active_view": "kanban",
+///     "selected_task_id": "550e8400-e29b-41d4-a716-446655440000",
+///     "filter_settings": {
+///       "status": "in_progress",
+///       "priority": "high"
+///     },
+///     "scroll_position": {
+///       "x": 0,
+///       "y": 120
+///     },
+///     "created_at": "2026-02-23T15:00:00Z",
+///     "last_active_at": "2026-02-23T15:30:22Z"
+///   },
+///   {
+///     "id": "session-2026-02-22T09-15-30",
+///     "workspace_id": "other-workspace",
+///     "active_view": "table",
+///     "selected_task_id": null,
+///     "filter_settings": {},
+///     "scroll_position": {
+///       "x": 0,
+///       "y": 0
+///     },
+///     "created_at": "2026-02-22T09:15:30Z",
+///     "last_active_at": "2026-02-22T17:45:10Z"
+///   }
+/// ]
+/// ```
+///
+/// **Example Response (Error):**
+/// ```json
+/// {
+///   "error": "failed to list sessions: permission denied"
+/// }
+/// ```
 async fn list_ui_sessions(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     match state.session_store.list_sessions().await {
         Ok(sessions) => (
@@ -7073,7 +7215,41 @@ struct AgentSessionEntry {
     duration: String,
 }
 
-/// GET /api/sessions — list all active agent sessions.
+/// GET /api/sessions -- retrieve all active agent execution sessions.
+///
+/// Returns a list of all currently running or recently active agent sessions.
+/// Each agent session represents an active task execution process with its associated
+/// CLI type (aider, claude, etc.), status, and runtime duration. This endpoint is used
+/// for monitoring active agent processes and displaying execution metrics in the UI.
+///
+/// **Response:** 200 OK with array of AgentSessionEntry objects.
+///
+/// **Example Response:**
+/// ```json
+/// [
+///   {
+///     "id": "session-abc123",
+///     "agent_name": "backend-agent-001",
+///     "cli_type": "aider",
+///     "status": "running",
+///     "duration": "5m 32s"
+///   },
+///   {
+///     "id": "session-def456",
+///     "agent_name": "frontend-agent-002",
+///     "cli_type": "claude",
+///     "status": "idle",
+///     "duration": "12m 8s"
+///   },
+///   {
+///     "id": "session-ghi789",
+///     "agent_name": "qa-agent-003",
+///     "cli_type": "aider",
+///     "status": "error",
+///     "duration": "3m 45s"
+///   }
+/// ]
+/// ```
 async fn list_agent_sessions(State(state): State<Arc<ApiState>>) -> Json<Vec<AgentSessionEntry>> {
     let agents = state.agents.read().await;
     let sessions: Vec<AgentSessionEntry> = agents
