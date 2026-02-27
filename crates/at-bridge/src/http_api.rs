@@ -5529,13 +5529,49 @@ async fn handle_events_ws(socket: WebSocket, state: Arc<ApiState>) {
 // MCP servers handler
 // ---------------------------------------------------------------------------
 
+/// Represents a Model Context Protocol (MCP) server with its available tools.
+///
+/// MCP servers provide structured tool interfaces for agents to interact with
+/// external services and capabilities. Each server exposes a set of named tools
+/// that can be invoked through the `/api/mcp/tools/call` endpoint.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct McpServer {
+    /// Server name (e.g., "Context7", "Graphiti Memory", "Linear")
     name: String,
+    /// Server status: "active" (available) or "inactive" (requires configuration)
     status: String,
+    /// List of tool names provided by this server
     tools: Vec<String>,
 }
 
+/// GET /api/mcp/servers — list all available MCP servers and their tools.
+///
+/// Returns a registry of Model Context Protocol servers including both built-in
+/// servers from the harness and well-known external MCP integrations. Each server
+/// entry includes its status and the list of tools it exposes for agent use.
+///
+/// **Response:** 200 OK with array of McpServer objects.
+///
+/// **Example Response:**
+/// ```json
+/// [
+///   {
+///     "name": "Context7",
+///     "status": "active",
+///     "tools": ["resolve_library_id", "get_library_docs"]
+///   },
+///   {
+///     "name": "Linear",
+///     "status": "inactive",
+///     "tools": ["create_issue", "list_issues", "update_issue"]
+///   },
+///   {
+///     "name": "Filesystem",
+///     "status": "active",
+///     "tools": ["read_file", "write_file", "list_directory"]
+///   }
+/// ]
+/// ```
 async fn list_mcp_servers() -> Json<Vec<McpServer>> {
     // Build a registry with built-in tools to report them dynamically.
     let registry = at_harness::mcp::McpToolRegistry::with_builtins();
@@ -5609,6 +5645,47 @@ async fn list_mcp_servers() -> Json<Vec<McpServer>> {
 // MCP tool call handler
 // ---------------------------------------------------------------------------
 
+/// POST /api/mcp/tools/call — execute an MCP tool with the given parameters.
+///
+/// Invokes a built-in MCP tool by name with the provided arguments. Tools operate
+/// on the current application state (beads, agents, tasks) and return structured
+/// results. This endpoint enables agents to interact with the system through the
+/// standardized Model Context Protocol interface.
+///
+/// **Request Body:** ToolCallRequest with `name` and `arguments` fields.
+///
+/// **Example Request:**
+/// ```json
+/// {
+///   "name": "list_tasks",
+///   "arguments": {
+///     "status": "in_progress",
+///     "limit": 10
+///   }
+/// }
+/// ```
+///
+/// **Response:** 200 OK on success, 400 BAD_REQUEST on tool error, 404 NOT_FOUND if tool unknown.
+///
+/// **Example Success Response:**
+/// ```json
+/// {
+///   "result": {
+///     "tasks": [
+///       { "id": "task-001", "title": "Implement feature X", "status": "in_progress" }
+///     ]
+///   },
+///   "is_error": false
+/// }
+/// ```
+///
+/// **Example Error Response:**
+/// ```json
+/// {
+///   "error": "unknown tool: invalid_tool_name",
+///   "available_tools": ["list_tasks", "get_task", "update_task"]
+/// }
+/// ```
 async fn call_mcp_tool(
     State(state): State<Arc<ApiState>>,
     Json(request): Json<at_harness::mcp::ToolCallRequest>,
@@ -6477,6 +6554,39 @@ async fn toggle_direct_mode(
 }
 
 /// GET /api/cli/available — detect which CLI tools are installed on the system.
+///
+/// Scans the system PATH to determine which agent CLI tools (claude, codex, gemini,
+/// opencode) are available for task execution. Returns the detection status and
+/// installation path for each tool. The UI uses this to enable/disable CLI-specific
+/// features and display setup instructions for missing tools.
+///
+/// **Response:** 200 OK with array of CliAvailabilityEntry objects.
+///
+/// **Example Response:**
+/// ```json
+/// [
+///   {
+///     "name": "claude",
+///     "detected": true,
+///     "path": "/usr/local/bin/claude"
+///   },
+///   {
+///     "name": "codex",
+///     "detected": false,
+///     "path": null
+///   },
+///   {
+///     "name": "gemini",
+///     "detected": true,
+///     "path": "/opt/homebrew/bin/gemini"
+///   },
+///   {
+///     "name": "opencode",
+///     "detected": false,
+///     "path": null
+///   }
+/// ]
+/// ```
 async fn list_available_clis() -> impl IntoResponse {
     let cli_names = ["claude", "codex", "gemini", "opencode"];
     let mut entries = Vec::new();
@@ -7179,21 +7289,64 @@ async fn github_oauth_refresh(State(state): State<Arc<ApiState>>) -> impl IntoRe
 // Costs handler
 // ---------------------------------------------------------------------------
 
+/// Aggregated LLM token usage and cost tracking across all agent sessions.
+///
+/// Provides total input/output token counts and per-session breakdowns for
+/// monitoring and budgeting purposes. Currently returns placeholder data;
+/// full implementation will track real token consumption from LLM API calls.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct CostResponse {
+    /// Total input tokens consumed across all sessions
     input_tokens: u64,
+    /// Total output tokens generated across all sessions
     output_tokens: u64,
+    /// Per-session token usage breakdown
     sessions: Vec<CostSessionEntry>,
 }
 
+/// Token usage details for a single agent execution session.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct CostSessionEntry {
+    /// Unique session identifier
     session_id: String,
+    /// Name of the agent that created this session
     agent_name: String,
+    /// Input tokens consumed in this session
     input_tokens: u64,
+    /// Output tokens generated in this session
     output_tokens: u64,
 }
 
+/// GET /api/costs — retrieve LLM token usage and cost metrics.
+///
+/// Returns aggregated token consumption statistics across all agent sessions.
+/// Useful for tracking API costs and monitoring token budgets. Currently returns
+/// placeholder data (all zeros); full implementation will integrate with LLM
+/// provider APIs to track actual usage.
+///
+/// **Response:** 200 OK with CostResponse object.
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "input_tokens": 125000,
+///   "output_tokens": 87500,
+///   "sessions": [
+///     {
+///       "session_id": "session-abc123",
+///       "agent_name": "backend-agent-001",
+///       "input_tokens": 50000,
+///       "output_tokens": 35000
+///     },
+///     {
+///       "session_id": "session-def456",
+///       "agent_name": "frontend-agent-002",
+///       "input_tokens": 75000,
+///       "output_tokens": 52500
+///     }
+///   ]
+/// }
+/// ```
 async fn get_costs() -> Json<CostResponse> {
     Json(CostResponse {
         input_tokens: 0,
