@@ -159,6 +159,43 @@ async fn test_update_bead_status_not_found() {
 }
 
 #[tokio::test]
+async fn test_delete_bead() {
+    let (base, _state) = start_test_server().await;
+    let client = reqwest::Client::new();
+
+    // Create a bead
+    let resp = client
+        .post(format!("{base}/api/beads"))
+        .json(&serde_json::json!({
+            "title": "Delete me",
+            "description": "This bead will be deleted"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 201);
+
+    let created: Value = resp.json().await.unwrap();
+    let id = created["id"].as_str().unwrap();
+
+    // Delete the bead
+    let resp = client
+        .delete(format!("{base}/api/beads/{id}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    let deleted: Value = resp.json().await.unwrap();
+    assert_eq!(deleted["status"], "deleted");
+
+    // Verify it's gone
+    let resp = reqwest::get(format!("{base}/api/beads")).await.unwrap();
+    let beads: Vec<Value> = resp.json().await.unwrap();
+    assert!(beads.is_empty());
+}
+
+#[tokio::test]
 async fn test_list_agents_empty() {
     let (base, _state) = start_test_server().await;
 
