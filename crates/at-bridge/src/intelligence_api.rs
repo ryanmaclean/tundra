@@ -28,33 +28,90 @@ use crate::http_api::{simulate_planning_poker_for_bead, ApiState, SimulatePlanni
 // Request / query types
 // ---------------------------------------------------------------------------
 
+/// Request body for creating a new insights chat session.
+///
+/// **Example:**
+/// ```json
+/// {
+///   "title": "Performance Analysis Q1 2026",
+///   "model": "gpt-4"
+/// }
+/// ```
 #[derive(Debug, Deserialize)]
 pub struct CreateSessionRequest {
     pub title: String,
     pub model: String,
 }
 
+/// Request body for adding a user message to an insights session.
+///
+/// **Example:**
+/// ```json
+/// {
+///   "content": "What are the top performance bottlenecks in our codebase?"
+/// }
+/// ```
 #[derive(Debug, Deserialize)]
 pub struct AddMessageRequest {
     pub content: String,
 }
 
+/// Request body for AI-powered idea generation.
+///
+/// Specify a category and optional context to generate relevant ideas.
+/// Falls back to deterministic generation if no LLM provider is configured.
+///
+/// **Example:**
+/// ```json
+/// {
+///   "category": "CodeImprovement",
+///   "context": "We have slow database queries in the user service"
+/// }
+/// ```
 #[derive(Debug, Deserialize)]
 pub struct GenerateIdeasRequest {
     pub category: IdeaCategory,
     pub context: String,
 }
 
+/// Request body for creating a new roadmap.
+///
+/// **Example:**
+/// ```json
+/// {
+///   "name": "Q1 2026 Product Roadmap"
+/// }
+/// ```
 #[derive(Debug, Deserialize)]
 pub struct CreateRoadmapRequest {
     pub name: String,
 }
 
+/// Request body for AI-powered roadmap generation from codebase analysis.
+///
+/// **Example:**
+/// ```json
+/// {
+///   "analysis": "Feature: Auth system | Description: OAuth2 integration | Priority: 1\nFeature: Dashboard | Description: Admin dashboard | Priority: 2"
+/// }
+/// ```
 #[derive(Debug, Deserialize)]
 pub struct GenerateRoadmapRequest {
     pub analysis: String,
 }
 
+/// Request body for adding a feature to a specific roadmap.
+///
+/// Priority is 1-5 where 1 is highest priority.
+///
+/// **Example:**
+/// ```json
+/// {
+///   "title": "Real-time Notifications",
+///   "description": "WebSocket-based notification system",
+///   "priority": 2
+/// }
+/// ```
 #[derive(Debug, Deserialize)]
 pub struct AddFeatureRequest {
     pub title: String,
@@ -62,11 +119,33 @@ pub struct AddFeatureRequest {
     pub priority: u8,
 }
 
+/// Request body for updating a roadmap feature's status.
+///
+/// **Example:**
+/// ```json
+/// {
+///   "status": "InProgress"
+/// }
+/// ```
 #[derive(Debug, Deserialize)]
 pub struct UpdateFeatureStatusRequest {
     pub status: FeatureStatus,
 }
 
+/// Request body for adding a feature to the latest roadmap.
+///
+/// Simplified version of AddFeatureRequest with string-based priority
+/// that accepts both numeric (1-5) and textual values (critical, high, medium, low, lowest).
+///
+/// **Example:**
+/// ```json
+/// {
+///   "title": "User Profile Page",
+///   "description": "Customizable user profile with avatar upload",
+///   "status": "Planned",
+///   "priority": "high"
+/// }
+/// ```
 #[derive(Debug, Deserialize)]
 pub struct AddFeatureToLatestRequest {
     pub title: String,
@@ -77,6 +156,20 @@ pub struct AddFeatureToLatestRequest {
     pub priority: String,
 }
 
+/// Request body for storing a memory entry.
+///
+/// Memory entries are key-value pairs with categorization and source tracking
+/// for project knowledge management.
+///
+/// **Example:**
+/// ```json
+/// {
+///   "key": "database_connection_string_format",
+///   "value": "postgresql://user:pass@host:port/dbname",
+///   "category": "Technical",
+///   "source": "onboarding-doc"
+/// }
+/// ```
 #[derive(Debug, Deserialize)]
 pub struct AddMemoryRequest {
     pub key: String,
@@ -85,11 +178,29 @@ pub struct AddMemoryRequest {
     pub source: String,
 }
 
+/// Query parameters for memory search.
+///
+/// **Example:**
+/// ```
+/// GET /api/memory/search?q=database
+/// ```
 #[derive(Debug, Deserialize)]
 pub struct MemorySearchQuery {
     pub q: String,
 }
 
+/// Request body for generating a changelog entry from commit messages.
+///
+/// Parses conventional commit format (feat:, fix:, etc.) and groups changes
+/// into Added, Changed, Fixed, and Security sections.
+///
+/// **Example:**
+/// ```json
+/// {
+///   "commits": "feat: add user authentication\nfix: resolve null pointer in parser\nsecurity: patch XSS vulnerability",
+///   "version": "1.2.0"
+/// }
+/// ```
 #[derive(Debug, Deserialize)]
 pub struct GenerateChangelogRequest {
     pub commits: String,
@@ -151,12 +262,58 @@ pub fn intelligence_router() -> Router<Arc<ApiState>> {
 // Insights handlers
 // ---------------------------------------------------------------------------
 
+/// GET /api/insights/sessions -- retrieve all chat sessions.
+///
+/// Returns an array of all insight chat sessions with their ID, title,
+/// model configuration, creation timestamp, and message count.
+///
+/// **Response:** 200 OK with array of session objects.
+///
+/// **Example Response:**
+/// ```json
+/// [
+///   {
+///     "id": "550e8400-e29b-41d4-a716-446655440000",
+///     "title": "Performance Analysis Q1 2026",
+///     "model": "gpt-4",
+///     "created_at": "2026-02-20T14:30:00Z",
+///     "messages": []
+///   }
+/// ]
+/// ```
 async fn list_sessions(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     let engine = state.insights_engine.read().await;
     let sessions = engine.list_sessions().to_vec();
     Json(serde_json::json!(sessions))
 }
 
+/// POST /api/insights/sessions -- create a new chat session.
+///
+/// Creates a new insights session for AI-powered codebase analysis and Q&A.
+/// Sessions maintain conversation history and can use different LLM models.
+///
+/// **Request:** JSON body with title and model.
+///
+/// **Response:** 201 Created with the new session object.
+///
+/// **Example Request:**
+/// ```json
+/// {
+///   "title": "Performance Analysis Q1 2026",
+///   "model": "gpt-4"
+/// }
+/// ```
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "id": "550e8400-e29b-41d4-a716-446655440000",
+///   "title": "Performance Analysis Q1 2026",
+///   "model": "gpt-4",
+///   "created_at": "2026-02-27T10:00:00Z",
+///   "messages": []
+/// }
+/// ```
 async fn create_session(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<CreateSessionRequest>,
@@ -169,6 +326,25 @@ async fn create_session(
     )
 }
 
+/// DELETE /api/insights/sessions/{id} -- delete a chat session.
+///
+/// Permanently removes a session and all its message history.
+///
+/// **Response:** 200 OK if deleted, 404 Not Found if session doesn't exist.
+///
+/// **Example Success Response:**
+/// ```json
+/// {
+///   "deleted": true
+/// }
+/// ```
+///
+/// **Example Error Response:**
+/// ```json
+/// {
+///   "error": "session not found"
+/// }
+/// ```
 async fn delete_session(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
@@ -187,6 +363,34 @@ async fn delete_session(
     }
 }
 
+/// GET /api/insights/sessions/{id}/messages -- retrieve session messages.
+///
+/// Returns all messages in a chat session including user queries and AI responses.
+///
+/// **Response:** 200 OK with message array, 404 Not Found if session doesn't exist.
+///
+/// **Example Success Response:**
+/// ```json
+/// [
+///   {
+///     "role": "User",
+///     "content": "What are the top performance bottlenecks?",
+///     "timestamp": "2026-02-27T10:00:00Z"
+///   },
+///   {
+///     "role": "Assistant",
+///     "content": "Based on the codebase analysis, the main bottlenecks are...",
+///     "timestamp": "2026-02-27T10:00:05Z"
+///   }
+/// ]
+/// ```
+///
+/// **Example Error Response:**
+/// ```json
+/// {
+///   "error": "session not found"
+/// }
+/// ```
 async fn get_session_messages(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
@@ -204,6 +408,35 @@ async fn get_session_messages(
     }
 }
 
+/// POST /api/insights/sessions/{id}/messages -- add a user message to a session.
+///
+/// Adds a user message to the specified chat session. The message is stored
+/// with a User role and timestamp.
+///
+/// **Request:** JSON body with message content.
+///
+/// **Response:** 201 Created if successful, 404 Not Found if session doesn't exist.
+///
+/// **Example Request:**
+/// ```json
+/// {
+///   "content": "What are the top performance bottlenecks in our codebase?"
+/// }
+/// ```
+///
+/// **Example Success Response:**
+/// ```json
+/// {
+///   "ok": true
+/// }
+/// ```
+///
+/// **Example Error Response:**
+/// ```json
+/// {
+///   "error": "session not found"
+/// }
+/// ```
 async fn add_message(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
@@ -226,12 +459,68 @@ async fn add_message(
 // Ideation handlers
 // ---------------------------------------------------------------------------
 
+/// GET /api/ideation/ideas -- retrieve all generated ideas.
+///
+/// Returns an array of all ideas generated by the ideation engine,
+/// including their category, effort estimation, and metadata.
+///
+/// **Response:** 200 OK with array of idea objects.
+///
+/// **Example Response:**
+/// ```json
+/// [
+///   {
+///     "id": "550e8400-e29b-41d4-a716-446655440000",
+///     "title": "Implement Database Connection Pooling",
+///     "description": "Add connection pooling to reduce database latency",
+///     "category": "CodeImprovement",
+///     "effort": "Medium",
+///     "created_at": "2026-02-27T10:00:00Z",
+///     "converted": false
+///   }
+/// ]
+/// ```
 async fn list_ideas(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     let engine = state.ideation_engine.read().await;
     let ideas = engine.list_ideas().to_vec();
     Json(serde_json::json!(ideas))
 }
 
+/// POST /api/ideation/generate -- generate new ideas using AI.
+///
+/// Generates ideas based on a category and optional context. Uses AI-powered
+/// generation when an LLM provider is configured, falls back to deterministic
+/// generation in offline mode or tests.
+///
+/// **Request:** Optional JSON body with category and context. Defaults to
+/// CodeImprovement category with empty context if not provided.
+///
+/// **Response:** 201 Created with generated ideas.
+///
+/// **Example Request:**
+/// ```json
+/// {
+///   "category": "CodeImprovement",
+///   "context": "We have slow database queries in the user service"
+/// }
+/// ```
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "ideas": [
+///     {
+///       "id": "550e8400-e29b-41d4-a716-446655440000",
+///       "title": "Implement Database Query Caching",
+///       "description": "Add Redis caching layer for frequently accessed user data",
+///       "category": "CodeImprovement",
+///       "effort": "Medium",
+///       "created_at": "2026-02-27T10:00:00Z",
+///       "converted": false
+///     }
+///   ]
+/// }
+/// ```
 async fn generate_ideas(
     State(state): State<Arc<ApiState>>,
     body: Option<Json<GenerateIdeasRequest>>,
@@ -253,6 +542,39 @@ async fn generate_ideas(
     )
 }
 
+/// POST /api/ideation/ideas/{id}/convert -- convert an idea to a task (bead).
+///
+/// Converts an ideation idea into a task bead and adds it to the system.
+/// Automatically runs a planning poker simulation to estimate effort based
+/// on the idea's effort level.
+///
+/// **Response:** 200 OK with the created bead and planning poker session,
+/// 404 Not Found if idea doesn't exist.
+///
+/// **Example Success Response:**
+/// ```json
+/// {
+///   "id": "660e8400-e29b-41d4-a716-446655440001",
+///   "title": "Implement Database Query Caching",
+///   "description": "Add Redis caching layer for frequently accessed user data",
+///   "status": "New",
+///   "lane": "Standard",
+///   "priority": 50,
+///   "created_at": "2026-02-27T10:00:00Z",
+///   "planning_poker": {
+///     "session_id": "770e8400-e29b-41d4-a716-446655440002",
+///     "consensus": "5",
+///     "votes": [...]
+///   }
+/// }
+/// ```
+///
+/// **Example Error Response:**
+/// ```json
+/// {
+///   "error": "idea not found"
+/// }
+/// ```
 async fn convert_idea(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
@@ -333,12 +655,64 @@ fn effort_to_focus_card(effort: &EffortLevel) -> &'static str {
 // Roadmap handlers
 // ---------------------------------------------------------------------------
 
+/// GET /api/roadmap -- retrieve all roadmaps.
+///
+/// Returns an array of all product roadmaps with their features, priorities,
+/// and status information.
+///
+/// **Response:** 200 OK with array of roadmap objects.
+///
+/// **Example Response:**
+/// ```json
+/// [
+///   {
+///     "id": "550e8400-e29b-41d4-a716-446655440000",
+///     "name": "Q1 2026 Product Roadmap",
+///     "created_at": "2026-02-20T14:30:00Z",
+///     "features": [
+///       {
+///         "id": "660e8400-e29b-41d4-a716-446655440001",
+///         "title": "Real-time Notifications",
+///         "description": "WebSocket-based notification system",
+///         "priority": 2,
+///         "status": "Planned",
+///         "created_at": "2026-02-20T15:00:00Z"
+///       }
+///     ]
+///   }
+/// ]
+/// ```
 async fn list_roadmaps(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     let engine = state.roadmap_engine.read().await;
     let roadmaps = engine.list_roadmaps().to_vec();
     Json(serde_json::json!(roadmaps))
 }
 
+/// POST /api/roadmap -- create a new roadmap.
+///
+/// Creates an empty roadmap with the specified name. Features can be added
+/// later via the add feature endpoints.
+///
+/// **Request:** JSON body with roadmap name.
+///
+/// **Response:** 201 Created with the new roadmap object.
+///
+/// **Example Request:**
+/// ```json
+/// {
+///   "name": "Q1 2026 Product Roadmap"
+/// }
+/// ```
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "id": "550e8400-e29b-41d4-a716-446655440000",
+///   "name": "Q1 2026 Product Roadmap",
+///   "created_at": "2026-02-27T10:00:00Z",
+///   "features": []
+/// }
+/// ```
 async fn create_roadmap(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<CreateRoadmapRequest>,
@@ -351,6 +725,42 @@ async fn create_roadmap(
     )
 }
 
+/// POST /api/roadmap/generate -- generate a roadmap from codebase analysis.
+///
+/// Parses a structured analysis text (typically from AI) and generates a
+/// roadmap with features. Expects lines in format:
+/// `- Feature: <title> | Description: <desc> | Priority: <num>`
+///
+/// **Request:** Optional JSON body with analysis text. Defaults to empty
+/// analysis if not provided, creating an empty "Generated Roadmap".
+///
+/// **Response:** 201 Created with the generated roadmap.
+///
+/// **Example Request:**
+/// ```json
+/// {
+///   "analysis": "- Feature: Auth system | Description: OAuth2 integration | Priority: 1\n- Feature: Dashboard | Description: Admin dashboard | Priority: 2"
+/// }
+/// ```
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "id": "550e8400-e29b-41d4-a716-446655440000",
+///   "name": "Generated Roadmap",
+///   "created_at": "2026-02-27T10:00:00Z",
+///   "features": [
+///     {
+///       "id": "660e8400-e29b-41d4-a716-446655440001",
+///       "title": "Auth system",
+///       "description": "OAuth2 integration",
+///       "priority": 1,
+///       "status": "Planned",
+///       "created_at": "2026-02-27T10:00:00Z"
+///     }
+///   ]
+/// }
+/// ```
 async fn generate_roadmap(
     State(state): State<Arc<ApiState>>,
     body: Option<Json<GenerateRoadmapRequest>>,
@@ -367,6 +777,35 @@ async fn generate_roadmap(
     )
 }
 
+/// POST /api/roadmap/{id}/features -- add a feature to a specific roadmap.
+///
+/// Adds a new feature to the roadmap identified by the path parameter.
+/// Priority is 1-5 where 1 is highest priority.
+///
+/// **Request:** JSON body with feature details.
+///
+/// **Response:** 201 Created with the new feature, 404 Not Found if roadmap doesn't exist.
+///
+/// **Example Request:**
+/// ```json
+/// {
+///   "title": "Real-time Notifications",
+///   "description": "WebSocket-based notification system",
+///   "priority": 2
+/// }
+/// ```
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "id": "660e8400-e29b-41d4-a716-446655440001",
+///   "title": "Real-time Notifications",
+///   "description": "WebSocket-based notification system",
+///   "priority": 2,
+///   "status": "Planned",
+///   "created_at": "2026-02-27T10:00:00Z"
+/// }
+/// ```
 async fn add_feature(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
@@ -384,8 +823,37 @@ async fn add_feature(
     }
 }
 
-/// POST /api/roadmap/features — add a feature to the most recently created roadmap.
-/// Accepts a simpler request shape used by the frontend (title, description, status, priority as strings).
+/// POST /api/roadmap/features -- add a feature to the most recently created roadmap.
+///
+/// Simplified endpoint that adds a feature to the latest roadmap. If no roadmap exists,
+/// automatically creates a "Default Roadmap". Accepts both numeric (1-5) and textual
+/// priority values (critical, high, medium, low, lowest).
+///
+/// **Request:** JSON body with feature details using string-based priority.
+///
+/// **Response:** 201 Created with the new feature, 404 Not Found on error.
+///
+/// **Example Request:**
+/// ```json
+/// {
+///   "title": "User Profile Page",
+///   "description": "Customizable user profile with avatar upload",
+///   "status": "Planned",
+///   "priority": "high"
+/// }
+/// ```
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "id": "660e8400-e29b-41d4-a716-446655440001",
+///   "title": "User Profile Page",
+///   "description": "Customizable user profile with avatar upload",
+///   "priority": 2,
+///   "status": "Planned",
+///   "created_at": "2026-02-27T10:00:00Z"
+/// }
+/// ```
 async fn add_feature_to_latest(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<AddFeatureToLatestRequest>,
@@ -422,6 +890,28 @@ async fn add_feature_to_latest(
     }
 }
 
+/// PATCH /api/roadmap/{id}/features/{fid} -- update a feature's status.
+///
+/// Updates the status of a specific feature within a specific roadmap.
+/// Requires both roadmap ID and feature ID.
+///
+/// **Request:** JSON body with new status.
+///
+/// **Response:** 200 OK if updated, 404 Not Found if roadmap or feature doesn't exist.
+///
+/// **Example Request:**
+/// ```json
+/// {
+///   "status": "InProgress"
+/// }
+/// ```
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "updated": true
+/// }
+/// ```
 async fn update_feature_status(
     State(state): State<Arc<ApiState>>,
     Path((id, fid)): Path<(Uuid, Uuid)>,
@@ -440,7 +930,35 @@ async fn update_feature_status(
     }
 }
 
-/// Update a feature's status by feature ID alone (searches across all roadmaps).
+/// PUT /api/roadmap/features/{fid}/status -- update a feature's status by feature ID.
+///
+/// Updates a feature's status by searching across all roadmaps for the feature ID.
+/// Useful when you know the feature ID but not which roadmap it belongs to.
+///
+/// **Request:** JSON body with new status.
+///
+/// **Response:** 200 OK if updated, 404 Not Found if feature doesn't exist in any roadmap.
+///
+/// **Example Request:**
+/// ```json
+/// {
+///   "status": "InProgress"
+/// }
+/// ```
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "updated": true
+/// }
+/// ```
+///
+/// **Example Error Response:**
+/// ```json
+/// {
+///   "error": "feature not found in any roadmap"
+/// }
+/// ```
 async fn update_feature_status_by_id(
     State(state): State<Arc<ApiState>>,
     Path(fid): Path<Uuid>,
@@ -476,6 +994,29 @@ async fn update_feature_status_by_id(
 // Memory handlers
 // ---------------------------------------------------------------------------
 
+/// GET /api/memory -- retrieve all memory entries.
+///
+/// Returns all stored memory entries including key, value, category, source,
+/// and timestamps. Memory entries store project knowledge, patterns, and
+/// important information for future reference.
+///
+/// **Response:** 200 OK with array of memory entry objects.
+///
+/// **Example Response:**
+/// ```json
+/// [
+///   {
+///     "id": "550e8400-e29b-41d4-a716-446655440000",
+///     "key": "database_connection_string_format",
+///     "value": "postgresql://user:pass@host:port/dbname",
+///     "category": "Technical",
+///     "source": "onboarding-doc",
+///     "created_at": "2026-02-20T14:30:00Z",
+///     "accessed_at": "2026-02-27T10:00:00Z",
+///     "access_count": 5
+///   }
+/// ]
+/// ```
 async fn list_memory(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     let store = state.memory_store.read().await;
     // search("") matches every entry because every string contains "".
@@ -483,6 +1024,32 @@ async fn list_memory(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     Json(serde_json::json!(entries))
 }
 
+/// POST /api/memory -- add a new memory entry.
+///
+/// Stores a new key-value pair in the memory system with categorization
+/// and source tracking. Useful for recording project patterns, decisions,
+/// and important technical details.
+///
+/// **Request:** JSON body with key, value, category, and source.
+///
+/// **Response:** 201 Created with the new memory entry ID.
+///
+/// **Example Request:**
+/// ```json
+/// {
+///   "key": "database_connection_string_format",
+///   "value": "postgresql://user:pass@host:port/dbname",
+///   "category": "Technical",
+///   "source": "onboarding-doc"
+/// }
+/// ```
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "id": "550e8400-e29b-41d4-a716-446655440000"
+/// }
+/// ```
 async fn add_memory(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<AddMemoryRequest>,
@@ -496,6 +1063,36 @@ async fn add_memory(
     )
 }
 
+/// GET /api/memory/search?q={query} -- search memory entries.
+///
+/// Searches memory entries for matches in keys, values, categories, or sources.
+/// Case-insensitive substring matching.
+///
+/// **Query Parameters:**
+/// - `q`: Search query string (required)
+///
+/// **Response:** 200 OK with array of matching memory entries.
+///
+/// **Example Request:**
+/// ```
+/// GET /api/memory/search?q=database
+/// ```
+///
+/// **Example Response:**
+/// ```json
+/// [
+///   {
+///     "id": "550e8400-e29b-41d4-a716-446655440000",
+///     "key": "database_connection_string_format",
+///     "value": "postgresql://user:pass@host:port/dbname",
+///     "category": "Technical",
+///     "source": "onboarding-doc",
+///     "created_at": "2026-02-20T14:30:00Z",
+///     "accessed_at": "2026-02-27T10:00:00Z",
+///     "access_count": 5
+///   }
+/// ]
+/// ```
 async fn search_memory(
     State(state): State<Arc<ApiState>>,
     Query(q): Query<MemorySearchQuery>,
@@ -505,6 +1102,25 @@ async fn search_memory(
     Json(serde_json::json!(results))
 }
 
+/// DELETE /api/memory/{id} -- delete a memory entry.
+///
+/// Permanently removes a memory entry from the system.
+///
+/// **Response:** 200 OK if deleted, 404 Not Found if entry doesn't exist.
+///
+/// **Example Success Response:**
+/// ```json
+/// {
+///   "deleted": true
+/// }
+/// ```
+///
+/// **Example Error Response:**
+/// ```json
+/// {
+///   "error": "memory entry not found"
+/// }
+/// ```
 async fn delete_memory(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
@@ -527,12 +1143,62 @@ async fn delete_memory(
 // Changelog handlers
 // ---------------------------------------------------------------------------
 
+/// Query parameters for changelog retrieval.
+///
+/// **Example:**
+/// ```
+/// GET /api/changelog?source=tasks
+/// ```
 #[derive(Debug, Deserialize)]
 pub struct ChangelogQuery {
     #[serde(default)]
     pub source: Option<String>,
 }
 
+/// GET /api/changelog -- retrieve changelog entries or generate from tasks.
+///
+/// Returns changelog entries. When `source=tasks` query parameter is provided,
+/// generates a changelog from completed tasks instead of returning stored entries.
+/// Automatically categorizes tasks into feat, fix, refactor, docs, security, etc.
+///
+/// **Query Parameters:**
+/// - `source`: Optional. Set to "tasks" to generate from completed tasks.
+///
+/// **Response:** 200 OK with changelog entries or generated markdown.
+///
+/// **Example Request (list mode):**
+/// ```
+/// GET /api/changelog
+/// ```
+///
+/// **Example Response (list mode):**
+/// ```json
+/// [
+///   {
+///     "version": "1.2.0",
+///     "date": "2026-02-27",
+///     "sections": [
+///       {
+///         "category": "Added",
+///         "items": ["User authentication system"]
+///       }
+///     ]
+///   }
+/// ]
+/// ```
+///
+/// **Example Request (task-generated mode):**
+/// ```
+/// GET /api/changelog?source=tasks
+/// ```
+///
+/// **Example Response (task-generated mode):**
+/// ```json
+/// {
+///   "markdown": "# Changelog\n\n## [2026.2.27]\n\n### Added\n- feat: User authentication system\n",
+///   "entries": [...]
+/// }
+/// ```
 async fn get_changelog(
     State(state): State<Arc<ApiState>>,
     Query(query): Query<ChangelogQuery>,
@@ -596,6 +1262,45 @@ async fn get_changelog(
     }
 }
 
+/// POST /api/changelog/generate -- generate a changelog entry from commit messages.
+///
+/// Parses conventional commit messages (feat:, fix:, etc.) and generates
+/// a structured changelog entry grouped into Added, Changed, Fixed, and
+/// Security sections.
+///
+/// **Request:** JSON body with commit messages and version string.
+///
+/// **Response:** 201 Created with the generated changelog entry.
+///
+/// **Example Request:**
+/// ```json
+/// {
+///   "commits": "feat: add user authentication\nfix: resolve null pointer in parser\nsecurity: patch XSS vulnerability",
+///   "version": "1.2.0"
+/// }
+/// ```
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "version": "1.2.0",
+///   "date": "2026-02-27",
+///   "sections": [
+///     {
+///       "category": "Added",
+///       "items": ["add user authentication"]
+///     },
+///     {
+///       "category": "Fixed",
+///       "items": ["resolve null pointer in parser"]
+///     },
+///     {
+///       "category": "Security",
+///       "items": ["patch XSS vulnerability"]
+///     }
+///   ]
+/// }
+/// ```
 async fn generate_changelog(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<GenerateChangelogRequest>,
@@ -608,6 +1313,12 @@ async fn generate_changelog(
     )
 }
 
+/// Query parameters for project context retrieval.
+///
+/// **Example:**
+/// ```
+/// GET /api/context?path=/path/to/project&budget=4000
+/// ```
 #[derive(Debug, Deserialize)]
 pub struct ContextQuery {
     pub path: Option<String>,
@@ -619,7 +1330,42 @@ fn default_budget() -> usize {
     4000
 }
 
-/// D3: GET /api/context?path=&budget= — expose ProjectContextLoader for UI to show project index.
+/// GET /api/context -- retrieve project context information.
+///
+/// Exposes the ProjectContextLoader for the UI to show project index,
+/// agent definitions, skill definitions, and cached context files like
+/// CLAUDE.md, AGENTS.md, and TODO.md.
+///
+/// **Query Parameters:**
+/// - `path`: Optional project root path. Defaults to current directory.
+/// - `budget`: Token budget for response size (default 4000). Values > 2000
+///   include full agent and skill definition lists.
+///
+/// **Response:** 200 OK with project context summary.
+///
+/// **Example Request:**
+/// ```
+/// GET /api/context?path=/workspace/myproject&budget=4000
+/// ```
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "claude_md": "Project overview and guidelines...",
+///   "agents_md": "Agent definitions...",
+///   "todo_md": "- [ ] Task 1\n- [ ] Task 2",
+///   "agent_definitions_count": 5,
+///   "skill_definitions_count": 12,
+///   "cache": {
+///     "hits": 42,
+///     "misses": 3,
+///     "rebuilds": 1
+///   },
+///   "budget": 4000,
+///   "agent_definitions": ["coder", "reviewer", "qa"],
+///   "skill_definitions": ["git", "npm", "cargo"]
+/// }
+/// ```
 async fn get_context(Query(query): Query<ContextQuery>) -> impl IntoResponse {
     let project_root = query
         .path
