@@ -338,7 +338,7 @@ mod tests {
     fn make_router(strategy: RoutingStrategy) -> ModelRouter {
         ModelRouter::new(
             strategy,
-            CostTracker::new(),
+            CostTracker::default(),
             TokenCache::new(TokenCacheConfig::default()),
         )
     }
