@@ -217,6 +217,7 @@ dependencies = [
  "chrono",
  "flume",
  "futures-util",
+ "lru",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
