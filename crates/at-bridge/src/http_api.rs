@@ -1469,6 +1469,19 @@ async fn stop_agent(State(state): State<Arc<ApiState>>, Path(id): Path<Uuid>) ->
     )
 }
 
+/// GET /api/kpi — retrieve the current KPI snapshot containing system metrics.
+///
+/// Returns real-time key performance indicators including task counts, agent status,
+/// and system health metrics.
+///
+/// **Response:**
+/// ```json
+/// {
+///   "total_tasks": 42,
+///   "active_agents": 3,
+///   "completed_today": 15
+/// }
+/// ```
 async fn get_kpi(State(state): State<Arc<ApiState>>) -> Json<KpiSnapshot> {
     let kpi = state.kpi.read().await;
     Json(kpi.clone())
@@ -5356,6 +5369,10 @@ async fn ws_handler(
     ws.on_upgrade(move |socket| handle_ws(socket, state))
 }
 
+/// Internal handler that processes the upgraded WebSocket connection.
+///
+/// Subscribes to the event bus and forwards all events to the client as JSON messages.
+/// Connection is closed automatically if send fails (client disconnect, network error).
 async fn handle_ws(mut socket: WebSocket, state: Arc<ApiState>) {
     let rx = state.event_bus.subscribe();
     while let Ok(msg) = rx.recv_async().await {
@@ -5476,6 +5493,11 @@ async fn events_ws_handler(
     ws.on_upgrade(move |socket| handle_events_ws(socket, state))
 }
 
+/// Internal handler that processes the upgraded WebSocket connection with heartbeat support.
+///
+/// Subscribes to the event bus, converts events to notifications, stores them, and forwards
+/// to the client. Sends ping frames every 30 seconds to maintain connection health.
+/// Handles client Close frames gracefully and closes on send/receive errors.
 async fn handle_events_ws(socket: WebSocket, state: Arc<ApiState>) {
     let (mut ws_tx, mut ws_rx) = socket.split();
     let rx = state.event_bus.subscribe();
@@ -7435,6 +7457,15 @@ struct ConvoyEntry {
     status: String,
 }
 
+/// GET /api/convoys — list all convoys (stub implementation).
+///
+/// Currently returns an empty array. This endpoint is reserved for future
+/// convoy management functionality.
+///
+/// **Response:**
+/// ```json
+/// []
+/// ```
 async fn list_convoys() -> Json<Vec<ConvoyEntry>> {
     Json(Vec::new())
 }
@@ -8681,6 +8712,24 @@ async fn run_competitor_analysis(
 // Profile swap notification
 // ---------------------------------------------------------------------------
 
+/// POST /api/notify/profile-swap — notify the system that the API profile has changed.
+///
+/// Creates a system notification to inform users that the active API profile has been
+/// switched. This is typically called by the UI when the user changes profiles.
+///
+/// **Request:**
+/// ```json
+/// {
+///   "profile": "production"
+/// }
+/// ```
+///
+/// **Response:**
+/// ```json
+/// {
+///   "notified": "production"
+/// }
+/// ```
 async fn notify_profile_swap(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<serde_json::Value>,
@@ -8706,6 +8755,19 @@ async fn notify_profile_swap(
 // App update check notification
 // ---------------------------------------------------------------------------
 
+/// GET /api/app/check-update — check for application updates (stub implementation).
+///
+/// Returns version information and whether an update is available. Currently always
+/// reports the application is up to date. Creates a notification in the system.
+///
+/// **Response:**
+/// ```json
+/// {
+///   "current_version": "0.1.0",
+///   "latest_version": "0.1.0",
+///   "update_available": false
+/// }
+/// ```
 async fn check_app_update(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     // Stub: always returns "up to date"
     let mut store = state.notification_store.write().await;
