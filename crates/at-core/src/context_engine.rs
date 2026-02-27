@@ -419,7 +419,7 @@ impl ProjectContextLoader {
             let mut paths: Vec<PathBuf> = entries
                 .flatten()
                 .map(|e| e.path())
-                .filter(|p| p.extension().map_or(false, |ext| ext == "md"))
+                .filter(|p| p.extension().is_some_and(|ext| ext == "md"))
                 .collect();
             paths.sort();
             for path in paths {

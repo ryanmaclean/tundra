@@ -204,15 +204,17 @@ impl SessionStore {
 
     /// Delete sessions whose `last_active_at` is older than `older_than`
     /// duration from now. Returns the number of sessions removed.
-    pub async fn cleanup_old_sessions(&self, older_than: Duration) -> Result<usize, SessionStoreError> {
+    pub async fn cleanup_old_sessions(
+        &self,
+        older_than: Duration,
+    ) -> Result<usize, SessionStoreError> {
         let cutoff = Utc::now() - older_than;
         let sessions = self.list_sessions().await?;
         let mut removed = 0;
         for session in sessions {
-            if session.last_active_at < cutoff
-                && self.delete_session(&session.id).await? {
-                    removed += 1;
-                }
+            if session.last_active_at < cutoff && self.delete_session(&session.id).await? {
+                removed += 1;
+            }
         }
         Ok(removed)
     }
@@ -296,7 +298,10 @@ mod tests {
         let recent = SessionState::new("new_user");
         store.save_session(&recent).await.unwrap();
 
-        let removed = store.cleanup_old_sessions(Duration::days(30)).await.unwrap();
+        let removed = store
+            .cleanup_old_sessions(Duration::days(30))
+            .await
+            .unwrap();
         assert_eq!(removed, 1);
 
         let remaining = store.list_sessions().await.unwrap();

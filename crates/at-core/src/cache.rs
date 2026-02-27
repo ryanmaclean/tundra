@@ -176,7 +176,7 @@ impl CacheDb {
         let id_str = id.to_string();
         self.conn
             .call(move |conn| {
-                let mut stmt = conn.prepare(
+                let mut stmt = conn.prepare_cached(
                     "SELECT id, title, description, status, lane, priority,
                             agent_id, convoy_id, created_at, updated_at,
                             hooked_at, slung_at, done_at, git_branch, metadata
@@ -198,7 +198,7 @@ impl CacheDb {
         let status_str = enum_to_sql(&status);
         self.conn
             .call(move |conn| {
-                let mut stmt = conn.prepare(
+                let mut stmt = conn.prepare_cached(
                     "SELECT id, title, description, status, lane, priority,
                             agent_id, convoy_id, created_at, updated_at,
                             hooked_at, slung_at, done_at, git_branch, metadata
@@ -284,7 +284,7 @@ impl CacheDb {
                 // Single GROUP BY query replaces 9 separate COUNT queries.
                 let mut counts = std::collections::HashMap::<String, u64>::new();
                 let mut stmt =
-                    conn.prepare("SELECT status, COUNT(*) FROM beads GROUP BY status")?;
+                    conn.prepare_cached("SELECT status, COUNT(*) FROM beads GROUP BY status")?;
                 let rows = stmt.query_map([], |row| {
                     Ok((row.get::<_, String>(0)?, row.get::<_, u64>(1)?))
                 })?;
@@ -297,7 +297,7 @@ impl CacheDb {
                 let total_beads: u64 = counts.values().sum();
 
                 let active_agents: u64 = conn
-                    .prepare("SELECT COUNT(*) FROM agents WHERE status = 'active'")?
+                    .prepare_cached("SELECT COUNT(*) FROM agents WHERE status = 'active'")?
                     .query_row([], |r| r.get(0))?;
 
                 Ok(KpiSnapshot {
