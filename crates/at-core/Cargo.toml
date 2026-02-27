@@ -21,6 +21,8 @@ crossbeam-channel = { workspace = true }
 git2 = { workspace = true, optional = true }
 libc = "0.2"
 lru = "0.12"
+ring = "0.17"
+zeroize = { version = "1", features = ["derive"] }
 
 [features]
 default = ["libgit2"]

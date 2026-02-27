@@ -13,6 +13,7 @@ pub mod cache;
 pub mod config;
 pub mod context_engine;
 pub mod context_steering;
+pub mod crypto;
 pub mod file_watcher;
 pub mod git_read_adapter;
 pub mod lockfile;

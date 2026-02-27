@@ -25,6 +25,7 @@ use crate::auth::AuthLayer;
 use crate::event_bus::EventBus;
 use crate::intelligence_api;
 use crate::notifications::{notification_from_event, NotificationStore};
+use crate::oauth_token_manager::OAuthTokenManager;
 use crate::origin_validation::{get_default_allowed_origins, validate_websocket_origin};
 use crate::terminal::TerminalRegistry;
 use crate::terminal_ws;
@@ -153,6 +154,7 @@ pub struct ApiState {
     /// Pending OAuth state parameters for CSRF protection.
     /// Key: state parameter, Value: timestamp or session metadata.
     pub oauth_pending_states: Arc<RwLock<std::collections::HashMap<String, String>>>,
+    pub oauth_token_manager: Arc<RwLock<OAuthTokenManager>>,
     // ---- Projects --------------------------------------------------------
     pub projects: Arc<RwLock<Vec<Project>>>,
     // ---- PR polling -------------------------------------------------------
@@ -308,6 +310,7 @@ impl ApiState {
             github_oauth_token: Arc::new(RwLock::new(None)),
             github_oauth_user: Arc::new(RwLock::new(None)),
             oauth_pending_states: Arc::new(RwLock::new(std::collections::HashMap::new())),
+            oauth_token_manager: Arc::new(RwLock::new(OAuthTokenManager::new())),
             pr_poll_registry: Arc::new(RwLock::new(std::collections::HashMap::new())),
             releases: Arc::new(RwLock::new(Vec::new())),
             archived_tasks: Arc::new(RwLock::new(Vec::new())),
@@ -420,6 +423,113 @@ impl ApiState {
     }
 }
 
+/// Spawn a background task to monitor OAuth token expiration and refresh when needed.
+///
+/// This task runs every 5 minutes and checks if the OAuth token needs to be refreshed
+/// (i.e., will expire within the next 5 minutes). If refresh is needed, it attempts
+/// to refresh the token using GitHub's refresh_token mechanism.
+///
+/// # Arguments
+/// * `state` - The shared API state containing the OAuth token manager
+///
+/// # Example
+/// ```no_run
+/// use std::sync::Arc;
+/// use at_bridge::http_api::{ApiState, spawn_oauth_token_refresh_monitor};
+/// use at_bridge::event_bus::EventBus;
+///
+/// # async fn example() {
+/// let event_bus = EventBus::new();
+/// let state = Arc::new(ApiState::new(event_bus));
+/// spawn_oauth_token_refresh_monitor(state);
+/// # }
+/// ```
+pub fn spawn_oauth_token_refresh_monitor(state: Arc<ApiState>) {
+    tokio::spawn(async move {
+        use std::time::Duration;
+        use tracing::{debug, info, warn};
+
+        // Check every 5 minutes
+        let mut interval = tokio::time::interval(Duration::from_secs(300));
+
+        // Consume the first immediate tick
+        interval.tick().await;
+
+        info!("OAuth token refresh monitor started");
+
+        loop {
+            interval.tick().await;
+
+            debug!("Checking OAuth token expiration status");
+
+            let token_manager = state.oauth_token_manager.read().await;
+
+            // Check if token needs refresh
+            if token_manager.should_refresh().await {
+                info!("OAuth token approaching expiration, attempting refresh");
+
+                // Get GitHub OAuth configuration from environment
+                let client_id = match std::env::var("GITHUB_OAUTH_CLIENT_ID") {
+                    Ok(v) if !v.is_empty() => v,
+                    _ => {
+                        warn!("Cannot refresh OAuth token: GITHUB_OAUTH_CLIENT_ID not set");
+                        continue;
+                    }
+                };
+
+                let client_secret = match std::env::var("GITHUB_OAUTH_CLIENT_SECRET") {
+                    Ok(v) if !v.is_empty() => v,
+                    _ => {
+                        warn!("Cannot refresh OAuth token: GITHUB_OAUTH_CLIENT_SECRET not set");
+                        continue;
+                    }
+                };
+
+                let redirect_uri = std::env::var("GITHUB_OAUTH_REDIRECT_URI")
+                    .unwrap_or_else(|_| "http://localhost:3000/api/github/oauth/callback".into());
+
+                let scopes = std::env::var("GITHUB_OAUTH_SCOPES")
+                    .unwrap_or_else(|_| "repo,read:user,user:email".into())
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .collect::<Vec<_>>();
+
+                let oauth_config = gh_oauth::GitHubOAuthConfig {
+                    client_id,
+                    client_secret,
+                    redirect_uri,
+                    scopes,
+                };
+
+                let _oauth_client = gh_oauth::GitHubOAuthClient::new(oauth_config);
+
+                // NOTE: Token refresh requires refresh_token support, which will be
+                // implemented in subtask-3-2. For now, we just log that refresh is needed.
+                // Once subtask-3-2 is complete, this will actually call:
+                //   _oauth_client.refresh_token(refresh_token).await
+                // and update the token manager with the new token.
+
+                warn!(
+                    "OAuth token needs refresh but refresh_token support not yet implemented. \
+                     This will be added in subtask-3-2. User will need to re-authenticate."
+                );
+
+                // Drop the read lock before logging
+                drop(token_manager);
+
+                // TODO (subtask-3-2): Implement actual token refresh:
+                // 1. Get refresh_token from token_manager
+                // 2. Call oauth_client.refresh_token(refresh_token).await
+                // 3. Update token_manager with new access_token and expires_in
+                // 4. Update github_oauth_token and github_oauth_user in state
+
+            } else {
+                debug!("OAuth token is valid, no refresh needed");
+            }
+        }
+    });
+}
+
 /// Build the full API router with all REST and WebSocket routes.
 ///
 /// When `api_key` is `Some`, the [`AuthLayer`] middleware will require
@@ -511,6 +621,7 @@ pub fn api_router_with_auth(
         .route("/api/github/oauth/callback", post(github_oauth_callback))
         .route("/api/github/oauth/status", get(github_oauth_status))
         .route("/api/github/oauth/revoke", post(github_oauth_revoke))
+        .route("/api/github/oauth/refresh", post(github_oauth_refresh))
         // GitLab integration
         .route("/api/gitlab/issues", get(list_gitlab_issues))
         .route(
@@ -5589,6 +5700,13 @@ async fn github_oauth_callback(
     };
 
     // Store token and user in shared state.
+    // Store encrypted token via OAuthTokenManager
+    state.oauth_token_manager.write().await.store_token(
+        &token_resp.access_token,
+        token_resp.expires_in,
+        token_resp.refresh_token.as_deref(),
+    ).await;
+    // Keep backward compatibility with plaintext storage (will be removed in phase 4)
     *state.github_oauth_token.write().await = Some(token_resp.access_token.clone());
     *state.github_oauth_user.write().await = Some(user.clone());
 
@@ -5605,10 +5723,8 @@ async fn github_oauth_callback(
 
 /// GET /api/github/oauth/status — check whether the user is authenticated.
 async fn github_oauth_status(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
-    let token = state.github_oauth_token.read().await;
+    let authenticated = state.oauth_token_manager.read().await.has_valid_token().await;
     let user = state.github_oauth_user.read().await;
-
-    let authenticated = token.is_some();
 
     Json(serde_json::json!({
         "authenticated": authenticated,
@@ -5618,12 +5734,104 @@ async fn github_oauth_status(State(state): State<Arc<ApiState>>) -> impl IntoRes
 
 /// POST /api/github/oauth/revoke — clear the stored OAuth token.
 async fn github_oauth_revoke(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
+    // Clear encrypted token
+    state.oauth_token_manager.write().await.clear_token().await;
+
+    // Clear legacy in-memory token
     *state.github_oauth_token.write().await = None;
     *state.github_oauth_user.write().await = None;
 
     Json(serde_json::json!({
         "revoked": true,
     }))
+}
+
+/// POST /api/github/oauth/refresh — manually refresh the OAuth token using refresh token.
+async fn github_oauth_refresh(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
+    // Get refresh token from token manager
+    let refresh_token = match state.oauth_token_manager.read().await.get_refresh_token().await {
+        Ok(token) => token,
+        Err(_) => {
+            return (
+                axum::http::StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": "No refresh token available. Please re-authenticate."
+                })),
+            );
+        }
+    };
+
+    // Get OAuth client configuration
+    let client_id = match std::env::var("GITHUB_OAUTH_CLIENT_ID") {
+        Ok(v) if !v.is_empty() => v,
+        _ => {
+            return (
+                axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({
+                    "error": "GITHUB_OAUTH_CLIENT_ID not set"
+                })),
+            );
+        }
+    };
+    let client_secret = match std::env::var("GITHUB_OAUTH_CLIENT_SECRET") {
+        Ok(v) if !v.is_empty() => v,
+        _ => {
+            return (
+                axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({
+                    "error": "GITHUB_OAUTH_CLIENT_SECRET not set"
+                })),
+            );
+        }
+    };
+    let redirect_uri = std::env::var("GITHUB_OAUTH_REDIRECT_URI")
+        .unwrap_or_else(|_| "http://localhost:3000/api/github/oauth/callback".into());
+
+    let scopes = std::env::var("GITHUB_OAUTH_SCOPES")
+        .unwrap_or_else(|_| "repo,read:user,user:email".into())
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .collect::<Vec<_>>();
+
+    let oauth_config = gh_oauth::GitHubOAuthConfig {
+        client_id,
+        client_secret,
+        redirect_uri,
+        scopes,
+    };
+
+    let oauth_client = gh_oauth::GitHubOAuthClient::new(oauth_config);
+
+    // Refresh the token
+    let token_resp = match oauth_client.refresh_token(&refresh_token).await {
+        Ok(t) => t,
+        Err(e) => {
+            return (
+                axum::http::StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": format!("Failed to refresh token: {}", e)
+                })),
+            );
+        }
+    };
+
+    // Store new token with OAuthTokenManager
+    state.oauth_token_manager.write().await.store_token(
+        &token_resp.access_token,
+        token_resp.expires_in,
+        token_resp.refresh_token.as_deref(),
+    ).await;
+
+    // Update legacy plaintext storage for backward compatibility
+    *state.github_oauth_token.write().await = Some(token_resp.access_token.clone());
+
+    (
+        axum::http::StatusCode::OK,
+        Json(serde_json::json!({
+            "refreshed": true,
+            "expires_in": token_resp.expires_in,
+        })),
+    )
 }
 
 // ---------------------------------------------------------------------------
