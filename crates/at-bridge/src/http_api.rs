@@ -125,6 +125,12 @@ pub struct ApiState {
     pub pipeline_waiting: Arc<AtomicUsize>,
     /// Number of task executions currently running.
     pub pipeline_running: Arc<AtomicUsize>,
+    /// Cached count of beads for lock-free status queries.
+    pub bead_count: Arc<AtomicUsize>,
+    /// Cached count of agents for lock-free status queries.
+    pub agent_count: Arc<AtomicUsize>,
+    /// Cached count of tasks for lock-free status queries.
+    pub task_count: Arc<AtomicUsize>,
     pub start_time: std::time::Instant,
     pub pty_pool: Option<Arc<at_session::pty_pool::PtyPool>>,
     pub terminal_registry: Arc<RwLock<TerminalRegistry>>,
@@ -292,6 +298,9 @@ impl ApiState {
             pipeline_max_concurrent,
             pipeline_waiting: Arc::new(AtomicUsize::new(0)),
             pipeline_running: Arc::new(AtomicUsize::new(0)),
+            bead_count: Arc::new(AtomicUsize::new(0)),
+            agent_count: Arc::new(AtomicUsize::new(0)),
+            task_count: Arc::new(AtomicUsize::new(0)),
             start_time: std::time::Instant::now(),
             pty_pool: None,
             terminal_registry: Arc::new(RwLock::new(TerminalRegistry::new())),
@@ -420,6 +429,12 @@ impl ApiState {
             timestamp: chrono::Utc::now(),
         };
         *self.kpi.write().await = snapshot;
+
+        // Initialize atomic counters to reflect seeded demo data
+        self.bead_count.store(beads.len(), Ordering::Relaxed);
+        self.agent_count.store(agents.len(), Ordering::Relaxed);
+        let tasks = self.tasks.read().await;
+        self.task_count.store(tasks.len(), Ordering::Relaxed);
     }
 }
 
@@ -1035,13 +1050,11 @@ pub struct CompetitorAnalysisResult {
 /// }
 /// ```
 async fn get_status(State(state): State<Arc<ApiState>>) -> Json<StatusResponse> {
-    let beads = state.beads.read().await;
-    let agents = state.agents.read().await;
     Json(StatusResponse {
         version: env!("CARGO_PKG_VERSION").to_string(),
         uptime_seconds: state.start_time.elapsed().as_secs(),
-        agent_count: agents.len(),
-        bead_count: beads.len(),
+        agent_count: state.agent_count.load(Ordering::SeqCst),
+        bead_count: state.bead_count.load(Ordering::SeqCst),
     })
 }
 
@@ -1259,9 +1272,7 @@ async fn delete_bead(
     Path(id): Path<Uuid>,
 ) -> impl IntoResponse {
     let mut beads = state.beads.write().await;
-    let len_before = beads.len();
-    beads.retain(|b| b.id != id);
-    if beads.len() == len_before {
+    if beads.remove(&id).is_none() {
         return (
             axum::http::StatusCode::NOT_FOUND,
             Json(serde_json::json!({"error": "bead not found"})),
@@ -1271,7 +1282,7 @@ async fn delete_bead(
     // Publish updated bead list event
     state
         .event_bus
-        .publish(crate::protocol::BridgeMessage::BeadList(beads.clone()));
+        .publish(crate::protocol::BridgeMessage::BeadList(beads.values().cloned().collect()));
 
     (
         axum::http::StatusCode::OK,
