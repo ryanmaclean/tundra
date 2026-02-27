@@ -1726,7 +1726,7 @@ async fn get_task(State(state): State<Arc<ApiState>>, Path(id): Path<Uuid>) -> i
     (axum::http::StatusCode::OK, Json(serde_json::json!(task)))
 }
 
-/// PATCH /api/tasks/{id} -- update an existing task.
+/// PUT /api/tasks/{id} -- update an existing task.
 ///
 /// Updates one or more fields of an existing task. All fields are optional; only provided
 /// fields will be updated. Updates the task's `updated_at` timestamp and broadcasts a
