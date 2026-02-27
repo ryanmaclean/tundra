@@ -39,7 +39,7 @@ pub fn StatusBar(#[prop(into)] on_help: Callback<()>) -> impl IntoView {
     view! {
         <div class="status-bar">
             <div class="left">
-                <span>
+                <span aria-live="polite">
                     {move || {
                         let dot_svg = if status.get().daemon_running {
                             r##"<svg width="8" height="8" viewBox="0 0 8 8"><circle cx="4" cy="4" r="3" fill="#22c55e"><animate attributeName="r" values="3;3.5;3" dur="2s" repeatCount="indefinite"/></circle><circle cx="4" cy="4" r="3" fill="none" stroke="#22c55e" stroke-width="0.5" opacity="0.4"><animate attributeName="r" values="3;5;3" dur="2s" repeatCount="indefinite"/><animate attributeName="opacity" values="0.4;0;0.4" dur="2s" repeatCount="indefinite"/></circle></svg>"##
@@ -53,7 +53,7 @@ pub fn StatusBar(#[prop(into)] on_help: Callback<()>) -> impl IntoView {
                         }
                     }}
                 </span>
-                <span>{move || {
+                <span aria-live="polite">{move || {
                     let m = mode.get();
                     let s = status.get();
                     format_status_full(m, s.active_agents as usize, s.total_beads as usize, &uptime())

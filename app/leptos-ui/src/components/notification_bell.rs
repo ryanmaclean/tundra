@@ -78,7 +78,11 @@ pub fn NotificationBell(
                     let count = unread_count.get();
                     if count > 0 {
                         Some(view! {
-                            <span class="notification-badge">{
+                            <span
+                                class="notification-badge"
+                                aria-live="polite"
+                                aria-label={format!("{} unread notification{}", count, if count == 1 { "" } else { "s" })}
+                            >{
                                 if count > 99 { "99+".to_string() } else { count.to_string() }
                             }</span>
                         })
@@ -146,7 +150,7 @@ pub fn NotificationBell(
             })}
 
             // Toast notifications overlay
-            <div class="toast-container">
+            <div class="toast-container" role="alert" aria-live="assertive">
                 {move || {
                     toasts.get().into_iter().map(|toast| {
                         let toast_id = toast.id.clone();

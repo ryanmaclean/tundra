@@ -151,37 +151,37 @@ pub fn DashboardPage() -> impl IntoView {
             })}
 
             <div class="dash-kpi-row">
-                <div class="dash-kpi-chip">
+                <div class="dash-kpi-chip" aria-live="polite" aria-label={move || format!("Total beads: {}", total_beads())}>
                     <span class="dash-kpi-dot dash-dot-purple"></span>
                     <span class="dash-kpi-num">{total_beads}</span>
                     <span class="dash-kpi-label">"BEADS"</span>
                 </div>
-                <div class="dash-kpi-chip">
+                <div class="dash-kpi-chip" aria-live="polite" aria-label={move || format!("Active agents: {}", active_agents())}>
                     <span class="dash-kpi-dot dash-dot-green"></span>
                     <span class="dash-kpi-num">{active_agents}</span>
                     <span class="dash-kpi-label">"ACTIVE AGENTS"</span>
                 </div>
-                <div class="dash-kpi-chip">
+                <div class="dash-kpi-chip" aria-live="polite" aria-label={move || format!("Tasks in planning: {}", planning_count())}>
                     <span class="dash-kpi-dot dash-dot-amber"></span>
                     <span class="dash-kpi-num">{planning_count}</span>
                     <span class="dash-kpi-label">"PLANNING"</span>
                 </div>
-                <div class="dash-kpi-chip">
+                <div class="dash-kpi-chip" aria-live="polite" aria-label={move || format!("Tasks in progress: {}", progress_count())}>
                     <span class="dash-kpi-dot dash-dot-blue"></span>
                     <span class="dash-kpi-num">{progress_count}</span>
                     <span class="dash-kpi-label">"IN PROGRESS"</span>
                 </div>
-                <div class="dash-kpi-chip">
+                <div class="dash-kpi-chip" aria-live="polite" aria-label={move || format!("Tasks in review: {}", review_count())}>
                     <span class="dash-kpi-dot dash-dot-purple"></span>
                     <span class="dash-kpi-num">{review_count}</span>
                     <span class="dash-kpi-label">"REVIEW"</span>
                 </div>
-                <div class="dash-kpi-chip">
+                <div class="dash-kpi-chip" aria-live="polite" aria-label={move || format!("Tasks done: {}", done_count())}>
                     <span class="dash-kpi-dot dash-dot-green"></span>
                     <span class="dash-kpi-num">{done_count}</span>
                     <span class="dash-kpi-label">"DONE"</span>
                 </div>
-                <div class="dash-kpi-chip">
+                <div class="dash-kpi-chip" aria-live="polite" aria-label={move || format!("Failed tasks: {}", failed_count())}>
                     <span class="dash-kpi-dot dash-dot-red"></span>
                     <span class="dash-kpi-num">{failed_count}</span>
                     <span class="dash-kpi-label">"FAILED"</span>
