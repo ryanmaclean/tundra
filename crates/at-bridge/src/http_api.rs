@@ -4051,7 +4051,37 @@ struct ListGitHubIssuesQuery {
     pub per_page: Option<u8>,
 }
 
-/// GET /api/integrations/github/issues — list GitHub issues with optional state filter.
+/// GET /api/github/issues — list GitHub issues with optional filters.
+///
+/// Fetches issues from the configured GitHub repository with support for state filtering,
+/// label filtering, and pagination.
+///
+/// # Query Parameters
+/// - `state` (optional): Filter by issue state ("open", "closed", "all")
+/// - `labels` (optional): Comma-separated list of label names to filter by
+/// - `page` (optional): Page number for pagination (default: 1)
+/// - `per_page` (optional): Results per page (default: 30, max: 100)
+///
+/// # Response
+/// ```json
+/// [
+///   {
+///     "number": 42,
+///     "title": "Fix authentication bug",
+///     "state": "open",
+///     "html_url": "https://github.com/owner/repo/issues/42",
+///     "user": { "login": "username" },
+///     "labels": [{ "name": "bug" }],
+///     "created_at": "2024-01-15T10:00:00Z",
+///     "updated_at": "2024-01-15T11:00:00Z"
+///   }
+/// ]
+/// ```
+///
+/// # Errors
+/// - `503 SERVICE_UNAVAILABLE` if GitHub token is not configured
+/// - `400 BAD_REQUEST` if GitHub owner/repo are not set
+/// - `502 BAD_GATEWAY` if GitHub API request fails
 async fn list_github_issues(
     State(state): State<Arc<ApiState>>,
     Query(q): Query<ListGitHubIssuesQuery>,
@@ -4118,6 +4148,27 @@ async fn list_github_issues(
     (axum::http::StatusCode::OK, Json(serde_json::json!(list)))
 }
 
+/// POST /api/github/sync — trigger a synchronization of open GitHub issues into local beads.
+///
+/// Imports all open issues from the configured GitHub repository that don't already exist
+/// as beads. Updates sync status counters and timestamps.
+///
+/// # Request
+/// No body required.
+///
+/// # Response
+/// ```json
+/// {
+///   "message": "Sync completed",
+///   "imported": 5,
+///   "statuses_synced": 0
+/// }
+/// ```
+///
+/// # Errors
+/// - `503 SERVICE_UNAVAILABLE` if GitHub token is not configured
+/// - `400 BAD_REQUEST` if GitHub owner/repo are not set in settings
+/// - `500 INTERNAL_SERVER_ERROR` if sync operation fails
 async fn trigger_github_sync(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     let config = state.settings_manager.load_or_default();
     let int = &config.integrations;
@@ -4202,12 +4253,59 @@ async fn trigger_github_sync(State(state): State<Arc<ApiState>>) -> impl IntoRes
     )
 }
 
+/// GET /api/github/sync/status — retrieve the current GitHub issue sync status.
+///
+/// Returns information about the last sync operation including timestamp, counts, and
+/// whether a sync is currently in progress.
+///
+/// # Response
+/// ```json
+/// {
+///   "last_sync_time": "2024-01-15T10:30:00Z",
+///   "issues_imported": 42,
+///   "issues_exported": 0,
+///   "statuses_synced": 15,
+///   "is_syncing": false
+/// }
+/// ```
 async fn get_sync_status(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     let status = state.sync_status.read().await;
     Json(serde_json::json!(*status))
 }
 
-/// POST /api/tasks/{task_id}/pr — create a GitHub pull request for a task's branch.
+/// POST /api/github/pr/{task_id} — create a GitHub pull request for a task's branch.
+///
+/// Creates a pull request on GitHub for the specified task. The task must have an
+/// associated git branch (created via worktree).
+///
+/// # Path Parameters
+/// - `task_id`: UUID of the task
+///
+/// # Request Body (optional)
+/// ```json
+/// {
+///   "base_branch": "main"
+/// }
+/// ```
+///
+/// # Response
+/// ```json
+/// {
+///   "message": "PR created",
+///   "task_id": "550e8400-e29b-41d4-a716-446655440000",
+///   "pr_title": "Task: Implement feature X",
+///   "pr_branch": "task/042-implement-feature-x",
+///   "pr_base_branch": "main",
+///   "pr_number": 123,
+///   "pr_url": "https://github.com/owner/repo/pull/123"
+/// }
+/// ```
+///
+/// # Errors
+/// - `404 NOT_FOUND` if task does not exist
+/// - `400 BAD_REQUEST` if task has no git branch
+/// - `503 SERVICE_UNAVAILABLE` if GitHub token is not configured
+/// - `500 INTERNAL_SERVER_ERROR` if PR creation fails
 async fn create_pr_for_task(
     State(state): State<Arc<ApiState>>,
     Path(task_id): Path<Uuid>,
@@ -5697,6 +5795,37 @@ struct ListGitHubPrsQuery {
     pub per_page: Option<u8>,
 }
 
+/// GET /api/github/prs — list GitHub pull requests with optional filters.
+///
+/// Fetches pull requests from the configured GitHub repository with support for
+/// state filtering and pagination.
+///
+/// # Query Parameters
+/// - `state` (optional): Filter by PR state ("open", "closed", "all")
+/// - `page` (optional): Page number for pagination (default: 1)
+/// - `per_page` (optional): Results per page (default: 30, max: 100)
+///
+/// # Response
+/// ```json
+/// [
+///   {
+///     "number": 123,
+///     "title": "Add new feature",
+///     "state": "open",
+///     "html_url": "https://github.com/owner/repo/pull/123",
+///     "head": { "ref": "feature-branch" },
+///     "base": { "ref": "main" },
+///     "user": { "login": "username" },
+///     "created_at": "2024-01-15T10:00:00Z",
+///     "updated_at": "2024-01-15T11:00:00Z"
+///   }
+/// ]
+/// ```
+///
+/// # Errors
+/// - `503 SERVICE_UNAVAILABLE` if GitHub token is not configured
+/// - `400 BAD_REQUEST` if GitHub owner/repo are not set
+/// - `502 BAD_GATEWAY` if GitHub API request fails
 async fn list_github_prs(
     State(state): State<Arc<ApiState>>,
     Query(q): Query<ListGitHubPrsQuery>,
@@ -5764,6 +5893,28 @@ async fn list_github_prs(
 // Import GitHub issue as bead
 // ---------------------------------------------------------------------------
 
+/// POST /api/github/issues/{number}/import — import a specific GitHub issue as a local bead.
+///
+/// Fetches a GitHub issue by number and creates a corresponding bead in the local system.
+/// The bead will inherit the issue's title, description, labels, and metadata.
+///
+/// # Path Parameters
+/// - `number`: GitHub issue number
+///
+/// # Response
+/// ```json
+/// {
+///   "message": "Issue #123 imported as bead",
+///   "bead_id": "550e8400-e29b-41d4-a716-446655440000",
+///   "issue_number": 123,
+///   "title": "Fix authentication bug"
+/// }
+/// ```
+///
+/// # Errors
+/// - `503 SERVICE_UNAVAILABLE` if GitHub token is not configured
+/// - `400 BAD_REQUEST` if GitHub owner/repo are not set
+/// - `500 INTERNAL_SERVER_ERROR` if issue fetch or bead creation fails
 async fn import_github_issue(
     State(state): State<Arc<ApiState>>,
     Path(number): Path<u64>,
@@ -5827,6 +5978,25 @@ async fn import_github_issue(
 // ---------------------------------------------------------------------------
 
 /// GET /api/github/oauth/authorize — build the GitHub authorization URL.
+///
+/// Generates a GitHub OAuth authorization URL with CSRF protection. The client should
+/// redirect the user to this URL to initiate the OAuth flow.
+///
+/// # Environment Variables
+/// - `GITHUB_OAUTH_CLIENT_ID`: Required OAuth application client ID
+/// - `GITHUB_OAUTH_REDIRECT_URI`: Optional callback URL (default: http://localhost:3000/api/github/oauth/callback)
+/// - `GITHUB_OAUTH_SCOPES`: Optional comma-separated scopes (default: repo,read:user,user:email)
+///
+/// # Response
+/// ```json
+/// {
+///   "url": "https://github.com/login/oauth/authorize?client_id=...&redirect_uri=...&scope=...&state=...",
+///   "state": "550e8400-e29b-41d4-a716-446655440000"
+/// }
+/// ```
+///
+/// # Errors
+/// - `503 SERVICE_UNAVAILABLE` if GITHUB_OAUTH_CLIENT_ID is not set
 async fn github_oauth_authorize(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     let client_id = match std::env::var("GITHUB_OAUTH_CLIENT_ID") {
         Ok(v) if !v.is_empty() => v,
@@ -5884,6 +6054,34 @@ struct OAuthCallbackRequest {
 }
 
 /// POST /api/github/oauth/callback — exchange the authorization code for a token.
+///
+/// Completes the OAuth flow by exchanging the authorization code for an access token.
+/// Validates the CSRF state parameter and stores the token for subsequent API calls.
+///
+/// # Request Body
+/// ```json
+/// {
+///   "code": "authorization_code_from_github",
+///   "state": "550e8400-e29b-41d4-a716-446655440000"
+/// }
+/// ```
+///
+/// # Response
+/// ```json
+/// {
+///   "success": true,
+///   "user": {
+///     "login": "username",
+///     "name": "User Name",
+///     "email": "user@example.com"
+///   }
+/// }
+/// ```
+///
+/// # Errors
+/// - `400 BAD_REQUEST` if state parameter is invalid or expired (10 minute TTL)
+/// - `503 SERVICE_UNAVAILABLE` if OAuth client credentials are not configured
+/// - `502 BAD_GATEWAY` if token exchange with GitHub fails
 async fn github_oauth_callback(
     State(state): State<Arc<ApiState>>,
     Json(body): Json<OAuthCallbackRequest>,
@@ -6005,6 +6203,27 @@ async fn github_oauth_callback(
 }
 
 /// GET /api/github/oauth/status — check whether the user is authenticated.
+///
+/// Returns the current OAuth authentication status and user information if authenticated.
+///
+/// # Response (authenticated)
+/// ```json
+/// {
+///   "authenticated": true,
+///   "user": {
+///     "login": "username",
+///     "name": "User Name",
+///     "email": "user@example.com"
+///   }
+/// }
+/// ```
+///
+/// # Response (not authenticated)
+/// ```json
+/// {
+///   "authenticated": false
+/// }
+/// ```
 async fn github_oauth_status(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     let authenticated = state.oauth_token_manager.read().await.has_valid_token().await;
     let user = state.github_oauth_user.read().await;
@@ -6016,6 +6235,16 @@ async fn github_oauth_status(State(state): State<Arc<ApiState>>) -> impl IntoRes
 }
 
 /// POST /api/github/oauth/revoke — clear the stored OAuth token.
+///
+/// Logs out the user by clearing the stored OAuth token and user information.
+/// Does not revoke the token on GitHub's side.
+///
+/// # Response
+/// ```json
+/// {
+///   "success": true
+/// }
+/// ```
 async fn github_oauth_revoke(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     // Clear encrypted token
     state.oauth_token_manager.write().await.clear_token().await;
@@ -6489,6 +6718,22 @@ pub fn spawn_pr_poller(
 }
 
 /// POST /api/github/pr/{number}/watch — start watching a pull request for status updates.
+///
+/// Registers a pull request for background polling to track merge status and CI checks.
+///
+/// # Path Parameters
+/// - `number`: GitHub pull request number
+///
+/// # Response
+/// ```json
+/// {
+///   "pr_number": 123,
+///   "state": "open",
+///   "mergeable": null,
+///   "checks_passed": null,
+///   "last_polled": "2024-01-15T10:00:00Z"
+/// }
+/// ```
 async fn watch_pr(
     State(state): State<Arc<ApiState>>,
     Path(number): Path<u32>,
@@ -6506,6 +6751,21 @@ async fn watch_pr(
 }
 
 /// DELETE /api/github/pr/{number}/watch — stop watching a pull request.
+///
+/// Removes a pull request from the watch registry, stopping background polling.
+///
+/// # Path Parameters
+/// - `number`: GitHub pull request number
+///
+/// # Response (success)
+/// ```json
+/// {
+///   "removed": 123
+/// }
+/// ```
+///
+/// # Errors
+/// - `404 NOT_FOUND` if PR is not currently being watched
 async fn unwatch_pr(
     State(state): State<Arc<ApiState>>,
     Path(number): Path<u32>,
@@ -6525,6 +6785,21 @@ async fn unwatch_pr(
 }
 
 /// GET /api/github/pr/watched — list all currently watched pull requests.
+///
+/// Returns the status of all pull requests currently being watched for updates.
+///
+/// # Response
+/// ```json
+/// [
+///   {
+///     "pr_number": 123,
+///     "state": "open",
+///     "mergeable": true,
+///     "checks_passed": true,
+///     "last_polled": "2024-01-15T10:00:00Z"
+///   }
+/// ]
+/// ```
 async fn list_watched_prs(State(state): State<Arc<ApiState>>) -> Json<Vec<PrPollStatus>> {
     let registry = state.pr_poll_registry.read().await;
     Json(registry.values().cloned().collect())
@@ -6545,7 +6820,37 @@ struct CreateReleaseRequest {
     prerelease: bool,
 }
 
-/// POST /api/releases — create a new GitHub release with tag, name, body, and metadata.
+/// POST /api/github/releases — create a new GitHub release with tag, name, body, and metadata.
+///
+/// Creates a GitHub release for the configured repository. If GitHub integration is not
+/// configured, creates a local-only release record.
+///
+/// # Request Body
+/// ```json
+/// {
+///   "tag_name": "v1.0.0",
+///   "name": "Release v1.0.0",
+///   "body": "## Changes\n- Feature A\n- Bug fix B",
+///   "draft": false,
+///   "prerelease": false
+/// }
+/// ```
+///
+/// # Response
+/// ```json
+/// {
+///   "tag_name": "v1.0.0",
+///   "name": "Release v1.0.0",
+///   "body": "## Changes\n- Feature A\n- Bug fix B",
+///   "draft": false,
+///   "prerelease": false,
+///   "created_at": "2024-01-15T10:00:00Z",
+///   "html_url": "https://github.com/owner/repo/releases/tag/v1.0.0"
+/// }
+/// ```
+///
+/// # Errors
+/// - `502 BAD_GATEWAY` if GitHub API request fails
 async fn create_release(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<CreateReleaseRequest>,
@@ -6651,7 +6956,25 @@ async fn create_release(
     )
 }
 
-/// GET /api/releases — list all GitHub releases for the configured repository.
+/// GET /api/github/releases — list all GitHub releases for the configured repository.
+///
+/// Fetches all releases from the configured GitHub repository. Returns both remote GitHub
+/// releases and any local-only releases if GitHub integration is not configured.
+///
+/// # Response
+/// ```json
+/// [
+///   {
+///     "tag_name": "v1.0.0",
+///     "name": "Release v1.0.0",
+///     "body": "Release notes here",
+///     "draft": false,
+///     "prerelease": false,
+///     "created_at": "2024-01-15T10:00:00Z",
+///     "html_url": "https://github.com/owner/repo/releases/tag/v1.0.0"
+///   }
+/// ]
+/// ```
 async fn list_releases(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     let config = state.settings_manager.load_or_default();
     let int = &config.integrations;
