@@ -6001,6 +6001,63 @@ pub fn spawn_pr_poller(
     })
 }
 
+/// Spawn a background task to periodically clean up expired OAuth states.
+///
+/// OAuth states are used for CSRF protection during the OAuth flow and expire
+/// after 10 minutes. This task runs every 5 minutes to remove expired entries
+/// from the LRU cache, preventing unbounded memory growth over time.
+pub fn spawn_oauth_state_cleanup(
+    oauth_pending_states: Arc<Mutex<LruCache<String, String>>>,
+    shutdown: tokio::sync::broadcast::Receiver<()>,
+) -> tokio::task::JoinHandle<()> {
+    let mut shutdown_rx = shutdown;
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(300)); // 5 minutes
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+        loop {
+            tokio::select! {
+                _ = interval.tick() => {
+                    let mut cache = oauth_pending_states.lock().await;
+                    let now = chrono::Utc::now();
+                    let expiry_threshold_minutes = 10;
+
+                    // Collect expired keys to remove
+                    let mut expired_keys = Vec::new();
+                    for (key, timestamp_str) in cache.iter() {
+                        if let Ok(timestamp) = chrono::DateTime::parse_from_rfc3339(timestamp_str) {
+                            let age = now.signed_duration_since(timestamp.with_timezone(&chrono::Utc));
+                            if age.num_minutes() >= expiry_threshold_minutes {
+                                expired_keys.push(key.clone());
+                            }
+                        } else {
+                            // Invalid timestamp format - mark for removal
+                            expired_keys.push(key.clone());
+                        }
+                    }
+
+                    // Remove expired entries
+                    let count = expired_keys.len();
+                    for key in expired_keys {
+                        cache.pop(&key);
+                    }
+
+                    if count > 0 {
+                        tracing::info!(
+                            expired_count = count,
+                            "cleaned up expired OAuth states"
+                        );
+                    }
+                }
+                _ = shutdown_rx.recv() => {
+                    tracing::info!("OAuth state cleanup task shutting down");
+                    break;
+                }
+            }
+        }
+    })
+}
+
 /// POST /api/github/pr/{number}/watch — start watching a pull request for status updates.
 async fn watch_pr(
     State(state): State<Arc<ApiState>>,
