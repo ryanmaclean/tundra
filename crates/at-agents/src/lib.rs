@@ -1,5 +1,7 @@
 //! Agent execution, orchestration, and lifecycle management for auto-tundra.
 //!
+//! For comprehensive architecture documentation, see [ARCHITECTURE.md](../ARCHITECTURE.md).
+//!
 //! This crate provides the agent layer that coordinates Claude AI agents,
 //! managing their execution, state, and task progression. It includes:
 //! - Task orchestration and execution engines
