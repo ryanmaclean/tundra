@@ -175,6 +175,12 @@ impl Daemon {
         let intervals = self.intervals.clone();
         let shutdown = self.shutdown.clone();
 
+        // Spawn OAuth state cleanup background task (runs every 5 minutes)
+        at_bridge::http_api::spawn_oauth_state_cleanup(
+            api_state.oauth_pending_states.clone(),
+            shutdown.subscribe(),
+        );
+
         tokio::spawn(async move {
             Self::run_loops(cache, api_state, event_bus, config, intervals, shutdown).await;
         });
