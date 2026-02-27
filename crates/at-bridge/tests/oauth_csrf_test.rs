@@ -380,3 +380,64 @@ async fn test_oauth_csrf_callback_rejects_expired_state() {
     std::env::remove_var("GITHUB_OAUTH_CLIENT_ID");
     std::env::remove_var("GITHUB_OAUTH_CLIENT_SECRET");
 }
+
+#[tokio::test]
+async fn test_oauth_state_size_limit() {
+    let _lock = ENV_MUTEX.lock().unwrap();
+    let (base, state) = start_test_server().await;
+
+    // Set required env var for the test
+    std::env::set_var("GITHUB_OAUTH_CLIENT_ID", "test_client_id");
+
+    // Generate more states than the LRU cache capacity (100)
+    let num_states = 110;
+    let mut generated_states = Vec::new();
+
+    for i in 0..num_states {
+        let resp = reqwest::get(format!("{base}/api/github/oauth/authorize"))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200, "Request {i} should succeed");
+
+        let body: Value = resp.json().await.unwrap();
+        let state_str = body["state"].as_str().unwrap().to_string();
+        generated_states.push(state_str);
+
+        // Verify the cache size never exceeds capacity (100)
+        let pending_states = state.oauth_pending_states.lock().await;
+        assert!(
+            pending_states.len() <= 100,
+            "Cache size {} should never exceed capacity 100 after request {i}",
+            pending_states.len()
+        );
+    }
+
+    // After generating 110 states, verify final size is exactly 100 (capacity)
+    let pending_states = state.oauth_pending_states.lock().await;
+    assert_eq!(
+        pending_states.len(),
+        100,
+        "Cache should stabilize at capacity 100 after exceeding it"
+    );
+
+    // Verify LRU behavior: oldest 10 states should have been evicted
+    for i in 0..10 {
+        assert!(
+            !pending_states.contains(&generated_states[i]),
+            "Oldest state {} should have been evicted by LRU policy",
+            i
+        );
+    }
+
+    // Verify most recent 100 states are still present
+    for i in 10..num_states {
+        assert!(
+            pending_states.contains(&generated_states[i]),
+            "Recent state {} should still be in cache",
+            i
+        );
+    }
+
+    // Clean up
+    std::env::remove_var("GITHUB_OAUTH_CLIENT_ID");
+}
