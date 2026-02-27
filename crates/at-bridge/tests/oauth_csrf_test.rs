@@ -45,9 +45,9 @@ async fn test_oauth_csrf_authorize_generates_and_stores_state() {
     let returned_state = body["state"].as_str().unwrap();
 
     // Verify the state was stored in the ApiState
-    let pending_states = state.oauth_pending_states.read().await;
+    let pending_states = state.oauth_pending_states.lock().await;
     assert!(
-        pending_states.contains_key(returned_state),
+        pending_states.contains(returned_state),
         "Generated state should be stored in oauth_pending_states"
     );
 
@@ -143,8 +143,8 @@ async fn test_oauth_csrf_callback_accepts_valid_state_and_removes_it() {
 
     // Verify state is stored
     {
-        let pending_states = state.oauth_pending_states.read().await;
-        assert!(pending_states.contains_key(&valid_state));
+        let pending_states = state.oauth_pending_states.lock().await;
+        assert!(pending_states.contains(&valid_state));
     }
 
     // Set required env vars for callback
@@ -167,9 +167,9 @@ async fn test_oauth_csrf_callback_accepts_valid_state_and_removes_it() {
     // because we're using fake credentials. The important thing is we DON'T get a 400
     // for invalid state.
     // Actually, let's check that the state was removed from storage
-    let pending_states = state.oauth_pending_states.read().await;
+    let pending_states = state.oauth_pending_states.lock().await;
     assert!(
-        !pending_states.contains_key(&valid_state),
+        !pending_states.contains(&valid_state),
         "State should be removed after use to prevent replay attacks"
     );
 
@@ -207,8 +207,8 @@ async fn test_oauth_csrf_callback_rejects_reused_state() {
         .unwrap();
 
     // First use should remove the state (regardless of whether OAuth succeeds)
-    let pending_states = state.oauth_pending_states.read().await;
-    assert!(!pending_states.contains_key(&valid_state));
+    let pending_states = state.oauth_pending_states.lock().await;
+    assert!(!pending_states.contains(&valid_state));
     drop(pending_states);
 
     // Try to reuse the same state (replay attack)
@@ -317,10 +317,10 @@ async fn test_oauth_csrf_multiple_states_can_coexist() {
     assert_ne!(state1, state3);
 
     // All should be stored
-    let pending_states = state.oauth_pending_states.read().await;
-    assert!(pending_states.contains_key(&state1));
-    assert!(pending_states.contains_key(&state2));
-    assert!(pending_states.contains_key(&state3));
+    let pending_states = state.oauth_pending_states.lock().await;
+    assert!(pending_states.contains(&state1));
+    assert!(pending_states.contains(&state2));
+    assert!(pending_states.contains(&state3));
     assert_eq!(pending_states.len(), 3);
 
     // Clean up
@@ -342,9 +342,9 @@ async fn test_oauth_csrf_callback_rejects_expired_state() {
     let old_timestamp = (chrono::Utc::now() - chrono::Duration::minutes(15)).to_rfc3339();
     state
         .oauth_pending_states
-        .write()
+        .lock()
         .await
-        .insert(expired_state.clone(), old_timestamp);
+        .put(expired_state.clone(), old_timestamp);
 
     // Attempt callback with the expired state
     let resp = client
@@ -370,9 +370,9 @@ async fn test_oauth_csrf_callback_rejects_expired_state() {
     );
 
     // Verify the expired state was removed from storage (cleanup)
-    let pending_states = state.oauth_pending_states.read().await;
+    let pending_states = state.oauth_pending_states.lock().await;
     assert!(
-        !pending_states.contains_key(&expired_state),
+        !pending_states.contains(&expired_state),
         "Expired state should be removed after rejection"
     );
 
