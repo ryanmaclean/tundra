@@ -757,9 +757,11 @@ mod tests {
             TaskComplexity::Small,
         );
         t2.phase = TaskPhase::Complete;
-        let mut tasks = ctx.tasks.write().await;
-        tasks.insert(t1.id, t1);
-        tasks.insert(t2.id, t2);
+        {
+            let mut tasks = ctx.tasks.write().await;
+            tasks.insert(t1.id, t1);
+            tasks.insert(t2.id, t2);
+        } // drop write guard before read
 
         let req = ToolCallRequest {
             name: "get_build_status".into(),
