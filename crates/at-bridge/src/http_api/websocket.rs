@@ -1,6 +1,8 @@
 use axum::{
     extract::State,
     response::IntoResponse,
+    routing::get,
+    Router,
 };
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::http::HeaderMap;
@@ -99,4 +101,13 @@ async fn handle_events_ws(socket: WebSocket, state: Arc<ApiState>) {
             }
         }
     }
+}
+
+/// Creates a router for WebSocket endpoints.
+///
+/// Provides real-time event streaming over WebSocket connections.
+pub(crate) fn websocket_router() -> Router<Arc<ApiState>> {
+    Router::new()
+        .route("/ws", get(ws_handler))
+        .route("/api/events/ws", get(events_ws_handler))
 }
