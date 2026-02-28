@@ -1409,3 +1409,66 @@ async fn test_list_tasks_filter_by_category() {
     let all_tasks = api_list_tasks(&client, &base).await;
     assert_eq!(all_tasks.len(), 5);
 }
+
+#[tokio::test]
+async fn test_list_tasks_filter_by_priority() {
+    let (base, _state) = start_test_server().await;
+    let client = reqwest::Client::new();
+
+    // Create tasks with different priorities
+    let (_, task1) = api_create_task(&client, &base, "Low Priority Task", "feature", "low", "small").await;
+    let id1 = task1["id"].as_str().unwrap();
+
+    let (_, task2) = api_create_task(&client, &base, "Medium Priority Task", "bug_fix", "medium", "medium").await;
+    let id2 = task2["id"].as_str().unwrap();
+
+    let (_, task3) = api_create_task(&client, &base, "High Priority Task", "refactoring", "high", "large").await;
+    let id3 = task3["id"].as_str().unwrap();
+
+    let (_, task4) = api_create_task(&client, &base, "Urgent Priority Task", "feature", "urgent", "complex").await;
+    let id4 = task4["id"].as_str().unwrap();
+
+    let (_, task5) = api_create_task(&client, &base, "Another Low Priority", "documentation", "low", "small").await;
+    let id5 = task5["id"].as_str().unwrap();
+
+    // Test filtering by low priority
+    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("priority", "low")]).await;
+    assert_eq!(code, 200);
+    assert_eq!(tasks.len(), 2);
+    let task_ids: Vec<&str> = tasks.iter().map(|t| t["id"].as_str().unwrap()).collect();
+    assert!(task_ids.contains(&id1));
+    assert!(task_ids.contains(&id5));
+    for task in &tasks {
+        assert_eq!(task["priority"], "low");
+    }
+
+    // Test filtering by medium priority
+    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("priority", "medium")]).await;
+    assert_eq!(code, 200);
+    assert_eq!(tasks.len(), 1);
+    assert_eq!(tasks[0]["id"], id2);
+    assert_eq!(tasks[0]["priority"], "medium");
+
+    // Test filtering by high priority
+    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("priority", "high")]).await;
+    assert_eq!(code, 200);
+    assert_eq!(tasks.len(), 1);
+    assert_eq!(tasks[0]["id"], id3);
+    assert_eq!(tasks[0]["priority"], "high");
+
+    // Test filtering by urgent priority
+    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("priority", "urgent")]).await;
+    assert_eq!(code, 200);
+    assert_eq!(tasks.len(), 1);
+    assert_eq!(tasks[0]["id"], id4);
+    assert_eq!(tasks[0]["priority"], "urgent");
+
+    // Test filtering by non-existent priority (should return empty)
+    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("priority", "critical")]).await;
+    assert_eq!(code, 200);
+    assert_eq!(tasks.len(), 0);
+
+    // Test all tasks without filter
+    let all_tasks = api_list_tasks(&client, &base).await;
+    assert_eq!(all_tasks.len(), 5);
+}
