@@ -1,7 +1,8 @@
 use axum::{
     extract::{Path, Query, State},
     response::IntoResponse,
-    Json,
+    routing::{get, post},
+    Json, Router,
 };
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -13,6 +14,23 @@ use at_core::types::{BuildLogEntry, BuildStream, CliType, Task, TaskPhase};
 use super::state::ApiState;
 use super::types::{BuildLogsQuery, BuildStatusSummary, ExecuteTaskRequest, PipelineQueueStatus};
 use crate::api_error::ApiError;
+
+// ---------------------------------------------------------------------------
+// Router
+// ---------------------------------------------------------------------------
+
+/// Create the pipeline router with all pipeline-related endpoints.
+pub fn pipeline_router() -> Router<Arc<ApiState>> {
+    Router::new()
+        .route("/api/pipeline/queue", get(get_pipeline_queue_status))
+        .route("/api/tasks/{id}/execute", post(execute_task_pipeline))
+        .route("/api/tasks/{id}/build-logs", get(get_build_logs))
+        .route("/api/tasks/{id}/build-status", get(get_build_status))
+}
+
+// ---------------------------------------------------------------------------
+// Handlers
+// ---------------------------------------------------------------------------
 
 /// GET /api/pipeline/queue -- return current pipeline queue status.
 pub(crate) async fn get_pipeline_queue_status(
