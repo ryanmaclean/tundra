@@ -1,7 +1,8 @@
 use axum::{
     extract::{Path, State},
     response::IntoResponse,
-    Json,
+    routing::{delete, get, post},
+    Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -563,4 +564,21 @@ pub(crate) async fn delete_worktree(Path(id): Path<String>) -> impl IntoResponse
             Json(serde_json::json!({"error": e.to_string(), "id": id, "path": path})),
         ),
     }
+}
+
+/// Creates the worktrees API router with all endpoint handlers.
+///
+/// Maps the following routes:
+/// - GET `/api/worktrees` - List all git worktrees
+/// - POST `/api/worktrees/{id}/merge` - Merge worktree branch to main
+/// - GET `/api/worktrees/{id}/merge-preview` - Preview merge changes
+/// - POST `/api/worktrees/{id}/resolve` - Resolve merge conflicts
+/// - DELETE `/api/worktrees/{id}` - Remove a worktree
+pub(crate) fn worktrees_router() -> Router<Arc<ApiState>> {
+    Router::new()
+        .route("/api/worktrees", get(list_worktrees))
+        .route("/api/worktrees/:id/merge", post(merge_worktree))
+        .route("/api/worktrees/:id/merge-preview", get(merge_preview))
+        .route("/api/worktrees/:id/resolve", post(resolve_conflict))
+        .route("/api/worktrees/:id", delete(delete_worktree))
 }
