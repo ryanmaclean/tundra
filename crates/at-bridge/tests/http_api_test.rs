@@ -430,6 +430,64 @@ async fn test_list_beads_pagination_with_status_filter() {
 }
 
 #[tokio::test]
+async fn test_pagination_defaults() {
+    let (base, state) = start_test_server().await;
+    let client = reqwest::Client::new();
+
+    // Create 60 beads (more than the default limit of 50)
+    for i in 0..60 {
+        let resp = client
+            .post(format!("{base}/api/beads"))
+            .json(&serde_json::json!({
+                "title": format!("Bead {}", i),
+                "description": format!("Description {}", i)
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 201);
+    }
+
+    // Test beads endpoint without pagination parameters
+    // Should return default limit of 50 beads
+    let resp = reqwest::get(format!("{base}/api/beads"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let beads: Vec<Value> = resp.json().await.unwrap();
+    assert_eq!(beads.len(), 50, "Default limit should be 50");
+
+    // Create 60 agents (more than the default limit of 50)
+    use at_core::types::{Agent, AgentRole, AgentStatus, CliType};
+    for i in 0..60 {
+        let agent = Agent {
+            id: uuid::Uuid::new_v4(),
+            name: format!("agent-{}", i),
+            role: AgentRole::Coder,
+            cli_type: CliType::Claude,
+            model: Some("claude-sonnet-4".to_string()),
+            status: AgentStatus::Active,
+            rig: Some("test-rig".to_string()),
+            pid: Some(1000 + i),
+            session_id: Some(format!("session-{}", i)),
+            created_at: chrono::Utc::now(),
+            last_seen: chrono::Utc::now(),
+            metadata: None,
+        };
+        state.agents.write().await.insert(agent.id, agent);
+    }
+
+    // Test agents endpoint without pagination parameters
+    // Should return default limit of 50 agents
+    let resp = reqwest::get(format!("{base}/api/agents"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let agents: Vec<Value> = resp.json().await.unwrap();
+    assert_eq!(agents.len(), 50, "Default limit should be 50");
+}
+
+#[tokio::test]
 async fn test_list_agents_empty() {
     let (base, _state) = start_test_server().await;
 
