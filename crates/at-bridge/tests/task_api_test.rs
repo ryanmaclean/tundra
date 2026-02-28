@@ -89,6 +89,23 @@ async fn api_list_tasks(client: &reqwest::Client, base: &str) -> Vec<Value> {
     resp.json().await.unwrap()
 }
 
+/// List tasks with query parameters.
+async fn api_list_tasks_with_query(
+    client: &reqwest::Client,
+    base: &str,
+    query_params: &[(&str, &str)],
+) -> (u16, Vec<Value>) {
+    let resp = client
+        .get(format!("{base}/api/tasks"))
+        .query(query_params)
+        .send()
+        .await
+        .unwrap();
+    let code = resp.status().as_u16();
+    let body: Vec<Value> = resp.json().await.unwrap();
+    (code, body)
+}
+
 /// Get a single task by ID.
 async fn api_get_task(client: &reqwest::Client, base: &str, id: &str) -> (u16, Value) {
     let resp = client
