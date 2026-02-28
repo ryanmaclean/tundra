@@ -21,6 +21,7 @@ use tower_http::cors::CorsLayer;
 use tracing::warn;
 use uuid::Uuid;
 
+use crate::api_error::ApiError;
 use crate::auth::AuthLayer;
 use crate::event_bus::EventBus;
 use crate::intelligence_api;
@@ -585,6 +586,26 @@ async fn isolation_headers_middleware(request: Request<Body>, next: Next) -> Res
     headers.insert(
         "Cross-Origin-Resource-Policy",
         axum::http::HeaderValue::from_static("same-origin"),
+    );
+    headers.insert(
+        "X-Content-Type-Options",
+        axum::http::HeaderValue::from_static("nosniff"),
+    );
+    headers.insert(
+        "X-Frame-Options",
+        axum::http::HeaderValue::from_static("DENY"),
+    );
+    headers.insert(
+        "Strict-Transport-Security",
+        axum::http::HeaderValue::from_static("max-age=63072000; includeSubDomains"),
+    );
+    headers.insert(
+        "X-XSS-Protection",
+        axum::http::HeaderValue::from_static("1; mode=block"),
+    );
+    headers.insert(
+        "Referrer-Policy",
+        axum::http::HeaderValue::from_static("strict-origin-when-cross-origin"),
     );
     response
 }
@@ -1191,24 +1212,16 @@ async fn list_beads(
 async fn create_bead(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<CreateBeadRequest>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, ApiError> {
     // Validate title
     if let Err(e) = validate_text_field(&req.title) {
-        return (
-            axum::http::StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": e.to_string()})),
-        )
-            .into_response();
+        return Err(ApiError::BadRequest(e.to_string()));
     }
 
     // Validate description if present
     if let Some(ref description) = req.description {
         if let Err(e) = validate_text_field(description) {
-            return (
-                axum::http::StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": e.to_string()})),
-            )
-                .into_response();
+            return Err(ApiError::BadRequest(e.to_string()));
         }
     }
 
@@ -1227,7 +1240,7 @@ async fn create_bead(
         .event_bus
         .publish(crate::protocol::BridgeMessage::BeadCreated(bead.clone()));
 
-    (axum::http::StatusCode::CREATED, Json(bead)).into_response()
+    Ok((axum::http::StatusCode::CREATED, Json(bead)))
 }
 
 /// POST /api/beads/{id}/status -- update a bead's status.
@@ -1286,25 +1299,17 @@ async fn update_bead_status(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateBeadStatusRequest>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, ApiError> {
     let mut beads = state.beads.write().await;
     let Some(bead) = beads.get_mut(&id) else {
-        return (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "bead not found"})),
-        );
+        return Err(ApiError::NotFound("bead not found".into()));
     };
 
     if !bead.status.can_transition_to(&req.status) {
-        return (
-            axum::http::StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": format!(
-                    "invalid transition from {:?} to {:?}",
-                    bead.status, req.status
-                )
-            })),
-        );
+        return Err(ApiError::BadRequest(format!(
+            "invalid transition from {:?} to {:?}",
+            bead.status, req.status
+        )));
     }
 
     bead.status = req.status;
@@ -1315,10 +1320,10 @@ async fn update_bead_status(
         .event_bus
         .publish(crate::protocol::BridgeMessage::BeadUpdated(bead_snapshot.clone()));
 
-    (
+    Ok((
         axum::http::StatusCode::OK,
         Json(serde_json::json!(bead_snapshot)),
-    )
+    ))
 }
 
 /// DELETE /api/beads/{id} -- delete a bead by ID.
@@ -1346,13 +1351,10 @@ async fn update_bead_status(
 async fn delete_bead(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, ApiError> {
     let mut beads = state.beads.write().await;
     if beads.remove(&id).is_none() {
-        return (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "bead not found"})),
-        );
+        return Err(ApiError::NotFound("bead not found".into()));
     }
 
     // Publish updated bead list event
@@ -1360,10 +1362,10 @@ async fn delete_bead(
         .event_bus
         .publish(crate::protocol::BridgeMessage::BeadList(beads.values().cloned().collect()));
 
-    (
+    Ok((
         axum::http::StatusCode::OK,
         Json(serde_json::json!({"status": "deleted", "id": id.to_string()})),
-    )
+    ))
 }
 
 /// GET /api/agents -- retrieve all registered agents in the system.
@@ -1432,13 +1434,10 @@ async fn list_agents(
 async fn nudge_agent(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, ApiError> {
     let mut agents = state.agents.write().await;
     let Some(agent) = agents.get_mut(&id) else {
-        return (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "agent not found"})),
-        );
+        return Err(ApiError::NotFound("agent not found".into()));
     };
 
     use at_core::types::AgentStatus;
@@ -1453,10 +1452,10 @@ async fn nudge_agent(
     }
 
     let snapshot = agent.clone();
-    (
+    Ok((
         axum::http::StatusCode::OK,
         Json(serde_json::json!(snapshot)),
-    )
+    ))
 }
 
 /// POST /api/agents/{id}/stop -- mark an agent as stopped.
@@ -1486,23 +1485,20 @@ async fn nudge_agent(
 ///   "last_seen": "2024-01-15T10:37:00Z"
 /// }
 /// ```
-async fn stop_agent(State(state): State<Arc<ApiState>>, Path(id): Path<Uuid>) -> impl IntoResponse {
+async fn stop_agent(State(state): State<Arc<ApiState>>, Path(id): Path<Uuid>) -> Result<impl IntoResponse, ApiError> {
     let mut agents = state.agents.write().await;
     let Some(agent) = agents.get_mut(&id) else {
-        return (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "agent not found"})),
-        );
+        return Err(ApiError::NotFound("agent not found".into()));
     };
 
     agent.status = at_core::types::AgentStatus::Stopped;
     agent.last_seen = chrono::Utc::now();
 
     let snapshot = agent.clone();
-    (
+    Ok((
         axum::http::StatusCode::OK,
         Json(serde_json::json!(snapshot)),
-    )
+    ))
 }
 
 /// GET /api/kpi — retrieve the current KPI snapshot containing system metrics.
@@ -1693,24 +1689,16 @@ async fn list_tasks(
 async fn create_task(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<CreateTaskRequest>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, ApiError> {
     // Validate title
     if let Err(e) = validate_text_field(&req.title) {
-        return (
-            axum::http::StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": e.to_string()})),
-        )
-            .into_response();
+        return Err(ApiError::BadRequest(e.to_string()));
     }
 
     // Validate description if present
     if let Some(ref description) = req.description {
         if let Err(e) = validate_text_field(description) {
-            return (
-                axum::http::StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": e.to_string()})),
-            )
-                .into_response();
+            return Err(ApiError::BadRequest(e.to_string()));
         }
     }
 
@@ -1732,11 +1720,10 @@ async fn create_task(
     let mut tasks = state.tasks.write().await;
     tasks.insert(task.id, task.clone());
 
-    (
+    Ok((
         axum::http::StatusCode::CREATED,
         Json(serde_json::json!(task)),
-    )
-        .into_response()
+    ))
 }
 
 /// GET /api/tasks/{id} -- retrieve a specific task by ID.
@@ -1776,15 +1763,12 @@ async fn create_task(
 ///   "error": "task not found"
 /// }
 /// ```
-async fn get_task(State(state): State<Arc<ApiState>>, Path(id): Path<Uuid>) -> impl IntoResponse {
+async fn get_task(State(state): State<Arc<ApiState>>, Path(id): Path<Uuid>) -> Result<impl IntoResponse, ApiError> {
     let tasks = state.tasks.read().await;
     let Some(task) = tasks.get(&id) else {
-        return (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "task not found"})),
-        );
+        return Err(ApiError::NotFound("task not found".into()));
     };
-    (axum::http::StatusCode::OK, Json(serde_json::json!(task)))
+    Ok((axum::http::StatusCode::OK, Json(serde_json::json!(task))))
 }
 
 /// PUT /api/tasks/{id} -- update an existing task.
@@ -1851,38 +1835,26 @@ async fn update_task(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateTaskRequest>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, ApiError> {
     let mut tasks = state.tasks.write().await;
     let Some(task) = tasks.get_mut(&id) else {
-        return (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "task not found"})),
-        );
+        return Err(ApiError::NotFound("task not found".into()));
     };
 
     if let Some(title) = req.title {
         if title.is_empty() {
-            return (
-                axum::http::StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": "title cannot be empty"})),
-            );
+            return Err(ApiError::BadRequest("title cannot be empty".into()));
         }
         // Validate title
         if let Err(e) = validate_text_field(&title) {
-            return (
-                axum::http::StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": e.to_string()})),
-            );
+            return Err(ApiError::BadRequest(e.to_string()));
         }
         task.title = title;
     }
     if let Some(desc) = req.description {
         // Validate description
         if let Err(e) = validate_text_field(&desc) {
-            return (
-                axum::http::StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": e.to_string()})),
-            );
+            return Err(ApiError::BadRequest(e.to_string()));
         }
         task.description = Some(desc);
     }
@@ -1914,10 +1886,10 @@ async fn update_task(
         .publish(crate::protocol::BridgeMessage::TaskUpdate(
             Box::new(task_snapshot),
         ));
-    (
+    Ok((
         axum::http::StatusCode::OK,
         Json(response_json),
-    )
+    ))
 }
 
 /// DELETE /api/tasks/{id} -- delete a task.
@@ -1945,18 +1917,15 @@ async fn update_task(
 async fn delete_task(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, ApiError> {
     let mut tasks = state.tasks.write().await;
     if tasks.remove(&id).is_none() {
-        return (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "task not found"})),
-        );
+        return Err(ApiError::NotFound("task not found".into()));
     }
-    (
+    Ok((
         axum::http::StatusCode::OK,
         Json(serde_json::json!({"status": "deleted", "id": id.to_string()})),
-    )
+    ))
 }
 
 /// POST /api/tasks/{id}/phase -- update a task's phase/stage.
@@ -1990,25 +1959,17 @@ async fn update_task_phase(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateTaskPhaseRequest>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, ApiError> {
     let mut tasks = state.tasks.write().await;
     let Some(task) = tasks.get_mut(&id) else {
-        return (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "task not found"})),
-        );
+        return Err(ApiError::NotFound("task not found".into()));
     };
 
     if !task.phase.can_transition_to(&req.phase) {
-        return (
-            axum::http::StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": format!(
-                    "invalid phase transition from {:?} to {:?}",
-                    task.phase, req.phase
-                )
-            })),
-        );
+        return Err(ApiError::BadRequest(format!(
+            "invalid phase transition from {:?} to {:?}",
+            task.phase, req.phase
+        )));
     }
 
     task.set_phase(req.phase);
@@ -2019,10 +1980,10 @@ async fn update_task_phase(
         .publish(crate::protocol::BridgeMessage::TaskUpdate(
             Box::new(task_snapshot.clone()),
         ));
-    (
+    Ok((
         axum::http::StatusCode::OK,
         Json(serde_json::json!(task_snapshot)),
-    )
+    ))
 }
 
 /// GET /api/tasks/{id}/logs -- retrieve execution logs for a task.
@@ -2045,18 +2006,15 @@ async fn update_task_phase(
 async fn get_task_logs(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, ApiError> {
     let tasks = state.tasks.read().await;
     let Some(task) = tasks.get(&id) else {
-        return (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "task not found"})),
-        );
+        return Err(ApiError::NotFound("task not found".into()));
     };
-    (
+    Ok((
         axum::http::StatusCode::OK,
         Json(serde_json::json!(task.logs)),
-    )
+    ))
 }
 
 /// GET /api/pipeline/queue -- returns the current pipeline queue status.
@@ -2126,26 +2084,18 @@ async fn execute_task_pipeline(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
     body: Option<Json<ExecuteTaskRequest>>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, ApiError> {
     let mut tasks = state.tasks.write().await;
     let Some(task) = tasks.get_mut(&id) else {
-        return (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "task not found"})),
-        );
+        return Err(ApiError::NotFound("task not found".into()));
     };
 
     // The task must be in a phase that can transition to Coding.
     if !task.phase.can_transition_to(&TaskPhase::Coding) {
-        return (
-            axum::http::StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": format!(
-                    "cannot start pipeline: task is in {:?} phase",
-                    task.phase
-                )
-            })),
-        );
+        return Err(ApiError::BadRequest(format!(
+            "cannot start pipeline: task is in {:?} phase",
+            task.phase
+        )));
     }
 
     task.set_phase(TaskPhase::Coding);
@@ -2227,10 +2177,10 @@ async fn execute_task_pipeline(
         pipeline_running.fetch_sub(1, Ordering::SeqCst);
     });
 
-    (
+    Ok((
         axum::http::StatusCode::ACCEPTED,
         Json(serde_json::json!({"status": "started", "task_id": id.to_string()})),
-    )
+    ))
 }
 
 /// Background pipeline driver: coding -> QA -> fix loop.
@@ -10077,5 +10027,54 @@ mod tests {
             .unwrap();
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_security_response_headers_present() {
+        let (app, _state) = test_app();
+
+        let req = Request::builder()
+            .method("GET")
+            .uri("/api/status")
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app.oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let headers = response.headers();
+        assert_eq!(
+            headers.get("X-Content-Type-Options").unwrap(),
+            "nosniff"
+        );
+        assert_eq!(
+            headers.get("X-Frame-Options").unwrap(),
+            "DENY"
+        );
+        assert_eq!(
+            headers.get("Strict-Transport-Security").unwrap(),
+            "max-age=63072000; includeSubDomains"
+        );
+        assert_eq!(
+            headers.get("X-XSS-Protection").unwrap(),
+            "1; mode=block"
+        );
+        assert_eq!(
+            headers.get("Referrer-Policy").unwrap(),
+            "strict-origin-when-cross-origin"
+        );
+        // Verify existing isolation headers are still present
+        assert_eq!(
+            headers.get("Cross-Origin-Opener-Policy").unwrap(),
+            "same-origin"
+        );
+        assert_eq!(
+            headers.get("Cross-Origin-Embedder-Policy").unwrap(),
+            "credentialless"
+        );
+        assert_eq!(
+            headers.get("Cross-Origin-Resource-Policy").unwrap(),
+            "same-origin"
+        );
     }
 }

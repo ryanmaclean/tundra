@@ -34,6 +34,17 @@ impl ToastLevel {
             ToastLevel::Error => "x",
         }
     }
+
+    /// Returns the default auto-dismiss duration for this toast level.
+    /// Error toasts are persistent (24-hour duration, effectively no auto-dismiss).
+    pub fn default_duration(&self) -> Duration {
+        match self {
+            ToastLevel::Info => Duration::from_secs(5),
+            ToastLevel::Success => Duration::from_secs(5),
+            ToastLevel::Warning => Duration::from_secs(8),
+            ToastLevel::Error => Duration::from_secs(86400), // 24 hours — effectively persistent
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -47,11 +58,12 @@ pub struct Toast {
 impl Toast {
     #[allow(dead_code)]
     pub fn new(message: impl Into<String>, level: ToastLevel) -> Self {
+        let duration = level.default_duration();
         Self {
             message: message.into(),
             level,
             created: Instant::now(),
-            duration: Duration::from_secs(4),
+            duration,
         }
     }
 
@@ -213,5 +225,55 @@ mod tests {
         mgr.push(Toast::new("alive", ToastLevel::Info));
         mgr.tick();
         assert_eq!(mgr.len(), 1);
+    }
+
+    #[test]
+    fn info_default_duration_is_5s() {
+        let toast = Toast::new("info", ToastLevel::Info);
+        assert_eq!(toast.duration, Duration::from_secs(5));
+    }
+
+    #[test]
+    fn success_default_duration_is_5s() {
+        let toast = Toast::new("success", ToastLevel::Success);
+        assert_eq!(toast.duration, Duration::from_secs(5));
+    }
+
+    #[test]
+    fn warning_default_duration_is_8s() {
+        let toast = Toast::new("warning", ToastLevel::Warning);
+        assert_eq!(toast.duration, Duration::from_secs(8));
+    }
+
+    #[test]
+    fn error_does_not_auto_expire_quickly() {
+        let toast = Toast::new("error", ToastLevel::Error);
+        // Error toasts should have a very long duration (24 hours).
+        assert!(toast.duration >= Duration::from_secs(3600));
+        // And should not be expired immediately after creation.
+        assert!(!toast.expired());
+    }
+
+    #[test]
+    fn remaining_fraction_starts_near_one() {
+        let toast = Toast::new("test", ToastLevel::Info);
+        let frac = toast.remaining_fraction();
+        // Just created, should be very close to 1.0.
+        assert!(frac > 0.99, "expected fraction near 1.0, got {}", frac);
+    }
+
+    #[test]
+    fn remaining_fraction_zero_when_expired() {
+        let toast = Toast::new("test", ToastLevel::Info).with_duration(Duration::from_millis(0));
+        let frac = toast.remaining_fraction();
+        assert!((frac - 0.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn default_duration_method_returns_correct_values() {
+        assert_eq!(ToastLevel::Info.default_duration(), Duration::from_secs(5));
+        assert_eq!(ToastLevel::Success.default_duration(), Duration::from_secs(5));
+        assert_eq!(ToastLevel::Warning.default_duration(), Duration::from_secs(8));
+        assert_eq!(ToastLevel::Error.default_duration(), Duration::from_secs(86400));
     }
 }
