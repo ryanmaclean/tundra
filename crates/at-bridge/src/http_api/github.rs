@@ -1,7 +1,8 @@
 use axum::{
     extract::{Path, Query, State},
     response::IntoResponse,
-    Json,
+    routing::{get, post},
+    Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -82,6 +83,45 @@ pub(crate) struct CreateReleaseRequest {
     draft: bool,
     #[serde(default)]
     prerelease: bool,
+}
+
+// ---------------------------------------------------------------------------
+// Router
+// ---------------------------------------------------------------------------
+
+/// Build the GitHub API router with all GitHub integration routes.
+///
+/// All routes are mounted under `/api/github` — the caller is responsible for
+/// merging this into the top-level router.
+pub fn github_router() -> Router<Arc<ApiState>> {
+    Router::new()
+        // Sync
+        .route("/api/github/sync", post(trigger_github_sync))
+        .route("/api/github/sync/status", get(get_sync_status))
+        // Issues
+        .route("/api/github/issues", get(list_github_issues))
+        .route(
+            "/api/github/issues/{number}/import",
+            post(import_github_issue),
+        )
+        // Pull Requests
+        .route("/api/github/prs", get(list_github_prs))
+        .route("/api/github/pr/{task_id}", post(create_pr_for_task))
+        .route("/api/github/pr/{number}/watch", post(watch_pr))
+        .route(
+            "/api/github/pr/{number}/watch",
+            axum::routing::delete(unwatch_pr),
+        )
+        .route("/api/github/pr/watched", get(list_watched_prs))
+        // OAuth
+        .route("/api/github/oauth/authorize", get(github_oauth_authorize))
+        .route("/api/github/oauth/callback", post(github_oauth_callback))
+        .route("/api/github/oauth/status", get(github_oauth_status))
+        .route("/api/github/oauth/revoke", post(github_oauth_revoke))
+        .route("/api/github/oauth/refresh", post(github_oauth_refresh))
+        // Releases
+        .route("/api/github/releases", post(create_release))
+        .route("/api/github/releases", get(list_releases))
 }
 
 // ---------------------------------------------------------------------------
