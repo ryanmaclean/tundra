@@ -27,6 +27,7 @@ use crate::intelligence_api;
 use crate::notifications::{notification_from_event, NotificationStore};
 use crate::oauth_token_manager::OAuthTokenManager;
 use crate::origin_validation::{get_default_allowed_origins, validate_websocket_origin};
+use crate::rate_limit_middleware::RateLimitLayer;
 use crate::terminal::TerminalRegistry;
 use crate::terminal_ws;
 use at_core::config::{Config, CredentialProvider};
@@ -588,6 +589,9 @@ pub fn api_router_with_auth(
     api_key: Option<String>,
     allowed_origins: Vec<String>,
 ) -> Router {
+    // Clone the rate limiter before building the router.
+    let rate_limiter = state.rate_limiter.clone();
+
     Router::new()
         .route("/api/status", get(get_status))
         .route("/api/beads", get(list_beads))
@@ -773,6 +777,7 @@ pub fn api_router_with_auth(
         .layer(axum_middleware::from_fn(metrics_middleware))
         .layer(axum_middleware::from_fn(request_id_middleware))
         .layer(axum_middleware::from_fn(isolation_headers_middleware))
+        .layer(RateLimitLayer::new(rate_limiter))
         .layer(AuthLayer::new(api_key))
         .layer(
             CorsLayer::new()
