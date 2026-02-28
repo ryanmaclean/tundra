@@ -8,6 +8,7 @@ use uuid::Uuid;
 
 use at_core::types::{TaskPhase, TaskPriority};
 
+use crate::api_error::ApiError;
 use super::state::ApiState;
 use super::types::{PrioritizeRequest, QueueReorderRequest};
 
@@ -56,22 +57,16 @@ pub(crate) async fn list_queue(State(state): State<Arc<ApiState>>) -> impl IntoR
 pub(crate) async fn reorder_queue(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<QueueReorderRequest>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, ApiError> {
     if req.task_ids.is_empty() {
-        return (
-            axum::http::StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": "task_ids must not be empty"})),
-        );
+        return Err(ApiError::BadRequest("task_ids must not be empty".into()));
     }
 
     // Validate all task IDs exist
     let tasks = state.tasks.read().await;
     for task_id in &req.task_ids {
         if !tasks.contains_key(task_id) {
-            return (
-                axum::http::StatusCode::NOT_FOUND,
-                Json(serde_json::json!({"error": format!("task {} not found", task_id)})),
-            );
+            return Err(ApiError::NotFound(format!("task {} not found", task_id)));
         }
     }
     drop(tasks);
@@ -83,10 +78,10 @@ pub(crate) async fn reorder_queue(
             task_ids: req.task_ids,
         });
 
-    (
+    Ok((
         axum::http::StatusCode::OK,
         Json(serde_json::json!({"status": "ok"})),
-    )
+    ))
 }
 
 /// POST /api/queue/{task_id}/prioritize -- bump a task's priority.
@@ -94,13 +89,10 @@ pub(crate) async fn prioritize_task(
     State(state): State<Arc<ApiState>>,
     Path(task_id): Path<Uuid>,
     Json(req): Json<PrioritizeRequest>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, ApiError> {
     let mut tasks = state.tasks.write().await;
     let Some(task) = tasks.get_mut(&task_id) else {
-        return (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "task not found"})),
-        );
+        return Err(ApiError::NotFound("task not found".into()));
     };
 
     task.priority = req.priority;
@@ -115,8 +107,8 @@ pub(crate) async fn prioritize_task(
             Box::new(task_snapshot.clone()),
         ));
 
-    (
+    Ok((
         axum::http::StatusCode::OK,
         Json(serde_json::json!(task_snapshot)),
-    )
+    ))
 }

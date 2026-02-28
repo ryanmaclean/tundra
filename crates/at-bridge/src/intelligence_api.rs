@@ -626,12 +626,11 @@ async fn convert_idea(
                     serde_json::to_value(session).unwrap_or(serde_json::Value::Null),
                 );
             }
-            Err((status, err)) => {
+            Err(err) => {
                 map.insert(
                     "planning_poker_error".to_string(),
                     serde_json::json!({
-                        "status": status.as_u16(),
-                        "details": err
+                        "details": err.to_string()
                     }),
                 );
             }

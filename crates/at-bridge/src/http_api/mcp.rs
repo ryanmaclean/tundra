@@ -6,6 +6,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
+use crate::api_error::ApiError;
 use super::state::ApiState;
 
 /// Represents a Model Context Protocol (MCP) server with its available tools.
@@ -93,7 +94,7 @@ pub(crate) async fn list_mcp_servers() -> Json<Vec<McpServer>> {
 pub(crate) async fn call_mcp_tool(
     State(state): State<Arc<ApiState>>,
     Json(request): Json<at_harness::mcp::ToolCallRequest>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, ApiError> {
     let ctx = at_harness::builtin_tools::BuiltinToolContext {
         beads: Arc::clone(&state.beads),
         agents: Arc::clone(&state.agents),
@@ -107,17 +108,8 @@ pub(crate) async fn call_mcp_tool(
             } else {
                 axum::http::StatusCode::OK
             };
-            (status, Json(serde_json::to_value(result).unwrap()))
+            Ok((status, Json(serde_json::to_value(result).unwrap())).into_response())
         }
-        None => (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({
-                "error": format!("unknown tool: {}", request.name),
-                "available_tools": at_harness::builtin_tools::builtin_tool_definitions()
-                    .iter()
-                    .map(|t| t.name.clone())
-                    .collect::<Vec<_>>()
-            })),
-        ),
+        None => Err(ApiError::NotFound(format!("unknown tool: {}", request.name))),
     }
 }

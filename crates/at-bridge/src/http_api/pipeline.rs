@@ -401,13 +401,10 @@ pub(crate) async fn get_build_logs(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
     Query(q): Query<BuildLogsQuery>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, ApiError> {
     let tasks = state.tasks.read().await;
     let Some(task) = tasks.get(&id) else {
-        return (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "task not found"})),
-        );
+        return Err(ApiError::NotFound("task not found".into()));
     };
 
     let logs: Vec<&BuildLogEntry> = if let Some(ref since_str) = q.since {
@@ -420,32 +417,24 @@ pub(crate) async fn get_build_logs(
                     .collect()
             }
             Err(_) => {
-                return (
-                    axum::http::StatusCode::BAD_REQUEST,
-                    Json(
-                        serde_json::json!({"error": "invalid 'since' timestamp; use ISO-8601 / RFC-3339"}),
-                    ),
-                );
+                return Err(ApiError::BadRequest("invalid 'since' timestamp; use ISO-8601 / RFC-3339".into()));
             }
         }
     } else {
         task.build_logs.iter().collect()
     };
 
-    (axum::http::StatusCode::OK, Json(serde_json::json!(logs)))
+    Ok((axum::http::StatusCode::OK, Json(serde_json::json!(logs))))
 }
 
 /// GET /api/tasks/{id}/build-status -- return a summary of the build.
 pub(crate) async fn get_build_status(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, ApiError> {
     let tasks = state.tasks.read().await;
     let Some(task) = tasks.get(&id) else {
-        return (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "task not found"})),
-        );
+        return Err(ApiError::NotFound("task not found".into()));
     };
 
     let stdout_lines = task
@@ -470,5 +459,5 @@ pub(crate) async fn get_build_status(
         last_line,
     };
 
-    (axum::http::StatusCode::OK, Json(serde_json::json!(summary)))
+    Ok((axum::http::StatusCode::OK, Json(serde_json::json!(summary))))
 }

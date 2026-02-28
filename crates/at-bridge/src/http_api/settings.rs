@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use at_core::config::Config;
 
+use crate::api_error::ApiError;
 use super::merge_json;
 use super::state::ApiState;
 
@@ -33,14 +34,10 @@ pub(crate) async fn get_settings(State(state): State<Arc<ApiState>>) -> Json<Con
 pub(crate) async fn put_settings(
     State(state): State<Arc<ApiState>>,
     Json(cfg): Json<Config>,
-) -> impl IntoResponse {
-    match state.settings_manager.save(&cfg) {
-        Ok(()) => (axum::http::StatusCode::OK, Json(serde_json::json!(cfg))),
-        Err(e) => (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": e.to_string()})),
-        ),
-    }
+) -> Result<impl IntoResponse, ApiError> {
+    state.settings_manager.save(&cfg)
+        .map_err(|e| ApiError::Internal(e.to_string()))?;
+    Ok((axum::http::StatusCode::OK, Json(serde_json::json!(cfg))))
 }
 
 /// PATCH /api/settings -- partially update the application configuration.
@@ -54,36 +51,19 @@ pub(crate) async fn put_settings(
 pub(crate) async fn patch_settings(
     State(state): State<Arc<ApiState>>,
     Json(partial): Json<serde_json::Value>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, ApiError> {
     let mut current = state.settings_manager.load_or_default();
-    let mut current_val = match serde_json::to_value(&current) {
-        Ok(v) => v,
-        Err(e) => {
-            return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": e.to_string()})),
-            );
-        }
-    };
+    let mut current_val = serde_json::to_value(&current)
+        .map_err(|e| ApiError::Internal(e.to_string()))?;
 
     // Merge partial into current
     merge_json(&mut current_val, &partial);
 
-    current = match serde_json::from_value(current_val) {
-        Ok(c) => c,
-        Err(e) => {
-            return (
-                axum::http::StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": e.to_string()})),
-            );
-        }
-    };
+    current = serde_json::from_value(current_val)
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
 
-    match state.settings_manager.save(&current) {
-        Ok(()) => (axum::http::StatusCode::OK, Json(serde_json::json!(current))),
-        Err(e) => (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": e.to_string()})),
-        ),
-    }
+    state.settings_manager.save(&current)
+        .map_err(|e| ApiError::Internal(e.to_string()))?;
+
+    Ok((axum::http::StatusCode::OK, Json(serde_json::json!(current))))
 }

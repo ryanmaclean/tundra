@@ -16,6 +16,7 @@ use at_integrations::types::{GitHubConfig, GitHubRelease, IssueState, PrState};
 
 use super::state::ApiState;
 use super::types::PrPollStatus;
+use crate::api_error::ApiError;
 
 // ---------------------------------------------------------------------------
 // Local types
@@ -92,7 +93,7 @@ pub(crate) struct CreateReleaseRequest {
 pub(crate) async fn list_github_issues(
     State(state): State<Arc<ApiState>>,
     Query(q): Query<ListGitHubIssuesQuery>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, ApiError> {
     let config = state.settings_manager.load_or_default();
     let int = &config.integrations;
     let token = CredentialProvider::from_env(&int.github_token_env);
@@ -100,33 +101,19 @@ pub(crate) async fn list_github_issues(
     let repo = int.github_repo.as_deref().unwrap_or("").to_string();
 
     if token.as_ref().is_none_or(|t| t.is_empty()) {
-        return (
-            axum::http::StatusCode::SERVICE_UNAVAILABLE,
-            Json(serde_json::json!({
-                "error": "GitHub token not configured. Set the environment variable.",
-                "env_var": int.github_token_env,
-            })),
-        );
+        return Err(ApiError::ServiceUnavailable(
+            "GitHub token not configured. Set the environment variable.".into(),
+        ));
     }
     if owner.is_empty() || repo.is_empty() {
-        return (
-            axum::http::StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": "GitHub owner and repo must be set in settings (integrations).",
-            })),
-        );
+        return Err(ApiError::BadRequest(
+            "GitHub owner and repo must be set in settings (integrations).".into(),
+        ));
     }
 
     let gh_config = GitHubConfig { token, owner, repo };
-    let client = match at_integrations::github::client::GitHubClient::new(gh_config) {
-        Ok(c) => c,
-        Err(e) => {
-            return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": e.to_string() })),
-            );
-        }
-    };
+    let client = at_integrations::github::client::GitHubClient::new(gh_config)
+        .map_err(|e| ApiError::Internal(e.to_string()))?;
 
     let state_filter = q
         .state
@@ -142,17 +129,11 @@ pub(crate) async fn list_github_issues(
             .filter(|l| !l.is_empty())
             .collect()
     });
-    let list = match issues::list_issues(&client, state_filter, labels, q.page, q.per_page).await {
-        Ok(issues) => issues,
-        Err(e) => {
-            return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": e.to_string() })),
-            );
-        }
-    };
+    let list = issues::list_issues(&client, state_filter, labels, q.page, q.per_page)
+        .await
+        .map_err(|e| ApiError::Internal(e.to_string()))?;
 
-    (axum::http::StatusCode::OK, Json(serde_json::json!(list)))
+    Ok((axum::http::StatusCode::OK, Json(serde_json::json!(list))))
 }
 
 // ---------------------------------------------------------------------------
@@ -160,7 +141,9 @@ pub(crate) async fn list_github_issues(
 // ---------------------------------------------------------------------------
 
 /// POST /api/github/sync -- trigger a synchronization of open GitHub issues into local beads.
-pub(crate) async fn trigger_github_sync(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
+pub(crate) async fn trigger_github_sync(
+    State(state): State<Arc<ApiState>>,
+) -> Result<impl IntoResponse, ApiError> {
     let config = state.settings_manager.load_or_default();
     let int = &config.integrations;
     let token = CredentialProvider::from_env(&int.github_token_env);
@@ -168,21 +151,14 @@ pub(crate) async fn trigger_github_sync(State(state): State<Arc<ApiState>>) -> i
     let repo = int.github_repo.as_deref().unwrap_or("").to_string();
 
     if token.as_ref().is_none_or(|t| t.is_empty()) {
-        return (
-            axum::http::StatusCode::SERVICE_UNAVAILABLE,
-            Json(serde_json::json!({
-                "error": "GitHub token not configured. Set the environment variable.",
-                "env_var": int.github_token_env,
-            })),
-        );
+        return Err(ApiError::ServiceUnavailable(
+            "GitHub token not configured. Set the environment variable.".into(),
+        ));
     }
     if owner.is_empty() || repo.is_empty() {
-        return (
-            axum::http::StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": "GitHub owner and repo must be set in settings (integrations).",
-            })),
-        );
+        return Err(ApiError::BadRequest(
+            "GitHub owner and repo must be set in settings (integrations).".into(),
+        ));
     }
 
     let gh_config = GitHubConfig {
@@ -190,15 +166,8 @@ pub(crate) async fn trigger_github_sync(State(state): State<Arc<ApiState>>) -> i
         owner,
         repo,
     };
-    let client = match at_integrations::github::client::GitHubClient::new(gh_config) {
-        Ok(c) => c,
-        Err(e) => {
-            return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": e.to_string() })),
-            );
-        }
-    };
+    let client = at_integrations::github::client::GitHubClient::new(gh_config)
+        .map_err(|e| ApiError::Internal(e.to_string()))?;
 
     {
         let mut status = state.sync_status.write().await;
@@ -213,10 +182,7 @@ pub(crate) async fn trigger_github_sync(State(state): State<Arc<ApiState>>) -> i
         Err(e) => {
             let mut status = state.sync_status.write().await;
             status.is_syncing = false;
-            return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": e.to_string() })),
-            );
+            return Err(ApiError::Internal(e.to_string()));
         }
     };
 
@@ -235,14 +201,14 @@ pub(crate) async fn trigger_github_sync(State(state): State<Arc<ApiState>>) -> i
         status.issues_imported = status.issues_imported.saturating_add(imported_count);
     }
 
-    (
+    Ok((
         axum::http::StatusCode::OK,
         Json(serde_json::json!(SyncResponse {
             message: "Sync completed".to_string(),
             imported: imported_count,
             statuses_synced: 0,
         })),
-    )
+    ))
 }
 
 /// GET /api/github/sync/status -- retrieve the current GitHub issue sync status.
@@ -260,26 +226,20 @@ pub(crate) async fn create_pr_for_task(
     State(state): State<Arc<ApiState>>,
     Path(task_id): Path<Uuid>,
     body: Option<Json<CreatePrRequest>>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, ApiError> {
     let tasks = state.tasks.read().await;
     let task = match tasks.get(&task_id) {
         Some(t) => t.clone(),
         None => {
-            return (
-                axum::http::StatusCode::NOT_FOUND,
-                Json(serde_json::json!({"error": "task not found"})),
-            );
+            return Err(ApiError::NotFound("task not found".into()));
         }
     };
     drop(tasks);
 
     if task.git_branch.is_none() {
-        return (
-            axum::http::StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": "Task has no branch. Create a worktree for this task first.",
-            })),
-        );
+        return Err(ApiError::BadRequest(
+            "Task has no branch. Create a worktree for this task first.".into(),
+        ));
     }
 
     let config = state.settings_manager.load_or_default();
@@ -289,33 +249,19 @@ pub(crate) async fn create_pr_for_task(
     let repo = int.github_repo.as_deref().unwrap_or("").to_string();
 
     if token.as_ref().is_none_or(|t| t.is_empty()) {
-        return (
-            axum::http::StatusCode::SERVICE_UNAVAILABLE,
-            Json(serde_json::json!({
-                "error": "GitHub token not configured. Set the environment variable.",
-                "env_var": int.github_token_env,
-            })),
-        );
+        return Err(ApiError::ServiceUnavailable(
+            "GitHub token not configured. Set the environment variable.".into(),
+        ));
     }
     if owner.is_empty() || repo.is_empty() {
-        return (
-            axum::http::StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": "GitHub owner and repo must be set in settings (integrations).",
-            })),
-        );
+        return Err(ApiError::BadRequest(
+            "GitHub owner and repo must be set in settings (integrations).".into(),
+        ));
     }
 
     let gh_config = GitHubConfig { token, owner, repo };
-    let client = match at_integrations::github::client::GitHubClient::new(gh_config) {
-        Ok(c) => c,
-        Err(e) => {
-            return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": e.to_string() })),
-            );
-        }
-    };
+    let client = at_integrations::github::client::GitHubClient::new(gh_config)
+        .map_err(|e| ApiError::Internal(e.to_string()))?;
 
     let base_branch = body
         .as_ref()
@@ -323,15 +269,10 @@ pub(crate) async fn create_pr_for_task(
         .filter(|s| !s.is_empty())
         .unwrap_or("main");
     let automation = PrAutomation::new(client);
-    let pr = match automation.create_pr_for_task(&task, base_branch).await {
-        Ok(p) => p,
-        Err(e) => {
-            return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": e.to_string() })),
-            );
-        }
-    };
+    let pr = automation
+        .create_pr_for_task(&task, base_branch)
+        .await
+        .map_err(|e| ApiError::Internal(e.to_string()))?;
 
     let response = PrCreatedResponse {
         message: "PR created".to_string(),
@@ -340,7 +281,7 @@ pub(crate) async fn create_pr_for_task(
         pr_branch: Some(pr.head_branch.clone()),
     };
 
-    (
+    Ok((
         axum::http::StatusCode::OK,
         Json(serde_json::json!({
             "message": response.message,
@@ -351,7 +292,7 @@ pub(crate) async fn create_pr_for_task(
             "pr_number": pr.number,
             "pr_url": pr.html_url,
         })),
-    )
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -362,7 +303,7 @@ pub(crate) async fn create_pr_for_task(
 pub(crate) async fn list_github_prs(
     State(state): State<Arc<ApiState>>,
     Query(q): Query<ListGitHubPrsQuery>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, ApiError> {
     let config = state.settings_manager.load_or_default();
     let int = &config.integrations;
     let token = CredentialProvider::from_env(&int.github_token_env);
@@ -370,33 +311,19 @@ pub(crate) async fn list_github_prs(
     let repo = int.github_repo.as_deref().unwrap_or("").to_string();
 
     if token.as_ref().is_none_or(|t| t.is_empty()) {
-        return (
-            axum::http::StatusCode::SERVICE_UNAVAILABLE,
-            Json(serde_json::json!({
-                "error": "GitHub token not configured. Set the environment variable.",
-                "env_var": int.github_token_env,
-            })),
-        );
+        return Err(ApiError::ServiceUnavailable(
+            "GitHub token not configured. Set the environment variable.".into(),
+        ));
     }
     if owner.is_empty() || repo.is_empty() {
-        return (
-            axum::http::StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": "GitHub owner and repo must be set in settings (integrations).",
-            })),
-        );
+        return Err(ApiError::BadRequest(
+            "GitHub owner and repo must be set in settings (integrations).".into(),
+        ));
     }
 
     let gh_config = GitHubConfig { token, owner, repo };
-    let client = match at_integrations::github::client::GitHubClient::new(gh_config) {
-        Ok(c) => c,
-        Err(e) => {
-            return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": e.to_string() })),
-            );
-        }
-    };
+    let client = at_integrations::github::client::GitHubClient::new(gh_config)
+        .map_err(|e| ApiError::Internal(e.to_string()))?;
 
     let state_filter = q
         .state
@@ -409,17 +336,11 @@ pub(crate) async fn list_github_prs(
         });
 
     let list =
-        match pull_requests::list_pull_requests(&client, state_filter, q.page, q.per_page).await {
-            Ok(prs) => prs,
-            Err(e) => {
-                return (
-                    axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({ "error": e.to_string() })),
-                );
-            }
-        };
+        pull_requests::list_pull_requests(&client, state_filter, q.page, q.per_page)
+            .await
+            .map_err(|e| ApiError::Internal(e.to_string()))?;
 
-    (axum::http::StatusCode::OK, Json(serde_json::json!(list)))
+    Ok((axum::http::StatusCode::OK, Json(serde_json::json!(list))))
 }
 
 // ---------------------------------------------------------------------------
@@ -430,7 +351,7 @@ pub(crate) async fn list_github_prs(
 pub(crate) async fn import_github_issue(
     State(state): State<Arc<ApiState>>,
     Path(number): Path<u64>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, ApiError> {
     let config = state.settings_manager.load_or_default();
     let int = &config.integrations;
     let token = CredentialProvider::from_env(&int.github_token_env);
@@ -438,51 +359,31 @@ pub(crate) async fn import_github_issue(
     let repo = int.github_repo.as_deref().unwrap_or("").to_string();
 
     if token.as_ref().is_none_or(|t| t.is_empty()) {
-        return (
-            axum::http::StatusCode::SERVICE_UNAVAILABLE,
-            Json(serde_json::json!({
-                "error": "GitHub token not configured. Set the environment variable.",
-                "env_var": int.github_token_env,
-            })),
-        );
+        return Err(ApiError::ServiceUnavailable(
+            "GitHub token not configured. Set the environment variable.".into(),
+        ));
     }
     if owner.is_empty() || repo.is_empty() {
-        return (
-            axum::http::StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": "GitHub owner and repo must be set in settings (integrations).",
-            })),
-        );
+        return Err(ApiError::BadRequest(
+            "GitHub owner and repo must be set in settings (integrations).".into(),
+        ));
     }
 
     let gh_config = GitHubConfig { token, owner, repo };
-    let client = match at_integrations::github::client::GitHubClient::new(gh_config) {
-        Ok(c) => c,
-        Err(e) => {
-            return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": e.to_string() })),
-            );
-        }
-    };
+    let client = at_integrations::github::client::GitHubClient::new(gh_config)
+        .map_err(|e| ApiError::Internal(e.to_string()))?;
 
-    let issue = match issues::get_issue(&client, number).await {
-        Ok(i) => i,
-        Err(e) => {
-            return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": e.to_string() })),
-            );
-        }
-    };
+    let issue = issues::get_issue(&client, number)
+        .await
+        .map_err(|e| ApiError::Internal(e.to_string()))?;
 
     let bead = issues::import_issue_as_task(&issue);
     state.beads.write().await.insert(bead.id, bead.clone());
 
-    (
+    Ok((
         axum::http::StatusCode::CREATED,
         Json(serde_json::json!(bead)),
-    )
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -492,16 +393,13 @@ pub(crate) async fn import_github_issue(
 /// GET /api/github/oauth/authorize -- build the GitHub authorization URL.
 pub(crate) async fn github_oauth_authorize(
     State(state): State<Arc<ApiState>>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, ApiError> {
     let client_id = match std::env::var("GITHUB_OAUTH_CLIENT_ID") {
         Ok(v) if !v.is_empty() => v,
         _ => {
-            return (
-                axum::http::StatusCode::SERVICE_UNAVAILABLE,
-                Json(serde_json::json!({
-                    "error": "GITHUB_OAUTH_CLIENT_ID not set",
-                })),
-            );
+            return Err(ApiError::ServiceUnavailable(
+                "GITHUB_OAUTH_CLIENT_ID not set".into(),
+            ));
         }
     };
 
@@ -533,20 +431,20 @@ pub(crate) async fn github_oauth_authorize(
         .await
         .insert(csrf_state.clone(), timestamp);
 
-    (
+    Ok((
         axum::http::StatusCode::OK,
         Json(serde_json::json!({
             "url": url,
             "state": csrf_state,
         })),
-    )
+    ))
 }
 
 /// POST /api/github/oauth/callback -- exchange the authorization code for a token.
 pub(crate) async fn github_oauth_callback(
     State(state): State<Arc<ApiState>>,
     Json(body): Json<OAuthCallbackRequest>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, ApiError> {
     // Validate CSRF state parameter with expiration check
     let mut pending_states = state.oauth_pending_states.write().await;
     let state_timestamp = pending_states.get(&body.state).cloned();
@@ -576,28 +474,25 @@ pub(crate) async fn github_oauth_callback(
     drop(pending_states);
 
     if !state_valid {
-        return (
-            axum::http::StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "error": "Invalid or expired OAuth state parameter" })),
-        );
+        return Err(ApiError::BadRequest(
+            "Invalid or expired OAuth state parameter".into(),
+        ));
     }
 
     let client_id = match std::env::var("GITHUB_OAUTH_CLIENT_ID") {
         Ok(v) if !v.is_empty() => v,
         _ => {
-            return (
-                axum::http::StatusCode::SERVICE_UNAVAILABLE,
-                Json(serde_json::json!({ "error": "GITHUB_OAUTH_CLIENT_ID not set" })),
-            );
+            return Err(ApiError::ServiceUnavailable(
+                "GITHUB_OAUTH_CLIENT_ID not set".into(),
+            ));
         }
     };
     let client_secret = match std::env::var("GITHUB_OAUTH_CLIENT_SECRET") {
         Ok(v) if !v.is_empty() => v,
         _ => {
-            return (
-                axum::http::StatusCode::SERVICE_UNAVAILABLE,
-                Json(serde_json::json!({ "error": "GITHUB_OAUTH_CLIENT_SECRET not set" })),
-            );
+            return Err(ApiError::ServiceUnavailable(
+                "GITHUB_OAUTH_CLIENT_SECRET not set".into(),
+            ));
         }
     };
     let redirect_uri = std::env::var("GITHUB_OAUTH_REDIRECT_URI")
@@ -618,15 +513,10 @@ pub(crate) async fn github_oauth_callback(
 
     let oauth_client = gh_oauth::GitHubOAuthClient::new(oauth_config);
 
-    let token_resp = match oauth_client.exchange_code(&body.code).await {
-        Ok(t) => t,
-        Err(e) => {
-            return (
-                axum::http::StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({ "error": e.to_string() })),
-            );
-        }
-    };
+    let token_resp = oauth_client
+        .exchange_code(&body.code)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
 
     // Fetch user info with the new token.
     let user = match oauth_client.get_user(&token_resp.access_token).await {
@@ -652,7 +542,7 @@ pub(crate) async fn github_oauth_callback(
     *state.github_oauth_token.write().await = Some(token_resp.access_token.clone());
     *state.github_oauth_user.write().await = Some(user.clone());
 
-    (
+    Ok((
         axum::http::StatusCode::OK,
         Json(serde_json::json!({
             "authenticated": true,
@@ -660,7 +550,7 @@ pub(crate) async fn github_oauth_callback(
             "scope": token_resp.scope,
             "expires_in": token_resp.expires_in,
         })),
-    )
+    ))
 }
 
 /// GET /api/github/oauth/status -- check whether the user is authenticated.
@@ -700,47 +590,33 @@ pub(crate) async fn github_oauth_revoke(
 /// POST /api/github/oauth/refresh -- manually refresh the OAuth token using refresh token.
 pub(crate) async fn github_oauth_refresh(
     State(state): State<Arc<ApiState>>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, ApiError> {
     // Get refresh token from token manager
-    let refresh_token = match state
+    let refresh_token = state
         .oauth_token_manager
         .read()
         .await
         .get_refresh_token()
         .await
-    {
-        Ok(token) => token,
-        Err(_) => {
-            return (
-                axum::http::StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({
-                    "error": "No refresh token available. Please re-authenticate."
-                })),
-            );
-        }
-    };
+        .map_err(|_| {
+            ApiError::BadRequest("No refresh token available. Please re-authenticate.".into())
+        })?;
 
     // Get OAuth client configuration
     let client_id = match std::env::var("GITHUB_OAUTH_CLIENT_ID") {
         Ok(v) if !v.is_empty() => v,
         _ => {
-            return (
-                axum::http::StatusCode::SERVICE_UNAVAILABLE,
-                Json(serde_json::json!({
-                    "error": "GITHUB_OAUTH_CLIENT_ID not set"
-                })),
-            );
+            return Err(ApiError::ServiceUnavailable(
+                "GITHUB_OAUTH_CLIENT_ID not set".into(),
+            ));
         }
     };
     let client_secret = match std::env::var("GITHUB_OAUTH_CLIENT_SECRET") {
         Ok(v) if !v.is_empty() => v,
         _ => {
-            return (
-                axum::http::StatusCode::SERVICE_UNAVAILABLE,
-                Json(serde_json::json!({
-                    "error": "GITHUB_OAUTH_CLIENT_SECRET not set"
-                })),
-            );
+            return Err(ApiError::ServiceUnavailable(
+                "GITHUB_OAUTH_CLIENT_SECRET not set".into(),
+            ));
         }
     };
     let redirect_uri = std::env::var("GITHUB_OAUTH_REDIRECT_URI")
@@ -762,17 +638,10 @@ pub(crate) async fn github_oauth_refresh(
     let oauth_client = gh_oauth::GitHubOAuthClient::new(oauth_config);
 
     // Refresh the token
-    let token_resp = match oauth_client.refresh_token(&refresh_token).await {
-        Ok(t) => t,
-        Err(e) => {
-            return (
-                axum::http::StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({
-                    "error": format!("Failed to refresh token: {}", e)
-                })),
-            );
-        }
-    };
+    let token_resp = oauth_client
+        .refresh_token(&refresh_token)
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Failed to refresh token: {}", e)))?;
 
     // Store new token with OAuthTokenManager
     state
@@ -789,13 +658,13 @@ pub(crate) async fn github_oauth_refresh(
     // Update legacy plaintext storage for backward compatibility
     *state.github_oauth_token.write().await = Some(token_resp.access_token.clone());
 
-    (
+    Ok((
         axum::http::StatusCode::OK,
         Json(serde_json::json!({
             "refreshed": true,
             "expires_in": token_resp.expires_in,
         })),
-    )
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -848,18 +717,15 @@ pub(crate) async fn watch_pr(
 pub(crate) async fn unwatch_pr(
     State(state): State<Arc<ApiState>>,
     Path(number): Path<u32>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, ApiError> {
     let mut registry = state.pr_poll_registry.write().await;
     if registry.remove(&number).is_some() {
-        (
+        Ok((
             axum::http::StatusCode::OK,
             Json(serde_json::json!({"removed": number})),
-        )
+        ))
     } else {
-        (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "PR not watched"})),
-        )
+        Err(ApiError::NotFound("PR not watched".into()))
     }
 }
 
@@ -879,7 +745,7 @@ pub(crate) async fn list_watched_prs(
 pub(crate) async fn create_release(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<CreateReleaseRequest>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, ApiError> {
     let config = state.settings_manager.load_or_default();
     let int = &config.integrations;
     let token = CredentialProvider::from_env(&int.github_token_env);
@@ -899,22 +765,15 @@ pub(crate) async fn create_release(
         let mut releases = state.releases.write().await;
         releases.retain(|r| r.tag_name != release.tag_name);
         releases.push(release.clone());
-        return (
+        return Ok((
             axum::http::StatusCode::CREATED,
             Json(serde_json::json!(release)),
-        );
+        ));
     }
 
     let gh_config = GitHubConfig { token, owner, repo };
-    let client = match at_integrations::github::client::GitHubClient::new(gh_config) {
-        Ok(c) => c,
-        Err(e) => {
-            return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": e.to_string() })),
-            );
-        }
-    };
+    let client = at_integrations::github::client::GitHubClient::new(gh_config)
+        .map_err(|e| ApiError::Internal(e.to_string()))?;
 
     let route = format!("/repos/{}/{}/releases", client.owner(), client.repo());
     let payload = serde_json::json!({
@@ -925,17 +784,11 @@ pub(crate) async fn create_release(
         "prerelease": req.prerelease,
     });
 
-    let created: serde_json::Value = match client.inner().post(route, Some(&payload)).await {
-        Ok(v) => v,
-        Err(e) => {
-            return (
-                axum::http::StatusCode::BAD_GATEWAY,
-                Json(
-                    serde_json::json!({ "error": format!("GitHub release create failed: {e}") }),
-                ),
-            );
-        }
-    };
+    let created: serde_json::Value = client
+        .inner()
+        .post(route, Some(&payload))
+        .await
+        .map_err(|e| ApiError::Internal(format!("GitHub release create failed: {e}")))?;
 
     let release = GitHubRelease {
         tag_name: created
@@ -977,14 +830,16 @@ pub(crate) async fn create_release(
     let mut releases = state.releases.write().await;
     releases.retain(|r| r.tag_name != release.tag_name);
     releases.push(release.clone());
-    (
+    Ok((
         axum::http::StatusCode::CREATED,
         Json(serde_json::json!(release)),
-    )
+    ))
 }
 
 /// GET /api/github/releases -- list all GitHub releases.
-pub(crate) async fn list_releases(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
+pub(crate) async fn list_releases(
+    State(state): State<Arc<ApiState>>,
+) -> Result<impl IntoResponse, ApiError> {
     let config = state.settings_manager.load_or_default();
     let int = &config.integrations;
     let token = CredentialProvider::from_env(&int.github_token_env);
@@ -1037,14 +892,14 @@ pub(crate) async fn list_releases(State(state): State<Arc<ApiState>>) -> impl In
 
                 let mut cache = state.releases.write().await;
                 *cache = releases.clone();
-                return (
+                return Ok((
                     axum::http::StatusCode::OK,
                     Json(serde_json::json!(releases)),
-                );
+                ));
             }
         }
     }
 
     let cached = state.releases.read().await.clone();
-    (axum::http::StatusCode::OK, Json(serde_json::json!(cached)))
+    Ok((axum::http::StatusCode::OK, Json(serde_json::json!(cached))))
 }

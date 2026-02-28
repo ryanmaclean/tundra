@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tracing::warn;
 
+use crate::api_error::ApiError;
 use super::state::ApiState;
 use super::types::ResolveConflictRequest;
 
@@ -44,7 +45,7 @@ fn stable_worktree_id(path: &str, branch: &str) -> String {
 }
 
 /// GET /api/worktrees -- list all git worktrees with path and branch info.
-pub(crate) async fn list_worktrees() -> impl IntoResponse {
+pub(crate) async fn list_worktrees() -> Result<impl IntoResponse, ApiError> {
     let output = match tokio::process::Command::new("git")
         .args(["worktree", "list", "--porcelain"])
         .output()
@@ -52,19 +53,13 @@ pub(crate) async fn list_worktrees() -> impl IntoResponse {
     {
         Ok(o) => o,
         Err(e) => {
-            return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": e.to_string()})),
-            );
+            return Err(ApiError::Internal(e.to_string()));
         }
     };
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        return (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": stderr})),
-        );
+        return Err(ApiError::Internal(stderr));
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -101,17 +96,17 @@ pub(crate) async fn list_worktrees() -> impl IntoResponse {
         });
     }
 
-    (
+    Ok((
         axum::http::StatusCode::OK,
         Json(serde_json::json!(worktrees)),
-    )
+    ))
 }
 
 /// POST /api/worktrees/{id}/merge -- trigger merge to main for a worktree branch.
 pub(crate) async fn merge_worktree(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<String>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, ApiError> {
     // Look up the worktree by listing current git worktrees and matching the id/branch.
     let output = match tokio::process::Command::new("git")
         .args(["worktree", "list", "--porcelain"])
@@ -120,10 +115,7 @@ pub(crate) async fn merge_worktree(
     {
         Ok(o) => o,
         Err(e) => {
-            return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": e.to_string()})),
-            );
+            return Err(ApiError::Internal(e.to_string()));
         }
     };
 
@@ -159,10 +151,7 @@ pub(crate) async fn merge_worktree(
     let branch = match found_branch {
         Some(b) if !b.is_empty() => b,
         _ => {
-            return (
-                axum::http::StatusCode::NOT_FOUND,
-                Json(serde_json::json!({"error": "worktree not found", "id": id})),
-            );
+            return Err(ApiError::NotFound(format!("worktree not found: {}", id)));
         }
     };
 
@@ -179,17 +168,14 @@ pub(crate) async fn merge_worktree(
 
     match diff_output {
         Ok(o) if String::from_utf8_lossy(&o.stdout).trim().is_empty() => {
-            return (
+            return Ok((
                 axum::http::StatusCode::OK,
                 Json(serde_json::json!({"status": "nothing_to_merge", "branch": branch})),
-            );
+            ));
         }
         Ok(_) => { /* has changes */ }
         Err(e) => {
-            return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": e.to_string()})),
-            );
+            return Err(ApiError::Internal(e.to_string()));
         }
     }
 
@@ -223,10 +209,10 @@ pub(crate) async fn merge_worktree(
                     conflict_files: vec![],
                 });
 
-            (
+            Ok((
                 axum::http::StatusCode::OK,
                 Json(serde_json::json!({"status": "success", "branch": branch})),
-            )
+            ))
         }
         Ok(o) => {
             // Detect conflict files
@@ -271,24 +257,21 @@ pub(crate) async fn merge_worktree(
                     conflict_files: conflict_files.clone(),
                 });
 
-            (
+            Ok((
                 axum::http::StatusCode::OK,
                 Json(serde_json::json!({
                     "status": "conflict",
                     "branch": branch,
                     "files": conflict_files,
                 })),
-            )
+            ))
         }
-        Err(e) => (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": e.to_string()})),
-        ),
+        Err(e) => Err(ApiError::Internal(e.to_string())),
     }
 }
 
 /// GET /api/worktrees/{id}/merge-preview -- dry-run merge preview.
-pub(crate) async fn merge_preview(Path(id): Path<String>) -> impl IntoResponse {
+pub(crate) async fn merge_preview(Path(id): Path<String>) -> Result<impl IntoResponse, ApiError> {
     let base_dir = std::env::current_dir().unwrap_or_default();
     let base_dir_str = base_dir.to_str().unwrap_or(".");
 
@@ -300,10 +283,7 @@ pub(crate) async fn merge_preview(Path(id): Path<String>) -> impl IntoResponse {
     {
         Ok(o) => o,
         Err(e) => {
-            return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": e.to_string()})),
-            );
+            return Err(ApiError::Internal(e.to_string()));
         }
     };
 
@@ -334,10 +314,7 @@ pub(crate) async fn merge_preview(Path(id): Path<String>) -> impl IntoResponse {
     let branch = match found_branch {
         Some(b) if !b.is_empty() => b,
         _ => {
-            return (
-                axum::http::StatusCode::NOT_FOUND,
-                Json(serde_json::json!({"error": "worktree not found", "id": id})),
-            );
+            return Err(ApiError::NotFound(format!("worktree not found: {}", id)));
         }
     };
 
@@ -389,7 +366,7 @@ pub(crate) async fn merge_preview(Path(id): Path<String>) -> impl IntoResponse {
     // Check for potential conflicts via merge-tree (git 2.38+) or simple heuristic
     let has_conflicts = false; // Conservative: actual conflicts only detectable via real merge
 
-    (
+    Ok((
         axum::http::StatusCode::OK,
         Json(serde_json::json!({
             "ahead": ahead,
@@ -398,22 +375,19 @@ pub(crate) async fn merge_preview(Path(id): Path<String>) -> impl IntoResponse {
             "has_conflicts": has_conflicts,
             "branch": branch,
         })),
-    )
+    ))
 }
 
 /// POST /api/worktrees/{id}/resolve -- accept conflict resolution.
 pub(crate) async fn resolve_conflict(
     Path(id): Path<String>,
     Json(req): Json<ResolveConflictRequest>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, ApiError> {
     let valid_strategies = ["ours", "theirs", "manual"];
     if !valid_strategies.contains(&req.strategy.as_str()) {
-        return (
-            axum::http::StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": format!("invalid strategy '{}', must be one of: ours, theirs, manual", req.strategy)
-            })),
-        );
+        return Err(ApiError::BadRequest(
+            format!("invalid strategy '{}', must be one of: ours, theirs, manual", req.strategy),
+        ));
     }
 
     let base_dir = std::env::current_dir().unwrap_or_default();
@@ -470,7 +444,7 @@ pub(crate) async fn resolve_conflict(
         _ => {}
     }
 
-    (
+    Ok((
         axum::http::StatusCode::OK,
         Json(serde_json::json!({
             "status": "resolved",
@@ -478,11 +452,11 @@ pub(crate) async fn resolve_conflict(
             "file": req.file,
             "strategy": req.strategy,
         })),
-    )
+    ))
 }
 
 /// DELETE /api/worktrees/{id} -- remove a git worktree by path.
-pub(crate) async fn delete_worktree(Path(id): Path<String>) -> impl IntoResponse {
+pub(crate) async fn delete_worktree(Path(id): Path<String>) -> Result<impl IntoResponse, ApiError> {
     let output = match tokio::process::Command::new("git")
         .args(["worktree", "list", "--porcelain"])
         .output()
@@ -490,19 +464,13 @@ pub(crate) async fn delete_worktree(Path(id): Path<String>) -> impl IntoResponse
     {
         Ok(o) => o,
         Err(e) => {
-            return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": e.to_string()})),
-            );
+            return Err(ApiError::Internal(e.to_string()));
         }
     };
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        return (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": stderr})),
-        );
+        return Err(ApiError::Internal(stderr));
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -534,10 +502,7 @@ pub(crate) async fn delete_worktree(Path(id): Path<String>) -> impl IntoResponse
     }
 
     let Some(path) = found_path else {
-        return (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "worktree not found", "id": id})),
-        );
+        return Err(ApiError::NotFound(format!("worktree not found: {}", id)));
     };
 
     let rm = tokio::process::Command::new("git")
@@ -546,21 +511,13 @@ pub(crate) async fn delete_worktree(Path(id): Path<String>) -> impl IntoResponse
         .await;
 
     match rm {
-        Ok(o) if o.status.success() => (
+        Ok(o) if o.status.success() => Ok((
             axum::http::StatusCode::OK,
             Json(serde_json::json!({"status": "deleted", "id": id, "path": path})),
-        ),
-        Ok(o) => (
-            axum::http::StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": String::from_utf8_lossy(&o.stderr).to_string(),
-                "id": id,
-                "path": path
-            })),
-        ),
-        Err(e) => (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": e.to_string(), "id": id, "path": path})),
-        ),
+        )),
+        Ok(o) => Err(ApiError::BadRequest(
+            String::from_utf8_lossy(&o.stderr).to_string(),
+        )),
+        Err(e) => Err(ApiError::Internal(e.to_string())),
     }
 }

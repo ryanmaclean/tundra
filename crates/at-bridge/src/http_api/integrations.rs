@@ -9,6 +9,7 @@ use std::sync::Arc;
 use at_core::config::CredentialProvider;
 
 use super::state::ApiState;
+use crate::api_error::ApiError;
 
 #[derive(Debug, Default, Deserialize)]
 pub(crate) struct ListGitLabIssuesQuery {
@@ -26,19 +27,15 @@ pub(crate) struct ListGitLabIssuesQuery {
 pub(crate) async fn list_gitlab_issues(
     State(state): State<Arc<ApiState>>,
     Query(q): Query<ListGitLabIssuesQuery>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, ApiError> {
     let cfg = state.settings_manager.load_or_default();
     let int = &cfg.integrations;
 
     let token = CredentialProvider::from_env(&int.gitlab_token_env);
     if token.as_ref().is_none_or(|t| t.is_empty()) {
-        return (
-            axum::http::StatusCode::SERVICE_UNAVAILABLE,
-            Json(serde_json::json!({
-                "error": "GitLab token not configured. Set the environment variable.",
-                "env_var": int.gitlab_token_env,
-            })),
-        );
+        return Err(ApiError::ServiceUnavailable(
+            format!("GitLab token not configured. Set env var {}", int.gitlab_token_env),
+        ));
     }
 
     let project_id = q
@@ -47,12 +44,9 @@ pub(crate) async fn list_gitlab_issues(
         .or_else(|| int.gitlab_project_id.clone())
         .unwrap_or_default();
     if project_id.is_empty() {
-        return (
-            axum::http::StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": "GitLab project ID is required (query param project_id or settings.integrations.gitlab_project_id).",
-            })),
-        );
+        return Err(ApiError::BadRequest(
+            "GitLab project ID is required (query param project_id or settings.integrations.gitlab_project_id).".into(),
+        ));
     }
 
     let base_url = int
@@ -60,20 +54,13 @@ pub(crate) async fn list_gitlab_issues(
         .clone()
         .unwrap_or_else(|| "https://gitlab.com".to_string());
 
-    let client = match at_integrations::gitlab::GitLabClient::new_with_url(
+    let client = at_integrations::gitlab::GitLabClient::new_with_url(
         &base_url,
         token.as_deref().unwrap_or_default(),
-    ) {
-        Ok(c) => c,
-        Err(e) => {
-            return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": e.to_string() })),
-            );
-        }
-    };
+    )
+    .map_err(|e| ApiError::Internal(e.to_string()))?;
 
-    match client
+    let issues = client
         .list_issues(
             &project_id,
             q.state.as_deref(),
@@ -81,13 +68,9 @@ pub(crate) async fn list_gitlab_issues(
             q.per_page.unwrap_or(20),
         )
         .await
-    {
-        Ok(issues) => (axum::http::StatusCode::OK, Json(serde_json::json!(issues))),
-        Err(e) => (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": e.to_string() })),
-        ),
-    }
+        .map_err(|e| ApiError::Internal(e.to_string()))?;
+
+    Ok((axum::http::StatusCode::OK, Json(serde_json::json!(issues))))
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -106,19 +89,15 @@ pub(crate) struct ListGitLabMrsQuery {
 pub(crate) async fn list_gitlab_merge_requests(
     State(state): State<Arc<ApiState>>,
     Query(q): Query<ListGitLabMrsQuery>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, ApiError> {
     let cfg = state.settings_manager.load_or_default();
     let int = &cfg.integrations;
 
     let token = CredentialProvider::from_env(&int.gitlab_token_env);
     if token.as_ref().is_none_or(|t| t.is_empty()) {
-        return (
-            axum::http::StatusCode::SERVICE_UNAVAILABLE,
-            Json(serde_json::json!({
-                "error": "GitLab token not configured. Set the environment variable.",
-                "env_var": int.gitlab_token_env,
-            })),
-        );
+        return Err(ApiError::ServiceUnavailable(
+            format!("GitLab token not configured. Set env var {}", int.gitlab_token_env),
+        ));
     }
 
     let project_id = q
@@ -127,12 +106,9 @@ pub(crate) async fn list_gitlab_merge_requests(
         .or_else(|| int.gitlab_project_id.clone())
         .unwrap_or_default();
     if project_id.is_empty() {
-        return (
-            axum::http::StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": "GitLab project ID is required (query param project_id or settings.integrations.gitlab_project_id).",
-            })),
-        );
+        return Err(ApiError::BadRequest(
+            "GitLab project ID is required (query param project_id or settings.integrations.gitlab_project_id).".into(),
+        ));
     }
 
     let base_url = int
@@ -140,20 +116,13 @@ pub(crate) async fn list_gitlab_merge_requests(
         .clone()
         .unwrap_or_else(|| "https://gitlab.com".to_string());
 
-    let client = match at_integrations::gitlab::GitLabClient::new_with_url(
+    let client = at_integrations::gitlab::GitLabClient::new_with_url(
         &base_url,
         token.as_deref().unwrap_or_default(),
-    ) {
-        Ok(c) => c,
-        Err(e) => {
-            return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": e.to_string() })),
-            );
-        }
-    };
+    )
+    .map_err(|e| ApiError::Internal(e.to_string()))?;
 
-    match client
+    let mrs = client
         .list_merge_requests(
             &project_id,
             q.state.as_deref(),
@@ -161,13 +130,9 @@ pub(crate) async fn list_gitlab_merge_requests(
             q.per_page.unwrap_or(20),
         )
         .await
-    {
-        Ok(mrs) => (axum::http::StatusCode::OK, Json(serde_json::json!(mrs))),
-        Err(e) => (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": e.to_string() })),
-        ),
-    }
+        .map_err(|e| ApiError::Internal(e.to_string()))?;
+
+    Ok((axum::http::StatusCode::OK, Json(serde_json::json!(mrs))))
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -187,19 +152,15 @@ pub(crate) async fn review_gitlab_merge_request(
     State(state): State<Arc<ApiState>>,
     Path(iid): Path<u32>,
     body: Option<Json<ReviewGitLabMrBody>>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, ApiError> {
     let cfg = state.settings_manager.load_or_default();
     let int = &cfg.integrations;
 
     let token = CredentialProvider::from_env(&int.gitlab_token_env);
     if token.as_ref().is_none_or(|t| t.is_empty()) {
-        return (
-            axum::http::StatusCode::SERVICE_UNAVAILABLE,
-            Json(serde_json::json!({
-                "error": "GitLab token not configured. Set the environment variable.",
-                "env_var": int.gitlab_token_env,
-            })),
-        );
+        return Err(ApiError::ServiceUnavailable(
+            format!("GitLab token not configured. Set env var {}", int.gitlab_token_env),
+        ));
     }
 
     let req = body.map(|b| b.0).unwrap_or_default();
@@ -208,30 +169,20 @@ pub(crate) async fn review_gitlab_merge_request(
         .or_else(|| int.gitlab_project_id.clone())
         .unwrap_or_default();
     if project_id.is_empty() {
-        return (
-            axum::http::StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": "GitLab project ID is required (request body project_id or settings.integrations.gitlab_project_id).",
-            })),
-        );
+        return Err(ApiError::BadRequest(
+            "GitLab project ID is required (request body project_id or settings.integrations.gitlab_project_id).".into(),
+        ));
     }
 
     let base_url = int
         .gitlab_url
         .clone()
         .unwrap_or_else(|| "https://gitlab.com".to_string());
-    let client = match at_integrations::gitlab::GitLabClient::new_with_url(
+    let client = at_integrations::gitlab::GitLabClient::new_with_url(
         &base_url,
         token.as_deref().unwrap_or_default(),
-    ) {
-        Ok(c) => c,
-        Err(e) => {
-            return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": e.to_string() })),
-            );
-        }
-    };
+    )
+    .map_err(|e| ApiError::Internal(e.to_string()))?;
 
     let mut config = at_integrations::gitlab::mr_review::MrReviewConfig::default();
     if let Some(v) = req.severity_threshold {
@@ -246,7 +197,7 @@ pub(crate) async fn review_gitlab_merge_request(
 
     let engine = at_integrations::gitlab::mr_review::MrReviewEngine::with_client(config, client);
     let result = engine.review_mr(&project_id, iid).await;
-    (axum::http::StatusCode::OK, Json(serde_json::json!(result)))
+    Ok((axum::http::StatusCode::OK, Json(serde_json::json!(result))))
 }
 
 // ---------------------------------------------------------------------------
@@ -265,49 +216,34 @@ pub(crate) struct ListLinearIssuesQuery {
 pub(crate) async fn list_linear_issues(
     State(state): State<Arc<ApiState>>,
     Query(q): Query<ListLinearIssuesQuery>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, ApiError> {
     let cfg = state.settings_manager.load_or_default();
     let int = &cfg.integrations;
 
     let token = CredentialProvider::from_env(&int.linear_api_key_env);
     if token.as_ref().is_none_or(|t| t.is_empty()) {
-        return (
-            axum::http::StatusCode::SERVICE_UNAVAILABLE,
-            Json(serde_json::json!({
-                "error": "Linear API key not configured. Set the environment variable.",
-                "env_var": int.linear_api_key_env,
-            })),
-        );
+        return Err(ApiError::ServiceUnavailable(
+            format!("Linear API key not configured. Set env var {}", int.linear_api_key_env),
+        ));
     }
 
     let client =
-        match at_integrations::linear::LinearClient::new(token.as_deref().unwrap_or_default()) {
-            Ok(c) => c,
-            Err(e) => {
-                return (
-                    axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({ "error": e.to_string() })),
-                );
-            }
-        };
+        at_integrations::linear::LinearClient::new(token.as_deref().unwrap_or_default())
+            .map_err(|e| ApiError::Internal(e.to_string()))?;
 
     let team = q.team_id.as_deref().or(int.linear_team_id.as_deref());
     if team.is_none() {
-        return (
-            axum::http::StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": "Linear team_id is required (query param team_id or settings.integrations.linear_team_id).",
-            })),
-        );
+        return Err(ApiError::BadRequest(
+            "Linear team_id is required (query param team_id or settings.integrations.linear_team_id).".into(),
+        ));
     }
 
-    match client.list_issues(team, q.state.as_deref()).await {
-        Ok(issues) => (axum::http::StatusCode::OK, Json(serde_json::json!(issues))),
-        Err(e) => (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": e.to_string() })),
-        ),
-    }
+    let issues = client
+        .list_issues(team, q.state.as_deref())
+        .await
+        .map_err(|e| ApiError::Internal(e.to_string()))?;
+
+    Ok((axum::http::StatusCode::OK, Json(serde_json::json!(issues))))
 }
 
 #[derive(Debug, Deserialize)]
@@ -319,37 +255,28 @@ pub(crate) struct ImportLinearBody {
 pub(crate) async fn import_linear_issues(
     State(state): State<Arc<ApiState>>,
     Json(body): Json<ImportLinearBody>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, ApiError> {
     let cfg = state.settings_manager.load_or_default();
     let int = &cfg.integrations;
 
     let token = CredentialProvider::from_env(&int.linear_api_key_env);
     if token.as_ref().is_none_or(|t| t.is_empty()) {
-        return (
-            axum::http::StatusCode::SERVICE_UNAVAILABLE,
-            Json(serde_json::json!({
-                "error": "Linear API key not configured. Set the environment variable.",
-                "env_var": int.linear_api_key_env,
-            })),
-        );
+        return Err(ApiError::ServiceUnavailable(
+            format!("Linear API key not configured. Set env var {}", int.linear_api_key_env),
+        ));
     }
 
     let client =
-        match at_integrations::linear::LinearClient::new(token.as_deref().unwrap_or_default()) {
-            Ok(c) => c,
-            Err(e) => {
-                return (
-                    axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({ "error": e.to_string() })),
-                );
-            }
-        };
+        at_integrations::linear::LinearClient::new(token.as_deref().unwrap_or_default())
+            .map_err(|e| ApiError::Internal(e.to_string()))?;
 
-    match client.import_issues(body.issue_ids).await {
-        Ok(results) => (axum::http::StatusCode::OK, Json(serde_json::json!(results))),
-        Err(e) => (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": e.to_string() })),
-        ),
-    }
+    let results = client
+        .import_issues(body.issue_ids)
+        .await
+        .map_err(|e| ApiError::Internal(e.to_string()))?;
+
+    Ok((
+        axum::http::StatusCode::OK,
+        Json(serde_json::json!(results)),
+    ))
 }

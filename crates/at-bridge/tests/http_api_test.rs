@@ -1166,7 +1166,13 @@ async fn test_list_gitlab_issues_requires_token_env() {
     assert_eq!(resp.status(), 503);
 
     let body: Value = resp.json().await.unwrap();
-    assert_eq!(body["env_var"], "AT_TEST_MISSING_GITLAB_TOKEN");
+    assert!(
+        body["error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("AT_TEST_MISSING_GITLAB_TOKEN"),
+        "expected env var name in error message, got: {body}"
+    );
 }
 
 #[tokio::test]
@@ -1231,7 +1237,13 @@ async fn test_list_linear_issues_requires_token_env() {
     assert_eq!(resp.status(), 503);
 
     let body: Value = resp.json().await.unwrap();
-    assert_eq!(body["env_var"], "AT_TEST_MISSING_LINEAR_API_KEY");
+    assert!(
+        body["error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("AT_TEST_MISSING_LINEAR_API_KEY"),
+        "expected env var name in error message, got: {body}"
+    );
 }
 
 #[tokio::test]
@@ -1899,7 +1911,8 @@ async fn test_merge_worktree_not_found() {
     assert_eq!(resp.status(), 404);
 
     let body: Value = resp.json().await.unwrap();
-    assert_eq!(body["error"], "worktree not found");
+    assert!(body["error"].as_str().unwrap_or_default().starts_with("worktree not found"),
+        "expected 'worktree not found' prefix, got: {}", body["error"]);
 }
 
 #[tokio::test]
@@ -1914,7 +1927,8 @@ async fn test_merge_preview_not_found() {
     assert_eq!(resp.status(), 404);
 
     let body: Value = resp.json().await.unwrap();
-    assert_eq!(body["error"], "worktree not found");
+    assert!(body["error"].as_str().unwrap_or_default().starts_with("worktree not found"),
+        "expected 'worktree not found' prefix, got: {}", body["error"]);
 }
 
 #[tokio::test]

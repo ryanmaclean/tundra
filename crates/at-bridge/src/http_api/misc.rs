@@ -10,6 +10,7 @@ use uuid::Uuid;
 use at_core::config::CredentialProvider;
 use at_core::types::KpiSnapshot;
 
+use crate::api_error::ApiError;
 use super::state::ApiState;
 use super::types::{
     Attachment, CliAvailabilityEntry, CompetitorAnalysisRequest, CompetitorAnalysisResult,
@@ -99,44 +100,27 @@ pub(crate) async fn get_credentials_status() -> impl IntoResponse {
 pub(crate) async fn toggle_direct_mode(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<DirectModeRequest>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, ApiError> {
     let mut current = state.settings_manager.load_or_default();
-    let mut current_val = match serde_json::to_value(&current) {
-        Ok(v) => v,
-        Err(e) => {
-            return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": e.to_string()})),
-            );
-        }
-    };
+    let mut current_val = serde_json::to_value(&current)
+        .map_err(|e| ApiError::Internal(e.to_string()))?;
 
     let patch = serde_json::json!({"agents": {"direct_mode": req.enabled}});
     super::merge_json(&mut current_val, &patch);
 
-    current = match serde_json::from_value(current_val) {
-        Ok(c) => c,
-        Err(e) => {
-            return (
-                axum::http::StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": e.to_string()})),
-            );
-        }
-    };
+    current = serde_json::from_value(current_val)
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
 
-    match state.settings_manager.save(&current) {
-        Ok(()) => (
-            axum::http::StatusCode::OK,
-            Json(serde_json::json!({
-                "status": "ok",
-                "direct_mode": req.enabled,
-            })),
-        ),
-        Err(e) => (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": e.to_string()})),
-        ),
-    }
+    state.settings_manager.save(&current)
+        .map_err(|e| ApiError::Internal(e.to_string()))?;
+
+    Ok((
+        axum::http::StatusCode::OK,
+        Json(serde_json::json!({
+            "status": "ok",
+            "direct_mode": req.enabled,
+        })),
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -310,20 +294,17 @@ pub(crate) async fn add_attachment(
 pub(crate) async fn delete_attachment(
     State(state): State<Arc<ApiState>>,
     Path((_task_id, attachment_id)): Path<(Uuid, Uuid)>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, ApiError> {
     let mut attachments = state.attachments.write().await;
     let before = attachments.len();
     attachments.retain(|a| a.id != attachment_id);
     if attachments.len() < before {
-        (
+        Ok((
             axum::http::StatusCode::OK,
             Json(serde_json::json!({"deleted": attachment_id})),
-        )
+        ))
     } else {
-        (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "attachment not found"})),
-        )
+        Err(ApiError::NotFound("attachment not found".into()))
     }
 }
 
@@ -346,14 +327,11 @@ pub(crate) async fn save_task_draft(
 pub(crate) async fn get_task_draft(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, ApiError> {
     let drafts = state.task_drafts.read().await;
     match drafts.get(&id) {
-        Some(draft) => (axum::http::StatusCode::OK, Json(serde_json::json!(draft))),
-        None => (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "draft not found"})),
-        ),
+        Some(draft) => Ok((axum::http::StatusCode::OK, Json(serde_json::json!(draft)))),
+        None => Err(ApiError::NotFound("draft not found".into())),
     }
 }
 
@@ -361,18 +339,15 @@ pub(crate) async fn get_task_draft(
 pub(crate) async fn delete_task_draft(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, ApiError> {
     let mut drafts = state.task_drafts.write().await;
     if drafts.remove(&id).is_some() {
-        (
+        Ok((
             axum::http::StatusCode::OK,
             Json(serde_json::json!({"deleted": id})),
-        )
+        ))
     } else {
-        (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "draft not found"})),
-        )
+        Err(ApiError::NotFound("draft not found".into()))
     }
 }
 

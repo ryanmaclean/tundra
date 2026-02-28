@@ -6,6 +6,7 @@ use axum::{
 use std::sync::Arc;
 use uuid::Uuid;
 
+use crate::api_error::ApiError;
 use super::state::ApiState;
 use super::types::NotificationQuery;
 
@@ -46,18 +47,15 @@ pub(crate) async fn notification_count(State(state): State<Arc<ApiState>>) -> im
 pub(crate) async fn mark_notification_read(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, ApiError> {
     let mut store = state.notification_store.write().await;
     if store.mark_read(id) {
-        (
+        Ok((
             axum::http::StatusCode::OK,
             Json(serde_json::json!({"status": "read", "id": id.to_string()})),
-        )
+        ))
     } else {
-        (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "notification not found"})),
-        )
+        Err(ApiError::NotFound("notification not found".into()))
     }
 }
 
@@ -72,17 +70,14 @@ pub(crate) async fn mark_all_notifications_read(State(state): State<Arc<ApiState
 pub(crate) async fn delete_notification(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, ApiError> {
     let mut store = state.notification_store.write().await;
     if store.delete(id) {
-        (
+        Ok((
             axum::http::StatusCode::OK,
             Json(serde_json::json!({"status": "deleted", "id": id.to_string()})),
-        )
+        ))
     } else {
-        (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "notification not found"})),
-        )
+        Err(ApiError::NotFound("notification not found".into()))
     }
 }

@@ -6,6 +6,7 @@ use axum::{
 use std::sync::Arc;
 use uuid::Uuid;
 
+use crate::api_error::ApiError;
 use super::state::ApiState;
 use super::types::{
     KanbanColumnConfig, PlanningPokerPhase, PlanningPokerRevealStats, PlanningPokerSession,
@@ -26,19 +27,16 @@ pub(crate) async fn get_kanban_columns(
 pub(crate) async fn patch_kanban_columns(
     State(state): State<Arc<ApiState>>,
     Json(patch): Json<KanbanColumnConfig>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, ApiError> {
     let mut cols = state.kanban_columns.write().await;
     if patch.columns.is_empty() {
-        return (
-            axum::http::StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": "columns must not be empty"})),
-        );
+        return Err(ApiError::BadRequest("columns must not be empty".into()));
     }
     *cols = patch;
-    (
+    Ok((
         axum::http::StatusCode::OK,
         Json(serde_json::to_value(cols.clone()).unwrap()),
-    )
+    ))
 }
 
 fn normalize_participants(raw: &[String]) -> Vec<String> {
@@ -119,19 +117,17 @@ fn resolve_poker_deck(
     poker_cfg: &at_core::config::PlanningPokerConfig,
     deck_preset_name: Option<&str>,
     custom_deck: Option<&[String]>,
-) -> Result<Vec<String>, (axum::http::StatusCode, serde_json::Value)> {
+) -> Result<Vec<String>, ApiError> {
     if let Some(custom) = custom_deck {
         if !poker_cfg.allow_custom_deck {
-            return Err((
-                axum::http::StatusCode::FORBIDDEN,
-                serde_json::json!({"error": "custom deck is disabled by settings"}),
+            return Err(ApiError::BadRequest(
+                "custom deck is disabled by settings".into(),
             ));
         }
         let normalized = normalize_cards(custom);
         if normalized.is_empty() {
-            return Err((
-                axum::http::StatusCode::BAD_REQUEST,
-                serde_json::json!({"error": "custom_deck must include at least one card"}),
+            return Err(ApiError::BadRequest(
+                "custom_deck must include at least one card".into(),
             ));
         }
         return Ok(normalized);
@@ -140,10 +136,7 @@ fn resolve_poker_deck(
     if let Some(preset) = deck_preset_name {
         return match deck_preset(preset) {
             Some(deck) => Ok(deck),
-            None => Err((
-                axum::http::StatusCode::BAD_REQUEST,
-                serde_json::json!({"error": "unknown deck preset"}),
-            )),
+            None => Err(ApiError::BadRequest("unknown deck preset".into())),
         };
     }
 
@@ -389,13 +382,12 @@ fn consensus_card_from_votes(votes: &[PlanningPokerVote]) -> Option<String> {
 pub(crate) async fn simulate_planning_poker_for_bead(
     state: &Arc<ApiState>,
     req: SimulatePlanningPokerRequest,
-) -> Result<PlanningPokerSessionResponse, (axum::http::StatusCode, serde_json::Value)> {
+) -> Result<PlanningPokerSessionResponse, ApiError> {
     let cfg = state.settings_manager.load_or_default();
     let poker_cfg = &cfg.kanban.planning_poker;
     if !poker_cfg.enabled {
-        return Err((
-            axum::http::StatusCode::FORBIDDEN,
-            serde_json::json!({"error": "planning poker is disabled by settings"}),
+        return Err(ApiError::BadRequest(
+            "planning poker is disabled by settings".into(),
         ));
     }
 
@@ -403,12 +395,7 @@ pub(crate) async fn simulate_planning_poker_for_bead(
         let beads = state.beads.read().await;
         beads.get(&req.bead_id).cloned()
     }
-    .ok_or_else(|| {
-        (
-            axum::http::StatusCode::NOT_FOUND,
-            serde_json::json!({"error": "bead not found"}),
-        )
-    })?;
+    .ok_or_else(|| ApiError::NotFound("bead not found".into()))?;
 
     let deck = resolve_poker_deck(
         poker_cfg,
@@ -426,9 +413,8 @@ pub(crate) async fn simulate_planning_poker_for_bead(
     });
 
     if desired_count == 0 || desired_count > 64 {
-        return Err((
-            axum::http::StatusCode::BAD_REQUEST,
-            serde_json::json!({"error": "agent_count must be between 1 and 64"}),
+        return Err(ApiError::BadRequest(
+            "agent_count must be between 1 and 64".into(),
         ));
     }
 
@@ -504,14 +490,13 @@ pub(crate) async fn simulate_planning_poker_for_bead(
 pub(crate) async fn start_planning_poker(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<StartPlanningPokerRequest>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, ApiError> {
     let cfg = state.settings_manager.load_or_default();
     let poker_cfg = &cfg.kanban.planning_poker;
     if !poker_cfg.enabled {
-        return (
-            axum::http::StatusCode::FORBIDDEN,
-            Json(serde_json::json!({"error": "planning poker is disabled by settings"})),
-        );
+        return Err(ApiError::BadRequest(
+            "planning poker is disabled by settings".into(),
+        ));
     }
 
     let bead_exists = {
@@ -519,20 +504,14 @@ pub(crate) async fn start_planning_poker(
         beads.contains_key(&req.bead_id)
     };
     if !bead_exists {
-        return (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "bead not found"})),
-        );
+        return Err(ApiError::NotFound("bead not found".into()));
     }
 
-    let deck = match resolve_poker_deck(
+    let deck = resolve_poker_deck(
         poker_cfg,
         req.deck_preset.as_deref(),
         req.custom_deck.as_deref(),
-    ) {
-        Ok(deck) => deck,
-        Err((status, body)) => return (status, Json(body)),
-    };
+    )?;
 
     let now = chrono::Utc::now();
     let session = PlanningPokerSession {
@@ -556,44 +535,36 @@ pub(crate) async fn start_planning_poker(
         .await
         .insert(req.bead_id, session);
 
-    (
+    Ok((
         axum::http::StatusCode::CREATED,
         Json(serde_json::to_value(response).unwrap()),
-    )
+    ))
 }
 
 /// POST /api/kanban/poker/vote -- submit or update a vote in an active planning poker session.
 pub(crate) async fn submit_planning_poker_vote(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<SubmitPlanningPokerVoteRequest>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, ApiError> {
     if req.voter.trim().is_empty() || req.card.trim().is_empty() {
-        return (
-            axum::http::StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": "voter and card are required"})),
-        );
+        return Err(ApiError::BadRequest("voter and card are required".into()));
     }
 
     let mut sessions = state.planning_poker_sessions.write().await;
     let Some(session) = sessions.get_mut(&req.bead_id) else {
-        return (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "planning poker session not found"})),
-        );
+        return Err(ApiError::NotFound(
+            "planning poker session not found".into(),
+        ));
     };
 
     if !matches!(session.phase, PlanningPokerPhase::Voting) {
-        return (
-            axum::http::StatusCode::CONFLICT,
-            Json(serde_json::json!({"error": "session is not in voting phase"})),
-        );
+        return Err(ApiError::Conflict(
+            "session is not in voting phase".into(),
+        ));
     }
 
     if !session.deck.iter().any(|card| card == &req.card) {
-        return (
-            axum::http::StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": "card is not in active deck"})),
-        );
+        return Err(ApiError::BadRequest("card is not in active deck".into()));
     }
 
     if let Some(existing) = session.votes.iter_mut().find(|v| v.voter == req.voter) {
@@ -610,33 +581,29 @@ pub(crate) async fn submit_planning_poker_vote(
     }
     session.updated_at = chrono::Utc::now();
 
-    (
+    Ok((
         axum::http::StatusCode::OK,
         Json(serde_json::to_value(planning_poker_response(session)).unwrap()),
-    )
+    ))
 }
 
 /// POST /api/kanban/poker/reveal -- reveal all votes and calculate consensus.
 pub(crate) async fn reveal_planning_poker(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<RevealPlanningPokerRequest>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, ApiError> {
     let cfg = state.settings_manager.load_or_default();
     let poker_cfg = &cfg.kanban.planning_poker;
 
     let mut sessions = state.planning_poker_sessions.write().await;
     let Some(session) = sessions.get_mut(&req.bead_id) else {
-        return (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "planning poker session not found"})),
-        );
+        return Err(ApiError::NotFound(
+            "planning poker session not found".into(),
+        ));
     };
 
     if matches!(session.phase, PlanningPokerPhase::Revealed) {
-        return (
-            axum::http::StatusCode::CONFLICT,
-            Json(serde_json::json!({"error": "session already revealed"})),
-        );
+        return Err(ApiError::Conflict("session already revealed".into()));
     }
     if poker_cfg.reveal_requires_all_votes && !session.participants.is_empty() {
         let voted: std::collections::BTreeSet<String> =
@@ -648,13 +615,9 @@ pub(crate) async fn reveal_planning_poker(
             .cloned()
             .collect::<Vec<_>>();
         if !missing.is_empty() {
-            return (
-                axum::http::StatusCode::CONFLICT,
-                Json(serde_json::json!({
-                    "error": "not all participants have voted",
-                    "missing": missing
-                })),
-            );
+            return Err(ApiError::Conflict(
+                format!("not all participants have voted, missing: {}", missing.join(", ")),
+            ));
         }
     }
 
@@ -662,41 +625,38 @@ pub(crate) async fn reveal_planning_poker(
     session.consensus_card = consensus_card_from_votes(&session.votes);
     session.updated_at = chrono::Utc::now();
 
-    (
+    Ok((
         axum::http::StatusCode::OK,
         Json(serde_json::to_value(planning_poker_response(session)).unwrap()),
-    )
+    ))
 }
 
 /// POST /api/kanban/poker/simulate -- run a simulated planning poker session.
 pub(crate) async fn simulate_planning_poker(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<SimulatePlanningPokerRequest>,
-) -> impl IntoResponse {
-    match simulate_planning_poker_for_bead(&state, req).await {
-        Ok(response) => (
-            axum::http::StatusCode::OK,
-            Json(serde_json::to_value(response).unwrap()),
-        ),
-        Err((status, body)) => (status, Json(body)),
-    }
+) -> Result<impl IntoResponse, ApiError> {
+    let response = simulate_planning_poker_for_bead(&state, req).await?;
+    Ok((
+        axum::http::StatusCode::OK,
+        Json(serde_json::to_value(response).unwrap()),
+    ))
 }
 
 /// GET /api/kanban/poker/{bead_id} -- retrieve current state of a planning poker session.
 pub(crate) async fn get_planning_poker_session(
     State(state): State<Arc<ApiState>>,
     Path(bead_id): Path<Uuid>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, ApiError> {
     let sessions = state.planning_poker_sessions.read().await;
     let Some(session) = sessions.get(&bead_id) else {
-        return (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "planning poker session not found"})),
-        );
+        return Err(ApiError::NotFound(
+            "planning poker session not found".into(),
+        ));
     };
 
-    (
+    Ok((
         axum::http::StatusCode::OK,
         Json(serde_json::to_value(planning_poker_response(session)).unwrap()),
-    )
+    ))
 }
