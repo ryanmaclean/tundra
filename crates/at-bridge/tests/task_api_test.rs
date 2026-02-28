@@ -1472,3 +1472,177 @@ async fn test_list_tasks_filter_by_priority() {
     let all_tasks = api_list_tasks(&client, &base).await;
     assert_eq!(all_tasks.len(), 5);
 }
+
+#[tokio::test]
+async fn test_list_tasks_filter_by_source() {
+    let (base, _state) = start_test_server().await;
+    let client = reqwest::Client::new();
+
+    // Create tasks with different sources
+    let bead_id = Uuid::new_v4();
+    let (_, task1) = api_create_task_full(
+        &client,
+        &base,
+        &json!({
+            "title": "Manual Task",
+            "bead_id": bead_id,
+            "category": "feature",
+            "priority": "low",
+            "complexity": "small",
+            "source": "manual"
+        }),
+    )
+    .await;
+    let id1 = task1["id"].as_str().unwrap();
+
+    let bead_id = Uuid::new_v4();
+    let (_, task2) = api_create_task_full(
+        &client,
+        &base,
+        &json!({
+            "title": "GitHub Issue Task",
+            "bead_id": bead_id,
+            "category": "bug_fix",
+            "priority": "medium",
+            "complexity": "medium",
+            "source": {"github_issue": {"issue_number": 123}}
+        }),
+    )
+    .await;
+    let id2 = task2["id"].as_str().unwrap();
+
+    let bead_id = Uuid::new_v4();
+    let (_, task3) = api_create_task_full(
+        &client,
+        &base,
+        &json!({
+            "title": "GitLab Issue Task",
+            "bead_id": bead_id,
+            "category": "refactoring",
+            "priority": "high",
+            "complexity": "large",
+            "source": {"gitlab_issue": {"iid": 456}}
+        }),
+    )
+    .await;
+    let id3 = task3["id"].as_str().unwrap();
+
+    let bead_id = Uuid::new_v4();
+    let (_, task4) = api_create_task_full(
+        &client,
+        &base,
+        &json!({
+            "title": "Linear Issue Task",
+            "bead_id": bead_id,
+            "category": "feature",
+            "priority": "urgent",
+            "complexity": "complex",
+            "source": {"linear_issue": {"identifier": "TASK-789"}}
+        }),
+    )
+    .await;
+    let id4 = task4["id"].as_str().unwrap();
+
+    let bead_id = Uuid::new_v4();
+    let (_, task5) = api_create_task_full(
+        &client,
+        &base,
+        &json!({
+            "title": "Ideation Task",
+            "bead_id": bead_id,
+            "category": "documentation",
+            "priority": "low",
+            "complexity": "small",
+            "source": {"ideation": {"idea_id": "idea-001"}}
+        }),
+    )
+    .await;
+    let id5 = task5["id"].as_str().unwrap();
+
+    let bead_id = Uuid::new_v4();
+    let (_, task6) = api_create_task_full(
+        &client,
+        &base,
+        &json!({
+            "title": "Import Task",
+            "bead_id": bead_id,
+            "category": "feature",
+            "priority": "medium",
+            "complexity": "medium",
+            "source": "import"
+        }),
+    )
+    .await;
+    let id6 = task6["id"].as_str().unwrap();
+
+    let bead_id = Uuid::new_v4();
+    let (_, task7) = api_create_task_full(
+        &client,
+        &base,
+        &json!({
+            "title": "Another Manual Task",
+            "bead_id": bead_id,
+            "category": "bug_fix",
+            "priority": "high",
+            "complexity": "large",
+            "source": "manual"
+        }),
+    )
+    .await;
+    let id7 = task7["id"].as_str().unwrap();
+
+    // Test filtering by manual source
+    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("source", "manual")]).await;
+    assert_eq!(code, 200);
+    assert_eq!(tasks.len(), 2);
+    let task_ids: Vec<&str> = tasks.iter().map(|t| t["id"].as_str().unwrap()).collect();
+    assert!(task_ids.contains(&id1));
+    assert!(task_ids.contains(&id7));
+    for task in &tasks {
+        assert_eq!(task["source"], "manual");
+    }
+
+    // Test filtering by github_issue source
+    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("source", "github_issue")]).await;
+    assert_eq!(code, 200);
+    assert_eq!(tasks.len(), 1);
+    assert_eq!(tasks[0]["id"], id2);
+    assert!(tasks[0]["source"]["github_issue"].is_object());
+
+    // Test filtering by gitlab_issue source
+    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("source", "gitlab_issue")]).await;
+    assert_eq!(code, 200);
+    assert_eq!(tasks.len(), 1);
+    assert_eq!(tasks[0]["id"], id3);
+    assert!(tasks[0]["source"]["gitlab_issue"].is_object());
+
+    // Test filtering by linear_issue source
+    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("source", "linear_issue")]).await;
+    assert_eq!(code, 200);
+    assert_eq!(tasks.len(), 1);
+    assert_eq!(tasks[0]["id"], id4);
+    assert!(tasks[0]["source"]["linear_issue"].is_object());
+
+    // Test filtering by ideation source
+    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("source", "ideation")]).await;
+    assert_eq!(code, 200);
+    assert_eq!(tasks.len(), 1);
+    assert_eq!(tasks[0]["id"], id5);
+    assert!(tasks[0]["source"]["ideation"].is_object());
+
+    // Test filtering by import source
+    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("source", "import")]).await;
+    assert_eq!(code, 200);
+    assert_eq!(tasks.len(), 1);
+    assert_eq!(tasks[0]["id"], id6);
+    assert_eq!(tasks[0]["source"], "import");
+
+    // Test filtering by non-existent source (should return empty)
+    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("source", "nonexistent")]).await;
+    assert_eq!(code, 200);
+    assert_eq!(tasks.len(), 0);
+
+    // Test all tasks without filter
+    let all_tasks = api_list_tasks(&client, &base).await;
+    assert_eq!(all_tasks.len(), 7);
+}
