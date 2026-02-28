@@ -1,7 +1,8 @@
 use axum::{
     extract::{Path, State},
     response::IntoResponse,
-    Json,
+    routing::{get, post},
+    Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -530,4 +531,68 @@ pub(crate) async fn check_app_update(State(state): State<Arc<ApiState>>) -> impl
             "update_available": false
         })),
     )
+}
+
+// ---------------------------------------------------------------------------
+// Router
+// ---------------------------------------------------------------------------
+
+/// Build the misc sub-router.
+///
+/// All routes are mounted under `/api/` — the caller is responsible for
+/// nesting or merging this into the top-level router.
+pub fn misc_router() -> Router<Arc<ApiState>> {
+    Router::new()
+        // Status and KPI
+        .route("/api/status", get(get_status))
+        .route("/api/kpi", get(get_kpi))
+        // Credentials
+        .route("/api/credentials/status", get(get_credentials_status))
+        // Settings
+        .route("/api/settings/direct-mode", post(toggle_direct_mode))
+        // Costs
+        .route("/api/costs", get(get_costs))
+        // CLI availability
+        .route("/api/cli/available", get(list_available_clis))
+        // Agent sessions
+        .route("/api/sessions", get(list_agent_sessions))
+        // Convoys
+        .route("/api/convoys", get(list_convoys))
+        // Task archival
+        .route("/api/tasks/{id}/archive", post(archive_task))
+        .route("/api/tasks/{id}/unarchive", post(unarchive_task))
+        .route("/api/tasks/archived", get(list_archived_tasks))
+        // Attachments
+        .route(
+            "/api/tasks/{task_id}/attachments",
+            get(list_attachments).post(add_attachment),
+        )
+        .route(
+            "/api/tasks/{task_id}/attachments/{id}",
+            axum::routing::delete(delete_attachment),
+        )
+        // Task drafts
+        .route(
+            "/api/tasks/drafts",
+            get(list_task_drafts).post(save_task_draft),
+        )
+        .route("/api/tasks/drafts/{id}", get(get_task_draft))
+        .route(
+            "/api/tasks/drafts/{id}",
+            axum::routing::delete(delete_task_draft),
+        )
+        // Kanban
+        .route("/api/kanban/columns/lock", post(lock_column))
+        .route("/api/kanban/ordering", post(save_task_ordering))
+        // File watching
+        .route("/api/files/watch", post(start_file_watch))
+        .route("/api/files/unwatch", post(stop_file_watch))
+        // Competitor analysis
+        .route(
+            "/api/roadmap/competitor-analysis",
+            post(run_competitor_analysis),
+        )
+        // Notifications
+        .route("/api/notifications/profile-swap", post(notify_profile_swap))
+        .route("/api/notifications/app-update", get(check_app_update))
 }
