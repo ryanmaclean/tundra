@@ -1,11 +1,11 @@
 {
   "active": true,
   "spec": "044-add-doc-comments-and-request-response-examples-to-",
-  "state": "building",
+  "state": "complete",
   "subtasks": {
-    "completed": 13,
+    "completed": 15,
     "total": 15,
-    "in_progress": 1,
+    "in_progress": 0,
     "failed": 0
   },
   "phase": {
@@ -18,8 +18,8 @@
     "max": 1
   },
   "session": {
-    "number": 15,
+    "number": 16,
     "started_at": "2026-02-27T08:12:16.329222"
   },
-  "last_update": "2026-02-27T08:50:06.862242"
+  "last_update": "2026-02-27T08:56:34.240848"
 }
