@@ -67,8 +67,8 @@
 //!
 //! ## Timeouts
 //!
-//! - **Idle Timeout**: 5 minutes ([`WS_IDLE_TIMEOUT`]) — WebSocket closes if no data flows in either direction
-//! - **Heartbeat Interval**: 30 seconds ([`WS_HEARTBEAT_INTERVAL`]) — Ping frames detect half-open connections
+//! - **Idle Timeout**: 5 minutes (WS_IDLE_TIMEOUT) — WebSocket closes if no data flows in either direction
+//! - **Heartbeat Interval**: 30 seconds (WS_HEARTBEAT_INTERVAL) — Ping frames detect half-open connections
 //! - **Reconnect Grace**: 10 seconds ([`WS_RECONNECT_GRACE`]) — Buffer output after disconnect
 //!
 //! # REST API Endpoints

@@ -1469,6 +1469,19 @@ async fn stop_agent(State(state): State<Arc<ApiState>>, Path(id): Path<Uuid>) ->
     )
 }
 
+/// GET /api/kpi — retrieve the current KPI snapshot containing system metrics.
+///
+/// Returns real-time key performance indicators including task counts, agent status,
+/// and system health metrics.
+///
+/// **Response:**
+/// ```json
+/// {
+///   "total_tasks": 42,
+///   "active_agents": 3,
+///   "completed_today": 15
+/// }
+/// ```
 async fn get_kpi(State(state): State<Arc<ApiState>>) -> Json<KpiSnapshot> {
     let kpi = state.kpi.read().await;
     Json(kpi.clone())
@@ -1726,7 +1739,7 @@ async fn get_task(State(state): State<Arc<ApiState>>, Path(id): Path<Uuid>) -> i
     (axum::http::StatusCode::OK, Json(serde_json::json!(task)))
 }
 
-/// PATCH /api/tasks/{id} -- update an existing task.
+/// PUT /api/tasks/{id} -- update an existing task.
 ///
 /// Updates one or more fields of an existing task. All fields are optional; only provided
 /// fields will be updated. Updates the task's `updated_at` timestamp and broadcasts a
@@ -1984,6 +1997,24 @@ async fn get_task_logs(
     )
 }
 
+/// GET /api/pipeline/queue -- returns the current pipeline queue status.
+///
+/// Provides real-time metrics about the task execution pipeline including concurrency
+/// limits, number of tasks waiting in queue, currently running tasks, and available
+/// execution slots. The pipeline uses a semaphore to limit concurrent task executions,
+/// preventing resource exhaustion. Useful for monitoring system load and queue depth.
+///
+/// **Response:** 200 OK with PipelineQueueStatus object.
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "limit": 3,
+///   "waiting": 2,
+///   "running": 3,
+///   "available_permits": 0
+/// }
+/// ```
 async fn get_pipeline_queue_status(
     State(state): State<Arc<ApiState>>,
 ) -> Json<PipelineQueueStatus> {
@@ -3194,7 +3225,47 @@ struct ListLinearIssuesQuery {
     pub state: Option<String>,
 }
 
-/// GET /api/linear/issues — list Linear issues for a team.
+/// GET /api/linear/issues -- retrieve issues from a Linear team.
+///
+/// Fetches issues from Linear using the GraphQL API. Requires a Linear API key
+/// to be set via environment variable (configured in settings.integrations.linear_api_key_env).
+///
+/// **Query Parameters:**
+/// - `team_id` (optional): Linear team ID to fetch issues from. Falls back to settings.integrations.linear_team_id.
+/// - `state` (optional): Filter by issue state - "active", "completed", "canceled", or omit for all states.
+///
+/// **Response:** 200 OK with array of Linear issue objects, 400 if team_id is missing,
+/// 503 if Linear API key is not configured.
+///
+/// **Example Request:**
+/// ```
+/// GET /api/linear/issues?team_id=TEAM123&state=active
+/// ```
+///
+/// **Example Response:**
+/// ```json
+/// [
+///   {
+///     "id": "ISS-123",
+///     "identifier": "ENG-42",
+///     "title": "Implement user authentication",
+///     "description": "Add JWT-based auth system",
+///     "state": {
+///       "name": "In Progress",
+///       "type": "started"
+///     },
+///     "priority": 1,
+///     "assignee": {
+///       "id": "USER-456",
+///       "name": "Alice Developer",
+///       "email": "alice@example.com"
+///     },
+///     "createdAt": "2026-02-20T10:30:00.000Z",
+///     "updatedAt": "2026-02-25T14:20:00.000Z",
+///     "url": "https://linear.app/team/issue/ENG-42"
+///   }
+/// ]
+/// ```
 async fn list_linear_issues(
     State(state): State<Arc<ApiState>>,
     Query(q): Query<ListLinearIssuesQuery>,
@@ -3248,7 +3319,52 @@ struct ImportLinearBody {
     pub issue_ids: Vec<String>,
 }
 
-/// POST /api/linear/import — import Linear issues by IDs and create tasks.
+/// POST /api/linear/import -- import Linear issues by IDs and create corresponding tasks.
+///
+/// Imports specified Linear issues into the local task system, creating new Task entries
+/// for each Linear issue. Requires a Linear API key to be set via environment variable
+/// (configured in settings.integrations.linear_api_key_env).
+///
+/// **Request Body:** ImportLinearBody JSON object.
+/// - `issue_ids` (required): Array of Linear issue IDs to import (e.g., ["ISS-123", "ISS-456"]).
+///
+/// **Response:** 200 OK with import results showing success/failure for each issue,
+/// 503 if Linear API key is not configured.
+///
+/// **Example Request:**
+/// ```json
+/// POST /api/linear/import
+/// {
+///   "issue_ids": ["ISS-123", "ISS-456", "ISS-789"]
+/// }
+/// ```
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "imported": 2,
+///   "failed": 1,
+///   "results": [
+///     {
+///       "issue_id": "ISS-123",
+///       "status": "success",
+///       "task_id": "550e8400-e29b-41d4-a716-446655440000",
+///       "message": "Issue imported successfully"
+///     },
+///     {
+///       "issue_id": "ISS-456",
+///       "status": "success",
+///       "task_id": "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+///       "message": "Issue imported successfully"
+///     },
+///     {
+///       "issue_id": "ISS-789",
+///       "status": "error",
+///       "message": "Issue not found or access denied"
+///     }
+///   ]
+/// }
+/// ```
 async fn import_linear_issues(
     State(state): State<Arc<ApiState>>,
     Json(body): Json<ImportLinearBody>,
@@ -3288,12 +3404,94 @@ async fn import_linear_issues(
 }
 
 /// GET /api/kanban/columns — return the 8-column Kanban config (order, labels, optional width).
+///
+/// Retrieves the current Kanban column configuration including column IDs, display labels,
+/// and optional width settings. Returns the 8 default columns (Backlog, Queue, In Progress,
+/// Review, QA, Done, PR Created, Error) or custom configuration if modified.
+///
+/// **Response:** 200 OK with KanbanColumnConfig containing array of columns.
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "columns": [
+///     {
+///       "id": "backlog",
+///       "label": "Backlog",
+///       "width_px": 200
+///     },
+///     {
+///       "id": "queue",
+///       "label": "Queue",
+///       "width_px": 180
+///     },
+///     {
+///       "id": "in_progress",
+///       "label": "In Progress",
+///       "width_px": 220
+///     }
+///   ]
+/// }
+/// ```
 async fn get_kanban_columns(State(state): State<Arc<ApiState>>) -> Json<KanbanColumnConfig> {
     let cols = state.kanban_columns.read().await;
     Json(cols.clone())
 }
 
 /// PATCH /api/kanban/columns — update column config (e.g. order, labels, width_px).
+///
+/// Updates the Kanban column configuration allowing reordering, relabeling, or resizing
+/// of columns. The entire column configuration is replaced with the provided config.
+/// Columns array must not be empty.
+///
+/// **Request Body:** KanbanColumnConfig with array of columns to replace current config.
+/// **Response:** 200 OK with updated KanbanColumnConfig, or 400 BAD_REQUEST if columns empty.
+///
+/// **Example Request:**
+/// ```json
+/// {
+///   "columns": [
+///     {
+///       "id": "backlog",
+///       "label": "📋 Backlog",
+///       "width_px": 250
+///     },
+///     {
+///       "id": "queue",
+///       "label": "⏳ Queue",
+///       "width_px": 200
+///     },
+///     {
+///       "id": "in_progress",
+///       "label": "🚀 In Progress",
+///       "width_px": 240
+///     }
+///   ]
+/// }
+/// ```
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "columns": [
+///     {
+///       "id": "backlog",
+///       "label": "📋 Backlog",
+///       "width_px": 250
+///     },
+///     {
+///       "id": "queue",
+///       "label": "⏳ Queue",
+///       "width_px": 200
+///     },
+///     {
+///       "id": "in_progress",
+///       "label": "🚀 In Progress",
+///       "width_px": 240
+///     }
+///   ]
+/// }
+/// ```
 async fn patch_kanban_columns(
     State(state): State<Arc<ApiState>>,
     Json(patch): Json<KanbanColumnConfig>,
@@ -3769,6 +3967,43 @@ fn consensus_card_from_votes(votes: &[PlanningPokerVote]) -> Option<String> {
     }
 }
 
+/// POST /api/kanban/poker/start — start a planning poker session for a bead.
+///
+/// Initiates a planning poker voting session for estimating a bead (task idea). Participants
+/// vote using cards from a configurable deck (Fibonacci, T-shirt sizes, etc.). The session
+/// starts in voting phase and can be revealed once all participants have voted.
+///
+/// **Request Body:** StartPlanningPokerRequest with bead_id, optional participants list,
+/// deck configuration, and round duration.
+/// **Response:** 201 CREATED with PlanningPokerSessionResponse, or 404 if bead not found,
+/// or 403 if planning poker is disabled.
+///
+/// **Example Request:**
+/// ```json
+/// {
+///   "bead_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+///   "participants": ["Alice", "Bob", "Charlie"],
+///   "deck_preset": "fibonacci",
+///   "round_duration_seconds": 300
+/// }
+/// ```
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "bead_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+///   "phase": "voting",
+///   "revealed": false,
+///   "deck": ["0", "1", "2", "3", "5", "8", "13", "21", "?"],
+///   "round_duration_seconds": 300,
+///   "vote_count": 0,
+///   "votes": [],
+///   "consensus_card": null,
+///   "stats": null,
+///   "started_at": "2024-01-15T10:30:00Z",
+///   "updated_at": "2024-01-15T10:30:00Z"
+/// }
+/// ```
 async fn start_planning_poker(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<StartPlanningPokerRequest>,
@@ -3830,6 +4065,47 @@ async fn start_planning_poker(
     )
 }
 
+/// POST /api/kanban/poker/vote — submit or update a vote in an active planning poker session.
+///
+/// Allows a participant to cast or update their vote during the voting phase. The card
+/// must be from the active deck. If the voter already voted, their vote is updated.
+/// New voters are automatically added to the participants list.
+///
+/// **Request Body:** SubmitPlanningPokerVoteRequest with bead_id, voter name, and card.
+/// **Response:** 200 OK with updated PlanningPokerSessionResponse, 404 if session not found,
+/// 400 if card not in deck, or 409 if session not in voting phase.
+///
+/// **Example Request:**
+/// ```json
+/// {
+///   "bead_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+///   "voter": "Alice",
+///   "card": "5"
+/// }
+/// ```
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "bead_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+///   "phase": "voting",
+///   "revealed": false,
+///   "deck": ["0", "1", "2", "3", "5", "8", "13", "21", "?"],
+///   "round_duration_seconds": 300,
+///   "vote_count": 1,
+///   "votes": [
+///     {
+///       "participant": "Alice",
+///       "voted": true,
+///       "card": null
+///     }
+///   ],
+///   "consensus_card": null,
+///   "stats": null,
+///   "started_at": "2024-01-15T10:30:00Z",
+///   "updated_at": "2024-01-15T10:31:00Z"
+/// }
+/// ```
 async fn submit_planning_poker_vote(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<SubmitPlanningPokerVoteRequest>,
@@ -3883,6 +4159,63 @@ async fn submit_planning_poker_vote(
     )
 }
 
+/// POST /api/kanban/poker/reveal — reveal all votes and calculate consensus for a poker session.
+///
+/// Transitions the session from voting phase to revealed phase, exposing all participant votes
+/// and calculating statistics. If settings require all participants to vote, the reveal will
+/// fail with 409 CONFLICT listing missing voters. Once revealed, no more votes can be submitted.
+///
+/// **Request Body:** RevealPlanningPokerRequest with bead_id.
+/// **Response:** 200 OK with revealed PlanningPokerSessionResponse including vote stats,
+/// 404 if session not found, or 409 if already revealed or missing required votes.
+///
+/// **Example Request:**
+/// ```json
+/// {
+///   "bead_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+/// }
+/// ```
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "bead_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+///   "phase": "revealed",
+///   "revealed": true,
+///   "deck": ["0", "1", "2", "3", "5", "8", "13", "21", "?"],
+///   "round_duration_seconds": 300,
+///   "vote_count": 3,
+///   "votes": [
+///     {
+///       "participant": "Alice",
+///       "voted": true,
+///       "card": "5"
+///     },
+///     {
+///       "participant": "Bob",
+///       "voted": true,
+///       "card": "5"
+///     },
+///     {
+///       "participant": "Charlie",
+///       "voted": true,
+///       "card": "8"
+///     }
+///   ],
+///   "consensus_card": "5",
+///   "stats": {
+///     "min": "5",
+///     "max": "8",
+///     "mode": "5",
+///     "distribution": {
+///       "5": 2,
+///       "8": 1
+///     }
+///   },
+///   "started_at": "2024-01-15T10:30:00Z",
+///   "updated_at": "2024-01-15T10:35:00Z"
+/// }
+/// ```
 async fn reveal_planning_poker(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<RevealPlanningPokerRequest>,
@@ -3934,6 +4267,68 @@ async fn reveal_planning_poker(
     )
 }
 
+/// POST /api/kanban/poker/simulate — run a simulated planning poker session with virtual agents.
+///
+/// Creates and immediately completes a planning poker session using AI-powered virtual agents
+/// to vote. Useful for rapid estimation when human participants are unavailable. Virtual agents
+/// analyze the bead description and vote based on complexity heuristics. The session is
+/// automatically revealed with consensus calculated.
+///
+/// **Request Body:** SimulatePlanningPokerRequest with bead_id, optional virtual agent names,
+/// agent count, deck config, focus card, seed for reproducibility, and auto_reveal flag.
+/// **Response:** 200 OK with revealed PlanningPokerSessionResponse, or 404 if bead not found.
+///
+/// **Example Request:**
+/// ```json
+/// {
+///   "bead_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+///   "virtual_agents": ["AI-Alice", "AI-Bob", "AI-Charlie"],
+///   "deck_preset": "fibonacci",
+///   "focus_card": "5",
+///   "auto_reveal": true
+/// }
+/// ```
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "bead_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+///   "phase": "revealed",
+///   "revealed": true,
+///   "deck": ["0", "1", "2", "3", "5", "8", "13", "21", "?"],
+///   "round_duration_seconds": null,
+///   "vote_count": 3,
+///   "votes": [
+///     {
+///       "participant": "AI-Alice",
+///       "voted": true,
+///       "card": "5"
+///     },
+///     {
+///       "participant": "AI-Bob",
+///       "voted": true,
+///       "card": "5"
+///     },
+///     {
+///       "participant": "AI-Charlie",
+///       "voted": true,
+///       "card": "8"
+///     }
+///   ],
+///   "consensus_card": "5",
+///   "stats": {
+///     "min": "5",
+///     "max": "8",
+///     "mode": "5",
+///     "distribution": {
+///       "5": 2,
+///       "8": 1
+///     }
+///   },
+///   "started_at": "2024-01-15T10:30:00Z",
+///   "updated_at": "2024-01-15T10:30:05Z"
+/// }
+/// ```
 async fn simulate_planning_poker(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<SimulatePlanningPokerRequest>,
@@ -3947,6 +4342,93 @@ async fn simulate_planning_poker(
     }
 }
 
+/// GET /api/kanban/poker/{bead_id} — retrieve current state of a planning poker session.
+///
+/// Fetches the current state of an active or completed planning poker session for a bead.
+/// Returns vote counts, participants, phase, and revealed votes if in revealed phase.
+/// Useful for polling session state during voting or retrieving historical results.
+///
+/// **Path Parameter:** bead_id (UUID) of the bead with an active poker session.
+/// **Response:** 200 OK with PlanningPokerSessionResponse, or 404 if session not found.
+///
+/// **Example Request:**
+/// ```
+/// GET /api/kanban/poker/a1b2c3d4-e5f6-7890-abcd-ef1234567890
+/// ```
+///
+/// **Example Response (Voting Phase):**
+/// ```json
+/// {
+///   "bead_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+///   "phase": "voting",
+///   "revealed": false,
+///   "deck": ["0", "1", "2", "3", "5", "8", "13", "21", "?"],
+///   "round_duration_seconds": 300,
+///   "vote_count": 2,
+///   "votes": [
+///     {
+///       "participant": "Alice",
+///       "voted": true,
+///       "card": null
+///     },
+///     {
+///       "participant": "Bob",
+///       "voted": true,
+///       "card": null
+///     },
+///     {
+///       "participant": "Charlie",
+///       "voted": false,
+///       "card": null
+///     }
+///   ],
+///   "consensus_card": null,
+///   "stats": null,
+///   "started_at": "2024-01-15T10:30:00Z",
+///   "updated_at": "2024-01-15T10:32:00Z"
+/// }
+/// ```
+///
+/// **Example Response (Revealed Phase):**
+/// ```json
+/// {
+///   "bead_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+///   "phase": "revealed",
+///   "revealed": true,
+///   "deck": ["0", "1", "2", "3", "5", "8", "13", "21", "?"],
+///   "round_duration_seconds": 300,
+///   "vote_count": 3,
+///   "votes": [
+///     {
+///       "participant": "Alice",
+///       "voted": true,
+///       "card": "5"
+///     },
+///     {
+///       "participant": "Bob",
+///       "voted": true,
+///       "card": "5"
+///     },
+///     {
+///       "participant": "Charlie",
+///       "voted": true,
+///       "card": "8"
+///     }
+///   ],
+///   "consensus_card": "5",
+///   "stats": {
+///     "min": "5",
+///     "max": "8",
+///     "mode": "5",
+///     "distribution": {
+///       "5": 2,
+///       "8": 1
+///     }
+///   },
+///   "started_at": "2024-01-15T10:30:00Z",
+///   "updated_at": "2024-01-15T10:35:00Z"
+/// }
+/// ```
 async fn get_planning_poker_session(
     State(state): State<Arc<ApiState>>,
     Path(bead_id): Path<Uuid>,
@@ -4033,7 +4515,37 @@ struct ListGitHubIssuesQuery {
     pub per_page: Option<u8>,
 }
 
-/// GET /api/integrations/github/issues — list GitHub issues with optional state filter.
+/// GET /api/github/issues — list GitHub issues with optional filters.
+///
+/// Fetches issues from the configured GitHub repository with support for state filtering,
+/// label filtering, and pagination.
+///
+/// # Query Parameters
+/// - `state` (optional): Filter by issue state ("open", "closed", "all")
+/// - `labels` (optional): Comma-separated list of label names to filter by
+/// - `page` (optional): Page number for pagination (default: 1)
+/// - `per_page` (optional): Results per page (default: 30, max: 100)
+///
+/// # Response
+/// ```json
+/// [
+///   {
+///     "number": 42,
+///     "title": "Fix authentication bug",
+///     "state": "open",
+///     "html_url": "https://github.com/owner/repo/issues/42",
+///     "user": { "login": "username" },
+///     "labels": [{ "name": "bug" }],
+///     "created_at": "2024-01-15T10:00:00Z",
+///     "updated_at": "2024-01-15T11:00:00Z"
+///   }
+/// ]
+/// ```
+///
+/// # Errors
+/// - `503 SERVICE_UNAVAILABLE` if GitHub token is not configured
+/// - `400 BAD_REQUEST` if GitHub owner/repo are not set
+/// - `502 BAD_GATEWAY` if GitHub API request fails
 async fn list_github_issues(
     State(state): State<Arc<ApiState>>,
     Query(q): Query<ListGitHubIssuesQuery>,
@@ -4100,6 +4612,27 @@ async fn list_github_issues(
     (axum::http::StatusCode::OK, Json(serde_json::json!(list)))
 }
 
+/// POST /api/github/sync — trigger a synchronization of open GitHub issues into local beads.
+///
+/// Imports all open issues from the configured GitHub repository that don't already exist
+/// as beads. Updates sync status counters and timestamps.
+///
+/// # Request
+/// No body required.
+///
+/// # Response
+/// ```json
+/// {
+///   "message": "Sync completed",
+///   "imported": 5,
+///   "statuses_synced": 0
+/// }
+/// ```
+///
+/// # Errors
+/// - `503 SERVICE_UNAVAILABLE` if GitHub token is not configured
+/// - `400 BAD_REQUEST` if GitHub owner/repo are not set in settings
+/// - `500 INTERNAL_SERVER_ERROR` if sync operation fails
 async fn trigger_github_sync(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     let config = state.settings_manager.load_or_default();
     let int = &config.integrations;
@@ -4184,12 +4717,59 @@ async fn trigger_github_sync(State(state): State<Arc<ApiState>>) -> impl IntoRes
     )
 }
 
+/// GET /api/github/sync/status — retrieve the current GitHub issue sync status.
+///
+/// Returns information about the last sync operation including timestamp, counts, and
+/// whether a sync is currently in progress.
+///
+/// # Response
+/// ```json
+/// {
+///   "last_sync_time": "2024-01-15T10:30:00Z",
+///   "issues_imported": 42,
+///   "issues_exported": 0,
+///   "statuses_synced": 15,
+///   "is_syncing": false
+/// }
+/// ```
 async fn get_sync_status(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     let status = state.sync_status.read().await;
     Json(serde_json::json!(*status))
 }
 
-/// POST /api/tasks/{task_id}/pr — create a GitHub pull request for a task's branch.
+/// POST /api/github/pr/{task_id} — create a GitHub pull request for a task's branch.
+///
+/// Creates a pull request on GitHub for the specified task. The task must have an
+/// associated git branch (created via worktree).
+///
+/// # Path Parameters
+/// - `task_id`: UUID of the task
+///
+/// # Request Body (optional)
+/// ```json
+/// {
+///   "base_branch": "main"
+/// }
+/// ```
+///
+/// # Response
+/// ```json
+/// {
+///   "message": "PR created",
+///   "task_id": "550e8400-e29b-41d4-a716-446655440000",
+///   "pr_title": "Task: Implement feature X",
+///   "pr_branch": "task/042-implement-feature-x",
+///   "pr_base_branch": "main",
+///   "pr_number": 123,
+///   "pr_url": "https://github.com/owner/repo/pull/123"
+/// }
+/// ```
+///
+/// # Errors
+/// - `404 NOT_FOUND` if task does not exist
+/// - `400 BAD_REQUEST` if task has no git branch
+/// - `503 SERVICE_UNAVAILABLE` if GitHub token is not configured
+/// - `500 INTERNAL_SERVER_ERROR` if PR creation fails
 async fn create_pr_for_task(
     State(state): State<Arc<ApiState>>,
     Path(task_id): Path<Uuid>,
@@ -4532,7 +5112,46 @@ async fn get_metrics_json() -> impl IntoResponse {
 // Session handlers
 // ---------------------------------------------------------------------------
 
-/// GET /api/sessions/ui — load the most recent UI session (or return null).
+/// GET /api/sessions/ui -- retrieve the most recent UI session state.
+///
+/// Loads the most recently saved UI session from persistent storage. UI sessions
+/// store workspace state such as open tabs, selected views, filter settings, and
+/// scroll positions to enable seamless restoration after browser refresh or restart.
+/// Returns null if no sessions have been saved yet.
+///
+/// **Response:** 200 OK with SessionState object or null, 500 on storage error.
+///
+/// **Example Response (Session exists):**
+/// ```json
+/// {
+///   "id": "session-2026-02-23T10-30-15",
+///   "workspace_id": "my-workspace",
+///   "active_view": "kanban",
+///   "selected_task_id": "550e8400-e29b-41d4-a716-446655440000",
+///   "filter_settings": {
+///     "status": "in_progress",
+///     "priority": null
+///   },
+///   "scroll_position": {
+///     "x": 0,
+///     "y": 120
+///   },
+///   "created_at": "2026-02-23T10:30:15Z",
+///   "last_active_at": "2026-02-23T14:45:22Z"
+/// }
+/// ```
+///
+/// **Example Response (No sessions):**
+/// ```json
+/// null
+/// ```
+///
+/// **Example Response (Error):**
+/// ```json
+/// {
+///   "error": "failed to read session storage: permission denied"
+/// }
+/// ```
 async fn get_ui_session(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     match state.session_store.list_sessions().await {
         Ok(sessions) => {
@@ -4549,7 +5168,61 @@ async fn get_ui_session(State(state): State<Arc<ApiState>>) -> impl IntoResponse
     }
 }
 
-/// PUT /api/sessions/ui — save a UI session state.
+/// PUT /api/sessions/ui -- save or update UI session state.
+///
+/// Persists the current UI session state to disk for restoration across browser refreshes
+/// or application restarts. The session includes all UI workspace state: active views,
+/// selected items, filter settings, scroll positions, and other user preferences.
+/// The `last_active_at` timestamp is automatically updated to the current time.
+///
+/// **Request Body:** SessionState object with all workspace state fields.
+/// **Response:** 200 OK with saved SessionState, 500 on save error.
+///
+/// **Example Request:**
+/// ```json
+/// {
+///   "id": "session-2026-02-23T10-30-15",
+///   "workspace_id": "my-workspace",
+///   "active_view": "kanban",
+///   "selected_task_id": "550e8400-e29b-41d4-a716-446655440000",
+///   "filter_settings": {
+///     "status": "in_progress",
+///     "priority": "high"
+///   },
+///   "scroll_position": {
+///     "x": 0,
+///     "y": 120
+///   },
+///   "created_at": "2026-02-23T10:30:15Z"
+/// }
+/// ```
+///
+/// **Example Response (Success):**
+/// ```json
+/// {
+///   "id": "session-2026-02-23T10-30-15",
+///   "workspace_id": "my-workspace",
+///   "active_view": "kanban",
+///   "selected_task_id": "550e8400-e29b-41d4-a716-446655440000",
+///   "filter_settings": {
+///     "status": "in_progress",
+///     "priority": "high"
+///   },
+///   "scroll_position": {
+///     "x": 0,
+///     "y": 120
+///   },
+///   "created_at": "2026-02-23T10:30:15Z",
+///   "last_active_at": "2026-02-23T15:00:00Z"
+/// }
+/// ```
+///
+/// **Example Response (Error):**
+/// ```json
+/// {
+///   "error": "failed to write session to disk: no space left on device"
+/// }
+/// ```
 async fn save_ui_session(
     State(state): State<Arc<ApiState>>,
     Json(mut session): Json<SessionState>,
@@ -4564,7 +5237,56 @@ async fn save_ui_session(
     }
 }
 
-/// GET /api/sessions/ui/list — list all saved sessions.
+/// GET /api/sessions/ui/list -- retrieve all saved UI sessions.
+///
+/// Returns a list of all persisted UI sessions sorted by most recent activity.
+/// This endpoint is useful for session management UIs where users can select,
+/// restore, or delete previous workspace states. Each session includes metadata
+/// about when it was created and last accessed.
+///
+/// **Response:** 200 OK with array of SessionState objects, 500 on storage error.
+///
+/// **Example Response (Success):**
+/// ```json
+/// [
+///   {
+///     "id": "session-2026-02-23T15-00-00",
+///     "workspace_id": "my-workspace",
+///     "active_view": "kanban",
+///     "selected_task_id": "550e8400-e29b-41d4-a716-446655440000",
+///     "filter_settings": {
+///       "status": "in_progress",
+///       "priority": "high"
+///     },
+///     "scroll_position": {
+///       "x": 0,
+///       "y": 120
+///     },
+///     "created_at": "2026-02-23T15:00:00Z",
+///     "last_active_at": "2026-02-23T15:30:22Z"
+///   },
+///   {
+///     "id": "session-2026-02-22T09-15-30",
+///     "workspace_id": "other-workspace",
+///     "active_view": "table",
+///     "selected_task_id": null,
+///     "filter_settings": {},
+///     "scroll_position": {
+///       "x": 0,
+///       "y": 0
+///     },
+///     "created_at": "2026-02-22T09:15:30Z",
+///     "last_active_at": "2026-02-22T17:45:10Z"
+///   }
+/// ]
+/// ```
+///
+/// **Example Response (Error):**
+/// ```json
+/// {
+///   "error": "failed to list sessions: permission denied"
+/// }
+/// ```
 async fn list_ui_sessions(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     match state.session_store.list_sessions().await {
         Ok(sessions) => (
@@ -4582,23 +5304,58 @@ async fn list_ui_sessions(State(state): State<Arc<ApiState>>) -> impl IntoRespon
 // WebSocket — legacy /ws handler
 // ---------------------------------------------------------------------------
 
-/// WebSocket /ws -- legacy real-time event streaming endpoint.
+/// WebSocket GET /ws -- legacy real-time event streaming endpoint.
 ///
 /// Upgrades HTTP connection to WebSocket and streams all events from the event bus
 /// to the connected client. This is the original WebSocket endpoint maintained for
 /// backward compatibility. New clients should use `/api/events/ws` instead.
 ///
-/// **Response:** 101 Switching Protocols, then continuous event stream.
+/// **Connection Flow:**
+/// 1. Client sends GET request with Upgrade: websocket header
+/// 2. Server validates Origin header to prevent CSRF attacks
+/// 3. Server responds with 101 Switching Protocols
+/// 4. Server begins streaming all event bus events as JSON text messages
+/// 5. Connection remains open until client closes or network error occurs
 ///
-/// **Example Event Message:**
+/// **Security:** Origin header validation is enforced. Only requests from allowed
+/// origins (default: localhost on configured ports) are accepted. Cross-origin
+/// requests return 403 Forbidden.
+///
+/// **Response:** 101 Switching Protocols on success, 403 if origin validation fails.
+///
+/// **Server-to-Client Messages:** JSON-encoded event objects sent as WebSocket text frames.
+/// Events include task updates, build progress, agent state changes, and system notifications.
+///
+/// **Client-to-Server Messages:** Not supported. Client messages are ignored; this is a
+/// unidirectional stream from server to client.
+///
+/// **Example TaskUpdate Event:**
 /// ```json
 /// {
 ///   "type": "TaskUpdate",
 ///   "task_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
 ///   "phase": "InProgress",
+///   "progress_percent": 45,
 ///   "timestamp": "2026-02-23T10:15:00Z"
 /// }
 /// ```
+///
+/// **Example BuildUpdate Event:**
+/// ```json
+/// {
+///   "type": "BuildUpdate",
+///   "task_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+///   "message": "Running tests...",
+///   "level": "Info",
+///   "timestamp": "2026-02-23T10:15:15Z"
+/// }
+/// ```
+///
+/// **Connection Lifecycle:**
+/// - Connection persists indefinitely until closed by client or network failure
+/// - No heartbeat mechanism; relies on TCP keepalive for connection health
+/// - Server closes connection if send fails (e.g., client disconnected)
+/// - Automatic reconnection must be handled by client
 async fn ws_handler(
     ws: WebSocketUpgrade,
     State(state): State<Arc<ApiState>>,
@@ -4612,6 +5369,10 @@ async fn ws_handler(
     ws.on_upgrade(move |socket| handle_ws(socket, state))
 }
 
+/// Internal handler that processes the upgraded WebSocket connection.
+///
+/// Subscribes to the event bus and forwards all events to the client as JSON messages.
+/// Connection is closed automatically if send fails (client disconnect, network error).
 async fn handle_ws(mut socket: WebSocket, state: Arc<ApiState>) {
     let rx = state.event_bus.subscribe();
     while let Ok(msg) = rx.recv_async().await {
@@ -4626,37 +5387,99 @@ async fn handle_ws(mut socket: WebSocket, state: Arc<ApiState>) {
 // WebSocket — /api/events/ws with heartbeat + event-to-notification wiring
 // ---------------------------------------------------------------------------
 
-/// WebSocket /api/events/ws -- real-time event streaming with heartbeat.
+/// WebSocket GET /api/events/ws -- real-time event streaming with heartbeat and notification integration.
 ///
-/// Upgrades HTTP connection to WebSocket and provides bidirectional communication:
-/// - Server sends all event bus events as JSON messages to the client
-/// - Server sends heartbeat ping every 30 seconds to keep connection alive
-/// - Client can send messages including pong responses and close frames
-/// - Events are automatically converted to notifications and stored
+/// Upgrades HTTP connection to WebSocket and provides bidirectional communication
+/// with enhanced features over the legacy `/ws` endpoint. This is the recommended
+/// WebSocket endpoint for new clients.
 ///
-/// This is the recommended WebSocket endpoint for new clients as it provides
-/// better connection management and automatic notification creation.
+/// **Features:**
+/// - Server streams all event bus events as JSON text messages
+/// - Server sends heartbeat ping every 30 seconds to detect stale connections
+/// - Client can send messages (pong, close frames) for connection management
+/// - Events are automatically converted to notifications and stored in notification store
+/// - Proper connection lifecycle management with graceful shutdown
 ///
-/// **Response:** 101 Switching Protocols, then continuous event stream.
+/// **Connection Flow:**
+/// 1. Client sends GET request with Upgrade: websocket header
+/// 2. Server validates Origin header to prevent CSRF attacks
+/// 3. Server responds with 101 Switching Protocols
+/// 4. Server splits socket into sender (ws_tx) and receiver (ws_rx)
+/// 5. Server enters event loop handling three concurrent tasks:
+///    a. Forward event bus events to client as JSON
+///    b. Send heartbeat ping every 30 seconds
+///    c. Receive and process client messages (pong, close)
+/// 6. Loop continues until client closes connection or network error
 ///
-/// **Example Event Message:**
+/// **Security:** Origin header validation is enforced. Only requests from allowed
+/// origins (default: localhost on configured ports) are accepted. Cross-origin
+/// requests return 403 Forbidden.
+///
+/// **Response:** 101 Switching Protocols on success, 403 if origin validation fails.
+///
+/// **Server-to-Client Messages:** JSON-encoded event objects and heartbeat pings
+/// sent as WebSocket text frames.
+///
+/// **Client-to-Server Messages:** Optional. Clients may send:
+/// - Close frames to gracefully terminate connection
+/// - Pong frames in response to WebSocket ping (automatic in most clients)
+/// - Other messages are accepted but ignored by server
+///
+/// **Example TaskUpdate Event:**
+/// ```json
+/// {
+///   "type": "TaskUpdate",
+///   "task_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+///   "phase": "Coding",
+///   "progress_percent": 45,
+///   "status": "In Progress",
+///   "timestamp": "2026-02-23T10:15:00Z"
+/// }
+/// ```
+///
+/// **Example BuildUpdate Event:**
 /// ```json
 /// {
 ///   "type": "BuildUpdate",
 ///   "task_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
 ///   "phase": "Building",
-///   "message": "Running cargo build",
-///   "timestamp": "2026-02-23T10:15:00Z"
+///   "message": "Running cargo build --release",
+///   "level": "Info",
+///   "timestamp": "2026-02-23T10:15:15Z"
 /// }
 /// ```
 ///
-/// **Example Heartbeat Message:**
+/// **Example Heartbeat Ping:**
 /// ```json
 /// {
 ///   "type": "ping",
 ///   "timestamp": "2026-02-23T10:15:30Z"
 /// }
 /// ```
+///
+/// **Example BeadUpdate Event:**
+/// ```json
+/// {
+///   "type": "BeadUpdate",
+///   "bead_id": "b1c2d3e4-f5a6-7890-bcde-f12345678901",
+///   "status": "Active",
+///   "progress_percent": 60,
+///   "timestamp": "2026-02-23T10:16:00Z"
+/// }
+/// ```
+///
+/// **Connection Lifecycle:**
+/// - Heartbeat pings sent every 30 seconds to keep connection alive and detect failures
+/// - Server closes connection gracefully on client Close frame
+/// - Server closes connection on send/receive errors (network failure, client disconnect)
+/// - Events are converted to notifications and stored before forwarding to client
+/// - Automatic reconnection must be handled by client with exponential backoff recommended
+///
+/// **Notification Integration:**
+/// Each event is passed through `notification_from_event()` which extracts relevant
+/// information (title, message, level, source, action URL) and stores it in the
+/// notification store. This allows the UI to display a notification history even if
+/// the WebSocket connection is temporarily lost.
 async fn events_ws_handler(
     ws: WebSocketUpgrade,
     State(state): State<Arc<ApiState>>,
@@ -4670,6 +5493,11 @@ async fn events_ws_handler(
     ws.on_upgrade(move |socket| handle_events_ws(socket, state))
 }
 
+/// Internal handler that processes the upgraded WebSocket connection with heartbeat support.
+///
+/// Subscribes to the event bus, converts events to notifications, stores them, and forwards
+/// to the client. Sends ping frames every 30 seconds to maintain connection health.
+/// Handles client Close frames gracefully and closes on send/receive errors.
 async fn handle_events_ws(socket: WebSocket, state: Arc<ApiState>) {
     let (mut ws_tx, mut ws_rx) = socket.split();
     let rx = state.event_bus.subscribe();
@@ -4723,13 +5551,49 @@ async fn handle_events_ws(socket: WebSocket, state: Arc<ApiState>) {
 // MCP servers handler
 // ---------------------------------------------------------------------------
 
+/// Represents a Model Context Protocol (MCP) server with its available tools.
+///
+/// MCP servers provide structured tool interfaces for agents to interact with
+/// external services and capabilities. Each server exposes a set of named tools
+/// that can be invoked through the `/api/mcp/tools/call` endpoint.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct McpServer {
+    /// Server name (e.g., "Context7", "Graphiti Memory", "Linear")
     name: String,
+    /// Server status: "active" (available) or "inactive" (requires configuration)
     status: String,
+    /// List of tool names provided by this server
     tools: Vec<String>,
 }
 
+/// GET /api/mcp/servers — list all available MCP servers and their tools.
+///
+/// Returns a registry of Model Context Protocol servers including both built-in
+/// servers from the harness and well-known external MCP integrations. Each server
+/// entry includes its status and the list of tools it exposes for agent use.
+///
+/// **Response:** 200 OK with array of McpServer objects.
+///
+/// **Example Response:**
+/// ```json
+/// [
+///   {
+///     "name": "Context7",
+///     "status": "active",
+///     "tools": ["resolve_library_id", "get_library_docs"]
+///   },
+///   {
+///     "name": "Linear",
+///     "status": "inactive",
+///     "tools": ["create_issue", "list_issues", "update_issue"]
+///   },
+///   {
+///     "name": "Filesystem",
+///     "status": "active",
+///     "tools": ["read_file", "write_file", "list_directory"]
+///   }
+/// ]
+/// ```
 async fn list_mcp_servers() -> Json<Vec<McpServer>> {
     // Build a registry with built-in tools to report them dynamically.
     let registry = at_harness::mcp::McpToolRegistry::with_builtins();
@@ -4803,6 +5667,47 @@ async fn list_mcp_servers() -> Json<Vec<McpServer>> {
 // MCP tool call handler
 // ---------------------------------------------------------------------------
 
+/// POST /api/mcp/tools/call — execute an MCP tool with the given parameters.
+///
+/// Invokes a built-in MCP tool by name with the provided arguments. Tools operate
+/// on the current application state (beads, agents, tasks) and return structured
+/// results. This endpoint enables agents to interact with the system through the
+/// standardized Model Context Protocol interface.
+///
+/// **Request Body:** ToolCallRequest with `name` and `arguments` fields.
+///
+/// **Example Request:**
+/// ```json
+/// {
+///   "name": "list_tasks",
+///   "arguments": {
+///     "status": "in_progress",
+///     "limit": 10
+///   }
+/// }
+/// ```
+///
+/// **Response:** 200 OK on success, 400 BAD_REQUEST on tool error, 404 NOT_FOUND if tool unknown.
+///
+/// **Example Success Response:**
+/// ```json
+/// {
+///   "result": {
+///     "tasks": [
+///       { "id": "task-001", "title": "Implement feature X", "status": "in_progress" }
+///     ]
+///   },
+///   "is_error": false
+/// }
+/// ```
+///
+/// **Example Error Response:**
+/// ```json
+/// {
+///   "error": "unknown tool: invalid_tool_name",
+///   "available_tools": ["list_tasks", "get_task", "update_task"]
+/// }
+/// ```
 async fn call_mcp_tool(
     State(state): State<Arc<ApiState>>,
     Json(request): Json<at_harness::mcp::ToolCallRequest>,
@@ -4839,15 +5744,25 @@ async fn call_mcp_tool(
 // Worktrees handler
 // ---------------------------------------------------------------------------
 
+/// Represents a git worktree entry returned by the list endpoint.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct WorktreeEntry {
+    /// Stable identifier derived from path or branch name
     id: String,
+    /// Absolute filesystem path to the worktree
     path: String,
+    /// Git branch name (empty for detached HEAD)
     branch: String,
+    /// Associated bead ID (currently unused, reserved for future)
     bead_id: String,
+    /// Worktree status ("active" for all current worktrees)
     status: String,
 }
 
+/// Generates a stable, filesystem-safe identifier for a worktree.
+///
+/// Prefers branch name over path for consistency. Sanitizes the result by
+/// replacing non-alphanumeric characters (except `-`, `_`, `.`) with underscores.
 fn stable_worktree_id(path: &str, branch: &str) -> String {
     let raw = if branch.is_empty() {
         format!("path:{path}")
@@ -4866,6 +5781,25 @@ fn stable_worktree_id(path: &str, branch: &str) -> String {
 }
 
 /// GET /api/worktrees — list all git worktrees with path and branch info.
+///
+/// Returns an array of all git worktrees in the repository, including the main
+/// worktree and any linked worktrees created for task isolation.
+///
+/// # Response
+/// ```json
+/// [
+///   {
+///     "id": "branch_task_042_implement_feature_x",
+///     "path": "/path/to/worktree",
+///     "branch": "task/042-implement-feature-x",
+///     "bead_id": "",
+///     "status": "active"
+///   }
+/// ]
+/// ```
+///
+/// # Errors
+/// - `500 INTERNAL_SERVER_ERROR` if git command fails
 async fn list_worktrees() -> impl IntoResponse {
     let output = match tokio::process::Command::new("git")
         .args(["worktree", "list", "--porcelain"])
@@ -4934,6 +5868,42 @@ async fn list_worktrees() -> impl IntoResponse {
 // ---------------------------------------------------------------------------
 
 /// POST /api/worktrees/{id}/merge — trigger merge to main for a worktree branch.
+///
+/// Attempts to merge the specified worktree's branch into the main branch using
+/// a no-fast-forward merge. If conflicts are detected, the merge is aborted and
+/// conflict files are returned. On success, the merge is committed automatically.
+///
+/// # Path Parameters
+/// - `id`: Worktree ID (stable ID, branch name, or path substring)
+///
+/// # Response (Success)
+/// ```json
+/// {
+///   "status": "success",
+///   "branch": "task/042-implement-feature-x"
+/// }
+/// ```
+///
+/// # Response (Conflict)
+/// ```json
+/// {
+///   "status": "conflict",
+///   "branch": "task/042-implement-feature-x",
+///   "files": ["src/main.rs", "Cargo.toml"]
+/// }
+/// ```
+///
+/// # Response (Nothing to Merge)
+/// ```json
+/// {
+///   "status": "nothing_to_merge",
+///   "branch": "task/042-implement-feature-x"
+/// }
+/// ```
+///
+/// # Errors
+/// - `404 NOT_FOUND` if worktree does not exist
+/// - `500 INTERNAL_SERVER_ERROR` if git command fails
 async fn merge_worktree(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<String>,
@@ -5114,6 +6084,28 @@ async fn merge_worktree(
 }
 
 /// GET /api/worktrees/{id}/merge-preview — dry-run merge preview.
+///
+/// Provides a preview of what would happen if the worktree's branch were merged
+/// into main, without actually performing the merge. Returns commit counts,
+/// changed files, and potential conflict indicators.
+///
+/// # Path Parameters
+/// - `id`: Worktree ID (stable ID, branch name, or path substring)
+///
+/// # Response
+/// ```json
+/// {
+///   "ahead": 5,
+///   "behind": 2,
+///   "files_changed": ["src/main.rs", "Cargo.toml", "README.md"],
+///   "has_conflicts": false,
+///   "branch": "task/042-implement-feature-x"
+/// }
+/// ```
+///
+/// # Errors
+/// - `404 NOT_FOUND` if worktree does not exist
+/// - `500 INTERNAL_SERVER_ERROR` if git command fails
 async fn merge_preview(Path(id): Path<String>) -> impl IntoResponse {
     let base_dir = std::env::current_dir().unwrap_or_default();
     let base_dir_str = base_dir.to_str().unwrap_or(".");
@@ -5228,6 +6220,37 @@ async fn merge_preview(Path(id): Path<String>) -> impl IntoResponse {
 }
 
 /// POST /api/worktrees/{id}/resolve — accept conflict resolution.
+///
+/// Resolves a merge conflict for a specific file using one of three strategies:
+/// - `ours`: Keep the current branch's version
+/// - `theirs`: Accept the incoming branch's version
+/// - `manual`: Mark the file as resolved (assumes user has manually edited it)
+///
+/// After resolution, the file is automatically staged for commit.
+///
+/// # Path Parameters
+/// - `id`: Worktree ID (not currently used but reserved for future routing)
+///
+/// # Request Body
+/// ```json
+/// {
+///   "strategy": "ours",
+///   "file": "src/main.rs"
+/// }
+/// ```
+///
+/// # Response
+/// ```json
+/// {
+///   "status": "resolved",
+///   "worktree_id": "branch_task_042_implement_feature_x",
+///   "file": "src/main.rs",
+///   "strategy": "ours"
+/// }
+/// ```
+///
+/// # Errors
+/// - `400 BAD_REQUEST` if strategy is not one of: ours, theirs, manual
 async fn resolve_conflict(
     Path(id): Path<String>,
     Json(req): Json<ResolveConflictRequest>,
@@ -5312,6 +6335,33 @@ async fn resolve_conflict(
 // ---------------------------------------------------------------------------
 
 /// GET /api/queue — list queued tasks sorted by priority.
+///
+/// Returns all tasks in the Discovery phase that have not yet started execution,
+/// sorted by priority (Urgent → High → Medium → Low). Each task includes its ID,
+/// title, priority level, queued timestamp, and position in the queue. The queue
+/// represents tasks waiting to be picked up by agents for execution.
+///
+/// **Response:** 200 OK with array of queued task summaries.
+///
+/// **Example Response:**
+/// ```json
+/// [
+///   {
+///     "task_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+///     "title": "Implement user authentication",
+///     "priority": "High",
+///     "queued_at": "2026-02-23T09:15:00Z",
+///     "position": 1
+///   },
+///   {
+///     "task_id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+///     "title": "Add logging middleware",
+///     "priority": "Medium",
+///     "queued_at": "2026-02-23T09:20:00Z",
+///     "position": 2
+///   }
+/// ]
+/// ```
 async fn list_queue(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     let tasks = state.tasks.read().await;
 
@@ -5353,6 +6403,32 @@ async fn list_queue(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
 }
 
 /// POST /api/queue/reorder — reorder the task queue.
+///
+/// Manually reorder tasks in the queue by providing a new ordered list of task IDs.
+/// All task IDs must exist, and at least one task ID must be provided. The new order
+/// is broadcast to all connected clients via WebSocket events. This allows users to
+/// manually override the default priority-based ordering when needed.
+///
+/// **Request Body:** QueueReorderRequest JSON object with array of task IDs in desired order.
+/// **Response:** 200 OK on success, 400 if task_ids empty, 404 if any task ID not found.
+///
+/// **Example Request:**
+/// ```json
+/// {
+///   "task_ids": [
+///     "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+///     "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+///     "c3d4e5f6-a7b8-9012-cdef-123456789012"
+///   ]
+/// }
+/// ```
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "status": "ok"
+/// }
+/// ```
 async fn reorder_queue(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<QueueReorderRequest>,
@@ -5390,6 +6466,35 @@ async fn reorder_queue(
 }
 
 /// POST /api/queue/{task_id}/prioritize — bump a task's priority.
+///
+/// Updates the priority level of a specific task. Valid priorities are Low, Medium,
+/// High, or Urgent. Higher priority tasks are processed first by the queue. The
+/// updated task is broadcast to all connected clients via WebSocket, and the
+/// full updated task object is returned in the response.
+///
+/// **Request Body:** PrioritizeRequest JSON object with new priority level.
+/// **Response:** 200 OK with updated task object, 404 if task not found.
+///
+/// **Example Request:**
+/// ```json
+/// {
+///   "priority": "Urgent"
+/// }
+/// ```
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+///   "title": "Implement user authentication",
+///   "description": "Add JWT-based auth to API",
+///   "priority": "Urgent",
+///   "phase": "Discovery",
+///   "created_at": "2026-02-23T09:15:00Z",
+///   "updated_at": "2026-02-23T10:30:00Z",
+///   ...
+/// }
+/// ```
 async fn prioritize_task(
     State(state): State<Arc<ApiState>>,
     Path(task_id): Path<Uuid>,
@@ -5471,6 +6576,39 @@ async fn toggle_direct_mode(
 }
 
 /// GET /api/cli/available — detect which CLI tools are installed on the system.
+///
+/// Scans the system PATH to determine which agent CLI tools (claude, codex, gemini,
+/// opencode) are available for task execution. Returns the detection status and
+/// installation path for each tool. The UI uses this to enable/disable CLI-specific
+/// features and display setup instructions for missing tools.
+///
+/// **Response:** 200 OK with array of CliAvailabilityEntry objects.
+///
+/// **Example Response:**
+/// ```json
+/// [
+///   {
+///     "name": "claude",
+///     "detected": true,
+///     "path": "/usr/local/bin/claude"
+///   },
+///   {
+///     "name": "codex",
+///     "detected": false,
+///     "path": null
+///   },
+///   {
+///     "name": "gemini",
+///     "detected": true,
+///     "path": "/opt/homebrew/bin/gemini"
+///   },
+///   {
+///     "name": "opencode",
+///     "detected": false,
+///     "path": null
+///   }
+/// ]
+/// ```
 async fn list_available_clis() -> impl IntoResponse {
     let cli_names = ["claude", "codex", "gemini", "opencode"];
     let mut entries = Vec::new();
@@ -5499,6 +6637,27 @@ fn detect_cli_binary(name: &str) -> (bool, Option<String>) {
 }
 
 /// DELETE /api/worktrees/{id} — remove a git worktree by path.
+///
+/// Forcibly removes a git worktree and its associated working directory. This
+/// operation is irreversible and will delete uncommitted changes in the worktree.
+/// The branch itself is not deleted, only the worktree checkout.
+///
+/// # Path Parameters
+/// - `id`: Worktree ID (stable ID, branch name, or path substring)
+///
+/// # Response
+/// ```json
+/// {
+///   "status": "deleted",
+///   "id": "branch_task_042_implement_feature_x",
+///   "path": "/path/to/worktree"
+/// }
+/// ```
+///
+/// # Errors
+/// - `404 NOT_FOUND` if worktree does not exist
+/// - `400 BAD_REQUEST` if git worktree remove fails
+/// - `500 INTERNAL_SERVER_ERROR` if git command fails
 async fn delete_worktree(Path(id): Path<String>) -> impl IntoResponse {
     let output = match tokio::process::Command::new("git")
         .args(["worktree", "list", "--porcelain"])
@@ -5597,6 +6756,37 @@ struct ListGitHubPrsQuery {
     pub per_page: Option<u8>,
 }
 
+/// GET /api/github/prs — list GitHub pull requests with optional filters.
+///
+/// Fetches pull requests from the configured GitHub repository with support for
+/// state filtering and pagination.
+///
+/// # Query Parameters
+/// - `state` (optional): Filter by PR state ("open", "closed", "all")
+/// - `page` (optional): Page number for pagination (default: 1)
+/// - `per_page` (optional): Results per page (default: 30, max: 100)
+///
+/// # Response
+/// ```json
+/// [
+///   {
+///     "number": 123,
+///     "title": "Add new feature",
+///     "state": "open",
+///     "html_url": "https://github.com/owner/repo/pull/123",
+///     "head": { "ref": "feature-branch" },
+///     "base": { "ref": "main" },
+///     "user": { "login": "username" },
+///     "created_at": "2024-01-15T10:00:00Z",
+///     "updated_at": "2024-01-15T11:00:00Z"
+///   }
+/// ]
+/// ```
+///
+/// # Errors
+/// - `503 SERVICE_UNAVAILABLE` if GitHub token is not configured
+/// - `400 BAD_REQUEST` if GitHub owner/repo are not set
+/// - `502 BAD_GATEWAY` if GitHub API request fails
 async fn list_github_prs(
     State(state): State<Arc<ApiState>>,
     Query(q): Query<ListGitHubPrsQuery>,
@@ -5664,6 +6854,28 @@ async fn list_github_prs(
 // Import GitHub issue as bead
 // ---------------------------------------------------------------------------
 
+/// POST /api/github/issues/{number}/import — import a specific GitHub issue as a local bead.
+///
+/// Fetches a GitHub issue by number and creates a corresponding bead in the local system.
+/// The bead will inherit the issue's title, description, labels, and metadata.
+///
+/// # Path Parameters
+/// - `number`: GitHub issue number
+///
+/// # Response
+/// ```json
+/// {
+///   "message": "Issue #123 imported as bead",
+///   "bead_id": "550e8400-e29b-41d4-a716-446655440000",
+///   "issue_number": 123,
+///   "title": "Fix authentication bug"
+/// }
+/// ```
+///
+/// # Errors
+/// - `503 SERVICE_UNAVAILABLE` if GitHub token is not configured
+/// - `400 BAD_REQUEST` if GitHub owner/repo are not set
+/// - `500 INTERNAL_SERVER_ERROR` if issue fetch or bead creation fails
 async fn import_github_issue(
     State(state): State<Arc<ApiState>>,
     Path(number): Path<u64>,
@@ -5727,6 +6939,25 @@ async fn import_github_issue(
 // ---------------------------------------------------------------------------
 
 /// GET /api/github/oauth/authorize — build the GitHub authorization URL.
+///
+/// Generates a GitHub OAuth authorization URL with CSRF protection. The client should
+/// redirect the user to this URL to initiate the OAuth flow.
+///
+/// # Environment Variables
+/// - `GITHUB_OAUTH_CLIENT_ID`: Required OAuth application client ID
+/// - `GITHUB_OAUTH_REDIRECT_URI`: Optional callback URL (default: http://localhost:3000/api/github/oauth/callback)
+/// - `GITHUB_OAUTH_SCOPES`: Optional comma-separated scopes (default: repo,read:user,user:email)
+///
+/// # Response
+/// ```json
+/// {
+///   "url": "https://github.com/login/oauth/authorize?client_id=...&redirect_uri=...&scope=...&state=...",
+///   "state": "550e8400-e29b-41d4-a716-446655440000"
+/// }
+/// ```
+///
+/// # Errors
+/// - `503 SERVICE_UNAVAILABLE` if GITHUB_OAUTH_CLIENT_ID is not set
 async fn github_oauth_authorize(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     let client_id = match std::env::var("GITHUB_OAUTH_CLIENT_ID") {
         Ok(v) if !v.is_empty() => v,
@@ -5784,6 +7015,34 @@ struct OAuthCallbackRequest {
 }
 
 /// POST /api/github/oauth/callback — exchange the authorization code for a token.
+///
+/// Completes the OAuth flow by exchanging the authorization code for an access token.
+/// Validates the CSRF state parameter and stores the token for subsequent API calls.
+///
+/// # Request Body
+/// ```json
+/// {
+///   "code": "authorization_code_from_github",
+///   "state": "550e8400-e29b-41d4-a716-446655440000"
+/// }
+/// ```
+///
+/// # Response
+/// ```json
+/// {
+///   "success": true,
+///   "user": {
+///     "login": "username",
+///     "name": "User Name",
+///     "email": "user@example.com"
+///   }
+/// }
+/// ```
+///
+/// # Errors
+/// - `400 BAD_REQUEST` if state parameter is invalid or expired (10 minute TTL)
+/// - `503 SERVICE_UNAVAILABLE` if OAuth client credentials are not configured
+/// - `502 BAD_GATEWAY` if token exchange with GitHub fails
 async fn github_oauth_callback(
     State(state): State<Arc<ApiState>>,
     Json(body): Json<OAuthCallbackRequest>,
@@ -5905,6 +7164,27 @@ async fn github_oauth_callback(
 }
 
 /// GET /api/github/oauth/status — check whether the user is authenticated.
+///
+/// Returns the current OAuth authentication status and user information if authenticated.
+///
+/// # Response (authenticated)
+/// ```json
+/// {
+///   "authenticated": true,
+///   "user": {
+///     "login": "username",
+///     "name": "User Name",
+///     "email": "user@example.com"
+///   }
+/// }
+/// ```
+///
+/// # Response (not authenticated)
+/// ```json
+/// {
+///   "authenticated": false
+/// }
+/// ```
 async fn github_oauth_status(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     let authenticated = state.oauth_token_manager.read().await.has_valid_token().await;
     let user = state.github_oauth_user.read().await;
@@ -5916,6 +7196,16 @@ async fn github_oauth_status(State(state): State<Arc<ApiState>>) -> impl IntoRes
 }
 
 /// POST /api/github/oauth/revoke — clear the stored OAuth token.
+///
+/// Logs out the user by clearing the stored OAuth token and user information.
+/// Does not revoke the token on GitHub's side.
+///
+/// # Response
+/// ```json
+/// {
+///   "success": true
+/// }
+/// ```
 async fn github_oauth_revoke(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     // Clear encrypted token
     state.oauth_token_manager.write().await.clear_token().await;
@@ -6021,21 +7311,64 @@ async fn github_oauth_refresh(State(state): State<Arc<ApiState>>) -> impl IntoRe
 // Costs handler
 // ---------------------------------------------------------------------------
 
+/// Aggregated LLM token usage and cost tracking across all agent sessions.
+///
+/// Provides total input/output token counts and per-session breakdowns for
+/// monitoring and budgeting purposes. Currently returns placeholder data;
+/// full implementation will track real token consumption from LLM API calls.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct CostResponse {
+    /// Total input tokens consumed across all sessions
     input_tokens: u64,
+    /// Total output tokens generated across all sessions
     output_tokens: u64,
+    /// Per-session token usage breakdown
     sessions: Vec<CostSessionEntry>,
 }
 
+/// Token usage details for a single agent execution session.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct CostSessionEntry {
+    /// Unique session identifier
     session_id: String,
+    /// Name of the agent that created this session
     agent_name: String,
+    /// Input tokens consumed in this session
     input_tokens: u64,
+    /// Output tokens generated in this session
     output_tokens: u64,
 }
 
+/// GET /api/costs — retrieve LLM token usage and cost metrics.
+///
+/// Returns aggregated token consumption statistics across all agent sessions.
+/// Useful for tracking API costs and monitoring token budgets. Currently returns
+/// placeholder data (all zeros); full implementation will integrate with LLM
+/// provider APIs to track actual usage.
+///
+/// **Response:** 200 OK with CostResponse object.
+///
+/// **Example Response:**
+/// ```json
+/// {
+///   "input_tokens": 125000,
+///   "output_tokens": 87500,
+///   "sessions": [
+///     {
+///       "session_id": "session-abc123",
+///       "agent_name": "backend-agent-001",
+///       "input_tokens": 50000,
+///       "output_tokens": 35000
+///     },
+///     {
+///       "session_id": "session-def456",
+///       "agent_name": "frontend-agent-002",
+///       "input_tokens": 75000,
+///       "output_tokens": 52500
+///     }
+///   ]
+/// }
+/// ```
 async fn get_costs() -> Json<CostResponse> {
     Json(CostResponse {
         input_tokens: 0,
@@ -6057,7 +7390,41 @@ struct AgentSessionEntry {
     duration: String,
 }
 
-/// GET /api/sessions — list all active agent sessions.
+/// GET /api/sessions -- retrieve all active agent execution sessions.
+///
+/// Returns a list of all currently running or recently active agent sessions.
+/// Each agent session represents an active task execution process with its associated
+/// CLI type (aider, claude, etc.), status, and runtime duration. This endpoint is used
+/// for monitoring active agent processes and displaying execution metrics in the UI.
+///
+/// **Response:** 200 OK with array of AgentSessionEntry objects.
+///
+/// **Example Response:**
+/// ```json
+/// [
+///   {
+///     "id": "session-abc123",
+///     "agent_name": "backend-agent-001",
+///     "cli_type": "aider",
+///     "status": "running",
+///     "duration": "5m 32s"
+///   },
+///   {
+///     "id": "session-def456",
+///     "agent_name": "frontend-agent-002",
+///     "cli_type": "claude",
+///     "status": "idle",
+///     "duration": "12m 8s"
+///   },
+///   {
+///     "id": "session-ghi789",
+///     "agent_name": "qa-agent-003",
+///     "cli_type": "aider",
+///     "status": "error",
+///     "duration": "3m 45s"
+///   }
+/// ]
+/// ```
 async fn list_agent_sessions(State(state): State<Arc<ApiState>>) -> Json<Vec<AgentSessionEntry>> {
     let agents = state.agents.read().await;
     let sessions: Vec<AgentSessionEntry> = agents
@@ -6090,6 +7457,15 @@ struct ConvoyEntry {
     status: String,
 }
 
+/// GET /api/convoys — list all convoys (stub implementation).
+///
+/// Currently returns an empty array. This endpoint is reserved for future
+/// convoy management functionality.
+///
+/// **Response:**
+/// ```json
+/// []
+/// ```
 async fn list_convoys() -> Json<Vec<ConvoyEntry>> {
     Json(Vec::new())
 }
@@ -6389,6 +7765,22 @@ pub fn spawn_pr_poller(
 }
 
 /// POST /api/github/pr/{number}/watch — start watching a pull request for status updates.
+///
+/// Registers a pull request for background polling to track merge status and CI checks.
+///
+/// # Path Parameters
+/// - `number`: GitHub pull request number
+///
+/// # Response
+/// ```json
+/// {
+///   "pr_number": 123,
+///   "state": "open",
+///   "mergeable": null,
+///   "checks_passed": null,
+///   "last_polled": "2024-01-15T10:00:00Z"
+/// }
+/// ```
 async fn watch_pr(
     State(state): State<Arc<ApiState>>,
     Path(number): Path<u32>,
@@ -6406,6 +7798,21 @@ async fn watch_pr(
 }
 
 /// DELETE /api/github/pr/{number}/watch — stop watching a pull request.
+///
+/// Removes a pull request from the watch registry, stopping background polling.
+///
+/// # Path Parameters
+/// - `number`: GitHub pull request number
+///
+/// # Response (success)
+/// ```json
+/// {
+///   "removed": 123
+/// }
+/// ```
+///
+/// # Errors
+/// - `404 NOT_FOUND` if PR is not currently being watched
 async fn unwatch_pr(
     State(state): State<Arc<ApiState>>,
     Path(number): Path<u32>,
@@ -6425,6 +7832,21 @@ async fn unwatch_pr(
 }
 
 /// GET /api/github/pr/watched — list all currently watched pull requests.
+///
+/// Returns the status of all pull requests currently being watched for updates.
+///
+/// # Response
+/// ```json
+/// [
+///   {
+///     "pr_number": 123,
+///     "state": "open",
+///     "mergeable": true,
+///     "checks_passed": true,
+///     "last_polled": "2024-01-15T10:00:00Z"
+///   }
+/// ]
+/// ```
 async fn list_watched_prs(State(state): State<Arc<ApiState>>) -> Json<Vec<PrPollStatus>> {
     let registry = state.pr_poll_registry.read().await;
     Json(registry.values().cloned().collect())
@@ -6445,7 +7867,37 @@ struct CreateReleaseRequest {
     prerelease: bool,
 }
 
-/// POST /api/releases — create a new GitHub release with tag, name, body, and metadata.
+/// POST /api/github/releases — create a new GitHub release with tag, name, body, and metadata.
+///
+/// Creates a GitHub release for the configured repository. If GitHub integration is not
+/// configured, creates a local-only release record.
+///
+/// # Request Body
+/// ```json
+/// {
+///   "tag_name": "v1.0.0",
+///   "name": "Release v1.0.0",
+///   "body": "## Changes\n- Feature A\n- Bug fix B",
+///   "draft": false,
+///   "prerelease": false
+/// }
+/// ```
+///
+/// # Response
+/// ```json
+/// {
+///   "tag_name": "v1.0.0",
+///   "name": "Release v1.0.0",
+///   "body": "## Changes\n- Feature A\n- Bug fix B",
+///   "draft": false,
+///   "prerelease": false,
+///   "created_at": "2024-01-15T10:00:00Z",
+///   "html_url": "https://github.com/owner/repo/releases/tag/v1.0.0"
+/// }
+/// ```
+///
+/// # Errors
+/// - `502 BAD_GATEWAY` if GitHub API request fails
 async fn create_release(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<CreateReleaseRequest>,
@@ -6551,7 +8003,25 @@ async fn create_release(
     )
 }
 
-/// GET /api/releases — list all GitHub releases for the configured repository.
+/// GET /api/github/releases — list all GitHub releases for the configured repository.
+///
+/// Fetches all releases from the configured GitHub repository. Returns both remote GitHub
+/// releases and any local-only releases if GitHub integration is not configured.
+///
+/// # Response
+/// ```json
+/// [
+///   {
+///     "tag_name": "v1.0.0",
+///     "name": "Release v1.0.0",
+///     "body": "Release notes here",
+///     "draft": false,
+///     "prerelease": false,
+///     "created_at": "2024-01-15T10:00:00Z",
+///     "html_url": "https://github.com/owner/repo/releases/tag/v1.0.0"
+///   }
+/// ]
+/// ```
 async fn list_releases(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     let config = state.settings_manager.load_or_default();
     let int = &config.integrations;
@@ -7242,6 +8712,24 @@ async fn run_competitor_analysis(
 // Profile swap notification
 // ---------------------------------------------------------------------------
 
+/// POST /api/notify/profile-swap — notify the system that the API profile has changed.
+///
+/// Creates a system notification to inform users that the active API profile has been
+/// switched. This is typically called by the UI when the user changes profiles.
+///
+/// **Request:**
+/// ```json
+/// {
+///   "profile": "production"
+/// }
+/// ```
+///
+/// **Response:**
+/// ```json
+/// {
+///   "notified": "production"
+/// }
+/// ```
 async fn notify_profile_swap(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<serde_json::Value>,
@@ -7267,6 +8755,19 @@ async fn notify_profile_swap(
 // App update check notification
 // ---------------------------------------------------------------------------
 
+/// GET /api/app/check-update — check for application updates (stub implementation).
+///
+/// Returns version information and whether an update is available. Currently always
+/// reports the application is up to date. Creates a notification in the system.
+///
+/// **Response:**
+/// ```json
+/// {
+///   "current_version": "0.1.0",
+///   "latest_version": "0.1.0",
+///   "update_available": false
+/// }
+/// ```
 async fn check_app_update(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     // Stub: always returns "up to date"
     let mut store = state.notification_store.write().await;

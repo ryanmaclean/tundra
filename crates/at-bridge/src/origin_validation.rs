@@ -7,7 +7,7 @@
 //!
 //! This module provides validation functions that check the Origin header against
 //! an allowlist of permitted origins. By default, only localhost variants are
-//! allowed (http://localhost:*, http://127.0.0.1:*, http://[::1]:*).
+//! allowed (`http://localhost:*`, `http://127.0.0.1:*`, `http://[::1]:*`).
 
 use axum::http::{HeaderMap, StatusCode};
 
@@ -88,7 +88,7 @@ pub fn validate_websocket_origin(
     }
 }
 
-/// Helper function to get default allowed origins as a Vec<String>.
+/// Helper function to get default allowed origins as a `Vec<String>`.
 ///
 /// Returns a vector of default localhost origin patterns that are safe
 /// to allow for local development and production use.
