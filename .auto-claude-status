@@ -3,7 +3,7 @@
   "spec": "040-wire-existing-ratelimiter-into-http-api-to-prevent",
   "state": "building",
   "subtasks": {
-    "completed": 5,
+    "completed": 6,
     "total": 7,
     "in_progress": 1,
     "failed": 0
@@ -18,8 +18,8 @@
     "max": 1
   },
   "session": {
-    "number": 7,
+    "number": 8,
     "started_at": "2026-02-27T20:23:02.891707"
   },
-  "last_update": "2026-02-27T20:44:44.340378"
+  "last_update": "2026-02-27T20:48:15.779567"
 }

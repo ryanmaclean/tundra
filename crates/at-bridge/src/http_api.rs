@@ -340,10 +340,34 @@ impl ApiState {
             attachments: Arc::new(RwLock::new(Vec::new())),
             task_drafts: Arc::new(RwLock::new(std::collections::HashMap::new())),
             disconnect_buffers: Arc::new(RwLock::new(std::collections::HashMap::new())),
+            // ---- Rate Limiter Configuration -------------------------------------
+            // Three-tier rate limiting protects the API from abuse and overload:
+            //
+            // 1. Global Limit: 100 requests/minute across ALL clients
+            //    - Prevents total server overload
+            //    - First line of defense against DoS attacks
+            //    - Shared bucket for entire API
+            //
+            // 2. Per-User Limit: 20 requests/minute per client IP
+            //    - Prevents single client monopolization
+            //    - IP extracted from X-Forwarded-For or X-Real-IP headers
+            //    - Each IP gets independent bucket
+            //
+            // 3. Per-Endpoint Limit: 10 requests/minute per URI path
+            //    - Prevents abuse of expensive endpoints (AI, GitHub sync)
+            //    - Each endpoint (e.g., /api/tasks, /api/beads) tracked separately
+            //    - Allows high-frequency status polling on cheap endpoints
+            //
+            // To adjust limits:
+            // - Use RateLimitConfig::per_second(n), per_minute(n), or per_hour(n)
+            // - For production: increase global and per-user limits
+            // - For development: use per_second(n) for faster iteration
+            //
+            // When exceeded, middleware returns HTTP 429 with Retry-After header.
             rate_limiter: Arc::new(MultiKeyRateLimiter::new(
-                RateLimitConfig::per_minute(100), // global: 100 requests/minute
-                RateLimitConfig::per_minute(20),  // per-user: 20 requests/minute
-                RateLimitConfig::per_minute(10),  // per-endpoint: 10 requests/minute
+                RateLimitConfig::per_minute(100), // Global tier
+                RateLimitConfig::per_minute(20),  // Per-user tier
+                RateLimitConfig::per_minute(10),  // Per-endpoint tier
             )),
         }
     }
@@ -777,6 +801,8 @@ pub fn api_router_with_auth(
         .layer(axum_middleware::from_fn(metrics_middleware))
         .layer(axum_middleware::from_fn(request_id_middleware))
         .layer(axum_middleware::from_fn(isolation_headers_middleware))
+        // Apply three-tier rate limiting (global, per-user, per-endpoint).
+        // Returns HTTP 429 when limits exceeded. See ApiState::new() for config.
         .layer(RateLimitLayer::new(rate_limiter))
         .layer(AuthLayer::new(api_key))
         .layer(

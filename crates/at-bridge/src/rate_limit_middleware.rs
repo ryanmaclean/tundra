@@ -1,12 +1,77 @@
 //! Rate limiting middleware for the auto-tundra HTTP API.
 //!
 //! Enforces three-tier rate limiting using the MultiKeyRateLimiter:
-//! - Global: limits total requests across all users
-//! - Per-user: limits requests per client IP
-//! - Per-endpoint: limits requests per URI path
+//! - **Global**: limits total requests across all users
+//! - **Per-user**: limits requests per client IP
+//! - **Per-endpoint**: limits requests per URI path
 //!
 //! When a limit is exceeded, returns HTTP 429 (Too Many Requests) with a
 //! `Retry-After` header indicating how long to wait before retrying.
+//!
+//! # Rate Limit Tiers
+//!
+//! ## 1. Global Rate Limit
+//! Applies to ALL requests across the entire API, regardless of client or endpoint.
+//! This protects the server from being overwhelmed by total traffic.
+//!
+//! ## 2. Per-User Rate Limit
+//! Applies to each unique client IP address. Client IP is extracted from:
+//! - `X-Forwarded-For` header (preferred, uses first IP in comma-separated list)
+//! - `X-Real-IP` header (fallback)
+//! - "unknown" if no IP headers are present
+//!
+//! This prevents any single client from monopolizing server resources.
+//!
+//! ## 3. Per-Endpoint Rate Limit
+//! Applies to each unique URI path (e.g., `/api/tasks`, `/api/beads`).
+//! Each endpoint has its own independent rate limit bucket per client.
+//!
+//! This protects expensive endpoints (like AI generation or GitHub sync) from abuse
+//! while allowing high-frequency polling of lightweight endpoints like status checks.
+//!
+//! # Configuration
+//!
+//! Rate limits are configured when creating the `MultiKeyRateLimiter`:
+//!
+//! ```rust,ignore
+//! use at_harness::rate_limiter::{MultiKeyRateLimiter, RateLimitConfig};
+//!
+//! let limiter = MultiKeyRateLimiter::new(
+//!     RateLimitConfig::per_minute(100),  // Global: 100 requests/minute total
+//!     RateLimitConfig::per_minute(20),   // Per-user: 20 requests/minute per IP
+//!     RateLimitConfig::per_minute(10),   // Per-endpoint: 10 requests/minute per path
+//! );
+//! ```
+//!
+//! ## Adjusting Limits
+//!
+//! Use `RateLimitConfig` factory methods to set limits:
+//! - `RateLimitConfig::per_second(n)` - n requests per second
+//! - `RateLimitConfig::per_minute(n)` - n requests per minute
+//! - `RateLimitConfig::per_hour(n)` - n requests per hour
+//!
+//! **Example: High-traffic production configuration**
+//! ```rust,ignore
+//! let limiter = MultiKeyRateLimiter::new(
+//!     RateLimitConfig::per_minute(1000), // High global capacity
+//!     RateLimitConfig::per_minute(50),   // Moderate per-user limit
+//!     RateLimitConfig::per_minute(20),   // Conservative per-endpoint limit
+//! );
+//! ```
+//!
+//! **Example: Development/testing configuration**
+//! ```rust,ignore
+//! let limiter = MultiKeyRateLimiter::new(
+//!     RateLimitConfig::per_second(100), // Generous global limit
+//!     RateLimitConfig::per_second(10),  // Relaxed per-user limit
+//!     RateLimitConfig::per_second(5),   // Relaxed per-endpoint limit
+//! );
+//! ```
+//!
+//! ## Configuration Location
+//!
+//! The rate limiter is initialized in `ApiState::new()` in `http_api.rs`.
+//! To change limits, modify the configuration there and rebuild the service.
 
 use axum::{
     body::Body,
