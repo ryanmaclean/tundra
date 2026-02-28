@@ -1,7 +1,8 @@
 use axum::{
     extract::State,
     response::IntoResponse,
-    Json,
+    routing::{get, post},
+    Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -120,4 +121,11 @@ pub(crate) async fn call_mcp_tool(
             })),
         ),
     }
+}
+
+/// Creates the MCP API router with all MCP-related endpoints.
+pub(crate) fn mcp_router() -> Router<Arc<ApiState>> {
+    Router::new()
+        .route("/api/mcp/servers", get(list_mcp_servers))
+        .route("/api/mcp/tools/call", post(call_mcp_tool))
 }
