@@ -45,6 +45,7 @@ use at_intelligence::{
     changelog::ChangelogEngine, ideation::IdeationEngine, insights::InsightsEngine,
     memory::MemoryStore, roadmap::RoadmapEngine,
 };
+use at_harness::rate_limiter::{MultiKeyRateLimiter, RateLimitConfig};
 use at_telemetry::metrics::global_metrics;
 use at_telemetry::middleware::metrics_middleware;
 use at_telemetry::tracing_setup::request_id_middleware;
@@ -178,6 +179,9 @@ pub struct ApiState {
     /// Key: terminal_id, Value: bounded ring buffer of bytes.
     pub disconnect_buffers:
         Arc<RwLock<std::collections::HashMap<Uuid, crate::terminal::DisconnectBuffer>>>,
+    // ---- Rate limiting -------------------------------------------------------
+    /// Multi-tier rate limiter (global, per-user, per-endpoint).
+    pub rate_limiter: Arc<MultiKeyRateLimiter>,
 }
 
 /// Default 8 Kanban columns (Backlog, Queue, In Progress, Review, QA, Done, PR Created, Error).
@@ -335,6 +339,11 @@ impl ApiState {
             attachments: Arc::new(RwLock::new(Vec::new())),
             task_drafts: Arc::new(RwLock::new(std::collections::HashMap::new())),
             disconnect_buffers: Arc::new(RwLock::new(std::collections::HashMap::new())),
+            rate_limiter: Arc::new(MultiKeyRateLimiter::new(
+                RateLimitConfig::per_minute(100), // global: 100 requests/minute
+                RateLimitConfig::per_minute(20),  // per-user: 20 requests/minute
+                RateLimitConfig::per_minute(10),  // per-endpoint: 10 requests/minute
+            )),
         }
     }
 
