@@ -441,6 +441,67 @@ async fn test_list_agents_empty() {
 }
 
 #[tokio::test]
+async fn test_list_agents_pagination() {
+    let (base, state) = start_test_server().await;
+
+    // Create 10 agents
+    for i in 0..10 {
+        let agent = at_core::types::Agent::new(
+            &format!("agent-{}", i),
+            at_core::types::AgentRole::Crew,
+            at_core::types::CliType::Claude,
+        );
+        let mut agents = state.agents.write().await;
+        agents.insert(agent.id, agent);
+    }
+
+    // Test first page: limit=3, offset=0
+    let resp = reqwest::get(format!("{base}/api/agents?limit=3&offset=0"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let page1: Vec<Value> = resp.json().await.unwrap();
+    assert_eq!(page1.len(), 3);
+
+    // Test second page: limit=3, offset=3
+    let resp = reqwest::get(format!("{base}/api/agents?limit=3&offset=3"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let page2: Vec<Value> = resp.json().await.unwrap();
+    assert_eq!(page2.len(), 3);
+
+    // Verify pages contain different agents (no overlap)
+    let page1_ids: Vec<String> = page1
+        .iter()
+        .map(|a| a["id"].as_str().unwrap().to_string())
+        .collect();
+    let page2_ids: Vec<String> = page2
+        .iter()
+        .map(|a| a["id"].as_str().unwrap().to_string())
+        .collect();
+    for id in &page1_ids {
+        assert!(!page2_ids.contains(id), "Pages should not overlap");
+    }
+
+    // Test offset and limit with different values
+    let resp = reqwest::get(format!("{base}/api/agents?limit=5&offset=2"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let page3: Vec<Value> = resp.json().await.unwrap();
+    assert_eq!(page3.len(), 5);
+
+    // Test offset beyond count -> empty
+    let resp = reqwest::get(format!("{base}/api/agents?limit=10&offset=100"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let empty: Vec<Value> = resp.json().await.unwrap();
+    assert!(empty.is_empty());
+}
+
+#[tokio::test]
 async fn test_get_kpi() {
     let (base, _state) = start_test_server().await;
 
