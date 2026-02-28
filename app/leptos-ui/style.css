@@ -10604,6 +10604,7 @@ button.toggle-switch.active .toggle-knob {
 }
 
 .toast-item {
+    position: relative;
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: 8px;
@@ -10675,6 +10676,55 @@ button.toggle-switch.active .toggle-knob {
 
 .toast-dismiss:hover {
     color: var(--text-primary);
+}
+
+/* Toast Progress Bar */
+
+.toast-progress-bar {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: rgba(255, 255, 255, 0.1);
+    border-bottom-left-radius: var(--radius-lg);
+    border-bottom-right-radius: var(--radius-lg);
+    overflow: hidden;
+}
+
+.toast-progress-fill {
+    height: 100%;
+    width: 100%;
+    background: var(--accent-blue);
+    transition: width var(--transition-base);
+    transform-origin: left;
+    animation: progressShrink linear forwards;
+}
+
+/* Progress bar colors for different toast levels */
+.toast-item.toast-info .toast-progress-fill {
+    background: var(--accent-blue);
+}
+
+.toast-item.toast-success .toast-progress-fill {
+    background: var(--accent-green);
+}
+
+.toast-item.toast-warning .toast-progress-fill {
+    background: var(--accent-yellow);
+}
+
+.toast-item.toast-error .toast-progress-fill {
+    background: var(--accent-red);
+}
+
+@keyframes progressShrink {
+    from {
+        width: 100%;
+    }
+    to {
+        width: 0%;
+    }
 }
 
 /* ── Onboarding Wizard ── */
