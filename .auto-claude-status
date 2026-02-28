@@ -1,10 +1,10 @@
 {
   "active": true,
   "spec": "033-add-delete-endpoint-for-beads-with-event-publishin",
-  "state": "planning",
+  "state": "building",
   "subtasks": {
-    "completed": 0,
-    "total": 0,
+    "completed": 3,
+    "total": 5,
     "in_progress": 1,
     "failed": 0
   },
@@ -18,8 +18,8 @@
     "max": 1
   },
   "session": {
-    "number": 2,
+    "number": 5,
     "started_at": "2026-02-28T00:25:02.328755"
   },
-  "last_update": "2026-02-28T00:29:55.364595"
+  "last_update": "2026-02-28T00:32:44.119150"
 }
