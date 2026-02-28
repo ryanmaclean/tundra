@@ -196,6 +196,75 @@ async fn test_delete_bead() {
 }
 
 #[tokio::test]
+async fn test_list_beads_filter_by_status() {
+    let (base, _state) = start_test_server().await;
+    let client = reqwest::Client::new();
+
+    // Create multiple beads
+    let resp1 = client
+        .post(format!("{base}/api/beads"))
+        .json(&serde_json::json!({ "title": "Bead 1" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp1.status(), 201);
+    let bead1: Value = resp1.json().await.unwrap();
+    let id1 = bead1["id"].as_str().unwrap();
+
+    let resp2 = client
+        .post(format!("{base}/api/beads"))
+        .json(&serde_json::json!({ "title": "Bead 2" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp2.status(), 201);
+    let bead2: Value = resp2.json().await.unwrap();
+    let id2 = bead2["id"].as_str().unwrap();
+
+    let resp3 = client
+        .post(format!("{base}/api/beads"))
+        .json(&serde_json::json!({ "title": "Bead 3" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp3.status(), 201);
+
+    // Update some beads to different statuses
+    client
+        .post(format!("{base}/api/beads/{id1}/status"))
+        .json(&serde_json::json!({ "status": "hooked" }))
+        .send()
+        .await
+        .unwrap();
+
+    client
+        .post(format!("{base}/api/beads/{id2}/status"))
+        .json(&serde_json::json!({ "status": "hooked" }))
+        .send()
+        .await
+        .unwrap();
+
+    // Filter by backlog status
+    let resp = reqwest::get(format!("{base}/api/beads?status=backlog"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let beads: Vec<Value> = resp.json().await.unwrap();
+    assert_eq!(beads.len(), 1);
+    assert_eq!(beads[0]["status"], "backlog");
+
+    // Filter by hooked status
+    let resp = reqwest::get(format!("{base}/api/beads?status=hooked"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let beads: Vec<Value> = resp.json().await.unwrap();
+    assert_eq!(beads.len(), 2);
+    assert_eq!(beads[0]["status"], "hooked");
+    assert_eq!(beads[1]["status"], "hooked");
+}
+
+#[tokio::test]
 async fn test_list_beads_pagination() {
     let (base, _state) = start_test_server().await;
     let client = reqwest::Client::new();
