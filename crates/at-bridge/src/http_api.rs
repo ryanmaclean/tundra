@@ -3531,7 +3531,7 @@ pub(crate) async fn simulate_planning_poker_for_bead(
     )?;
 
     let mut participants = normalize_participants(&req.virtual_agents);
-    let desired_count = req.agent_count.unwrap_or_else(|| {
+    let desired_count = req.agent_count.unwrap_or({
         if participants.is_empty() {
             5
         } else {

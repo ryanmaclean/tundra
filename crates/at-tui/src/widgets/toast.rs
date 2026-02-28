@@ -7,7 +7,6 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 use ratatui::Frame;
 
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub enum ToastLevel {

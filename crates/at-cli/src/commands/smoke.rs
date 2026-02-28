@@ -84,7 +84,7 @@ pub async fn run(
 ) -> anyhow::Result<()> {
     let parsed = Url::parse(ui_url).context("invalid --ui-url")?;
     let host = parsed.host_str().unwrap_or("127.0.0.1").to_string();
-    let port = parsed.port_or_known_default().unwrap_or(3001) as u16;
+    let port = parsed.port_or_known_default().unwrap_or(3001);
 
     let mut static_server = None;
     if serve_dist {

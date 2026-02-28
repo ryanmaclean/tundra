@@ -636,6 +636,7 @@ impl Default for ResilientRegistry {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
+#[allow(clippy::await_holding_lock)] // ENV_TEST_LOCK intentionally held across await for env var serialization
 mod tests {
     use super::*;
     use std::sync::Mutex;

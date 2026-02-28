@@ -13,7 +13,6 @@ use at_integrations::gitlab::{
     GitLabClient, GitLabError, GitLabIssue, GitLabMergeRequest, GitLabUser,
 };
 
-use chrono::Utc;
 
 // ===========================================================================
 // Test helpers

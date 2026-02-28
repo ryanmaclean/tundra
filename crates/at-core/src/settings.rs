@@ -160,12 +160,12 @@ project_name = "partial"
         let cfg = Config::default();
         assert_eq!(cfg.display.theme, "dark");
         assert_eq!(cfg.display.font_size, 14);
-        assert_eq!(cfg.display.compact_mode, false);
+        assert!(!cfg.display.compact_mode);
         assert_eq!(cfg.terminal.font_family, "JetBrains Mono");
         assert_eq!(cfg.terminal.font_size, 14);
         assert_eq!(cfg.terminal.cursor_style, "block");
         assert_eq!(cfg.security.auto_lock_timeout_mins, 15);
-        assert_eq!(cfg.security.sandbox_mode, true);
+        assert!(cfg.security.sandbox_mode);
         assert_eq!(cfg.security.active_execution_profile, "balanced");
         assert!(!cfg.security.execution_profiles.is_empty());
         assert_eq!(cfg.kanban.column_mode, "classic_8");

@@ -1,3 +1,6 @@
+// ENV_MUTEX intentionally held across await points to serialize env var access in tests.
+#![allow(clippy::await_holding_lock)]
+
 use std::sync::Arc;
 
 use at_bridge::event_bus::EventBus;
