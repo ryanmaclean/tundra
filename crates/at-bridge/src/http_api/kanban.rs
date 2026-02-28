@@ -1,7 +1,8 @@
 use axum::{
     extract::{Path, State},
     response::IntoResponse,
-    Json,
+    routing::{get, patch, post},
+    Json, Router,
 };
 use std::sync::Arc;
 use uuid::Uuid;
@@ -13,6 +14,23 @@ use super::types::{
     RevealPlanningPokerRequest, SimulatePlanningPokerRequest, StartPlanningPokerRequest,
     SubmitPlanningPokerVoteRequest,
 };
+
+/// Kanban router with column configuration and planning poker endpoints.
+pub fn kanban_router() -> Router<Arc<ApiState>> {
+    Router::new()
+        // Kanban columns
+        .route("/api/kanban/columns", get(get_kanban_columns))
+        .route("/api/kanban/columns", patch(patch_kanban_columns))
+        // Planning poker
+        .route("/api/kanban/poker/start", post(start_planning_poker))
+        .route("/api/kanban/poker/vote", post(submit_planning_poker_vote))
+        .route("/api/kanban/poker/reveal", post(reveal_planning_poker))
+        .route("/api/kanban/poker/simulate", post(simulate_planning_poker))
+        .route(
+            "/api/kanban/poker/{bead_id}",
+            get(get_planning_poker_session),
+        )
+}
 
 /// GET /api/kanban/columns -- return the 8-column Kanban config (order, labels, optional width).
 pub(crate) async fn get_kanban_columns(
