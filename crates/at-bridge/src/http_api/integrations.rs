@@ -1,7 +1,8 @@
 use axum::{
     extract::{Path, Query, State},
     response::IntoResponse,
-    Json,
+    routing::{get, post},
+    Json, Router,
 };
 use serde::Deserialize;
 use std::sync::Arc;
@@ -352,4 +353,23 @@ pub(crate) async fn import_linear_issues(
             Json(serde_json::json!({ "error": e.to_string() })),
         ),
     }
+}
+
+// ---------------------------------------------------------------------------
+// Router
+// ---------------------------------------------------------------------------
+
+/// Constructs the integrations sub-router with all GitLab and Linear endpoints.
+pub(crate) fn integrations_router() -> Router<Arc<ApiState>> {
+    Router::new()
+        // GitLab routes
+        .route("/gitlab/issues", get(list_gitlab_issues))
+        .route("/gitlab/merge-requests", get(list_gitlab_merge_requests))
+        .route(
+            "/gitlab/merge-requests/:iid/review",
+            post(review_gitlab_merge_request),
+        )
+        // Linear routes
+        .route("/linear/issues", get(list_linear_issues))
+        .route("/linear/import", post(import_linear_issues))
 }

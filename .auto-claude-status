@@ -3,7 +3,7 @@
   "spec": "031-organize-api-router-with-axum-nest-grouping",
   "state": "building",
   "subtasks": {
-    "completed": 8,
+    "completed": 10,
     "total": 23,
     "in_progress": 1,
     "failed": 0
@@ -18,8 +18,8 @@
     "max": 1
   },
   "session": {
-    "number": 10,
+    "number": 12,
     "started_at": "2026-02-28T13:20:22.659209"
   },
-  "last_update": "2026-02-28T13:41:54.081652"
+  "last_update": "2026-02-28T13:47:28.384494"
 }
