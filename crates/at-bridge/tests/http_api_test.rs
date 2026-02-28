@@ -196,6 +196,71 @@ async fn test_delete_bead() {
 }
 
 #[tokio::test]
+async fn test_list_beads_pagination() {
+    let (base, _state) = start_test_server().await;
+    let client = reqwest::Client::new();
+
+    // Create 10 beads
+    for i in 0..10 {
+        let resp = client
+            .post(format!("{base}/api/beads"))
+            .json(&serde_json::json!({
+                "title": format!("Bead {}", i),
+                "description": format!("Description {}", i)
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 201);
+    }
+
+    // Test first page: limit=3, offset=0
+    let resp = reqwest::get(format!("{base}/api/beads?limit=3&offset=0"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let page1: Vec<Value> = resp.json().await.unwrap();
+    assert_eq!(page1.len(), 3);
+
+    // Test second page: limit=3, offset=3
+    let resp = reqwest::get(format!("{base}/api/beads?limit=3&offset=3"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let page2: Vec<Value> = resp.json().await.unwrap();
+    assert_eq!(page2.len(), 3);
+
+    // Verify pages contain different beads (no overlap)
+    let page1_ids: Vec<String> = page1
+        .iter()
+        .map(|b| b["id"].as_str().unwrap().to_string())
+        .collect();
+    let page2_ids: Vec<String> = page2
+        .iter()
+        .map(|b| b["id"].as_str().unwrap().to_string())
+        .collect();
+    for id in &page1_ids {
+        assert!(!page2_ids.contains(id), "Pages should not overlap");
+    }
+
+    // Test offset and limit with different values
+    let resp = reqwest::get(format!("{base}/api/beads?limit=5&offset=2"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let page3: Vec<Value> = resp.json().await.unwrap();
+    assert_eq!(page3.len(), 5);
+
+    // Test offset beyond count -> empty
+    let resp = reqwest::get(format!("{base}/api/beads?limit=10&offset=100"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let empty: Vec<Value> = resp.json().await.unwrap();
+    assert!(empty.is_empty());
+}
+
+#[tokio::test]
 async fn test_list_agents_empty() {
     let (base, _state) = start_test_server().await;
 
