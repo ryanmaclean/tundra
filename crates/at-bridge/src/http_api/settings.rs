@@ -1,7 +1,8 @@
 use axum::{
     extract::State,
     response::IntoResponse,
-    Json,
+    routing::{get, patch, put},
+    Json, Router,
 };
 use std::sync::Arc;
 
@@ -86,4 +87,17 @@ pub(crate) async fn patch_settings(
             Json(serde_json::json!({"error": e.to_string()})),
         ),
     }
+}
+
+/// Creates the settings router with all settings-related endpoints.
+///
+/// Routes:
+/// - GET /api/settings - retrieve current configuration
+/// - PUT /api/settings - replace entire configuration
+/// - PATCH /api/settings - partially update configuration
+pub fn settings_router() -> Router<Arc<ApiState>> {
+    Router::new()
+        .route("/api/settings", get(get_settings))
+        .route("/api/settings", put(put_settings))
+        .route("/api/settings", patch(patch_settings))
 }
