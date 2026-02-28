@@ -1786,3 +1786,134 @@ async fn test_list_tasks_filter_multiple_params() {
     let all_tasks = api_list_tasks(&client, &base).await;
     assert_eq!(all_tasks.len(), 6);
 }
+
+#[tokio::test]
+async fn test_list_tasks_case_insensitive_filtering() {
+    let (base, _state) = start_test_server().await;
+    let client = reqwest::Client::new();
+
+    // Create tasks with different phases, categories, and priorities
+    let (_, task1) = api_create_task(&client, &base, "Discovery Task", "feature", "low", "small").await;
+    let id1 = task1["id"].as_str().unwrap();
+
+    let (_, task2) = api_create_task(&client, &base, "Planning Task", "bug_fix", "medium", "medium").await;
+    let id2 = task2["id"].as_str().unwrap();
+
+    let (_, task3) = api_create_task(&client, &base, "Refactor Task", "refactoring", "high", "large").await;
+    let id3 = task3["id"].as_str().unwrap();
+
+    let (_, task4) = api_create_task(&client, &base, "Urgent Feature", "feature", "urgent", "complex").await;
+    let id4 = task4["id"].as_str().unwrap();
+
+    // Advance task2 to planning phase
+    client
+        .post(format!("{base}/api/tasks/{id2}/phase"))
+        .json(&json!({"phase": "context_gathering"}))
+        .send()
+        .await
+        .unwrap();
+    client
+        .post(format!("{base}/api/tasks/{id2}/phase"))
+        .json(&json!({"phase": "spec_creation"}))
+        .send()
+        .await
+        .unwrap();
+    client
+        .post(format!("{base}/api/tasks/{id2}/phase"))
+        .json(&json!({"phase": "planning"}))
+        .send()
+        .await
+        .unwrap();
+
+    // Test 1: Filter by phase with UPPERCASE
+    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("phase", "DISCOVERY")]).await;
+    assert_eq!(code, 200);
+    assert_eq!(tasks.len(), 3);
+    let task_ids: Vec<&str> = tasks.iter().map(|t| t["id"].as_str().unwrap()).collect();
+    assert!(task_ids.contains(&id1));
+    assert!(task_ids.contains(&id3));
+    assert!(task_ids.contains(&id4));
+
+    // Test 2: Filter by phase with MixedCase
+    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("phase", "PlAnNiNg")]).await;
+    assert_eq!(code, 200);
+    assert_eq!(tasks.len(), 1);
+    assert_eq!(tasks[0]["id"], id2);
+    assert_eq!(tasks[0]["phase"], "planning");
+
+    // Test 3: Filter by category with UPPERCASE
+    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("category", "FEATURE")]).await;
+    assert_eq!(code, 200);
+    assert_eq!(tasks.len(), 2);
+    let task_ids: Vec<&str> = tasks.iter().map(|t| t["id"].as_str().unwrap()).collect();
+    assert!(task_ids.contains(&id1));
+    assert!(task_ids.contains(&id4));
+
+    // Test 4: Filter by category with MixedCase
+    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("category", "BuG_FiX")]).await;
+    assert_eq!(code, 200);
+    assert_eq!(tasks.len(), 1);
+    assert_eq!(tasks[0]["id"], id2);
+    assert_eq!(tasks[0]["category"], "bug_fix");
+
+    // Test 5: Filter by category with snake_case uppercase
+    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("category", "REFACTORING")]).await;
+    assert_eq!(code, 200);
+    assert_eq!(tasks.len(), 1);
+    assert_eq!(tasks[0]["id"], id3);
+    assert_eq!(tasks[0]["category"], "refactoring");
+
+    // Test 6: Filter by priority with UPPERCASE
+    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("priority", "LOW")]).await;
+    assert_eq!(code, 200);
+    assert_eq!(tasks.len(), 1);
+    assert_eq!(tasks[0]["id"], id1);
+    assert_eq!(tasks[0]["priority"], "low");
+
+    // Test 7: Filter by priority with MixedCase
+    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("priority", "MeDiUm")]).await;
+    assert_eq!(code, 200);
+    assert_eq!(tasks.len(), 1);
+    assert_eq!(tasks[0]["id"], id2);
+    assert_eq!(tasks[0]["priority"], "medium");
+
+    // Test 8: Filter by priority with UPPERCASE
+    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("priority", "HIGH")]).await;
+    assert_eq!(code, 200);
+    assert_eq!(tasks.len(), 1);
+    assert_eq!(tasks[0]["id"], id3);
+    assert_eq!(tasks[0]["priority"], "high");
+
+    // Test 9: Filter by priority with UPPERCASE
+    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("priority", "URGENT")]).await;
+    assert_eq!(code, 200);
+    assert_eq!(tasks.len(), 1);
+    assert_eq!(tasks[0]["id"], id4);
+    assert_eq!(tasks[0]["priority"], "urgent");
+
+    // Test 10: Multiple filters with mixed case
+    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("phase", "DISCOVERY"), ("category", "FEATURE")]).await;
+    assert_eq!(code, 200);
+    assert_eq!(tasks.len(), 2);
+    let task_ids: Vec<&str> = tasks.iter().map(|t| t["id"].as_str().unwrap()).collect();
+    assert!(task_ids.contains(&id1));
+    assert!(task_ids.contains(&id4));
+
+    // Test 11: Multiple filters with mixed case - category and priority
+    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("category", "Bug_Fix"), ("priority", "MEDIUM")]).await;
+    assert_eq!(code, 200);
+    assert_eq!(tasks.len(), 1);
+    assert_eq!(tasks[0]["id"], id2);
+    assert_eq!(tasks[0]["category"], "bug_fix");
+    assert_eq!(tasks[0]["priority"], "medium");
+
+    // Test 12: All filters combined with uppercase
+    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("phase", "PLANNING"), ("category", "BUG_FIX"), ("priority", "MEDIUM")]).await;
+    assert_eq!(code, 200);
+    assert_eq!(tasks.len(), 1);
+    assert_eq!(tasks[0]["id"], id2);
+
+    // Test 13: Verify all tasks exist without filters
+    let all_tasks = api_list_tasks(&client, &base).await;
+    assert_eq!(all_tasks.len(), 4);
+}
