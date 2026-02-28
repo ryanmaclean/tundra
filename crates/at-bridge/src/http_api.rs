@@ -37,6 +37,7 @@ use at_core::types::{
     PhaseConfig, Task, TaskCategory, TaskComplexity, TaskImpact, TaskPhase, TaskPriority,
     TaskSource,
 };
+use at_harness::security::{InputSanitizer, SecurityError};
 use at_integrations::github::{
     issues, oauth as gh_oauth, pr_automation::PrAutomation, pull_requests, sync::IssueSyncEngine,
 };
@@ -220,6 +221,21 @@ pub struct PlanningPokerSession {
     pub started_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
 }
+
+// ---------------------------------------------------------------------------
+// Input validation helpers
+// ---------------------------------------------------------------------------
+
+/// Validate a text field using InputSanitizer to prevent injection attacks.
+fn validate_text_field(text: &str) -> Result<(), SecurityError> {
+    let sanitizer = InputSanitizer::new();
+    sanitizer.sanitize(text)?;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Default configuration functions
+// ---------------------------------------------------------------------------
 
 fn default_kanban_columns() -> KanbanColumnConfig {
     KanbanColumnConfig {
@@ -1176,6 +1192,26 @@ async fn create_bead(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<CreateBeadRequest>,
 ) -> impl IntoResponse {
+    // Validate title
+    if let Err(e) = validate_text_field(&req.title) {
+        return (
+            axum::http::StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e.to_string()})),
+        )
+            .into_response();
+    }
+
+    // Validate description if present
+    if let Some(ref description) = req.description {
+        if let Err(e) = validate_text_field(description) {
+            return (
+                axum::http::StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": e.to_string()})),
+            )
+                .into_response();
+        }
+    }
+
     let lane = req.lane.unwrap_or(Lane::Standard);
     let mut bead = Bead::new(req.title, lane);
     bead.description = req.description;
@@ -1191,7 +1227,7 @@ async fn create_bead(
         .event_bus
         .publish(crate::protocol::BridgeMessage::BeadCreated(bead.clone()));
 
-    (axum::http::StatusCode::CREATED, Json(bead))
+    (axum::http::StatusCode::CREATED, Json(bead)).into_response()
 }
 
 /// POST /api/beads/{id}/status -- update a bead's status.
@@ -1658,12 +1694,24 @@ async fn create_task(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<CreateTaskRequest>,
 ) -> impl IntoResponse {
-    if req.title.is_empty() {
+    // Validate title
+    if let Err(e) = validate_text_field(&req.title) {
         return (
             axum::http::StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": "title cannot be empty"})),
+            Json(serde_json::json!({"error": e.to_string()})),
         )
             .into_response();
+    }
+
+    // Validate description if present
+    if let Some(ref description) = req.description {
+        if let Err(e) = validate_text_field(description) {
+            return (
+                axum::http::StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": e.to_string()})),
+            )
+                .into_response();
+        }
     }
 
     let mut task = Task::new(
@@ -1819,9 +1867,23 @@ async fn update_task(
                 Json(serde_json::json!({"error": "title cannot be empty"})),
             );
         }
+        // Validate title
+        if let Err(e) = validate_text_field(&title) {
+            return (
+                axum::http::StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": e.to_string()})),
+            );
+        }
         task.title = title;
     }
     if let Some(desc) = req.description {
+        // Validate description
+        if let Err(e) = validate_text_field(&desc) {
+            return (
+                axum::http::StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": e.to_string()})),
+            );
+        }
         task.description = Some(desc);
     }
     if let Some(cat) = req.category {

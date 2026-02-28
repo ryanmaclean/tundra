@@ -132,6 +132,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use uuid::Uuid;
 
+use at_harness::security::{InputSanitizer, SecurityError};
+
 use crate::http_api::ApiState;
 use crate::origin_validation::{get_default_allowed_origins, validate_websocket_origin};
 use crate::terminal::{
@@ -292,6 +294,42 @@ pub enum WsIncoming {
         /// New terminal height in character rows.
         rows: u16,
     },
+}
+
+// ---------------------------------------------------------------------------
+// Helper Functions
+// ---------------------------------------------------------------------------
+
+/// Validates a text field using InputSanitizer to detect prompt injection and enforce length limits.
+///
+/// This helper function creates an InputSanitizer with default settings and validates
+/// the provided text for potential security issues. It checks for:
+/// - Maximum length violations (default: 10,000 characters)
+/// - Prompt injection patterns (e.g., "ignore previous instructions", "system prompt:")
+///
+/// # Parameters
+///
+/// - `text`: The text field to validate
+///
+/// # Returns
+///
+/// - `Ok(String)`: The validated text (unchanged if validation passes)
+/// - `Err(SecurityError)`: Validation failed due to security concerns
+///
+/// # Example
+///
+/// ```no_run
+/// # use at_harness::security::SecurityError;
+/// # fn validate_text_field(text: &str) -> Result<String, SecurityError> { Ok(text.to_string()) }
+/// let user_input = "Hello, world!";
+/// match validate_text_field(user_input) {
+///     Ok(clean) => println!("Valid input: {}", clean),
+///     Err(e) => eprintln!("Invalid input: {}", e),
+/// }
+/// ```
+fn validate_text_field(text: &str) -> Result<String, SecurityError> {
+    let sanitizer = InputSanitizer::new();
+    sanitizer.sanitize(text)
 }
 
 // ---------------------------------------------------------------------------
@@ -598,6 +636,14 @@ pub async fn rename_terminal(
         }
     };
 
+    // Validate the name field
+    if let Err(e) = validate_text_field(&body.name) {
+        return (
+            axum::http::StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e.to_string()})),
+        );
+    }
+
     let mut registry = state.terminal_registry.write().await;
     if registry.rename(&terminal_id, body.name.clone()) {
         (
@@ -667,6 +713,14 @@ pub async fn auto_name_terminal(
             );
         }
     };
+
+    // Validate the first_message field
+    if let Err(e) = validate_text_field(&body.first_message) {
+        return (
+            axum::http::StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e.to_string()})),
+        );
+    }
 
     // Extract up to 40 chars from the first message as the terminal name.
     let name: String = body.first_message.chars().take(40).collect();

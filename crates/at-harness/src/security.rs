@@ -242,6 +242,11 @@ impl InputSanitizer {
     /// Sanitize user input.  Returns the input unchanged on success, or an
     /// error if the input fails validation.
     pub fn sanitize(&self, input: &str) -> Result<String, SecurityError> {
+        // Empty check
+        if input.is_empty() {
+            return Err(SecurityError::InputRejected("input is empty".into()));
+        }
+
         // Length check
         if input.len() > self.max_length {
             return Err(SecurityError::InputRejected(format!(

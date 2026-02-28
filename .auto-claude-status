@@ -1,25 +1,25 @@
 {
   "active": true,
-  "spec": "047-document-the-pty-pool-and-terminal-session-managem",
+  "spec": "042-apply-inputsanitizer-to-api-request-text-fields-fo",
   "state": "building",
   "subtasks": {
-    "completed": 2,
-    "total": 3,
+    "completed": 8,
+    "total": 9,
     "in_progress": 1,
     "failed": 0
   },
   "phase": {
-    "current": "Create README Documentation",
+    "current": "Integration Testing",
     "id": null,
-    "total": 3
+    "total": 2
   },
   "workers": {
     "active": 0,
     "max": 1
   },
   "session": {
-    "number": 4,
-    "started_at": "2026-02-27T08:12:15.896307"
+    "number": 11,
+    "started_at": "2026-02-27T17:49:37.048358"
   },
-  "last_update": "2026-02-27T08:22:42.435464"
+  "last_update": "2026-02-27T18:22:48.975532"
 }
