@@ -1694,12 +1694,24 @@ async fn create_task(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<CreateTaskRequest>,
 ) -> impl IntoResponse {
-    if req.title.is_empty() {
+    // Validate title
+    if let Err(e) = validate_text_field(&req.title) {
         return (
             axum::http::StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": "title cannot be empty"})),
+            Json(serde_json::json!({"error": e.to_string()})),
         )
             .into_response();
+    }
+
+    // Validate description if present
+    if let Some(ref description) = req.description {
+        if let Err(e) = validate_text_field(description) {
+            return (
+                axum::http::StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": e.to_string()})),
+            )
+                .into_response();
+        }
     }
 
     let mut task = Task::new(
