@@ -1,12 +1,17 @@
-TEST REPO! 
-SHAMELESS COPY OF GAS TOWN 
-DISGUISED AS A KANBAN BOARD IN RUST
+---
 
-USED FOR CICD MONITORING TESTING AND PR BOT DEMOS
+> **⚠️ CI/CD TEST & DEMO ONLY — VIBECODED FOR SAST TESTING ⚠️**
+>
+> This repository is a **CI/CD test demo project**. It exists solely for testing
+> CI/CD pipelines, monitoring integrations, SAST scanning, and PR bot demos.
+> It is **not production software**. It was vibecoded as a testbed — do not use
+> it for anything real.
+
+---
 
 # Auto-Tundra
 
-> **A production-grade, multi-agent orchestration platform for Rust** with context-aware LLM integration, extensible agent/skill definitions, and multi-provider AI support.
+> **A CI/CD demo project** — a vibecoded multi-agent orchestration scaffold in Rust, used exclusively for testing pipelines, SAST scanners, Datadog integrations, and PR automation bots.
 
 ---
 
@@ -330,10 +335,11 @@ MIT OR Apache-2.0 (dual license)
 
 ## 🚦 Project Status
 
-**Current Version:** 0.1.0
+**Current Version:** 0.1.0 (demo/test only)
 **Rust Version:** 1.91+
-**Test Count:** 1,483+
-**Production Ready:** ✅ (with comprehensive CI/CD and monitoring)
+**Test Count:** 2,190+
+**Purpose:** CI/CD pipeline testing, SAST scanning, PR bot demos
+**Production Ready:** No — this is a vibecoded test scaffold
 
 ---
 

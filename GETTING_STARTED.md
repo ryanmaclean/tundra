@@ -1,5 +1,7 @@
 # Getting Started with Auto-Tundra
 
+> **⚠️ CI/CD TEST DEMO ONLY — VIBECODED FOR SAST TESTING.** See [DISCLAIMER.md](DISCLAIMER.md).
+
 **[← Back to README](README.md)**
 
 This guide will get you from zero to running your first AI agent in under 15 minutes.

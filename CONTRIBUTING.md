@@ -1,5 +1,7 @@
 # Contributing to Auto-Tundra
 
+> **⚠️ CI/CD TEST DEMO ONLY — VIBECODED FOR SAST TESTING.** See [DISCLAIMER.md](DISCLAIMER.md).
+
 **[← Back to README](README.md)**
 
 Thank you for contributing! This guide covers development setup, coding standards, testing, and the PR workflow.
