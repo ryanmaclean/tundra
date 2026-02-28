@@ -1,9 +1,101 @@
 use leptos::prelude::*;
+use std::cell::Cell;
+use std::rc::Rc;
 use wasm_bindgen_futures::spawn_local;
 
 use crate::api;
 use crate::components::spinner::Spinner;
 use crate::events::Toast;
+
+/// Individual toast item with auto-dismiss timer and progress tracking.
+#[component]
+fn ToastItem(
+    toast: Toast,
+    on_dismiss: impl Fn(String) + 'static + Copy,
+) -> impl IntoView {
+    let toast_id = toast.id.clone();
+    let dismiss_id = toast_id.clone();
+    let level_class = format!("toast-{}", toast.level);
+
+    // Track hover state
+    let (is_hovered, set_is_hovered) = signal(false);
+    // Track progress (0.0 to 100.0)
+    let (progress, set_progress) = signal(100.0);
+
+    // Auto-dismiss timer logic
+    if toast.auto_dismiss {
+        if let Some(duration_ms) = toast.duration_ms {
+            // Track elapsed time in 100ms intervals
+            let elapsed_ms = Rc::new(Cell::new(0u64));
+            let is_running = Rc::new(Cell::new(true));
+
+            // Clone for closures
+            let elapsed_ms_clone = elapsed_ms.clone();
+            let is_running_clone = is_running.clone();
+            let dismiss_id_clone = dismiss_id.clone();
+
+            // Progress update interval (every 100ms)
+            spawn_local(async move {
+                loop {
+                    gloo_timers::future::TimeoutFuture::new(100).await;
+
+                    // Check if component is still running
+                    if !is_running_clone.get() {
+                        break;
+                    }
+
+                    // If not hovered, update elapsed time and progress
+                    if !is_hovered.get() {
+                        let new_elapsed = elapsed_ms_clone.get() + 100;
+                        elapsed_ms_clone.set(new_elapsed);
+
+                        // Calculate progress percentage (100% to 0%)
+                        let progress_pct = 100.0 - (new_elapsed as f64 / duration_ms as f64 * 100.0);
+                        set_progress.set(progress_pct.max(0.0));
+
+                        // Auto-dismiss when time is up
+                        if new_elapsed >= duration_ms {
+                            is_running_clone.set(false);
+                            on_dismiss(dismiss_id_clone.clone());
+                            break;
+                        }
+                    }
+                    // If hovered, we just wait without incrementing elapsed_ms (timer paused)
+                }
+            });
+
+            // Cleanup on unmount
+            // SendWrapper is needed because Rc is not Send+Sync, but WASM is single-threaded.
+            let is_running_cleanup = send_wrapper::SendWrapper::new(is_running.clone());
+            on_cleanup(move || {
+                is_running_cleanup.set(false);
+            });
+        }
+    }
+
+    let dismiss_handler = move |_| on_dismiss(dismiss_id.clone());
+    let mouseenter_handler = move |_| set_is_hovered.set(true);
+    let mouseleave_handler = move |_| set_is_hovered.set(false);
+
+    view! {
+        <div
+            class={format!("toast-item {level_class}")}
+            on:mouseenter=mouseenter_handler
+            on:mouseleave=mouseleave_handler
+        >
+            <div class="toast-header">
+                <span class="toast-title">{toast.title}</span>
+                <button
+                    class="toast-dismiss"
+                    on:click=dismiss_handler
+                >
+                    "\u{2715}"
+                </button>
+            </div>
+            <div class="toast-body">{toast.message}</div>
+        </div>
+    }
+}
 
 /// Notification bell icon with unread count badge and dropdown panel.
 #[component]
@@ -154,22 +246,8 @@ pub fn NotificationBell(
             <div class="toast-container" role="alert" aria-live="assertive">
                 {move || {
                     toasts.get().into_iter().map(|toast| {
-                        let toast_id = toast.id.clone();
-                        let dismiss_id = toast_id.clone();
-                        let level_class = format!("toast-{}", toast.level);
                         view! {
-                            <div class={format!("toast-item {level_class}")}>
-                                <div class="toast-header">
-                                    <span class="toast-title">{toast.title}</span>
-                                    <button
-                                        class="toast-dismiss"
-                                        on:click=move |_| dismiss_toast(dismiss_id.clone())
-                                    >
-                                        "\u{2715}"
-                                    </button>
-                                </div>
-                                <div class="toast-body">{toast.message}</div>
-                            </div>
+                            <ToastItem toast=toast on_dismiss=dismiss_toast />
                         }
                     }).collect::<Vec<_>>()
                 }}
