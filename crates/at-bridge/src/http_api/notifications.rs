@@ -1,7 +1,8 @@
 use axum::{
     extract::{Path, Query, State},
     response::IntoResponse,
-    Json,
+    routing::{delete, get, post},
+    Json, Router,
 };
 use std::sync::Arc;
 use uuid::Uuid;
@@ -85,4 +86,13 @@ pub(crate) async fn delete_notification(
             Json(serde_json::json!({"error": "notification not found"})),
         )
     }
+}
+
+pub fn notifications_router() -> Router<Arc<ApiState>> {
+    Router::new()
+        .route("/api/notifications", get(list_notifications))
+        .route("/api/notifications/count", get(notification_count))
+        .route("/api/notifications/read-all", post(mark_all_notifications_read))
+        .route("/api/notifications/{id}/read", post(mark_notification_read))
+        .route("/api/notifications/{id}", delete(delete_notification))
 }
