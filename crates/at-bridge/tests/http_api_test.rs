@@ -330,6 +330,106 @@ async fn test_list_beads_pagination() {
 }
 
 #[tokio::test]
+async fn test_list_beads_pagination_with_status_filter() {
+    let (base, _state) = start_test_server().await;
+    let client = reqwest::Client::new();
+
+    // Create 10 beads
+    let mut bead_ids = Vec::new();
+    for i in 0..10 {
+        let resp = client
+            .post(format!("{base}/api/beads"))
+            .json(&serde_json::json!({
+                "title": format!("Bead {}", i),
+                "description": format!("Description {}", i)
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 201);
+        let bead: Value = resp.json().await.unwrap();
+        bead_ids.push(bead["id"].as_str().unwrap().to_string());
+    }
+
+    // Update first 6 beads to "hooked" status, leaving last 4 as "backlog"
+    for id in bead_ids.iter().take(6) {
+        client
+            .post(format!("{base}/api/beads/{id}/status"))
+            .json(&serde_json::json!({ "status": "hooked" }))
+            .send()
+            .await
+            .unwrap();
+    }
+
+    // Test pagination with status filter: hooked status, first page
+    let resp = reqwest::get(format!("{base}/api/beads?status=hooked&limit=3&offset=0"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let page1: Vec<Value> = resp.json().await.unwrap();
+    assert_eq!(page1.len(), 3);
+    for bead in &page1 {
+        assert_eq!(bead["status"], "hooked");
+    }
+
+    // Test pagination with status filter: hooked status, second page
+    let resp = reqwest::get(format!("{base}/api/beads?status=hooked&limit=3&offset=3"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let page2: Vec<Value> = resp.json().await.unwrap();
+    assert_eq!(page2.len(), 3);
+    for bead in &page2 {
+        assert_eq!(bead["status"], "hooked");
+    }
+
+    // Verify pages contain different beads (no overlap)
+    let page1_ids: Vec<String> = page1
+        .iter()
+        .map(|b| b["id"].as_str().unwrap().to_string())
+        .collect();
+    let page2_ids: Vec<String> = page2
+        .iter()
+        .map(|b| b["id"].as_str().unwrap().to_string())
+        .collect();
+    for id in &page1_ids {
+        assert!(!page2_ids.contains(id), "Pages should not overlap");
+    }
+
+    // Test pagination with status filter: backlog status
+    let resp = reqwest::get(format!("{base}/api/beads?status=backlog&limit=2&offset=0"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let backlog_page: Vec<Value> = resp.json().await.unwrap();
+    assert_eq!(backlog_page.len(), 2);
+    for bead in &backlog_page {
+        assert_eq!(bead["status"], "backlog");
+    }
+
+    // Test pagination with status filter: offset beyond filtered count
+    let resp = reqwest::get(format!("{base}/api/beads?status=backlog&limit=10&offset=100"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let empty: Vec<Value> = resp.json().await.unwrap();
+    assert!(empty.is_empty());
+
+    // Verify total counts: 6 hooked + 4 backlog = 10 total
+    let resp = reqwest::get(format!("{base}/api/beads?status=hooked"))
+        .await
+        .unwrap();
+    let all_hooked: Vec<Value> = resp.json().await.unwrap();
+    assert_eq!(all_hooked.len(), 6);
+
+    let resp = reqwest::get(format!("{base}/api/beads?status=backlog"))
+        .await
+        .unwrap();
+    let all_backlog: Vec<Value> = resp.json().await.unwrap();
+    assert_eq!(all_backlog.len(), 4);
+}
+
+#[tokio::test]
 async fn test_list_agents_empty() {
     let (base, _state) = start_test_server().await;
 
