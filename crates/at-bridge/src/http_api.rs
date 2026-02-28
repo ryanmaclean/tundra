@@ -37,6 +37,7 @@ use at_core::types::{
     PhaseConfig, Task, TaskCategory, TaskComplexity, TaskImpact, TaskPhase, TaskPriority,
     TaskSource,
 };
+use at_harness::security::{InputSanitizer, SecurityError};
 use at_integrations::github::{
     issues, oauth as gh_oauth, pr_automation::PrAutomation, pull_requests, sync::IssueSyncEngine,
 };
@@ -220,6 +221,21 @@ pub struct PlanningPokerSession {
     pub started_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
 }
+
+// ---------------------------------------------------------------------------
+// Input validation helpers
+// ---------------------------------------------------------------------------
+
+/// Validate a text field using InputSanitizer to prevent injection attacks.
+fn validate_text_field(text: &str) -> Result<(), SecurityError> {
+    let sanitizer = InputSanitizer::new();
+    sanitizer.sanitize(text)?;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Default configuration functions
+// ---------------------------------------------------------------------------
 
 fn default_kanban_columns() -> KanbanColumnConfig {
     KanbanColumnConfig {
