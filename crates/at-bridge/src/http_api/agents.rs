@@ -1,7 +1,8 @@
 use axum::{
     extract::{Path, Query, State},
     response::IntoResponse,
-    Json,
+    routing::{get, post},
+    Json, Router,
 };
 use std::sync::Arc;
 use uuid::Uuid;
@@ -143,4 +144,25 @@ pub(crate) async fn stop_agent(State(state): State<Arc<ApiState>>, Path(id): Pat
         axum::http::StatusCode::OK,
         Json(serde_json::json!(snapshot)),
     ))
+}
+
+// ---------------------------------------------------------------------------
+// Router
+// ---------------------------------------------------------------------------
+
+/// Creates the agents router with all agent management endpoints.
+///
+/// This router provides endpoints for listing agents, nudging agents to check
+/// for work, and stopping agents.
+///
+/// # Routes
+/// * `GET /` - List all agents with optional pagination
+/// * `POST /:id/nudge` - Signal an agent to wake up and check for work
+/// * `POST /:id/stop` - Mark an agent as stopped
+pub(crate) fn agents_router(state: Arc<ApiState>) -> Router {
+    Router::new()
+        .route("/", get(list_agents))
+        .route("/:id/nudge", post(nudge_agent))
+        .route("/:id/stop", post(stop_agent))
+        .with_state(state)
 }
