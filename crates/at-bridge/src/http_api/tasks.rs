@@ -1,7 +1,8 @@
 use axum::{
     extract::{Path, Query, State},
     response::IntoResponse,
-    Json,
+    routing::{delete, get, post, put},
+    Json, Router,
 };
 use std::sync::Arc;
 use uuid::Uuid;
@@ -338,4 +339,23 @@ pub(crate) async fn get_task_logs(
         axum::http::StatusCode::OK,
         Json(serde_json::json!(task.logs)),
     ))
+}
+
+// ---------------------------------------------------------------------------
+// Router
+// ---------------------------------------------------------------------------
+
+/// Creates the tasks sub-router with all task-related endpoints.
+///
+/// Mounts all task management routes including CRUD operations, phase transitions,
+/// and log retrieval.
+pub fn tasks_router() -> Router<Arc<ApiState>> {
+    Router::new()
+        .route("/tasks", get(list_tasks))
+        .route("/tasks", post(create_task))
+        .route("/tasks/:id", get(get_task))
+        .route("/tasks/:id", put(update_task))
+        .route("/tasks/:id", delete(delete_task))
+        .route("/tasks/:id/phase", post(update_task_phase))
+        .route("/tasks/:id/logs", get(get_task_logs))
 }
