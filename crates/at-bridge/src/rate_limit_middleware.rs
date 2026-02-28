@@ -252,4 +252,239 @@ mod tests {
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
     }
+
+    #[tokio::test]
+    async fn extracts_client_ip_from_x_forwarded_for() {
+        // Restrictive per-user limit to test IP extraction.
+        let limiter = Arc::new(MultiKeyRateLimiter::new(
+            RateLimitConfig::per_second(100),
+            RateLimitConfig::per_second(1),
+            RateLimitConfig::per_second(100),
+        ));
+
+        let app = test_router(limiter);
+
+        // First request with IP 1.2.3.4 succeeds.
+        let req = Request::builder()
+            .uri("/ping")
+            .header("X-Forwarded-For", "1.2.3.4")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // Second request with same IP should be rate limited.
+        let req = Request::builder()
+            .uri("/ping")
+            .header("X-Forwarded-For", "1.2.3.4")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
+    }
+
+    #[tokio::test]
+    async fn extracts_client_ip_from_x_real_ip() {
+        // Restrictive per-user limit to test IP extraction.
+        let limiter = Arc::new(MultiKeyRateLimiter::new(
+            RateLimitConfig::per_second(100),
+            RateLimitConfig::per_second(1),
+            RateLimitConfig::per_second(100),
+        ));
+
+        let app = test_router(limiter);
+
+        // First request with IP 5.6.7.8 succeeds.
+        let req = Request::builder()
+            .uri("/ping")
+            .header("X-Real-IP", "5.6.7.8")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // Second request with same IP should be rate limited.
+        let req = Request::builder()
+            .uri("/ping")
+            .header("X-Real-IP", "5.6.7.8")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
+    }
+
+    #[tokio::test]
+    async fn prefers_x_forwarded_for_over_x_real_ip() {
+        // Restrictive per-user limit to test IP extraction.
+        let limiter = Arc::new(MultiKeyRateLimiter::new(
+            RateLimitConfig::per_second(100),
+            RateLimitConfig::per_second(1),
+            RateLimitConfig::per_second(100),
+        ));
+
+        let app = test_router(limiter);
+
+        // Request with both headers uses X-Forwarded-For.
+        let req = Request::builder()
+            .uri("/ping")
+            .header("X-Forwarded-For", "1.1.1.1")
+            .header("X-Real-IP", "2.2.2.2")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // Second request with same X-Forwarded-For should be rate limited.
+        let req = Request::builder()
+            .uri("/ping")
+            .header("X-Forwarded-For", "1.1.1.1")
+            .header("X-Real-IP", "2.2.2.2")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
+    }
+
+    #[tokio::test]
+    async fn handles_x_forwarded_for_with_multiple_ips() {
+        // X-Forwarded-For can contain multiple IPs; we should use the first.
+        let limiter = Arc::new(MultiKeyRateLimiter::new(
+            RateLimitConfig::per_second(100),
+            RateLimitConfig::per_second(1),
+            RateLimitConfig::per_second(100),
+        ));
+
+        let app = test_router(limiter);
+
+        // First request with multiple IPs succeeds.
+        let req = Request::builder()
+            .uri("/ping")
+            .header("X-Forwarded-For", "10.0.0.1, 10.0.0.2, 10.0.0.3")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // Second request with same first IP should be rate limited.
+        let req = Request::builder()
+            .uri("/ping")
+            .header("X-Forwarded-For", "10.0.0.1, 10.0.0.99")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
+    }
+
+    #[tokio::test]
+    async fn different_clients_have_separate_limits() {
+        // Restrictive per-user limit.
+        let limiter = Arc::new(MultiKeyRateLimiter::new(
+            RateLimitConfig::per_second(100),
+            RateLimitConfig::per_second(1),
+            RateLimitConfig::per_second(100),
+        ));
+
+        let app = test_router(limiter);
+
+        // First client makes a request.
+        let req = Request::builder()
+            .uri("/ping")
+            .header("X-Forwarded-For", "192.168.1.1")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // Different client should still be allowed.
+        let req = Request::builder()
+            .uri("/ping")
+            .header("X-Forwarded-For", "192.168.1.2")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn enforces_global_rate_limit() {
+        // Very restrictive global limit.
+        let limiter = Arc::new(MultiKeyRateLimiter::new(
+            RateLimitConfig::per_second(1),
+            RateLimitConfig::per_second(100),
+            RateLimitConfig::per_second(100),
+        ));
+
+        let app = test_router(limiter);
+
+        // First request succeeds.
+        let req = Request::builder()
+            .uri("/ping")
+            .header("X-Forwarded-For", "1.1.1.1")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // Second request from different client should also be rate limited (global).
+        let req = Request::builder()
+            .uri("/ping")
+            .header("X-Forwarded-For", "2.2.2.2")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
+    }
+
+    #[tokio::test]
+    async fn rate_limit_response_includes_error_details() {
+        let limiter = Arc::new(MultiKeyRateLimiter::new(
+            RateLimitConfig::per_second(1),
+            RateLimitConfig::per_second(1),
+            RateLimitConfig::per_second(1),
+        ));
+
+        let app = test_router(limiter);
+
+        // First request succeeds.
+        let req = Request::builder().uri("/ping").body(Body::empty()).unwrap();
+        let _ = app.clone().oneshot(req).await.unwrap();
+
+        // Second request should be rate limited with error details.
+        let req = Request::builder().uri("/ping").body(Body::empty()).unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+
+        assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
+
+        // Convert response body to JSON and verify fields.
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(json["error"], "rate_limit_exceeded");
+        assert!(json["message"].is_string());
+        assert!(json["retry_after"].is_number());
+    }
+
+    #[tokio::test]
+    async fn falls_back_to_unknown_when_no_ip_headers() {
+        // Restrictive per-user limit.
+        let limiter = Arc::new(MultiKeyRateLimiter::new(
+            RateLimitConfig::per_second(100),
+            RateLimitConfig::per_second(1),
+            RateLimitConfig::per_second(100),
+        ));
+
+        let app = test_router(limiter);
+
+        // First request without IP headers succeeds.
+        let req = Request::builder().uri("/ping").body(Body::empty()).unwrap();
+        let resp = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // Second request should be rate limited (both use "unknown" as client IP).
+        let req = Request::builder().uri("/ping").body(Body::empty()).unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
+    }
 }
