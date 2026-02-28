@@ -1917,3 +1917,43 @@ async fn test_list_tasks_case_insensitive_filtering() {
     let all_tasks = api_list_tasks(&client, &base).await;
     assert_eq!(all_tasks.len(), 4);
 }
+
+#[tokio::test]
+async fn test_list_tasks_no_matches() {
+    let (base, _state) = start_test_server().await;
+    let client = reqwest::Client::new();
+
+    // Create some tasks with known values
+    api_create_task(&client, &base, "Feature Task", "feature", "low", "small").await;
+    api_create_task(&client, &base, "Bug Fix Task", "bug_fix", "medium", "medium").await;
+    api_create_task(&client, &base, "Refactoring Task", "refactoring", "high", "large").await;
+
+    // Test 1: Filter by non-existent category
+    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("category", "nonexistent")]).await;
+    assert_eq!(code, 200);
+    assert_eq!(tasks.len(), 0);
+
+    // Test 2: Filter by non-existent priority
+    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("priority", "critical")]).await;
+    assert_eq!(code, 200);
+    assert_eq!(tasks.len(), 0);
+
+    // Test 3: Filter by non-existent phase
+    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("phase", "deployment")]).await;
+    assert_eq!(code, 200);
+    assert_eq!(tasks.len(), 0);
+
+    // Test 4: Filter by valid category but non-matching priority
+    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("category", "feature"), ("priority", "urgent")]).await;
+    assert_eq!(code, 200);
+    assert_eq!(tasks.len(), 0);
+
+    // Test 5: Multiple filters with no matches
+    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("category", "documentation"), ("priority", "high"), ("phase", "code_review")]).await;
+    assert_eq!(code, 200);
+    assert_eq!(tasks.len(), 0);
+
+    // Test 6: Verify all tasks still exist without filters
+    let all_tasks = api_list_tasks(&client, &base).await;
+    assert_eq!(all_tasks.len(), 3);
+}
