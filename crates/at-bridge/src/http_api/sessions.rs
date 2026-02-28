@@ -1,7 +1,8 @@
 use axum::{
     extract::State,
     response::IntoResponse,
-    Json,
+    routing::{get, put},
+    Json, Router,
 };
 use std::sync::Arc;
 
@@ -53,4 +54,13 @@ pub(crate) async fn list_ui_sessions(State(state): State<Arc<ApiState>>) -> impl
             Json(serde_json::json!({"error": e.to_string()})),
         ),
     }
+}
+
+/// Builds the sessions sub-router.
+///
+/// This router handles UI session state management endpoints.
+pub fn sessions_router() -> Router<Arc<ApiState>> {
+    Router::new()
+        .route("/api/sessions/ui", get(get_ui_session).put(save_ui_session))
+        .route("/api/sessions/ui/list", get(list_ui_sessions))
 }
