@@ -1,6 +1,8 @@
-use leptos::ev::MouseEvent;
+use leptos::ev::{KeyboardEvent, MouseEvent};
 use leptos::prelude::*;
+use web_sys;
 
+use crate::components::focus_trap::use_focus_trap;
 use crate::state::use_app_state;
 use crate::types::{BeadResponse, BeadStatus, Lane};
 
@@ -31,6 +33,24 @@ pub fn NewTaskModal(
 
     let on_close_bg = on_close.clone();
     let on_close_cancel = on_close.clone();
+    let on_close_escape = on_close.clone();
+
+    let focus_trap = use_focus_trap();
+
+    // Combined keydown handler for focus trap and Escape key
+    let handle_keydown = move |ev: KeyboardEvent| {
+        // Handle Escape key to close modal
+        if ev.key() == "Escape" {
+            // Create a synthetic MouseEvent for on_close
+            if let Ok(dummy_event) = web_sys::MouseEvent::new("click") {
+                on_close_escape(dummy_event);
+            }
+            return;
+        }
+
+        // Handle Tab/Shift+Tab for focus trapping
+        focus_trap(ev);
+    };
 
     let do_submit = move || {
         let t = title.get();
@@ -104,7 +124,7 @@ pub fn NewTaskModal(
     view! {
         <div class="new-task-overlay" on:click=move |ev| on_close_bg(ev)>
         </div>
-        <div class="new-task-modal wizard-modal">
+        <div class="new-task-modal wizard-modal" on:keydown=handle_keydown>
             <h2>"Create New Task"</h2>
 
             // Step indicators

@@ -2,6 +2,7 @@ pub mod agent_card;
 pub mod bead_card;
 pub mod edit_task_modal;
 pub mod file_explorer;
+pub mod focus_trap;
 pub mod help_modal;
 pub mod kpi_card;
 pub mod nav_bar;

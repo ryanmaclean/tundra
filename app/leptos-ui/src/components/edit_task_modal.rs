@@ -1,7 +1,9 @@
-use leptos::ev::MouseEvent;
+use leptos::ev::{KeyboardEvent, MouseEvent};
 use leptos::prelude::*;
 use leptos::task::spawn_local;
+use web_sys;
 
+use crate::components::focus_trap::use_focus_trap;
 use crate::state::use_app_state;
 
 #[component]
@@ -57,6 +59,24 @@ pub fn EditTaskModal(
 
     let on_close_bg = on_close.clone();
     let on_close_cancel = on_close.clone();
+
+    let focus_trap = use_focus_trap();
+    let on_close_clone = on_close.clone();
+
+    // Combined keydown handler for focus trap and Escape key
+    let handle_keydown = move |ev: KeyboardEvent| {
+        // Handle Escape key to close modal
+        if ev.key() == "Escape" {
+            // Create a synthetic MouseEvent for on_close
+            if let Ok(dummy_event) = web_sys::MouseEvent::new("click") {
+                on_close_clone(dummy_event);
+            }
+            return;
+        }
+
+        // Handle Tab/Shift+Tab for focus trapping
+        focus_trap(ev);
+    };
 
     let bid = bead_id.clone();
     let on_save = move |ev: MouseEvent| {
@@ -172,7 +192,7 @@ pub fn EditTaskModal(
             ev.stop_propagation();
             on_close_bg(ev);
         }></div>
-        <div class="edit-task-modal" on:click=move |ev: MouseEvent| ev.stop_propagation()>
+        <div class="edit-task-modal" on:click=move |ev: MouseEvent| ev.stop_propagation() on:keydown=handle_keydown>
             <div class="edit-task-header">
                 <h2>"Edit Task"</h2>
                 <p class="edit-task-subtitle">
