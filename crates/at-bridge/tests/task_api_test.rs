@@ -1646,3 +1646,143 @@ async fn test_list_tasks_filter_by_source() {
     let all_tasks = api_list_tasks(&client, &base).await;
     assert_eq!(all_tasks.len(), 7);
 }
+
+#[tokio::test]
+async fn test_list_tasks_filter_multiple_params() {
+    let (base, _state) = start_test_server().await;
+    let client = reqwest::Client::new();
+
+    // Create tasks with various combinations of attributes
+    // Task 1: feature, low priority, discovery phase
+    let (_, task1) = api_create_task(&client, &base, "Feature Low Discovery", "feature", "low", "small").await;
+    let id1 = task1["id"].as_str().unwrap();
+
+    // Task 2: feature, high priority, discovery phase
+    let (_, task2) = api_create_task(&client, &base, "Feature High Discovery", "feature", "high", "medium").await;
+    let id2 = task2["id"].as_str().unwrap();
+
+    // Task 3: bug_fix, high priority, discovery phase
+    let (_, task3) = api_create_task(&client, &base, "Bug High Discovery", "bug_fix", "high", "large").await;
+    let id3 = task3["id"].as_str().unwrap();
+
+    // Task 4: feature, high priority, planning phase
+    let (_, task4) = api_create_task(&client, &base, "Feature High Planning", "feature", "high", "medium").await;
+    let id4 = task4["id"].as_str().unwrap();
+    // Advance to planning phase
+    client
+        .post(format!("{base}/api/tasks/{id4}/phase"))
+        .json(&json!({"phase": "context_gathering"}))
+        .send()
+        .await
+        .unwrap();
+    client
+        .post(format!("{base}/api/tasks/{id4}/phase"))
+        .json(&json!({"phase": "spec_creation"}))
+        .send()
+        .await
+        .unwrap();
+    client
+        .post(format!("{base}/api/tasks/{id4}/phase"))
+        .json(&json!({"phase": "planning"}))
+        .send()
+        .await
+        .unwrap();
+
+    // Task 5: bug_fix, urgent priority, error phase
+    let (_, task5) = api_create_task(&client, &base, "Bug Urgent Error", "bug_fix", "urgent", "complex").await;
+    let id5 = task5["id"].as_str().unwrap();
+    client
+        .post(format!("{base}/api/tasks/{id5}/phase"))
+        .json(&json!({"phase": "error"}))
+        .send()
+        .await
+        .unwrap();
+
+    // Task 6: refactoring, high priority, discovery phase
+    let (_, task6) = api_create_task(&client, &base, "Refactor High Discovery", "refactoring", "high", "large").await;
+    let id6 = task6["id"].as_str().unwrap();
+
+    // Test 1: Filter by phase=discovery AND priority=high
+    // Should return tasks 2, 3, and 6
+    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("phase", "discovery"), ("priority", "high")]).await;
+    assert_eq!(code, 200);
+    assert_eq!(tasks.len(), 3);
+    let task_ids: Vec<&str> = tasks.iter().map(|t| t["id"].as_str().unwrap()).collect();
+    assert!(task_ids.contains(&id2));
+    assert!(task_ids.contains(&id3));
+    assert!(task_ids.contains(&id6));
+    for task in &tasks {
+        assert_eq!(task["phase"], "discovery");
+        assert_eq!(task["priority"], "high");
+    }
+
+    // Test 2: Filter by phase=discovery AND category=feature
+    // Should return tasks 1 and 2
+    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("phase", "discovery"), ("category", "feature")]).await;
+    assert_eq!(code, 200);
+    assert_eq!(tasks.len(), 2);
+    let task_ids: Vec<&str> = tasks.iter().map(|t| t["id"].as_str().unwrap()).collect();
+    assert!(task_ids.contains(&id1));
+    assert!(task_ids.contains(&id2));
+    for task in &tasks {
+        assert_eq!(task["phase"], "discovery");
+        assert_eq!(task["category"], "feature");
+    }
+
+    // Test 3: Filter by phase=discovery AND category=feature AND priority=high
+    // Should return only task 2
+    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("phase", "discovery"), ("category", "feature"), ("priority", "high")]).await;
+    assert_eq!(code, 200);
+    assert_eq!(tasks.len(), 1);
+    assert_eq!(tasks[0]["id"], id2);
+    assert_eq!(tasks[0]["phase"], "discovery");
+    assert_eq!(tasks[0]["category"], "feature");
+    assert_eq!(tasks[0]["priority"], "high");
+
+    // Test 4: Filter by category=bug_fix AND priority=high
+    // Should return task 3
+    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("category", "bug_fix"), ("priority", "high")]).await;
+    assert_eq!(code, 200);
+    assert_eq!(tasks.len(), 1);
+    assert_eq!(tasks[0]["id"], id3);
+    assert_eq!(tasks[0]["category"], "bug_fix");
+    assert_eq!(tasks[0]["priority"], "high");
+
+    // Test 5: Filter by category=feature AND phase=planning
+    // Should return task 4
+    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("category", "feature"), ("phase", "planning")]).await;
+    assert_eq!(code, 200);
+    assert_eq!(tasks.len(), 1);
+    assert_eq!(tasks[0]["id"], id4);
+    assert_eq!(tasks[0]["category"], "feature");
+    assert_eq!(tasks[0]["phase"], "planning");
+
+    // Test 6: Filter by phase=error AND category=bug_fix
+    // Should return task 5
+    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("phase", "error"), ("category", "bug_fix")]).await;
+    assert_eq!(code, 200);
+    assert_eq!(tasks.len(), 1);
+    assert_eq!(tasks[0]["id"], id5);
+    assert_eq!(tasks[0]["phase"], "error");
+    assert_eq!(tasks[0]["category"], "bug_fix");
+
+    // Test 7: Filter with no matching results
+    // phase=coding AND category=documentation
+    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("phase", "coding"), ("category", "documentation")]).await;
+    assert_eq!(code, 200);
+    assert_eq!(tasks.len(), 0);
+
+    // Test 8: Filter by category=bug_fix AND priority=urgent AND phase=error
+    // Should return task 5
+    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("category", "bug_fix"), ("priority", "urgent"), ("phase", "error")]).await;
+    assert_eq!(code, 200);
+    assert_eq!(tasks.len(), 1);
+    assert_eq!(tasks[0]["id"], id5);
+    assert_eq!(tasks[0]["category"], "bug_fix");
+    assert_eq!(tasks[0]["priority"], "urgent");
+    assert_eq!(tasks[0]["phase"], "error");
+
+    // Test 9: Verify all tasks exist without filters
+    let all_tasks = api_list_tasks(&client, &base).await;
+    assert_eq!(all_tasks.len(), 6);
+}
