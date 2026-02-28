@@ -1867,9 +1867,23 @@ async fn update_task(
                 Json(serde_json::json!({"error": "title cannot be empty"})),
             );
         }
+        // Validate title
+        if let Err(e) = validate_text_field(&title) {
+            return (
+                axum::http::StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": e.to_string()})),
+            );
+        }
         task.title = title;
     }
     if let Some(desc) = req.description {
+        // Validate description
+        if let Err(e) = validate_text_field(&desc) {
+            return (
+                axum::http::StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": e.to_string()})),
+            );
+        }
         task.description = Some(desc);
     }
     if let Some(cat) = req.category {
