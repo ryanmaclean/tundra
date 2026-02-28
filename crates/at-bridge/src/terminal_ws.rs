@@ -636,6 +636,14 @@ pub async fn rename_terminal(
         }
     };
 
+    // Validate the name field
+    if let Err(e) = validate_text_field(&body.name) {
+        return (
+            axum::http::StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e.to_string()})),
+        );
+    }
+
     let mut registry = state.terminal_registry.write().await;
     if registry.rename(&terminal_id, body.name.clone()) {
         (
