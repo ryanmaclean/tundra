@@ -1,7 +1,8 @@
 use axum::{
     extract::{Path, State},
     response::IntoResponse,
-    Json,
+    routing::{get, post},
+    Json, Router,
 };
 use serde::Deserialize;
 use std::sync::Arc;
@@ -124,4 +125,22 @@ pub(crate) async fn activate_project(
         axum::http::StatusCode::OK,
         Json(serde_json::json!(activated)),
     )
+}
+
+// ---------------------------------------------------------------------------
+// Router
+// ---------------------------------------------------------------------------
+
+/// Build the projects sub-router.
+///
+/// All routes are mounted under `/api/` — the caller is responsible for
+/// nesting or merging this into the top-level router.
+pub(crate) fn projects_router() -> Router<Arc<ApiState>> {
+    Router::new()
+        .route("/api/projects", get(list_projects).post(create_project))
+        .route(
+            "/api/projects/:id",
+            axum::routing::put(update_project).delete(delete_project),
+        )
+        .route("/api/projects/:id/activate", post(activate_project))
 }
