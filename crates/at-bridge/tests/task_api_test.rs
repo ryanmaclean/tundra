@@ -1346,3 +1346,66 @@ async fn test_list_tasks_filter_by_phase() {
     let all_tasks = api_list_tasks(&client, &base).await;
     assert_eq!(all_tasks.len(), 5);
 }
+
+#[tokio::test]
+async fn test_list_tasks_filter_by_category() {
+    let (base, _state) = start_test_server().await;
+    let client = reqwest::Client::new();
+
+    // Create tasks with different categories
+    let (_, task1) = api_create_task(&client, &base, "Feature Task", "feature", "low", "small").await;
+    let id1 = task1["id"].as_str().unwrap();
+
+    let (_, task2) = api_create_task(&client, &base, "Bug Fix Task", "bug_fix", "medium", "medium").await;
+    let id2 = task2["id"].as_str().unwrap();
+
+    let (_, task3) = api_create_task(&client, &base, "Refactoring Task", "refactoring", "high", "large").await;
+    let id3 = task3["id"].as_str().unwrap();
+
+    let (_, task4) = api_create_task(&client, &base, "Another Feature", "feature", "urgent", "complex").await;
+    let id4 = task4["id"].as_str().unwrap();
+
+    let (_, task5) = api_create_task(&client, &base, "Documentation Task", "documentation", "low", "small").await;
+    let id5 = task5["id"].as_str().unwrap();
+
+    // Test filtering by feature category
+    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("category", "feature")]).await;
+    assert_eq!(code, 200);
+    assert_eq!(tasks.len(), 2);
+    let task_ids: Vec<&str> = tasks.iter().map(|t| t["id"].as_str().unwrap()).collect();
+    assert!(task_ids.contains(&id1));
+    assert!(task_ids.contains(&id4));
+    for task in &tasks {
+        assert_eq!(task["category"], "feature");
+    }
+
+    // Test filtering by bug_fix category
+    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("category", "bug_fix")]).await;
+    assert_eq!(code, 200);
+    assert_eq!(tasks.len(), 1);
+    assert_eq!(tasks[0]["id"], id2);
+    assert_eq!(tasks[0]["category"], "bug_fix");
+
+    // Test filtering by refactoring category
+    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("category", "refactoring")]).await;
+    assert_eq!(code, 200);
+    assert_eq!(tasks.len(), 1);
+    assert_eq!(tasks[0]["id"], id3);
+    assert_eq!(tasks[0]["category"], "refactoring");
+
+    // Test filtering by documentation category
+    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("category", "documentation")]).await;
+    assert_eq!(code, 200);
+    assert_eq!(tasks.len(), 1);
+    assert_eq!(tasks[0]["id"], id5);
+    assert_eq!(tasks[0]["category"], "documentation");
+
+    // Test filtering by non-existent category (should return empty)
+    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("category", "testing")]).await;
+    assert_eq!(code, 200);
+    assert_eq!(tasks.len(), 0);
+
+    // Test all tasks without filter
+    let all_tasks = api_list_tasks(&client, &base).await;
+    assert_eq!(all_tasks.len(), 5);
+}
