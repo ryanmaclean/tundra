@@ -125,7 +125,8 @@ use axum::{
     },
     http::HeaderMap,
     response::IntoResponse,
-    Json,
+    routing::{delete, get, patch, post},
+    Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -1401,10 +1402,28 @@ async fn handle_terminal_ws(socket: WebSocket, state: Arc<ApiState>, terminal_id
     });
 }
 
-// Routes to add to http_api.rs api_router_with_auth:
-// .route("/api/terminals/{id}/settings", patch(terminal_ws::update_terminal_settings))
-// .route("/api/terminals/{id}/auto-name", post(terminal_ws::auto_name_terminal))
-// .route("/api/terminals/persistent", get(terminal_ws::list_persistent_terminals))
+// ---------------------------------------------------------------------------
+// Router
+// ---------------------------------------------------------------------------
+
+/// Build the terminals sub-router.
+///
+/// All routes are mounted under `/api/` or `/ws/` — the caller is responsible for
+/// nesting or merging this into the top-level router.
+pub fn terminals_router() -> Router<Arc<ApiState>> {
+    Router::new()
+        // Terminal Lifecycle
+        .route("/api/terminals", post(create_terminal))
+        .route("/api/terminals", get(list_terminals))
+        .route("/api/terminals/{id}", delete(delete_terminal))
+        // Terminal Management
+        .route("/api/terminals/{id}/rename", post(rename_terminal))
+        .route("/api/terminals/{id}/auto-name", post(auto_name_terminal))
+        .route("/api/terminals/{id}/settings", patch(update_terminal_settings))
+        .route("/api/terminals/persistent", get(list_persistent_terminals))
+        // WebSocket
+        .route("/ws/terminal/{id}", get(terminal_ws))
+}
 
 // ---------------------------------------------------------------------------
 // Tests
