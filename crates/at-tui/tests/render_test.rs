@@ -6,7 +6,7 @@
 //! representation with the correct data.
 
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
-use ratatui::{backend::TestBackend, buffer::Buffer, layout::Rect, Terminal};
+use ratatui::{backend::TestBackend, buffer::Buffer, Terminal};
 
 // Include binary-crate modules via path for testing.
 #[path = "../src/api_client.rs"]

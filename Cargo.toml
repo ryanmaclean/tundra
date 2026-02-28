@@ -75,7 +75,3 @@ incremental = true  # Explicit incremental compilation for faster dev builds
 [profile.release.package."*"]
 # Default: use release settings
 
-# Optimize dependencies separately (faster builds, smaller binaries)
-[profile.release.package."at-leptos-ui"]
-opt-level = 3
-codegen-units = 1

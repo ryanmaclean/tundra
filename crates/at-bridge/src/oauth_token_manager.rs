@@ -91,6 +91,7 @@ pub struct OAuthTokenManager {
 
 #[derive(Debug, Clone)]
 struct TokenMetadata {
+    #[allow(dead_code)] // Retained for future audit logging / token age queries
     stored_at: DateTime<Utc>,
     expires_at: Option<DateTime<Utc>>,
 }

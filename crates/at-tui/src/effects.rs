@@ -197,7 +197,7 @@ mod tests {
 
     #[test]
     fn fade_in_effect_is_running_initially() {
-        let mut effect = fade_in();
+        let effect = fade_in();
         // A freshly created effect has not yet been processed, so it should
         // not be done.
         assert!(!effect.done(), "fade_in should not be done immediately");
@@ -205,7 +205,7 @@ mod tests {
 
     #[test]
     fn dissolve_effect_is_running_initially() {
-        let mut effect = dissolve();
+        let effect = dissolve();
         assert!(!effect.done(), "dissolve should not be done immediately");
     }
 
@@ -218,7 +218,7 @@ mod tests {
             SweepDirection::DownToUp,
         ];
         for dir in directions {
-            let mut effect = sweep_in(dir);
+            let effect = sweep_in(dir);
             assert!(
                 !effect.done(),
                 "sweep_in({dir:?}) should not be done immediately"
@@ -229,7 +229,7 @@ mod tests {
     #[test]
     fn glow_pulse_effect_is_running_initially() {
         // glow_pulse uses repeating(), so it runs indefinitely.
-        let mut effect = glow_pulse();
+        let effect = glow_pulse();
         assert!(
             !effect.done(),
             "glow_pulse should never be done while active"
@@ -238,7 +238,7 @@ mod tests {
 
     #[test]
     fn particle_burst_effect_is_running_initially() {
-        let mut effect = particle_burst();
+        let effect = particle_burst();
         assert!(
             !effect.done(),
             "particle_burst should not be done immediately"

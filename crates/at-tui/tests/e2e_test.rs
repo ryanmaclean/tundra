@@ -40,7 +40,7 @@ fn require_ollama() {
         .timeout(std::time::Duration::from_secs(3))
         .build()
         .unwrap();
-    match client.get(&format!("{OLLAMA_URL}/api/tags")).send() {
+    match client.get(format!("{OLLAMA_URL}/api/tags")).send() {
         Ok(resp) if resp.status().is_success() => {}
         _ => panic!("SKIPPED: Ollama not available at {OLLAMA_URL}"),
     }
@@ -610,7 +610,7 @@ fn e2e_websocket_endpoint_exists() {
     // proper upgrade headers, but not 404)
     let client = reqwest::blocking::Client::new();
     let resp = client
-        .get(&format!("{DAEMON_URL}/ws"))
+        .get(format!("{DAEMON_URL}/ws"))
         .send()
         .expect("ws endpoint");
     // WebSocket endpoint without upgrade should return 4xx, not 404
@@ -640,7 +640,7 @@ fn e2e_concurrent_fetch_all() {
         .collect();
 
     for (i, handle) in handles.into_iter().enumerate() {
-        let data = handle.join().expect(&format!("thread {i} panicked"));
+        let data = handle.join().unwrap_or_else(|_| panic!("thread {i} panicked"));
         assert!(
             !data.agents.is_empty(),
             "concurrent fetch {i} returned empty agents"
@@ -657,7 +657,7 @@ fn e2e_invalid_endpoint_returns_404() {
     require_daemon();
     let client = reqwest::blocking::Client::new();
     let resp = client
-        .get(&format!("{DAEMON_URL}/api/nonexistent"))
+        .get(format!("{DAEMON_URL}/api/nonexistent"))
         .send()
         .expect("request");
     assert_eq!(
@@ -697,5 +697,5 @@ fn e2e_kpi_consistent_with_beads() {
         beads.len()
     );
     // Also verify both are non-zero to confirm data is flowing
-    assert!(beads.len() > 0, "Should have at least one bead");
+    assert!(!beads.is_empty(), "Should have at least one bead");
 }

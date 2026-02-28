@@ -71,11 +71,10 @@ pub fn validate_websocket_origin(
         }
 
         // Prefix match with port (e.g., "http://localhost:3000" matches "http://localhost")
-        if origin.starts_with(allowed) {
-            let remainder = &origin[allowed.len()..];
+        if let Some(remainder) = origin.strip_prefix(allowed.as_str()) {
             // Check if the remainder is a port (starts with ':' followed by digits)
-            if remainder.starts_with(':') {
-                return remainder[1..].chars().all(|c| c.is_ascii_digit());
+            if let Some(port) = remainder.strip_prefix(':') {
+                return port.chars().all(|c| c.is_ascii_digit());
             }
         }
 
