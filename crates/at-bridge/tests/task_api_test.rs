@@ -1190,3 +1190,159 @@ async fn test_impact_equality() {
     assert_ne!(TaskImpact::Low, TaskImpact::High);
     assert_ne!(TaskImpact::Medium, TaskImpact::Critical);
 }
+
+// ===========================================================================
+// 6. Query Parameter Filtering (20+ tests)
+// ===========================================================================
+
+#[tokio::test]
+async fn test_list_tasks_filter_by_phase() {
+    let (base, _state) = start_test_server().await;
+    let client = reqwest::Client::new();
+
+    // Create tasks with different phases
+    let (_, task1) = api_create_task(&client, &base, "Discovery Task", "feature", "low", "small").await;
+    let id1 = task1["id"].as_str().unwrap();
+
+    let (_, task2) = api_create_task(&client, &base, "Planning Task", "bug_fix", "medium", "medium").await;
+    let id2 = task2["id"].as_str().unwrap();
+
+    let (_, task3) = api_create_task(&client, &base, "Coding Task", "refactoring", "high", "large").await;
+    let id3 = task3["id"].as_str().unwrap();
+
+    let (_, task4) = api_create_task(&client, &base, "QA Task", "feature", "low", "small").await;
+    let id4 = task4["id"].as_str().unwrap();
+
+    let (_, task5) = api_create_task(&client, &base, "Error Task", "bug_fix", "urgent", "complex").await;
+    let id5 = task5["id"].as_str().unwrap();
+
+    // Update task2 to planning phase (Discovery -> ContextGathering -> SpecCreation -> Planning)
+    client
+        .post(format!("{base}/api/tasks/{id2}/phase"))
+        .json(&json!({"phase": "context_gathering"}))
+        .send()
+        .await
+        .unwrap();
+    client
+        .post(format!("{base}/api/tasks/{id2}/phase"))
+        .json(&json!({"phase": "spec_creation"}))
+        .send()
+        .await
+        .unwrap();
+    client
+        .post(format!("{base}/api/tasks/{id2}/phase"))
+        .json(&json!({"phase": "planning"}))
+        .send()
+        .await
+        .unwrap();
+
+    // Update task3 to coding phase (Discovery -> ContextGathering -> SpecCreation -> Planning -> Coding)
+    client
+        .post(format!("{base}/api/tasks/{id3}/phase"))
+        .json(&json!({"phase": "context_gathering"}))
+        .send()
+        .await
+        .unwrap();
+    client
+        .post(format!("{base}/api/tasks/{id3}/phase"))
+        .json(&json!({"phase": "spec_creation"}))
+        .send()
+        .await
+        .unwrap();
+    client
+        .post(format!("{base}/api/tasks/{id3}/phase"))
+        .json(&json!({"phase": "planning"}))
+        .send()
+        .await
+        .unwrap();
+    client
+        .post(format!("{base}/api/tasks/{id3}/phase"))
+        .json(&json!({"phase": "coding"}))
+        .send()
+        .await
+        .unwrap();
+
+    // Update task4 to qa phase (Discovery -> ... -> Coding -> Qa)
+    client
+        .post(format!("{base}/api/tasks/{id4}/phase"))
+        .json(&json!({"phase": "context_gathering"}))
+        .send()
+        .await
+        .unwrap();
+    client
+        .post(format!("{base}/api/tasks/{id4}/phase"))
+        .json(&json!({"phase": "spec_creation"}))
+        .send()
+        .await
+        .unwrap();
+    client
+        .post(format!("{base}/api/tasks/{id4}/phase"))
+        .json(&json!({"phase": "planning"}))
+        .send()
+        .await
+        .unwrap();
+    client
+        .post(format!("{base}/api/tasks/{id4}/phase"))
+        .json(&json!({"phase": "coding"}))
+        .send()
+        .await
+        .unwrap();
+    client
+        .post(format!("{base}/api/tasks/{id4}/phase"))
+        .json(&json!({"phase": "qa"}))
+        .send()
+        .await
+        .unwrap();
+
+    // Update task5 to error phase (can transition from any phase)
+    client
+        .post(format!("{base}/api/tasks/{id5}/phase"))
+        .json(&json!({"phase": "error"}))
+        .send()
+        .await
+        .unwrap();
+
+    // Test filtering by discovery phase
+    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("phase", "discovery")]).await;
+    assert_eq!(code, 200);
+    assert_eq!(tasks.len(), 1);
+    assert_eq!(tasks[0]["id"], id1);
+    assert_eq!(tasks[0]["phase"], "discovery");
+
+    // Test filtering by planning phase
+    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("phase", "planning")]).await;
+    assert_eq!(code, 200);
+    assert_eq!(tasks.len(), 1);
+    assert_eq!(tasks[0]["id"], id2);
+    assert_eq!(tasks[0]["phase"], "planning");
+
+    // Test filtering by coding phase
+    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("phase", "coding")]).await;
+    assert_eq!(code, 200);
+    assert_eq!(tasks.len(), 1);
+    assert_eq!(tasks[0]["id"], id3);
+    assert_eq!(tasks[0]["phase"], "coding");
+
+    // Test filtering by qa phase
+    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("phase", "qa")]).await;
+    assert_eq!(code, 200);
+    assert_eq!(tasks.len(), 1);
+    assert_eq!(tasks[0]["id"], id4);
+    assert_eq!(tasks[0]["phase"], "qa");
+
+    // Test filtering by error phase
+    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("phase", "error")]).await;
+    assert_eq!(code, 200);
+    assert_eq!(tasks.len(), 1);
+    assert_eq!(tasks[0]["id"], id5);
+    assert_eq!(tasks[0]["phase"], "error");
+
+    // Test filtering by complete phase (should return empty)
+    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("phase", "complete")]).await;
+    assert_eq!(code, 200);
+    assert_eq!(tasks.len(), 0);
+
+    // Test all tasks without filter
+    let all_tasks = api_list_tasks(&client, &base).await;
+    assert_eq!(all_tasks.len(), 5);
+}
