@@ -11,6 +11,7 @@ use at_core::types::{Task, TaskSource};
 use super::state::ApiState;
 use super::types::{CreateTaskRequest, TaskListQuery, UpdateTaskPhaseRequest, UpdateTaskRequest};
 use super::validate_text_field;
+use crate::api_error::ApiError;
 
 /// GET /api/tasks -- retrieve all tasks in the system.
 ///
@@ -138,24 +139,16 @@ pub(crate) async fn list_tasks(
 pub(crate) async fn create_task(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<CreateTaskRequest>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, ApiError> {
     // Validate title
     if let Err(e) = validate_text_field(&req.title) {
-        return (
-            axum::http::StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": e.to_string()})),
-        )
-            .into_response();
+        return Err(ApiError::BadRequest(e.to_string()));
     }
 
     // Validate description if present
     if let Some(ref description) = req.description {
         if let Err(e) = validate_text_field(description) {
-            return (
-                axum::http::StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": e.to_string()})),
-            )
-                .into_response();
+            return Err(ApiError::BadRequest(e.to_string()));
         }
     }
 
@@ -177,11 +170,11 @@ pub(crate) async fn create_task(
     let mut tasks = state.tasks.write().await;
     tasks.insert(task.id, task.clone());
 
-    (
+    Ok((
         axum::http::StatusCode::CREATED,
         Json(serde_json::json!(task)),
     )
-        .into_response()
+        .into_response())
 }
 
 /// GET /api/tasks/{id} -- retrieve a specific task by ID.
@@ -191,15 +184,12 @@ pub(crate) async fn create_task(
 ///
 /// **Path Parameters:** `id` - UUID of the task to retrieve.
 /// **Response:** 200 OK with Task object, 404 if not found.
-pub(crate) async fn get_task(State(state): State<Arc<ApiState>>, Path(id): Path<Uuid>) -> impl IntoResponse {
+pub(crate) async fn get_task(State(state): State<Arc<ApiState>>, Path(id): Path<Uuid>) -> Result<impl IntoResponse, ApiError> {
     let tasks = state.tasks.read().await;
     let Some(task) = tasks.get(&id) else {
-        return (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "task not found"})),
-        );
+        return Err(ApiError::NotFound("task not found".into()));
     };
-    (axum::http::StatusCode::OK, Json(serde_json::json!(task)))
+    Ok((axum::http::StatusCode::OK, Json(serde_json::json!(task))))
 }
 
 /// PUT /api/tasks/{id} -- update an existing task.
@@ -215,38 +205,26 @@ pub(crate) async fn update_task(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateTaskRequest>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, ApiError> {
     let mut tasks = state.tasks.write().await;
     let Some(task) = tasks.get_mut(&id) else {
-        return (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "task not found"})),
-        );
+        return Err(ApiError::NotFound("task not found".into()));
     };
 
     if let Some(title) = req.title {
         if title.is_empty() {
-            return (
-                axum::http::StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": "title cannot be empty"})),
-            );
+            return Err(ApiError::BadRequest("title cannot be empty".into()));
         }
         // Validate title
         if let Err(e) = validate_text_field(&title) {
-            return (
-                axum::http::StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": e.to_string()})),
-            );
+            return Err(ApiError::BadRequest(e.to_string()));
         }
         task.title = title;
     }
     if let Some(desc) = req.description {
         // Validate description
         if let Err(e) = validate_text_field(&desc) {
-            return (
-                axum::http::StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": e.to_string()})),
-            );
+            return Err(ApiError::BadRequest(e.to_string()));
         }
         task.description = Some(desc);
     }
@@ -278,10 +256,10 @@ pub(crate) async fn update_task(
         .publish(crate::protocol::BridgeMessage::TaskUpdate(
             Box::new(task_snapshot),
         ));
-    (
+    Ok((
         axum::http::StatusCode::OK,
         Json(response_json),
-    )
+    ))
 }
 
 /// DELETE /api/tasks/{id} -- delete a task.
@@ -293,18 +271,15 @@ pub(crate) async fn update_task(
 pub(crate) async fn delete_task(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, ApiError> {
     let mut tasks = state.tasks.write().await;
     if tasks.remove(&id).is_none() {
-        return (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "task not found"})),
-        );
+        return Err(ApiError::NotFound("task not found".into()));
     }
-    (
+    Ok((
         axum::http::StatusCode::OK,
         Json(serde_json::json!({"status": "deleted", "id": id.to_string()})),
-    )
+    ))
 }
 
 /// POST /api/tasks/{id}/phase -- update a task's phase/stage.
@@ -319,25 +294,17 @@ pub(crate) async fn update_task_phase(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateTaskPhaseRequest>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, ApiError> {
     let mut tasks = state.tasks.write().await;
     let Some(task) = tasks.get_mut(&id) else {
-        return (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "task not found"})),
-        );
+        return Err(ApiError::NotFound("task not found".into()));
     };
 
     if !task.phase.can_transition_to(&req.phase) {
-        return (
-            axum::http::StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": format!(
-                    "invalid phase transition from {:?} to {:?}",
-                    task.phase, req.phase
-                )
-            })),
-        );
+        return Err(ApiError::BadRequest(format!(
+            "invalid phase transition from {:?} to {:?}",
+            task.phase, req.phase
+        )));
     }
 
     task.set_phase(req.phase);
@@ -348,10 +315,10 @@ pub(crate) async fn update_task_phase(
         .publish(crate::protocol::BridgeMessage::TaskUpdate(
             Box::new(task_snapshot.clone()),
         ));
-    (
+    Ok((
         axum::http::StatusCode::OK,
         Json(serde_json::json!(task_snapshot)),
-    )
+    ))
 }
 
 /// GET /api/tasks/{id}/logs -- retrieve execution logs for a task.
@@ -362,16 +329,13 @@ pub(crate) async fn update_task_phase(
 pub(crate) async fn get_task_logs(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, ApiError> {
     let tasks = state.tasks.read().await;
     let Some(task) = tasks.get(&id) else {
-        return (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "task not found"})),
-        );
+        return Err(ApiError::NotFound("task not found".into()));
     };
-    (
+    Ok((
         axum::http::StatusCode::OK,
         Json(serde_json::json!(task.logs)),
-    )
+    ))
 }

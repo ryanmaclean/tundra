@@ -11,6 +11,7 @@ use at_core::types::{Bead, Lane};
 use super::state::ApiState;
 use super::types::{BeadQuery, CreateBeadRequest, UpdateBeadStatusRequest};
 use super::validate_text_field;
+use crate::api_error::ApiError;
 
 /// GET /api/beads -- retrieve all beads in the system.
 ///
@@ -112,24 +113,16 @@ pub(crate) async fn list_beads(
 pub(crate) async fn create_bead(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<CreateBeadRequest>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, ApiError> {
     // Validate title
     if let Err(e) = validate_text_field(&req.title) {
-        return (
-            axum::http::StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": e.to_string()})),
-        )
-            .into_response();
+        return Err(ApiError::BadRequest(e.to_string()));
     }
 
     // Validate description if present
     if let Some(ref description) = req.description {
         if let Err(e) = validate_text_field(description) {
-            return (
-                axum::http::StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": e.to_string()})),
-            )
-                .into_response();
+            return Err(ApiError::BadRequest(e.to_string()));
         }
     }
 
@@ -148,7 +141,7 @@ pub(crate) async fn create_bead(
         .event_bus
         .publish(crate::protocol::BridgeMessage::BeadCreated(bead.clone()));
 
-    (axum::http::StatusCode::CREATED, Json(bead)).into_response()
+    Ok((axum::http::StatusCode::CREATED, Json(bead)).into_response())
 }
 
 /// POST /api/beads/{id}/status -- update a bead's status.
@@ -197,25 +190,17 @@ pub(crate) async fn update_bead_status(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateBeadStatusRequest>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, ApiError> {
     let mut beads = state.beads.write().await;
     let Some(bead) = beads.get_mut(&id) else {
-        return (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "bead not found"})),
-        );
+        return Err(ApiError::NotFound("bead not found".into()));
     };
 
     if !bead.status.can_transition_to(&req.status) {
-        return (
-            axum::http::StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": format!(
-                    "invalid transition from {:?} to {:?}",
-                    bead.status, req.status
-                )
-            })),
-        );
+        return Err(ApiError::BadRequest(format!(
+            "invalid transition from {:?} to {:?}",
+            bead.status, req.status
+        )));
     }
 
     bead.status = req.status;
@@ -226,10 +211,10 @@ pub(crate) async fn update_bead_status(
         .event_bus
         .publish(crate::protocol::BridgeMessage::BeadUpdated(bead_snapshot.clone()));
 
-    (
+    Ok((
         axum::http::StatusCode::OK,
         Json(serde_json::json!(bead_snapshot)),
-    )
+    ))
 }
 
 /// DELETE /api/beads/{id} -- delete a bead by ID.
@@ -257,13 +242,10 @@ pub(crate) async fn update_bead_status(
 pub(crate) async fn delete_bead(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, ApiError> {
     let mut beads = state.beads.write().await;
     if beads.remove(&id).is_none() {
-        return (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "bead not found"})),
-        );
+        return Err(ApiError::NotFound("bead not found".into()));
     }
 
     // Publish updated bead list event
@@ -271,8 +253,8 @@ pub(crate) async fn delete_bead(
         .event_bus
         .publish(crate::protocol::BridgeMessage::BeadList(beads.values().cloned().collect()));
 
-    (
+    Ok((
         axum::http::StatusCode::OK,
         Json(serde_json::json!({"status": "deleted", "id": id.to_string()})),
-    )
+    ))
 }

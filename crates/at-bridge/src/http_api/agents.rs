@@ -10,6 +10,7 @@ use at_core::types::Agent;
 
 use super::state::ApiState;
 use super::types::AgentQuery;
+use crate::api_error::ApiError;
 
 /// GET /api/agents -- retrieve all registered agents in the system.
 ///
@@ -77,13 +78,10 @@ pub(crate) async fn list_agents(
 pub(crate) async fn nudge_agent(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, ApiError> {
     let mut agents = state.agents.write().await;
     let Some(agent) = agents.get_mut(&id) else {
-        return (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "agent not found"})),
-        );
+        return Err(ApiError::NotFound("agent not found".into()));
     };
 
     use at_core::types::AgentStatus;
@@ -98,10 +96,10 @@ pub(crate) async fn nudge_agent(
     }
 
     let snapshot = agent.clone();
-    (
+    Ok((
         axum::http::StatusCode::OK,
         Json(serde_json::json!(snapshot)),
-    )
+    ))
 }
 
 /// POST /api/agents/{id}/stop -- mark an agent as stopped.
@@ -131,21 +129,18 @@ pub(crate) async fn nudge_agent(
 ///   "last_seen": "2024-01-15T10:37:00Z"
 /// }
 /// ```
-pub(crate) async fn stop_agent(State(state): State<Arc<ApiState>>, Path(id): Path<Uuid>) -> impl IntoResponse {
+pub(crate) async fn stop_agent(State(state): State<Arc<ApiState>>, Path(id): Path<Uuid>) -> Result<impl IntoResponse, ApiError> {
     let mut agents = state.agents.write().await;
     let Some(agent) = agents.get_mut(&id) else {
-        return (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "agent not found"})),
-        );
+        return Err(ApiError::NotFound("agent not found".into()));
     };
 
     agent.status = at_core::types::AgentStatus::Stopped;
     agent.last_seen = chrono::Utc::now();
 
     let snapshot = agent.clone();
-    (
+    Ok((
         axum::http::StatusCode::OK,
         Json(serde_json::json!(snapshot)),
-    )
+    ))
 }

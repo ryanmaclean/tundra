@@ -12,6 +12,7 @@ use at_core::types::{BuildLogEntry, BuildStream, CliType, Task, TaskPhase};
 
 use super::state::ApiState;
 use super::types::{BuildLogsQuery, BuildStatusSummary, ExecuteTaskRequest, PipelineQueueStatus};
+use crate::api_error::ApiError;
 
 /// GET /api/pipeline/queue -- return current pipeline queue status.
 pub(crate) async fn get_pipeline_queue_status(
@@ -40,26 +41,18 @@ pub(crate) async fn execute_task_pipeline(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
     body: Option<Json<ExecuteTaskRequest>>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, ApiError> {
     let mut tasks = state.tasks.write().await;
     let Some(task) = tasks.get_mut(&id) else {
-        return (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "task not found"})),
-        );
+        return Err(ApiError::NotFound("task not found".into()));
     };
 
     // The task must be in a phase that can transition to Coding.
     if !task.phase.can_transition_to(&TaskPhase::Coding) {
-        return (
-            axum::http::StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": format!(
-                    "cannot start pipeline: task is in {:?} phase",
-                    task.phase
-                )
-            })),
-        );
+        return Err(ApiError::BadRequest(format!(
+            "cannot start pipeline: task is in {:?} phase",
+            task.phase
+        )));
     }
 
     task.set_phase(TaskPhase::Coding);
@@ -141,10 +134,10 @@ pub(crate) async fn execute_task_pipeline(
         pipeline_running.fetch_sub(1, Ordering::SeqCst);
     });
 
-    (
+    Ok((
         axum::http::StatusCode::ACCEPTED,
         Json(serde_json::json!({"status": "started", "task_id": id.to_string()})),
-    )
+    ))
 }
 
 /// Background pipeline driver: coding -> QA -> fix loop.
