@@ -714,6 +714,14 @@ pub async fn auto_name_terminal(
         }
     };
 
+    // Validate the first_message field
+    if let Err(e) = validate_text_field(&body.first_message) {
+        return (
+            axum::http::StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e.to_string()})),
+        );
+    }
+
     // Extract up to 40 chars from the first message as the terminal name.
     let name: String = body.first_message.chars().take(40).collect();
     let name = name.trim().to_string();
