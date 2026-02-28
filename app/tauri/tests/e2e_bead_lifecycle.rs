@@ -2,7 +2,7 @@
 //!
 //! Tests that the daemon can start in embedded mode and serve API requests.
 
-use at_core::config::Config;
+use at_core::config::{Config, CredentialProvider};
 use at_daemon::daemon::Daemon;
 
 #[tokio::test]
@@ -16,9 +16,17 @@ async fn test_daemon_start_embedded_returns_port() {
     // Port must be non-zero (OS-assigned)
     assert!(port > 0, "expected a non-zero port, got {port}");
 
-    // API should be reachable
+    // The embedded daemon enables auth — read the same key it generated.
+    let api_key = CredentialProvider::ensure_daemon_api_key();
+
+    // API should be reachable with the correct auth header.
     let url = format!("http://localhost:{port}/api/status");
-    let resp = reqwest::get(&url).await;
+    let client = reqwest::Client::new();
+    let resp = client
+        .get(&url)
+        .header("x-api-key", &api_key)
+        .send()
+        .await;
     assert!(resp.is_ok(), "API server should be reachable at {url}");
     let resp = resp.unwrap();
     assert_eq!(resp.status(), 200);
