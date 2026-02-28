@@ -217,6 +217,21 @@ pub(crate) async fn update_bead_status(
     ))
 }
 
+/// GET /api/beads/{id} -- retrieve a single bead by ID.
+///
+/// **Path Parameters:** `id` - UUID of the bead.
+/// **Response:** 200 OK with Bead, 404 if not found.
+pub(crate) async fn get_bead(
+    State(state): State<Arc<ApiState>>,
+    Path(id): Path<Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
+    let beads = state.beads.read().await;
+    let Some(bead) = beads.get(&id) else {
+        return Err(ApiError::NotFound("bead not found".into()));
+    };
+    Ok(Json(bead.clone()))
+}
+
 /// DELETE /api/beads/{id} -- delete a bead by ID.
 ///
 /// Removes a bead from the system and publishes an updated bead list event

@@ -339,3 +339,111 @@ pub(crate) async fn get_task_logs(
         Json(serde_json::json!(task.logs)),
     ))
 }
+
+// ---------------------------------------------------------------------------
+// Stacked Diffs
+// ---------------------------------------------------------------------------
+
+/// GET /api/stacks -- list all task stacks (groups of parent/child tasks).
+pub(crate) async fn list_stacks(
+    State(state): State<Arc<ApiState>>,
+) -> impl IntoResponse {
+    let tasks = state.tasks.read().await;
+
+    // Find root tasks (those with children or explicit stack_position=0)
+    let mut stacks: std::collections::HashMap<Uuid, Vec<&Task>> = std::collections::HashMap::new();
+
+    for task in tasks.values() {
+        if let Some(parent_id) = task.parent_task_id {
+            stacks.entry(parent_id).or_default().push(task);
+        }
+    }
+
+    // Build response: each stack is keyed by root task ID
+    let result: Vec<serde_json::Value> = stacks
+        .into_iter()
+        .map(|(root_id, mut children)| {
+            children.sort_by_key(|t| t.stack_position.unwrap_or(0));
+            let root_task = tasks.get(&root_id);
+            serde_json::json!({
+                "root_id": root_id,
+                "root_title": root_task.map(|t| t.title.as_str()).unwrap_or("unknown"),
+                "children": children.iter().map(|c| serde_json::json!({
+                    "id": c.id,
+                    "title": c.title,
+                    "phase": c.phase,
+                    "stack_position": c.stack_position,
+                    "pr_number": c.pr_number,
+                })).collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+
+    Json(result)
+}
+
+/// GET /api/tasks/{id}/stack -- get the stack a task belongs to.
+pub(crate) async fn get_task_stack(
+    State(state): State<Arc<ApiState>>,
+    Path(id): Path<Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
+    let tasks = state.tasks.read().await;
+    let Some(_task) = tasks.get(&id) else {
+        return Err(ApiError::NotFound("task not found".into()));
+    };
+
+    // Find root: walk up parent_task_id chain
+    let mut root_id = id;
+    let mut visited = std::collections::HashSet::new();
+    visited.insert(root_id);
+    while let Some(parent) = tasks.get(&root_id).and_then(|t| t.parent_task_id) {
+        if !visited.insert(parent) {
+            break; // cycle guard
+        }
+        root_id = parent;
+    }
+
+    // Collect all tasks in this stack
+    let mut stack: Vec<&Task> = tasks
+        .values()
+        .filter(|t| t.parent_task_id == Some(root_id) || t.id == root_id)
+        .collect();
+    stack.sort_by_key(|t| t.stack_position.unwrap_or(0));
+
+    Ok(Json(serde_json::json!({
+        "root_id": root_id,
+        "current_task_id": id,
+        "tasks": stack.iter().map(|t| serde_json::json!({
+            "id": t.id,
+            "title": t.title,
+            "phase": t.phase,
+            "stack_position": t.stack_position,
+            "pr_number": t.pr_number,
+            "parent_task_id": t.parent_task_id,
+        })).collect::<Vec<_>>(),
+    })))
+}
+
+/// POST /api/tasks/{id}/parent -- set the parent of a task (stacked diffs).
+pub(crate) async fn set_task_parent(
+    State(state): State<Arc<ApiState>>,
+    Path(id): Path<Uuid>,
+    Json(body): Json<serde_json::Value>,
+) -> Result<impl IntoResponse, ApiError> {
+    let parent_id = body["parent_task_id"]
+        .as_str()
+        .and_then(|s| s.parse::<Uuid>().ok());
+
+    let mut tasks = state.tasks.write().await;
+    let Some(task) = tasks.get_mut(&id) else {
+        return Err(ApiError::NotFound("task not found".into()));
+    };
+
+    task.parent_task_id = parent_id;
+    if let Some(pos) = body["stack_position"].as_u64() {
+        task.stack_position = Some(pos as u32);
+    }
+
+    let snapshot = task.clone();
+    Ok(Json(serde_json::json!(snapshot)))
+}
