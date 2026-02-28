@@ -1212,3 +1212,53 @@ async fn test_app_update_check() {
     let resp = app.oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
 }
+
+#[tokio::test]
+async fn test_security_response_headers_present() {
+    let (app, _) = test_app();
+    let req = Request::builder()
+        .method("GET")
+        .uri("/api/status")
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let headers = resp.headers();
+
+    // Cross-origin isolation headers (existing)
+    assert_eq!(
+        headers.get("Cross-Origin-Opener-Policy").unwrap(),
+        "same-origin"
+    );
+    assert_eq!(
+        headers.get("Cross-Origin-Embedder-Policy").unwrap(),
+        "credentialless"
+    );
+    assert_eq!(
+        headers.get("Cross-Origin-Resource-Policy").unwrap(),
+        "same-origin"
+    );
+
+    // Security response headers (new)
+    assert_eq!(
+        headers.get("X-Content-Type-Options").unwrap(),
+        "nosniff"
+    );
+    assert_eq!(
+        headers.get("X-Frame-Options").unwrap(),
+        "DENY"
+    );
+    assert_eq!(
+        headers.get("Strict-Transport-Security").unwrap(),
+        "max-age=63072000; includeSubDomains"
+    );
+    assert_eq!(
+        headers.get("X-XSS-Protection").unwrap(),
+        "1; mode=block"
+    );
+    assert_eq!(
+        headers.get("Referrer-Policy").unwrap(),
+        "strict-origin-when-cross-origin"
+    );
+}
