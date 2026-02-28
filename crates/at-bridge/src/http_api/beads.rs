@@ -1,7 +1,8 @@
 use axum::{
     extract::{Path, Query, State},
     response::IntoResponse,
-    Json,
+    routing::{get, post},
+    Json, Router,
 };
 use std::sync::Arc;
 use uuid::Uuid;
@@ -257,4 +258,18 @@ pub(crate) async fn delete_bead(
         axum::http::StatusCode::OK,
         Json(serde_json::json!({"status": "deleted", "id": id.to_string()})),
     ))
+}
+
+/// Creates the beads sub-router with all bead-related endpoints.
+///
+/// Mounts the following routes:
+/// - `GET /api/beads` - List all beads (with optional filtering)
+/// - `POST /api/beads` - Create a new bead
+/// - `POST /api/beads/:id/status` - Update bead status
+/// - `DELETE /api/beads/:id` - Delete a bead
+pub fn beads_router() -> Router<Arc<ApiState>> {
+    Router::new()
+        .route("/api/beads", get(list_beads).post(create_bead))
+        .route("/api/beads/:id/status", post(update_bead_status))
+        .route("/api/beads/:id", axum::routing::delete(delete_bead))
 }
