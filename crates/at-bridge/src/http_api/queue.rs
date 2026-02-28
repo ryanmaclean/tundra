@@ -1,7 +1,8 @@
 use axum::{
     extract::{Path, State},
     response::IntoResponse,
-    Json,
+    routing::{get, post},
+    Json, Router,
 };
 use std::sync::Arc;
 use uuid::Uuid;
@@ -10,6 +11,25 @@ use at_core::types::{TaskPhase, TaskPriority};
 
 use super::state::ApiState;
 use super::types::{PrioritizeRequest, QueueReorderRequest};
+
+// ---------------------------------------------------------------------------
+// Router
+// ---------------------------------------------------------------------------
+
+/// Build the queue sub-router.
+///
+/// All routes are mounted under `/api/` — the caller is responsible for
+/// nesting or merging this into the top-level router.
+pub fn queue_router() -> Router<Arc<ApiState>> {
+    Router::new()
+        .route("/api/queue", get(list_queue))
+        .route("/api/queue/reorder", post(reorder_queue))
+        .route("/api/queue/{task_id}/prioritize", post(prioritize_task))
+}
+
+// ---------------------------------------------------------------------------
+// Handlers
+// ---------------------------------------------------------------------------
 
 /// GET /api/queue -- list queued tasks sorted by priority.
 pub(crate) async fn list_queue(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
