@@ -1192,6 +1192,26 @@ async fn create_bead(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<CreateBeadRequest>,
 ) -> impl IntoResponse {
+    // Validate title
+    if let Err(e) = validate_text_field(&req.title) {
+        return (
+            axum::http::StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": e.to_string()})),
+        )
+            .into_response();
+    }
+
+    // Validate description if present
+    if let Some(ref description) = req.description {
+        if let Err(e) = validate_text_field(description) {
+            return (
+                axum::http::StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": e.to_string()})),
+            )
+                .into_response();
+        }
+    }
+
     let lane = req.lane.unwrap_or(Lane::Standard);
     let mut bead = Bead::new(req.title, lane);
     bead.description = req.description;
@@ -1207,7 +1227,7 @@ async fn create_bead(
         .event_bus
         .publish(crate::protocol::BridgeMessage::BeadCreated(bead.clone()));
 
-    (axum::http::StatusCode::CREATED, Json(bead))
+    (axum::http::StatusCode::CREATED, Json(bead)).into_response()
 }
 
 /// POST /api/beads/{id}/status -- update a bead's status.
