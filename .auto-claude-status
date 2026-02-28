@@ -1,25 +1,25 @@
 {
   "active": true,
-  "spec": "012-replace-text-only-loading-states-with-spinner-and-",
-  "state": "building",
+  "spec": "033-add-delete-endpoint-for-beads-with-event-publishin",
+  "state": "planning",
   "subtasks": {
-    "completed": 13,
-    "total": 14,
+    "completed": 0,
+    "total": 0,
     "in_progress": 1,
     "failed": 0
   },
   "phase": {
-    "current": "Visual QA and Polish",
+    "current": "Verify Existing Implementation",
     "id": null,
-    "total": 2
+    "total": 4
   },
   "workers": {
     "active": 0,
     "max": 1
   },
   "session": {
-    "number": 15,
-    "started_at": "2026-03-01T14:31:43.554804"
+    "number": 2,
+    "started_at": "2026-02-28T00:25:02.328755"
   },
-  "last_update": "2026-03-01T15:01:30.461841"
+  "last_update": "2026-02-28T00:29:55.364595"
 }
