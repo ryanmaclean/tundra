@@ -93,6 +93,14 @@ fn ToastItem(
                 </button>
             </div>
             <div class="toast-body">{toast.message}</div>
+            {move || toast.auto_dismiss.then(|| view! {
+                <div class="toast-progress-bar">
+                    <div
+                        class="toast-progress-fill"
+                        style:width=move || format!("{}%", progress.get())
+                    ></div>
+                </div>
+            })}
         </div>
     }
 }
