@@ -1,25 +1,25 @@
 {
   "active": true,
-  "spec": "047-document-the-pty-pool-and-terminal-session-managem",
+  "spec": "040-wire-existing-ratelimiter-into-http-api-to-prevent",
   "state": "building",
   "subtasks": {
-    "completed": 2,
-    "total": 3,
+    "completed": 4,
+    "total": 7,
     "in_progress": 1,
     "failed": 0
   },
   "phase": {
-    "current": "Create README Documentation",
+    "current": "Wire Middleware into Router",
     "id": null,
-    "total": 3
+    "total": 2
   },
   "workers": {
     "active": 0,
     "max": 1
   },
   "session": {
-    "number": 4,
-    "started_at": "2026-02-27T08:12:15.896307"
+    "number": 6,
+    "started_at": "2026-02-27T20:23:02.891707"
   },
-  "last_update": "2026-02-27T08:22:42.435464"
+  "last_update": "2026-02-27T20:40:15.537806"
 }
