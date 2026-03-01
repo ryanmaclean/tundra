@@ -203,6 +203,24 @@ pub struct ProjectQuery {
     pub offset: Option<usize>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct ArchivedTaskQuery {
+    pub limit: Option<usize>,
+    pub offset: Option<usize>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AttachmentQuery {
+    pub limit: Option<usize>,
+    pub offset: Option<usize>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TaskDraftQuery {
+    pub limit: Option<usize>,
+    pub offset: Option<usize>,
+}
+
 // ---------------------------------------------------------------------------
 // Merge / Queue / DirectMode request types
 // ---------------------------------------------------------------------------
