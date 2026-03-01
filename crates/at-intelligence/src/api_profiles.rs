@@ -432,18 +432,82 @@ pub struct ResilientRegistry {
     states: HashMap<Uuid, ProviderState>,
 }
 
-/// Error type for resilient call operations.
+/// Errors that can occur during resilient LLM API calls with failover.
+///
+/// This enum standardizes error handling for multi-provider LLM calls through
+/// the [`ResilientRegistry`]. It captures failures from circuit breakers, rate
+/// limiters, and the exhaustion of all available providers.
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// use at_intelligence::api_profiles::{ResilientRegistry, ResilientCallError};
+///
+/// async fn handle_resilient_call(registry: &ResilientRegistry) {
+///     let result = registry.call_with_failover(|profile| async {
+///         // Make API call
+///         Ok::<String, String>("response".to_string())
+///     }).await;
+///
+///     match result {
+///         Ok((profile_id, response)) => {
+///             println!("Success with profile {}: {}", profile_id, response);
+///         }
+///         Err(ResilientCallError::AllProvidersExhausted) => {
+///             println!("All providers failed - check API keys and limits");
+///         }
+///         Err(ResilientCallError::RateLimited(err)) => {
+///             println!("Rate limited: {}", err);
+///         }
+///         Err(e) => {
+///             println!("Other error: {}", e);
+///         }
+///     }
+/// }
+/// ```
 #[derive(Debug, thiserror::Error)]
 pub enum ResilientCallError {
+    /// The circuit breaker prevented the call or it timed out.
+    ///
+    /// This occurs when:
+    /// - The circuit breaker is open due to previous failures
+    /// - The call exceeded the configured timeout duration
+    /// - Too many consecutive failures triggered fault isolation
+    ///
+    /// The wrapped [`CircuitBreakerError`] provides details about the specific
+    /// circuit breaker state or timeout.
     #[error("circuit breaker: {0}")]
     CircuitBreaker(#[from] CircuitBreakerError),
 
+    /// The call was rejected by the rate limiter.
+    ///
+    /// This occurs when:
+    /// - The requests-per-minute (RPM) quota is exceeded
+    /// - The tokens-per-minute (TPM) quota is exceeded
+    /// - Making requests too quickly to a provider
+    ///
+    /// The wrapped [`RateLimitError`] includes retry-after timing information.
+    /// Callers should implement exponential backoff or respect the retry delay.
     #[error("rate limited: {0}")]
     RateLimited(#[from] RateLimitError),
 
+    /// All available providers were tried and failed.
+    ///
+    /// This occurs when:
+    /// - Every enabled provider failed, is rate limited, or has an open circuit
+    /// - No providers have valid API keys configured
+    /// - All providers are disabled
+    ///
+    /// This is the terminal error for [`ResilientRegistry::call_with_failover`]
+    /// indicating that failover was exhausted.
     #[error("all providers exhausted")]
     AllProvidersExhausted,
 
+    /// A catch-all for other errors from the underlying provider call.
+    ///
+    /// This wraps errors from the provider-specific API call that aren't
+    /// covered by circuit breaker or rate limiter failures. The contained
+    /// string provides error details from the failed call.
     #[error("inner error: {0}")]
     Inner(String),
 }
