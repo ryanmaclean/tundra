@@ -104,6 +104,7 @@ mod router {
         Router,
     };
     use std::sync::Arc;
+    use tower_http::compression::CompressionLayer;
     use tower_http::cors::CorsLayer;
 
     use crate::auth::AuthLayer;
@@ -467,6 +468,7 @@ mod router {
             .route("/ws", get(websocket::ws_handler))
             .route("/api/events/ws", get(websocket::events_ws_handler))
             .merge(intelligence_api::intelligence_router())
+            .layer(CompressionLayer::new())
             .layer(axum_middleware::from_fn(metrics_middleware))
             .layer(axum_middleware::from_fn(request_id_middleware))
             .layer(axum_middleware::from_fn(isolation_headers_middleware))
