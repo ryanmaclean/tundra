@@ -846,7 +846,7 @@ fn test_agent_state_serialization_roundtrip() {
 async fn test_agent_supervisor_spawn() {
     let supervisor = AgentSupervisor::new();
     let id = supervisor
-        .spawn_agent("test-mayor", AgentRole::Mayor, CliType::Claude)
+        .spawn_agent("test-mayor", AgentRole::Mayor)
         .await
         .unwrap();
 
@@ -865,15 +865,15 @@ async fn test_agent_supervisor_list() {
     let supervisor = AgentSupervisor::new();
 
     supervisor
-        .spawn_agent("mayor-1", AgentRole::Mayor, CliType::Claude)
+        .spawn_agent("mayor-1", AgentRole::Mayor)
         .await
         .unwrap();
     supervisor
-        .spawn_agent("crew-1", AgentRole::Crew, CliType::Claude)
+        .spawn_agent("crew-1", AgentRole::Crew)
         .await
         .unwrap();
     supervisor
-        .spawn_agent("deacon-1", AgentRole::Deacon, CliType::Claude)
+        .spawn_agent("deacon-1", AgentRole::Deacon)
         .await
         .unwrap();
 
@@ -890,7 +890,7 @@ async fn test_agent_supervisor_list() {
 async fn test_agent_supervisor_stop() {
     let supervisor = AgentSupervisor::new();
     let id = supervisor
-        .spawn_agent("crew-stop", AgentRole::Crew, CliType::Claude)
+        .spawn_agent("crew-stop", AgentRole::Crew)
         .await
         .unwrap();
 
@@ -911,7 +911,7 @@ async fn test_agent_supervisor_stop_nonexistent() {
 async fn test_agent_supervisor_heartbeat() {
     let supervisor = AgentSupervisor::new();
     supervisor
-        .spawn_agent("crew-hb", AgentRole::Crew, CliType::Claude)
+        .spawn_agent("crew-hb", AgentRole::Crew)
         .await
         .unwrap();
 
@@ -932,7 +932,7 @@ async fn test_agent_supervisor_spawn_all_roles() {
     ];
     for (name, role) in &roles {
         supervisor
-            .spawn_agent(*name, role.clone(), CliType::Claude)
+            .spawn_agent(*name, role.clone())
             .await
             .unwrap();
     }

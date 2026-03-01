@@ -6,7 +6,6 @@ use at_agents::executor::{PtySpawner, SpawnedProcess};
 use at_agents::task_orchestrator::TaskOrchestrator;
 use at_bridge::event_bus::EventBus;
 use at_bridge::protocol::BridgeMessage;
-use at_core::cache::CacheDb;
 use at_core::types::*;
 use uuid::Uuid;
 
@@ -72,8 +71,7 @@ fn make_task() -> Task {
 async fn make_orchestrator(output: &str) -> (TaskOrchestrator, EventBus) {
     let spawner = Arc::new(MockSpawner::new(output));
     let bus = EventBus::new();
-    let cache = Arc::new(CacheDb::new_in_memory().await.unwrap());
-    let orch = TaskOrchestrator::with_spawner(spawner, bus.clone(), cache);
+    let orch = TaskOrchestrator::with_spawner(spawner, bus.clone());
     (orch, bus)
 }
 
