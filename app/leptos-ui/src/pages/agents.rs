@@ -1,3 +1,4 @@
+use leptos::ev;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use std::cell::RefCell;
@@ -281,8 +282,14 @@ pub fn AgentsPage() -> impl IntoView {
     // H=History, I=Invoke Claude All, N=New Terminal, F=Files drawer.
     let keydown_handle =
         window_event_listener(ev::keydown, move |event: web_sys::KeyboardEvent| {
-            if should_skip_terminal_shortcut(&event) {
-                return;
+            // Skip shortcuts when user is typing in an input/textarea
+            if let Some(target) = event.target() {
+                if let Ok(el) = target.dyn_into::<web_sys::HtmlElement>() {
+                    let tag = el.tag_name().to_uppercase();
+                    if tag == "INPUT" || tag == "TEXTAREA" || el.is_content_editable() {
+                        return;
+                    }
+                }
             }
 
             match event.key().as_str() {

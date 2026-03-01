@@ -91,7 +91,10 @@ pub fn GithubIssuesPage() -> impl IntoView {
                     }
                 }
                 Err(e) => {
-                    set_error_msg.set(Some(format!("Failed to fetch GitHub issues from API: {}", e)));
+                    set_error_msg.set(Some(format!(
+                        "Failed to fetch GitHub issues from API: {}",
+                        e
+                    )));
                 }
             }
         });
@@ -126,8 +129,13 @@ pub fn GithubIssuesPage() -> impl IntoView {
                             // Auto-import open issues as beads when auto-fix is enabled
                             if auto_fix_enabled {
                                 for issue in ui_issues.iter().filter(|i| i.state == "open") {
-                                    if let Err(e) = crate::api::import_issue_as_bead(issue.number).await {
-                                        set_error_msg.set(Some(format!("Failed to auto-import issue #{}: {}", issue.number, e)));
+                                    if let Err(e) =
+                                        crate::api::import_issue_as_bead(issue.number).await
+                                    {
+                                        set_error_msg.set(Some(format!(
+                                            "Failed to auto-import issue #{}: {}",
+                                            issue.number, e
+                                        )));
                                         break;
                                     }
                                 }

@@ -9,10 +9,7 @@ use crate::events::Toast;
 
 /// Individual toast item with auto-dismiss timer and progress tracking.
 #[component]
-fn ToastItem(
-    toast: Toast,
-    on_dismiss: impl Fn(String) + 'static + Copy,
-) -> impl IntoView {
+fn ToastItem(toast: Toast, on_dismiss: impl Fn(String) + 'static + Copy) -> impl IntoView {
     let toast_id = toast.id.clone();
     let dismiss_id = toast_id.clone();
     let level_class = format!("toast-{}", toast.level);
@@ -50,7 +47,8 @@ fn ToastItem(
                         elapsed_ms_clone.set(new_elapsed);
 
                         // Calculate progress percentage (100% to 0%)
-                        let progress_pct = 100.0 - (new_elapsed as f64 / duration_ms as f64 * 100.0);
+                        let progress_pct =
+                            100.0 - (new_elapsed as f64 / duration_ms as f64 * 100.0);
                         set_progress.set(progress_pct.max(0.0));
 
                         // Auto-dismiss when time is up

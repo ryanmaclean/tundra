@@ -14,6 +14,7 @@ members = [
     "crates/at-integrations",
     "crates/at-intelligence",
     "app/tauri",
+    "app/leptos-ui",
 ]
 
 [workspace.package]
@@ -77,9 +78,10 @@ incremental = true  # Explicit incremental compilation for faster dev builds
 # Default: use release settings
 
 [profile.release-wasm]
+inherits = "release"
 opt-level = 'z'       # Optimize for size
+lto = true            # Link-time optimization for final binary
 panic = 'abort'       # Reduce binary size by removing unwinding code
-lto = 'fat'          # Full link-time optimization
 codegen-units = 1     # Better optimization at cost of compile time
 strip = "symbols"     # Strip symbols for smaller binary
 

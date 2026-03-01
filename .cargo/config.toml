@@ -16,6 +16,5 @@ rustflags = [
     "-C", "opt-level=z",       # Optimize for size (z = aggressive size optimization)
     "-C", "codegen-units=1",   # Single codegen unit for better optimization
     "-C", "panic=abort",       # Reduce binary size by removing unwinding code
-    "-C", "lto=fat",          # Full link-time optimization
     "-C", "strip=symbols",     # Strip symbols for smaller binary
 ]
