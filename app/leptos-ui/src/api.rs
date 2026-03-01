@@ -8,7 +8,8 @@ pub use at_api_types::{
     AddMemoryRequest, ApiAgent, ApiBead, ApiChangelogEntry, ApiChangelogSection, ApiConvoy,
     ApiCostSession, ApiCosts, ApiGithubIssue, ApiGithubPr, ApiIdea, ApiKpi, ApiMcpServer,
     ApiMemoryEntry, ApiRoadmap, ApiRoadmapFeature, ApiRoadmapItem, ApiSession, ApiStack,
-    ApiStackNode, ApiWorktree, CreateBeadRequest, UpdateStatusRequest,
+    ApiStackNode, ApiWorktree, CreateBeadRequest, CreateTaskRequest,
+    SendInsightsMessageRequest, SendInsightsMessageWithModelRequest, UpdateStatusRequest,
 };
 
 /// Default API base when not running in Tauri (standalone web dev).
@@ -790,11 +791,6 @@ pub struct ApiInsightsMessage {
     pub content: String,
 }
 
-#[derive(Debug, Serialize)]
-pub struct SendInsightsMessageRequest {
-    pub content: String,
-}
-
 // ── Additional public API functions ──
 
 pub async fn stop_agent(id: &str) -> Result<ApiAgent, String> {
@@ -1114,17 +1110,6 @@ pub struct ApiTask {
     pub category: String,
 }
 
-#[derive(Debug, Serialize)]
-pub struct CreateTaskRequest {
-    pub title: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    pub bead_id: String,
-    pub priority: String,
-    pub complexity: String,
-    pub category: String,
-}
-
 // ── GitHub API functions ──
 
 pub async fn fetch_github_issues() -> Result<Vec<ApiGithubIssue>, String> {
@@ -1434,13 +1419,6 @@ pub async fn run_task_qa(task_id: &str) -> Result<ApiQaReport, String> {
 }
 
 // ── Insights with model ──
-
-#[derive(Debug, Serialize)]
-pub struct SendInsightsMessageWithModelRequest {
-    pub content: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub model: Option<String>,
-}
 
 pub async fn send_insights_message_with_model(
     session_id: &str,
