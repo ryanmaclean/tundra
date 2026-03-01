@@ -73,3 +73,162 @@ pub async fn run(api_url: &str) -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use axum::{routing::get, Json, Router};
+    use serde_json::json;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn status_displays_system_info() {
+        let app = Router::new()
+            .route(
+                "/api/status",
+                get(|| async {
+                    Json(json!({
+                        "version": "1.2.3",
+                        "uptime_seconds": 3600,
+                        "agent_count": 2
+                    }))
+                }),
+            )
+            .route(
+                "/api/beads",
+                get(|| async {
+                    Json(json!([
+                        {"status": "backlog"},
+                        {"status": "hooked"},
+                        {"status": "slung"},
+                        {"status": "review"},
+                        {"status": "done"},
+                        {"status": "failed"}
+                    ]))
+                }),
+            );
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        let result = run(&format!("http://{addr}")).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn status_handles_empty_beads() {
+        let app = Router::new()
+            .route(
+                "/api/status",
+                get(|| async {
+                    Json(json!({
+                        "version": "1.0.0",
+                        "uptime_seconds": 0,
+                        "agent_count": 0
+                    }))
+                }),
+            )
+            .route("/api/beads", get(|| async { Json(json!([])) }));
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        let result = run(&format!("http://{addr}")).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn status_counts_bead_statuses_correctly() {
+        let app = Router::new()
+            .route(
+                "/api/status",
+                get(|| async {
+                    Json(json!({
+                        "version": "2.0.0",
+                        "uptime_seconds": 7200,
+                        "agent_count": 5
+                    }))
+                }),
+            )
+            .route(
+                "/api/beads",
+                get(|| async {
+                    Json(json!([
+                        {"status": "backlog"},
+                        {"status": "backlog"},
+                        {"status": "hooked"},
+                        {"status": "slung"},
+                        {"status": "slung"},
+                        {"status": "slung"},
+                        {"status": "review"},
+                        {"status": "done"},
+                        {"status": "done"},
+                        {"status": "done"},
+                        {"status": "done"},
+                        {"status": "failed"},
+                        {"status": "escalated"}
+                    ]))
+                }),
+            );
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        let result = run(&format!("http://{addr}")).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn status_fails_on_api_error() {
+        let app = Router::new().route(
+            "/api/status",
+            get(|| async { (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "") }),
+        );
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        let result = run(&format!("http://{addr}")).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn status_handles_beads_fetch_failure() {
+        let app = Router::new()
+            .route(
+                "/api/status",
+                get(|| async {
+                    Json(json!({
+                        "version": "1.0.0",
+                        "uptime_seconds": 100,
+                        "agent_count": 1
+                    }))
+                }),
+            )
+            .route(
+                "/api/beads",
+                get(|| async { (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "") }),
+            );
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        let result = run(&format!("http://{addr}")).await;
+        assert!(result.is_ok());
+    }
+}
