@@ -4,7 +4,12 @@ use wasm_bindgen_futures::JsFuture;
 use web_sys::{Request, RequestInit, Response};
 
 // Re-export shared API types from at-api-types crate
-pub use at_api_types::{ApiAgent, ApiBead, ApiConvoy, ApiKpi, ApiSession};
+pub use at_api_types::{
+    AddMemoryRequest, ApiAgent, ApiBead, ApiChangelogEntry, ApiChangelogSection, ApiConvoy,
+    ApiCostSession, ApiCosts, ApiGithubIssue, ApiGithubPr, ApiIdea, ApiKpi, ApiMcpServer,
+    ApiMemoryEntry, ApiRoadmap, ApiRoadmapFeature, ApiRoadmapItem, ApiSession, ApiStack,
+    ApiStackNode, ApiWorktree, CreateBeadRequest, UpdateStatusRequest,
+};
 
 /// Default API base when not running in Tauri (standalone web dev).
 // Use IPv4 loopback by default to avoid localhost IPv6 resolution mismatches in browsers.
@@ -137,48 +142,8 @@ pub struct ApiStatus {
     pub bead_count: usize,
 }
 
-// ── Stack types (stacked diffs) ──
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ApiStackNode {
-    #[serde(default)]
-    pub id: String,
-    #[serde(default)]
-    pub title: String,
-    #[serde(default)]
-    pub phase: String,
-    #[serde(default)]
-    pub git_branch: Option<String>,
-    #[serde(default)]
-    pub pr_number: Option<u32>,
-    #[serde(default)]
-    pub stack_position: u32,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ApiStack {
-    pub root: ApiStackNode,
-    #[serde(default)]
-    pub children: Vec<ApiStackNode>,
-    #[serde(default)]
-    pub total: u32,
-}
-
 // ── Request body types ──
-
-#[derive(Debug, Serialize)]
-struct CreateBeadRequest {
-    title: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    description: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    lane: Option<String>,
-}
-
-#[derive(Debug, Serialize)]
-struct UpdateStatusRequest {
-    status: String,
-}
+// CreateBeadRequest, UpdateStatusRequest, AddMemoryRequest imported from at-api-types crate
 
 async fn put_json<T: Serialize, R: for<'de> Deserialize<'de>>(
     url: &str,
@@ -784,114 +749,8 @@ async fn post_empty<R: for<'de> Deserialize<'de>>(url: &str) -> Result<R, String
 }
 
 // ── Additional API response types ──
-// ApiSession and ApiConvoy imported from at-api-types crate
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ApiWorktree {
-    #[serde(default)]
-    pub id: String,
-    #[serde(default)]
-    pub path: String,
-    #[serde(default)]
-    pub branch: String,
-    #[serde(default)]
-    pub bead_id: String,
-    #[serde(default)]
-    pub status: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ApiCosts {
-    #[serde(default)]
-    pub input_tokens: u64,
-    #[serde(default)]
-    pub output_tokens: u64,
-    #[serde(default)]
-    pub sessions: Vec<ApiCostSession>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ApiCostSession {
-    #[serde(default)]
-    pub session_id: String,
-    #[serde(default)]
-    pub agent_name: String,
-    #[serde(default)]
-    pub input_tokens: u64,
-    #[serde(default)]
-    pub output_tokens: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ApiMcpServer {
-    #[serde(default)]
-    pub name: String,
-    #[serde(default)]
-    pub status: String,
-    #[serde(default)]
-    pub tools: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ApiMemoryEntry {
-    #[serde(default)]
-    pub id: String,
-    #[serde(default)]
-    pub category: String,
-    #[serde(default)]
-    pub content: String,
-    #[serde(default)]
-    pub created_at: String,
-}
-
-/// A single feature within a roadmap (matches backend `RoadmapFeature`).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ApiRoadmapFeature {
-    #[serde(default)]
-    pub id: String,
-    #[serde(default)]
-    pub title: String,
-    #[serde(default)]
-    pub description: String,
-    #[serde(default)]
-    pub status: String,
-    #[serde(default)]
-    pub priority: u8,
-    #[serde(default)]
-    pub estimated_effort: String,
-    #[serde(default)]
-    pub dependencies: Vec<String>,
-    #[serde(default)]
-    pub created_at: String,
-}
-
-/// A roadmap container with nested features (matches backend `Roadmap`).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ApiRoadmap {
-    #[serde(default)]
-    pub id: String,
-    #[serde(default)]
-    pub name: String,
-    #[serde(default)]
-    pub features: Vec<ApiRoadmapFeature>,
-    #[serde(default)]
-    pub generated_at: String,
-}
-
-/// Flat roadmap item used by the UI after flattening nested roadmaps.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ApiRoadmapItem {
-    #[serde(default)]
-    pub id: String,
-    #[serde(default)]
-    pub title: String,
-    #[serde(default)]
-    pub description: String,
-    #[serde(default)]
-    pub status: String,
-    #[serde(default)]
-    pub priority: String,
-}
+// Extended types (ApiWorktree, ApiCosts, ApiCostSession, ApiMcpServer, ApiMemoryEntry, etc.)
+// imported from at-api-types crate
 
 /// Flatten a list of `ApiRoadmap` into `Vec<ApiRoadmapItem>` for UI consumption.
 fn flatten_roadmaps(roadmaps: Vec<ApiRoadmap>) -> Vec<ApiRoadmapItem> {
@@ -914,22 +773,6 @@ fn flatten_roadmaps(roadmaps: Vec<ApiRoadmap>) -> Vec<ApiRoadmapItem> {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ApiIdea {
-    #[serde(default)]
-    pub id: String,
-    #[serde(default)]
-    pub title: String,
-    #[serde(default)]
-    pub description: String,
-    #[serde(default)]
-    pub category: String,
-    #[serde(default)]
-    pub impact: String,
-    #[serde(default)]
-    pub effort: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApiInsightsSession {
     #[serde(default)]
     pub id: String,
@@ -945,14 +788,6 @@ pub struct ApiInsightsMessage {
     pub role: String,
     #[serde(default)]
     pub content: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct AddMemoryRequest {
-    pub key: String,
-    pub value: String,
-    pub category: String,
-    pub source: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -1176,47 +1011,8 @@ pub async fn delete_notification(id: &str) -> Result<(), String> {
     delete_request(&format!("{}/api/notifications/{id}", get_api_base())).await
 }
 
-// ── GitHub API types ──
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ApiGithubIssue {
-    #[serde(default)]
-    pub number: u32,
-    #[serde(default)]
-    pub title: String,
-    #[serde(default)]
-    pub labels: Vec<String>,
-    #[serde(default)]
-    pub assignee: Option<String>,
-    #[serde(default)]
-    pub state: String,
-    #[serde(default)]
-    pub created: String,
-    #[serde(default)]
-    pub created_at: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ApiGithubPr {
-    #[serde(default)]
-    pub number: u32,
-    #[serde(default)]
-    pub title: String,
-    #[serde(default)]
-    pub author: String,
-    #[serde(default)]
-    pub status: String,
-    #[serde(default)]
-    pub state: Option<String>,
-    #[serde(default)]
-    pub reviewers: Vec<String>,
-    #[serde(default)]
-    pub created: String,
-    #[serde(default)]
-    pub created_at: Option<String>,
-}
-
 // ── GitLab API types ──
+// ApiGithubIssue, ApiGithubPr imported from at-api-types crate
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ApiGitLabUser {
@@ -1420,26 +1216,7 @@ pub async fn create_task(
 }
 
 // ── Changelog API types ──
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ApiChangelogSection {
-    #[serde(default)]
-    pub category: String,
-    #[serde(default)]
-    pub items: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ApiChangelogEntry {
-    #[serde(default)]
-    pub id: String,
-    #[serde(default)]
-    pub version: String,
-    #[serde(default)]
-    pub date: String,
-    #[serde(default)]
-    pub sections: Vec<ApiChangelogSection>,
-}
+// ApiChangelogSection, ApiChangelogEntry imported from at-api-types crate
 
 #[derive(Debug, Serialize)]
 struct GenerateChangelogRequest {
