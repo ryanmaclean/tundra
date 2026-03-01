@@ -298,3 +298,73 @@ async fn test_get_requests_not_affected() {
 
     assert_eq!(resp.status(), 200);
 }
+
+#[tokio::test]
+async fn test_dos_prevention() {
+    let (base, _state) = start_test_server().await;
+    let client = reqwest::Client::new();
+
+    // Simulate a DOS attack by sending many rapid requests with oversized payloads
+    let mut handles = vec![];
+
+    for i in 0..50 {
+        let client = client.clone();
+        let base = base.clone();
+
+        let handle = tokio::spawn(async move {
+            // Create an oversized payload (3MB) to trigger body limit
+            let payload = generate_large_payload(3 * 1024 * 1024);
+
+            let resp = client
+                .post(format!("{base}/api/beads"))
+                .json(&payload)
+                .send()
+                .await;
+
+            // Each request should be rejected with 413
+            match resp {
+                Ok(r) => {
+                    assert_eq!(
+                        r.status(),
+                        413,
+                        "Request {} should be rejected with 413, got {}",
+                        i,
+                        r.status()
+                    );
+                }
+                Err(e) => {
+                    panic!("Request {} failed unexpectedly: {}", i, e);
+                }
+            }
+        });
+
+        handles.push(handle);
+    }
+
+    // Wait for all requests to complete
+    for handle in handles {
+        handle.await.expect("Request task should complete");
+    }
+
+    // Verify the server is still responsive after the "attack"
+    let resp = reqwest::get(format!("{base}/api/status"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200, "Server should still respond after DOS attempt");
+
+    // Verify legitimate requests still work
+    let resp = client
+        .post(format!("{base}/api/beads"))
+        .json(&json!({
+            "title": "Post-DOS test",
+            "description": "Verify server accepts valid requests"
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 201, "Server should accept legitimate requests after DOS attempt");
+    let created: serde_json::Value = resp.json().await.unwrap();
+    assert!(created["id"].is_string());
+    assert_eq!(created["title"], "Post-DOS test");
+}
