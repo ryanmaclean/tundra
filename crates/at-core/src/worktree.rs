@@ -8,18 +8,55 @@ use serde::{Deserialize, Serialize};
 // Errors
 // ---------------------------------------------------------------------------
 
+/// Errors that can occur when managing git worktrees.
+///
+/// These errors cover worktree creation, deletion, listing, and discovery
+/// operations performed by [`WorktreeManager`].
 #[derive(Debug, thiserror::Error)]
 pub enum WorktreeError {
+    /// A git worktree command returned a non-zero exit code.
+    ///
+    /// This typically occurs when:
+    /// - Git binary is not installed or not in PATH
+    /// - The git worktree command encountered an error (stderr is captured)
+    /// - Invalid branch or path arguments were provided
     #[error("git command failed: {0}")]
     GitCommand(String),
+
+    /// Attempted to create a worktree that already exists.
+    ///
+    /// This occurs when:
+    /// - A worktree already exists at the target path
+    /// - The task name maps to an existing worktree directory
+    ///
+    /// The worktree path is included in the error message.
     #[error("worktree already exists: {0}")]
     AlreadyExists(String),
+
+    /// The specified worktree path does not exist.
+    ///
+    /// This typically occurs when:
+    /// - Attempting to delete a worktree that has already been removed
+    /// - The worktree path was mistyped or is invalid
+    /// - The worktree was manually deleted outside of the manager
     #[error("worktree not found: {0}")]
     NotFound(String),
+
+    /// Failed to read from or write to the filesystem during worktree operations.
+    ///
+    /// This typically occurs when:
+    /// - Worktree directory is inaccessible
+    /// - Insufficient file permissions
+    /// - Disk I/O errors
+    /// - Failed to create `.worktrees/` parent directory
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
 }
 
+/// Result type alias for worktree operations.
+///
+/// Equivalent to `std::result::Result<T, WorktreeError>`. Used throughout
+/// the worktree management API for consistent error handling.
 pub type Result<T> = std::result::Result<T, WorktreeError>;
 
 // ---------------------------------------------------------------------------

@@ -31,15 +31,52 @@ const TAG_LEN: usize = 16;
 // ---------------------------------------------------------------------------
 
 /// Errors that can occur during cryptographic operations.
+///
+/// This enum covers key generation, encryption, decryption, and input validation
+/// failures when using ChaCha20-Poly1305 AEAD encryption. All errors preserve
+/// minimal information to avoid leaking sensitive details.
 #[derive(Debug)]
 pub enum CryptoError {
     /// Failed to generate random bytes from system entropy.
+    ///
+    /// This occurs when:
+    /// - The system random number generator is unavailable
+    /// - Insufficient entropy is available
+    /// - Operating system RNG calls fail
+    ///
+    /// This is rare and typically indicates a serious system issue.
     RandomGeneration,
+
     /// Encryption operation failed.
+    ///
+    /// This occurs when:
+    /// - The ChaCha20-Poly1305 sealing operation fails
+    /// - Key initialization fails
+    /// - Internal cryptographic errors occur
+    ///
+    /// This is rare and typically indicates invalid key material or a bug.
     Encryption,
-    /// Decryption operation failed (invalid ciphertext or authentication tag).
+
+    /// Decryption operation failed.
+    ///
+    /// This occurs when:
+    /// - The authentication tag is invalid (data was tampered with)
+    /// - The ciphertext is corrupted
+    /// - Wrong decryption key is used
+    /// - ChaCha20-Poly1305 opening operation fails
+    ///
+    /// This error intentionally does not distinguish between authentication
+    /// failures and other decryption errors to prevent timing attacks.
     Decryption,
-    /// Invalid input format (e.g., ciphertext too short).
+
+    /// Invalid input format provided to a cryptographic function.
+    ///
+    /// This occurs when:
+    /// - Ciphertext is too short (missing nonce or auth tag)
+    /// - Encryption key is not exactly 32 bytes
+    /// - Input data is malformed
+    ///
+    /// The contained string provides specific format requirements.
     InvalidFormat(String),
 }
 
