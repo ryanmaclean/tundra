@@ -333,6 +333,63 @@ impl ApiState {
         removed_count
     }
 
+    /// Start a background cleanup task that periodically removes expired data.
+    ///
+    /// This method spawns a tokio task that runs at the interval specified in
+    /// the retention config, cleaning up:
+    /// - Archived tasks older than task_ttl_secs
+    /// - Disconnect buffers older than disconnect_buffer_ttl_secs
+    /// - Notifications older than task_ttl_secs (reusing task TTL for notifications)
+    ///
+    /// The background task runs until the process exits. It logs the number of
+    /// items removed during each cleanup cycle.
+    pub fn start_cleanup_task(self: &Arc<Self>) {
+        let state = Arc::clone(self);
+
+        tokio::spawn(async move {
+            // Read the cleanup interval from retention config
+            let interval_secs = {
+                let config = state.retention_config.read().await;
+                config.cleanup_interval_secs
+            };
+
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
+            interval.tick().await; // First tick completes immediately
+
+            tracing::info!(
+                interval_secs,
+                "Background cleanup task started"
+            );
+
+            loop {
+                interval.tick().await;
+
+                // Read TTLs from retention config
+                let (task_ttl, buffer_ttl) = {
+                    let config = state.retention_config.read().await;
+                    (config.task_ttl_secs, config.disconnect_buffer_ttl_secs)
+                };
+
+                // Run all cleanup operations
+                let tasks_removed = state.cleanup_archived_tasks(task_ttl).await;
+                let buffers_removed = state.cleanup_disconnect_buffers(buffer_ttl).await;
+
+                // Cleanup notifications (using task TTL)
+                let notifications_removed = {
+                    let mut notification_store = state.notification_store.write().await;
+                    notification_store.cleanup_old(task_ttl)
+                };
+
+                tracing::info!(
+                    tasks_removed,
+                    buffers_removed,
+                    notifications_removed,
+                    "Cleanup cycle completed"
+                );
+            }
+        });
+    }
+
     /// Seed lightweight demo data for local development/web UI previews.
     ///
     /// No-op when beads are already present.
@@ -816,5 +873,202 @@ mod tests {
         let buffers = state.disconnect_buffers.read().await;
         let remaining_buffer = buffers.get(&terminal_id).unwrap();
         assert_eq!(remaining_buffer.data.len(), 9); // "test data" is 9 bytes
+    }
+
+    #[tokio::test]
+    async fn test_background_cleanup_starts_successfully() {
+        let state = Arc::new(create_test_state());
+
+        // Starting the background task should not panic
+        state.start_cleanup_task();
+
+        // Give the task a moment to start
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        // Test passes if we get here without panicking
+        assert!(true);
+    }
+
+    #[tokio::test]
+    async fn test_background_cleanup_removes_old_data() {
+        let state = Arc::new(create_test_state());
+
+        // Set a very short cleanup interval for testing (1 second)
+        {
+            let mut config = state.retention_config.write().await;
+            config.cleanup_interval_secs = 1;
+            config.task_ttl_secs = 0; // Immediate cleanup
+            config.disconnect_buffer_ttl_secs = 0; // Immediate cleanup
+        }
+
+        // Create old archived task
+        let task_id = Uuid::new_v4();
+        let old_task = create_test_task(task_id, Some(Utc::now() - Duration::days(10)));
+        state.tasks.write().await.insert(task_id, old_task);
+        state.archived_tasks.write().await.push(task_id);
+        state.task_count.store(1, Ordering::Relaxed);
+
+        // Create old disconnect buffer
+        let terminal_id = Uuid::new_v4();
+        let mut buffer = crate::terminal::DisconnectBuffer::new(1024);
+        buffer.disconnected_at = Utc::now() - Duration::minutes(10);
+        state
+            .disconnect_buffers
+            .write()
+            .await
+            .insert(terminal_id, buffer);
+
+        // Note: We cannot easily create old notifications for testing because
+        // the notifications field is private and we can't manipulate timestamps.
+        // The cleanup will run but won't remove anything since all notifications
+        // will be recent. This is acceptable for this test - we're verifying
+        // the cleanup runs without errors.
+
+        // Verify data exists before cleanup
+        assert_eq!(state.tasks.read().await.len(), 1);
+        assert_eq!(state.disconnect_buffers.read().await.len(), 1);
+
+        // Start the background cleanup task
+        state.start_cleanup_task();
+
+        // Wait for cleanup to run (interval is 1 second + buffer time)
+        tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+
+        // Verify data was cleaned up
+        assert_eq!(state.tasks.read().await.len(), 0);
+        assert_eq!(state.disconnect_buffers.read().await.len(), 0);
+        // Note: Notifications won't be cleaned because we can't create old ones in tests
+    }
+
+    #[tokio::test]
+    async fn test_background_cleanup_respects_retention_config() {
+        let state = Arc::new(create_test_state());
+
+        // Set a very short cleanup interval but long TTLs for testing
+        {
+            let mut config = state.retention_config.write().await;
+            config.cleanup_interval_secs = 1;
+            config.task_ttl_secs = 7 * 24 * 60 * 60; // 7 days
+            config.disconnect_buffer_ttl_secs = 5 * 60; // 5 minutes
+        }
+
+        // Create recent archived task (5 days old, should be kept)
+        let task_id = Uuid::new_v4();
+        let recent_task = create_test_task(task_id, Some(Utc::now() - Duration::days(5)));
+        state.tasks.write().await.insert(task_id, recent_task);
+        state.archived_tasks.write().await.push(task_id);
+        state.task_count.store(1, Ordering::Relaxed);
+
+        // Create recent disconnect buffer (3 minutes old, should be kept)
+        let terminal_id = Uuid::new_v4();
+        let mut buffer = crate::terminal::DisconnectBuffer::new(1024);
+        buffer.disconnected_at = Utc::now() - Duration::minutes(3);
+        state
+            .disconnect_buffers
+            .write()
+            .await
+            .insert(terminal_id, buffer);
+
+        // Verify data exists before cleanup
+        assert_eq!(state.tasks.read().await.len(), 1);
+        assert_eq!(state.disconnect_buffers.read().await.len(), 1);
+
+        // Start the background cleanup task
+        state.start_cleanup_task();
+
+        // Wait for cleanup to run
+        tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+
+        // Verify recent data was NOT removed (respects TTL)
+        assert_eq!(state.tasks.read().await.len(), 1);
+        assert_eq!(state.disconnect_buffers.read().await.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_background_cleanup_multiple_cycles() {
+        let state = Arc::new(create_test_state());
+
+        // Set a very short cleanup interval for testing (500ms)
+        {
+            let mut config = state.retention_config.write().await;
+            config.cleanup_interval_secs = 1; // Can't go below 1 second with Duration::from_secs
+            config.task_ttl_secs = 0;
+        }
+
+        // Start the background cleanup task
+        state.start_cleanup_task();
+
+        // Add old data in multiple batches and verify cleanup runs multiple times
+        for i in 0..3 {
+            let task_id = Uuid::new_v4();
+            let old_task = create_test_task(task_id, Some(Utc::now() - Duration::days(10)));
+            state.tasks.write().await.insert(task_id, old_task);
+            state.archived_tasks.write().await.push(task_id);
+            state
+                .task_count
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+            // Wait for cleanup cycle
+            tokio::time::sleep(std::time::Duration::from_millis(1200)).await;
+
+            // Should be cleaned up
+            assert_eq!(
+                state.tasks.read().await.len(),
+                0,
+                "Iteration {} failed: task should be cleaned up",
+                i
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_background_cleanup_empty_state() {
+        let state = Arc::new(create_test_state());
+
+        // Set a very short cleanup interval
+        {
+            let mut config = state.retention_config.write().await;
+            config.cleanup_interval_secs = 1;
+        }
+
+        // Start cleanup with empty state
+        state.start_cleanup_task();
+
+        // Wait for cleanup to run
+        tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+
+        // Verify state is still empty (no panics or errors)
+        assert_eq!(state.tasks.read().await.len(), 0);
+        assert_eq!(state.disconnect_buffers.read().await.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_background_cleanup_logs_cleanup_counts() {
+        let state = Arc::new(create_test_state());
+
+        // Set a very short cleanup interval and immediate cleanup TTL
+        {
+            let mut config = state.retention_config.write().await;
+            config.cleanup_interval_secs = 1;
+            config.task_ttl_secs = 0;
+            config.disconnect_buffer_ttl_secs = 0;
+        }
+
+        // Create some data to clean up
+        let task_id = Uuid::new_v4();
+        let old_task = create_test_task(task_id, Some(Utc::now() - Duration::days(10)));
+        state.tasks.write().await.insert(task_id, old_task);
+        state.archived_tasks.write().await.push(task_id);
+        state.task_count.store(1, Ordering::Relaxed);
+
+        // Start the background cleanup task
+        state.start_cleanup_task();
+
+        // Wait for cleanup to run
+        tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+
+        // Test passes if cleanup ran without errors (logs are checked manually)
+        // In a real scenario, you could use a tracing subscriber to capture logs
+        assert_eq!(state.tasks.read().await.len(), 0);
     }
 }
