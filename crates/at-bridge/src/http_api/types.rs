@@ -371,6 +371,8 @@ pub struct TaskListQuery {
     pub priority: Option<String>,
     #[serde(default)]
     pub source: Option<String>,
+    pub limit: Option<usize>,
+    pub offset: Option<usize>,
 }
 
 // ---------------------------------------------------------------------------
