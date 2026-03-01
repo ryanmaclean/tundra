@@ -485,17 +485,32 @@ impl Orchestrator {
             loop {
                 interval.tick().await;
 
-                // Acquire lock and perform cleanup
-                let (ttl_secs, removed_count) = {
+                // Acquire lock and perform cleanup with comprehensive metrics
+                let (ttl_secs, executions_before, executions_removed, executions_after, stuck_detectors_before, stuck_detectors_after) = {
                     let mut orch_guard = orch.lock().unwrap();
                     let ttl = orch_guard.config.execution_ttl_secs;
+
+                    // Capture before counts
+                    let exec_before = orch_guard.executions.len();
+                    let stuck_before = orch_guard.stuck_detectors.len();
+
+                    // Perform cleanup
                     let removed = orch_guard.cleanup_completed_executions(ttl);
-                    (ttl, removed)
+
+                    // Capture after counts
+                    let exec_after = orch_guard.executions.len();
+                    let stuck_after = orch_guard.stuck_detectors.len();
+
+                    (ttl, exec_before, removed, exec_after, stuck_before, stuck_after)
                 };
 
                 tracing::info!(
-                    ttl_secs,
-                    executions_removed = removed_count,
+                    execution_ttl_secs = ttl_secs,
+                    executions_before,
+                    executions_removed,
+                    executions_after,
+                    stuck_detectors_before,
+                    stuck_detectors_after,
                     "Orchestrator cleanup cycle completed"
                 );
             }
