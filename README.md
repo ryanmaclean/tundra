@@ -346,6 +346,7 @@ MIT OR Apache-2.0 (dual license)
 ## 🆘 Getting Help
 
 - 📖 **Documentation** - Start with [GETTING_STARTED.md](GETTING_STARTED.md)
+- 🔧 **Troubleshooting** - See [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) for common issues and solutions
 - 🐛 **Issues** - Check existing issues or create a new one
 - 💬 **Discussions** - Ask questions and share ideas
 - 📧 **Contact** - Reach out to maintainers
