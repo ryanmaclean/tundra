@@ -193,6 +193,8 @@ HTTP/WebSocket APIs for external clients.
 | `/api/gitlab/merge-requests/{iid}/review` | POST | Real MR review *(Wave 4)* |
 | `/ws` | WS | Real-time updates |
 
+**[→ WebSocket API Reference](./WEBSOCKET_API.md)** — Comprehensive guide for real-time event streaming, terminal I/O, connection setup, and client examples.
+
 ### `at-session` (Terminal Management)
 
 PTY terminal pool for command execution. Full terminal emulation, reusable sessions, output capture, signal handling.
