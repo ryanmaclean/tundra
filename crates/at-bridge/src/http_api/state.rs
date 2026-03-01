@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use at_core::session_store::SessionStore;
 use at_core::settings::SettingsManager;
-use at_core::types::{Agent, Bead, BeadStatus, CliType, KpiSnapshot};
+use at_core::types::{Agent, Bead, BeadStatus, CliType, KpiSnapshot, RetentionConfig};
 use at_intelligence::{
     changelog::ChangelogEngine, ideation::IdeationEngine, insights::InsightsEngine,
     memory::MemoryStore, roadmap::RoadmapEngine,
@@ -141,6 +141,9 @@ pub struct ApiState {
     // ---- Disconnect buffers for terminal WS reconnection ------------------
     pub disconnect_buffers:
         Arc<RwLock<std::collections::HashMap<Uuid, crate::terminal::DisconnectBuffer>>>,
+    // ---- Retention configuration ------------------------------------------
+    /// Memory retention policies for cleanup (TTL, max entries, cleanup intervals).
+    pub retention_config: Arc<RwLock<RetentionConfig>>,
 }
 
 impl ApiState {
@@ -210,6 +213,7 @@ impl ApiState {
             attachments: Arc::new(RwLock::new(Vec::new())),
             task_drafts: Arc::new(RwLock::new(std::collections::HashMap::new())),
             disconnect_buffers: Arc::new(RwLock::new(std::collections::HashMap::new())),
+            retention_config: Arc::new(RwLock::new(RetentionConfig::default())),
         }
     }
 
