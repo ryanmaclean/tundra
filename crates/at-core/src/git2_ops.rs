@@ -760,10 +760,12 @@ impl Git2ReadOps {
     /// Combines multiple queries into one response — ideal for a dashboard
     /// widget that shows repo status at a glance without N separate API calls.
     pub fn repo_summary(workdir: &Path) -> Result<RepoSummary, RepoError> {
-        let branch = Self::current_branch(workdir).unwrap_or_else(|_| "unknown".to_string());
-        let status = Self::status(workdir).unwrap_or_default();
-        let branches = Self::branches(workdir).unwrap_or_default();
-        let recent = Self::log(workdir, 5).unwrap_or_default();
+        let repo = Self::open(workdir)?;
+
+        let branch = Self::current_branch_with_repo(&repo).unwrap_or_else(|_| "unknown".to_string());
+        let status = Self::status_with_repo(&repo).unwrap_or_default();
+        let branches = Self::branches_with_repo(&repo).unwrap_or_default();
+        let recent = Self::log_with_repo(&repo, 5).unwrap_or_default();
         let clean = status.is_empty();
 
         let modified_count = status
