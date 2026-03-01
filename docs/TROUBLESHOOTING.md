@@ -21,21 +21,174 @@
 
 ## ⚡ Quick Fixes Checklist
 
-Before diving into specific issues, try these common solutions:
+Before diving into specific issues, try these common solutions organized by symptom:
 
-### First Steps
-- [ ] Check RUST_LOG is set: `export RUST_LOG=info,at_daemon=debug`
-- [ ] Verify all services are running: `pgrep at-daemon`
-- [ ] Check API credentials are configured
-- [ ] Restart the daemon: `pkill at-daemon && at-daemon`
-- [ ] Review recent logs: `tail -f ~/.auto-tundra/logs/daemon.log`
+### 🔍 First Steps (Always Start Here)
+- [ ] **Enable debug logging:** `export RUST_LOG=info,at_daemon=debug,at_intelligence=debug`
+- [ ] **Check daemon status:** `pgrep -fl at-daemon` (should show running process)
+- [ ] **Verify configuration:** `ls -la ~/.auto-tundra/config/` (config files exist?)
+- [ ] **Review recent errors:** `tail -50 ~/.auto-tundra/logs/daemon.log | grep -i error`
+- [ ] **Check disk space:** `df -h ~/.auto-tundra` (at least 1GB free?)
+- [ ] **Verify permissions:** `ls -la ~/.auto-tundra/` (directories readable/writable?)
 
-### Common Quick Fixes
-- [ ] **Connection failures?** → Check network connectivity and API key validity
-- [ ] **Timeouts?** → Verify firewall rules and proxy settings
-- [ ] **Port conflicts?** → Check if port 3306 (Dolt) or other ports are in use
-- [ ] **Zombie processes?** → Clean up with `pkill -9 -f 'at-'` (use with caution)
-- [ ] **High error rates?** → Circuit breaker may be open, wait 30s for recovery
+### 🌐 Network & API Issues
+**Symptoms:** Connection failures, timeouts, 401/403 errors, "API error" messages
+
+- [ ] **Test network connectivity:**
+  ```bash
+  ping -c 3 api.anthropic.com
+  curl -I https://api.anthropic.com/v1/messages
+  ```
+- [ ] **Verify API keys are set:**
+  ```bash
+  echo $ANTHROPIC_API_KEY | grep -o "^sk-ant"  # Should output: sk-ant
+  echo $OPENROUTER_API_KEY | grep -o "^sk-or"  # Should output: sk-or
+  ```
+- [ ] **Test API key validity:**
+  ```bash
+  curl https://api.anthropic.com/v1/messages \
+    -H "x-api-key: $ANTHROPIC_API_KEY" \
+    -H "anthropic-version: 2023-06-01" \
+    -H "content-type: application/json" \
+    -d '{"model":"claude-sonnet-4-20250514","max_tokens":10,"messages":[{"role":"user","content":"test"}]}'
+  ```
+- [ ] **Check proxy settings:** `env | grep -i proxy`
+- [ ] **Bypass firewall temporarily:** Test from different network
+- [ ] **Switch to fallback provider:** Edit `~/.auto-tundra/config/profiles.toml`
+
+### 💾 Database & Session Issues
+**Symptoms:** "ConfigError", "database connection failed", "session not found", PTY spawn failures
+
+- [ ] **Check Dolt is running:** `pgrep -fl dolt-sql-server`
+- [ ] **Verify database port:** `lsof -i :3306` (should show dolt-sql-server)
+- [ ] **Test database connection:**
+  ```bash
+  mysql -h 127.0.0.1 -P 3306 -u root --protocol=tcp -e "SELECT 1"
+  ```
+- [ ] **Check database directory:** `ls ~/.auto-tundra/data/dolt/`
+- [ ] **Verify PTY pool capacity:** Check logs for "AtCapacity" errors
+- [ ] **Release zombie sessions:**
+  ```bash
+  # List active sessions
+  ps aux | grep -E 'zsh|bash' | grep auto-tundra
+  # Kill stale sessions (use with caution)
+  pkill -f 'auto-tundra.*zsh'
+  ```
+
+### ⚡ Performance & Resource Issues
+**Symptoms:** Slow responses, timeouts, high CPU/memory, "quota exceeded", circuit breaker open
+
+- [ ] **Check system resources:**
+  ```bash
+  top -l 1 | grep -A 5 "CPU usage"
+  ps aux | grep at-daemon  # Check memory usage
+  ```
+- [ ] **Monitor rate limits:**
+  ```bash
+  tail -f ~/.auto-tundra/logs/daemon.log | grep -E 'rate.*limit|quota'
+  ```
+- [ ] **Check circuit breaker status:**
+  ```bash
+  tail -f ~/.auto-tundra/logs/daemon.log | grep circuit
+  ```
+- [ ] **Wait for recovery:** Circuit breakers auto-reset after 30s
+- [ ] **Review token usage:** `cat ~/.auto-tundra/data/profile_usage.json`
+- [ ] **Reduce concurrency:** Lower `max_concurrent_requests` in config
+- [ ] **Increase timeouts:** Adjust `timeout_seconds` in `~/.auto-tundra/config/harness.toml`
+
+### 🔧 Process & State Issues
+**Symptoms:** "zombie processes", "port already in use", daemon won't start, stale locks
+
+- [ ] **Check for port conflicts:**
+  ```bash
+  lsof -i :3306   # Dolt database port
+  lsof -i :8080   # Common API port (if applicable)
+  ```
+- [ ] **Kill zombie processes:**
+  ```bash
+  # List all auto-tundra processes
+  pgrep -fl 'at-'
+  # Clean shutdown
+  pkill at-daemon
+  # Force kill if needed (use with caution)
+  pkill -9 -f 'at-'
+  ```
+- [ ] **Remove stale locks:**
+  ```bash
+  rm -f ~/.auto-tundra/daemon.lock
+  rm -f ~/.auto-tundra/data/dolt/*.lock
+  ```
+- [ ] **Clean restart:**
+  ```bash
+  pkill at-daemon
+  sleep 2
+  export RUST_LOG=info,at_daemon=debug
+  at-daemon
+  ```
+- [ ] **Check for conflicting instances:** Only one daemon should run
+
+### 🔐 Authentication & Authorization Issues
+**Symptoms:** "OAuth error", "token expired", "permission denied", GitHub/GitLab integration failures
+
+- [ ] **Check OAuth token validity:**
+  ```bash
+  # GitHub
+  curl -H "Authorization: token $GITHUB_TOKEN" https://api.github.com/user
+  # GitLab
+  curl -H "PRIVATE-TOKEN: $GITLAB_TOKEN" https://gitlab.com/api/v4/user
+  ```
+- [ ] **Refresh OAuth tokens:** Re-authenticate via UI or CLI
+- [ ] **Verify integration permissions:** Check scopes in provider dashboard
+- [ ] **Check token file permissions:**
+  ```bash
+  ls -la ~/.auto-tundra/data/oauth_tokens.json
+  # Should be: -rw------- (600)
+  ```
+
+### 📋 Configuration Issues
+**Symptoms:** "ConfigError", "missing field", "invalid configuration", startup failures
+
+- [ ] **Validate configuration files:**
+  ```bash
+  # Check for syntax errors
+  cat ~/.auto-tundra/config/profiles.toml
+  cat ~/.auto-tundra/config/harness.toml
+  ```
+- [ ] **Reset to defaults:** Backup and remove `~/.auto-tundra/config/`
+- [ ] **Check required fields:** Compare against documentation
+- [ ] **Verify file permissions:** Config files should be readable (644 or 600)
+
+### 🚨 When Nothing Works
+- [ ] **Enable trace logging:**
+  ```bash
+  export RUST_LOG=trace,at_daemon=trace,at_intelligence=debug
+  at-daemon > /tmp/at-daemon-debug.log 2>&1
+  ```
+- [ ] **Collect full diagnostics:**
+  ```bash
+  mkdir -p /tmp/auto-tundra-diagnostics
+  cp -r ~/.auto-tundra/logs /tmp/auto-tundra-diagnostics/
+  cp -r ~/.auto-tundra/config /tmp/auto-tundra-diagnostics/
+  env | grep -E '(RUST_LOG|API_KEY|TOKEN)' > /tmp/auto-tundra-diagnostics/env.txt
+  ps aux | grep at- > /tmp/auto-tundra-diagnostics/processes.txt
+  ```
+- [ ] **Nuclear option - fresh start (CAUTION):**
+  ```bash
+  # Backup first!
+  mv ~/.auto-tundra ~/.auto-tundra.backup.$(date +%Y%m%d)
+  # Reinstall and reconfigure
+  ```
+- [ ] **Report bug with diagnostics:** Include logs, config (redact sensitive data)
+
+### 📊 Quick Health Check Command
+Run this one-liner for instant system status:
+```bash
+echo "=== Daemon ===" && pgrep -fl at-daemon && \
+echo "=== Database ===" && pgrep -fl dolt-sql-server && \
+echo "=== API Keys ===" && env | grep -E '(ANTHROPIC|OPENROUTER)_API_KEY' | cut -d= -f1 && \
+echo "=== Disk Space ===" && df -h ~/.auto-tundra && \
+echo "=== Recent Errors ===" && tail -20 ~/.auto-tundra/logs/daemon.log | grep -i error
+```
 
 ---
 
@@ -2894,37 +3047,306 @@ journalctl -u at-daemon --since "1 hour ago" > /tmp/at-daemon.log
 
 ## 📇 Error Reference Index
 
-> **Comprehensive index of all error types with page references.**
+> **Comprehensive index of all 37+ error types found in the codebase, organized by category for quick lookup.**
 
-**This section will be populated in subtask-1-8 with a complete index of all 33+ error types found across the workspace.**
+This index covers every error type defined in Auto-Tundra's workspace. Use it to quickly jump to the relevant troubleshooting section.
+
+---
 
 ### By Category
 
-#### LLM Provider Errors
-- HttpError → [LLM Provider Issues](#-llm-provider-issues)
-- ApiError → [LLM Provider Issues](#-llm-provider-issues)
-- RateLimited → [LLM Provider Issues](#-llm-provider-issues)
-- Timeout → [LLM Provider Issues](#-llm-provider-issues)
-- ParseError → [LLM Provider Issues](#-llm-provider-issues)
-- Unsupported → [LLM Provider Issues](#-llm-provider-issues)
+#### 🤖 LLM Provider & Intelligence Errors
 
-#### PTY Session Errors
-- AtCapacity → [PTY Session Management](#-pty-session-management)
-- HandleNotFound → [PTY Session Management](#-pty-session-management)
-- SpawnFailed → [PTY Session Management](#-pty-session-management)
+**LlmError variants** (from `at-intelligence/src/llm.rs`):
+- **HttpError** → [HttpError: Network-Level Failures](#httperror-network-level-failures)
+- **ApiError** → [ApiError: Provider Service Errors](#apierror-provider-service-errors)
+- **RateLimited** → [RateLimited: Quota Exhaustion](#ratelimited-quota-exhaustion)
+- **Timeout** → [Timeout: Request Deadline Exceeded (LLM)](#timeout-request-deadline-exceeded-llm)
+- **ParseError** → [ParseError: Malformed API Responses](#parseerror-malformed-api-responses)
+- **Unsupported** → [Unsupported: Feature Not Available](#unsupported-feature-not-available)
 
-#### WebSocket Errors
-- TransportError → [WebSocket Connections](#-websocket-connections)
-- IpcError → [WebSocket Connections](#-websocket-connections)
+**IntelligenceError** (from `at-intelligence/src/lib.rs`):
+- Wraps `LlmError`, `ProviderError`, `SpecError` → See respective sections below
 
-#### Database Errors
-- ConfigError → [Dolt Database Configuration](#-dolt-database-configuration)
+**ResilientCallError** (from `at-intelligence/src/api_profiles.rs`):
+- Handles failover logic → See [LLM Provider Issues](#-llm-provider-issues) for failover behavior
 
-#### Rate Limiting Errors
-- RateLimitError::Exceeded → [Rate Limiting & Circuit Breakers](#-rate-limiting--circuit-breakers)
-- CircuitBreakerError::Open → [Rate Limiting & Circuit Breakers](#-rate-limiting--circuit-breakers)
+**SpecError** (from `at-intelligence/src/spec.rs`):
+- Specification parsing and validation errors → See [Configuration Issues](#-configuration-issues) in Quick Fixes
 
-*→ Complete index will be added in [Subtask 1-8](../.auto-claude/specs/010-add-troubleshooting-guide-for-common-runtime-error/implementation_plan.json).*
+---
+
+#### 🔌 Provider & Circuit Breaker Errors
+
+**ProviderError** (from `at-harness/src/provider.rs`):
+- HTTP client errors, request building failures
+- Covered by → [HttpError: Network-Level Failures](#httperror-network-level-failures)
+
+**CircuitBreakerError** (from `at-harness/src/circuit_breaker.rs`):
+- **CircuitBreakerError::Open** → [CircuitBreakerError::Open: Service Protection Active](#circuitbreakererroropen-service-protection-active)
+- **CircuitBreakerError::Timeout** → [CircuitBreakerError::Timeout: Request Deadline Exceeded](#circuitbreakerrortimeout-request-deadline-exceeded)
+
+**RateLimitError** (from `at-harness/src/rate_limiter.rs`):
+- **RateLimitError::Exceeded** → [RateLimitError::Exceeded: Token Bucket Exhaustion](#ratelimiterrorexceeded-token-bucket-exhaustion)
+
+**SecurityError** (from `at-harness/src/security.rs`):
+- Request validation, content filtering failures
+- Covered by → [ApiError: Provider Service Errors](#apierror-provider-service-errors)
+
+---
+
+#### 🖥️ PTY Session & Process Management Errors
+
+**PtyError** (from `at-session/src/pty_pool.rs`):
+- **PtyError::AtCapacity** → [AtCapacity: PTY Pool Exhaustion](#atcapacity-pty-pool-exhaustion)
+- **PtyError::HandleNotFound** → [HandleNotFound: Unreleased PTY Handle](#handlenotfound-unreleased-pty-handle)
+- **PtyError::SpawnFailed** → [SpawnFailed: Process Creation Failure](#spawnfailed-process-creation-failure)
+
+**SessionError** (from `at-agents/src/claude_session.rs`):
+- Session lifecycle errors (creation, state management)
+- Related to → [PTY Session Management](#-pty-session-management)
+
+**SessionStoreError** (from `at-core/src/session_store.rs`):
+- Database operations for session persistence
+- Related to → [Dolt Database Configuration](#-dolt-database-configuration)
+
+---
+
+#### 🌐 WebSocket & Transport Errors
+
+**TransportError** (from `at-bridge/src/transport.rs`):
+- **TransportError::ConnectionClosed** → [TransportError: Network Failures](#transporterror-network-failures)
+- **TransportError::SendFailed** → [TransportError: Network Failures](#transporterror-network-failures)
+- **TransportError::ReceiveFailed** → [TransportError: Network Failures](#transporterror-network-failures)
+- **TransportError::SerializationError** → [TransportError: Network Failures](#transporterror-network-failures)
+
+**IpcError** (from `at-bridge/src/ipc.rs`):
+- **IpcError::UnknownMessage** → [IpcError: Daemon Communication Failures](#ipcerror-daemon-communication-failures)
+- **IpcError::Internal** → [IpcError: Daemon Communication Failures](#ipcerror-daemon-communication-failures)
+
+**ApiError** (from `at-bridge/src/api_error.rs`):
+- HTTP API errors from bridge layer
+- Related to → [ApiError: Provider Service Errors](#apierror-provider-service-errors)
+
+---
+
+#### 💾 Database & Configuration Errors
+
+**ConfigError** (from `at-core/src/config.rs`):
+- **ConfigError::MissingDatabaseUrl** → [ConfigError: Missing or Invalid Configuration](#configerror-missing-or-invalid-configuration)
+- **ConfigError::InvalidServerConfig** → [ConfigError: Missing or Invalid Configuration](#configerror-missing-or-invalid-configuration)
+- **ConfigError::ParseError** → [ConfigError: Missing or Invalid Configuration](#configerror-missing-or-invalid-configuration)
+
+**RepoError** (from `at-core/src/repo.rs`):
+- Git repository operations (clone, fetch, checkout)
+- Related to → [Database & Session Issues](#-database--session-issues) in Quick Fixes
+
+**WorktreeError** (from `at-core/src/worktree.rs`):
+- Git worktree creation and management
+- Related to → [Database & Session Issues](#-database--session-issues) in Quick Fixes
+
+**WorktreeManagerError** (from `at-core/src/worktree_manager.rs`):
+- Worktree pool management
+- Related to → [Database & Session Issues](#-database--session-issues) in Quick Fixes
+
+**GitReadError** (from `at-core/src/git_read_adapter.rs`):
+- Git object reading failures
+- Related to → [Database & Session Issues](#-database--session-issues) in Quick Fixes
+
+---
+
+#### 🤖 Agent Execution & Orchestration Errors
+
+**ExecutorError** (from `at-agents/src/executor.rs`):
+- **ExecutorError::ToolFailed** → Tool execution failures
+- **ExecutorError::InvalidState** → State machine violations
+- Related to → [PTY Session Management](#-pty-session-management) and [Agent Execution](#agent-execution-errors)
+
+**ToolErrorRecovery** (from `at-agents/src/executor.rs`):
+- Automatic recovery strategies for tool failures
+- Related to → [Rate Limiting & Circuit Breakers](#-rate-limiting--circuit-breakers)
+
+**TaskRunnerError** (from `at-agents/src/task_runner.rs`):
+- Task pipeline execution failures
+- Related to → [Agent Execution](#agent-execution-errors)
+
+**PipelineError** (from `at-agents/src/task_orchestrator.rs`):
+- Multi-stage task orchestration failures
+- Related to → [Agent Execution](#agent-execution-errors)
+
+**StateMachineError** (from `at-agents/src/state_machine.rs`):
+- Invalid state transitions
+- Related to → [Agent Execution](#agent-execution-errors)
+
+**ApprovalError** (from `at-agents/src/approval.rs`):
+- User approval workflow failures
+- Related to → [Agent Execution](#agent-execution-errors)
+
+**LifecycleError** (from `at-agents/src/lifecycle.rs`):
+- Agent lifecycle management (start, stop, pause)
+- Related to → [Agent Execution](#agent-execution-errors)
+
+**SupervisorError** (from `at-agents/src/supervisor.rs`):
+- Agent supervision and monitoring
+- Related to → [Agent Execution](#agent-execution-errors)
+
+**RegistryError** (from `at-agents/src/registry.rs`):
+- Agent registration and discovery
+- Related to → [Agent Execution](#agent-execution-errors)
+
+---
+
+#### 🔗 Integration Errors (Third-Party APIs)
+
+**GitHubError** (from `at-integrations/src/github/client.rs`):
+- GitHub API request failures
+- **OAuthError** (GitHub OAuth flow)
+- Related to → [Authentication & Authorization Issues](#-authentication--authorization-issues) in Quick Fixes
+
+**GitLabError** (from `at-integrations/src/gitlab/mod.rs`):
+- GitLab API request failures
+- **OAuthError** (GitLab OAuth flow)
+- Related to → [Authentication & Authorization Issues](#-authentication--authorization-issues) in Quick Fixes
+
+**LinearError** (from `at-integrations/src/linear/mod.rs`):
+- Linear API request failures
+- Related to → [Authentication & Authorization Issues](#-authentication--authorization-issues) in Quick Fixes
+
+**TokenManagerError** (from `at-bridge/src/oauth_token_manager.rs`):
+- OAuth token storage and refresh failures
+- Related to → [Authentication & Authorization Issues](#-authentication--authorization-issues) in Quick Fixes
+
+---
+
+#### 🎯 Daemon & Orchestration Errors
+
+**OrchestratorError** (from `at-daemon/src/orchestrator.rs`):
+- Top-level orchestration failures
+- Aggregates multiple error types
+- Related to → All sections (check specific error variant)
+
+**CommandError** (from `at-bridge/src/command_registry.rs`):
+- Command registration and dispatch failures
+- Related to → [IpcError: Daemon Communication Failures](#ipcerror-daemon-communication-failures)
+
+---
+
+#### 🖼️ UI & Tauri Errors
+
+**TauriError** (from `app/tauri/src/error.rs`):
+- Desktop application errors (file system, IPC, window management)
+- Related to → [WebSocket Connections](#-websocket-connections) for IPC issues
+
+---
+
+#### 🔐 Cryptography Errors
+
+**CryptoError** (from `at-core/src/crypto.rs`):
+- Encryption/decryption failures, key derivation errors
+- Related to → [Authentication & Authorization Issues](#-authentication--authorization-issues) in Quick Fixes
+
+---
+
+### Agent Execution Errors
+
+> **Note:** Agent execution errors (`ExecutorError`, `TaskRunnerError`, `PipelineError`, `StateMachineError`, `ApprovalError`, `LifecycleError`, `SupervisorError`, `RegistryError`) are not yet covered in dedicated troubleshooting sections. These errors typically surface as:
+> - Tool execution failures → Check PTY session and WebSocket sections
+> - State machine violations → Check daemon logs for invalid transitions
+> - Approval timeouts → Check WebSocket connection to UI
+> - Lifecycle errors → Check daemon orchestrator status
+
+**Common Solutions:**
+1. **Enable agent tracing:**
+   ```bash
+   export RUST_LOG=info,at_agents=debug,at_agents::executor=trace
+   ```
+2. **Check agent state:**
+   ```bash
+   tail -f ~/.auto-tundra/logs/daemon.log | grep -E 'agent|executor|state_machine'
+   ```
+3. **Verify tool availability:** Ensure required tools (git, npm, etc.) are installed
+4. **Check approval UI:** If approval workflow fails, verify WebSocket connection
+
+---
+
+### Alphabetical Index
+
+Quick alphabetical lookup of all error types:
+
+- **ApiError** → [ApiError: Provider Service Errors](#apierror-provider-service-errors)
+- **ApprovalError** → [Agent Execution Errors](#agent-execution-errors)
+- **AtCapacity** → [AtCapacity: PTY Pool Exhaustion](#atcapacity-pty-pool-exhaustion)
+- **CircuitBreakerError::Open** → [CircuitBreakerError::Open: Service Protection Active](#circuitbreakererroropen-service-protection-active)
+- **CircuitBreakerError::Timeout** → [CircuitBreakerError::Timeout: Request Deadline Exceeded](#circuitbreakerrortimeout-request-deadline-exceeded)
+- **CommandError** → [Daemon & Orchestration Errors](#-daemon--orchestration-errors)
+- **ConfigError** → [ConfigError: Missing or Invalid Configuration](#configerror-missing-or-invalid-configuration)
+- **CryptoError** → [Cryptography Errors](#-cryptography-errors)
+- **ExecutorError** → [Agent Execution Errors](#agent-execution-errors)
+- **GitHubError** → [Integration Errors](#-integration-errors-third-party-apis)
+- **GitLabError** → [Integration Errors](#-integration-errors-third-party-apis)
+- **GitReadError** → [Database & Configuration Errors](#-database--configuration-errors)
+- **HandleNotFound** → [HandleNotFound: Unreleased PTY Handle](#handlenotfound-unreleased-pty-handle)
+- **HttpError** → [HttpError: Network-Level Failures](#httperror-network-level-failures)
+- **IntelligenceError** → [LLM Provider & Intelligence Errors](#-llm-provider--intelligence-errors)
+- **IpcError** → [IpcError: Daemon Communication Failures](#ipcerror-daemon-communication-failures)
+- **LifecycleError** → [Agent Execution Errors](#agent-execution-errors)
+- **LinearError** → [Integration Errors](#-integration-errors-third-party-apis)
+- **LlmError** → [LLM Provider & Intelligence Errors](#-llm-provider--intelligence-errors)
+- **OAuthError** → [Integration Errors](#-integration-errors-third-party-apis)
+- **OrchestratorError** → [Daemon & Orchestration Errors](#-daemon--orchestration-errors)
+- **ParseError** → [ParseError: Malformed API Responses](#parseerror-malformed-api-responses)
+- **PipelineError** → [Agent Execution Errors](#agent-execution-errors)
+- **ProviderError** → [Provider & Circuit Breaker Errors](#-provider--circuit-breaker-errors)
+- **PtyError** → [PTY Session & Process Management Errors](#-pty-session--process-management-errors)
+- **RateLimitError::Exceeded** → [RateLimitError::Exceeded: Token Bucket Exhaustion](#ratelimiterrorexceeded-token-bucket-exhaustion)
+- **RateLimited** → [RateLimited: Quota Exhaustion](#ratelimited-quota-exhaustion)
+- **RegistryError** → [Agent Execution Errors](#agent-execution-errors)
+- **RepoError** → [Database & Configuration Errors](#-database--configuration-errors)
+- **ResilientCallError** → [LLM Provider & Intelligence Errors](#-llm-provider--intelligence-errors)
+- **SecurityError** → [Provider & Circuit Breaker Errors](#-provider--circuit-breaker-errors)
+- **SessionError** → [PTY Session & Process Management Errors](#-pty-session--process-management-errors)
+- **SessionStoreError** → [PTY Session & Process Management Errors](#-pty-session--process-management-errors)
+- **SpawnFailed** → [SpawnFailed: Process Creation Failure](#spawnfailed-process-creation-failure)
+- **SpecError** → [LLM Provider & Intelligence Errors](#-llm-provider--intelligence-errors)
+- **StateMachineError** → [Agent Execution Errors](#agent-execution-errors)
+- **SupervisorError** → [Agent Execution Errors](#agent-execution-errors)
+- **TaskRunnerError** → [Agent Execution Errors](#agent-execution-errors)
+- **TauriError** → [UI & Tauri Errors](#-ui--tauri-errors)
+- **Timeout** → [Timeout: Request Deadline Exceeded (LLM)](#timeout-request-deadline-exceeded-llm)
+- **TokenManagerError** → [Integration Errors](#-integration-errors-third-party-apis)
+- **ToolErrorRecovery** → [Agent Execution Errors](#agent-execution-errors)
+- **TransportError** → [TransportError: Network Failures](#transporterror-network-failures)
+- **Unsupported** → [Unsupported: Feature Not Available](#unsupported-feature-not-available)
+- **WorktreeError** → [Database & Configuration Errors](#-database--configuration-errors)
+- **WorktreeManagerError** → [Database & Configuration Errors](#-database--configuration-errors)
+
+**Total Error Types Indexed: 37** ✓
+
+---
+
+### Error Severity Guide
+
+Understanding error severity helps prioritize troubleshooting:
+
+| Severity | Impact | Examples | Action |
+|----------|--------|----------|--------|
+| **Critical** | Service unavailable | `ConfigError::MissingDatabaseUrl`, `OrchestratorError` | Immediate action required |
+| **High** | Feature degraded | `CircuitBreakerError::Open`, `AtCapacity` | Address within minutes |
+| **Medium** | Temporary failure | `RateLimited`, `Timeout`, `HttpError` | Auto-recovers, monitor |
+| **Low** | Degraded experience | `ParseError`, `HandleNotFound` | Fix when convenient |
+| **Info** | Recoverable | `ToolErrorRecovery`, automatic retries | No action needed |
+
+**Using Severity in Logs:**
+```bash
+# Filter by critical errors
+tail -f ~/.auto-tundra/logs/daemon.log | grep -E 'ConfigError|OrchestratorError'
+
+# Monitor high-severity errors
+tail -f ~/.auto-tundra/logs/daemon.log | grep -E 'CircuitBreakerError|AtCapacity'
+
+# Track recovery events
+tail -f ~/.auto-tundra/logs/daemon.log | grep -E 'recovered|retry.*success'
+```
 
 ---
 
