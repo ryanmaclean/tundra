@@ -2018,7 +2018,7 @@ kbd {
 .bead-pipeline .stage {
     padding: 2px 8px;
     height: 18px;
-    border-radius: 4px;
+    border-radius: var(--radius-base);
     background: rgba(107, 90, 133, 0.2);
     display: flex;
     align-items: center;
@@ -2407,7 +2407,7 @@ kbd {
     font-size: 14px;
     cursor: pointer;
     padding: 2px 4px;
-    border-radius: 4px;
+    border-radius: var(--radius-base);
     opacity: 0.5;
     transition: opacity 0.15s;
     flex-shrink: 0;
@@ -2623,7 +2623,7 @@ kbd {
 
 .progress-bar {
     background: var(--border);
-    border-radius: 4px;
+    border-radius: var(--radius-base);
     height: 6px;
     overflow: hidden;
 }
@@ -2631,7 +2631,7 @@ kbd {
 .progress-bar .fill {
     background: linear-gradient(90deg, var(--accent-purple), var(--accent-magenta));
     height: 100%;
-    border-radius: 4px;
+    border-radius: var(--radius-base);
     transition: width 0.3s;
 }
 
@@ -2820,7 +2820,7 @@ kbd {
     display: inline-flex;
     align-items: center;
     padding: 1px 6px;
-    border-radius: 4px;
+    border-radius: var(--radius-base);
     font-size: 10px;
     font-weight: 700;
     letter-spacing: 0.06em;
@@ -3262,7 +3262,7 @@ code.file-path, code.branch-name {
 .bead-progress .progress-fill {
     background: linear-gradient(90deg, var(--accent-purple), var(--accent-magenta));
     height: 100%;
-    border-radius: 4px;
+    border-radius: var(--radius-base);
     transition: width 0.3s;
 }
 
@@ -3472,7 +3472,7 @@ code.file-path, code.branch-name {
 .pipeline-stage {
     font-size: 0.6em;
     padding: 1px 5px;
-    border-radius: 4px;
+    border-radius: var(--radius-base);
     background: var(--bg-primary);
     color: var(--text-muted);
     border: 1px solid rgba(255, 255, 255, 0.06);
@@ -4518,7 +4518,7 @@ code.file-path, code.branch-name {
     align-items: center;
     justify-content: center;
     font-size: 12px;
-    border-radius: 4px;
+    border-radius: var(--radius-base);
     margin-top: 1px;
 }
 
@@ -5342,7 +5342,7 @@ code.file-path, code.branch-name {
     color: var(--accent-cyan);
     padding: 2px 8px;
     background: rgba(6, 182, 212, 0.1);
-    border-radius: 4px;
+    border-radius: var(--radius-base);
 }
 
 .td-build-arrow {
@@ -5882,14 +5882,14 @@ code.file-path, code.branch-name {
     flex: 1;
     height: 8px;
     background: var(--border);
-    border-radius: 4px;
+    border-radius: var(--radius-base);
     overflow: hidden;
 }
 
 .task-detail-progress-fill {
     height: 100%;
     background: linear-gradient(90deg, var(--accent-purple), var(--accent-magenta));
-    border-radius: 4px;
+    border-radius: var(--radius-base);
     transition: width 0.3s;
 }
 
@@ -6225,7 +6225,7 @@ code.file-path, code.branch-name {
     color: var(--accent-cyan);
     background: rgba(6, 182, 212, 0.08);
     padding: 2px 8px;
-    border-radius: 4px;
+    border-radius: var(--radius-base);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -6909,7 +6909,7 @@ code.file-path, code.branch-name {
     font-size: 10px;
     font-weight: 600;
     padding: 2px 8px;
-    border-radius: 4px;
+    border-radius: var(--radius-base);
     text-transform: uppercase;
     letter-spacing: 0.04em;
 }
@@ -6999,7 +6999,7 @@ code.file-path, code.branch-name {
     font-size: 10px;
     font-weight: 600;
     padding: 2px 8px;
-    border-radius: 4px;
+    border-radius: var(--radius-base);
     text-transform: uppercase;
     letter-spacing: 0.04em;
     white-space: nowrap;
@@ -7024,7 +7024,7 @@ code.file-path, code.branch-name {
     font-size: 10px;
     font-weight: 600;
     padding: 2px 8px;
-    border-radius: 4px;
+    border-radius: var(--radius-base);
     letter-spacing: 0.04em;
 }
 
@@ -7113,7 +7113,7 @@ code.file-path, code.branch-name {
 
 .layout-btn {
     padding: 4px 8px;
-    border-radius: 4px;
+    border-radius: var(--radius-base);
     cursor: pointer;
     background: var(--bg-card);
     color: var(--text-muted);
@@ -7139,7 +7139,7 @@ code.file-path, code.branch-name {
     color: var(--accent-red);
     border: 1px solid rgba(239, 68, 68, 0.3);
     padding: 4px 12px;
-    border-radius: 4px;
+    border-radius: var(--radius-base);
     font-size: 12px;
     font-weight: 600;
     cursor: pointer;
@@ -7213,7 +7213,7 @@ code.file-path, code.branch-name {
     color: var(--accent-magenta);
     background: rgba(192, 38, 211, 0.12);
     border: 1px solid rgba(192, 38, 211, 0.3);
-    border-radius: 4px;
+    border-radius: var(--radius-base);
     padding: 2px 6px;
     white-space: nowrap;
 }
@@ -7509,7 +7509,7 @@ code.file-path, code.branch-name {
     text-transform: uppercase;
     letter-spacing: 0.5px;
     padding: 2px 6px;
-    border-radius: 4px;
+    border-radius: var(--radius-base);
     background: rgba(99, 102, 241, 0.15);
     color: var(--accent-primary, #818cf8);
     white-space: nowrap;
@@ -7806,7 +7806,7 @@ code.file-path, code.branch-name {
 .project-badge {
     display: inline-block;
     padding: 2px 10px;
-    border-radius: 4px;
+    border-radius: var(--radius-base);
     font-size: 11px;
     font-weight: 600;
     background: rgba(124, 58, 237, 0.12);
@@ -8019,7 +8019,7 @@ code.file-path, code.branch-name {
     align-items: center;
     gap: 3px;
     padding: 1px 7px;
-    border-radius: 4px;
+    border-radius: var(--radius-base);
     font-size: 10px;
     font-weight: 600;
     background: rgba(124, 58, 237, 0.1);
@@ -8035,7 +8035,7 @@ code.file-path, code.branch-name {
 .mcp-agent-model {
     font-size: 11px;
     padding: 1px 7px;
-    border-radius: 4px;
+    border-radius: var(--radius-base);
     background: rgba(6, 182, 212, 0.1);
     color: var(--accent-cyan);
     font-weight: 500;
@@ -8371,7 +8371,7 @@ code.file-path, code.branch-name {
 .btn-xs {
     padding: 3px 8px;
     font-size: 11px;
-    border-radius: 4px;
+    border-radius: var(--radius-base);
 }
 
 .btn-sm {
@@ -8414,7 +8414,7 @@ code.file-path, code.branch-name {
 .btn-small {
     padding: 4px 10px;
     font-size: 11px;
-    border-radius: 4px;
+    border-radius: var(--radius-base);
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
     color: var(--text-secondary);
@@ -8480,7 +8480,7 @@ code.file-path, code.branch-name {
     font-family: 'JetBrains Mono', monospace;
     background: rgba(124, 58, 237, 0.08);
     padding: 2px 8px;
-    border-radius: 4px;
+    border-radius: var(--radius-base);
 }
 
 .issue-count-badge {
@@ -9251,7 +9251,7 @@ code.file-path, code.branch-name {
     background: var(--bg-secondary);
     border: 1px solid rgba(255, 255, 255, 0.06);
     padding: 4px 10px;
-    border-radius: 4px;
+    border-radius: var(--radius-base);
     font-size: 12px;
     color: var(--text-secondary);
 }
@@ -10451,7 +10451,7 @@ button.toggle-switch.active .toggle-knob {
     cursor: pointer;
     padding: 4px 8px;
     transition: color 0.2s;
-    border-radius: 4px;
+    border-radius: var(--radius-base);
 }
 
 .notification-mark-all-btn:hover {
@@ -10944,7 +10944,7 @@ button.toggle-switch.active .toggle-knob {
     color: var(--accent-green);
     background: rgba(34, 197, 94, 0.12);
     padding: 2px 8px;
-    border-radius: 4px;
+    border-radius: var(--radius-base);
     text-transform: uppercase;
     letter-spacing: 0.04em;
 }
@@ -12082,7 +12082,7 @@ button.toggle-switch.active .toggle-knob {
     border: 1px solid rgba(255, 255, 255, 0.06);
     color: var(--text-secondary);
     padding: 4px 10px;
-    border-radius: 4px;
+    border-radius: var(--radius-base);
     font-size: 11px;
     cursor: pointer;
     transition: all 0.15s;
@@ -12103,7 +12103,7 @@ button.toggle-switch.active .toggle-knob {
     padding: 6px 10px;
     background: var(--bg-secondary);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 4px;
+    border-radius: var(--radius-base);
     color: var(--text-primary);
     font-size: 12px;
     outline: none;
@@ -12555,7 +12555,7 @@ button.toggle-switch.active .toggle-knob {
   border: 1px solid rgba(139, 92, 246, 0.25);
   display: inline-block;
   padding: 2px 8px;
-  border-radius: 4px;
+  border-radius: var(--radius-base);
   font-size: 0.75em;
   text-transform: uppercase;
   letter-spacing: 1px;
@@ -13695,7 +13695,7 @@ button[class*="-btn"]:active {
   );
   background-size: 200% 100%;
   animation: skeletonShimmer 1.5s ease-in-out infinite;
-  border-radius: 4px;
+  border-radius: var(--radius-base);
 }
 
 /* ── Terminal Cursor Blink — smooth fade instead of hard toggle ── */
@@ -13871,7 +13871,7 @@ button[class*="-btn"]:active {
     background: linear-gradient(90deg, var(--bg-card) 25%, rgba(124, 58, 237, 0.06) 50%, var(--bg-card) 75%);
     background-size: 200% 100%;
     animation: skeletonShimmer 1.5s ease-in-out infinite;
-    border-radius: 4px;
+    border-radius: var(--radius-base);
 }
 
 @keyframes skeletonShimmer {
@@ -15293,7 +15293,7 @@ h2 .gh-icon {
     color: var(--accent-cyan);
     background: rgba(0, 0, 0, 0.3);
     padding: 2px 6px;
-    border-radius: 4px;
+    border-radius: var(--radius-base);
     margin: 4px 0;
 }
 
