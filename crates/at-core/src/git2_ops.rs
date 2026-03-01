@@ -85,7 +85,13 @@ impl Git2ReadOps {
     /// files that differ from HEAD or are untracked.
     pub fn status(workdir: &Path) -> Result<Vec<DiffEntry>, RepoError> {
         let repo = Self::open(workdir)?;
+        Self::status_with_repo(&repo)
+    }
 
+    /// Helper to get working directory status from an already-opened repository.
+    ///
+    /// Avoids redundant `discover()` calls when the repo handle is already cached.
+    pub fn status_with_repo(repo: &git2::Repository) -> Result<Vec<DiffEntry>, RepoError> {
         let mut opts = git2::StatusOptions::new();
         opts.include_untracked(true)
             .recurse_untracked_dirs(true)
