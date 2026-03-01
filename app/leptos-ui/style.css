@@ -4892,7 +4892,7 @@ code.file-path, code.branch-name {
 }
 
 .task-detail-empty {
-    padding: 40px 24px;
+    padding: var(--space-10) var(--space-6);
     text-align: center;
 }
 
@@ -6559,7 +6559,7 @@ code.file-path, code.branch-name {
 .settings-tab-content {
     flex: 1;
     overflow-y: auto;
-    padding: 20px 24px;
+    padding: var(--space-5) var(--space-6);
     display: flex;
     flex-direction: column;
 }
@@ -7771,7 +7771,7 @@ code.file-path, code.branch-name {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    padding: 48px 16px;
+    padding: var(--space-12) var(--space-4);
     gap: var(--space-3);
 }
 
@@ -7962,7 +7962,7 @@ code.file-path, code.branch-name {
     font-size: var(--space-3);
     font-weight: 600;
     color: var(--text-secondary);
-    padding: 20px 16px var(--space-2);
+    padding: var(--space-5) var(--space-4) var(--space-2);
     display: flex;
     align-items: center;
     gap: var(--space-2);
@@ -8286,7 +8286,7 @@ code.file-path, code.branch-name {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    padding: 48px 16px;
+    padding: var(--space-12) var(--space-4);
     gap: var(--space-3);
 }
 
@@ -9526,7 +9526,7 @@ code.file-path, code.branch-name {
     flex-direction: column;
     align-items: center;
     gap: 10px;
-    padding: 40px 16px;
+    padding: var(--space-10) var(--space-4);
     text-align: center;
 }
 
@@ -9829,7 +9829,7 @@ button.toggle-switch.active .toggle-knob {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    padding: 40px 16px;
+    padding: var(--space-10) var(--space-4);
     gap: var(--space-2);
     color: var(--text-muted);
     font-size: 13px;
@@ -10732,7 +10732,7 @@ button.toggle-switch.active .toggle-knob {
 .onboarding-container {
     max-width: 680px;
     margin: 0 auto;
-    padding: 48px 24px;
+    padding: var(--space-12) var(--space-6);
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -11752,7 +11752,7 @@ button.toggle-switch.active .toggle-knob {
 }
 
 .discard-dialog-header {
-    padding: 20px 24px 0;
+    padding: var(--space-5) var(--space-6) 0;
 }
 
 .discard-dialog-header h3 {
@@ -14357,7 +14357,7 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    padding: 48px 24px;
+    padding: var(--space-12) var(--space-6);
     text-align: center;
     color: var(--text-secondary);
 }
@@ -15596,7 +15596,7 @@ h2 .gh-icon {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    padding: 80px 20px;
+    padding: var(--space-20) var(--space-5);
     color: var(--text-muted);
     text-align: center;
 }
