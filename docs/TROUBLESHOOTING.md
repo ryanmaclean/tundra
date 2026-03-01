@@ -656,16 +656,629 @@ Auto-Tundra uses a PTY (pseudo-terminal) pool to execute shell commands. Session
 └─────┘  └────┘ └────┘ └────┘
 ```
 
+### PTY Lifecycle
+
+**Normal Flow:**
+1. **Spawn**: `PtyPool::spawn()` creates PTY, starts child process, allocates reader/writer threads
+2. **I/O**: Use `handle.send()` for stdin, `handle.reader.recv()` for stdout/stderr
+3. **Cleanup**: Call `handle.kill()` to terminate process, then `PtyPool::release()` to free slot
+
+**Thread Management:**
+- Each PTY spawns 2 background threads: reader (stdout/stderr) and writer (stdin)
+- Threads run until process exits or handle is dropped
+- Bounded channels (256 messages) provide backpressure
+
+**Resource Tracking:**
+```rust
+// PTY pool enforces strict capacity limit
+let pool = PtyPool::new(10);  // Max 10 concurrent PTYs
+pool.active_count()  // Current number of active PTYs
+```
+
 ### Common Errors
 
-**This section will be populated with specific error patterns in subtask-1-3:**
-- AtCapacity (pool limits reached)
-- HandleNotFound (unreleased handles)
-- SpawnFailed (process creation failures)
-- Zombie processes (orphaned PTY sessions)
-- Session leaks (unreleased resources)
+#### AtCapacity: PTY Pool Exhaustion
 
-*→ See [Subtask 1-3](../.auto-claude/specs/010-add-troubleshooting-guide-for-common-runtime-error/implementation_plan.json) for implementation details.*
+**Error Message:** `pty pool is at capacity ({max})`
+
+**Symptoms:**
+- Cannot spawn new agent sessions or shell commands
+- Error occurs when `active_count() >= max_ptys`
+- Existing sessions continue to work normally
+- New session requests fail immediately (not queued)
+- Logs show "pool is at capacity" with maximum capacity count
+
+**Causes:**
+- Too many concurrent agent sessions running
+- PTY handles not released after task completion (leaked handles)
+- Long-running background tasks consuming pool slots
+- Pool capacity set too low for workload (`max_ptys` configuration)
+- Crashed sessions not properly cleaned up
+- Zombie processes holding PTY slots without being released
+
+**Solutions:**
+
+1. **Check current pool usage:**
+   ```bash
+   # Enable debug logging to see PTY lifecycle
+   export RUST_LOG=at_session=debug
+   tail -f ~/.auto-tundra/logs/daemon.log | grep -E "(spawn|release|capacity)"
+   ```
+
+2. **Kill orphaned PTY sessions:**
+   ```bash
+   # Find all PTY-related processes
+   ps aux | grep -E "(at-session|pty)" | grep -v grep
+
+   # Kill specific zombie processes (use with caution)
+   pkill -f "at-session"
+
+   # Or restart daemon to clean up all sessions
+   pkill at-daemon && at-daemon
+   ```
+
+3. **Release completed sessions:**
+   - Ensure all `PtyHandle::kill()` calls are followed by `PtyPool::release()`
+   - Check application code for missing cleanup in error paths
+   - Use RAII patterns (drop handlers) to guarantee cleanup
+
+4. **Increase pool capacity (temporary fix):**
+   ```rust
+   // In at-session configuration
+   // Default: PtyPool::new(10)
+   // Increase if you have legitimate high concurrency
+   let pool = PtyPool::new(20);  // Adjust based on system resources
+   ```
+
+5. **Audit active handles:**
+   ```bash
+   # Check number of PTY master devices
+   ls -la /dev/pts/ | wc -l
+
+   # Check file descriptor usage
+   lsof -p $(pgrep at-daemon) | grep pts
+   ```
+
+**Prevention:**
+- Always pair `spawn()` with `kill()` + `release()` in try/finally or drop handlers
+- Set `max_ptys` based on system limits: `ulimit -n` (file descriptors) / 3 (2 threads + master)
+- Implement session timeout for idle PTYs
+- Monitor pool usage metrics: `active_count() / max_ptys` ratio
+- Use structured concurrency patterns to guarantee cleanup on task cancellation
+
+**Capacity Planning:**
+```bash
+# Check system limits
+ulimit -n  # Max file descriptors (macOS default: 256-1024, Linux: 1024-4096)
+
+# Each PTY consumes:
+# - 1 PTY master file descriptor
+# - 2 threads (reader, writer)
+# - 2 channel endpoints (flume sender/receiver)
+
+# Safe capacity formula:
+# max_ptys = min(
+#   (ulimit -n) / 3,
+#   available_threads / 2,
+#   desired_concurrency
+# )
+
+# Example: ulimit -n = 1024
+# max_ptys = 1024 / 3 ≈ 340 (theoretical max)
+# Recommended: 10-50 for safety margin
+```
+
+---
+
+#### HandleNotFound: Unreleased PTY Handle
+
+**Error Message:** `pty handle not found: <uuid>`
+
+**Symptoms:**
+- Error when trying to kill or release a PTY handle
+- UUID mismatch between handle and pool registry
+- Handle was never registered or already released
+- Intermittent failures when cleaning up sessions
+- Double-release attempts causing errors
+
+**Causes:**
+- Calling `PtyPool::kill()` or `PtyPool::release()` with invalid UUID
+- Handle was already released earlier in the code path
+- Race condition: handle released by one thread, accessed by another
+- Handle UUID generated outside pool (manual creation without registration)
+- Database or state corruption causing UUID mismatch
+- Session cleanup called multiple times for same handle
+
+**Solutions:**
+
+1. **Verify handle UUID tracking:**
+   ```bash
+   # Enable debug logging for handle lifecycle
+   export RUST_LOG=at_session=debug,at_core=debug
+   tail -f ~/.auto-tundra/logs/daemon.log | grep -E "(handle|uuid|release|kill)"
+   ```
+
+2. **Check handle state before cleanup:**
+   ```rust
+   // In application code, track handle state
+   if handle.is_alive() {
+       handle.kill()?;
+   }
+   // Only release if handle is registered in pool
+   pool.release(handle.id)?;
+   ```
+
+3. **Audit double-release scenarios:**
+   ```bash
+   # Search for duplicate release calls in logs
+   grep "release" ~/.auto-tundra/logs/daemon.log | sort | uniq -d
+
+   # Check for race conditions in concurrent cleanup
+   grep "HandleNotFound" ~/.auto-tundra/logs/daemon.log
+   ```
+
+4. **Synchronize handle cleanup:**
+   ```rust
+   // Use Arc<Mutex<Option<PtyHandle>>> to prevent double-release
+   let handle_lock = Arc::new(Mutex::new(Some(handle)));
+
+   // In cleanup code
+   if let Some(h) = handle_lock.lock().unwrap().take() {
+       h.kill()?;
+       pool.release(h.id)?;
+   }
+   ```
+
+5. **Restart daemon if state is corrupted:**
+   ```bash
+   # Clean restart to reset all handle registrations
+   pkill at-daemon
+   rm -f ~/.auto-tundra/state/pty_pool.json  # If state is persisted
+   at-daemon
+   ```
+
+**Prevention:**
+- Use RAII: store handles in structs with Drop implementation for automatic cleanup
+- Track handle lifecycle in state machine (Spawned → Running → Killed → Released)
+- Avoid manual UUID generation; always use `PtyPool::spawn()` return value
+- Use `Arc<Mutex<_>>` or `RwLock` for handles shared across threads
+- Implement idempotent cleanup: check if already released before calling `release()`
+- Add telemetry to track handle lifecycle: spawn count, release count, mismatches
+
+**Debug Pattern:**
+```rust
+// Add tracing to handle lifecycle
+use tracing::{debug, warn};
+
+impl PtyHandle {
+    pub fn kill_and_release(self, pool: &PtyPool) -> Result<()> {
+        let id = self.id;
+        debug!(%id, "killing PTY handle");
+        self.kill()?;
+
+        debug!(%id, "releasing PTY handle from pool");
+        pool.release(id).map_err(|e| {
+            warn!(%id, ?e, "failed to release PTY handle");
+            e
+        })
+    }
+}
+```
+
+---
+
+#### SpawnFailed: Process Creation Failure
+
+**Error Message:** `pty spawn failed: <details>`
+
+**Symptoms:**
+- Cannot create new PTY sessions
+- Error during `PtyPool::spawn()` call
+- "Command not found" or "Permission denied" errors
+- "Resource temporarily unavailable" (EAGAIN)
+- PTY allocation failures
+- Failed to execute binary errors
+
+**Causes:**
+- Binary not found in PATH (e.g., `bash`, `zsh`, custom agent CLI)
+- Binary lacks execute permission (`chmod +x` not run)
+- Insufficient system resources (out of file descriptors, memory, or PTY devices)
+- PTY system failure (kernel limits reached: `/dev/pts` full)
+- Invalid command arguments or environment variables
+- SELinux/AppArmor blocking PTY creation
+- macOS sandbox restrictions (unsigned binaries, entitlements)
+
+**Solutions:**
+
+1. **Verify binary exists and is executable:**
+   ```bash
+   # Check if binary is in PATH
+   which bash
+   which at-agent  # Or your custom agent binary
+
+   # Check execute permissions
+   ls -la $(which bash)
+
+   # Test binary execution manually
+   bash -c "echo test"
+   ```
+
+2. **Check system resource limits:**
+   ```bash
+   # File descriptor limits
+   ulimit -n
+   lsof | wc -l  # Current FD usage across all processes
+
+   # PTY device availability
+   ls -la /dev/pts/ | wc -l
+
+   # Kernel PTY limits (Linux)
+   cat /proc/sys/kernel/pty/max
+   cat /proc/sys/kernel/pty/nr  # Current usage
+
+   # Increase limits if needed
+   ulimit -n 2048
+   ```
+
+3. **Test PTY creation manually:**
+   ```bash
+   # Use Python to test PTY allocation
+   python3 -c "import pty; pty.openpty()"
+
+   # If this fails, PTY system has issues
+   ```
+
+4. **Check command and arguments:**
+   ```rust
+   // Enable debug logging to see exact spawn command
+   export RUST_LOG=at_session=debug
+
+   // In logs, look for spawn attempt with full command line
+   // Example: "spawning PTY: bash -c 'echo test'"
+   ```
+
+5. **Verify environment variables:**
+   ```bash
+   # Check PATH is set correctly
+   echo $PATH
+
+   # Test command with explicit path
+   /bin/bash -c "echo test"
+
+   # Check for restrictive environment
+   env | grep -E "(PATH|LD_LIBRARY_PATH|SHELL)"
+   ```
+
+6. **Increase kernel PTY limits (Linux):**
+   ```bash
+   # Temporary increase
+   sudo sysctl -w kernel.pty.max=4096
+
+   # Permanent increase
+   echo "kernel.pty.max = 4096" | sudo tee -a /etc/sysctl.conf
+   sudo sysctl -p
+   ```
+
+7. **macOS sandbox workarounds:**
+   ```bash
+   # Check if binary is signed (required on macOS)
+   codesign -dvv /path/to/binary
+
+   # Disable sandbox for testing (development only)
+   # Add entitlements or use signed binaries for production
+   ```
+
+**Prevention:**
+- Validate binary paths before spawning (check `std::fs::metadata()`)
+- Set appropriate file descriptor limits in systemd service or shell profile
+- Monitor PTY device usage and set alerts for high utilization
+- Use absolute paths in spawn commands to avoid PATH issues
+- Test spawn in CI/CD with restrictive resource limits
+- Implement graceful degradation: retry with backoff, fallback to non-PTY execution
+
+**Diagnostic Commands:**
+```bash
+# Full PTY system diagnostic
+echo "=== File Descriptor Limits ==="
+ulimit -n
+
+echo "=== PTY Device Count ==="
+ls -la /dev/pts/ | wc -l
+
+echo "=== Process PTY Usage ==="
+lsof -p $(pgrep at-daemon) | grep pts | wc -l
+
+echo "=== Kernel PTY Limits (Linux) ==="
+if [ -f /proc/sys/kernel/pty/max ]; then
+  echo "Max: $(cat /proc/sys/kernel/pty/max)"
+  echo "Current: $(cat /proc/sys/kernel/pty/nr)"
+fi
+
+echo "=== Binary Permissions ==="
+ls -la $(which bash)
+
+echo "=== Test PTY Creation ==="
+python3 -c "import pty; m, s = pty.openpty(); print(f'Master: {m}, Slave: {s}')"
+```
+
+---
+
+### Zombie Processes and Session Leaks
+
+#### Understanding Zombie Processes
+
+**What is a zombie process?**
+A zombie is a child process that has terminated but hasn't been reaped by its parent. The process no longer runs, but its entry remains in the process table, consuming a PID and metadata.
+
+**PTY-specific zombies:**
+In Auto-Tundra's PTY pool, zombies occur when:
+- Child process exits but `PtyHandle::kill()` not called
+- Parent process crashes before reaping child
+- Background threads terminated without cleanup
+- Handle dropped without calling `kill()` first
+
+**Symptoms:**
+```bash
+# Zombie processes show as <defunct> in ps
+ps aux | grep defunct
+
+# Example output:
+# user  1234  0.0  0.0      0     0 ?   Z    10:00   0:00 [bash] <defunct>
+```
+
+#### Detecting Zombie Processes
+
+**Check for zombies in PTY pool:**
+```bash
+# Find all defunct processes related to at-session
+ps aux | grep -E "(defunct|Z)" | grep -E "(at-|bash|zsh)"
+
+# Count zombies
+ps aux | grep defunct | wc -l
+
+# Check parent process of zombies
+ps -ef | grep defunct
+```
+
+**Monitor via logs:**
+```bash
+# Enable debug logging
+export RUST_LOG=at_session=debug
+
+# Watch for processes that exit without cleanup
+tail -f ~/.auto-tundra/logs/daemon.log | grep -E "(exited|terminated|zombie|defunct)"
+```
+
+#### Cleaning Up Zombie Processes
+
+**Method 1: Let parent reap (automatic):**
+```bash
+# Zombies are automatically reaped when parent process calls wait()
+# at-daemon should do this automatically via PtyHandle::kill()
+
+# If parent is running, zombies will clear when:
+# 1. Parent calls wait() or waitpid()
+# 2. Parent process terminates (init/systemd adopts and reaps)
+```
+
+**Method 2: Restart daemon (safe):**
+```bash
+# Graceful restart allows daemon to clean up
+pkill -TERM at-daemon
+sleep 2
+at-daemon
+
+# Force restart if graceful fails
+pkill -9 at-daemon
+at-daemon
+```
+
+**Method 3: System reboot (nuclear option):**
+```bash
+# Only if zombies persist after daemon restart
+# Zombies cannot be killed with kill -9; they're already dead
+# Reboot clears all zombie processes
+sudo reboot
+```
+
+#### Session Leak Detection
+
+**What is a session leak?**
+A session leak occurs when a PTY handle is allocated but never released, consuming pool capacity without doing work.
+
+**Common leak scenarios:**
+1. Exception thrown before cleanup code
+2. Async task cancelled before completion
+3. Handle stored in data structure, never removed
+4. Circular references preventing drop
+5. Background task panics without cleanup
+
+**Detect leaks:**
+```bash
+# Compare pool active count vs expected sessions
+export RUST_LOG=at_session=debug
+tail -f ~/.auto-tundra/logs/daemon.log | grep -E "active_count|spawn|release"
+
+# Example diagnostic output:
+# active_count=5  # Expected: 2 sessions running
+# → 3 leaked handles
+
+# Check PTY device usage
+ls -la /dev/pts/ | wc -l
+# Should match active_count + 1 (master terminal)
+
+# Find long-running PTY sessions
+ps aux | grep -E "(bash|zsh)" | awk '{print $9, $10, $11}'
+# Look for sessions running longer than expected
+```
+
+#### Preventing Leaks
+
+**Pattern 1: RAII with Drop:**
+```rust
+struct SessionGuard {
+    handle: Option<PtyHandle>,
+    pool: Arc<PtyPool>,
+}
+
+impl Drop for SessionGuard {
+    fn drop(&mut self) {
+        if let Some(h) = self.handle.take() {
+            let _ = h.kill();
+            let _ = self.pool.release(h.id);
+        }
+    }
+}
+```
+
+**Pattern 2: Explicit cleanup in try/finally:**
+```rust
+async fn run_session(pool: &PtyPool) -> Result<()> {
+    let handle = pool.spawn("bash", &[], &[])?;
+
+    // Use defer pattern or scopeguard crate
+    let _guard = scopeguard::guard(handle, |h| {
+        let _ = h.kill();
+        let _ = pool.release(h.id);
+    });
+
+    // Session work here...
+    Ok(())
+}
+```
+
+**Pattern 3: Timeout-based cleanup:**
+```rust
+// Set maximum session lifetime
+const SESSION_TIMEOUT: Duration = Duration::from_secs(300); // 5 minutes
+
+tokio::select! {
+    result = run_session() => result,
+    _ = tokio::time::sleep(SESSION_TIMEOUT) => {
+        warn!("session timeout, forcing cleanup");
+        handle.kill()?;
+        pool.release(handle.id)?;
+        Err(PtyError::Timeout)
+    }
+}
+```
+
+#### Capacity Management Best Practices
+
+**1. Right-size pool capacity:**
+```rust
+// Formula: max_ptys = expected_concurrency + buffer
+// Example: 5 concurrent agents + 5 buffer = 10 max_ptys
+let pool = PtyPool::new(10);
+```
+
+**2. Monitor pool metrics:**
+```rust
+// Add metrics collection
+let usage = pool.active_count() as f64 / pool.max_ptys() as f64;
+if usage > 0.8 {
+    warn!("PTY pool usage high: {:.1}%", usage * 100.0);
+}
+```
+
+**3. Implement session limits:**
+```rust
+// Limit concurrent sessions per user/task
+const MAX_SESSIONS_PER_USER: usize = 3;
+
+if user_sessions.len() >= MAX_SESSIONS_PER_USER {
+    return Err(PtyError::TooManySessions);
+}
+```
+
+**4. Graceful degradation:**
+```rust
+// When pool is at capacity, queue or reject gracefully
+match pool.spawn("bash", &[], &[]) {
+    Err(PtyError::AtCapacity { max }) => {
+        // Option 1: Queue request
+        session_queue.push_back(request);
+
+        // Option 2: Reject with retry-after
+        Err(Error::TooManyRequests { retry_after: 5 })
+    }
+    result => result,
+}
+```
+
+**5. Automated cleanup tasks:**
+```rust
+// Background task to clean up idle sessions
+tokio::spawn(async move {
+    loop {
+        tokio::time::sleep(Duration::from_secs(60)).await;
+
+        // Kill sessions idle > 5 minutes
+        for (id, session) in sessions.iter() {
+            if session.idle_time() > Duration::from_secs(300) {
+                warn!(%id, "killing idle session");
+                let _ = session.kill();
+                let _ = pool.release(id);
+            }
+        }
+    }
+});
+```
+
+---
+
+### Diagnostic Commands
+
+**Check PTY pool status:**
+```bash
+# View active PTY sessions
+export RUST_LOG=at_session=debug
+tail -f ~/.auto-tundra/logs/daemon.log | grep -E "(active_count|spawn|release)"
+
+# Count PTY devices
+ls -la /dev/pts/ | wc -l
+
+# Find PTY-related processes
+ps aux | grep -E "(bash|zsh|at-session)" | grep -v grep
+```
+
+**Monitor resource usage:**
+```bash
+# File descriptor usage for daemon
+lsof -p $(pgrep at-daemon) | wc -l
+
+# PTY-specific file descriptors
+lsof -p $(pgrep at-daemon) | grep pts
+
+# System-wide PTY usage (Linux)
+cat /proc/sys/kernel/pty/nr
+```
+
+**Clean up leaked sessions:**
+```bash
+# Kill all bash/zsh sessions (use with caution)
+pkill -f "bash.*at-session"
+
+# Restart daemon to reset pool
+pkill at-daemon && at-daemon
+
+# Force kill if graceful shutdown fails
+pkill -9 at-daemon
+```
+
+**Test PTY spawn manually:**
+```bash
+# Verify PTY system is functional
+python3 << 'EOF'
+import pty
+import os
+
+master, slave = pty.openpty()
+print(f"PTY created successfully: master={master}, slave={slave}")
+os.close(master)
+os.close(slave)
+EOF
+```
 
 ---
 
