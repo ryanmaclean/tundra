@@ -3,7 +3,7 @@
   "spec": "005-websocket-upgrade-endpoints-lack-origin-header-val",
   "state": "building",
   "subtasks": {
-    "completed": 3,
+    "completed": 5,
     "total": 6,
     "in_progress": 1,
     "failed": 0
@@ -18,8 +18,8 @@
     "max": 1
   },
   "session": {
-    "number": 5,
+    "number": 7,
     "started_at": "2026-03-01T11:36:58.336128"
   },
-  "last_update": "2026-03-01T11:48:26.859889"
+  "last_update": "2026-03-01T11:51:56.505814"
 }
