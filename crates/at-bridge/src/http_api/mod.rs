@@ -89,7 +89,7 @@ mod router {
     use super::*;
     use axum::{
         body::Body,
-        extract::Request,
+        extract::{DefaultBodyLimit, Request},
         middleware::{self as axum_middleware, Next},
         response::Response,
         routing::{get, patch, post, put},
@@ -409,6 +409,7 @@ mod router {
             .layer(axum_middleware::from_fn(metrics_middleware))
             .layer(axum_middleware::from_fn(request_id_middleware))
             .layer(axum_middleware::from_fn(isolation_headers_middleware))
+            .layer(DefaultBodyLimit::max(2 * 1024 * 1024))
             .layer(AuthLayer::new(api_key))
             .layer(
                 CorsLayer::new()
