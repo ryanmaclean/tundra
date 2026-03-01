@@ -73,8 +73,40 @@ pub(crate) async fn get_status(State(state): State<Arc<ApiState>>) -> Json<Statu
 
 /// GET /api/kpi -- retrieve the current KPI snapshot.
 pub(crate) async fn get_kpi(State(state): State<Arc<ApiState>>) -> Json<KpiSnapshot> {
-    let kpi = state.kpi.read().await;
-    Json(kpi.clone())
+    let beads = state.beads.read().await;
+    let agents = state.agents.read().await;
+
+    // Single fold replaces 7 separate filter().count() calls
+    let (backlog, hooked, slung, review, done, failed, escalated) = beads.values().fold(
+        (0u64, 0u64, 0u64, 0u64, 0u64, 0u64, 0u64),
+        |(backlog, hooked, slung, review, done, failed, escalated), bead| {
+            use at_core::types::BeadStatus;
+            match bead.status {
+                BeadStatus::Backlog => (backlog + 1, hooked, slung, review, done, failed, escalated),
+                BeadStatus::Hooked => (backlog, hooked + 1, slung, review, done, failed, escalated),
+                BeadStatus::Slung => (backlog, hooked, slung + 1, review, done, failed, escalated),
+                BeadStatus::Review => (backlog, hooked, slung, review + 1, done, failed, escalated),
+                BeadStatus::Done => (backlog, hooked, slung, review, done + 1, failed, escalated),
+                BeadStatus::Failed => (backlog, hooked, slung, review, done, failed + 1, escalated),
+                BeadStatus::Escalated => (backlog, hooked, slung, review, done, failed, escalated + 1),
+            }
+        },
+    );
+
+    let snapshot = KpiSnapshot {
+        total_beads: beads.len() as u64,
+        backlog,
+        hooked,
+        slung,
+        review,
+        done,
+        failed,
+        escalated,
+        active_agents: agents.len() as u64,
+        timestamp: chrono::Utc::now(),
+    };
+
+    Json(snapshot)
 }
 
 // ---------------------------------------------------------------------------
