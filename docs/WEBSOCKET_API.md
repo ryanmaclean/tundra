@@ -726,6 +726,476 @@ ws.onmessage = (event) => {
 };
 ```
 
+## BridgeMessage Protocol
+
+The BridgeMessage enum defines the structured message protocol for bidirectional WebSocket communication between frontend and backend. Messages are serialized as **tagged unions** using Serde's adjacently-tagged format.
+
+### Tagged Union Format
+
+All BridgeMessage variants are serialized with a **discriminator field** (`type`) and optional **content field** (`payload`):
+
+```rust
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", content = "payload")]
+#[serde(rename_all = "snake_case")]
+pub enum BridgeMessage {
+    // Message variants...
+}
+```
+
+**Serialization Behavior:**
+
+- **`tag = "type"`**: The enum variant name becomes the `type` field (in `snake_case`)
+- **`content = "payload"`**: The variant's data becomes the `payload` field
+- **Unit variants** (no data): Serialized as `{"type": "variant_name"}` (no `payload` field)
+- **Struct variants** (named fields): Serialized as `{"type": "variant_name", "payload": {...}}`
+- **Tuple variants** (unnamed data): Serialized as `{"type": "variant_name", "payload": ...}`
+
+### Message Direction
+
+**Frontend → Backend** (Client Commands):
+- `GetStatus`, `ListBeads`, `ListAgents`, `SlingBead`, `HookBead`, `DoneBead`, `NudgeAgent`, `GetKpi`
+
+**Backend → Frontend** (Server Responses/Events):
+- `StatusUpdate`, `BeadList`, `AgentList`, `KpiUpdate`, `AgentOutput`, `Error`, `Event`, `TaskUpdate`, `MergeResult`, `QueueUpdate`, `BeadCreated`, `BeadUpdated`
+
+### Message Examples
+
+#### Unit Variants (No Payload)
+
+**`GetStatus`** — Request server status
+
+```json
+{
+  "type": "get_status"
+}
+```
+
+**`ListAgents`** — Request list of all agents
+
+```json
+{
+  "type": "list_agents"
+}
+```
+
+**`GetKpi`** — Request KPI metrics
+
+```json
+{
+  "type": "get_kpi"
+}
+```
+
+#### Struct Variants (Named Fields)
+
+**`ListBeads`** — Request beads with optional status filter
+
+```json
+{
+  "type": "list_beads",
+  "payload": {
+    "status": "hooked"
+  }
+}
+```
+
+```json
+{
+  "type": "list_beads",
+  "payload": {
+    "status": null
+  }
+}
+```
+
+**`SlingBead`** — Assign bead to agent
+
+```json
+{
+  "type": "sling_bead",
+  "payload": {
+    "bead_id": "a1b2c3d4-5678-90ab-cdef-1234567890ab",
+    "agent_id": "f0e1d2c3-4567-89ab-cdef-0123456789ab"
+  }
+}
+```
+
+**`HookBead`** — Create and assign new bead
+
+```json
+{
+  "type": "hook_bead",
+  "payload": {
+    "title": "Implement user authentication",
+    "agent_name": "auth-agent"
+  }
+}
+```
+
+**`DoneBead`** — Mark bead as completed
+
+```json
+{
+  "type": "done_bead",
+  "payload": {
+    "bead_id": "a1b2c3d4-5678-90ab-cdef-1234567890ab",
+    "failed": false
+  }
+}
+```
+
+**`NudgeAgent`** — Send message to agent
+
+```json
+{
+  "type": "nudge_agent",
+  "payload": {
+    "agent_name": "build-agent",
+    "message": "Restart build process"
+  }
+}
+```
+
+**`AgentOutput`** — Agent execution output
+
+```json
+{
+  "type": "agent_output",
+  "payload": {
+    "agent_id": "f0e1d2c3-4567-89ab-cdef-0123456789ab",
+    "output": "Build completed successfully\n"
+  }
+}
+```
+
+**`Error`** — Error response
+
+```json
+{
+  "type": "error",
+  "payload": {
+    "code": "BEAD_NOT_FOUND",
+    "message": "Bead with ID a1b2c3d4-5678-90ab-cdef-1234567890ab does not exist"
+  }
+}
+```
+
+**`MergeResult`** — Git merge completion/conflict notification
+
+```json
+{
+  "type": "merge_result",
+  "payload": {
+    "worktree_id": "task-123",
+    "branch": "feature/auth",
+    "status": "conflict",
+    "conflict_files": [
+      "src/auth.rs",
+      "Cargo.toml"
+    ]
+  }
+}
+```
+
+**`QueueUpdate`** — Task queue reordering
+
+```json
+{
+  "type": "queue_update",
+  "payload": {
+    "task_ids": [
+      "a1b2c3d4-5678-90ab-cdef-1234567890ab",
+      "b2c3d4e5-6789-01bc-def0-123456789abc",
+      "c3d4e5f6-789a-12cd-ef01-23456789abcd"
+    ]
+  }
+}
+```
+
+#### Tuple Variants (Single Wrapped Object)
+
+**`StatusUpdate`** — Server status information
+
+```json
+{
+  "type": "status_update",
+  "payload": {
+    "version": "0.1.0",
+    "uptime_seconds": 3600,
+    "agents_active": 3,
+    "beads_active": 5
+  }
+}
+```
+
+**`BeadList`** — List of beads
+
+```json
+{
+  "type": "bead_list",
+  "payload": [
+    {
+      "id": "a1b2c3d4-5678-90ab-cdef-1234567890ab",
+      "title": "Fix authentication bug",
+      "status": "hooked",
+      "agent_id": "f0e1d2c3-4567-89ab-cdef-0123456789ab",
+      "created_at": "2026-03-01T10:30:00Z"
+    },
+    {
+      "id": "b2c3d4e5-6789-01bc-def0-123456789abc",
+      "title": "Add unit tests",
+      "status": "backlog",
+      "agent_id": null,
+      "created_at": "2026-03-01T11:00:00Z"
+    }
+  ]
+}
+```
+
+**`AgentList`** — List of agents
+
+```json
+{
+  "type": "agent_list",
+  "payload": [
+    {
+      "id": "f0e1d2c3-4567-89ab-cdef-0123456789ab",
+      "name": "auth-agent",
+      "status": "active",
+      "current_bead_id": "a1b2c3d4-5678-90ab-cdef-1234567890ab"
+    },
+    {
+      "id": "e1f2a3b4-5678-90ab-cdef-0123456789ab",
+      "name": "build-agent",
+      "status": "idle",
+      "current_bead_id": null
+    }
+  ]
+}
+```
+
+**`KpiUpdate`** — KPI metrics
+
+```json
+{
+  "type": "kpi_update",
+  "payload": {
+    "total_beads": 100,
+    "backlog": 20,
+    "hooked": 5,
+    "slung": 15,
+    "review": 10,
+    "done": 45,
+    "failed": 5,
+    "active_agents": 3
+  }
+}
+```
+
+**`Event`** — System event notification
+
+```json
+{
+  "type": "event",
+  "payload": {
+    "event_type": "bead.status_change",
+    "agent_id": "f0e1d2c3-4567-89ab-cdef-0123456789ab",
+    "bead_id": "a1b2c3d4-5678-90ab-cdef-1234567890ab",
+    "message": "Bead moved to review status",
+    "timestamp": "2026-03-01T12:34:56.789Z"
+  }
+}
+```
+
+**`TaskUpdate`** — Real-time task progress update
+
+```json
+{
+  "type": "task_update",
+  "payload": {
+    "id": "a1b2c3d4-5678-90ab-cdef-1234567890ab",
+    "title": "Implement user authentication",
+    "phase": "implementation",
+    "progress": 0.65,
+    "subtasks": [
+      {
+        "id": "subtask-1",
+        "title": "Create user model",
+        "status": "completed"
+      },
+      {
+        "id": "subtask-2",
+        "title": "Add authentication middleware",
+        "status": "in_progress"
+      }
+    ]
+  }
+}
+```
+
+**`BeadCreated`** — New bead created event
+
+```json
+{
+  "type": "bead_created",
+  "payload": {
+    "id": "c3d4e5f6-789a-12cd-ef01-23456789abcd",
+    "title": "Optimize database queries",
+    "status": "backlog",
+    "agent_id": null,
+    "created_at": "2026-03-01T14:00:00Z"
+  }
+}
+```
+
+**`BeadUpdated`** — Bead updated event
+
+```json
+{
+  "type": "bead_updated",
+  "payload": {
+    "id": "a1b2c3d4-5678-90ab-cdef-1234567890ab",
+    "title": "Fix authentication bug",
+    "status": "review",
+    "agent_id": "f0e1d2c3-4567-89ab-cdef-0123456789ab",
+    "created_at": "2026-03-01T10:30:00Z",
+    "updated_at": "2026-03-01T15:45:00Z"
+  }
+}
+```
+
+### Client Implementation Example
+
+**JavaScript/TypeScript:**
+
+```typescript
+// Type definitions for type safety
+type BridgeMessage =
+  | { type: 'get_status' }
+  | { type: 'list_beads'; payload: { status?: string } }
+  | { type: 'status_update'; payload: StatusPayload }
+  | { type: 'error'; payload: { code: string; message: string } }
+  // ... other variants
+
+// Sending messages
+function sendCommand(ws: WebSocket, message: BridgeMessage) {
+  ws.send(JSON.stringify(message));
+}
+
+// Examples
+sendCommand(ws, { type: 'get_status' });
+sendCommand(ws, { type: 'list_beads', payload: { status: 'hooked' } });
+sendCommand(ws, {
+  type: 'sling_bead',
+  payload: {
+    bead_id: 'a1b2c3d4-5678-90ab-cdef-1234567890ab',
+    agent_id: 'f0e1d2c3-4567-89ab-cdef-0123456789ab'
+  }
+});
+
+// Receiving messages
+ws.onmessage = (event) => {
+  const message: BridgeMessage = JSON.parse(event.data);
+
+  switch (message.type) {
+    case 'status_update':
+      console.log('Server status:', message.payload);
+      break;
+    case 'bead_list':
+      console.log('Beads:', message.payload);
+      break;
+    case 'error':
+      console.error(`Error ${message.payload.code}:`, message.payload.message);
+      break;
+    case 'task_update':
+      console.log('Task progress:', message.payload.progress);
+      break;
+    // ... handle other message types
+  }
+};
+```
+
+**Rust:**
+
+```rust
+use serde::{Deserialize, Serialize};
+use tokio_tungstenite::tungstenite::Message;
+
+// Use the BridgeMessage enum from at_bridge::protocol
+use at_bridge::protocol::BridgeMessage;
+
+// Sending messages
+async fn send_command(ws: &mut WebSocketStream, msg: BridgeMessage) -> Result<()> {
+    let json = serde_json::to_string(&msg)?;
+    ws.send(Message::Text(json)).await?;
+    Ok(())
+}
+
+// Examples
+send_command(&mut ws, BridgeMessage::GetStatus).await?;
+send_command(&mut ws, BridgeMessage::ListBeads { status: Some("hooked".to_string()) }).await?;
+send_command(&mut ws, BridgeMessage::SlingBead {
+    bead_id: uuid!("a1b2c3d4-5678-90ab-cdef-1234567890ab"),
+    agent_id: uuid!("f0e1d2c3-4567-89ab-cdef-0123456789ab"),
+}).await?;
+
+// Receiving messages
+while let Some(msg) = ws.next().await {
+    match msg? {
+        Message::Text(text) => {
+            let message: BridgeMessage = serde_json::from_str(&text)?;
+
+            match message {
+                BridgeMessage::StatusUpdate(status) => {
+                    println!("Server uptime: {}s", status.uptime_seconds);
+                }
+                BridgeMessage::BeadList(beads) => {
+                    println!("Received {} beads", beads.len());
+                }
+                BridgeMessage::Error { code, message } => {
+                    eprintln!("Error {}: {}", code, message);
+                }
+                BridgeMessage::TaskUpdate(task) => {
+                    println!("Task progress: {:.0}%", task.progress * 100.0);
+                }
+                // ... handle other message types
+                _ => {}
+            }
+        }
+        _ => {}
+    }
+}
+```
+
+### Serialization Details
+
+**Serde Attributes:**
+
+- **`#[serde(tag = "type", content = "payload")]`**: Adjacently-tagged enum representation
+  - Creates two separate JSON fields: `type` (discriminator) and `payload` (content)
+  - Allows for clean, predictable JSON structure
+
+- **`#[serde(rename_all = "snake_case")]`**: Converts Rust variant names from PascalCase to snake_case
+  - `GetStatus` → `"get_status"`
+  - `StatusUpdate` → `"status_update"`
+  - `BeadList` → `"bead_list"`
+
+- **`#[allow(clippy::large_enum_variant)]`**: Suppresses warnings about enum size variance
+  - Some variants like `TaskUpdate(Box<Task>)` are large, but that's acceptable for this use case
+
+**Important Notes:**
+
+1. **No `payload` field for unit variants**: Messages like `GetStatus` serialize to `{"type": "get_status"}` without a `payload` field. Clients should handle the absence of this field gracefully.
+
+2. **Boxed payloads**: Large payloads like `TaskUpdate` use `Box<T>` to reduce enum size, but this is transparent in JSON serialization.
+
+3. **Null handling**: Optional fields in payloads (like `status: Option<String>`) serialize as `null` in JSON when `None`.
+
+4. **UUID serialization**: UUIDs serialize as hyphenated strings: `"a1b2c3d4-5678-90ab-cdef-1234567890ab"`.
+
+5. **DateTime serialization**: Timestamps use ISO 8601 format: `"2026-03-01T12:34:56.789Z"`.
+
 ---
 
 # 6. Terminal WebSocket API
