@@ -456,9 +456,38 @@ pub struct ListGitHubIssuesQuery {
     #[serde(default)]
     pub labels: Option<String>,
     #[serde(default)]
-    pub page: Option<u32>,
+    pub limit: Option<usize>,
     #[serde(default)]
-    pub per_page: Option<u8>,
+    pub offset: Option<usize>,
+}
+
+/// Query params for GET /api/github/prs.
+#[derive(Debug, Default, serde::Deserialize)]
+pub struct ListGitHubPrsQuery {
+    #[serde(default)]
+    pub state: Option<String>,
+    #[serde(default)]
+    pub limit: Option<usize>,
+    #[serde(default)]
+    pub offset: Option<usize>,
+}
+
+/// Query params for GET /api/github/pr/watched.
+#[derive(Debug, Default, serde::Deserialize)]
+pub struct ListWatchedPrsQuery {
+    #[serde(default)]
+    pub limit: Option<usize>,
+    #[serde(default)]
+    pub offset: Option<usize>,
+}
+
+/// Query params for GET /api/github/releases.
+#[derive(Debug, Default, serde::Deserialize)]
+pub struct ListReleasesQuery {
+    #[serde(default)]
+    pub limit: Option<usize>,
+    #[serde(default)]
+    pub offset: Option<usize>,
 }
 
 // ---------------------------------------------------------------------------
