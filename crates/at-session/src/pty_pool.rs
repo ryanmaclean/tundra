@@ -74,6 +74,40 @@ use uuid::Uuid;
 // ---------------------------------------------------------------------------
 
 /// Errors that can occur during PTY operations.
+///
+/// This enum standardizes error handling for PTY pool operations, allowing
+/// callers to handle common failure modes like capacity limits, process spawn
+/// failures, and I/O errors uniformly.
+///
+/// # Examples
+///
+/// ```rust
+/// use at_session::pty_pool::{PtyPool, PtyError};
+///
+/// async fn handle_pty_error(pool: &PtyPool) {
+///     match pool.spawn("bash", &[], &[]) {
+///         Err(PtyError::AtCapacity { max }) => {
+///             println!("Pool full (max: {}), waiting for slots...", max);
+///             // Could implement retry logic or wait for release
+///         }
+///         Err(PtyError::SpawnFailed(msg)) => {
+///             println!("Failed to spawn process: {}", msg);
+///             // Could try alternative command or handle missing binary
+///         }
+///         Err(PtyError::Io(e)) => {
+///             println!("I/O error: {}", e);
+///             // Could retry or handle resource exhaustion
+///         }
+///         Err(e) => {
+///             println!("Other error: {}", e);
+///         }
+///         Ok(handle) => {
+///             // Use the PTY handle...
+///             let _ = handle.send_line("echo hello");
+///         }
+///     }
+/// }
+/// ```
 #[derive(Debug, Error)]
 pub enum PtyError {
     /// The pool has reached its maximum capacity and cannot spawn more PTYs.
