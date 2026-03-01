@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     response::IntoResponse,
     Json,
 };
@@ -8,7 +8,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use super::state::ApiState;
-use super::types::Project;
+use super::types::{Project, ProjectQuery};
 use crate::api_error::ApiError;
 
 #[derive(Debug, Deserialize)]
@@ -26,9 +26,14 @@ pub(crate) struct UpdateProjectRequest {
 }
 
 /// GET /api/projects -- retrieve all projects in the system.
-pub(crate) async fn list_projects(State(state): State<Arc<ApiState>>) -> Json<Vec<Project>> {
+pub(crate) async fn list_projects(
+    State(state): State<Arc<ApiState>>,
+    Query(params): Query<ProjectQuery>,
+) -> Json<Vec<Project>> {
     let projects = state.projects.read().await;
-    Json(projects.clone())
+    let limit = params.limit.unwrap_or(50);
+    let offset = params.offset.unwrap_or(0);
+    Json(projects.iter().skip(offset).take(limit).cloned().collect())
 }
 
 /// POST /api/projects -- create a new project.
