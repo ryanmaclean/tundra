@@ -57,6 +57,22 @@ pub fn EditTaskModal(
     let (impact, set_impact) = signal("".to_string());
     let (effort, set_effort) = signal("".to_string());
 
+    // Submission state
+    let (is_submitting, set_is_submitting) = signal(false);
+    // Auto-close signal: set to true when async update succeeds
+    let (modal_done, set_modal_done) = signal(false);
+    {
+        let on_close_done = on_close.clone();
+        Effect::new(move |_| {
+            if modal_done.get() {
+                // Create a synthetic click event to satisfy the MouseEvent callback
+                if let Ok(evt) = web_sys::MouseEvent::new("click") {
+                    on_close_done(evt);
+                }
+            }
+        });
+    }
+
     let on_close_bg = on_close.clone();
     let on_close_cancel = on_close.clone();
 
