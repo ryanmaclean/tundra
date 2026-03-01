@@ -1,0 +1,92 @@
+========================================
+BASELINE METRICS - LEPTOS-UI WASM BUILD
+========================================
+
+Date: 2026-02-28
+Task: 020-optimize-wasm-binary-size-for-leptos-ui-and-reduce
+Subtask: subtask-1-1
+
+----------------------------------------
+WASM BINARY SIZE
+----------------------------------------
+
+Build Command:
+  cd app/leptos-ui && cargo build --target=wasm32-unknown-unknown --release
+
+Binary Location:
+  target/wasm32-unknown-unknown/release/at_leptos_ui.wasm
+
+Binary Size:
+  9.5M (9,961,472 bytes)
+
+Build Profile Used:
+  [profile.release]
+  - opt-level = 3 (optimized for speed)
+  - lto = "thin"
+  - codegen-units = 1
+  - strip = "symbols"
+
+----------------------------------------
+TOOLING
+----------------------------------------
+
+wasm-opt: Not available in PATH
+
+Rust Toolchain:
+  - Cargo location: /Users/studio/.cargo/bin/cargo
+  - Target: wasm32-unknown-unknown
+
+----------------------------------------
+KEY DEPENDENCIES (from Cargo.toml)
+----------------------------------------
+
+Heavy dependencies that contribute to binary size:
+  - pulldown-cmark = "0.13.0" (~500KB estimated)
+  - fluent = "0.16"
+  - fluent-bundle = "0.16"
+  - fluent-syntax = "0.11"
+  - unic-langid = "0.9"
+  - web-sys with 23 features
+
+All dependencies are currently mandatory (not optional).
+
+----------------------------------------
+COMPILATION TIME
+----------------------------------------
+
+Release build time: ~88 seconds (1m 28s)
+  - This was a clean build
+  - Compiled 169 crates
+
+----------------------------------------
+OPTIMIZATION OPPORTUNITIES IDENTIFIED
+----------------------------------------
+
+1. Build Profile:
+   - Current: opt-level=3 (speed)
+   - Opportunity: opt-level='z' (size) for WASM
+   - Missing: panic='abort' for WASM
+   - Current lto: "thin" vs potential "fat"
+
+2. Dependencies:
+   - pulldown-cmark: Always included (~500KB)
+   - fluent i18n stack: Always included (3 crates)
+   - web-sys: 23 features enabled (audit needed)
+
+3. Workspace:
+   - OpenTelemetry/Datadog stack in workspace deps
+   - Tauri in workspace deps
+   - Only used by 1-2 crates but affects all
+
+----------------------------------------
+NEXT STEPS
+----------------------------------------
+
+Phase 2: Add WASM-specific release profile
+Phase 3: Feature-gate heavy dependencies
+Phase 4: Minimize web-sys features
+Phase 5: Move single-use workspace dependencies
+
+Expected total reduction: 30-50% (target: 1-1.4MB)
+
+========================================
