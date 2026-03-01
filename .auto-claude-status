@@ -3,23 +3,23 @@
   "spec": "022-extract-shared-api-response-types-into-a-common-cr",
   "state": "building",
   "subtasks": {
-    "completed": 14,
+    "completed": 18,
     "total": 19,
     "in_progress": 1,
     "failed": 0
   },
   "phase": {
-    "current": "Migrate Leptos UI to Shared Types",
+    "current": "Integration and Verification",
     "id": null,
-    "total": 5
+    "total": 3
   },
   "workers": {
     "active": 0,
     "max": 1
   },
   "session": {
-    "number": 16,
+    "number": 20,
     "started_at": "2026-03-01T09:55:02.686377"
   },
-  "last_update": "2026-03-01T10:33:09.467513"
+  "last_update": "2026-03-01T10:59:43.694698"
 }
