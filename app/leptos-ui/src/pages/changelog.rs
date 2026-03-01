@@ -1,6 +1,5 @@
 use crate::components::spinner::Spinner;
 use crate::state::use_app_state;
-use crate::themed::{themed, Prompt};
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 
@@ -27,7 +26,6 @@ fn changelog_source_icon_svg(kind: &str) -> &'static str {
 #[component]
 pub fn ChangelogPage() -> impl IntoView {
     let app_state = use_app_state();
-    let display_mode = app_state.display_mode;
     let (entries, set_entries) = signal(Vec::<api::ApiChangelogEntry>::new());
     let (loading, set_loading) = signal(true);
     let (error_msg, set_error_msg) = signal(Option::<String>::None);

@@ -1,5 +1,4 @@
 use crate::state::use_app_state;
-use crate::themed::{themed, Prompt};
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 
@@ -59,7 +58,6 @@ fn memory_category_icon_svg(category: &str) -> &'static str {
 #[component]
 pub fn ContextPage() -> impl IntoView {
     let app_state = use_app_state();
-    let display_mode = app_state.display_mode;
     // Tab state: 0 = Project Index, 1 = Memories
     let (active_tab, set_active_tab) = signal(0u8);
 

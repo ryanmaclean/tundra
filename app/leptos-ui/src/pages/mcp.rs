@@ -1,6 +1,5 @@
 use crate::components::spinner::Spinner;
 use crate::state::use_app_state;
-use crate::themed::{themed, Prompt};
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 
@@ -243,7 +242,6 @@ const IDEATION_AGENTS: &[AgentDef] = &[
 #[component]
 pub fn McpPage() -> impl IntoView {
     let app_state = use_app_state();
-    let display_mode = app_state.display_mode;
     let (servers, set_servers) = signal(Vec::<api::ApiMcpServer>::new());
     let (loading, set_loading) = signal(true);
     let (error_msg, set_error_msg) = signal(Option::<String>::None);

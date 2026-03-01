@@ -9,7 +9,7 @@ use crate::components::focus_trap::use_focus_trap;
 
 #[component]
 pub fn ClaudeCodePage() -> impl IntoView {
-    let app_state = use_app_state();
+    let _app_state = use_app_state();
     let (agents, set_agents) = signal(Vec::<api::ApiAgent>::new());
     let (loading, set_loading) = signal(true);
     let (error_msg, set_error_msg) = signal(Option::<String>::None);

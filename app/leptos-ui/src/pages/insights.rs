@@ -1,6 +1,5 @@
 use crate::components::spinner::Spinner;
 use crate::state::use_app_state;
-use crate::themed::{themed, Prompt};
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use serde::{Deserialize, Serialize};
@@ -48,7 +47,6 @@ fn demo_insights_sessions() -> Vec<ChatSession> {
 #[component]
 pub fn InsightsPage() -> impl IntoView {
     let app_state = use_app_state();
-    let display_mode = app_state.display_mode;
     let (sessions, set_sessions) = signal(Vec::<ChatSession>::new());
     let (active_session_id, set_active_session_id) = signal(Option::<String>::None);
     let (input_text, set_input_text) = signal(String::new());

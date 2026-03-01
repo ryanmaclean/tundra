@@ -1,6 +1,5 @@
 use crate::components::spinner::Spinner;
 use crate::i18n::t;
-use crate::state::use_app_state;
 use leptos::prelude::*;
 
 #[component]
