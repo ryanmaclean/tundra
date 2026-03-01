@@ -504,6 +504,10 @@ pub struct ListGitLabIssuesQuery {
     pub page: Option<u32>,
     #[serde(default)]
     pub per_page: Option<u32>,
+    #[serde(default)]
+    pub limit: Option<usize>,
+    #[serde(default)]
+    pub offset: Option<usize>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -516,6 +520,10 @@ pub struct ListGitLabMrsQuery {
     pub page: Option<u32>,
     #[serde(default)]
     pub per_page: Option<u32>,
+    #[serde(default)]
+    pub limit: Option<usize>,
+    #[serde(default)]
+    pub offset: Option<usize>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -540,6 +548,10 @@ pub struct ListLinearIssuesQuery {
     pub team_id: Option<String>,
     #[serde(default)]
     pub state: Option<String>,
+    #[serde(default)]
+    pub limit: Option<usize>,
+    #[serde(default)]
+    pub offset: Option<usize>,
 }
 
 #[derive(Debug, Deserialize)]
