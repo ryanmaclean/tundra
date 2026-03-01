@@ -823,6 +823,7 @@ All research execution docs are in `docs/research/wave2/`:
 - **[GETTING_STARTED.md](../GETTING_STARTED.md)** — Initial setup
 - **[CONTRIBUTING.md](../CONTRIBUTING.md)** — Development guide
 - **[AGENTS.md](../AGENTS.md)** — Agent configuration
+- **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** — Common issues and solutions
 - **[docs/research/wave2/](research/wave2/)** — Detailed research artifacts
 
 ---
