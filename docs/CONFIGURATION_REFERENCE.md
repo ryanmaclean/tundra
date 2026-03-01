@@ -687,6 +687,660 @@ The configuration file is divided into 20+ sections:
 | `[debug]` | Anonymous error reporting settings |
 | `[memory]` | Memory system (Graphiti integration) settings |
 
+## Configuration Sections Reference
+
+### 2.1 `[general]` - General Settings
+
+Project-level settings and workspace configuration.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `project_name` | String | `"auto-tundra"` | Name of the Auto-Tundra project instance |
+| `log_level` | String | `"info"` | Logging verbosity (`trace`, `debug`, `info`, `warn`, `error`) |
+| `workspace_root` | String (Optional) | `None` | Root directory for workspace operations |
+
+**Environment Variable References:** None
+
+**Example:**
+```toml
+[general]
+project_name = "auto-tundra"
+log_level = "info"
+workspace_root = "/Users/studio/projects"
+```
+
+---
+
+### 2.2 `[dolt]` - Dolt Database Configuration
+
+Settings for the embedded Dolt database (version-controlled SQL database).
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `dir` | String | `"./dolt"` | Directory path for Dolt database storage |
+| `port` | u16 | `3306` | MySQL-compatible port for Dolt server |
+| `auto_commit` | bool | `false` | Automatically commit database changes |
+
+**Environment Variable References:** None
+
+**Example:**
+```toml
+[dolt]
+dir = "~/.auto-tundra/dolt"
+port = 3306
+auto_commit = false
+```
+
+---
+
+### 2.3 `[cache]` - Cache Configuration
+
+Token cache settings for LLM provider responses.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `path` | String | `"~/.auto-tundra/cache.db"` | SQLite database path for cache storage |
+| `max_size_mb` | u64 | `256` | Maximum cache size in megabytes |
+
+**Environment Variable References:** None
+
+**Example:**
+```toml
+[cache]
+path = "~/.auto-tundra/cache.db"
+max_size_mb = 512
+```
+
+---
+
+### 2.4 `[providers]` - LLM Provider Configuration
+
+LLM provider settings and failover configuration.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `anthropic_key_env` | String (Optional) | `None` | Env var name for Anthropic API key (see [ANTHROPIC_API_KEY](#anthropic_api_key)) |
+| `openai_key_env` | String (Optional) | `None` | Env var name for OpenAI API key (see [OPENAI_API_KEY](#openai_api_key)) |
+| `google_key_env` | String (Optional) | `None` | Env var name for Google API key |
+| `local_base_url` | String | `"http://127.0.0.1:11434"` | Base URL for local inference server (OpenAI-compatible) |
+| `local_model` | String | `"qwen2.5-coder:14b"` | Default model alias for local inference |
+| `local_api_key_env` | String | `"LOCAL_API_KEY"` | Env var name for local server API key (see [LOCAL_API_KEY](#local_api_key)) |
+| `default_max_tokens` | u32 | `16384` | Default max tokens for LLM requests |
+
+**Environment Variable References:**
+- `anthropic_key_env` → [ANTHROPIC_API_KEY](#anthropic_api_key)
+- `openai_key_env` → [OPENAI_API_KEY](#openai_api_key)
+- `local_api_key_env` → [LOCAL_API_KEY](#local_api_key)
+
+**Example:**
+```toml
+[providers]
+anthropic_key_env = "ANTHROPIC_API_KEY"
+openai_key_env = "OPENAI_API_KEY"
+local_base_url = "http://127.0.0.1:11434"
+local_model = "qwen2.5-coder:14b"
+default_max_tokens = 16384
+```
+
+---
+
+### 2.5 `[agents]` - Agent Configuration
+
+Agent execution, concurrency, and lifecycle settings.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `max_concurrent` | u32 | `8` | Maximum concurrent agent executions |
+| `heartbeat_interval_secs` | u64 | `30` | Agent heartbeat interval in seconds |
+| `auto_restart` | bool | `false` | Automatically restart failed agents |
+| `direct_mode` | bool | `false` | When `true`, agents work in repo root instead of worktrees |
+
+**Environment Variable References:** None
+
+**Example:**
+```toml
+[agents]
+max_concurrent = 10
+heartbeat_interval_secs = 30
+auto_restart = true
+direct_mode = false
+```
+
+**Notes:**
+- `direct_mode = true` disables git worktree isolation (use with caution)
+- Higher `max_concurrent` values increase parallelism but consume more resources
+
+---
+
+### 2.6 `[security]` - Security Configuration
+
+Security policies, sandboxing, and execution profiles.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `allow_shell_exec` | bool | `false` | Allow shell command execution (legacy field) |
+| `sandbox` | bool | `true` | Enable sandbox mode (legacy field) |
+| `allowed_paths` | Vec<String> | `[]` | Filesystem paths allowed for agent access |
+| `allowed_origins` | Vec<String> | `[]` | HTTP origins allowed for CORS |
+| `auto_lock_timeout_mins` | u32 | `15` | Auto-lock timeout in minutes |
+| `sandbox_mode` | bool | `true` | Enable sandbox mode globally |
+| `active_execution_profile` | String | `"balanced"` | Active profile name (must exist in `execution_profiles`) |
+| `execution_profiles` | Vec<ExecutionProfile> | See below | Execution profile definitions |
+
+**Default Execution Profiles:**
+```toml
+[[security.execution_profiles]]
+name = "safe"
+sandbox = true
+allow_network = false
+allow_shell_exec = false
+approval_mode = "always"
+
+[[security.execution_profiles]]
+name = "balanced"
+sandbox = true
+allow_network = true
+allow_shell_exec = true
+approval_mode = "on_failure"
+
+[[security.execution_profiles]]
+name = "trusted"
+sandbox = false
+allow_network = true
+allow_shell_exec = true
+approval_mode = "never"
+```
+
+**Validation Rules:**
+- `execution_profiles` must not be empty
+- Each profile must have a unique, non-empty `name`
+- `active_execution_profile` must reference a profile in `execution_profiles`
+
+**Environment Variable References:** None
+
+**Example:**
+```toml
+[security]
+allow_shell_exec = true
+sandbox = true
+allowed_paths = ["/tmp", "/Users/studio/projects"]
+active_execution_profile = "balanced"
+
+[[security.execution_profiles]]
+name = "custom"
+sandbox = true
+allow_network = true
+allow_shell_exec = false
+approval_mode = "on_failure"
+```
+
+**Notes:**
+- `approval_mode` values: `never`, `on_failure`, `always`
+- Profiles control sandboxing, network access, and user approval requirements
+
+---
+
+### 2.7 `[daemon]` - Daemon Configuration
+
+HTTP/WebSocket daemon server settings.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `port` | u16 | `9876` | TCP port for daemon HTTP/WebSocket server |
+| `host` | String | `"127.0.0.1"` | Bind address for daemon server |
+| `tls` | bool | `false` | Enable TLS/HTTPS (requires certificates) |
+
+**Environment Variable References:**
+- See [AUTO_TUNDRA_API_KEY](#auto_tundra_api_key) for daemon authentication
+
+**Example:**
+```toml
+[daemon]
+port = 9090
+host = "127.0.0.1"
+tls = false
+```
+
+---
+
+### 2.8 `[ui]` - UI Configuration
+
+Legacy UI theme and refresh settings (deprecated in favor of `[display]`).
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `theme` | String | `"dark"` | UI theme (`dark`, `light`) |
+| `refresh_ms` | u64 | `500` | UI refresh interval in milliseconds |
+| `show_token_costs` | bool | `false` | Display token usage costs in UI |
+
+**Environment Variable References:** None
+
+**Example:**
+```toml
+[ui]
+theme = "dark"
+refresh_ms = 500
+show_token_costs = true
+```
+
+---
+
+### 2.9 `[bridge]` - Bridge Configuration
+
+API bridge transport and buffering settings.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `transport` | String | `"unix"` | Transport protocol (`unix`, `tcp`) |
+| `socket_path` | String | `"/tmp/auto-tundra.sock"` | Unix socket path (when `transport = "unix"`) |
+| `buffer_size` | usize | `8192` | Message buffer size in bytes |
+
+**Environment Variable References:** None
+
+**Example:**
+```toml
+[bridge]
+transport = "unix"
+socket_path = "/tmp/auto-tundra.sock"
+buffer_size = 8192
+```
+
+---
+
+### 2.10 `[display]` - Display Configuration
+
+UI display settings (font, theme, compact mode).
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `theme` | String | `"dark"` | Display theme (`dark`, `light`) |
+| `font_size` | u8 | `14` | Font size in points |
+| `compact_mode` | bool | `false` | Enable compact UI mode |
+
+**Environment Variable References:** None
+
+**Example:**
+```toml
+[display]
+theme = "dark"
+font_size = 16
+compact_mode = false
+```
+
+---
+
+### 2.11 `[kanban]` - Kanban Board Configuration
+
+Kanban board layout and planning poker settings.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `column_mode` | String | `"classic_8"` | Column layout mode (must not be empty) |
+| `planning_poker` | PlanningPokerConfig | See below | Planning poker settings |
+
+**PlanningPokerConfig Fields:**
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | bool | `true` | Enable planning poker feature |
+| `default_deck` | String | `"fibonacci"` | Default card deck (`fibonacci`, `modified_fibonacci`, `powers_of_two`, `tshirt`) |
+| `allow_custom_deck` | bool | `true` | Allow custom estimation decks |
+| `reveal_requires_all_votes` | bool | `false` | Require all team members to vote before reveal |
+| `round_duration_seconds` | u64 | `300` | Planning poker round timeout (1-86400 seconds) |
+
+**Validation Rules:**
+- `column_mode` must not be empty
+- `planning_poker.default_deck` must be one of: `fibonacci`, `modified_fibonacci`, `powers_of_two`, `tshirt`
+- `planning_poker.round_duration_seconds` must be between 1 and 86400
+
+**Environment Variable References:** None
+
+**Example:**
+```toml
+[kanban]
+column_mode = "classic_8"
+
+[kanban.planning_poker]
+enabled = true
+default_deck = "fibonacci"
+allow_custom_deck = true
+reveal_requires_all_votes = false
+round_duration_seconds = 600
+```
+
+---
+
+### 2.12 `[terminal]` - Terminal Configuration
+
+Terminal emulator font and cursor settings.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `font_family` | String | `"JetBrains Mono"` | Terminal font family |
+| `font_size` | u8 | `14` | Terminal font size in points |
+| `cursor_style` | String | `"block"` | Cursor style (`block`, `underline`, `bar`) |
+
+**Environment Variable References:** None
+
+**Example:**
+```toml
+[terminal]
+font_family = "Fira Code"
+font_size = 16
+cursor_style = "block"
+```
+
+---
+
+### 2.13 `[integrations]` - Integration Configuration
+
+Third-party service integration settings (GitHub, GitLab, Linear).
+
+**⚠️ Security:** This section stores **environment variable names**, NOT actual credentials.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `github_token_env` | String | `"GITHUB_TOKEN"` | Env var name for GitHub token (see [GITHUB_TOKEN](#github_token)) |
+| `github_owner` | String (Optional) | `None` | GitHub repository owner (org or user) |
+| `github_repo` | String (Optional) | `None` | GitHub repository name |
+| `gitlab_token_env` | String | `"GITLAB_TOKEN"` | Env var name for GitLab token (see [GITLAB_TOKEN](#gitlab_token)) |
+| `gitlab_project_id` | String (Optional) | `None` | GitLab project ID (numeric or `group/project`) |
+| `gitlab_url` | String (Optional) | `None` | GitLab instance URL (defaults to `https://gitlab.com`) |
+| `linear_api_key_env` | String | `"LINEAR_API_KEY"` | Env var name for Linear API key (see [LINEAR_API_KEY](#linear_api_key)) |
+| `linear_team_id` | String (Optional) | `None` | Linear team ID for issue scoping |
+
+**Environment Variable References:**
+- `github_token_env` → [GITHUB_TOKEN](#github_token)
+- `gitlab_token_env` → [GITLAB_TOKEN](#gitlab_token)
+- `linear_api_key_env` → [LINEAR_API_KEY](#linear_api_key)
+
+**Example:**
+```toml
+[integrations]
+github_token_env = "GITHUB_TOKEN"
+github_owner = "your-org"
+github_repo = "your-repo"
+gitlab_token_env = "GITLAB_TOKEN"
+gitlab_project_id = "12345"
+linear_api_key_env = "LINEAR_API_KEY"
+linear_team_id = "TEAM-123"
+```
+
+---
+
+### 2.14 `[appearance]` - Appearance Configuration
+
+Global appearance and color theme settings.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `appearance_mode` | String | `"system"` | Appearance mode (`system`, `light`, `dark`) |
+| `color_theme` | String | `"arctic"` | Color theme name |
+
+**Environment Variable References:** None
+
+**Example:**
+```toml
+[appearance]
+appearance_mode = "dark"
+color_theme = "arctic"
+```
+
+---
+
+### 2.15 `[language]` - Language Configuration
+
+UI language and localization settings.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `interface_language` | String | `"en"` | Interface language code (ISO 639-1) |
+
+**Environment Variable References:** None
+
+**Example:**
+```toml
+[language]
+interface_language = "en"
+```
+
+---
+
+### 2.16 `[dev_tools]` - Developer Tools Configuration
+
+IDE, terminal, and developer workflow preferences.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `preferred_ide` | String | `"vscode"` | Preferred IDE (`vscode`, `vim`, `emacs`, etc.) |
+| `preferred_terminal` | String | `"default"` | Preferred terminal emulator |
+| `auto_name_terminals` | bool | `false` | Automatically name terminal sessions |
+| `yolo_mode` | bool | `false` | Enable YOLO mode (skip confirmations - use with caution!) |
+| `terminal_font_family` | String | `"JetBrains Mono, monospace"` | Terminal font family with fallbacks |
+| `terminal_font_size` | u16 | `14` | Terminal font size in points |
+| `terminal_cursor_style` | String | `"block"` | Terminal cursor style |
+| `terminal_cursor_blink` | bool | `true` | Enable cursor blinking |
+| `terminal_scrollback_lines` | u32 | `5000` | Terminal scrollback buffer size (lines) |
+
+**Environment Variable References:** None
+
+**Example:**
+```toml
+[dev_tools]
+preferred_ide = "vscode"
+preferred_terminal = "iTerm2"
+auto_name_terminals = true
+yolo_mode = false
+terminal_font_family = "Fira Code, monospace"
+terminal_font_size = 16
+terminal_cursor_style = "block"
+terminal_cursor_blink = true
+terminal_scrollback_lines = 10000
+```
+
+**Notes:**
+- ⚠️ `yolo_mode = true` disables safety confirmations - use only in trusted environments
+
+---
+
+### 2.17 `[agent_profile]` - Agent Profile Configuration
+
+Agent execution profiles and AI model selection per phase.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `default_profile` | String | `"default"` | Default agent profile name |
+| `agent_framework` | String | `"auto-tundra"` | Agent framework identifier |
+| `ai_terminal_naming` | bool | `false` | Use AI to generate terminal session names |
+| `phase_configs` | Vec<AgentPhaseConfig> | `[]` | Phase-specific model configurations |
+
+**AgentPhaseConfig Fields:**
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `phase` | String | `""` | Phase name (e.g., `"planning"`, `"coding"`, `"testing"`) |
+| `model` | String | `""` | LLM model for this phase |
+| `thinking_level` | String | `""` | Thinking/reasoning level |
+
+**Environment Variable References:** None
+
+**Example:**
+```toml
+[agent_profile]
+default_profile = "default"
+agent_framework = "auto-tundra"
+ai_terminal_naming = true
+
+[[agent_profile.phase_configs]]
+phase = "planning"
+model = "claude-3-5-sonnet-20241022"
+thinking_level = "deep"
+
+[[agent_profile.phase_configs]]
+phase = "coding"
+model = "qwen2.5-coder:14b"
+thinking_level = "normal"
+```
+
+---
+
+### 2.18 `[paths]` - Paths Configuration
+
+Custom paths for external tools and executables.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `python_path` | String | `""` | Python interpreter path (empty = auto-detect) |
+| `git_path` | String | `""` | Git executable path (empty = auto-detect) |
+| `github_cli_path` | String | `""` | GitHub CLI (`gh`) path (empty = auto-detect) |
+| `claude_cli_path` | String | `""` | Claude CLI path (empty = auto-detect) |
+| `auto_claude_path` | String | `""` | Auto-Claude CLI path (empty = auto-detect) |
+
+**Environment Variable References:** None
+
+**Example:**
+```toml
+[paths]
+python_path = "/usr/local/bin/python3"
+git_path = "/usr/bin/git"
+github_cli_path = "/opt/homebrew/bin/gh"
+```
+
+**Notes:**
+- Empty strings trigger auto-detection via `$PATH` lookup
+
+---
+
+### 2.19 `[api_profiles]` - API Profiles Configuration
+
+Custom API endpoint profiles for alternative LLM providers.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `profiles` | Vec<ApiProfileEntry> | `[]` | Custom API profile definitions |
+
+**ApiProfileEntry Fields:**
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `name` | String | `""` | Profile name |
+| `base_url` | String | `""` | API base URL |
+| `api_key_env` | String | `""` | Env var name for API key |
+
+**Environment Variable References:**
+- `api_key_env` → Custom environment variable (user-defined)
+
+**Example:**
+```toml
+[[api_profiles.profiles]]
+name = "custom-openai"
+base_url = "https://api.openai.com/v1"
+api_key_env = "CUSTOM_OPENAI_KEY"
+
+[[api_profiles.profiles]]
+name = "ollama-local"
+base_url = "http://localhost:11434"
+api_key_env = "OLLAMA_API_KEY"
+```
+
+---
+
+### 2.20 `[updates]` - Updates Configuration
+
+Version tracking and auto-update settings.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `version` | String | `""` | Current version string |
+| `is_latest` | bool | `false` | Whether running latest version |
+| `auto_update_projects` | bool | `false` | Automatically update project dependencies |
+| `beta_updates` | bool | `false` | Enable beta/canary update channel |
+
+**Environment Variable References:** None
+
+**Example:**
+```toml
+[updates]
+version = "0.1.0"
+is_latest = true
+auto_update_projects = false
+beta_updates = false
+```
+
+---
+
+### 2.21 `[notifications]` - Notification Configuration
+
+Task and event notification settings.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `on_task_complete` | bool | `true` | Notify on task completion |
+| `on_task_failed` | bool | `true` | Notify on task failure |
+| `on_review_needed` | bool | `true` | Notify when code review is needed |
+| `sound_enabled` | bool | `true` | Enable notification sounds |
+
+**Environment Variable References:** None
+
+**Example:**
+```toml
+[notifications]
+on_task_complete = true
+on_task_failed = true
+on_review_needed = true
+sound_enabled = false
+```
+
+---
+
+### 2.22 `[debug]` - Debug Configuration
+
+Debugging and error reporting settings.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `anonymous_error_reporting` | bool | `false` | Enable anonymous crash/error reporting |
+
+**Environment Variable References:** None
+
+**Example:**
+```toml
+[debug]
+anonymous_error_reporting = true
+```
+
+---
+
+### 2.23 `[memory]` - Memory Configuration
+
+AI memory system settings (Graphiti integration for long-term memory).
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enable_memory` | bool | `false` | Enable AI memory system |
+| `enable_agent_memory_access` | bool | `false` | Allow agents to access memory |
+| `graphiti_server_url` | String | `""` | Graphiti server URL (e.g., `http://localhost:8000`) |
+| `embedding_provider` | String | `""` | Embedding provider (`openai`, `anthropic`, etc.) |
+| `embedding_model` | String | `""` | Embedding model name |
+
+**Environment Variable References:** None
+
+**Example:**
+```toml
+[memory]
+enable_memory = true
+enable_agent_memory_access = true
+graphiti_server_url = "http://localhost:8000"
+embedding_provider = "openai"
+embedding_model = "text-embedding-3-small"
+```
+
+**Notes:**
+- Requires external Graphiti server running
+- Embedding provider must have API key configured (see [LLM Provider API Keys](#11-llm-provider-api-keys))
+
+---
+
 ## Example Configuration
 
 ```toml
