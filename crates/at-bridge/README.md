@@ -14,6 +14,43 @@ The crate is built around five core components:
 4. **Authentication** (`auth`): API key authentication middleware
 5. **Event Bus** (`event_bus`): Pub/sub event system for real-time notifications
 
+## Security
+
+### Request Body Size Limits
+
+All HTTP API endpoints enforce request body size limits to prevent denial-of-service attacks via oversized payloads (CWE-770: Uncontrolled Resource Consumption).
+
+**Default Limit: 2MB**
+- Applied globally to all endpoints via `DefaultBodyLimit` middleware layer
+- Placed early in the middleware stack (before authentication and CORS) for efficient rejection
+- Protects 33 endpoints including task creation, settings updates, GitHub integration, and intelligence API
+
+**Per-Endpoint Overrides:**
+
+| Endpoint Category | Limit | Endpoint Count | Rationale |
+|-------------------|-------|----------------|-----------|
+| **File Attachments** | 10MB | 1 | Allows reasonable file uploads without excessive resource consumption |
+| **Simple CRUD Operations** | 256KB | 20 | Status updates, toggles, and control commands require minimal payload sizes |
+| **Standard Operations** | 2MB | 37 | Default limit for task creation, settings, integrations, and complex operations |
+
+**Total Protection:** 58 POST/PUT/PATCH endpoints with explicit body size limits
+
+**Examples:**
+- `POST /api/tasks/{task_id}/attachments` → 10MB (file uploads)
+- `POST /api/beads/{id}/status` → 256KB (status update)
+- `POST /api/tasks` → 2MB (task creation with metadata)
+
+**Configuration:**
+Body size limits are configured in `crates/at-bridge/src/http_api/mod.rs`. To modify limits:
+- Global default: Adjust `DefaultBodyLimit::max()` parameter in the router layer chain
+- Per-endpoint: Apply `DefaultBodyLimit` layer to specific routes
+
+**Security Posture:**
+- ✅ CWE-770 vulnerability mitigated
+- ✅ Early rejection prevents resource exhaustion
+- ✅ Comprehensive test coverage (11 tests including DOS attack simulation)
+- ✅ Zero security warnings from Clippy linter
+
 ### Terminal WebSocket Architecture
 
 ```
