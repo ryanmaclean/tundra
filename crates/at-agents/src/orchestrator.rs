@@ -46,6 +46,8 @@ pub struct OrchestratorConfig {
     pub enable_rlm: bool,
     /// Whether to enable progressive refinement.
     pub enable_refinement: bool,
+    /// Execution retention TTL in seconds (how long to keep completed executions in memory).
+    pub execution_ttl_secs: u64,
 }
 
 impl Default for OrchestratorConfig {
@@ -59,6 +61,7 @@ impl Default for OrchestratorConfig {
             confidence_threshold: 0.85,
             enable_rlm: true,
             enable_refinement: true,
+            execution_ttl_secs: 86_400, // 24 hours
         }
     }
 }
