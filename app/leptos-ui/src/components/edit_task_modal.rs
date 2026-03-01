@@ -179,9 +179,21 @@ pub fn EditTaskModal(
                 },
                 metadata: None,
             };
-            let _ = crate::api::update_bead(&api_id, &payload).await;
-            set_modal_done.set(true);
-            set_is_submitting.set(false);
+            match crate::api::update_bead(&api_id, &payload).await {
+                Ok(_) => {
+                    set_modal_done.set(true);
+                    set_is_submitting.set(false);
+                }
+                Err(e) => {
+                    // Log error to console for debugging
+                    web_sys::console::error_1(
+                        &format!("Failed to update task: {}", e).into()
+                    );
+                    // Reset submitting state but DON'T close modal
+                    set_is_submitting.set(false);
+                    // User can see the button is enabled again and retry
+                }
+            }
         });
     };
 
