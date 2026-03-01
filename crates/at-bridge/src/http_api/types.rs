@@ -197,6 +197,12 @@ pub struct AgentQuery {
     pub offset: Option<usize>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct ProjectQuery {
+    pub limit: Option<usize>,
+    pub offset: Option<usize>,
+}
+
 // ---------------------------------------------------------------------------
 // Merge / Queue / DirectMode request types
 // ---------------------------------------------------------------------------
