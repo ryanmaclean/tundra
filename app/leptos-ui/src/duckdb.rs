@@ -36,9 +36,11 @@ impl From<String> for DuckDbError {
 }
 
 fn parse_js_result(val: JsValue) -> Result<String, DuckDbError> {
-    let s = val
-        .as_string()
-        .unwrap_or_else(|| js_sys::JSON::stringify(&val).map(|v| v.into()).unwrap_or_default());
+    let s = val.as_string().unwrap_or_else(|| {
+        js_sys::JSON::stringify(&val)
+            .map(|v| v.into())
+            .unwrap_or_default()
+    });
     // Check for error field in the JSON response
     if let Ok(v) = serde_json::from_str::<serde_json::Value>(&s) {
         if let Some(err) = v.get("error").and_then(|e| e.as_str()) {
@@ -64,7 +66,11 @@ impl DuckDbClient {
     }
 
     /// Execute a CREATE TABLE statement.
-    pub async fn create_table(&self, table_name: &str, schema_sql: &str) -> Result<(), DuckDbError> {
+    pub async fn create_table(
+        &self,
+        table_name: &str,
+        schema_sql: &str,
+    ) -> Result<(), DuckDbError> {
         let result = create_table_duckdb(table_name, schema_sql).await;
         parse_js_result(result)?;
         Ok(())

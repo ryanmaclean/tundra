@@ -27,9 +27,11 @@ pub struct WebGpuProbeReport {
 
 pub async fn probe(workgroups: u32) -> Result<WebGpuProbeReport, String> {
     let raw = run_probe_webgpu(workgroups).await;
-    let json = raw
-        .as_string()
-        .unwrap_or_else(|| js_sys::JSON::stringify(&raw).map(|s| s.into()).unwrap_or_default());
+    let json = raw.as_string().unwrap_or_else(|| {
+        js_sys::JSON::stringify(&raw)
+            .map(|s| s.into())
+            .unwrap_or_default()
+    });
 
     serde_json::from_str::<WebGpuProbeReport>(&json)
         .map_err(|e| format!("webgpu probe parse error: {e}"))

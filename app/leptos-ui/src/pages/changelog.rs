@@ -1,4 +1,4 @@
-use crate::components::Spinner;
+use crate::components::spinner::Spinner;
 use crate::state::use_app_state;
 use crate::themed::{themed, Prompt};
 use leptos::prelude::*;

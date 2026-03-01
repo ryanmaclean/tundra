@@ -183,13 +183,41 @@ async fn load_kpi(client: &DuckDbClient) -> Result<(), crate::duckdb::DuckDbErro
 
     let now = chrono::Utc::now().to_rfc3339();
     let rows = vec![
-        KpiRow { timestamp: now.clone(), metric: "total_beads".into(), value: kpi.total_beads as f64 },
-        KpiRow { timestamp: now.clone(), metric: "backlog".into(), value: kpi.backlog as f64 },
-        KpiRow { timestamp: now.clone(), metric: "hooked".into(), value: kpi.hooked as f64 },
-        KpiRow { timestamp: now.clone(), metric: "review".into(), value: kpi.review as f64 },
-        KpiRow { timestamp: now.clone(), metric: "done".into(), value: kpi.done as f64 },
-        KpiRow { timestamp: now.clone(), metric: "failed".into(), value: kpi.failed as f64 },
-        KpiRow { timestamp: now.clone(), metric: "active_agents".into(), value: kpi.active_agents as f64 },
+        KpiRow {
+            timestamp: now.clone(),
+            metric: "total_beads".into(),
+            value: kpi.total_beads as f64,
+        },
+        KpiRow {
+            timestamp: now.clone(),
+            metric: "backlog".into(),
+            value: kpi.backlog as f64,
+        },
+        KpiRow {
+            timestamp: now.clone(),
+            metric: "hooked".into(),
+            value: kpi.hooked as f64,
+        },
+        KpiRow {
+            timestamp: now.clone(),
+            metric: "review".into(),
+            value: kpi.review as f64,
+        },
+        KpiRow {
+            timestamp: now.clone(),
+            metric: "done".into(),
+            value: kpi.done as f64,
+        },
+        KpiRow {
+            timestamp: now.clone(),
+            metric: "failed".into(),
+            value: kpi.failed as f64,
+        },
+        KpiRow {
+            timestamp: now.clone(),
+            metric: "active_agents".into(),
+            value: kpi.active_agents as f64,
+        },
     ];
 
     let json = serde_json::to_string(&rows).unwrap_or_else(|_| "[]".to_string());
@@ -271,7 +299,9 @@ pub async fn refresh(client: &DuckDbClient) -> Result<(), crate::duckdb::DuckDbE
 
 pub async fn tasks_by_phase(client: &DuckDbClient) -> Vec<PhaseCount> {
     client
-        .query::<PhaseCount>("SELECT phase, COUNT(*) as count FROM tasks GROUP BY phase ORDER BY count DESC")
+        .query::<PhaseCount>(
+            "SELECT phase, COUNT(*) as count FROM tasks GROUP BY phase ORDER BY count DESC",
+        )
         .await
         .unwrap_or_default()
 }

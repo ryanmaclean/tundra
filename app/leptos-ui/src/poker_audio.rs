@@ -23,12 +23,13 @@ pub struct AudioCueResult {
 }
 
 fn parse_audio_result(raw: JsValue) -> Result<AudioCueResult, String> {
-    let json = raw
-        .as_string()
-        .unwrap_or_else(|| js_sys::JSON::stringify(&raw).map(|s| s.into()).unwrap_or_default());
+    let json = raw.as_string().unwrap_or_else(|| {
+        js_sys::JSON::stringify(&raw)
+            .map(|s| s.into())
+            .unwrap_or_default()
+    });
 
-    serde_json::from_str::<AudioCueResult>(&json)
-        .map_err(|e| format!("audio cue parse error: {e}"))
+    serde_json::from_str::<AudioCueResult>(&json).map_err(|e| format!("audio cue parse error: {e}"))
 }
 
 pub async fn init_audio() -> Result<AudioCueResult, String> {

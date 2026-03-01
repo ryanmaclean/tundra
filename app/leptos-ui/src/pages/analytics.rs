@@ -57,9 +57,7 @@ pub fn AnalyticsPage() -> impl IntoView {
                     set_cost_by_provider.set(providers);
                 }
                 Err(e) => {
-                    web_sys::console::warn_1(
-                        &format!("DuckDB init failed: {e}").into(),
-                    );
+                    web_sys::console::warn_1(&format!("DuckDB init failed: {e}").into());
                 }
             }
 

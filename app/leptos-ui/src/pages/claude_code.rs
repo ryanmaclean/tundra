@@ -1,4 +1,4 @@
-use crate::components::Spinner;
+use crate::components::spinner::Spinner;
 use crate::state::use_app_state;
 use leptos::ev::KeyboardEvent;
 use leptos::prelude::*;

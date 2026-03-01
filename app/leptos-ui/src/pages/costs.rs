@@ -1,9 +1,9 @@
-use leptos::prelude::*;
-use leptos::task::spawn_local;
 use crate::analytics_store;
 use crate::api;
 use crate::components::spinner::Spinner;
 use crate::i18n::t;
+use leptos::prelude::*;
+use leptos::task::spawn_local;
 
 #[component]
 pub fn CostsPage() -> impl IntoView {
@@ -33,31 +33,25 @@ pub fn CostsPage() -> impl IntoView {
                     set_daily_trend.set(trend);
                 }
                 Err(e) => {
-                    web_sys::console::warn_1(
-                        &format!("DuckDB init failed: {e}").into(),
-                    );
+                    web_sys::console::warn_1(&format!("DuckDB init failed: {e}").into());
                 }
             }
 
             // Also fetch direct costs for the summary cards
             match api::fetch_costs().await {
                 Ok(data) => set_costs.set(Some(data)),
-                Err(_) => {
-                    match api::fetch_kpi().await {
-                        Ok(kpi) => {
-                            let est_input = kpi.total_beads * 5000;
-                            let est_output = kpi.total_beads * 2000;
-                            set_costs.set(Some(api::ApiCosts {
-                                input_tokens: est_input,
-                                output_tokens: est_output,
-                                sessions: vec![],
-                            }));
-                        }
-                        Err(e) => {
-                            set_error_msg.set(Some(format!("Failed to fetch cost data: {e}")))
-                        }
+                Err(_) => match api::fetch_kpi().await {
+                    Ok(kpi) => {
+                        let est_input = kpi.total_beads * 5000;
+                        let est_output = kpi.total_beads * 2000;
+                        set_costs.set(Some(api::ApiCosts {
+                            input_tokens: est_input,
+                            output_tokens: est_output,
+                            sessions: vec![],
+                        }));
                     }
-                }
+                    Err(e) => set_error_msg.set(Some(format!("Failed to fetch cost data: {e}"))),
+                },
             }
             set_loading.set(false);
         });
