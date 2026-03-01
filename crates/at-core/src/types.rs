@@ -858,30 +858,67 @@ pub enum TaskSource {
 // Task
 // ---------------------------------------------------------------------------
 
+/// A comprehensive execution context for a single work item in the Tundra pipeline.
+///
+/// Tasks represent the full lifecycle of work from discovery through completion,
+/// progressing through defined phases (`TaskPhase`) and accumulating context,
+/// logs, and artifacts along the way. Each task is linked to a parent `Bead`
+/// and can contain multiple subtasks for granular execution tracking.
+///
+/// Tasks support stacked diffs (via `parent_task_id` and `stack_position`),
+/// agent profiling for optimal model selection, and comprehensive logging
+/// including both structured task logs and raw build output.
+///
+/// Key lifecycle milestones are tracked via timestamp fields (`created_at`,
+/// `started_at`, `completed_at`) and progress is reflected through both the
+/// current `phase` and a computed `progress_percent`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Task {
+    /// Unique identifier for this task.
     pub id: Uuid,
+    /// Human-readable task title (short description).
     pub title: String,
+    /// Optional detailed description of the work to be done.
     pub description: Option<String>,
+    /// Parent Bead ID linking this task to a higher-level work unit.
     pub bead_id: Uuid,
+    /// Current pipeline phase (Discovery, Planning, Coding, QA, etc.).
     pub phase: TaskPhase,
+    /// Approximate completion percentage (0-100), derived from phase.
     pub progress_percent: u8,
+    /// Child subtasks for granular execution tracking.
     pub subtasks: Vec<Subtask>,
+    /// Path to isolated git worktree for this task (if using worktree isolation).
     pub worktree_path: Option<String>,
+    /// Git branch name where work is being performed.
     pub git_branch: Option<String>,
+    /// Functional classification (Feature, BugFix, Refactoring, etc.).
     pub category: TaskCategory,
+    /// Scheduling priority (Low, Medium, High, Urgent).
     pub priority: TaskPriority,
+    /// Estimated effort and complexity (Trivial, Small, Medium, Large, Complex).
     pub complexity: TaskComplexity,
+    /// Expected impact on the system or users (Low, Medium, High, Critical).
     pub impact: Option<TaskImpact>,
+    /// Agent profile determining model and thinking level per phase.
     pub agent_profile: Option<AgentProfile>,
+    /// Per-phase model and thinking configuration overrides.
     pub phase_configs: Vec<PhaseConfig>,
+    /// When the task was created.
     pub created_at: DateTime<Utc>,
+    /// Last modification timestamp.
     pub updated_at: DateTime<Utc>,
+    /// When task execution began (first phase transition from Discovery).
     pub started_at: Option<DateTime<Utc>>,
+    /// When the task reached Complete phase.
     pub completed_at: Option<DateTime<Utc>>,
+    /// Error message if task failed or encountered an issue.
     pub error: Option<String>,
+    /// Structured log entries tracking phase transitions and events.
     pub logs: Vec<TaskLogEntry>,
+    /// QA report from the review phase (if QA has been performed).
     pub qa_report: Option<QaReport>,
+    /// Origin of this task (Manual, GithubIssue, Import, Ideation, etc.).
     #[serde(default)]
     pub source: Option<TaskSource>,
     /// Parent task ID for stacked diffs (None = root or standalone).
