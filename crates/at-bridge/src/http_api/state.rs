@@ -301,6 +301,38 @@ impl ApiState {
         removed_count
     }
 
+    /// Clean up disconnect buffers that are older than the specified TTL.
+    ///
+    /// Removes disconnect buffers from the HashMap if their disconnected_at
+    /// timestamp is older than ttl_secs. This prevents unbounded memory growth
+    /// from abandoned WebSocket connections.
+    ///
+    /// Returns the number of buffers removed.
+    pub async fn cleanup_disconnect_buffers(&self, ttl_secs: u64) -> usize {
+        let mut buffers = self.disconnect_buffers.write().await;
+
+        let now = chrono::Utc::now();
+        let cutoff = now - chrono::Duration::seconds(ttl_secs as i64);
+
+        let mut removed_count = 0;
+        let mut buffers_to_remove = Vec::new();
+
+        // Identify buffers to remove
+        for (terminal_id, buffer) in buffers.iter() {
+            if buffer.disconnected_at < cutoff {
+                buffers_to_remove.push(*terminal_id);
+            }
+        }
+
+        // Remove identified buffers
+        for terminal_id in buffers_to_remove {
+            buffers.remove(&terminal_id);
+            removed_count += 1;
+        }
+
+        removed_count
+    }
+
     /// Seed lightweight demo data for local development/web UI previews.
     ///
     /// No-op when beads are already present.
@@ -604,5 +636,185 @@ mod tests {
         assert_eq!(removed, 1);
         assert_eq!(state.tasks.read().await.len(), 0);
         assert_eq!(state.task_count.load(Ordering::Relaxed), 0);
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_disconnect_buffers_removes_old_buffers() {
+        let state = create_test_state();
+        let terminal_id = Uuid::new_v4();
+
+        // Create a buffer that was disconnected 10 minutes ago
+        let mut buffer = crate::terminal::DisconnectBuffer::new(1024);
+        buffer.disconnected_at = Utc::now() - Duration::minutes(10);
+
+        // Add buffer to disconnect_buffers HashMap
+        state
+            .disconnect_buffers
+            .write()
+            .await
+            .insert(terminal_id, buffer);
+
+        // Cleanup with TTL of 5 minutes (300 seconds)
+        let removed = state.cleanup_disconnect_buffers(5 * 60).await;
+
+        assert_eq!(removed, 1);
+        assert_eq!(state.disconnect_buffers.read().await.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_disconnect_buffers_keeps_recent_buffers() {
+        let state = create_test_state();
+        let terminal_id = Uuid::new_v4();
+
+        // Create a buffer that was disconnected 3 minutes ago
+        let mut buffer = crate::terminal::DisconnectBuffer::new(1024);
+        buffer.disconnected_at = Utc::now() - Duration::minutes(3);
+
+        // Add buffer to disconnect_buffers HashMap
+        state
+            .disconnect_buffers
+            .write()
+            .await
+            .insert(terminal_id, buffer);
+
+        // Cleanup with TTL of 5 minutes (buffer is only 3 minutes old)
+        let removed = state.cleanup_disconnect_buffers(5 * 60).await;
+
+        assert_eq!(removed, 0);
+        assert_eq!(state.disconnect_buffers.read().await.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_disconnect_buffers_handles_multiple_buffers() {
+        let state = create_test_state();
+
+        // Create 3 buffers with different ages
+        let old_buffer_id1 = Uuid::new_v4();
+        let old_buffer_id2 = Uuid::new_v4();
+        let recent_buffer_id = Uuid::new_v4();
+
+        // Old buffer 1 (10 minutes ago)
+        let mut buffer1 = crate::terminal::DisconnectBuffer::new(1024);
+        buffer1.disconnected_at = Utc::now() - Duration::minutes(10);
+        state
+            .disconnect_buffers
+            .write()
+            .await
+            .insert(old_buffer_id1, buffer1);
+
+        // Old buffer 2 (15 minutes ago)
+        let mut buffer2 = crate::terminal::DisconnectBuffer::new(1024);
+        buffer2.disconnected_at = Utc::now() - Duration::minutes(15);
+        state
+            .disconnect_buffers
+            .write()
+            .await
+            .insert(old_buffer_id2, buffer2);
+
+        // Recent buffer (3 minutes ago)
+        let mut buffer3 = crate::terminal::DisconnectBuffer::new(1024);
+        buffer3.disconnected_at = Utc::now() - Duration::minutes(3);
+        state
+            .disconnect_buffers
+            .write()
+            .await
+            .insert(recent_buffer_id, buffer3);
+
+        // Cleanup with TTL of 5 minutes
+        let removed = state.cleanup_disconnect_buffers(5 * 60).await;
+
+        assert_eq!(removed, 2);
+        assert_eq!(state.disconnect_buffers.read().await.len(), 1);
+
+        // Verify the correct buffer remains
+        let buffers = state.disconnect_buffers.read().await;
+        assert!(buffers.contains_key(&recent_buffer_id));
+        assert!(!buffers.contains_key(&old_buffer_id1));
+        assert!(!buffers.contains_key(&old_buffer_id2));
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_disconnect_buffers_empty_state() {
+        let state = create_test_state();
+
+        // Cleanup with no buffers
+        let removed = state.cleanup_disconnect_buffers(5 * 60).await;
+
+        assert_eq!(removed, 0);
+        assert_eq!(state.disconnect_buffers.read().await.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_disconnect_buffers_with_zero_ttl() {
+        let state = create_test_state();
+        let terminal_id = Uuid::new_v4();
+
+        // Create a buffer that was just disconnected
+        let buffer = crate::terminal::DisconnectBuffer::new(1024);
+
+        // Add buffer to disconnect_buffers HashMap
+        state
+            .disconnect_buffers
+            .write()
+            .await
+            .insert(terminal_id, buffer);
+
+        // Cleanup with TTL of 0 seconds (should remove all buffers)
+        let removed = state.cleanup_disconnect_buffers(0).await;
+
+        assert_eq!(removed, 1);
+        assert_eq!(state.disconnect_buffers.read().await.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_disconnect_buffers_exact_ttl_boundary() {
+        let state = create_test_state();
+        let terminal_id = Uuid::new_v4();
+
+        // Create a buffer that was disconnected exactly 5 minutes ago
+        let mut buffer = crate::terminal::DisconnectBuffer::new(1024);
+        buffer.disconnected_at = Utc::now() - Duration::minutes(5);
+
+        // Add buffer to disconnect_buffers HashMap
+        state
+            .disconnect_buffers
+            .write()
+            .await
+            .insert(terminal_id, buffer);
+
+        // Cleanup with TTL of 5 minutes (buffer is exactly at the boundary)
+        // The buffer should be removed because disconnected_at < cutoff
+        let removed = state.cleanup_disconnect_buffers(5 * 60).await;
+
+        assert_eq!(removed, 1);
+        assert_eq!(state.disconnect_buffers.read().await.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_disconnect_buffers_preserves_data() {
+        let state = create_test_state();
+        let terminal_id = Uuid::new_v4();
+
+        // Create a buffer with some data
+        let mut buffer = crate::terminal::DisconnectBuffer::new(1024);
+        buffer.push(b"test data");
+        buffer.disconnected_at = Utc::now() - Duration::minutes(3);
+
+        // Add buffer to disconnect_buffers HashMap
+        state
+            .disconnect_buffers
+            .write()
+            .await
+            .insert(terminal_id, buffer);
+
+        // Cleanup with TTL of 5 minutes (should not remove)
+        let removed = state.cleanup_disconnect_buffers(5 * 60).await;
+
+        assert_eq!(removed, 0);
+
+        // Verify data is still present
+        let buffers = state.disconnect_buffers.read().await;
+        let remaining_buffer = buffers.get(&terminal_id).unwrap();
+        assert_eq!(remaining_buffer.data.len(), 9); // "test data" is 9 bytes
     }
 }
