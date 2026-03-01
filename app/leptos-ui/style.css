@@ -2327,7 +2327,7 @@ kbd {
     background: linear-gradient(135deg, #f59e0b, #ea580c);
     color: #fff;
     border: none;
-    border-radius: 14px;
+    border-radius: var(--radius-2xl);
     padding: 4px 14px;
     font-size: 11px;
     font-weight: 600;
@@ -7741,7 +7741,7 @@ code.file-path, code.branch-name {
     align-items: center;
     gap: 4px;
     padding: 5px 12px;
-    border-radius: 16px;
+    border-radius: var(--radius-2xl);
     font-size: 12px;
     font-weight: 500;
     cursor: pointer;
@@ -14887,7 +14887,7 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
     color: var(--text-secondary);
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 16px;
+    border-radius: var(--radius-2xl);
     cursor: pointer;
     transition: all 0.15s;
 }
