@@ -325,7 +325,6 @@ pub fn BeadsPage() -> impl IntoView {
                     set_error_msg.set(None);
                 }
                 Err(e) => {
-                    leptos::logging::log!("Failed to fetch beads from API: {}", e);
                     set_error_msg.set(Some(format!("Failed to fetch beads from API: {}", e)));
                 }
             }
@@ -364,11 +363,11 @@ pub fn BeadsPage() -> impl IntoView {
     };
 
     let lanes = vec![
-        (Lane::Planning, "Planning", "column-border-planning"),
-        (Lane::InProgress, "In Progress", "column-border-inprogress"),
-        (Lane::AiReview, "AI Review", "column-border-aireview"),
-        (Lane::HumanReview, "Human Review", "column-border-humanreview"),
-        (Lane::Done, "Done", "column-border-done"),
+        (Lane::Planning, "Planning", "column-dot column-dot-planning"),
+        (Lane::InProgress, "In Progress", "column-dot column-dot-inprogress"),
+        (Lane::AiReview, "AI Review", "column-dot column-dot-aireview"),
+        (Lane::HumanReview, "Human Review", "column-dot column-dot-humanreview"),
+        (Lane::Done, "Done", "column-dot column-dot-done"),
     ];
 
     // Move a bead to a target lane (optimistic local update + API call with rollback)
@@ -395,7 +394,6 @@ pub fn BeadsPage() -> impl IntoView {
             if let Err(e) = crate::api::update_bead_status(&id, &api_status).await {
                 // Rollback optimistic update
                 set_beads.set(prev_beads);
-                leptos::logging::log!("Failed to update bead status via API (rolled back): {}", e);
                 set_error_msg.set(Some(format!("Failed to update bead status: {}", e)));
             } else {
                 set_error_msg.set(None);
@@ -426,7 +424,6 @@ pub fn BeadsPage() -> impl IntoView {
                         set_error_msg.set(None);
                     }
                     Err(e) => {
-                        leptos::logging::log!("Failed to refresh beads: {}", e);
                         set_error_msg.set(Some(format!("Failed to refresh beads: {}", e)));
                     }
                 }
@@ -618,12 +615,11 @@ pub fn BeadsPage() -> impl IntoView {
 
                 let col_class = move || {
                     let is_over = drag_over_lane.get() == Some(col_idx) && dragging_bead.get().is_some();
-                    let base = match (is_collapsed(), is_over) {
-                        (true, _) => "kanban-column kanban-column-collapsed",
-                        (false, true) => "kanban-column drag-over drop-target",
-                        (false, false) => "kanban-column drop-target",
-                    };
-                    format!("{} {}", base, dot_class)
+                    match (is_collapsed(), is_over) {
+                        (true, _) => "kanban-column kanban-column-collapsed".to_string(),
+                        (false, true) => "kanban-column drag-over drop-target".to_string(),
+                        (false, false) => "kanban-column drop-target".to_string(),
+                    }
                 };
 
                 let lane_for_add = lane.clone();
