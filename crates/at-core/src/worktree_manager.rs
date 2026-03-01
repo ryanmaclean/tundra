@@ -166,13 +166,17 @@ impl WorktreeManager {
 
         // Ensure parent directory exists
         let parent = wt_path.parent().expect(".worktrees parent");
-        std::fs::create_dir_all(parent)?;
+        tokio::fs::create_dir_all(parent).await?;
 
         // Check if already exists
-        if wt_path.exists() {
-            return Err(WorktreeManagerError::Worktree(
-                WorktreeError::AlreadyExists(wt_path.display().to_string()),
-            ));
+        match tokio::fs::try_exists(&wt_path).await {
+            Ok(true) => {
+                return Err(WorktreeManagerError::Worktree(
+                    WorktreeError::AlreadyExists(wt_path.display().to_string()),
+                ));
+            }
+            Err(e) => return Err(WorktreeManagerError::Io(e)),
+            Ok(false) => {}
         }
 
         let base_dir_str = self.base_dir.to_str().unwrap_or(".");
@@ -207,23 +211,25 @@ impl WorktreeManager {
         let worktrees_dir = self.base_dir.join(".worktrees");
         let mut removed = Vec::new();
 
-        if !worktrees_dir.exists() {
-            return Ok(removed);
+        match tokio::fs::try_exists(&worktrees_dir).await {
+            Ok(false) => return Ok(removed),
+            Err(e) => return Err(WorktreeManagerError::Io(e)),
+            Ok(true) => {}
         }
 
-        let entries = std::fs::read_dir(&worktrees_dir)?;
+        let mut read_dir = tokio::fs::read_dir(&worktrees_dir).await?;
         let cutoff = std::time::SystemTime::now()
             .checked_sub(max_age)
             .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
 
-        for entry in entries.flatten() {
+        while let Some(entry) = read_dir.next_entry().await? {
             let path = entry.path();
             if !path.is_dir() {
                 continue;
             }
 
             // Check modification time
-            let metadata = std::fs::metadata(&path)?;
+            let metadata = tokio::fs::metadata(&path).await?;
             let modified = metadata
                 .modified()
                 .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
@@ -559,7 +565,7 @@ mod tests {
         let cache = Arc::new(CacheDb::new_in_memory().await.unwrap());
         let tmp = std::env::temp_dir().join("at-wm-test-create");
         // Clean up from previous runs
-        let _ = std::fs::remove_dir_all(&tmp);
+        let _ = tokio::fs::remove_dir_all(&tmp).await;
 
         let git = Box::new(MockGitRunner::new(vec![GitOutput {
             success: true,
@@ -576,18 +582,18 @@ mod tests {
         assert_eq!(result.branch, "task/test-feature");
         assert_eq!(result.base_branch, "main");
 
-        let _ = std::fs::remove_dir_all(&tmp);
+        let _ = tokio::fs::remove_dir_all(&tmp).await;
     }
 
     #[tokio::test]
     async fn create_for_task_rejects_duplicate() {
         let cache = Arc::new(CacheDb::new_in_memory().await.unwrap());
         let tmp = std::env::temp_dir().join("at-wm-test-dup");
-        let _ = std::fs::remove_dir_all(&tmp);
+        let _ = tokio::fs::remove_dir_all(&tmp).await;
 
         // Pre-create the worktree directory to simulate duplicate
         let wt_dir = tmp.join(".worktrees").join("test-feature");
-        std::fs::create_dir_all(&wt_dir).unwrap();
+        tokio::fs::create_dir_all(&wt_dir).await.unwrap();
 
         let git = Box::new(MockGitRunner::new(vec![]));
         let manager = WorktreeManager::with_git_runner(tmp.clone(), cache, git);
@@ -596,7 +602,7 @@ mod tests {
         let result = manager.create_for_task(&task).await;
         assert!(result.is_err());
 
-        let _ = std::fs::remove_dir_all(&tmp);
+        let _ = tokio::fs::remove_dir_all(&tmp).await;
     }
 
     #[tokio::test]
