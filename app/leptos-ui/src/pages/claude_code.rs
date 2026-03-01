@@ -1,5 +1,5 @@
+use crate::components::Spinner;
 use crate::state::use_app_state;
-use crate::themed::{themed, Prompt};
 use leptos::ev::KeyboardEvent;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
@@ -10,7 +10,6 @@ use crate::components::focus_trap::use_focus_trap;
 #[component]
 pub fn ClaudeCodePage() -> impl IntoView {
     let app_state = use_app_state();
-    let display_mode = app_state.display_mode;
     let (agents, set_agents) = signal(Vec::<api::ApiAgent>::new());
     let (loading, set_loading) = signal(true);
     let (error_msg, set_error_msg) = signal(Option::<String>::None);
@@ -78,7 +77,7 @@ pub fn ClaudeCodePage() -> impl IntoView {
         })}
 
         {move || loading.get().then(|| view! {
-            <div class="dashboard-loading">{move || themed(display_mode.get(), Prompt::Loading)}</div>
+            <div class="dashboard-loading"><Spinner size="md" /></div>
         })}
 
         <div class="section">
