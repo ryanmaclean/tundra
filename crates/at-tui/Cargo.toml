@@ -18,6 +18,7 @@ default = []
 gpu = ["dep:ratatui-wgpu"]
 
 [dependencies]
+at-api-types = { path = "../at-api-types" }
 at-core = { path = "../at-core" }
 at-telemetry = { path = "../at-telemetry" }
 ratatui = { workspace = true }
