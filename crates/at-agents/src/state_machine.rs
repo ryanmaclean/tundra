@@ -67,11 +67,28 @@ impl fmt::Display for AgentEvent {
 // Error
 // ---------------------------------------------------------------------------
 
+/// Errors that can occur during agent state machine transitions.
+///
+/// The state machine enforces valid state transitions for agent lifecycle
+/// management (Idle → Spawning → Active → Stopped, etc.). This error indicates
+/// an attempt to perform an invalid state transition.
 #[derive(Debug, thiserror::Error)]
 pub enum StateMachineError {
+    /// An invalid state transition was attempted.
+    ///
+    /// This occurs when attempting to apply an [`AgentEvent`] that is not
+    /// valid for the current [`AgentState`]. For example:
+    /// - Trying to pause an agent that is already stopped
+    /// - Attempting to spawn an agent that is already active
+    /// - Recovering from a non-failed state
+    ///
+    /// The error contains the current state and the event that could not be
+    /// applied, which helps identify the invalid transition attempt.
     #[error("invalid transition: cannot apply {event} in state {state}")]
     InvalidTransition {
+        /// The current state when the invalid transition was attempted.
         state: AgentState,
+        /// The event that could not be applied in the current state.
         event: AgentEvent,
     },
 }

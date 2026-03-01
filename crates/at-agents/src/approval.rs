@@ -54,16 +54,43 @@ pub struct PendingApproval {
 // Errors
 // ---------------------------------------------------------------------------
 
+/// Errors that can occur when processing tool approval requests.
+///
+/// The approval system manages human approval workflows for potentially
+/// dangerous tool invocations. These errors represent failures in the
+/// approval lifecycle: missing requests, already-resolved requests, or
+/// policy-denied operations.
 #[derive(Debug, thiserror::Error)]
 pub enum ApprovalError {
+    /// The requested approval request ID does not exist.
+    ///
+    /// This typically occurs when:
+    /// - The approval ID is invalid or was never created
+    /// - The approval request has been removed from the system
     #[error("approval request not found: {0}")]
     NotFound(Uuid),
+
+    /// The approval request has already been approved or denied.
+    ///
+    /// Attempting to resolve an already-resolved approval is not allowed.
+    /// Check the approval status before attempting resolution.
     #[error("approval request already resolved: {0}")]
     AlreadyResolved(Uuid),
+
+    /// The tool is denied by policy and cannot be executed.
+    ///
+    /// This occurs when a tool's approval policy is set to [`ApprovalPolicy::Deny`],
+    /// preventing the tool from being invoked under any circumstances.
+    /// The contained string identifies the denied tool name.
     #[error("tool denied by policy: {0}")]
     Denied(String),
 }
 
+/// Result type for approval operations.
+///
+/// Alias for `std::result::Result<T, ApprovalError>` used throughout
+/// the approval system to indicate operations that may fail with an
+/// [`ApprovalError`].
 pub type Result<T> = std::result::Result<T, ApprovalError>;
 
 // ---------------------------------------------------------------------------
