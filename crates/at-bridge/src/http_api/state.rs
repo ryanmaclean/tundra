@@ -364,6 +364,11 @@ impl ApiState {
             loop {
                 interval.tick().await;
 
+                // Capture counts before cleanup for metrics
+                let tasks_before = state.task_count.load(Ordering::Relaxed);
+                let buffers_before = state.disconnect_buffers.read().await.len();
+                let notifications_before = state.notification_store.read().await.total_count();
+
                 // Read TTLs from retention config
                 let (task_ttl, buffer_ttl) = {
                     let config = state.retention_config.read().await;
@@ -380,10 +385,23 @@ impl ApiState {
                     notification_store.cleanup_old(task_ttl)
                 };
 
+                // Capture counts after cleanup
+                let tasks_after = state.task_count.load(Ordering::Relaxed);
+                let buffers_after = state.disconnect_buffers.read().await.len();
+                let notifications_after = state.notification_store.read().await.total_count();
+
                 tracing::info!(
+                    tasks_before,
                     tasks_removed,
+                    tasks_after,
+                    buffers_before,
                     buffers_removed,
+                    buffers_after,
+                    notifications_before,
                     notifications_removed,
+                    notifications_after,
+                    task_ttl_secs = task_ttl,
+                    buffer_ttl_secs = buffer_ttl,
                     "Cleanup cycle completed"
                 );
             }
