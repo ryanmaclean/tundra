@@ -305,9 +305,15 @@ pub fn BeadsPage() -> impl IntoView {
     // Track which column is being dragged over for visual feedback
     let (drag_over_lane, set_drag_over_lane) = signal(Option::<usize>::None);
 
+    // Error and loading state
+    let (error_msg, set_error_msg) = signal(Option::<String>::None);
+    let (loading, set_loading) = signal(true);
+
     // Fetch beads from API on mount
     {
         let set_beads = set_beads.clone();
+        let set_error_msg = set_error_msg.clone();
+        let set_loading = set_loading.clone();
         leptos::task::spawn_local(async move {
             match crate::api::fetch_beads().await {
                 Ok(api_beads) => {
@@ -316,11 +322,14 @@ pub fn BeadsPage() -> impl IntoView {
                     if !ui_beads.is_empty() {
                         set_beads.set(ui_beads);
                     }
+                    set_error_msg.set(None);
                 }
                 Err(e) => {
                     leptos::logging::log!("Failed to fetch beads from API: {}", e);
+                    set_error_msg.set(Some(format!("Failed to fetch beads from API: {}", e)));
                 }
             }
+            set_loading.set(false);
         });
     }
 
@@ -381,11 +390,15 @@ pub fn BeadsPage() -> impl IntoView {
         // Persist to API
         let api_status = api_status_from_lane(&target_lane).to_string();
         let id = bead_id.clone();
+        let set_error_msg = set_error_msg.clone();
         leptos::task::spawn_local(async move {
             if let Err(e) = crate::api::update_bead_status(&id, &api_status).await {
                 // Rollback optimistic update
                 set_beads.set(prev_beads);
                 leptos::logging::log!("Failed to update bead status via API (rolled back): {}", e);
+                set_error_msg.set(Some(format!("Failed to update bead status: {}", e)));
+            } else {
+                set_error_msg.set(None);
             }
         });
     };
@@ -396,19 +409,28 @@ pub fn BeadsPage() -> impl IntoView {
     // Refresh handler
     let do_refresh = {
         let set_beads = set_beads.clone();
+        let set_error_msg = set_error_msg.clone();
+        let set_loading = set_loading.clone();
         move || {
+            set_loading.set(true);
+            set_error_msg.set(None);
             let set_beads = set_beads.clone();
+            let set_error_msg = set_error_msg.clone();
+            let set_loading = set_loading.clone();
             leptos::task::spawn_local(async move {
                 match crate::api::fetch_beads().await {
                     Ok(api_beads) => {
                         let ui_beads: Vec<BeadResponse> =
                             api_beads.iter().map(api_bead_to_bead_response).collect();
                         set_beads.set(ui_beads);
+                        set_error_msg.set(None);
                     }
                     Err(e) => {
                         leptos::logging::log!("Failed to refresh beads: {}", e);
+                        set_error_msg.set(Some(format!("Failed to refresh beads: {}", e)));
                     }
                 }
+                set_loading.set(false);
             });
         }
     };
@@ -468,6 +490,14 @@ pub fn BeadsPage() -> impl IntoView {
                 </select>
             </div>
         </div>
+
+        {move || error_msg.get().map(|msg| view! {
+            <div class="dash-error">{msg}</div>
+        })}
+
+        {move || loading.get().then(|| view! {
+            <div class="dash-loading">{move || themed(mode.get(), Prompt::Loading)}</div>
+        })}
 
         // Filter bar
         <div class="filter-bar">
