@@ -78,6 +78,36 @@ pub(crate) async fn get_kpi(State(state): State<Arc<ApiState>>) -> Json<KpiSnaps
 }
 
 // ---------------------------------------------------------------------------
+// Memory usage debugging
+// ---------------------------------------------------------------------------
+
+/// GET /api/debug/memory -- returns in-memory data structure counts for monitoring.
+pub(crate) async fn get_memory_usage(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
+    let tasks = state.tasks.read().await;
+    let archived = state.archived_tasks.read().await;
+    let buffers = state.disconnect_buffers.read().await;
+    let notifications = state.notification_store.read().await;
+    let agents = state.agents.read().await;
+    let beads = state.beads.read().await;
+    let drafts = state.task_drafts.read().await;
+    let attachments = state.attachments.read().await;
+
+    (
+        axum::http::StatusCode::OK,
+        Json(serde_json::json!({
+            "tasks": tasks.len(),
+            "archived_tasks": archived.len(),
+            "disconnect_buffers": buffers.len(),
+            "notifications": notifications.total_count(),
+            "agents": agents.len(),
+            "beads": beads.len(),
+            "task_drafts": drafts.len(),
+            "attachments": attachments.len(),
+        })),
+    )
+}
+
+// ---------------------------------------------------------------------------
 // Credentials status
 // ---------------------------------------------------------------------------
 
