@@ -115,7 +115,7 @@ pub struct ApiWorktree {
     pub status: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ApiCosts {
     #[serde(default)]
     pub input_tokens: u64,
