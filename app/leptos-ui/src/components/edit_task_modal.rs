@@ -114,30 +114,6 @@ pub fn EditTaskModal(
         let new_impact = impact.get();
         let new_effort = effort.get();
 
-        let req = crate::api::ApiBead {
-            id: id.clone(),
-            title: new_title.clone(),
-            description: Some(new_desc.clone()),
-            status: "pending".to_string(),
-            lane: "backlog".to_string(),
-            priority: if new_pri == "High" { 1 } else { 0 },
-            category: Some(new_cat.clone()),
-            priority_label: Some(new_pri.clone()),
-            agent_profile: Some(new_agent_profile.clone()),
-            model: Some(new_model.clone()),
-            thinking_level: Some(new_thinking.clone()),
-            complexity: Some(new_complexity.clone()),
-            impact: Some(new_impact.clone()),
-            effort: Some(new_effort.clone()),
-            metadata: None,
-        };
-
-        let async_id = id.clone();
-        leptos::task::spawn_local(async move {
-            let id_clone = async_id.clone();
-            let _ = crate::api::update_bead(&id_clone, &req).await;
-        });
-
         // Build tags including all classification fields
         let mut new_tags: Vec<String> = vec![new_cat.clone()];
         if new_pri != "Medium" {
