@@ -151,6 +151,244 @@ Client                    Server
 }
 ```
 
+**Heartbeat & Pong Handling:**
+
+The server sends heartbeat pings every 30 seconds on `/api/events/ws` only. Clients should handle these appropriately:
+
+**✅ Recommended:**
+```javascript
+ws.onmessage = (event) => {
+  const data = JSON.parse(event.data);
+
+  // Early return for heartbeat messages
+  if (data.type === 'ping') {
+    // Optional: Send pong response (not required)
+    // ws.send(JSON.stringify({ type: 'pong' }));
+    return;
+  }
+
+  // Handle actual events
+  handleEvent(data);
+};
+```
+
+**⚠️ Important:**
+- **Pong responses are optional** — The server does not require clients to send explicit pong messages. Simply ignoring the ping is sufficient.
+- **Do not close the connection** on ping messages — This would break the keepalive mechanism.
+- **WebSocket protocol pongs are automatic** — Browser WebSocket API and most libraries automatically respond to protocol-level ping frames. The JSON `{"type":"ping"}` is an application-level heartbeat.
+
+**Reliability Guarantees:**
+
+Auto-Tundra's event streaming provides **at-most-once delivery semantics**:
+
+| Guarantee | `/ws` | `/api/events/ws` | Details |
+|-----------|-------|------------------|---------|
+| **Message Delivery** | At-most-once | At-most-once | No retries, no persistence |
+| **Message Ordering** | ✅ FIFO | ✅ FIFO | Events delivered in order (per connection) |
+| **Message Persistence** | ❌ None | ❌ None | Disconnected clients miss events |
+| **Backpressure Handling** | Drop connection | Drop connection | Slow subscribers disconnected |
+| **Duplicate Prevention** | ✅ No duplicates | ✅ No duplicates | Each event sent once per connection |
+
+**At-Most-Once Delivery:**
+
+Events are streamed directly from the in-memory event bus to connected clients. There is **no queueing, buffering, or persistence layer**:
+
+```
+Event Bus ──(live stream)──► WebSocket Client
+                              │
+                              │ (network failure or slow consumer)
+                              │
+                              ✗ Event lost (not retried)
+```
+
+**Implications:**
+1. **No Historical Events**: New connections start receiving events from the moment of connection. Past events are not available.
+2. **Disconnection = Data Loss**: If a client disconnects (network failure, crash, etc.), events emitted during disconnection are permanently lost.
+3. **No Replay Mechanism**: Unlike Kafka or message queues, there is no way to "rewind" or replay missed events.
+4. **Ephemeral Notifications**: While `/api/events/ws` integrates with the notification store, this only stores notifications (not raw events), and is separate from the WebSocket stream.
+
+**When This Matters:**
+- ✅ **Acceptable**: Real-time dashboards, live monitoring, status indicators
+- ❌ **Not Suitable**: Audit logs, financial transactions, critical event processing requiring guaranteed delivery
+
+**Backpressure & Slow Subscriber Handling:**
+
+If a client cannot keep up with the event rate (slow network, blocked UI thread, resource constraints), the server will **drop the connection**:
+
+**Behavior:**
+```rust
+// From websocket.rs implementation
+if ws_tx.send(Message::Text(json.into())).await.is_err() {
+    break;  // Send failed → close connection
+}
+```
+
+**What Happens:**
+1. **Send Timeout**: If the WebSocket send operation blocks (client not reading fast enough), the send will eventually fail
+2. **Connection Dropped**: The server immediately closes the connection (no graceful degradation)
+3. **No Warning Message**: The client simply receives a close frame (code 1006 Abnormal Closure or 1011 Internal Error)
+
+**Why This Happens:**
+- WebSocket send buffers fill up when client is slow to read
+- Server cannot block indefinitely (would exhaust resources)
+- Protects server from resource exhaustion by slow/dead clients
+
+**How to Avoid:**
+```javascript
+// ✅ GOOD: Asynchronous, non-blocking handling
+ws.onmessage = (event) => {
+  const data = JSON.parse(event.data);
+
+  if (data.type === 'ping') return;
+
+  // Dispatch to async handler (doesn't block onmessage)
+  queueMicrotask(() => processEvent(data));
+};
+
+// ❌ BAD: Synchronous, blocking operations
+ws.onmessage = (event) => {
+  const data = JSON.parse(event.data);
+
+  // Heavy computation blocks the message loop
+  for (let i = 0; i < 1000000; i++) { /* ... */ }
+  updateUI(data);  // Slow DOM operations
+};
+```
+
+**Best Practices:**
+1. **Keep `onmessage` Fast**: Offload heavy processing to async handlers or workers
+2. **Monitor Connection Health**: Track ping intervals to detect degradation early
+3. **Implement Reconnection**: Auto-reconnect when dropped (see Reconnection Strategies below)
+4. **Rate Limit UI Updates**: Debounce high-frequency events (e.g., build progress updates)
+
+**Reconnection Strategies:**
+
+Since `/api/events/ws` provides no automatic reconnection, clients must implement retry logic. **Recommended pattern**:
+
+```javascript
+class ResilientEventStream {
+  constructor(url) {
+    this.url = url;
+    this.ws = null;
+    this.reconnectAttempts = 0;
+    this.maxReconnectDelay = 30000;  // 30 seconds max
+    this.listeners = new Map();
+    this.connect();
+  }
+
+  connect() {
+    this.ws = new WebSocket(this.url);
+
+    this.ws.onopen = () => {
+      console.log('[WS] Connected');
+      this.reconnectAttempts = 0;  // Reset backoff on success
+      this.emit('open');
+    };
+
+    this.ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+
+      // Handle heartbeat
+      if (data.type === 'ping') {
+        console.log('[WS] Heartbeat:', data.timestamp);
+        return;
+      }
+
+      this.emit('event', data);
+    };
+
+    this.ws.onclose = (event) => {
+      console.warn('[WS] Disconnected:', event.code, event.reason);
+      this.scheduleReconnect();
+    };
+
+    this.ws.onerror = (error) => {
+      console.error('[WS] Error:', error);
+      // onclose will fire after onerror, triggering reconnect
+    };
+  }
+
+  scheduleReconnect() {
+    // Exponential backoff: 1s, 2s, 4s, 8s, 16s, 30s (max)
+    const delay = Math.min(
+      1000 * Math.pow(2, this.reconnectAttempts),
+      this.maxReconnectDelay
+    );
+
+    this.reconnectAttempts++;
+    console.log(`[WS] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})...`);
+
+    setTimeout(() => this.connect(), delay);
+  }
+
+  on(event, handler) {
+    if (!this.listeners.has(event)) {
+      this.listeners.set(event, []);
+    }
+    this.listeners.get(event).push(handler);
+  }
+
+  emit(event, data) {
+    const handlers = this.listeners.get(event) || [];
+    handlers.forEach(handler => handler(data));
+  }
+
+  close() {
+    if (this.ws) {
+      this.ws.close();
+      this.ws = null;
+    }
+  }
+}
+
+// Usage
+const stream = new ResilientEventStream('ws://localhost:3000/api/events/ws');
+
+stream.on('open', () => {
+  console.log('Event stream ready');
+});
+
+stream.on('event', (event) => {
+  console.log('Received event:', event);
+});
+```
+
+**Reconnection Timeline (Exponential Backoff):**
+```
+Attempt 1:  1 second delay
+Attempt 2:  2 seconds delay
+Attempt 3:  4 seconds delay
+Attempt 4:  8 seconds delay
+Attempt 5: 16 seconds delay
+Attempt 6: 30 seconds delay (capped)
+Attempt 7: 30 seconds delay (capped)
+...
+```
+
+**Alternative: Linear Backoff with Jitter**
+```javascript
+scheduleReconnect() {
+  // 5 seconds + random jitter (0-2 seconds)
+  const delay = 5000 + Math.random() * 2000;
+
+  console.log(`[WS] Reconnecting in ${delay.toFixed(0)}ms...`);
+  setTimeout(() => this.connect(), delay);
+}
+```
+
+**⚠️ Important Considerations:**
+1. **No State Recovery**: Reconnected clients start fresh — missed events are gone
+2. **Application-Level Sync**: After reconnection, clients may need to poll REST APIs to sync application state
+3. **Max Reconnect Attempts**: Consider capping total attempts (e.g., 10 retries) to avoid infinite loops on permanent failures
+4. **Network Change Detection**: On mobile, listen for `online` events to trigger immediate reconnection:
+
+```javascript
+window.addEventListener('online', () => {
+  console.log('[WS] Network restored, reconnecting...');
+  this.connect();
+});
+```
+
 **Use Cases:**
 - Production web applications
 - Long-lived connections
