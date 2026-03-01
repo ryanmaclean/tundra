@@ -6,15 +6,25 @@ use uuid::Uuid;
 // BeadStatus
 // ---------------------------------------------------------------------------
 
+/// Lifecycle status of a Bead as it moves through the workflow.
+///
+/// Valid transitions are enforced by the `can_transition_to` method.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BeadStatus {
+    /// Queued and waiting to be picked up.
     Backlog,
+    /// Assigned to an agent, not yet started.
     Hooked,
+    /// Actively being worked on.
     Slung,
+    /// Awaiting code review or QA.
     Review,
+    /// Successfully completed.
     Done,
+    /// Encountered an error or failure.
     Failed,
+    /// Requires human intervention.
     Escalated,
 }
 
@@ -42,11 +52,17 @@ impl BeadStatus {
 // Lane
 // ---------------------------------------------------------------------------
 
+/// Priority lane for routing and scheduling Beads.
+///
+/// Higher lanes (Critical > Standard > Experimental) are processed first.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Lane {
+    /// Low priority, experimental features.
     Experimental = 0,
+    /// Normal priority, standard workflow.
     Standard = 1,
+    /// High priority, urgent items.
     Critical = 2,
 }
 
@@ -54,6 +70,11 @@ pub enum Lane {
 // Bead
 // ---------------------------------------------------------------------------
 
+/// A unit of work in the Tundra system, representing a task or feature.
+///
+/// Beads move through a defined lifecycle (`BeadStatus`) and can be routed
+/// via different priority lanes (`Lane`). They can be assigned to agents
+/// and grouped into convoys for coordinated multi-task execution.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Bead {
     pub id: Uuid,
@@ -74,6 +95,7 @@ pub struct Bead {
 }
 
 impl Bead {
+    /// Create a new Bead in Backlog status with the given title and lane.
     pub fn new(title: impl Into<String>, lane: Lane) -> Self {
         let now = Utc::now();
         Self {
