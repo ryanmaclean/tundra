@@ -20,6 +20,10 @@ pub(crate) struct ListGitLabIssuesQuery {
     pub page: Option<u32>,
     #[serde(default)]
     pub per_page: Option<u32>,
+    #[serde(default)]
+    pub limit: Option<usize>,
+    #[serde(default)]
+    pub offset: Option<usize>,
 }
 
 /// GET /api/gitlab/issues -- retrieve issues from a GitLab project.
@@ -73,13 +77,20 @@ pub(crate) async fn list_gitlab_issues(
         }
     };
 
+    // Convert limit/offset to page/per_page for GitLab API
+    let per_page = q
+        .limit
+        .map(|l| l as u32)
+        .or(q.per_page)
+        .unwrap_or(20);
+    let page = q
+        .offset
+        .map(|o| (o as u32 / per_page) + 1)
+        .or(q.page)
+        .unwrap_or(1);
+
     match client
-        .list_issues(
-            &project_id,
-            q.state.as_deref(),
-            q.page.unwrap_or(1),
-            q.per_page.unwrap_or(20),
-        )
+        .list_issues(&project_id, q.state.as_deref(), page, per_page)
         .await
     {
         Ok(issues) => (axum::http::StatusCode::OK, Json(serde_json::json!(issues))),
@@ -100,6 +111,10 @@ pub(crate) struct ListGitLabMrsQuery {
     pub page: Option<u32>,
     #[serde(default)]
     pub per_page: Option<u32>,
+    #[serde(default)]
+    pub limit: Option<usize>,
+    #[serde(default)]
+    pub offset: Option<usize>,
 }
 
 /// GET /api/gitlab/merge-requests -- retrieve merge requests from a GitLab project.
@@ -153,13 +168,20 @@ pub(crate) async fn list_gitlab_merge_requests(
         }
     };
 
+    // Convert limit/offset to page/per_page for GitLab API
+    let per_page = q
+        .limit
+        .map(|l| l as u32)
+        .or(q.per_page)
+        .unwrap_or(20);
+    let page = q
+        .offset
+        .map(|o| (o as u32 / per_page) + 1)
+        .or(q.page)
+        .unwrap_or(1);
+
     match client
-        .list_merge_requests(
-            &project_id,
-            q.state.as_deref(),
-            q.page.unwrap_or(1),
-            q.per_page.unwrap_or(20),
-        )
+        .list_merge_requests(&project_id, q.state.as_deref(), page, per_page)
         .await
     {
         Ok(mrs) => (axum::http::StatusCode::OK, Json(serde_json::json!(mrs))),
