@@ -706,9 +706,133 @@ interface Event {
 }
 ```
 
+## Subscription Methods (Internal Architecture)
+
+> **🔒 Internal API:** The subscription methods described in this section are server-side implementation details. WebSocket clients **cannot** specify filters when connecting—they always receive all events and must implement client-side filtering (see next section).
+
+The Auto-Tundra event bus provides three subscription methods for internal server components:
+
+### `subscribe()` — Unfiltered Subscription
+
+**Description:** Creates a subscription that receives **all events** published to the event bus.
+
+**Usage (Server-Side):**
+```rust
+use at_bridge::event_bus::EventBus;
+
+let bus = EventBus::new();
+let rx = bus.subscribe();  // Receives ALL events
+
+// Process all events
+while let Ok(msg) = rx.recv() {
+    println!("Event: {:?}", msg);
+}
+```
+
+**Characteristics:**
+- ✅ Receives every `BridgeMessage` published to the bus
+- ✅ No filtering overhead—messages delivered immediately
+- ✅ Used by WebSocket handlers (`/ws`, `/api/events/ws`)
+- ⚠️ Clients must implement their own filtering logic
+
+**When Used:**
+- WebSocket connections (all clients get unfiltered streams)
+- System-wide event monitors
+- Logging and audit systems
+- Debugging tools
+
+---
+
+### `subscribe_filtered(predicate)` — Custom Predicate Filtering
+
+**Description:** Creates a subscription with **server-side filtering** using a custom predicate function.
+
+**Usage (Server-Side):**
+```rust
+// Only receive GetStatus and StatusUpdate messages
+let rx = bus.subscribe_filtered(|msg| {
+    matches!(msg, BridgeMessage::GetStatus | BridgeMessage::StatusUpdate(_))
+});
+
+// Only receive events with specific payload conditions
+let rx = bus.subscribe_filtered(|msg| {
+    match msg {
+        BridgeMessage::Event(payload) => payload.event_type == "critical",
+        _ => false,
+    }
+});
+```
+
+**Characteristics:**
+- ✅ Server-side filtering reduces unnecessary message delivery
+- ✅ Accepts any `Fn(&BridgeMessage) -> bool` predicate
+- ✅ Filtered subscribers are retained even when messages don't match
+- ⚠️ **Not exposed to WebSocket clients** (internal API only)
+
+**When Used:**
+- Internal service-to-service subscriptions
+- Notification system integration (filters for user-specific events)
+- Agent-specific event routing
+- Performance optimization for high-throughput scenarios
+
+---
+
+### `subscribe_for_agent(agent_id)` — Agent-Specific Filtering
+
+**Description:** Convenience method that filters events targeting a **specific agent UUID**.
+
+**Usage (Server-Side):**
+```rust
+use uuid::Uuid;
+
+let agent_id = Uuid::parse_str("f0e1d2c3-4567-89ab-cdef-0123456789ab")?;
+let rx = bus.subscribe_for_agent(agent_id);
+
+// Only receives messages for this agent
+while let Ok(msg) = rx.recv() {
+    match msg.as_ref() {
+        BridgeMessage::SlingBead { bead_id, .. } => {
+            println!("Bead {} assigned to agent", bead_id);
+        }
+        BridgeMessage::AgentOutput { output, .. } => {
+            println!("Agent output: {}", output);
+        }
+        BridgeMessage::Event(payload) => {
+            println!("Agent event: {}", payload.event_type);
+        }
+        _ => {}
+    }
+}
+```
+
+**Filters on:**
+- `BridgeMessage::SlingBead { agent_id, .. }`
+- `BridgeMessage::AgentOutput { agent_id, .. }`
+- `BridgeMessage::Event(EventPayload { agent_id: Some(...), .. })`
+
+**Characteristics:**
+- ✅ Automatically extracts `agent_id` from multiple message variants
+- ✅ Implements `subscribe_filtered()` under the hood
+- ✅ Simplifies agent-specific event monitoring
+- ⚠️ **Not exposed to WebSocket clients** (internal API only)
+
+**When Used:**
+- Agent management systems
+- Per-agent log aggregation
+- Agent-specific notification delivery
+- Agent performance monitoring
+
+---
+
 ## Filtering Events (Client-Side)
 
-Since events are broadcast to all connected clients, implement client-side filtering:
+> **💡 Important:** WebSocket clients receive **all events** from the server and must implement client-side filtering. Server-side filtering (described above) is not available to external clients.
+
+Since events are broadcast to all connected WebSocket clients, you must implement filtering in your client application. Here are recommended patterns:
+
+### Basic Event Type Filtering
+
+Filter by event kind to process only relevant events:
 
 ```javascript
 ws.onmessage = (event) => {
@@ -725,6 +849,150 @@ ws.onmessage = (event) => {
   }
 };
 ```
+
+### Agent-Specific Filtering
+
+To monitor events for a specific agent, filter on `agent_id` fields:
+
+```javascript
+const TARGET_AGENT_ID = 'f0e1d2c3-4567-89ab-cdef-0123456789ab';
+
+ws.onmessage = (event) => {
+  const data = JSON.parse(event.data);
+
+  // Skip heartbeats
+  if (data.type === 'ping') return;
+
+  // Agent-specific filtering
+  const agentId = data.payload?.agent_id;
+  if (agentId === TARGET_AGENT_ID) {
+    console.log('Event for target agent:', data.kind);
+    handleAgentEvent(data);
+  }
+};
+```
+
+### Multi-Criteria Filtering
+
+Combine multiple filter conditions for complex scenarios:
+
+```javascript
+const MONITORED_AGENTS = new Set([
+  'agent-1-uuid',
+  'agent-2-uuid',
+  'agent-3-uuid'
+]);
+
+const CRITICAL_EVENT_TYPES = new Set([
+  'agent.error',
+  'task.failed',
+  'bead.rejected'
+]);
+
+ws.onmessage = (event) => {
+  const data = JSON.parse(event.data);
+
+  if (data.type === 'ping') return;
+
+  // Multi-criteria filter
+  const isCritical = CRITICAL_EVENT_TYPES.has(data.kind);
+  const isMonitored = MONITORED_AGENTS.has(data.payload?.agent_id);
+
+  if (isCritical && isMonitored) {
+    alertCriticalEvent(data);
+  }
+};
+```
+
+### Filter Pattern Registry (Advanced)
+
+For complex applications, use a filter registry pattern:
+
+```javascript
+class EventFilterRegistry {
+  constructor() {
+    this.filters = new Map();
+  }
+
+  // Register a named filter
+  register(name, predicate) {
+    this.filters.set(name, predicate);
+  }
+
+  // Test event against all registered filters
+  test(event) {
+    for (const [name, predicate] of this.filters) {
+      if (predicate(event)) {
+        return { matched: true, filter: name };
+      }
+    }
+    return { matched: false };
+  }
+}
+
+// Usage
+const registry = new EventFilterRegistry();
+
+registry.register('critical-errors', (event) =>
+  event.kind === 'agent.error' && event.payload?.severity === 'critical'
+);
+
+registry.register('high-priority-tasks', (event) =>
+  event.kind === 'task.created' && event.payload?.priority > 8
+);
+
+ws.onmessage = (event) => {
+  const data = JSON.parse(event.data);
+  if (data.type === 'ping') return;
+
+  const result = registry.test(data);
+  if (result.matched) {
+    console.log(`Matched filter: ${result.filter}`);
+    handleFilteredEvent(data, result.filter);
+  }
+};
+```
+
+### Performance Considerations
+
+**⚠️ Best Practices:**
+
+1. **Early Return for Heartbeats:** Always check for `type === 'ping'` first to avoid unnecessary processing
+2. **Use Sets for Lookup:** When filtering by multiple IDs/types, use `Set` instead of arrays for O(1) lookup
+3. **Debounce High-Frequency Events:** If receiving many events per second, debounce UI updates
+4. **Consider IndexedDB for History:** Store filtered events in IndexedDB for later analysis
+5. **Lazy Deserialization:** Only parse `payload` if the event passes initial filters
+
+**Example: Optimized Filter Chain**
+```javascript
+ws.onmessage = (event) => {
+  const data = JSON.parse(event.data);
+
+  // Fast path: ignore heartbeats (most common)
+  if (data.type === 'ping') return;
+
+  // Fast path: check kind before accessing payload
+  if (!INTERESTING_KINDS.has(data.kind)) return;
+
+  // Only now access payload (may be large)
+  const { agent_id, severity } = data.payload || {};
+
+  if (MONITORED_AGENTS.has(agent_id) && severity === 'high') {
+    handleEvent(data);
+  }
+};
+```
+
+### Client-Side Filtering Recommendations
+
+| Scenario | Recommended Approach |
+|----------|---------------------|
+| **Monitor specific agent** | Filter on `payload.agent_id` |
+| **Alert on critical events** | Filter on `kind` + `payload.severity` |
+| **Track task lifecycle** | Filter on `kind` starting with `task.` |
+| **Debug event flow** | Log all events with conditional filtering |
+| **Build event dashboard** | Use filter registry + debounced UI updates |
+| **Audit trail** | Store all events, filter on query/display |
 
 ## BridgeMessage Protocol
 
