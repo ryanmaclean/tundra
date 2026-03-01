@@ -674,7 +674,7 @@ code, pre, kbd, .config-block {
     padding: 7px 8px;
     margin-top: 4px;
     border: none;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     background: none;
     color: var(--text-secondary);
     font-size: 12px;
@@ -845,7 +845,7 @@ html[data-native-shell="1"] .sidebar-header {
     font-weight: 500;
     color: var(--text-secondary);
     background: rgba(124, 58, 237, 0.08);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     white-space: nowrap;
 }
 
@@ -871,7 +871,7 @@ html[data-native-shell="1"] .sidebar-header {
     padding: 6px 14px;
     background: rgba(124, 58, 237, 0.12);
     border: 1px solid var(--border-light);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     color: var(--accent-purple);
     font-size: 12px;
     font-weight: 500;
@@ -893,7 +893,7 @@ html[data-native-shell="1"] .sidebar-header {
     height: 30px;
     background: rgba(124, 58, 237, 0.08);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     color: var(--text-secondary);
     font-size: 13px;
     font-weight: 600;
@@ -1377,7 +1377,7 @@ html[data-native-shell="1"] .sidebar-header {
     margin-left: auto;
     width: 24px;
     height: 24px;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     border: 1px solid rgba(255, 255, 255, 0.06);
     background: var(--bg-primary);
     color: var(--text-muted);
@@ -1737,7 +1737,7 @@ kbd {
     display: inline-flex;
     align-items: center;
     padding: 2px 8px;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     font-size: 10px;
     font-weight: 600;
     text-transform: uppercase;
@@ -2298,7 +2298,7 @@ kbd {
 
 .action-btn {
     padding: 4px 10px;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     font-size: 11px;
     font-weight: 600;
     border: none;
@@ -2698,7 +2698,7 @@ kbd {
 .help-modal .keybind kbd {
     background: var(--bg-card);
     border: 1px solid var(--border-light);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     padding: 2px 8px;
     font-family: 'JetBrains Mono', monospace;
     font-size: 12px;
@@ -2710,7 +2710,7 @@ kbd {
     background: rgba(124, 58, 237, 0.12);
     color: var(--accent-purple);
     border: 1px solid var(--border-light);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     padding: 8px 20px;
     cursor: pointer;
     font-family: inherit;
@@ -2790,7 +2790,7 @@ kbd {
 .status-bar kbd {
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     padding: 0px 5px;
     font-size: 10px;
     font-family: 'JetBrains Mono', monospace;
@@ -2920,7 +2920,7 @@ code.file-path, code.branch-name {
     color: var(--accent-cyan);
     background: rgba(6, 182, 212, 0.08);
     padding: 2px 6px;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
 }
 
 .commit-msg {
@@ -2954,7 +2954,7 @@ code.file-path, code.branch-name {
     display: inline-flex;
     align-items: center;
     padding: 2px 8px;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     font-size: 11px;
     font-weight: 500;
     background: rgba(124, 58, 237, 0.1);
@@ -2983,7 +2983,7 @@ code.file-path, code.branch-name {
     padding: 8px 12px;
     background: var(--bg-primary);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     color: var(--text-primary);
     font-family: inherit;
     font-size: 13px;
@@ -2999,7 +2999,7 @@ code.file-path, code.branch-name {
     padding: 8px 12px;
     background: var(--bg-primary);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     color: var(--text-primary);
     font-family: inherit;
     font-size: 13px;
@@ -3608,7 +3608,7 @@ code.file-path, code.branch-name {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     border: 1px solid rgba(255, 255, 255, 0.06);
     background: var(--bg-secondary);
     color: var(--text-primary);
@@ -3712,7 +3712,7 @@ code.file-path, code.branch-name {
     padding: 8px 12px;
     background: var(--bg-primary);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     color: var(--text-primary);
     font-family: inherit;
     font-size: 0.9em;
@@ -3742,7 +3742,7 @@ code.file-path, code.branch-name {
     padding: 8px 16px;
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     color: var(--text-secondary);
     cursor: pointer;
     font-family: inherit;
@@ -3752,7 +3752,7 @@ code.file-path, code.branch-name {
     padding: 8px 16px;
     background: var(--accent-purple);
     border: 1px solid var(--accent-purple);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     color: white;
     cursor: pointer;
     font-family: inherit;
@@ -3769,7 +3769,7 @@ code.file-path, code.branch-name {
     display: inline-block;
     font-size: 0.65em;
     padding: 1px 6px;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     background: var(--bg-primary);
     color: var(--text-secondary);
     border: 1px solid rgba(255, 255, 255, 0.06);
@@ -3969,7 +3969,7 @@ code.file-path, code.branch-name {
     padding: 8px 16px;
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     color: var(--text-secondary);
     cursor: pointer;
     font-family: inherit;
@@ -3985,7 +3985,7 @@ code.file-path, code.branch-name {
     padding: 8px 16px;
     background: var(--accent-purple);
     border: 1px solid var(--accent-purple);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     color: white;
     cursor: pointer;
     font-family: inherit;
@@ -4093,7 +4093,7 @@ code.file-path, code.branch-name {
     padding: 6px 10px;
     background: var(--bg-primary);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     color: var(--text-primary);
     font-family: 'JetBrains Mono', monospace;
     font-size: 13px;
@@ -4111,7 +4111,7 @@ code.file-path, code.branch-name {
     padding: 6px 10px;
     background: var(--bg-primary);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     color: var(--text-primary);
     font-family: inherit;
     font-size: 13px;
@@ -4127,7 +4127,7 @@ code.file-path, code.branch-name {
     padding: 6px 10px;
     background: var(--bg-primary);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     color: var(--text-primary);
     font-family: inherit;
     font-size: 13px;
@@ -4308,7 +4308,7 @@ code.file-path, code.branch-name {
     background: var(--bg-card);
     color: var(--text-primary);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     padding: 4px 8px;
     font-size: 12px;
     outline: none;
@@ -4324,7 +4324,7 @@ code.file-path, code.branch-name {
     background: var(--bg-card);
     color: var(--text-primary);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     padding: 4px 8px;
     font-size: 12px;
     outline: none;
@@ -4339,7 +4339,7 @@ code.file-path, code.branch-name {
 
 .filter-clear-btn {
     padding: 4px 10px;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     border: 1px solid rgba(255, 255, 255, 0.06);
     background: transparent;
     color: var(--text-secondary);
@@ -4367,7 +4367,7 @@ code.file-path, code.branch-name {
     border: 1px solid rgba(239, 68, 68, 0.3);
     color: var(--accent-red);
     padding: 6px 12px;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     margin-bottom: 12px;
     font-size: 12px;
 }
@@ -4402,7 +4402,7 @@ code.file-path, code.branch-name {
     gap: 6px;
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     padding: 8px 14px;
     flex: 1;
     min-width: 100px;
@@ -4643,7 +4643,7 @@ code.file-path, code.branch-name {
     padding: 8px 14px;
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     font-size: 12px;
     color: var(--text-muted);
     font-variant-numeric: tabular-nums;
@@ -4685,7 +4685,7 @@ code.file-path, code.branch-name {
     border: 1px solid rgba(239, 68, 68, 0.3);
     color: var(--accent-red);
     padding: 8px 12px;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     font-size: 12px;
     margin-bottom: 12px;
 }
@@ -4703,7 +4703,7 @@ code.file-path, code.branch-name {
 
 .priority-btn {
     padding: 6px 14px;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     font-size: 12px;
     font-weight: 600;
     cursor: pointer;
@@ -4750,7 +4750,7 @@ code.file-path, code.branch-name {
 
 .complexity-btn {
     padding: 6px 14px;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     font-size: 12px;
     font-weight: 600;
     cursor: pointer;
@@ -4786,7 +4786,7 @@ code.file-path, code.branch-name {
     padding: 8px 14px;
     background: rgba(124, 58, 237, 0.15);
     border: 1px solid var(--accent-purple);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     color: var(--accent-purple);
     font-size: 12px;
     font-weight: 600;
@@ -4814,7 +4814,7 @@ code.file-path, code.branch-name {
     padding: 6px 10px;
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
 }
 
 .wizard-file-path {
@@ -4847,7 +4847,7 @@ code.file-path, code.branch-name {
     padding: 20px 10px;
     background: var(--bg-card);
     border: 1px dashed rgba(255, 255, 255, 0.06);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
 }
 
 .review-priority {
@@ -4937,7 +4937,7 @@ code.file-path, code.branch-name {
 .td-icon-btn {
     background: none;
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     color: var(--text-secondary);
     font-size: 16px;
     cursor: pointer;
@@ -4976,7 +4976,7 @@ code.file-path, code.branch-name {
     display: inline-flex;
     align-items: center;
     padding: 3px 10px;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     font-size: 11px;
     font-family: 'JetBrains Mono', monospace;
     font-weight: 500;
@@ -5255,7 +5255,7 @@ code.file-path, code.branch-name {
 .td-qa-check {
     font-size: 10px;
     padding: 2px 8px;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     background: rgba(255, 255, 255, 0.04);
     color: var(--text-muted);
 }
@@ -5570,7 +5570,7 @@ code.file-path, code.branch-name {
     font-weight: 600;
     cursor: pointer;
     padding: 6px 12px;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     transition: background 0.15s;
     font-family: inherit;
 }
@@ -5621,7 +5621,7 @@ code.file-path, code.branch-name {
     font-weight: 600;
     cursor: pointer;
     padding: 6px 12px;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     transition: background 0.15s, color 0.15s;
     font-family: inherit;
 }
@@ -5704,7 +5704,7 @@ code.file-path, code.branch-name {
 .task-detail-close {
     background: none;
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     color: var(--text-secondary);
     font-size: 14px;
     cursor: pointer;
@@ -5955,7 +5955,7 @@ code.file-path, code.branch-name {
 
 .detail-action-btn {
     padding: 8px 18px;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     font-size: 12px;
     font-weight: 600;
     cursor: pointer;
@@ -6001,7 +6001,7 @@ code.file-path, code.branch-name {
 .column-collapse-btn {
     background: none;
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     color: var(--text-muted);
     font-size: 12px;
     font-weight: 700;
@@ -6285,7 +6285,7 @@ code.file-path, code.branch-name {
 .stack-action-btn {
     width: 24px;
     height: 24px;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     border: 1px solid rgba(255, 255, 255, 0.06);
     background: rgba(255, 255, 255, 0.04);
     color: var(--text-muted);
@@ -6691,7 +6691,7 @@ code.file-path, code.branch-name {
     text-align: left;
     background: none;
     border: none;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     color: var(--text-secondary);
     font-size: 13px;
     font-weight: 500;
@@ -7251,7 +7251,7 @@ code.file-path, code.branch-name {
     color: #d8b4fe;
     background: rgba(192, 132, 252, 0.14);
     border: 1px solid rgba(192, 132, 252, 0.4);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     padding: 2px 6px;
     white-space: nowrap;
 }
@@ -7271,7 +7271,7 @@ code.file-path, code.branch-name {
     justify-content: center;
     background: rgba(18, 16, 31, 0.8);
     border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     color: var(--text-muted);
     font-size: 11px;
     cursor: pointer;
@@ -7292,7 +7292,7 @@ code.file-path, code.branch-name {
     cursor: pointer;
     font-size: 14px;
     padding: 2px 4px;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     line-height: 1;
 }
 
@@ -7420,7 +7420,7 @@ code.file-path, code.branch-name {
     color: #000;
     border: none;
     padding: 6px 16px;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     font-size: 13px;
     font-weight: 600;
     cursor: pointer;
@@ -7455,7 +7455,7 @@ code.file-path, code.branch-name {
     border: 1px solid rgba(239, 68, 68, 0.3);
     color: var(--accent-red);
     padding: 8px 12px;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     font-size: 12px;
     margin-bottom: 12px;
 }
@@ -7681,7 +7681,7 @@ code.file-path, code.branch-name {
 .graph-memory-hint code {
     background: var(--bg-primary);
     padding: 1px 5px;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     font-size: 11px;
     color: var(--text-secondary);
 }
@@ -7942,7 +7942,7 @@ code.file-path, code.branch-name {
     align-items: center;
     gap: 4px;
     padding: 5px 14px;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     font-size: 12px;
     font-weight: 500;
     color: var(--accent-purple);
@@ -8192,7 +8192,7 @@ code.file-path, code.branch-name {
     gap: 8px;
     padding: 6px 10px;
     margin-bottom: 10px;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     background: rgba(0, 0, 0, 0.22);
     font-family: 'JetBrains Mono', monospace;
     font-size: 11px;
@@ -8219,7 +8219,7 @@ code.file-path, code.branch-name {
 
 .wt-btn {
     padding: 4px 12px;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     font-size: 11px;
     font-weight: 600;
     border: none;
@@ -8315,7 +8315,7 @@ code.file-path, code.branch-name {
     justify-content: center;
     gap: 6px;
     padding: 8px 16px;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     font-size: 13px;
     font-weight: 500;
     cursor: pointer;
@@ -8438,7 +8438,7 @@ code.file-path, code.branch-name {
     padding: 6px 10px;
     background: var(--bg-primary);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     color: var(--text-primary);
     font-family: inherit;
     font-size: 13px;
@@ -8641,7 +8641,7 @@ code.file-path, code.branch-name {
 .changelog-source-icon {
     width: 32px;
     height: 32px;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     background: rgba(124, 58, 237, 0.12);
     display: flex;
     align-items: center;
@@ -8791,7 +8791,7 @@ code.file-path, code.branch-name {
 .changelog-selected-summary {
     background: rgba(124, 58, 237, 0.06);
     border: 1px solid rgba(124, 58, 237, 0.15);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     padding: 10px 14px;
     font-size: 12px;
     color: var(--text-secondary);
@@ -8822,7 +8822,7 @@ code.file-path, code.branch-name {
     align-items: center;
     gap: 8px;
     padding: 6px 10px;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     background: var(--bg-secondary);
     font-size: 13px;
 }
@@ -8940,7 +8940,7 @@ code.file-path, code.branch-name {
     color: var(--accent-purple);
     background: rgba(124, 58, 237, 0.1);
     padding: 2px 10px;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
 }
 
 .changelog-entry-date {
@@ -9113,7 +9113,7 @@ code.file-path, code.branch-name {
 .settings-theme-preview {
     width: 100%;
     height: 60px;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     margin-bottom: 8px;
 }
 
@@ -9439,7 +9439,7 @@ code.file-path, code.branch-name {
     color: var(--accent-cyan);
     background: rgba(6, 182, 212, 0.08);
     border: 1px solid rgba(6, 182, 212, 0.22);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     padding: 3px 8px;
 }
 
@@ -9479,7 +9479,7 @@ code.file-path, code.branch-name {
 }
 
 .settings-probe-result {
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     padding: 8px 10px;
     font-size: 12px;
 }
@@ -9624,7 +9624,7 @@ code.file-path, code.branch-name {
     padding: 8px 12px;
     background: var(--bg-secondary);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
 }
 
 .settings-model-info {
@@ -9731,7 +9731,7 @@ code.file-path, code.branch-name {
     padding: 7px 12px;
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     color: var(--text-primary);
     font-family: inherit;
     font-size: 13px;
@@ -10040,7 +10040,7 @@ button.toggle-switch.active .toggle-knob {
     padding: 7px 12px;
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     color: var(--text-primary);
     font-family: inherit;
     font-size: 13px;
@@ -10059,7 +10059,7 @@ button.toggle-switch.active .toggle-knob {
 
 .prs-sub-tab {
     padding: 6px 14px;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     background: transparent;
     border: 1px solid rgba(255, 255, 255, 0.06);
     color: var(--text-secondary);
@@ -10371,7 +10371,7 @@ button.toggle-switch.active .toggle-knob {
     display: flex;
     align-items: center;
     justify-content: center;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     overflow: visible;
 }
 
@@ -10979,7 +10979,7 @@ button.toggle-switch.active .toggle-knob {
     color: var(--accent-cyan);
     background: var(--bg-primary);
     padding: 4px 10px;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
@@ -11371,7 +11371,7 @@ button.toggle-switch.active .toggle-knob {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     flex-shrink: 0;
 }
 
@@ -11974,7 +11974,7 @@ button.toggle-switch.active .toggle-knob {
     border-color: var(--accent-orange);
     color: var(--accent-orange);
     padding: 8px 16px;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     font-size: 12px;
     font-weight: 600;
     cursor: pointer;
@@ -12206,10 +12206,10 @@ button.toggle-switch.active .toggle-knob {
 /* ── Project Tabs ── */
 
 .project-tabs { display: flex; background: var(--bg-primary); border-bottom: 1px solid rgba(255, 255, 255, 0.04); padding: 0 8px; gap: 2px; overflow-x: auto; }
-.project-tab { display: flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 6px 6px 0 0; cursor: pointer; font-size: 0.8rem; color: var(--text-muted); transition: all 0.2s; white-space: nowrap; }
+.project-tab { display: flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: var(--radius-md) 6px 0 0; cursor: pointer; font-size: 0.8rem; color: var(--text-muted); transition: all 0.2s; white-space: nowrap; }
 .project-tab:hover { background: var(--bg-card); color: var(--text-primary); }
 .project-tab.active { background: var(--bg-card); color: var(--accent-purple); border-bottom: 2px solid var(--accent-purple); }
-.project-tab-close { opacity: 0; font-size: 0.7rem; cursor: pointer; padding: 2px; border-radius: 6px; }
+.project-tab-close { opacity: 0; font-size: 0.7rem; cursor: pointer; padding: 2px; border-radius: var(--radius-md); }
 .project-tab:hover .project-tab-close { opacity: 0.6; }
 .project-tab-close:hover { opacity: 1; background: rgba(255,255,255,0.1); }
 .project-tab-add { color: var(--text-muted); padding: 6px 10px; cursor: pointer; font-size: 1rem; display: flex; align-items: center; }
@@ -12242,7 +12242,7 @@ button.toggle-switch.active .toggle-knob {
     padding: 8px 10px;
     background: var(--bg-secondary);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     color: var(--text-primary);
     font-size: 0.85rem;
 }
@@ -13766,7 +13766,7 @@ button[class*="-btn"]:active {
 }
 .view-toggle {
     padding: 4px 10px;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     border: 1px solid rgba(255, 255, 255, 0.06);
     background: transparent;
     color: var(--text-secondary);
@@ -14412,7 +14412,7 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
     color: var(--text-secondary);
     background: none;
     border: 1px solid transparent;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     cursor: pointer;
     transition: all 0.15s;
 }
@@ -14712,7 +14712,7 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
     color: var(--accent-green);
     padding: 8px 16px;
     margin: 8px 16px;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     font-size: 12px;
 }
 
@@ -15464,7 +15464,7 @@ h2 .gh-icon {
 .stack-count-tag {
     font-size: 11px;
     padding: 2px 8px;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     font-family: 'SF Mono', 'Fira Code', monospace;
 }
 
@@ -15506,7 +15506,7 @@ h2 .gh-icon {
 .stack-action-btn {
     width: 28px;
     height: 28px;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     border: 1px solid var(--border);
     background: var(--bg-secondary);
     color: var(--text-secondary);
@@ -15967,7 +15967,7 @@ h2 .gh-icon {
     width: 100%;
     background: var(--bg-primary);
     border: 1px solid var(--border-light);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     padding: 12px;
     color: var(--text-primary);
     font-family: inherit;
@@ -16097,7 +16097,7 @@ h2 .gh-icon {
     display: flex;
     align-items: flex-start;
     padding: 10px 12px;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     transition: background-color 0.2s;
     margin-bottom: 6px;
     border: 1px solid transparent;
@@ -16258,7 +16258,7 @@ h2 .gh-icon {
 .markdown-body pre {
     background: #0d0d12;
     padding: 16px;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     border: 1px solid var(--border-light);
     overflow-x: auto;
     margin-bottom: 1em;
@@ -16343,7 +16343,7 @@ h2 .gh-icon {
     color: #3fb950;
     background: #0d1117;
     border: 1px solid #238636;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     padding: 8px 12px;
 }
 
@@ -16503,7 +16503,7 @@ h2 .gh-icon {
     font-size: 11px;
     background: rgba(0, 0, 0, 0.22);
     border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     padding: 1px 6px;
 }
 
@@ -17403,7 +17403,7 @@ h2 .gh-icon {
 .insights-collapse-btn {
     width: 26px;
     height: 22px;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     border: 1px solid rgba(124, 58, 237, 0.28);
     background: rgba(124, 58, 237, 0.08);
     color: var(--text-secondary);
@@ -17841,7 +17841,7 @@ h2 .gh-icon {
 .column-add-btn {
     width: 22px;
     height: 22px;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     font-size: 13px;
     margin-left: auto;
 }
