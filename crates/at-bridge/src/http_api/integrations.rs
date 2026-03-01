@@ -9,22 +9,10 @@ use std::sync::Arc;
 use at_core::config::CredentialProvider;
 
 use super::state::ApiState;
-
-#[derive(Debug, Default, Deserialize)]
-pub(crate) struct ListGitLabIssuesQuery {
-    #[serde(default)]
-    pub project_id: Option<String>,
-    #[serde(default)]
-    pub state: Option<String>,
-    #[serde(default)]
-    pub page: Option<u32>,
-    #[serde(default)]
-    pub per_page: Option<u32>,
-    #[serde(default)]
-    pub limit: Option<usize>,
-    #[serde(default)]
-    pub offset: Option<usize>,
-}
+use super::types::{
+    ImportLinearBody, ListGitLabIssuesQuery, ListGitLabMrsQuery, ListLinearIssuesQuery,
+    ReviewGitLabMrBody,
+};
 
 /// GET /api/gitlab/issues -- retrieve issues from a GitLab project.
 pub(crate) async fn list_gitlab_issues(
@@ -99,22 +87,6 @@ pub(crate) async fn list_gitlab_issues(
             Json(serde_json::json!({ "error": e.to_string() })),
         ),
     }
-}
-
-#[derive(Debug, Default, Deserialize)]
-pub(crate) struct ListGitLabMrsQuery {
-    #[serde(default)]
-    pub project_id: Option<String>,
-    #[serde(default)]
-    pub state: Option<String>,
-    #[serde(default)]
-    pub page: Option<u32>,
-    #[serde(default)]
-    pub per_page: Option<u32>,
-    #[serde(default)]
-    pub limit: Option<usize>,
-    #[serde(default)]
-    pub offset: Option<usize>,
 }
 
 /// GET /api/gitlab/merge-requests -- retrieve merge requests from a GitLab project.
@@ -192,18 +164,6 @@ pub(crate) async fn list_gitlab_merge_requests(
     }
 }
 
-#[derive(Debug, Default, Deserialize)]
-pub(crate) struct ReviewGitLabMrBody {
-    #[serde(default)]
-    pub project_id: Option<String>,
-    #[serde(default)]
-    pub severity_threshold: Option<at_integrations::gitlab::mr_review::MrReviewSeverity>,
-    #[serde(default)]
-    pub max_findings: Option<usize>,
-    #[serde(default)]
-    pub auto_approve: Option<bool>,
-}
-
 /// POST /api/gitlab/merge-requests/{iid}/review -- perform automated code review on a GitLab merge request.
 pub(crate) async fn review_gitlab_merge_request(
     State(state): State<Arc<ApiState>>,
@@ -275,14 +235,6 @@ pub(crate) async fn review_gitlab_merge_request(
 // Linear integration
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Default, Deserialize)]
-pub(crate) struct ListLinearIssuesQuery {
-    #[serde(default)]
-    pub team_id: Option<String>,
-    #[serde(default)]
-    pub state: Option<String>,
-}
-
 /// GET /api/linear/issues -- retrieve issues from a Linear team.
 pub(crate) async fn list_linear_issues(
     State(state): State<Arc<ApiState>>,
@@ -323,18 +275,19 @@ pub(crate) async fn list_linear_issues(
         );
     }
 
+    let limit = q.limit.unwrap_or(50);
+    let offset = q.offset.unwrap_or(0);
+
     match client.list_issues(team, q.state.as_deref()).await {
-        Ok(issues) => (axum::http::StatusCode::OK, Json(serde_json::json!(issues))),
+        Ok(issues) => {
+            let paginated: Vec<_> = issues.into_iter().skip(offset).take(limit).collect();
+            (axum::http::StatusCode::OK, Json(serde_json::json!(paginated)))
+        }
         Err(e) => (
             axum::http::StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({ "error": e.to_string() })),
         ),
     }
-}
-
-#[derive(Debug, Deserialize)]
-pub(crate) struct ImportLinearBody {
-    pub issue_ids: Vec<String>,
 }
 
 /// POST /api/linear/import -- import Linear issues by IDs and create corresponding tasks.
