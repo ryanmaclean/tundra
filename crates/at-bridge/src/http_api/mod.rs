@@ -64,8 +64,12 @@ pub(crate) fn validate_text_field(input: &str) -> Result<(), SecurityError> {
 pub(crate) fn merge_json(target: &mut serde_json::Value, patch: &serde_json::Value) {
     match (target.is_object(), patch.is_object()) {
         (true, true) => {
-            let t = target.as_object_mut().expect("target.is_object() already verified");
-            let p = patch.as_object().expect("patch.is_object() already verified");
+            let t = target
+                .as_object_mut()
+                .expect("target.is_object() already verified");
+            let p = patch
+                .as_object()
+                .expect("patch.is_object() already verified");
             for (key, value) in p {
                 let entry = t.entry(key.clone()).or_insert(serde_json::Value::Null);
                 merge_json(entry, value);

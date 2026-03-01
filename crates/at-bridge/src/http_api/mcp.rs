@@ -106,7 +106,8 @@ pub(crate) async fn call_mcp_tool(
             };
             match serde_json::to_value(result) {
                 Ok(value) => (status, Json(value)).into_response(),
-                Err(e) => ApiError::Internal(format!("failed to serialize tool result: {}", e)).into_response(),
+                Err(e) => ApiError::Internal(format!("failed to serialize tool result: {}", e))
+                    .into_response(),
             }
         }
         None => (
@@ -118,6 +119,7 @@ pub(crate) async fn call_mcp_tool(
                     .map(|t| t.name.clone())
                     .collect::<Vec<_>>()
             })),
-        ).into_response(),
+        )
+            .into_response(),
     }
 }

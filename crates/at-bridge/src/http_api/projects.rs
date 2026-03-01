@@ -117,7 +117,10 @@ pub(crate) async fn activate_project(
     for p in projects.iter_mut() {
         p.is_active = p.id == id;
     }
-    let activated = projects.iter().find(|p| p.id == id).cloned()
+    let activated = projects
+        .iter()
+        .find(|p| p.id == id)
+        .cloned()
         .ok_or_else(|| ApiError::NotFound("project not found".into()))?;
     Ok((
         axum::http::StatusCode::OK,
