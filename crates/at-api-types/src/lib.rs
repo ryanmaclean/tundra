@@ -158,3 +158,68 @@ pub struct ApiMemoryEntry {
     #[serde(default)]
     pub created_at: String,
 }
+
+/// A single feature within a roadmap (matches backend `RoadmapFeature`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiRoadmapFeature {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub priority: u8,
+    #[serde(default)]
+    pub estimated_effort: String,
+    #[serde(default)]
+    pub dependencies: Vec<String>,
+    #[serde(default)]
+    pub created_at: String,
+}
+
+/// A roadmap container with nested features (matches backend `Roadmap`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiRoadmap {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub features: Vec<ApiRoadmapFeature>,
+    #[serde(default)]
+    pub generated_at: String,
+}
+
+/// Flat roadmap item used by the UI after flattening nested roadmaps.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiRoadmapItem {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub priority: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiIdea {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub category: String,
+    #[serde(default)]
+    pub impact: String,
+    #[serde(default)]
+    pub effort: String,
+}
