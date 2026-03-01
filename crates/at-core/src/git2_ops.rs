@@ -46,7 +46,7 @@ pub struct Git2ReadOps;
 
 impl Git2ReadOps {
     /// Open a git2 Repository from a working directory path.
-    fn open(workdir: &Path) -> Result<git2::Repository, RepoError> {
+    pub fn open(workdir: &Path) -> Result<git2::Repository, RepoError> {
         git2::Repository::discover(workdir).map_err(RepoError::from)
     }
 

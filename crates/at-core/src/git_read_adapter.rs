@@ -153,8 +153,8 @@ impl GitReadAdapter for Git2ReadAdapter {
     }
 
     fn conflict_files(&self, repo_dir: &str) -> Result<Vec<String>, GitReadError> {
-        let repo = git2::Repository::discover(repo_dir)
-            .map_err(|e| GitReadError::Command(e.message().to_string()))?;
+        let repo = crate::git2_ops::Git2ReadOps::open(std::path::Path::new(repo_dir))
+            .map_err(|e| GitReadError::Command(e.to_string()))?;
 
         let mut opts = git2::StatusOptions::new();
         opts.include_untracked(false)
