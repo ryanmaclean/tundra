@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     response::IntoResponse,
     Json,
 };
@@ -9,11 +9,16 @@ use uuid::Uuid;
 use at_core::types::{TaskPhase, TaskPriority};
 
 use super::state::ApiState;
-use super::types::{PrioritizeRequest, QueueReorderRequest};
+use super::types::{PrioritizeRequest, QueueQuery, QueueReorderRequest};
 
 /// GET /api/queue -- list queued tasks sorted by priority.
-pub(crate) async fn list_queue(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
+pub(crate) async fn list_queue(
+    State(state): State<Arc<ApiState>>,
+    Query(params): Query<QueueQuery>,
+) -> impl IntoResponse {
     let tasks = state.tasks.read().await;
+    let limit = params.limit.unwrap_or(50);
+    let offset = params.offset.unwrap_or(0);
 
     // Filter to tasks in Discovery phase (queued/not-yet-started)
     let mut queued: Vec<_> = tasks
@@ -37,6 +42,8 @@ pub(crate) async fn list_queue(State(state): State<Arc<ApiState>>) -> impl IntoR
 
     let result: Vec<serde_json::Value> = queued
         .iter()
+        .skip(offset)
+        .take(limit)
         .enumerate()
         .map(|(i, t)| {
             serde_json::json!({
@@ -44,7 +51,7 @@ pub(crate) async fn list_queue(State(state): State<Arc<ApiState>>) -> impl IntoR
                 "title": t.title,
                 "priority": t.priority,
                 "queued_at": t.created_at,
-                "position": i + 1,
+                "position": offset + i + 1,
             })
         })
         .collect();

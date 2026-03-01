@@ -198,6 +198,18 @@ pub struct AgentQuery {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct QueueQuery {
+    pub limit: Option<usize>,
+    pub offset: Option<usize>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SessionQuery {
+    pub limit: Option<usize>,
+    pub offset: Option<usize>,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct ProjectQuery {
     pub limit: Option<usize>,
     pub offset: Option<usize>,
