@@ -1,8 +1,5 @@
-use std::sync::Arc;
-
 use at_bridge::event_bus::EventBus;
 use at_bridge::protocol::{BridgeMessage, EventPayload};
-use at_core::cache::CacheDb;
 use at_core::types::{Task, TaskLogType, TaskPhase};
 use chrono::Utc;
 use thiserror::Error;
@@ -40,13 +37,11 @@ pub type Result<T> = std::result::Result<T, OrchestratorError>;
 // ---------------------------------------------------------------------------
 
 /// High-level orchestrator that ties together the agent executor,
-/// worktree manager, cache, and event bus to drive tasks through
+/// worktree manager, and event bus to drive tasks through
 /// the full pipeline.
 pub struct TaskOrchestrator {
     executor: AgentExecutor,
     worktree_manager: WorktreeManager,
-    #[allow(dead_code)]
-    cache: Arc<CacheDb>,
     event_bus: EventBus,
 }
 
@@ -55,13 +50,11 @@ impl TaskOrchestrator {
     pub fn new(
         executor: AgentExecutor,
         worktree_manager: WorktreeManager,
-        cache: Arc<CacheDb>,
         event_bus: EventBus,
     ) -> Self {
         Self {
             executor,
             worktree_manager,
-            cache,
             event_bus,
         }
     }
@@ -558,7 +551,7 @@ mod tests {
         let git = Box::new(MockGit::new(git_responses));
         let worktree_manager = WorktreeManager::with_git_runner(tmp, cache.clone(), git);
 
-        TaskOrchestrator::new(executor, worktree_manager, cache, bus)
+        TaskOrchestrator::new(executor, worktree_manager, bus)
     }
 
     #[tokio::test]
@@ -662,7 +655,7 @@ mod tests {
         ]));
         let worktree_manager = WorktreeManager::with_git_runner(tmp, cache.clone(), git);
 
-        let orchestrator = TaskOrchestrator::new(executor, worktree_manager, cache, bus);
+        let orchestrator = TaskOrchestrator::new(executor, worktree_manager, bus);
 
         let mut task = make_test_task();
         let _ = orchestrator.start_task(&mut task).await;
