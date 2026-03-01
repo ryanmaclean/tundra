@@ -9,22 +9,51 @@
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
-/// Errors specific to the OAuth flow.
+/// Errors that can occur during the GitHub OAuth 2.0 flow.
+///
+/// This enum represents failures that may happen when exchanging
+/// authorization codes for tokens, refreshing tokens, or fetching
+/// user profiles via the GitHub OAuth API.
 #[derive(Debug, thiserror::Error)]
 pub enum OAuthError {
+    /// An HTTP-level error occurred.
+    ///
+    /// This includes network failures, connection errors, timeouts,
+    /// and other transport-layer issues when communicating with GitHub's
+    /// OAuth endpoints.
     #[error("HTTP request failed: {0}")]
     Http(#[from] reqwest::Error),
 
+    /// GitHub's OAuth endpoint returned an error response.
+    ///
+    /// This occurs when GitHub rejects an authorization code exchange,
+    /// token refresh, or other OAuth operation. The `error` field contains
+    /// the error code (e.g., "invalid_grant"), and `error_description`
+    /// provides additional details.
+    ///
+    /// Common error codes include:
+    /// - `invalid_grant`: The authorization code or refresh token is invalid or expired
+    /// - `invalid_client`: Client authentication failed
+    /// - `unsupported_grant_type`: The grant type is not supported
     #[error("GitHub returned an error: {error} — {error_description}")]
     GitHubError {
         error: String,
         error_description: String,
     },
 
+    /// Failed to parse GitHub's response.
+    ///
+    /// This occurs when the OAuth response body cannot be deserialized
+    /// into the expected structure, typically indicating an unexpected
+    /// response format or API change.
     #[error("failed to parse response: {0}")]
     Parse(String),
 }
 
+/// Result type alias for GitHub OAuth operations.
+///
+/// This is a convenience alias for `Result<T, OAuthError>` used throughout
+/// the GitHub OAuth client implementation.
 pub type Result<T> = std::result::Result<T, OAuthError>;
 
 /// Configuration for the GitHub OAuth application.

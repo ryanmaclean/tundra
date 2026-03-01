@@ -9,21 +9,49 @@ use thiserror::Error;
 // Error type
 // ---------------------------------------------------------------------------
 
+/// Errors that can occur when interacting with the GitLab API.
+///
+/// This enum represents failures that may happen during GitLab client
+/// operations, including API errors, authentication failures, and network issues.
 #[derive(Debug, Error)]
 pub enum GitLabError {
+    /// The GitLab API returned an error response.
+    ///
+    /// This includes HTTP error responses (4xx, 5xx), rate limiting,
+    /// and API-specific error messages. The contained string provides
+    /// details about the failure, including the HTTP status code and
+    /// response body when available.
     #[error("GitLab API error: {0}")]
     Api(String),
 
+    /// GitLab API token was not provided.
+    ///
+    /// This occurs when attempting to create a client without a valid
+    /// personal access token (PAT) or OAuth token. Provide a token via
+    /// [`GitLabClient::new`] or [`GitLabClient::new_with_url`].
     #[error("missing GitLab token")]
     MissingToken,
 
+    /// Failed to serialize or deserialize JSON data.
+    ///
+    /// This may occur when parsing GitLab API responses or constructing
+    /// request bodies for issues, merge requests, or other resources.
     #[error("serialization error: {0}")]
     Serde(#[from] serde_json::Error),
 
+    /// An HTTP-level error occurred.
+    ///
+    /// This includes network failures, connection errors, DNS resolution
+    /// failures, and other transport-layer issues when communicating with
+    /// the GitLab API.
     #[error("HTTP error: {0}")]
     Http(#[from] reqwest::Error),
 }
 
+/// Result type alias for GitLab operations.
+///
+/// This is a convenience alias for `Result<T, GitLabError>` used throughout
+/// the GitLab client implementation.
 pub type Result<T> = std::result::Result<T, GitLabError>;
 
 // ---------------------------------------------------------------------------
