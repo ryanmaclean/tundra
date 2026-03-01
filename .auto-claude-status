@@ -1,10 +1,10 @@
 {
   "active": true,
   "spec": "011-add-escape-key-dismissal-and-focus-trapping-to-all",
-  "state": "planning",
+  "state": "building",
   "subtasks": {
-    "completed": 0,
-    "total": 0,
+    "completed": 1,
+    "total": 2,
     "in_progress": 1,
     "failed": 0
   },
@@ -18,8 +18,8 @@
     "max": 1
   },
   "session": {
-    "number": 2,
+    "number": 3,
     "started_at": "2026-03-01T14:25:39.114104"
   },
-  "last_update": "2026-03-01T14:29:44.711283"
+  "last_update": "2026-03-01T14:34:06.753826"
 }
