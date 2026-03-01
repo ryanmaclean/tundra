@@ -2668,7 +2668,7 @@ kbd {
     background: var(--bg-secondary);
     border: 1px solid var(--border-light);
     border-radius: var(--radius-xl);
-    padding: 24px;
+    padding: var(--space-6);
     z-index: 100;
     min-width: 440px;
     max-width: 600px;
@@ -3683,7 +3683,7 @@ code.file-path, code.branch-name {
     background: var(--bg-secondary);
     border: 1px solid var(--border-light);
     border-radius: var(--radius-xl);
-    padding: 24px;
+    padding: var(--space-6);
     width: 480px;
     max-width: 90vw;
 }
@@ -3838,7 +3838,7 @@ code.file-path, code.branch-name {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-bottom: 24px;
+    margin-bottom: var(--space-6);
     padding: 0 var(--space-2);
     position: relative;
 }
@@ -4560,7 +4560,7 @@ code.file-path, code.branch-name {
 }
 
 .dash-activity-empty {
-    padding: 24px 14px;
+    padding: var(--space-6) 14px;
     color: var(--text-muted);
     font-size: var(--space-3);
     text-align: center;
@@ -4888,7 +4888,7 @@ code.file-path, code.branch-name {
 }
 
 .task-detail-content {
-    padding: 24px;
+    padding: var(--space-6);
 }
 
 .task-detail-empty {
@@ -6620,7 +6620,7 @@ code.file-path, code.branch-name {
 .settings-toast {
     position: fixed;
     bottom: 48px;
-    right: 24px;
+    right: var(--space-6);
     background: var(--accent-green);
     color: #fff;
     padding: var(--space-3) 24px;
@@ -8511,7 +8511,7 @@ code.file-path, code.branch-name {
     display: flex;
     align-items: center;
     gap: 0;
-    margin-bottom: 24px;
+    margin-bottom: var(--space-6);
     padding: var(--space-3) 0;
 }
 
@@ -9004,11 +9004,11 @@ code.file-path, code.branch-name {
     font-size: var(--space-3);
     color: var(--text-muted);
     margin-top: -12px;
-    margin-bottom: 24px;
+    margin-bottom: var(--space-6);
 }
 
 .settings-section {
-    margin-bottom: 24px;
+    margin-bottom: var(--space-6);
 }
 
 .settings-section-title {
@@ -10805,7 +10805,7 @@ button.toggle-switch.active .toggle-knob {
 }
 
 .onboarding-logo {
-    margin-bottom: 24px;
+    margin-bottom: var(--space-6);
 }
 
 .onboarding-logo-icon {
@@ -12219,7 +12219,7 @@ button.toggle-switch.active .toggle-knob {
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: var(--radius-xl);
-    padding: 24px;
+    padding: var(--space-6);
     min-width: 380px;
     max-width: 480px;
 }
@@ -14486,7 +14486,7 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
 }
 
 .roadmap-kanban-empty {
-    padding: 24px 14px;
+    padding: var(--space-6) 14px;
     text-align: center;
     color: var(--text-muted);
     font-size: var(--space-3);
@@ -14499,7 +14499,7 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
 .roadmap-priority-groups {
     display: flex;
     flex-direction: column;
-    gap: 24px;
+    gap: var(--space-6);
     padding: var(--space-4);
 }
 
@@ -14559,7 +14559,7 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
 }
 
 .mcp-custom-empty {
-    padding: 24px 16px;
+    padding: var(--space-6) 16px;
     text-align: center;
     color: var(--text-muted);
     font-size: var(--space-3);
@@ -15351,7 +15351,7 @@ h2 .gh-icon {
 }
 
 .stack-child-node {
-    margin-left: 24px;
+    margin-left: var(--space-6);
 }
 
 /* Vertical connector lines */
@@ -15623,11 +15623,11 @@ h2 .gh-icon {
 
 .stack-tree-item {
     position: relative;
-    padding-left: 24px;
+    padding-left: var(--space-6);
 }
 
 .stack-tree-item .stack-tree-item {
-    padding-left: 24px;
+    padding-left: var(--space-6);
 }
 
 /* Tree node wrapper */
@@ -15922,7 +15922,7 @@ h2 .gh-icon {
 }
 
 .edit-task-header {
-    padding: 24px 24px 16px;
+    padding: var(--space-6) var(--space-6) 16px;
     border-bottom: 1px solid var(--border-light);
 }
 
@@ -15940,7 +15940,7 @@ h2 .gh-icon {
 }
 
 .edit-task-form {
-    padding: 24px;
+    padding: var(--space-6);
     overflow-y: auto;
     flex: 1;
 }
@@ -16042,8 +16042,8 @@ h2 .gh-icon {
 
 .td-body {
     display: flex;
-    gap: 24px;
-    margin-top: 24px;
+    gap: var(--space-6);
+    margin-top: var(--space-6);
 }
 
 .td-main {
@@ -16148,7 +16148,7 @@ h2 .gh-icon {
 
 .td-history-timeline {
     position: relative;
-    padding-left: 24px;
+    padding-left: var(--space-6);
 }
 
 .td-history-entry {
@@ -16265,7 +16265,7 @@ h2 .gh-icon {
 }
 
 .markdown-body ul, .markdown-body ol {
-    padding-left: 24px;
+    padding-left: var(--space-6);
     margin-bottom: 1em;
 }
 
