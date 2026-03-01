@@ -233,6 +233,13 @@ impl Git2ReadOps {
     /// List all branches (replaces `git branch -a --format=%(refname:short)`).
     pub fn branches(workdir: &Path) -> Result<Vec<BranchInfo>, RepoError> {
         let repo = Self::open(workdir)?;
+        Self::branches_with_repo(&repo)
+    }
+
+    /// Helper to list all branches from an already-opened repository.
+    ///
+    /// Avoids redundant `discover()` calls when the repo handle is already cached.
+    pub fn branches_with_repo(repo: &git2::Repository) -> Result<Vec<BranchInfo>, RepoError> {
         let branches = repo.branches(None).map_err(RepoError::from)?;
 
         let mut result = Vec::new();
@@ -279,6 +286,13 @@ impl Git2ReadOps {
     /// Get commit log (replaces `git log -N --oneline --decorate`).
     pub fn log(workdir: &Path, count: usize) -> Result<Vec<CommitInfo>, RepoError> {
         let repo = Self::open(workdir)?;
+        Self::log_with_repo(&repo, count)
+    }
+
+    /// Helper to get commit log from an already-opened repository.
+    ///
+    /// Avoids redundant `discover()` calls when the repo handle is already cached.
+    pub fn log_with_repo(repo: &git2::Repository, count: usize) -> Result<Vec<CommitInfo>, RepoError> {
         let mut revwalk = repo.revwalk().map_err(RepoError::from)?;
         revwalk.push_head().map_err(RepoError::from)?;
         revwalk
