@@ -262,8 +262,7 @@
       "fix_modal3.sh"
     ]
   },
-  "project_dir": "/Users/studio/rust-harness",
-  "created_at": "2026-02-23T08:53:43.634589",
-  "project_hash": "8d12a5f020d0ae0350bfab4dda6497b1",
-  "inherited_from": "/Users/studio/rust-harness"
+  "project_dir": "/Users/studio/tundra/.auto-claude/worktrees/tasks/001-oauth-callback-does-not-verify-csrf-state-paramete",
+  "created_at": "2026-02-28T23:59:17.914509",
+  "project_hash": "82107225aa153fc339da450a0905d8d9"
 }
