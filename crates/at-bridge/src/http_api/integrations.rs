@@ -3,7 +3,6 @@ use axum::{
     response::IntoResponse,
     Json,
 };
-use serde::Deserialize;
 use std::sync::Arc;
 
 use at_core::config::CredentialProvider;
