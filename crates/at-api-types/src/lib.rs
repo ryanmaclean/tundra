@@ -291,6 +291,28 @@ pub struct ApiGithubPr {
     pub created_at: Option<String>,
 }
 
+// ── Changelog API types ──
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiChangelogSection {
+    #[serde(default)]
+    pub category: String,
+    #[serde(default)]
+    pub items: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiChangelogEntry {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub version: String,
+    #[serde(default)]
+    pub date: String,
+    #[serde(default)]
+    pub sections: Vec<ApiChangelogSection>,
+}
+
 // ── API request types ──
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

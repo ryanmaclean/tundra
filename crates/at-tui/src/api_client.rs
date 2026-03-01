@@ -13,28 +13,6 @@ pub struct ApiClient {
     base: String,
 }
 
-// ── Local API types not yet in at-api-types ──
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct ApiChangelogSection {
-    #[serde(default)]
-    pub category: String,
-    #[serde(default)]
-    pub items: Vec<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct ApiChangelogEntry {
-    #[serde(default)]
-    pub id: String,
-    #[serde(default)]
-    pub version: String,
-    #[serde(default)]
-    pub date: String,
-    #[serde(default)]
-    pub sections: Vec<ApiChangelogSection>,
-}
-
 // ── Aggregate snapshot sent over the flume channel ──
 
 #[derive(Debug, Clone)]
