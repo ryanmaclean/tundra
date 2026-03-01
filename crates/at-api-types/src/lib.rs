@@ -100,3 +100,61 @@ pub struct ApiConvoy {
     #[serde(default)]
     pub bead_ids: Vec<String>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiWorktree {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub path: String,
+    #[serde(default)]
+    pub branch: String,
+    #[serde(default)]
+    pub bead_id: String,
+    #[serde(default)]
+    pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiCosts {
+    #[serde(default)]
+    pub input_tokens: u64,
+    #[serde(default)]
+    pub output_tokens: u64,
+    #[serde(default)]
+    pub sessions: Vec<ApiCostSession>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiCostSession {
+    #[serde(default)]
+    pub session_id: String,
+    #[serde(default)]
+    pub agent_name: String,
+    #[serde(default)]
+    pub input_tokens: u64,
+    #[serde(default)]
+    pub output_tokens: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiMcpServer {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub tools: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiMemoryEntry {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub category: String,
+    #[serde(default)]
+    pub content: String,
+    #[serde(default)]
+    pub created_at: String,
+}
