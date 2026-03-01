@@ -1308,15 +1308,325 @@ WebSocket connections provide real-time updates between `at-bridge` and clients.
 
 ### Connection Lifecycle
 
-**This section will be populated with specific error patterns in subtask-1-4:**
-- Connection establishment and handshake
-- Heartbeat interval (30 seconds)
-- Reconnection grace period (10 seconds)
-- Idle timeout (5 minutes)
-- TransportError (network failures)
-- IpcError (daemon communication failures)
+WebSocket connections follow a state machine with automatic recovery mechanisms to handle network interruptions gracefully.
 
-*→ See [Subtask 1-4](../.auto-claude/specs/010-add-troubleshooting-guide-for-common-runtime-error/implementation_plan.json) for implementation details.*
+#### Active Connection State
+
+When a WebSocket connection is successfully established:
+
+1. **Terminal status transitions to `Active`**
+2. **Buffered output is replayed** (if reconnecting within grace period)
+3. **Three concurrent tasks are spawned:**
+   - **Reader Task**: Reads PTY output and sends to WebSocket (5-minute idle timeout)
+   - **Writer Task**: Reads WebSocket messages and writes to PTY stdin (5-minute idle timeout)
+   - **Heartbeat Task**: Sends Ping frames every 30 seconds to detect half-open connections
+
+**Example: Active connection logs**
+```
+[INFO] terminal_ws: WebSocket connection established for terminal abc123
+[DEBUG] terminal_ws: Status transition: Disconnected → Active
+[DEBUG] terminal_ws: Replaying 2048 bytes of buffered output
+[DEBUG] terminal_ws: Spawned reader/writer/heartbeat tasks
+```
+
+---
+
+#### Disconnection & Reconnection Grace Period
+
+When the WebSocket disconnects (network failure, tab close, browser navigation):
+
+1. **Terminal status transitions to `Disconnected`** with timestamp
+2. **PTY process continues running in the background** (not killed)
+3. **Output is buffered** (last 4KB) for **10 seconds** (WS_RECONNECT_GRACE)
+4. **Two recovery scenarios:**
+
+**Scenario A: Reconnection Within Grace Period (< 10 seconds)**
+- Client reconnects before grace period expires
+- Buffered output is replayed to restore terminal state
+- Session resumes transparently without data loss
+- Status transitions: `Disconnected` → `Active`
+
+**Scenario B: Grace Period Expires (> 10 seconds)**
+- PTY process is killed
+- Terminal status transitions to `Dead`
+- Subsequent reconnect attempts receive `410 Gone` HTTP status
+- User must create a new terminal session
+
+**Example: Successful reconnection**
+```
+[WARN] terminal_ws: WebSocket disconnected for terminal abc123
+[DEBUG] terminal_ws: Status transition: Active → Disconnected
+[DEBUG] terminal_ws: Buffering output for 10-second grace period
+[INFO] terminal_ws: Client reconnected after 3 seconds (within grace period)
+[DEBUG] terminal_ws: Status transition: Disconnected → Active
+[INFO] terminal_ws: Replayed 1024 bytes of buffered output
+```
+
+**Example: Grace period expiration**
+```
+[WARN] terminal_ws: WebSocket disconnected for terminal abc123
+[DEBUG] terminal_ws: Status transition: Active → Disconnected
+[DEBUG] terminal_ws: Buffering output for 10-second grace period
+[ERROR] terminal_ws: Grace period expired (10s) without reconnection
+[INFO] terminal_ws: Killing PTY process for terminal abc123
+[DEBUG] terminal_ws: Status transition: Disconnected → Dead
+[WARN] terminal_ws: Reconnect attempt received, returning 410 Gone
+```
+
+---
+
+#### Timeouts & Heartbeat Failures
+
+WebSocket connections are monitored with multiple timeout mechanisms to detect failures and prevent resource leaks.
+
+##### Idle Timeout (5 Minutes)
+
+**Configuration:** `WS_IDLE_TIMEOUT = 300 seconds`
+
+**Behavior:**
+- Connection automatically closes if **no data flows in either direction** for 5 minutes
+- Applies to both reader and writer tasks independently
+- Prevents resource leaks from abandoned connections
+
+**Symptoms:**
+- Connection closes silently after 5 minutes of inactivity
+- No error message (normal idle closure)
+- Client should attempt reconnection
+
+**Example: Idle timeout**
+```
+[DEBUG] terminal_ws: No data received for 300 seconds
+[INFO] terminal_ws: Idle timeout reached, closing WebSocket
+[DEBUG] terminal_ws: Status transition: Active → Disconnected
+[DEBUG] terminal_ws: Starting 10-second reconnection grace period
+```
+
+**Solutions:**
+1. **Client should implement automatic reconnection:**
+   ```javascript
+   let ws = new WebSocket('ws://localhost:3000/ws/terminal/abc123');
+   ws.onclose = () => {
+     console.log('Connection closed, reconnecting...');
+     setTimeout(() => reconnect(), 1000);
+   };
+   ```
+
+2. **Send periodic activity to keep connection alive:**
+   ```javascript
+   // Send heartbeat every 4 minutes to prevent idle timeout
+   setInterval(() => {
+     if (ws.readyState === WebSocket.OPEN) {
+       ws.send(JSON.stringify({type: "ping"}));
+     }
+   }, 240000); // 4 minutes
+   ```
+
+##### Heartbeat Interval (30 Seconds)
+
+**Configuration:** `WS_HEARTBEAT_INTERVAL = 30 seconds`
+
+**Behavior:**
+- Server sends **Ping frames** every 30 seconds
+- Client must respond with **Pong frames** (handled automatically by browsers)
+- Detects half-open TCP connections where client disconnected without sending Close frame
+
+**Symptoms:**
+- Connection closes if client fails to respond to Ping frames
+- "Pong timeout" errors in logs
+- Indicates network partition or client crash
+
+**Example: Heartbeat success**
+```
+[TRACE] terminal_ws: Sending heartbeat ping (frame 42)
+[TRACE] terminal_ws: Received pong response (frame 42)
+```
+
+**Example: Heartbeat failure**
+```
+[TRACE] terminal_ws: Sending heartbeat ping (frame 43)
+[WARN] terminal_ws: Pong timeout after 10 seconds
+[ERROR] terminal_ws: Heartbeat failure detected, closing connection
+[DEBUG] terminal_ws: Status transition: Active → Disconnected
+```
+
+**Solutions:**
+1. **Browser WebSocket clients:** Pong responses are automatic (no action needed)
+
+2. **Custom WebSocket clients:** Ensure Pong frames are sent in response to Ping:
+   ```rust
+   // Rust example with tokio-tungstenite
+   match msg {
+       Message::Ping(payload) => {
+           ws.send(Message::Pong(payload)).await?;
+       }
+       _ => {}
+   }
+   ```
+
+3. **Check network stability:**
+   ```bash
+   # Monitor packet loss
+   ping -c 100 api.yourdomain.com | grep loss
+
+   # Check TCP connection stability
+   netstat -an | grep ESTABLISHED | grep 3000
+   ```
+
+##### Connection Lifecycle Summary
+
+| State | Description | Timeout | Recovery |
+|-------|-------------|---------|----------|
+| **Active** | WebSocket connected, data flowing | 5min idle, 30s heartbeat | Automatic heartbeat |
+| **Disconnected** | Network failure, buffering output | 10s grace period | Reconnect within 10s |
+| **Dead** | Grace period expired, PTY killed | N/A | Create new terminal |
+
+---
+
+### Common Errors
+
+#### TransportError: Network Failures
+
+**Error Message:** `transport error: <details>`
+
+**Symptoms:**
+- "Connection reset by peer" errors
+- "Broken pipe" errors during writes
+- Sudden disconnection without Close frame
+- Network unreachable messages
+
+**Causes:**
+- Network connectivity loss (WiFi disconnect, VPN failure)
+- Firewall blocking WebSocket traffic
+- Proxy/load balancer timeout
+- Client crash or tab close without graceful shutdown
+- Browser enforced connection limits (too many tabs)
+
+**Solutions:**
+
+1. **Check network connectivity:**
+   ```bash
+   # Test basic connectivity to bridge
+   curl -I http://localhost:3000/api/terminals
+
+   # Check WebSocket upgrade capability
+   wscat -c ws://localhost:3000/ws/terminal/abc123
+   ```
+
+2. **Verify firewall rules:**
+   ```bash
+   # macOS: Check if port 3000 is blocked
+   sudo pfctl -s rules | grep 3000
+
+   # Linux: Check iptables
+   sudo iptables -L -n | grep 3000
+   ```
+
+3. **Monitor reconnection attempts:**
+   ```bash
+   # Enable debug logging for WebSocket connections
+   export RUST_LOG=at_bridge=debug
+   at-bridge
+
+   # Watch for reconnection patterns
+   tail -f ~/.auto-tundra/logs/bridge.log | grep -E '(Disconnected|Active|grace)'
+   ```
+
+4. **Configure proxy/load balancer timeouts:**
+   - Ensure proxy timeout > 5 minutes (WS_IDLE_TIMEOUT)
+   - Configure proxy to pass WebSocket upgrade headers
+   - Example nginx configuration:
+     ```nginx
+     location /ws/ {
+         proxy_pass http://localhost:3000;
+         proxy_http_version 1.1;
+         proxy_set_header Upgrade $http_upgrade;
+         proxy_set_header Connection "upgrade";
+         proxy_read_timeout 600s;  # 10 minutes > 5min idle timeout
+         proxy_send_timeout 600s;
+     }
+     ```
+
+**Prevention:**
+- Implement automatic reconnection with exponential backoff in client
+- Monitor network quality metrics (packet loss, latency)
+- Use persistent terminal mode for long-running sessions
+- Configure adequate grace period for expected network interruptions
+
+---
+
+#### IpcError: Daemon Communication Failures
+
+**Error Message:** `IPC error: <details>`
+
+**Symptoms:**
+- "Failed to connect to daemon" errors
+- "Daemon not responding" timeouts
+- Events not received by client
+- Terminal state changes not reflected in UI
+
+**Causes:**
+- `at-daemon` process not running
+- Unix socket permission errors
+- IPC socket file deleted or corrupted
+- Daemon crashed or hung
+- File descriptor exhaustion
+
+**Solutions:**
+
+1. **Verify daemon is running:**
+   ```bash
+   # Check daemon process
+   pgrep -fl at-daemon
+
+   # Restart if not running
+   at-daemon &
+
+   # Check daemon logs for crash reasons
+   tail -100 ~/.auto-tundra/logs/daemon.log
+   ```
+
+2. **Check IPC socket:**
+   ```bash
+   # Find IPC socket location (usually /tmp or /var/run)
+   ls -la /tmp/*.sock | grep tundra
+   ls -la /var/run/*.sock | grep tundra
+
+   # Verify permissions (should be readable/writable)
+   stat /tmp/auto-tundra.sock
+
+   # If corrupted, remove and restart daemon
+   rm /tmp/auto-tundra.sock
+   pkill at-daemon
+   at-daemon &
+   ```
+
+3. **Test IPC communication:**
+   ```bash
+   # Enable IPC debug logging
+   export RUST_LOG=at_bridge::ipc=debug,at_daemon::ipc=debug
+
+   # Watch for IPC messages
+   tail -f ~/.auto-tundra/logs/daemon.log | grep IPC
+   ```
+
+4. **Check file descriptor limits:**
+   ```bash
+   # Check current limits
+   ulimit -n
+
+   # Increase if needed (requires restart)
+   ulimit -n 4096
+
+   # Check daemon's open file descriptors
+   lsof -p $(pgrep at-daemon) | wc -l
+   ```
+
+**Prevention:**
+- Monitor daemon health with systemd or supervisor
+- Configure daemon auto-restart on crash
+- Set adequate file descriptor limits (`ulimit -n 4096`)
+- Implement IPC connection retry logic in `at-bridge`
+- Use structured logging to diagnose IPC failures
 
 ---
 
