@@ -2,6 +2,7 @@ use leptos::prelude::*;
 use wasm_bindgen_futures::spawn_local;
 
 use crate::api;
+use crate::components::spinner::Spinner;
 use crate::events::Toast;
 
 /// Notification bell icon with unread count badge and dropdown panel.
@@ -107,7 +108,7 @@ pub fn NotificationBell(
                     <div class="notification-panel-body">
                         {move || {
                             if loading.get() {
-                                view! { <div class="notification-loading">"Loading..."</div> }.into_any()
+                                view! { <Spinner size="sm" /> }.into_any()
                             } else {
                                 let list = notifications.get();
                                 if list.is_empty() {
