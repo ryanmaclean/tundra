@@ -385,7 +385,18 @@ pub fn EditTaskModal(
             // Actions
             <div class="edit-task-actions">
                 <button class="btn btn-outline" on:click=move |ev| on_close_cancel(ev)>"Cancel"</button>
-                <button class="btn btn-primary" on:click=on_save>"Save Changes"</button>
+                <button
+                    class="btn btn-primary"
+                    on:click=on_save
+                    disabled=move || is_submitting.get()>
+                    {move || {
+                        if is_submitting.get() {
+                            "Saving..."
+                        } else {
+                            "Save Changes"
+                        }
+                    }}
+                </button>
             </div>
         </div>
     }
