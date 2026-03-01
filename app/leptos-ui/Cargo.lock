@@ -60,9 +60,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "at-api-types"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
+ "uuid",
+]
+
+[[package]]
 name = "at-leptos-ui"
 version = "0.1.0"
 dependencies = [
+ "at-api-types",
  "chrono",
  "console_error_panic_hook",
  "fluent",
