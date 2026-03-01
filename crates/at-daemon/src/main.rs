@@ -106,7 +106,11 @@ async fn main() -> Result<()> {
 
     // --- Spawn the frontend server with dynamic port ---
     let (frontend_port_tx, frontend_port_rx) = tokio::sync::oneshot::channel::<u16>();
-    let frontend_handle = tokio::spawn(serve_frontend(api_port, config.daemon.host.clone(), frontend_port_tx));
+    let frontend_handle = tokio::spawn(serve_frontend(
+        api_port,
+        config.daemon.host.clone(),
+        frontend_port_tx,
+    ));
 
     // Wait for the frontend to report its bound port.
     let frontend_port = frontend_port_rx
@@ -291,7 +295,8 @@ async fn serve_frontend(api_port: u16, host: String, port_tx: tokio::sync::onesh
         ));
 
     // Bind to port 0 — OS assigns an ephemeral port.
-    let listener = match tokio::net::TcpListener::bind("[::]:0").await {
+    let frontend_bind_addr = format!("{}:0", host);
+    let listener = match tokio::net::TcpListener::bind(&frontend_bind_addr).await {
         Ok(l) => l,
         Err(e) => {
             tracing::error!(error = %e, "failed to bind frontend server");
