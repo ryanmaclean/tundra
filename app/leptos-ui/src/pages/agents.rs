@@ -434,6 +434,7 @@ pub fn AgentsPage() -> impl IntoView {
     });
 
     let stop_agent = move |id: String| {
+        set_error_msg.set(None);
         spawn_local(async move {
             match api::stop_agent(&id).await {
                 Ok(_) => match api::fetch_agents().await {
@@ -441,7 +442,7 @@ pub fn AgentsPage() -> impl IntoView {
                     Err(_) => {}
                 },
                 Err(e) => {
-                    web_sys::console::error_1(&format!("Failed to stop agent: {e}").into());
+                    set_error_msg.set(Some(format!("Failed to stop agent: {e}")));
                 }
             }
         });
