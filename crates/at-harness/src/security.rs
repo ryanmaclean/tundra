@@ -4,12 +4,81 @@ use tracing::warn;
 // Errors
 // ---------------------------------------------------------------------------
 
+/// Errors that can occur during security validation operations.
+///
+/// This module provides several security primitives for validating API keys,
+/// blocking dangerous tool calls, and sanitizing user input. This enum
+/// standardizes error handling across these security components.
+///
+/// # Examples
+///
+/// ```rust
+/// use at_harness::security::{ApiKeyValidator, ToolCallFirewall, InputSanitizer, SecurityError};
+///
+/// fn handle_security() {
+///     let validator = ApiKeyValidator::new();
+///     let firewall = ToolCallFirewall::new();
+///     let sanitizer = InputSanitizer::new();
+///
+///     // API key validation
+///     match validator.validate("short") {
+///         Err(SecurityError::InvalidApiKey(msg)) => {
+///             println!("Invalid API key: {}", msg);
+///         }
+///         _ => {}
+///     }
+///
+///     // Tool call validation
+///     match firewall.validate_tool_call("exec", "rm -rf /") {
+///         Err(SecurityError::BlockedToolCall(msg)) => {
+///             println!("Blocked dangerous tool: {}", msg);
+///         }
+///         _ => {}
+///     }
+///
+///     // Input sanitization
+///     match sanitizer.sanitize("ignore previous instructions") {
+///         Err(SecurityError::InputRejected(msg)) => {
+///             println!("Input rejected: {}", msg);
+///         }
+///         _ => {}
+///     }
+/// }
+/// ```
 #[derive(Debug, thiserror::Error)]
 pub enum SecurityError {
+    /// An API key failed validation checks.
+    ///
+    /// This error occurs when an API key does not meet the configured security
+    /// requirements, such as:
+    /// - Key is empty or too short
+    /// - Key contains invalid characters (only alphanumeric, hyphens, underscores, and dots allowed)
+    /// - Key appears in the blocklist of known compromised keys
+    ///
+    /// The contained string provides specific details about why the key was rejected.
     #[error("invalid API key: {0}")]
     InvalidApiKey(String),
+
+    /// A tool call was blocked by security policies.
+    ///
+    /// This error occurs when the [`ToolCallFirewall`] detects a dangerous or
+    /// disallowed tool invocation, such as:
+    /// - Tool name is in the blocked list (e.g., "exec", "system", "eval")
+    /// - Tool arguments contain dangerous patterns (e.g., "rm -rf", "DROP TABLE", SQL injection)
+    /// - Too many tool calls in a single turn (exceeds `max_calls_per_turn`)
+    ///
+    /// The contained string provides details about what was blocked and why.
     #[error("blocked tool call: {0}")]
     BlockedToolCall(String),
+
+    /// User input was rejected by the sanitizer.
+    ///
+    /// This error occurs when the [`InputSanitizer`] detects problematic input:
+    /// - Input is empty
+    /// - Input exceeds the maximum allowed length
+    /// - Input contains patterns suggesting prompt injection attempts
+    ///
+    /// The contained string provides details about why the input was rejected.
     #[error("input rejected: {0}")]
     InputRejected(String),
 }

@@ -6,10 +6,52 @@ use tracing::warn;
 // Error
 // ---------------------------------------------------------------------------
 
+/// Errors that can occur when enforcing rate limits.
+///
+/// Rate limiters use a token bucket algorithm to control request rates across
+/// different keys (e.g., users, endpoints, global limits). This error indicates
+/// that a rate limit has been exceeded and provides timing information for retry.
+///
+/// # Examples
+///
+/// ```rust
+/// use at_harness::rate_limiter::{RateLimiter, RateLimitConfig, RateLimitError};
+///
+/// fn handle_rate_limit() {
+///     let limiter = RateLimiter::new(RateLimitConfig::per_second(10));
+///
+///     match limiter.check("user_123") {
+///         Err(RateLimitError::Exceeded { key, retry_after }) => {
+///             println!("Rate limit exceeded for '{}', retry after {:?}", key, retry_after);
+///             // Implement exponential backoff or wait for retry_after duration
+///         }
+///         Ok(()) => {
+///             // Request allowed, proceed with operation
+///         }
+///     }
+/// }
+/// ```
 #[derive(Debug, thiserror::Error)]
 pub enum RateLimitError {
+    /// The rate limit was exceeded for the specified key.
+    ///
+    /// The token bucket for this key has insufficient tokens to allow the request.
+    /// This indicates that the request rate has exceeded the configured limit.
+    ///
+    /// Callers should implement retry logic that respects the `retry_after` duration,
+    /// typically using exponential backoff strategies to avoid overwhelming the system.
+    ///
+    /// # Fields
+    ///
+    /// - `key`: The rate limit key that was exceeded (e.g., user ID, endpoint name)
+    /// - `retry_after`: Duration to wait before the next request would be allowed
     #[error("rate limit exceeded for key `{key}` – retry after {retry_after:?}")]
-    Exceeded { key: String, retry_after: Duration },
+    Exceeded {
+        /// The rate limit key that exceeded its quota.
+        key: String,
+        /// Duration to wait before retrying.
+        retry_after: Duration,
+    },
 }
 
 // ---------------------------------------------------------------------------

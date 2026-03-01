@@ -8,12 +8,67 @@ use tracing::{info, warn};
 // Error
 // ---------------------------------------------------------------------------
 
+/// Errors that can occur when executing a call through a circuit breaker.
+///
+/// Circuit breakers protect downstream services from cascading failures by
+/// temporarily blocking calls when error rates exceed thresholds. This enum
+/// represents the various failure modes that can occur during protected execution.
+///
+/// # Examples
+///
+/// ```rust
+/// use at_harness::circuit_breaker::{CircuitBreaker, CircuitBreakerError, CircuitBreakerConfig};
+///
+/// async fn handle_circuit_breaker() {
+///     let breaker = CircuitBreaker::new(CircuitBreakerConfig::default());
+///
+///     match breaker.call(|| async { Ok::<_, String>("result") }).await {
+///         Err(CircuitBreakerError::Open) => {
+///             println!("Circuit is open, service unavailable");
+///         }
+///         Err(CircuitBreakerError::Timeout(duration)) => {
+///             println!("Call timed out after {:?}", duration);
+///         }
+///         Err(CircuitBreakerError::Inner(msg)) => {
+///             println!("Inner operation failed: {}", msg);
+///         }
+///         Ok(_) => {}
+///     }
+/// }
+/// ```
 #[derive(Debug, thiserror::Error)]
 pub enum CircuitBreakerError {
+    /// The circuit breaker is open and refusing calls.
+    ///
+    /// This occurs when the failure threshold has been exceeded and the circuit
+    /// has transitioned to the **Open** state. Calls are rejected immediately
+    /// without being executed to protect the downstream service.
+    ///
+    /// The circuit will automatically transition to **HalfOpen** after the
+    /// configured timeout period, at which point limited calls will be allowed
+    /// through to test if the service has recovered.
     #[error("circuit is open – refusing call")]
     Open,
+
+    /// The call exceeded the configured timeout duration.
+    ///
+    /// The wrapped operation did not complete within the `call_timeout` period
+    /// specified in [`CircuitBreakerConfig`]. This counts as a failure and
+    /// increments the circuit breaker's failure counter.
+    ///
+    /// The contained [`Duration`] indicates how long the circuit breaker waited
+    /// before timing out the call.
     #[error("call timed out after {0:?}")]
     Timeout(Duration),
+
+    /// The inner operation returned an error.
+    ///
+    /// The call was allowed through the circuit breaker but the wrapped
+    /// operation itself failed. This counts as a failure and increments
+    /// the circuit breaker's failure counter.
+    ///
+    /// The contained string provides the error message from the underlying
+    /// operation.
     #[error("inner error: {0}")]
     Inner(String),
 }
