@@ -2637,14 +2637,258 @@ Auto-Tundra uses Rust's `tracing` ecosystem for structured logging. Proper RUST_
 
 ### RUST_LOG Configuration
 
-**This section will be populated with specific patterns in subtask-1-7:**
-- Default log levels (`info,at_daemon=debug`)
-- Crate-specific filtering
-- Module-level granularity
-- Performance impact of verbose logging
-- Log rotation and retention
+The `RUST_LOG` environment variable controls logging verbosity using Rust's `tracing` ecosystem. Auto-Tundra's logging is initialized in `at-telemetry::logging` and configured per-environment in `at-daemon::environment`.
 
-*→ See [Subtask 1-7](../.auto-claude/specs/010-add-troubleshooting-guide-for-common-runtime-error/implementation_plan.json) for implementation details.*
+#### Default Log Levels
+
+Auto-Tundra uses environment-specific logging defaults:
+
+| Environment | RUST_LOG Value | Description |
+|-------------|----------------|-------------|
+| **Development** | `info,at_daemon=debug,at_core=debug` | Verbose output for debugging |
+| **Staging** | `info,at_daemon=debug` | Moderate verbosity for pre-production testing |
+| **Production** | `info,at_daemon=warn` | Minimal output, warnings and errors only |
+| **Default (if unset)** | `info,at_daemon=debug` | Falls back to development-like levels |
+
+**Setting the environment:**
+```bash
+# Explicitly set environment (development, staging, production)
+at-daemon development  # Uses development log levels
+
+# Or configure RUST_LOG directly
+export RUST_LOG=info,at_daemon=debug
+at-daemon
+```
+
+#### Crate-Specific Filtering
+
+Use comma-separated directives to control logging per crate:
+
+**Basic Examples:**
+```bash
+# Show all info-level logs, debug for at_daemon
+export RUST_LOG=info,at_daemon=debug
+
+# Add debug for at_intelligence LLM routing
+export RUST_LOG=info,at_daemon=debug,at_intelligence=debug
+
+# Verbose output for multiple crates
+export RUST_LOG=info,at_daemon=trace,at_core=debug,at_agents=debug
+
+# Quiet external dependencies, verbose for Auto-Tundra crates
+export RUST_LOG=warn,at_daemon=debug,at_core=debug,at_intelligence=debug
+```
+
+**Module-Level Granularity:**
+```bash
+# Debug only the spawn module in at_daemon
+export RUST_LOG=info,at_daemon::spawn=debug
+
+# Trace-level logs for PTY session management
+export RUST_LOG=info,at_sessions::pty=trace
+
+# Combine crate and module filters
+export RUST_LOG=warn,at_daemon::environment=debug,at_intelligence::router=trace
+```
+
+**Common Crates and Modules:**
+- `at_daemon` - Main daemon process, environment configuration
+- `at_core` - Core utilities, shared types
+- `at_intelligence` - LLM routing, provider failover
+- `at_agents` - Agent execution, task management
+- `at_harness` - Rate limiting, circuit breakers
+- `at_sessions` - PTY session management
+- `at_telemetry` - Logging and tracing initialization
+- `at_bridge` - VSCode extension bridge
+
+#### Log Levels
+
+Rust's `tracing` supports five log levels (from least to most verbose):
+
+| Level | Purpose | Example Output |
+|-------|---------|----------------|
+| `error` | Critical failures requiring immediate attention | `Error loading config: file not found` |
+| `warn` | Warning conditions that may require investigation | `Circuit breaker opened for provider: anthropic` |
+| `info` | Informational messages about normal operations | `Logging initialised (human-readable)` |
+| `debug` | Diagnostic information for troubleshooting | `Loaded environment configuration from environment/development.env` |
+| `trace` | Very detailed trace information (performance impact) | `Entering function handle_request with params: {...}` |
+
+**Example output (info level):**
+```
+2026-03-01T10:30:45.123Z  INFO at_daemon: logging initialised (human-readable) service="at-daemon"
+2026-03-01T10:30:45.150Z  INFO at_daemon::environment: Loaded environment configuration from environment/development.env
+2026-03-01T10:30:45.155Z  INFO at_daemon::environment: Environment configuration loaded for: development
+```
+
+**Example output (debug level with RUST_LOG=debug,at_daemon=trace):**
+```
+2026-03-01T10:30:45.155Z DEBUG at_daemon::environment: set_default_env_vars file="crates/at-daemon/src/environment.rs" line=25
+2026-03-01T10:30:45.156Z TRACE at_daemon::environment: Setting DD_SERVICE=at-daemon file="crates/at-daemon/src/environment.rs" line=28
+2026-03-01T10:30:45.156Z TRACE at_daemon::environment: Setting DD_ENV=development file="crates/at-daemon/src/environment.rs" line=32
+2026-03-01T10:30:45.157Z  INFO at_daemon::environment: Datadog Configuration: file="crates/at-daemon/src/environment.rs" line=60
+2026-03-01T10:30:45.157Z  INFO at_daemon::environment:   Service: at-daemon file="crates/at-daemon/src/environment.rs" line=61
+2026-03-01T10:30:45.157Z  INFO at_daemon::environment:   Environment: development file="crates/at-daemon/src/environment.rs" line=62
+```
+
+#### Diagnostic Output Examples
+
+**Enable diagnostic tracing for LLM provider debugging:**
+```bash
+# Show request/response details for Anthropic API calls
+export RUST_LOG=info,at_intelligence=debug,at_harness=debug
+export DD_TRACE_DEBUG=true  # Enable Datadog trace debugging
+at-daemon development
+```
+
+**Output shows:**
+- HTTP request/response bodies (sanitized)
+- Rate limit headers and retry-after values
+- Circuit breaker state transitions
+- Provider failover decisions
+- Token usage and cost tracking
+
+**Debug PTY session spawn failures:**
+```bash
+# Trace-level logging for session management
+export RUST_LOG=info,at_sessions=trace,at_daemon::spawn=trace
+at-daemon
+```
+
+**Output shows:**
+- Shell environment variable setup
+- PTY device allocation
+- Process fork and exec details
+- File descriptor handling
+- Session capacity tracking
+
+**Diagnose WebSocket connection issues:**
+```bash
+# Debug transport and IPC layers
+export RUST_LOG=info,at_bridge=debug,at_sessions::websocket=debug
+at-daemon
+```
+
+**Output shows:**
+- WebSocket handshake details
+- IPC message routing
+- Connection state transitions
+- Ping/pong frame timing
+
+#### JSON Output for Production
+
+For production deployments with log aggregation (Vector, Loki, ELK), use JSON output:
+
+**Code configuration in `at-telemetry::logging`:**
+```rust
+// Initialize JSON logging for structured output
+init_logging_json("at-daemon", "info,at_daemon=warn");
+```
+
+**JSON output format:**
+```json
+{
+  "timestamp": "2026-03-01T10:30:45.123456Z",
+  "level": "INFO",
+  "target": "at_daemon::environment",
+  "fields": {
+    "message": "Environment configuration loaded for: production",
+    "service": "at-daemon"
+  },
+  "file": "crates/at-daemon/src/environment.rs",
+  "line": 54
+}
+```
+
+**Benefits:**
+- Structured parsing for log aggregation systems
+- Consistent field extraction for queries
+- Metadata-rich (file, line, target, timestamp)
+- No regex parsing required
+
+#### Performance Impact
+
+Verbose logging has measurable overhead:
+
+| Level | Performance Impact | Use Case |
+|-------|-------------------|----------|
+| `info` | Negligible (~1% overhead) | Production default |
+| `debug` | Low (~5-10% overhead) | Staging, troubleshooting |
+| `trace` | High (~20-30% overhead) | Specific issue diagnosis only |
+
+**Guidelines:**
+- **Production:** Use `info` or `warn` for minimal overhead
+- **Staging:** Use `debug` for pre-production validation
+- **Development:** Use `debug` or `trace` freely
+- **Troubleshooting:** Enable `trace` for specific modules only, not globally
+
+**Example of targeted trace logging:**
+```bash
+# ❌ BAD - Global trace (huge performance impact)
+export RUST_LOG=trace
+
+# ✅ GOOD - Trace only the problematic module
+export RUST_LOG=info,at_sessions::pty::spawn=trace
+```
+
+#### Log Rotation and Retention
+
+**Default configuration:**
+- Log directory: `~/.auto-tundra/logs/`
+- Log file: `daemon.log`
+- Rotation: No automatic rotation (managed externally)
+- Retention: Indefinite (clean up manually)
+
+**Manual log management:**
+```bash
+# View recent logs
+tail -f ~/.auto-tundra/logs/daemon.log
+
+# Archive old logs
+gzip ~/.auto-tundra/logs/daemon.log
+mv ~/.auto-tundra/logs/daemon.log.gz ~/.auto-tundra/logs/daemon-$(date +%Y%m%d).log.gz
+
+# Truncate current log file (daemon must be restarted)
+pkill at-daemon
+> ~/.auto-tundra/logs/daemon.log
+at-daemon
+```
+
+**Production log rotation (systemd example):**
+```ini
+# /etc/systemd/system/at-daemon.service
+[Service]
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=at-daemon
+
+# Logs managed by journald
+```
+
+**Query journald logs:**
+```bash
+# View logs for at-daemon service
+journalctl -u at-daemon -f
+
+# Filter by log level
+journalctl -u at-daemon -p warning
+
+# Export logs for analysis
+journalctl -u at-daemon --since "1 hour ago" > /tmp/at-daemon.log
+```
+
+#### Quick Reference
+
+**Common troubleshooting scenarios:**
+
+| Issue | RUST_LOG Setting | Purpose |
+|-------|------------------|---------|
+| General debugging | `info,at_daemon=debug` | Standard troubleshooting level |
+| LLM provider failures | `info,at_intelligence=debug,at_harness=debug` | API calls, rate limits, failover |
+| PTY spawn failures | `info,at_sessions=trace,at_daemon::spawn=trace` | Process creation, environment setup |
+| WebSocket disconnects | `info,at_bridge=debug,at_sessions::websocket=debug` | Connection management, IPC routing |
+| Database errors | `info,at_daemon=debug,sqlx=debug` | SQL queries, connection pool |
+| Performance issues | `info,at_daemon=debug` (avoid `trace`) | Diagnose without degrading performance further |
+| Full diagnostic capture | `debug` (all crates) | Maximum verbosity for bug reports |
 
 ---
 
