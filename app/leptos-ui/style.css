@@ -89,7 +89,7 @@
     --font-family-mono: 'JetBrains Mono', 'SF Mono', 'Monaco', 'Cascadia Code', monospace;
     
     /* Type scale */
-    --text-xs: 0.75rem;     /* 12px */
+    --text-xs: 0.75rem;     /* var(--space-3) */
     --text-sm: 0.875rem;    /* 14px */
     --text-base: 1rem;      /* 16px */
     --text-lg: 1.125rem;    /* 18px */
@@ -113,7 +113,7 @@
     --space-0: 0;
     --space-1: 0.25rem;    /* var(--space-1) */
     --space-2: 0.5rem;     /* var(--space-2) */
-    --space-3: 0.75rem;    /* 12px */
+    --space-3: 0.75rem;    /* var(--space-3) */
     --space-4: 1rem;       /* 16px */
     --space-5: 1.25rem;    /* 20px */
     --space-6: 1.5rem;     /* 24px */
@@ -128,7 +128,7 @@
     --radius-base: 0.25rem; /* var(--space-1) */
     --radius-md: 0.375rem;  /* 6px */
     --radius-lg: 0.5rem;    /* var(--space-2) */
-    --radius-xl: 0.75rem;   /* 12px */
+    --radius-xl: 0.75rem;   /* var(--space-3) */
     --radius-2xl: 1rem;     /* 16px */
     --radius-3xl: 1.5rem;   /* 24px */
     --radius-full: 9999px;
@@ -338,14 +338,14 @@ code, pre, kbd, .config-block {
 }
 
 .sidebar-header {
-    padding: 16px 16px 12px;
+    padding: 16px 16px var(--space-3);
     /* Extra top padding for macOS traffic lights (overlay titlebar) */
     padding-top: calc(16px + var(--titlebar-inset));
     border-bottom: 1px solid rgba(255, 255, 255, 0.04);
     flex-shrink: 0;
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: var(--space-3);
     /* Make sidebar header draggable as window titlebar on macOS */
     -webkit-app-region: drag;
     app-region: drag;
@@ -607,7 +607,7 @@ code, pre, kbd, .config-block {
 }
 
 .sidebar-footer {
-    padding: 12px;
+    padding: var(--space-3);
     border-top: 1px solid rgba(255, 255, 255, 0.04);
     flex-shrink: 0;
     display: flex;
@@ -677,7 +677,7 @@ code, pre, kbd, .config-block {
     border-radius: var(--radius-md);
     background: none;
     color: var(--text-secondary);
-    font-size: 12px;
+    font-size: var(--space-3);
     font-weight: 500;
     cursor: pointer;
     font-family: inherit;
@@ -873,7 +873,7 @@ html[data-native-shell="1"] .sidebar-header {
     border: 1px solid var(--border-light);
     border-radius: var(--radius-md);
     color: var(--accent-purple);
-    font-size: 12px;
+    font-size: var(--space-3);
     font-weight: 500;
     cursor: pointer;
     transition: background var(--transition-fast), border-color var(--transition-fast);
@@ -1136,7 +1136,7 @@ html[data-native-shell="1"] .sidebar-header {
     align-items: center;
     justify-content: center;
     transition: all var(--transition-fast);
-    font-size: 12px;
+    font-size: var(--space-3);
     font-weight: var(--font-medium);
     font-family: var(--font-family-sans);
 }
@@ -1241,7 +1241,7 @@ html[data-native-shell="1"] .sidebar-header {
     align-items: center;
     justify-content: center;
     transition: all var(--transition-fast);
-    font-size: 12px;
+    font-size: var(--space-3);
     font-weight: var(--font-medium);
     font-family: var(--font-family-sans);
 }
@@ -2058,7 +2058,7 @@ kbd {
 }
 
 .bead-phase-icon {
-    font-size: 12px;
+    font-size: var(--space-3);
     flex-shrink: 0;
 }
 
@@ -2276,7 +2276,7 @@ kbd {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    padding: 32px 12px;
+    padding: 32px var(--space-3);
     color: var(--text-muted);
     text-align: center;
     gap: var(--space-2);
@@ -2289,7 +2289,7 @@ kbd {
 }
 
 .kanban-empty-text {
-    font-size: 12px;
+    font-size: var(--space-3);
     opacity: 0.5;
     font-weight: 500;
 }
@@ -2433,7 +2433,7 @@ kbd {
 .kpi-grid {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
-    gap: 12px;
+    gap: var(--space-3);
     padding: 16px;
 }
 
@@ -2463,7 +2463,7 @@ kbd {
 
 .kpi-card .label {
     color: var(--text-secondary);
-    font-size: 12px;
+    font-size: var(--space-3);
     font-weight: 500;
     margin-top: var(--space-1);
 }
@@ -2473,7 +2473,7 @@ kbd {
 .agent-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-    gap: 12px;
+    gap: var(--space-3);
     padding: 16px;
 }
 
@@ -2504,7 +2504,7 @@ kbd {
 
 .agent-card .agent-role {
     color: var(--text-secondary);
-    font-size: 12px;
+    font-size: var(--space-3);
 }
 
 .agent-card .agent-model {
@@ -2566,7 +2566,7 @@ kbd {
 /* ── Page Headers ── */
 
 .page-header {
-    padding: 16px 16px 12px;
+    padding: 16px 16px var(--space-3);
     border-bottom: 1px solid rgba(255, 255, 255, 0.04);
 }
 
@@ -2589,7 +2589,7 @@ kbd {
     color: var(--text-secondary);
     font-size: 13px;
     font-weight: 600;
-    margin-bottom: 12px;
+    margin-bottom: var(--space-3);
 }
 
 /* ── Activity Feed ── */
@@ -2644,7 +2644,7 @@ kbd {
     padding: 16px;
     margin: 16px;
     white-space: pre-wrap;
-    font-size: 12px;
+    font-size: var(--space-3);
     overflow-x: auto;
     color: var(--text-primary);
     line-height: 1.6;
@@ -2701,7 +2701,7 @@ kbd {
     border-radius: var(--radius-md);
     padding: 2px var(--space-2);
     font-family: 'JetBrains Mono', monospace;
-    font-size: 12px;
+    font-size: var(--space-3);
     color: var(--accent-purple);
 }
 
@@ -2909,14 +2909,14 @@ kbd {
 .section-description {
     color: var(--text-secondary);
     font-size: 13px;
-    margin-bottom: 12px;
+    margin-bottom: var(--space-3);
 }
 
 /* ── File/Code styling ── */
 
 code.file-path, code.branch-name {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 12px;
+    font-size: var(--space-3);
     color: var(--accent-cyan);
     background: rgba(6, 182, 212, 0.08);
     padding: 2px 6px;
@@ -2925,13 +2925,13 @@ code.file-path, code.branch-name {
 
 .commit-msg {
     color: var(--text-secondary);
-    font-size: 12px;
+    font-size: var(--space-3);
 }
 
 .timestamp-cell {
     color: var(--text-muted);
     font-family: 'JetBrains Mono', monospace;
-    font-size: 12px;
+    font-size: var(--space-3);
 }
 
 .issue-number, .pr-number {
@@ -2963,7 +2963,7 @@ code.file-path, code.branch-name {
 
 .no-reviewers {
     color: var(--text-muted);
-    font-size: 12px;
+    font-size: var(--space-3);
     font-style: italic;
 }
 
@@ -2980,7 +2980,7 @@ code.file-path, code.branch-name {
 }
 
 .form-input {
-    padding: var(--space-2) 12px;
+    padding: var(--space-2) var(--space-3);
     background: var(--bg-primary);
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: var(--radius-md);
@@ -2996,7 +2996,7 @@ code.file-path, code.branch-name {
 }
 
 .form-textarea {
-    padding: var(--space-2) 12px;
+    padding: var(--space-2) var(--space-3);
     background: var(--bg-primary);
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: var(--radius-md);
@@ -3016,7 +3016,7 @@ code.file-path, code.branch-name {
 .idea-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-    gap: 12px;
+    gap: var(--space-3);
 }
 
 .idea-card {
@@ -3052,7 +3052,7 @@ code.file-path, code.branch-name {
 }
 
 .idea-description {
-    font-size: 12px;
+    font-size: var(--space-3);
     color: var(--text-secondary);
     margin-bottom: var(--space-2);
     line-height: 1.4;
@@ -3076,7 +3076,7 @@ code.file-path, code.branch-name {
     padding: 16px;
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: var(--space-3);
 }
 
 .phase-card {
@@ -3142,7 +3142,7 @@ code.file-path, code.branch-name {
 }
 
 .phase-date {
-    font-size: 12px;
+    font-size: var(--space-3);
     color: var(--text-muted);
     margin-bottom: var(--space-2);
 }
@@ -3173,7 +3173,7 @@ code.file-path, code.branch-name {
 .session-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-    gap: 12px;
+    gap: var(--space-3);
     padding: 16px;
 }
 
@@ -3211,7 +3211,7 @@ code.file-path, code.branch-name {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 6px;
-    margin-bottom: 12px;
+    margin-bottom: var(--space-3);
 }
 
 .session-detail {
@@ -3695,7 +3695,7 @@ code.file-path, code.branch-name {
 }
 
 .new-task-modal, .edit-task-modal .form-group {
-    margin-bottom: 12px;
+    margin-bottom: var(--space-3);
 }
 
 .new-task-modal, .edit-task-modal label {
@@ -3709,7 +3709,7 @@ code.file-path, code.branch-name {
 .new-task-modal, .edit-task-modal textarea,
 .new-task-modal, .edit-task-modal select {
     width: 100%;
-    padding: var(--space-2) 12px;
+    padding: var(--space-2) var(--space-3);
     background: var(--bg-primary);
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: var(--radius-md);
@@ -3882,7 +3882,7 @@ code.file-path, code.branch-name {
     background: var(--accent-purple);
     border-color: var(--accent-purple);
     color: #fff;
-    box-shadow: 0 0 12px rgba(124, 58, 237, 0.4);
+    box-shadow: 0 0 var(--space-3) rgba(124, 58, 237, 0.4);
 }
 
 .wizard-step.completed .wizard-step-number {
@@ -3916,18 +3916,18 @@ code.file-path, code.branch-name {
 .wizard-review {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: var(--space-3);
 }
 
 .review-section {
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: var(--radius-lg);
-    padding: 12px;
+    padding: var(--space-3);
 }
 
 .review-section h4 {
-    font-size: 12px;
+    font-size: var(--space-3);
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.04em;
@@ -4006,7 +4006,7 @@ code.file-path, code.branch-name {
     padding: 16px;
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: var(--space-3);
     max-width: 800px;
 }
 
@@ -4052,7 +4052,7 @@ code.file-path, code.branch-name {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 12px 0;
+    padding: var(--space-3) 0;
     border-bottom: 1px solid rgba(255, 255, 255, 0.04);
 }
 
@@ -4140,7 +4140,7 @@ code.file-path, code.branch-name {
 }
 
 .settings-unit {
-    font-size: 12px;
+    font-size: var(--space-3);
     color: var(--text-muted);
 }
 
@@ -4193,7 +4193,7 @@ code.file-path, code.branch-name {
 }
 
 .toggle-label {
-    font-size: 12px;
+    font-size: var(--space-3);
     color: var(--text-secondary);
     min-width: 60px;
 }
@@ -4278,8 +4278,8 @@ code.file-path, code.branch-name {
 .filter-bar {
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: var(--space-2) 12px;
+    gap: var(--space-3);
+    padding: var(--space-2) var(--space-3);
     border-bottom: 1px solid rgba(255, 255, 255, 0.04);
     background: var(--bg-secondary);
     flex-wrap: wrap;
@@ -4310,7 +4310,7 @@ code.file-path, code.branch-name {
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: var(--radius-md);
     padding: var(--space-1) var(--space-2);
-    font-size: 12px;
+    font-size: var(--space-3);
     outline: none;
     font-family: inherit;
 }
@@ -4326,7 +4326,7 @@ code.file-path, code.branch-name {
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: var(--radius-md);
     padding: var(--space-1) var(--space-2);
-    font-size: 12px;
+    font-size: var(--space-3);
     outline: none;
     font-family: inherit;
     min-width: 160px;
@@ -4366,15 +4366,15 @@ code.file-path, code.branch-name {
     background: rgba(239, 68, 68, 0.1);
     border: 1px solid rgba(239, 68, 68, 0.3);
     color: var(--accent-red);
-    padding: 6px 12px;
+    padding: 6px var(--space-3);
     border-radius: var(--radius-md);
-    margin-bottom: 12px;
-    font-size: 12px;
+    margin-bottom: var(--space-3);
+    font-size: var(--space-3);
 }
 
 .dash-loading {
     color: var(--text-muted);
-    font-size: 12px;
+    font-size: var(--space-3);
     margin-bottom: var(--space-2);
     padding: var(--space-1) 0;
 }
@@ -4382,10 +4382,10 @@ code.file-path, code.branch-name {
 /* ── KPI Stats Row ── */
 /* Dashboard page wrapper — adds consistent padding */
 .dash-page {
-    padding: 12px 16px;
+    padding: var(--space-3) 16px;
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: var(--space-3);
     height: calc(100vh - 100px);
 }
 
@@ -4446,7 +4446,7 @@ code.file-path, code.branch-name {
 .dash-body {
     display: grid;
     grid-template-columns: 3fr 2fr;
-    gap: 12px;
+    gap: var(--space-3);
     flex: 1;
     min-height: 0;
 }
@@ -4469,7 +4469,7 @@ code.file-path, code.branch-name {
 }
 
 .dash-panel-title {
-    font-size: 12px;
+    font-size: var(--space-3);
     font-weight: 600;
     color: var(--text-primary);
     text-transform: uppercase;
@@ -4497,7 +4497,7 @@ code.file-path, code.branch-name {
     display: flex;
     align-items: flex-start;
     gap: var(--space-2);
-    padding: var(--space-2) 12px;
+    padding: var(--space-2) var(--space-3);
     border-bottom: 1px solid rgba(255, 255, 255, 0.04);
     transition: background var(--transition-fast);
 }
@@ -4517,7 +4517,7 @@ code.file-path, code.branch-name {
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 12px;
+    font-size: var(--space-3);
     border-radius: var(--radius-base);
     margin-top: 1px;
 }
@@ -4562,7 +4562,7 @@ code.file-path, code.branch-name {
 .dash-activity-empty {
     padding: 24px 14px;
     color: var(--text-muted);
-    font-size: 12px;
+    font-size: var(--space-3);
     text-align: center;
 }
 
@@ -4644,7 +4644,7 @@ code.file-path, code.branch-name {
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: var(--radius-md);
-    font-size: 12px;
+    font-size: var(--space-3);
     color: var(--text-muted);
     font-variant-numeric: tabular-nums;
 }
@@ -4684,10 +4684,10 @@ code.file-path, code.branch-name {
     background: rgba(239, 68, 68, 0.12);
     border: 1px solid rgba(239, 68, 68, 0.3);
     color: var(--accent-red);
-    padding: var(--space-2) 12px;
+    padding: var(--space-2) var(--space-3);
     border-radius: var(--radius-md);
-    font-size: 12px;
-    margin-bottom: 12px;
+    font-size: var(--space-3);
+    margin-bottom: var(--space-3);
 }
 
 .wizard-rich-textarea {
@@ -4704,7 +4704,7 @@ code.file-path, code.branch-name {
 .priority-btn {
     padding: 6px 14px;
     border-radius: var(--radius-md);
-    font-size: 12px;
+    font-size: var(--space-3);
     font-weight: 600;
     cursor: pointer;
     transition: all var(--transition-fast);
@@ -4751,7 +4751,7 @@ code.file-path, code.branch-name {
 .complexity-btn {
     padding: 6px 14px;
     border-radius: var(--radius-md);
-    font-size: 12px;
+    font-size: var(--space-3);
     font-weight: 600;
     cursor: pointer;
     transition: all var(--transition-fast);
@@ -4788,7 +4788,7 @@ code.file-path, code.branch-name {
     border: 1px solid var(--accent-purple);
     border-radius: var(--radius-md);
     color: var(--accent-purple);
-    font-size: 12px;
+    font-size: var(--space-3);
     font-weight: 600;
     cursor: pointer;
     font-family: inherit;
@@ -4801,7 +4801,7 @@ code.file-path, code.branch-name {
 }
 
 .wizard-file-list {
-    margin-top: 12px;
+    margin-top: var(--space-3);
     display: flex;
     flex-direction: column;
     gap: var(--space-1);
@@ -4819,7 +4819,7 @@ code.file-path, code.branch-name {
 
 .wizard-file-path {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 12px;
+    font-size: var(--space-3);
     color: var(--accent-cyan);
 }
 
@@ -4842,7 +4842,7 @@ code.file-path, code.branch-name {
 
 .wizard-file-empty {
     color: var(--text-muted);
-    font-size: 12px;
+    font-size: var(--space-3);
     text-align: center;
     padding: 20px 10px;
     background: var(--bg-card);
@@ -4916,7 +4916,7 @@ code.file-path, code.branch-name {
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
-    gap: 12px;
+    gap: var(--space-3);
 }
 
 .td-title {
@@ -5032,7 +5032,7 @@ code.file-path, code.branch-name {
     display: flex;
     align-items: center;
     gap: 10px;
-    margin: 12px 0 var(--space-1);
+    margin: var(--space-3) 0 var(--space-1);
 }
 
 .td-progress-bar-wrap {
@@ -5050,7 +5050,7 @@ code.file-path, code.branch-name {
 }
 
 .td-progress-label {
-    font-size: 12px;
+    font-size: var(--space-3);
     font-weight: 600;
     color: var(--text-secondary);
     min-width: 32px;
@@ -5192,7 +5192,7 @@ code.file-path, code.branch-name {
 }
 
 .td-check-icon {
-    font-size: 12px;
+    font-size: var(--space-3);
     width: 16px;
     text-align: center;
     flex-shrink: 0;
@@ -5208,7 +5208,7 @@ code.file-path, code.branch-name {
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: var(--radius-xl);
-    padding: 12px 16px;
+    padding: var(--space-3) 16px;
     margin-bottom: 14px;
 }
 
@@ -5220,7 +5220,7 @@ code.file-path, code.branch-name {
 }
 
 .td-qa-summary-title {
-    font-size: 12px;
+    font-size: var(--space-3);
     font-weight: 600;
     color: var(--text-secondary);
     text-transform: uppercase;
@@ -5282,7 +5282,7 @@ code.file-path, code.branch-name {
     display: flex;
     align-items: center;
     gap: var(--space-2);
-    margin-bottom: 12px;
+    margin-bottom: var(--space-3);
     padding-bottom: var(--space-2);
     border-bottom: 1px solid rgba(255, 255, 255, 0.04);
 }
@@ -5347,7 +5347,7 @@ code.file-path, code.branch-name {
 
 .td-build-arrow {
     color: var(--text-muted);
-    font-size: 12px;
+    font-size: var(--space-3);
 }
 
 .td-build-path {
@@ -5373,7 +5373,7 @@ code.file-path, code.branch-name {
 .td-build-btn {
     padding: 6px 14px;
     border-radius: var(--radius-lg);
-    font-size: 12px;
+    font-size: var(--space-3);
     font-weight: 600;
     cursor: pointer;
     border: 1px solid rgba(255, 255, 255, 0.1);
@@ -5409,7 +5409,7 @@ code.file-path, code.branch-name {
 .td-action-btn {
     padding: var(--space-2) 16px;
     border-radius: var(--radius-lg);
-    font-size: 12px;
+    font-size: var(--space-3);
     font-weight: 600;
     cursor: pointer;
     border: none;
@@ -5449,7 +5449,7 @@ code.file-path, code.branch-name {
     background: rgba(255, 255, 255, 0.04);
     color: var(--text-secondary);
     border: 1px solid rgba(255, 255, 255, 0.08);
-    padding: var(--space-2) 12px;
+    padding: var(--space-2) var(--space-3);
 }
 
 .td-action-screenshot:hover {
@@ -5466,7 +5466,7 @@ code.file-path, code.branch-name {
 }
 
 .td-rc-title {
-    font-size: 12px;
+    font-size: var(--space-3);
     font-weight: 600;
     color: var(--text-secondary);
     text-transform: uppercase;
@@ -5477,7 +5477,7 @@ code.file-path, code.branch-name {
 .td-rc-textarea {
     width: 100%;
     min-height: 72px;
-    padding: 10px 12px;
+    padding: 10px var(--space-3);
     border-radius: var(--radius-lg);
     border: 1px solid rgba(255, 255, 255, 0.08);
     background: var(--bg-primary);
@@ -5507,7 +5507,7 @@ code.file-path, code.branch-name {
 .td-rc-submit {
     padding: 7px 18px;
     border-radius: var(--radius-lg);
-    font-size: 12px;
+    font-size: var(--space-3);
     font-weight: 600;
     cursor: pointer;
     border: none;
@@ -5529,7 +5529,7 @@ code.file-path, code.branch-name {
 /* Logs tab section titles */
 
 .td-log-section-title {
-    font-size: 12px;
+    font-size: var(--space-3);
     font-weight: 600;
     color: var(--text-secondary);
     text-transform: uppercase;
@@ -5566,10 +5566,10 @@ code.file-path, code.branch-name {
     background: none;
     border: none;
     color: #ef4444;
-    font-size: 12px;
+    font-size: var(--space-3);
     font-weight: 600;
     cursor: pointer;
-    padding: 6px 12px;
+    padding: 6px var(--space-3);
     border-radius: var(--radius-md);
     transition: background var(--transition-fast);
     font-family: inherit;
@@ -5582,7 +5582,7 @@ code.file-path, code.branch-name {
 .td-footer-close {
     padding: 7px 20px;
     border-radius: var(--radius-lg);
-    font-size: 12px;
+    font-size: var(--space-3);
     font-weight: 600;
     cursor: pointer;
     border: 1px solid rgba(255, 255, 255, 0.1);
@@ -5599,7 +5599,7 @@ code.file-path, code.branch-name {
 .td-footer-resume {
     padding: 7px 20px;
     border-radius: var(--radius-lg);
-    font-size: 12px;
+    font-size: var(--space-3);
     font-weight: 600;
     cursor: pointer;
     border: none;
@@ -5617,10 +5617,10 @@ code.file-path, code.branch-name {
     background: none;
     border: none;
     color: var(--text-muted);
-    font-size: 12px;
+    font-size: var(--space-3);
     font-weight: 600;
     cursor: pointer;
-    padding: 6px 12px;
+    padding: 6px var(--space-3);
     border-radius: var(--radius-md);
     transition: background var(--transition-fast), color var(--transition-fast);
     font-family: inherit;
@@ -5634,7 +5634,7 @@ code.file-path, code.branch-name {
 .td-footer-assign {
     padding: 7px 20px;
     border-radius: var(--radius-lg);
-    font-size: 12px;
+    font-size: var(--space-3);
     font-weight: 600;
     cursor: pointer;
     border: 1px solid rgba(6, 182, 212, 0.3);
@@ -5656,7 +5656,7 @@ code.file-path, code.branch-name {
 .td-assign-msg {
     padding: var(--space-2) 16px;
     border-radius: var(--radius-lg);
-    font-size: 12px;
+    font-size: var(--space-3);
     font-weight: 500;
     margin-top: var(--space-2);
     text-align: center;
@@ -5690,7 +5690,7 @@ code.file-path, code.branch-name {
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
-    gap: 12px;
+    gap: var(--space-3);
 }
 
 .task-detail-title {
@@ -5810,7 +5810,7 @@ code.file-path, code.branch-name {
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: var(--radius-lg);
-    padding: 12px;
+    padding: var(--space-3);
     margin-bottom: 16px;
 }
 
@@ -5818,7 +5818,7 @@ code.file-path, code.branch-name {
     display: flex;
     align-items: center;
     padding: var(--space-1) 0;
-    gap: 12px;
+    gap: var(--space-3);
 }
 
 .task-detail-meta-row + .task-detail-meta-row {
@@ -5855,7 +5855,7 @@ code.file-path, code.branch-name {
 }
 
 .task-detail-section h4 {
-    font-size: 12px;
+    font-size: var(--space-3);
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.05em;
@@ -5875,7 +5875,7 @@ code.file-path, code.branch-name {
 .task-detail-progress {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: var(--space-3);
 }
 
 .task-detail-progress-bar {
@@ -5916,8 +5916,8 @@ code.file-path, code.branch-name {
     display: flex;
     align-items: center;
     gap: var(--space-2);
-    padding: 6px 12px;
-    font-size: 12px;
+    padding: 6px var(--space-3);
+    font-size: var(--space-3);
 }
 
 .log-entry + .log-entry {
@@ -5949,14 +5949,14 @@ code.file-path, code.branch-name {
 .task-detail-actions {
     display: flex;
     gap: var(--space-2);
-    padding-top: 12px;
+    padding-top: var(--space-3);
     border-top: 1px solid rgba(255, 255, 255, 0.04);
 }
 
 .detail-action-btn {
     padding: var(--space-2) 18px;
     border-radius: var(--radius-md);
-    font-size: 12px;
+    font-size: var(--space-3);
     font-weight: 600;
     cursor: pointer;
     font-family: inherit;
@@ -6003,7 +6003,7 @@ code.file-path, code.branch-name {
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: var(--radius-md);
     color: var(--text-muted);
-    font-size: 12px;
+    font-size: var(--space-3);
     font-weight: 700;
     cursor: pointer;
     width: 20px;
@@ -6032,7 +6032,7 @@ code.file-path, code.branch-name {
 .kanban-column-collapsed h3 {
     writing-mode: vertical-lr;
     text-orientation: mixed;
-    padding: 12px var(--space-2);
+    padding: var(--space-3) var(--space-2);
     white-space: nowrap;
     display: flex;
     align-items: center;
@@ -6089,7 +6089,7 @@ code.file-path, code.branch-name {
 
 .stack-card:hover {
     border-color: rgba(124, 58, 237, 0.2);
-    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
+    box-shadow: 0 2px var(--space-3) rgba(0, 0, 0, 0.15);
 }
 
 .stack-card-selected {
@@ -6101,8 +6101,8 @@ code.file-path, code.branch-name {
 
 .stack-root-node {
     display: flex;
-    gap: 12px;
-    padding-bottom: 12px;
+    gap: var(--space-3);
+    padding-bottom: var(--space-3);
     border-bottom: 1px solid rgba(255, 255, 255, 0.04);
     margin-bottom: var(--space-2);
 }
@@ -6136,8 +6136,8 @@ code.file-path, code.branch-name {
 
 .stack-node-root::before {
     background: var(--accent-purple);
-    width: 12px;
-    height: 12px;
+    width: var(--space-3);
+    height: var(--space-3);
 }
 
 .stack-node-last::after {
@@ -6256,7 +6256,7 @@ code.file-path, code.branch-name {
 
 .stack-child-node {
     display: flex;
-    gap: 12px;
+    gap: var(--space-3);
     padding: 6px 0;
     position: relative;
 }
@@ -6289,7 +6289,7 @@ code.file-path, code.branch-name {
     border: 1px solid rgba(255, 255, 255, 0.06);
     background: rgba(255, 255, 255, 0.04);
     color: var(--text-muted);
-    font-size: 12px;
+    font-size: var(--space-3);
     cursor: pointer;
     display: flex;
     align-items: center;
@@ -6432,7 +6432,7 @@ code.file-path, code.branch-name {
     display: flex;
     align-items: center;
     justify-content: flex-end;
-    gap: 12px;
+    gap: var(--space-3);
     padding: 14px 20px;
     border-top: 1px solid rgba(255, 255, 255, 0.06);
     flex-shrink: 0;
@@ -6500,7 +6500,7 @@ code.file-path, code.branch-name {
     min-width: 180px;
     background: var(--bg-secondary);
     border-right: 1px solid rgba(255, 255, 255, 0.04);
-    padding: 12px 0;
+    padding: var(--space-3) 0;
     display: flex;
     flex-direction: column;
     gap: 2px;
@@ -6610,7 +6610,7 @@ code.file-path, code.branch-name {
     cursor: pointer;
     font-family: inherit;
     transition: background var(--transition-fast);
-    margin-right: 12px;
+    margin-right: var(--space-3);
 }
 
 .btn-reset-settings:hover {
@@ -6623,7 +6623,7 @@ code.file-path, code.branch-name {
     right: 24px;
     background: var(--accent-green);
     color: #fff;
-    padding: 12px 24px;
+    padding: var(--space-3) 24px;
     border-radius: var(--radius-lg);
     font-size: 13px;
     font-weight: 600;
@@ -6660,7 +6660,7 @@ code.file-path, code.branch-name {
 .insights-new-session-btn {
     display: block;
     width: calc(100% - 24px);
-    margin: 12px 12px var(--space-2);
+    margin: var(--space-3) 12px var(--space-2);
     padding: 10px 16px;
     background: linear-gradient(135deg, var(--accent-purple), var(--accent-magenta));
     border: none;
@@ -6728,12 +6728,12 @@ code.file-path, code.branch-name {
     padding: 20px;
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: var(--space-3);
 }
 
 .chat-bubble {
     max-width: 70%;
-    padding: 12px 16px;
+    padding: var(--space-3) 16px;
     border-radius: var(--radius-xl);
     font-size: 13px;
     line-height: 1.5;
@@ -6770,7 +6770,7 @@ code.file-path, code.branch-name {
 .insights-chat-input {
     display: flex;
     gap: var(--space-2);
-    padding: 12px 20px;
+    padding: var(--space-3) 20px;
     border-top: 1px solid rgba(255, 255, 255, 0.04);
     background: var(--bg-secondary);
 }
@@ -6841,7 +6841,7 @@ code.file-path, code.branch-name {
 .roadmap-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-    gap: 12px;
+    gap: var(--space-3);
     padding: 16px;
 }
 
@@ -6930,7 +6930,7 @@ code.file-path, code.branch-name {
 }
 
 .roadmap-feature-desc {
-    font-size: 12px;
+    font-size: var(--space-3);
     color: var(--text-secondary);
     line-height: 1.5;
 }
@@ -6947,7 +6947,7 @@ code.file-path, code.branch-name {
     font-size: 14px;
     font-weight: 600;
     color: var(--text-primary);
-    margin-bottom: 12px;
+    margin-bottom: var(--space-3);
 }
 
 .roadmap-form-fields {
@@ -6963,7 +6963,7 @@ code.file-path, code.branch-name {
 .ideation-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-    gap: 12px;
+    gap: var(--space-3);
     padding: 16px;
 }
 
@@ -7044,7 +7044,7 @@ code.file-path, code.branch-name {
 }
 
 .ideation-card-desc {
-    font-size: 12px;
+    font-size: var(--space-3);
     color: var(--text-secondary);
     line-height: 1.5;
     margin-bottom: var(--space-2);
@@ -7071,7 +7071,7 @@ code.file-path, code.branch-name {
     align-items: center;
     justify-content: flex-end;
     gap: var(--space-2);
-    padding: var(--space-2) 12px;
+    padding: var(--space-2) var(--space-3);
     border-bottom: 1px solid rgba(255, 255, 255, 0.04);
 }
 
@@ -7093,7 +7093,7 @@ code.file-path, code.branch-name {
     border: 1px solid rgba(255, 255, 255, 0.06);
     padding: 5px 10px;
     border-radius: var(--radius-lg);
-    font-size: 12px;
+    font-size: var(--space-3);
     font-weight: 500;
     cursor: pointer;
     font-family: inherit;
@@ -7118,7 +7118,7 @@ code.file-path, code.branch-name {
     background: var(--bg-card);
     color: var(--text-muted);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    font-size: 12px;
+    font-size: var(--space-3);
     font-weight: 500;
     transition: background var(--transition-fast), color var(--transition-fast);
 }
@@ -7138,9 +7138,9 @@ code.file-path, code.branch-name {
     background: rgba(239, 68, 68, 0.15);
     color: var(--accent-red);
     border: 1px solid rgba(239, 68, 68, 0.3);
-    padding: var(--space-1) 12px;
+    padding: var(--space-1) var(--space-3);
     border-radius: var(--radius-base);
-    font-size: 12px;
+    font-size: var(--space-3);
     font-weight: 600;
     cursor: pointer;
     transition: background var(--transition-fast);
@@ -7219,7 +7219,7 @@ code.file-path, code.branch-name {
 }
 
 .terminal-title {
-    font-size: 12px;
+    font-size: var(--space-3);
     font-weight: 600;
     color: var(--text-primary);
     flex: 1;
@@ -7437,7 +7437,7 @@ code.file-path, code.branch-name {
 }
 
 .terminal-count {
-    font-size: 12px;
+    font-size: var(--space-3);
     color: var(--text-secondary);
 }
 
@@ -7454,10 +7454,10 @@ code.file-path, code.branch-name {
     background: rgba(239, 68, 68, 0.15);
     border: 1px solid rgba(239, 68, 68, 0.3);
     color: var(--accent-red);
-    padding: var(--space-2) 12px;
+    padding: var(--space-2) var(--space-3);
     border-radius: var(--radius-md);
-    font-size: 12px;
-    margin-bottom: 12px;
+    font-size: var(--space-3);
+    margin-bottom: var(--space-3);
 }
 
 .terminal-empty {
@@ -7480,7 +7480,7 @@ code.file-path, code.branch-name {
 }
 
 .terminal-empty-hint {
-    font-size: 12px;
+    font-size: var(--space-3);
     color: var(--text-muted);
 }
 
@@ -7568,9 +7568,9 @@ code.file-path, code.branch-name {
 
 .agent-terminal-pre {
     margin: 0;
-    padding: var(--space-2) 12px;
+    padding: var(--space-2) var(--space-3);
     font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
-    font-size: 12px;
+    font-size: var(--space-3);
     line-height: 1.5;
     color: var(--accent-green, #22c55e);
     white-space: pre-wrap;
@@ -7594,7 +7594,7 @@ code.file-path, code.branch-name {
 .page-header-actions {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: var(--space-3);
 }
 
 /* ══════════════════════════════════════════
@@ -7668,7 +7668,7 @@ code.file-path, code.branch-name {
 }
 
 .graph-memory-detail {
-    font-size: 12px;
+    font-size: var(--space-3);
     color: var(--accent-orange);
     margin-bottom: var(--space-1);
 }
@@ -7725,14 +7725,14 @@ code.file-path, code.branch-name {
 }
 
 .memory-count {
-    font-size: 12px;
+    font-size: var(--space-3);
     color: var(--accent-purple);
 }
 
 .memory-chips {
     display: flex;
     gap: 6px;
-    padding: 0 16px 12px;
+    padding: 0 16px var(--space-3);
     flex-wrap: wrap;
 }
 
@@ -7740,9 +7740,9 @@ code.file-path, code.branch-name {
     display: inline-flex;
     align-items: center;
     gap: var(--space-1);
-    padding: 5px 12px;
+    padding: 5px var(--space-3);
     border-radius: var(--radius-2xl);
-    font-size: 12px;
+    font-size: var(--space-3);
     font-weight: 500;
     cursor: pointer;
     border: 1px solid rgba(255, 255, 255, 0.06);
@@ -7763,7 +7763,7 @@ code.file-path, code.branch-name {
 }
 
 .memory-chip-icon {
-    font-size: 12px;
+    font-size: var(--space-3);
 }
 
 .memory-empty {
@@ -7772,7 +7772,7 @@ code.file-path, code.branch-name {
     align-items: center;
     justify-content: center;
     padding: 48px 16px;
-    gap: 12px;
+    gap: var(--space-3);
 }
 
 .memory-empty-icon {
@@ -7826,7 +7826,7 @@ code.file-path, code.branch-name {
    ══════════════════════════════════════════ */
 
 .mcp-header-subtitle {
-    font-size: 12px;
+    font-size: var(--space-3);
     color: var(--text-secondary);
     font-weight: 400;
 }
@@ -7876,8 +7876,8 @@ code.file-path, code.branch-name {
 .mcp-server-item {
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 12px 16px;
+    gap: var(--space-3);
+    padding: var(--space-3) 16px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.04);
     transition: background var(--transition-fast);
 }
@@ -7934,7 +7934,7 @@ code.file-path, code.branch-name {
     margin: 0 16px;
     text-align: center;
     color: var(--text-muted);
-    font-size: 12px;
+    font-size: var(--space-3);
 }
 
 .mcp-add-btn {
@@ -7943,7 +7943,7 @@ code.file-path, code.branch-name {
     gap: var(--space-1);
     padding: 5px 14px;
     border-radius: var(--radius-md);
-    font-size: 12px;
+    font-size: var(--space-3);
     font-weight: 500;
     color: var(--accent-purple);
     border: 1px solid rgba(124, 58, 237, 0.3);
@@ -7959,7 +7959,7 @@ code.file-path, code.branch-name {
 }
 
 .mcp-agents-section-title {
-    font-size: 12px;
+    font-size: var(--space-3);
     font-weight: 600;
     color: var(--text-secondary);
     padding: 20px 16px var(--space-2);
@@ -7993,7 +7993,7 @@ code.file-path, code.branch-name {
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: var(--radius-lg);
-    padding: 12px 14px;
+    padding: var(--space-3) 14px;
     transition: border-color var(--transition-fast);
 }
 
@@ -8058,7 +8058,7 @@ code.file-path, code.branch-name {
    ══════════════════════════════════════════ */
 
 .worktree-header-desc {
-    font-size: 12px;
+    font-size: var(--space-3);
     color: var(--text-secondary);
     font-weight: 400;
 }
@@ -8086,7 +8086,7 @@ code.file-path, code.branch-name {
     background: rgba(124, 58, 237, 0.12);
     color: var(--accent-purple);
     border: 1px solid rgba(124, 58, 237, 0.3);
-    margin-left: 12px;
+    margin-left: var(--space-3);
 }
 
 .worktree-cards {
@@ -8150,7 +8150,7 @@ code.file-path, code.branch-name {
 }
 
 .worktree-bead-link {
-    font-size: 12px;
+    font-size: var(--space-3);
     color: var(--accent-cyan);
     font-family: 'JetBrains Mono', monospace;
     cursor: pointer;
@@ -8163,10 +8163,10 @@ code.file-path, code.branch-name {
 
 .worktree-stats {
     display: flex;
-    gap: 12px;
+    gap: var(--space-3);
     align-items: center;
     margin-bottom: var(--space-2);
-    font-size: 12px;
+    font-size: var(--space-3);
     color: var(--text-muted);
 }
 
@@ -8218,7 +8218,7 @@ code.file-path, code.branch-name {
 }
 
 .wt-btn {
-    padding: var(--space-1) 12px;
+    padding: var(--space-1) var(--space-3);
     border-radius: var(--radius-md);
     font-size: 11px;
     font-weight: 600;
@@ -8287,7 +8287,7 @@ code.file-path, code.branch-name {
     align-items: center;
     justify-content: center;
     padding: 48px 16px;
-    gap: 12px;
+    gap: var(--space-3);
 }
 
 .worktree-empty-icon {
@@ -8301,7 +8301,7 @@ code.file-path, code.branch-name {
 }
 
 .worktree-empty-hint {
-    font-size: 12px;
+    font-size: var(--space-3);
     color: var(--text-muted);
 }
 
@@ -8375,8 +8375,8 @@ code.file-path, code.branch-name {
 }
 
 .btn-sm {
-    padding: 5px 12px;
-    font-size: 12px;
+    padding: 5px var(--space-3);
+    font-size: var(--space-3);
 }
 
 .btn-lg {
@@ -8387,7 +8387,7 @@ code.file-path, code.branch-name {
 
 .btn-full-width {
     width: 100%;
-    margin-bottom: 12px;
+    margin-bottom: var(--space-3);
 }
 
 .btn-analyze {
@@ -8450,7 +8450,7 @@ code.file-path, code.branch-name {
 }
 
 .form-label {
-    font-size: 12px;
+    font-size: var(--space-3);
     font-weight: 600;
     color: var(--text-secondary);
     margin-bottom: var(--space-1);
@@ -8459,7 +8459,7 @@ code.file-path, code.branch-name {
 .page-header-left {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: var(--space-3);
 }
 
 .page-header-right {
@@ -8469,13 +8469,13 @@ code.file-path, code.branch-name {
 }
 
 .page-header-hint {
-    font-size: 12px;
+    font-size: var(--space-3);
     color: var(--text-muted);
     margin-left: var(--space-1);
 }
 
 .repo-name {
-    font-size: 12px;
+    font-size: var(--space-3);
     color: var(--text-muted);
     font-family: 'JetBrains Mono', monospace;
     background: rgba(124, 58, 237, 0.08);
@@ -8504,7 +8504,7 @@ code.file-path, code.branch-name {
 .changelog-subtitle {
     font-size: 13px;
     color: var(--text-secondary);
-    margin-bottom: 12px;
+    margin-bottom: var(--space-3);
 }
 
 .changelog-steps {
@@ -8512,7 +8512,7 @@ code.file-path, code.branch-name {
     align-items: center;
     gap: 0;
     margin-bottom: 24px;
-    padding: 12px 0;
+    padding: var(--space-3) 0;
 }
 
 .changelog-step {
@@ -8538,7 +8538,7 @@ code.file-path, code.branch-name {
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 12px;
+    font-size: var(--space-3);
     font-weight: 700;
     background: var(--border);
     color: var(--text-secondary);
@@ -8608,7 +8608,7 @@ code.file-path, code.branch-name {
     border-radius: var(--radius-lg);
     font-size: 13px;
     font-weight: 500;
-    margin-bottom: 12px;
+    margin-bottom: var(--space-3);
 }
 
 /* Source cards */
@@ -8700,7 +8700,7 @@ code.file-path, code.branch-name {
     justify-content: space-between;
     padding: 10px 14px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-    font-size: 12px;
+    font-size: var(--space-3);
     color: var(--text-secondary);
 }
 
@@ -8738,7 +8738,7 @@ code.file-path, code.branch-name {
 
 .changelog-task-check {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 12px;
+    font-size: var(--space-3);
     color: var(--text-muted);
     flex-shrink: 0;
 }
@@ -8793,7 +8793,7 @@ code.file-path, code.branch-name {
     border: 1px solid rgba(124, 58, 237, 0.15);
     border-radius: var(--radius-md);
     padding: 10px 14px;
-    font-size: 12px;
+    font-size: var(--space-3);
     color: var(--text-secondary);
 }
 
@@ -8829,7 +8829,7 @@ code.file-path, code.branch-name {
 
 .changelog-change-icon {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 12px;
+    font-size: var(--space-3);
     font-weight: 700;
     width: 20px;
     text-align: center;
@@ -8944,7 +8944,7 @@ code.file-path, code.branch-name {
 }
 
 .changelog-entry-date {
-    font-size: 12px;
+    font-size: var(--space-3);
     color: var(--text-muted);
 }
 
@@ -8955,11 +8955,11 @@ code.file-path, code.branch-name {
 
 .changelog-entry-details {
     margin-top: 14px;
-    padding-top: 12px;
+    padding-top: var(--space-3);
     border-top: 1px solid rgba(255, 255, 255, 0.04);
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: var(--space-3);
 }
 
 .changelog-category-group {
@@ -8969,7 +8969,7 @@ code.file-path, code.branch-name {
 }
 
 .changelog-category-title {
-    font-size: 12px;
+    font-size: var(--space-3);
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.05em;
@@ -8988,7 +8988,7 @@ code.file-path, code.branch-name {
     font-size: 13px;
     color: var(--text-secondary);
     position: relative;
-    padding-left: 12px;
+    padding-left: var(--space-3);
 }
 
 .changelog-change-li::before {
@@ -9001,7 +9001,7 @@ code.file-path, code.branch-name {
 /* ── Settings Page: Extended Styles ──────────────────────── */
 
 .settings-panel-subtitle {
-    font-size: 12px;
+    font-size: var(--space-3);
     color: var(--text-muted);
     margin-top: -12px;
     margin-bottom: 24px;
@@ -9021,7 +9021,7 @@ code.file-path, code.branch-name {
 .settings-card-grid {
     display: grid;
     gap: 10px;
-    margin-bottom: 12px;
+    margin-bottom: var(--space-3);
 }
 
 .settings-card-grid-2 {
@@ -9037,7 +9037,7 @@ code.file-path, code.branch-name {
     flex-direction: column;
     align-items: center;
     gap: 6px;
-    padding: 14px 12px;
+    padding: 14px var(--space-3);
     background: var(--bg-secondary);
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: var(--radius-lg);
@@ -9106,7 +9106,7 @@ code.file-path, code.branch-name {
 .settings-theme-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 12px;
+    gap: var(--space-3);
     margin-top: var(--space-2);
 }
 
@@ -9172,7 +9172,7 @@ code.file-path, code.branch-name {
 
 .settings-lang-card {
     flex-direction: row;
-    gap: 12px;
+    gap: var(--space-3);
     align-items: center;
 }
 
@@ -9226,7 +9226,7 @@ code.file-path, code.branch-name {
     border: 1px solid rgba(239, 68, 68, 0.25);
     border-radius: var(--radius-lg);
     padding: 10px 14px;
-    font-size: 12px;
+    font-size: var(--space-3);
     color: var(--accent-red);
     margin-top: var(--space-2);
 }
@@ -9252,7 +9252,7 @@ code.file-path, code.branch-name {
     border: 1px solid rgba(255, 255, 255, 0.06);
     padding: var(--space-1) 10px;
     border-radius: var(--radius-base);
-    font-size: 12px;
+    font-size: var(--space-3);
     color: var(--text-secondary);
 }
 
@@ -9262,7 +9262,7 @@ code.file-path, code.branch-name {
     background: none;
     border: none;
     color: var(--accent-purple);
-    font-size: 12px;
+    font-size: var(--space-3);
     cursor: pointer;
     font-family: inherit;
     padding: var(--space-1) 0;
@@ -9310,7 +9310,7 @@ code.file-path, code.branch-name {
     background: var(--bg-secondary);
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: var(--radius-lg);
-    padding: 12px 14px;
+    padding: var(--space-3) 14px;
     margin-bottom: 10px;
 }
 
@@ -9328,7 +9328,7 @@ code.file-path, code.branch-name {
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 12px;
+    font-size: var(--space-3);
     font-weight: 700;
     color: #fff;
     flex-shrink: 0;
@@ -9373,7 +9373,7 @@ code.file-path, code.branch-name {
     border: 1px solid rgba(59, 130, 246, 0.2);
     border-radius: var(--radius-lg);
     padding: 10px 14px;
-    font-size: 12px;
+    font-size: var(--space-3);
     color: var(--accent-blue);
 }
 
@@ -9393,9 +9393,9 @@ code.file-path, code.branch-name {
 }
 
 .settings-local-provider-card {
-    margin-top: 12px;
+    margin-top: var(--space-3);
     margin-bottom: 16px;
-    padding: 12px;
+    padding: var(--space-3);
     border: 1px solid rgba(34, 197, 94, 0.24);
     background: rgba(34, 197, 94, 0.05);
     border-radius: var(--radius-lg);
@@ -9408,7 +9408,7 @@ code.file-path, code.branch-name {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
+    gap: var(--space-3);
 }
 
 .settings-local-provider-row-wrap {
@@ -9451,12 +9451,12 @@ code.file-path, code.branch-name {
 }
 
 .settings-local-provider-actions .btn-secondary {
-    padding: 7px 12px;
+    padding: 7px var(--space-3);
     border-radius: 7px;
     border: 1px solid rgba(124, 58, 237, 0.45);
     background: rgba(124, 58, 237, 0.14);
     color: var(--accent-purple);
-    font-size: 12px;
+    font-size: var(--space-3);
     font-weight: 600;
 }
 
@@ -9481,7 +9481,7 @@ code.file-path, code.branch-name {
 .settings-probe-result {
     border-radius: var(--radius-md);
     padding: var(--space-2) 10px;
-    font-size: 12px;
+    font-size: var(--space-3);
 }
 
 .settings-probe-result.ok {
@@ -9548,7 +9548,7 @@ code.file-path, code.branch-name {
 }
 
 .settings-empty-state p {
-    font-size: 12px;
+    font-size: var(--space-3);
     color: var(--text-muted);
 }
 
@@ -9562,7 +9562,7 @@ code.file-path, code.branch-name {
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: var(--radius-lg);
     padding: 16px;
-    margin-bottom: 12px;
+    margin-bottom: var(--space-3);
 }
 
 .settings-version-info {
@@ -9621,7 +9621,7 @@ code.file-path, code.branch-name {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: var(--space-2) 12px;
+    padding: var(--space-2) var(--space-3);
     background: var(--bg-secondary);
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: var(--radius-md);
@@ -9634,7 +9634,7 @@ code.file-path, code.branch-name {
 }
 
 .settings-model-name {
-    font-size: 12px;
+    font-size: var(--space-3);
     font-weight: 500;
     color: var(--text-primary);
     font-family: 'JetBrains Mono', monospace;
@@ -9717,8 +9717,8 @@ code.file-path, code.branch-name {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
-    margin-bottom: 12px;
+    gap: var(--space-3);
+    margin-bottom: var(--space-3);
 }
 
 .issues-search-wrapper {
@@ -9728,7 +9728,7 @@ code.file-path, code.branch-name {
 
 .issues-search-input {
     width: 100%;
-    padding: 7px 12px;
+    padding: 7px var(--space-3);
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: var(--radius-md);
@@ -9746,7 +9746,7 @@ code.file-path, code.branch-name {
 .issues-controls-right {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: var(--space-3);
 }
 
 .auto-fix-toggle {
@@ -9757,7 +9757,7 @@ code.file-path, code.branch-name {
 }
 
 .auto-fix-label {
-    font-size: 12px;
+    font-size: var(--space-3);
     color: var(--text-secondary);
     font-weight: 500;
 }
@@ -9891,7 +9891,7 @@ button.toggle-switch.active .toggle-knob {
 
 .issue-number {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 12px;
+    font-size: var(--space-3);
     color: var(--text-muted);
     flex-shrink: 0;
 }
@@ -9972,7 +9972,7 @@ button.toggle-switch.active .toggle-knob {
 .issue-detail-row {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: var(--space-3);
     padding: var(--space-2) 0;
     border-bottom: 1px solid rgba(255, 255, 255, 0.04);
 }
@@ -10019,15 +10019,15 @@ button.toggle-switch.active .toggle-knob {
     padding: 10px 16px;
     font-size: 13px;
     color: var(--accent-purple);
-    margin-bottom: 12px;
+    margin-bottom: var(--space-3);
 }
 
 .prs-controls {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
-    margin-bottom: 12px;
+    gap: var(--space-3);
+    margin-bottom: var(--space-3);
 }
 
 .prs-search-wrapper {
@@ -10037,7 +10037,7 @@ button.toggle-switch.active .toggle-knob {
 
 .prs-search-input {
     width: 100%;
-    padding: 7px 12px;
+    padding: 7px var(--space-3);
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: var(--radius-md);
@@ -10063,7 +10063,7 @@ button.toggle-switch.active .toggle-knob {
     background: transparent;
     border: 1px solid rgba(255, 255, 255, 0.06);
     color: var(--text-secondary);
-    font-size: 12px;
+    font-size: var(--space-3);
     font-weight: 500;
     cursor: pointer;
     font-family: inherit;
@@ -10159,7 +10159,7 @@ button.toggle-switch.active .toggle-knob {
 
 .pr-number {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 12px;
+    font-size: var(--space-3);
     color: var(--text-muted);
     flex-shrink: 0;
 }
@@ -10280,7 +10280,7 @@ button.toggle-switch.active .toggle-knob {
 
 .claude-code-dropdown-item {
     padding: var(--space-2) 14px;
-    font-size: 12px;
+    font-size: var(--space-3);
     color: var(--text-secondary);
     cursor: pointer;
     transition: background var(--transition-fast), color var(--transition-fast);
@@ -10428,7 +10428,7 @@ button.toggle-switch.active .toggle-knob {
 }
 
 .notification-panel-header {
-    padding: 12px 16px;
+    padding: var(--space-3) 16px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.04);
     display: flex;
     justify-content: space-between;
@@ -10446,7 +10446,7 @@ button.toggle-switch.active .toggle-knob {
     background: none;
     border: none;
     color: var(--accent-purple);
-    font-size: 12px;
+    font-size: var(--space-3);
     font-weight: 500;
     cursor: pointer;
     padding: var(--space-1) var(--space-2);
@@ -10497,10 +10497,10 @@ button.toggle-switch.active .toggle-knob {
 }
 
 .notification-item {
-    padding: 12px 16px;
+    padding: var(--space-3) 16px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.04);
     display: flex;
-    gap: 12px;
+    gap: var(--space-3);
     transition: background var(--transition-fast);
     cursor: pointer;
 }
@@ -10568,7 +10568,7 @@ button.toggle-switch.active .toggle-knob {
 }
 
 .notif-message {
-    font-size: 12px;
+    font-size: var(--space-3);
     color: var(--text-secondary);
     margin-bottom: 6px;
     line-height: 1.4;
@@ -10577,7 +10577,7 @@ button.toggle-switch.active .toggle-knob {
 
 .notif-meta {
     display: flex;
-    gap: 12px;
+    gap: var(--space-3);
     font-size: 11px;
     color: var(--text-secondary);
 }
@@ -10599,7 +10599,7 @@ button.toggle-switch.active .toggle-knob {
     z-index: 2000;
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: var(--space-3);
     pointer-events: none;
 }
 
@@ -10657,7 +10657,7 @@ button.toggle-switch.active .toggle-knob {
 }
 
 .toast-body {
-    font-size: 12px;
+    font-size: var(--space-3);
     color: var(--text-secondary);
     line-height: 1.4;
 }
@@ -10766,7 +10766,7 @@ button.toggle-switch.active .toggle-knob {
     background: var(--accent-purple);
     border-color: var(--accent-purple);
     color: #fff;
-    box-shadow: 0 0 12px rgba(124, 58, 237, 0.4);
+    box-shadow: 0 0 var(--space-3) rgba(124, 58, 237, 0.4);
 }
 
 .onboarding-dot.completed {
@@ -10831,7 +10831,7 @@ button.toggle-switch.active .toggle-knob {
     font-size: 28px;
     font-weight: 700;
     color: var(--text-primary);
-    margin-bottom: 12px;
+    margin-bottom: var(--space-3);
     letter-spacing: -0.02em;
 }
 
@@ -10858,7 +10858,7 @@ button.toggle-switch.active .toggle-knob {
 
 .onboarding-actions {
     display: flex;
-    gap: 12px;
+    gap: var(--space-3);
     margin-top: 32px;
     justify-content: center;
     width: 100%;
@@ -10873,7 +10873,7 @@ button.toggle-switch.active .toggle-knob {
 .onboarding-option-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 12px;
+    gap: var(--space-3);
     width: 100%;
     margin-bottom: var(--space-2);
 }
@@ -10886,7 +10886,7 @@ button.toggle-switch.active .toggle-knob {
     background: var(--bg-secondary);
     border: 2px solid var(--border);
     border-radius: var(--radius-xl);
-    padding: 16px 12px;
+    padding: 16px var(--space-3);
     cursor: pointer;
     transition: all var(--transition-base);
     display: flex;
@@ -10975,7 +10975,7 @@ button.toggle-switch.active .toggle-knob {
 }
 
 .onboarding-env-list code {
-    font-size: 12px;
+    font-size: var(--space-3);
     color: var(--accent-cyan);
     background: var(--bg-primary);
     padding: var(--space-1) 10px;
@@ -10984,7 +10984,7 @@ button.toggle-switch.active .toggle-knob {
 }
 
 .onboarding-env-hint {
-    font-size: 12px;
+    font-size: var(--space-3);
     color: var(--text-muted);
     margin-top: 10px;
 }
@@ -10995,7 +10995,7 @@ button.toggle-switch.active .toggle-knob {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 12px;
+    gap: var(--space-3);
     margin-top: 16px;
     width: 100%;
 }
@@ -11049,7 +11049,7 @@ button.toggle-switch.active .toggle-knob {
     color: var(--text-primary);
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: var(--radius-lg);
-    padding: 10px 12px;
+    padding: 10px var(--space-3);
     font-size: 13px;
 }
 
@@ -11199,7 +11199,7 @@ button.toggle-switch.active .toggle-knob {
     border: none;
     border-bottom: 2px solid transparent;
     color: var(--text-secondary);
-    font-size: 12px;
+    font-size: var(--space-3);
     font-weight: 600;
     cursor: pointer;
     font-family: inherit;
@@ -11225,7 +11225,7 @@ button.toggle-switch.active .toggle-knob {
     font-size: 16px;
     font-weight: 600;
     color: var(--text-primary);
-    margin-bottom: 12px;
+    margin-bottom: var(--space-3);
 }
 
 .overview-section {
@@ -11233,7 +11233,7 @@ button.toggle-switch.active .toggle-knob {
 }
 
 .overview-section h4 {
-    font-size: 12px;
+    font-size: var(--space-3);
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.05em;
@@ -11276,9 +11276,9 @@ button.toggle-switch.active .toggle-knob {
 }
 
 .subtasks-progress-text {
-    font-size: 12px;
+    font-size: var(--space-3);
     color: var(--text-muted);
-    margin-bottom: 12px;
+    margin-bottom: var(--space-3);
 }
 
 .subtasks-list {
@@ -11292,7 +11292,7 @@ button.toggle-switch.active .toggle-knob {
     display: flex;
     align-items: center;
     gap: var(--space-2);
-    padding: var(--space-2) 12px;
+    padding: var(--space-2) var(--space-3);
     font-size: 13px;
     color: var(--text-primary);
 }
@@ -11332,11 +11332,11 @@ button.toggle-switch.active .toggle-knob {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-bottom: 12px;
+    margin-bottom: var(--space-3);
 }
 
 .code-tab-label {
-    font-size: 12px;
+    font-size: var(--space-3);
     font-weight: 600;
     color: var(--text-muted);
     text-transform: uppercase;
@@ -11354,7 +11354,7 @@ button.toggle-switch.active .toggle-knob {
     display: flex;
     align-items: center;
     gap: var(--space-2);
-    padding: var(--space-2) 12px;
+    padding: var(--space-2) var(--space-3);
     font-size: 13px;
 }
 
@@ -11392,7 +11392,7 @@ button.toggle-switch.active .toggle-knob {
 
 .code-file-path {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 12px;
+    font-size: var(--space-3);
     color: var(--text-primary);
 }
 
@@ -11474,10 +11474,10 @@ button.toggle-switch.active .toggle-knob {
 .task-warning {
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 12px 16px;
+    gap: var(--space-3);
+    padding: var(--space-3) 16px;
     border-radius: var(--radius-lg);
-    margin-bottom: 12px;
+    margin-bottom: var(--space-3);
     border: 1px solid;
 }
 
@@ -11512,7 +11512,7 @@ button.toggle-switch.active .toggle-knob {
 }
 
 .stuck-warning-text p {
-    font-size: 12px;
+    font-size: var(--space-3);
     color: var(--text-secondary);
     margin: 0;
 }
@@ -11540,7 +11540,7 @@ button.toggle-switch.active .toggle-knob {
 }
 
 .task-warning-body p {
-    font-size: 12px;
+    font-size: var(--space-3);
     color: var(--text-secondary);
     margin: 0;
 }
@@ -11650,7 +11650,7 @@ button.toggle-switch.active .toggle-knob {
     display: flex;
     align-items: center;
     gap: var(--space-2);
-    padding: var(--space-2) 12px;
+    padding: var(--space-2) var(--space-3);
     width: 100%;
     background: none;
     border: none;
@@ -11697,7 +11697,7 @@ button.toggle-switch.active .toggle-knob {
 
 .diff-view {
     font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
-    font-size: 12px;
+    font-size: var(--space-3);
     line-height: 1.6;
     margin: 0;
     padding: var(--space-2) 0;
@@ -11770,11 +11770,11 @@ button.toggle-switch.active .toggle-knob {
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 12px;
+    padding: var(--space-3);
     background: rgba(239, 68, 68, 0.1);
     border: 1px solid rgba(239, 68, 68, 0.3);
     border-radius: var(--radius-lg);
-    margin-bottom: 12px;
+    margin-bottom: var(--space-3);
 }
 
 .discard-warning-icon {
@@ -11799,7 +11799,7 @@ button.toggle-switch.active .toggle-knob {
 }
 
 .discard-detail {
-    font-size: 12px;
+    font-size: var(--space-3);
     color: var(--text-secondary);
     line-height: 1.6;
 }
@@ -11829,7 +11829,7 @@ button.toggle-switch.active .toggle-knob {
 .qa-pass {
     display: inline-flex;
     align-items: center;
-    padding: var(--space-1) 12px;
+    padding: var(--space-1) var(--space-3);
     border-radius: var(--radius-xl);
     font-size: 11px;
     font-weight: 700;
@@ -11842,7 +11842,7 @@ button.toggle-switch.active .toggle-knob {
 .qa-fail {
     display: inline-flex;
     align-items: center;
-    padding: var(--space-1) 12px;
+    padding: var(--space-1) var(--space-3);
     border-radius: var(--radius-xl);
     font-size: 11px;
     font-weight: 700;
@@ -11877,7 +11877,7 @@ button.toggle-switch.active .toggle-knob {
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 12px;
+    font-size: var(--space-3);
     font-weight: 700;
     flex-shrink: 0;
 }
@@ -11915,7 +11915,7 @@ button.toggle-switch.active .toggle-knob {
 }
 
 .qa-suggestions h4 {
-    font-size: 12px;
+    font-size: var(--space-3);
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.05em;
@@ -11933,7 +11933,7 @@ button.toggle-switch.active .toggle-knob {
 }
 
 .qa-suggestions li {
-    font-size: 12px;
+    font-size: var(--space-3);
     color: var(--text-secondary);
     padding: var(--space-2) 14px;
     line-height: 1.5;
@@ -11975,7 +11975,7 @@ button.toggle-switch.active .toggle-knob {
     color: var(--accent-orange);
     padding: var(--space-2) 16px;
     border-radius: var(--radius-md);
-    font-size: 12px;
+    font-size: var(--space-3);
     font-weight: 600;
     cursor: pointer;
     font-family: inherit;
@@ -11999,12 +11999,12 @@ button.toggle-switch.active .toggle-knob {
 
 .model-selector {
     width: 100%;
-    padding: var(--space-2) 12px;
+    padding: var(--space-2) var(--space-3);
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: var(--radius-lg);
     color: var(--text-primary);
-    font-size: 12px;
+    font-size: var(--space-3);
     font-family: inherit;
     cursor: pointer;
     appearance: none;
@@ -12035,7 +12035,7 @@ button.toggle-switch.active .toggle-knob {
 .dragging {
     opacity: 0.5;
     transform: scale(0.98);
-    box-shadow: 0 0 12px rgba(124, 58, 237, 0.3);
+    box-shadow: 0 0 var(--space-3) rgba(124, 58, 237, 0.3);
     transition: opacity var(--transition-fast), transform var(--transition-fast);
 }
 
@@ -12066,7 +12066,7 @@ button.toggle-switch.active .toggle-knob {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 12px 14px;
+    padding: var(--space-3) 14px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.04);
 }
 
@@ -12105,7 +12105,7 @@ button.toggle-switch.active .toggle-knob {
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: var(--radius-base);
     color: var(--text-primary);
-    font-size: 12px;
+    font-size: var(--space-3);
     outline: none;
     transition: border-color var(--transition-fast);
 }
@@ -12127,7 +12127,7 @@ button.toggle-switch.active .toggle-knob {
 .file-explorer-loading {
     padding: 16px 14px;
     color: var(--text-muted);
-    font-size: 12px;
+    font-size: var(--space-3);
     text-align: center;
 }
 
@@ -12143,7 +12143,7 @@ button.toggle-switch.active .toggle-knob {
     gap: 6px;
     padding: 3px var(--space-2);
     cursor: pointer;
-    font-size: 12px;
+    font-size: var(--space-3);
     color: var(--text-secondary);
     transition: background var(--transition-fast), color var(--transition-fast);
     user-select: none;
@@ -12206,7 +12206,7 @@ button.toggle-switch.active .toggle-knob {
 /* ── Project Tabs ── */
 
 .project-tabs { display: flex; background: var(--bg-primary); border-bottom: 1px solid rgba(255, 255, 255, 0.04); padding: 0 var(--space-2); gap: 2px; overflow-x: auto; }
-.project-tab { display: flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: var(--radius-md) 6px 0 0; cursor: pointer; font-size: 0.8rem; color: var(--text-muted); transition: all var(--transition-base); white-space: nowrap; }
+.project-tab { display: flex; align-items: center; gap: 6px; padding: 6px var(--space-3); border-radius: var(--radius-md) 6px 0 0; cursor: pointer; font-size: 0.8rem; color: var(--text-muted); transition: all var(--transition-base); white-space: nowrap; }
 .project-tab:hover { background: var(--bg-card); color: var(--text-primary); }
 .project-tab.active { background: var(--bg-card); color: var(--accent-purple); border-bottom: 2px solid var(--accent-purple); }
 .project-tab-close { opacity: 0; font-size: 0.7rem; cursor: pointer; padding: 2px; border-radius: var(--radius-md); }
@@ -12749,12 +12749,12 @@ button.toggle-switch.active .toggle-knob {
 [data-mode="foil"] .action-btn:hover {
   background: rgba(139, 92, 246, 0.25);
   border-color: var(--accent-purple);
-  box-shadow: 0 0 12px rgba(139, 92, 246, 0.2);
+  box-shadow: 0 0 var(--space-3) rgba(139, 92, 246, 0.2);
 }
 
 /* Foil: Terminal Grid & Agent Panes */
 [data-mode="foil"] .terminal-grid {
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 [data-mode="foil"] .terminal-emulator {
@@ -12822,11 +12822,11 @@ button.toggle-switch.active .toggle-knob {
 }
 
 [data-mode="foil"] .agent-status-dot.dot-active {
-  box-shadow: 0 0 6px #22c55e, 0 0 12px rgba(34, 197, 94, 0.4);
+  box-shadow: 0 0 6px #22c55e, 0 0 var(--space-3) rgba(34, 197, 94, 0.4);
 }
 
 [data-mode="foil"] .agent-status-dot.dot-idle {
-  box-shadow: 0 0 6px #eab308, 0 0 12px rgba(234, 179, 8, 0.3);
+  box-shadow: 0 0 6px #eab308, 0 0 var(--space-3) rgba(234, 179, 8, 0.3);
 }
 
 /* Foil: Settings Modal Overlay */
@@ -12844,7 +12844,7 @@ button.toggle-switch.active .toggle-knob {
 [data-mode="foil"] .settings-sidebar .settings-nav-item.active {
   background: rgba(139, 92, 246, 0.15);
   border-color: rgba(139, 92, 246, 0.5);
-  box-shadow: 0 0 12px rgba(139, 92, 246, 0.1);
+  box-shadow: 0 0 var(--space-3) rgba(139, 92, 246, 0.1);
 }
 
 [data-mode="foil"] .settings-card-option {
@@ -12994,7 +12994,7 @@ button.toggle-switch.active .toggle-knob {
 [data-mode="vt100"] .agent-card {
   border: 1px solid #008800;
   background: #000;
-  padding: var(--space-2) 12px;
+  padding: var(--space-2) var(--space-3);
 }
 
 [data-mode="vt100"] .agent-card:hover {
@@ -13045,7 +13045,7 @@ button.toggle-switch.active .toggle-knob {
   border: 1px solid #008800;
   background: #000;
   text-align: left;
-  padding: var(--space-2) 12px;
+  padding: var(--space-2) var(--space-3);
 }
 
 [data-mode="vt100"] .kpi-card .kpi-value {
@@ -13549,7 +13549,7 @@ button.toggle-switch.active .toggle-knob {
 
 .kpi-card:hover {
   transform: translateY(-2px);
-  box-shadow: 0 var(--space-1) 12px rgba(0, 0, 0, 0.15), 0 0 0 1px var(--border-light);
+  box-shadow: 0 var(--space-1) var(--space-3) rgba(0, 0, 0, 0.15), 0 0 0 1px var(--border-light);
 }
 
 /* ── KPI Value — entrance scale-up on first paint ── */
@@ -13636,7 +13636,7 @@ button[class*="-btn"]:active {
 }
 
 .settings-card-option.selected {
-  box-shadow: 0 0 0 2px var(--accent-purple), 0 0 12px rgba(124, 58, 237, 0.15);
+  box-shadow: 0 0 0 2px var(--accent-purple), 0 0 var(--space-3) rgba(124, 58, 237, 0.15);
 }
 
 /* ── GitHub Issue/PR Row — hover highlight slide ── */
@@ -13730,7 +13730,7 @@ button[class*="-btn"]:active {
 
 /* Issues/PRs shared layout */
 .issues-controls, .prs-controls {
-    padding: 0 16px 12px;
+    padding: 0 16px var(--space-3);
 }
 .issues-two-pane {
     margin: 0 16px;
@@ -13741,7 +13741,7 @@ button[class*="-btn"]:active {
     padding: 16px;
 }
 .prs-contributors-list h3 {
-    margin: 0 0 12px;
+    margin: 0 0 var(--space-3);
     font-size: 14px;
     font-weight: 600;
 }
@@ -13755,7 +13755,7 @@ button[class*="-btn"]:active {
 .contributor-row span { flex: 1; }
 
 /* Changelog steps/subtitle padding */
-.changelog-subtitle { padding: 12px 16px 0; }
+.changelog-subtitle { padding: var(--space-3) 16px 0; }
 .changelog-steps { padding: 0 16px; }
 
 /* Roadmap view toggles */
@@ -13770,7 +13770,7 @@ button[class*="-btn"]:active {
     border: 1px solid rgba(255, 255, 255, 0.06);
     background: transparent;
     color: var(--text-secondary);
-    font-size: 12px;
+    font-size: var(--space-3);
     cursor: pointer;
     font-family: inherit;
     transition: all var(--transition-fast);
@@ -13787,7 +13787,7 @@ button[class*="-btn"]:active {
 /* Roadmap kanban layout */
 .roadmap-kanban {
     display: flex;
-    gap: 12px;
+    gap: var(--space-3);
     padding: 16px;
     overflow-x: auto;
 }
@@ -13799,9 +13799,9 @@ button[class*="-btn"]:active {
     flex: 1;
 }
 .roadmap-kanban-column h4 {
-    padding: 10px 12px;
+    padding: 10px var(--space-3);
     margin: 0;
-    font-size: 12px;
+    font-size: var(--space-3);
     font-weight: 600;
     color: var(--text-secondary);
     border-bottom: 1px solid rgba(255, 255, 255, 0.04);
@@ -13851,7 +13851,7 @@ button[class*="-btn"]:active {
 .spinner-lg { width: 32px; height: 32px; border-width: 3px; }
 
 .spinner-label {
-    font-size: 12px;
+    font-size: var(--space-3);
     color: var(--text-muted);
 }
 
@@ -13860,7 +13860,7 @@ button[class*="-btn"]:active {
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: var(--radius-lg);
-    padding: 12px;
+    padding: var(--space-3);
     margin-bottom: var(--space-2);
     display: flex;
     flex-direction: column;
@@ -14091,7 +14091,7 @@ button[class*="-btn"]:active {
 
 /* Settings gear: continuous rotation on hover */
 .sidebar-item:nth-child(14) .sidebar-item-icon svg path {
-    transform-origin: 12px 12px;
+    transform-origin: var(--space-3) 12px;
 }
 
 .sidebar-item:nth-child(14):hover .sidebar-item-icon svg path {
@@ -14272,8 +14272,8 @@ button[class*="-btn"]:active {
     content: '';
     position: absolute;
     bottom: 0;
-    left: 12px;
-    right: 12px;
+    left: var(--space-3);
+    right: var(--space-3);
     height: 2px;
     border-radius: 1px;
     background: linear-gradient(90deg, transparent, var(--accent-purple), var(--accent-cyan), transparent);
@@ -14326,7 +14326,7 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
     justify-content: space-between;
     padding: 10px 16px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-    gap: 12px;
+    gap: var(--space-3);
     min-height: 44px;
 }
 
@@ -14346,7 +14346,7 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
 }
 
 .page-toolbar-hint {
-    font-size: 12px;
+    font-size: var(--space-3);
     color: var(--text-tertiary);
 }
 
@@ -14365,7 +14365,7 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
 .page-empty-icon {
     font-size: 20px;
     color: var(--text-tertiary);
-    margin-bottom: 12px;
+    margin-bottom: var(--space-3);
     opacity: 0.5;
 }
 
@@ -14378,7 +14378,7 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
 
 .page-empty-state p {
     margin: 0;
-    font-size: 12px;
+    font-size: var(--space-3);
     color: var(--text-tertiary);
     max-width: 360px;
     line-height: 1.5;
@@ -14407,7 +14407,7 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
 
 .view-toggle {
     padding: 6px 14px;
-    font-size: 12px;
+    font-size: var(--space-3);
     font-weight: 500;
     color: var(--text-secondary);
     background: none;
@@ -14431,7 +14431,7 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
 
 .roadmap-kanban {
     display: flex;
-    gap: 12px;
+    gap: var(--space-3);
     padding: 16px;
     overflow-x: auto;
     min-height: 300px;
@@ -14455,12 +14455,12 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
 }
 
 .roadmap-kanban-column-header {
-    font-size: 12px;
+    font-size: var(--space-3);
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.04em;
     color: var(--text-secondary);
-    padding: 12px 14px;
+    padding: var(--space-3) 14px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.04);
     margin: 0;
     display: flex;
@@ -14489,7 +14489,7 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
     padding: 24px 14px;
     text-align: center;
     color: var(--text-muted);
-    font-size: 12px;
+    font-size: var(--space-3);
 }
 
 .roadmap-feature-card.dragging {
@@ -14532,11 +14532,11 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
 
 .github-issues-header,
 .github-prs-header {
-    padding: 12px 16px;
+    padding: var(--space-3) 16px;
 }
 
 .btn-analyze {
-    margin: 0 16px 12px;
+    margin: 0 16px var(--space-3);
     width: calc(100% - 32px);
 }
 
@@ -14545,7 +14545,7 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
    ══════════════════════════════════════════════════════════════ */
 
 .mcp-header-subtitle {
-    font-size: 12px;
+    font-size: var(--space-3);
     color: var(--text-muted);
 }
 
@@ -14562,7 +14562,7 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
     padding: 24px 16px;
     text-align: center;
     color: var(--text-muted);
-    font-size: 12px;
+    font-size: var(--space-3);
 }
 
 .mcp-add-btn {
@@ -14611,7 +14611,7 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
 }
 
 .worktree-header-desc {
-    font-size: 12px;
+    font-size: var(--space-3);
     color: var(--text-muted);
     margin-top: 2px;
 }
@@ -14623,7 +14623,7 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
 .session-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-    gap: 12px;
+    gap: var(--space-3);
     padding: 0 16px 16px;
 }
 
@@ -14635,7 +14635,7 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
     font-size: 13px;
     font-weight: 500;
     color: var(--text-secondary);
-    padding: 12px 16px 0;
+    padding: var(--space-3) 16px 0;
 }
 
 .changelog-preview {
@@ -14649,14 +14649,14 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
     font-size: 14px;
     font-weight: 600;
     color: var(--text-primary);
-    margin: 0 0 12px;
+    margin: 0 0 var(--space-3);
 }
 
 .changelog-release-actions {
     display: flex;
     gap: var(--space-2);
     margin-top: 16px;
-    padding-top: 12px;
+    padding-top: var(--space-3);
     border-top: 1px solid rgba(255, 255, 255, 0.04);
 }
 
@@ -14676,7 +14676,7 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
 
 .changelog-change-icon {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 12px;
+    font-size: var(--space-3);
     width: 20px;
     text-align: center;
     flex-shrink: 0;
@@ -14697,12 +14697,12 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
 }
 
 .changelog-git-input {
-    margin-top: 12px;
+    margin-top: var(--space-3);
 }
 
 .changelog-selected-summary {
     padding: var(--space-2) 0;
-    font-size: 12px;
+    font-size: var(--space-3);
     color: var(--text-secondary);
 }
 
@@ -14713,7 +14713,7 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
     padding: var(--space-2) 16px;
     margin: var(--space-2) 16px;
     border-radius: var(--radius-md);
-    font-size: 12px;
+    font-size: var(--space-3);
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -14760,7 +14760,7 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
-    gap: 12px;
+    gap: var(--space-3);
     padding: 14px 16px;
     margin: 16px;
     background: var(--bg-card);
@@ -14787,7 +14787,7 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
 }
 
 .graph-memory-detail {
-    font-size: 12px;
+    font-size: var(--space-3);
     color: var(--text-secondary);
 }
 
@@ -14846,7 +14846,7 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
 
 .project-path {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 12px;
+    font-size: var(--space-3);
     color: var(--text-secondary);
 }
 
@@ -14854,7 +14854,7 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 12px 16px 6px;
+    padding: var(--space-3) 16px 6px;
 }
 
 .memory-section-title {
@@ -14873,7 +14873,7 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
 .memory-chips {
     display: flex;
     gap: 6px;
-    padding: var(--space-1) 16px 12px;
+    padding: var(--space-1) 16px var(--space-3);
     flex-wrap: wrap;
 }
 
@@ -14881,8 +14881,8 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
     display: flex;
     align-items: center;
     gap: var(--space-1);
-    padding: 5px 12px;
-    font-size: 12px;
+    padding: 5px var(--space-3);
+    font-size: var(--space-3);
     font-weight: 500;
     color: var(--text-secondary);
     background: var(--bg-card);
@@ -14904,7 +14904,7 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
 }
 
 .memory-chip-icon {
-    font-size: 12px;
+    font-size: var(--space-3);
 }
 
 .memory-entries-list {
@@ -14919,7 +14919,7 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
-    gap: 12px;
+    gap: var(--space-3);
 }
 
 .memory-entry-content {
@@ -15165,7 +15165,7 @@ h2 .gh-icon {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 12px 12px var(--space-2);
+    padding: var(--space-3) 12px var(--space-2);
     border-bottom: 1px solid rgba(255, 255, 255, 0.04);
 }
 
@@ -15289,7 +15289,7 @@ h2 .gh-icon {
 
 .chat-code-fence {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 12px;
+    font-size: var(--space-3);
     color: var(--accent-cyan);
     background: rgba(0, 0, 0, 0.3);
     padding: 2px 6px;
@@ -15302,7 +15302,7 @@ h2 .gh-icon {
 .contributor-row .pr-avatar {
     width: 28px;
     height: 28px;
-    font-size: 12px;
+    font-size: var(--space-3);
     flex-shrink: 0;
     flex-grow: 0;
 }
@@ -15345,7 +15345,7 @@ h2 .gh-icon {
 .stack-child-node {
     display: flex;
     align-items: flex-start;
-    gap: 12px;
+    gap: var(--space-3);
     position: relative;
     padding: var(--space-2) 0;
 }
@@ -15618,7 +15618,7 @@ h2 .gh-icon {
     display: flex;
     flex-direction: column;
     gap: var(--space-2);
-    padding: 12px 0;
+    padding: var(--space-3) 0;
 }
 
 .stack-tree-item {
@@ -15842,7 +15842,7 @@ h2 .gh-icon {
     background: var(--bg-card);
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
-    margin: 0 20px 12px;
+    margin: 0 20px var(--space-3);
     font-size: var(--text-sm);
     color: var(--text-secondary);
 }
@@ -15853,7 +15853,7 @@ h2 .gh-icon {
 }
 
 .stacks-batch-bar button {
-    padding: 5px 12px;
+    padding: 5px var(--space-3);
     border-radius: var(--radius-sm);
     font-size: var(--text-xs);
     font-weight: 600;
@@ -15886,7 +15886,7 @@ h2 .gh-icon {
 
 .stack-conflict::before {
     content: '\26A0';
-    font-size: 12px;
+    font-size: var(--space-3);
 }
 
 /* ========================================================================= */
@@ -15968,7 +15968,7 @@ h2 .gh-icon {
     background: var(--bg-primary);
     border: 1px solid var(--border-light);
     border-radius: var(--radius-md);
-    padding: 12px;
+    padding: var(--space-3);
     color: var(--text-primary);
     font-family: inherit;
     resize: vertical;
@@ -15987,7 +15987,7 @@ h2 .gh-icon {
     flex-direction: column;
     gap: 10px;
     background: var(--bg-primary);
-    padding: 12px;
+    padding: var(--space-3);
     border-radius: var(--radius-lg);
     border: 1px solid var(--border-light);
 }
@@ -16008,7 +16008,7 @@ h2 .gh-icon {
 .classification-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 12px;
+    gap: var(--space-3);
 }
 
 .phase-config-item,
@@ -16028,9 +16028,9 @@ h2 .gh-icon {
     border-top: 1px solid var(--border-light);
     display: flex;
     justify-content: flex-end;
-    gap: 12px;
+    gap: var(--space-3);
     background: rgba(0,0,0,0.1);
-    border-radius: 0 0 12px 12px;
+    border-radius: 0 0 var(--space-3) 12px;
 }
 
 .edit-hint {
@@ -16075,7 +16075,7 @@ h2 .gh-icon {
 .td-meta-row {
     display: flex;
     justify-content: space-between;
-    margin-bottom: 12px;
+    margin-bottom: var(--space-3);
     font-size: 0.9em;
 }
 
@@ -16096,7 +16096,7 @@ h2 .gh-icon {
 .subtask-item {
     display: flex;
     align-items: flex-start;
-    padding: 10px 12px;
+    padding: 10px var(--space-3);
     border-radius: var(--radius-md);
     transition: background-color var(--transition-base);
     margin-bottom: 6px;
@@ -16118,7 +16118,7 @@ h2 .gh-icon {
 }
 
 .subtask-check {
-    margin-right: 12px;
+    margin-right: var(--space-3);
     color: var(--text-secondary);
     font-size: 1.1em;
     width: 20px;
@@ -16156,7 +16156,7 @@ h2 .gh-icon {
     padding-bottom: 20px;
     display: flex;
     align-items: flex-start;
-    gap: 12px;
+    gap: var(--space-3);
 }
 
 .td-history-entry:last-child {
@@ -16344,7 +16344,7 @@ h2 .gh-icon {
     background: #0d1117;
     border: 1px solid #238636;
     border-radius: var(--radius-md);
-    padding: var(--space-2) 12px;
+    padding: var(--space-2) var(--space-3);
 }
 
 .mcp-add-form {
@@ -16356,7 +16356,7 @@ h2 .gh-icon {
 }
 
 .mcp-add-form-title {
-    margin: 0 0 12px;
+    margin: 0 0 var(--space-3);
     font-size: 14px;
 }
 
@@ -16392,7 +16392,7 @@ h2 .gh-icon {
 .context-add-row {
     display: flex;
     justify-content: flex-end;
-    padding: 12px 16px 0;
+    padding: var(--space-3) 16px 0;
 }
 
 .context-add-form {
@@ -16402,7 +16402,7 @@ h2 .gh-icon {
 .memory-search-row {
     display: flex;
     gap: var(--space-2);
-    padding: 0 16px 12px;
+    padding: 0 16px var(--space-3);
     align-items: center;
 }
 
@@ -16412,7 +16412,7 @@ h2 .gh-icon {
 
 .memory-search-btn {
     height: 32px;
-    padding: 0 12px;
+    padding: 0 var(--space-3);
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -16469,7 +16469,7 @@ h2 .gh-icon {
     background: transparent;
     border: none;
     color: var(--text-secondary);
-    font-size: 12px;
+    font-size: var(--space-3);
     cursor: pointer;
     transition: background var(--transition-fast), color var(--transition-fast);
 }
@@ -16489,13 +16489,13 @@ h2 .gh-icon {
     display: flex;
     align-items: center;
     gap: var(--space-2);
-    padding: 6px 12px;
+    padding: 6px var(--space-3);
     margin: var(--space-1) 0;
     background: rgba(6, 182, 212, 0.1);
     border-top: 1px solid rgba(6, 182, 212, 0.2);
     border-bottom: 1px solid rgba(6, 182, 212, 0.2);
     color: var(--accent-cyan);
-    font-size: 12px;
+    font-size: var(--space-3);
 }
 
 .terminal-history-focus code {
@@ -16513,7 +16513,7 @@ h2 .gh-icon {
 }
 
 .mcp-agent-card {
-    padding: 10px 12px;
+    padding: 10px var(--space-3);
     border-radius: var(--radius-xl);
     background: linear-gradient(
         165deg,
@@ -16587,7 +16587,7 @@ h2 .gh-icon {
 }
 
 .memory-skeleton-list {
-    padding: 0 16px 12px;
+    padding: 0 16px var(--space-3);
     display: flex;
     flex-direction: column;
     gap: 10px;
@@ -16598,7 +16598,7 @@ h2 .gh-icon {
     grid-template-columns: 80px 1fr 120px;
     gap: 10px;
     align-items: center;
-    padding: 10px 12px;
+    padding: 10px var(--space-3);
     border-radius: var(--radius-xl);
     background: rgba(255, 255, 255, 0.02);
     border: 1px solid rgba(255, 255, 255, 0.05);
@@ -16608,7 +16608,7 @@ h2 .gh-icon {
     border: 1px solid rgba(239, 68, 68, 0.35);
     background: rgba(127, 29, 29, 0.22);
     border-radius: var(--radius-xl);
-    margin: 0 16px 12px;
+    margin: 0 16px var(--space-3);
     padding: 16px;
 }
 
@@ -16640,13 +16640,13 @@ h2 .gh-icon {
 .terminal-files-drawer {
     position: absolute;
     top: 92px;
-    right: 12px;
+    right: var(--space-3);
     bottom: 44px;
     width: min(380px, calc(100vw - 24px));
     display: flex;
     flex-direction: column;
     gap: 10px;
-    padding: 12px;
+    padding: var(--space-3);
     background: linear-gradient(
         180deg,
         rgba(22, 14, 37, 0.95),
@@ -16719,7 +16719,7 @@ h2 .gh-icon {
     color: var(--text-secondary);
     border-radius: var(--radius-lg);
     padding: var(--space-2) 9px;
-    font-size: 12px;
+    font-size: var(--space-3);
     margin-bottom: 7px;
     cursor: pointer;
     transition: border-color var(--transition-fast), background var(--transition-fast), color var(--transition-fast);
@@ -16789,13 +16789,13 @@ h2 .gh-icon {
 }
 
 .terminal-files-drawer-empty {
-    font-size: 12px;
+    font-size: var(--space-3);
     color: var(--text-muted);
     padding: var(--space-2) 2px;
 }
 
 .terminal-files-drawer-error {
-    font-size: 12px;
+    font-size: var(--space-3);
     color: #f87171;
     border: 1px solid rgba(239, 68, 68, 0.35);
     background: rgba(127, 29, 29, 0.18);
@@ -16848,7 +16848,7 @@ h2 .gh-icon {
 }
 
 .mcp-agent-card {
-    padding: 10px 12px;
+    padding: 10px var(--space-3);
     border-radius: var(--radius-xl);
     background: linear-gradient(
         165deg,
@@ -16869,7 +16869,7 @@ h2 .gh-icon {
 }
 
 .mcp-agent-name {
-    font-size: 12px;
+    font-size: var(--space-3);
     letter-spacing: 0.01em;
 }
 
@@ -16934,7 +16934,7 @@ h2 .gh-icon {
     min-height: 31px;
     padding: 5px 11px;
     border-radius: 9px;
-    font-size: 12px;
+    font-size: var(--space-3);
 }
 
 .terminal-cmd-btn-magenta {
@@ -16957,7 +16957,7 @@ h2 .gh-icon {
     min-height: 27px;
     padding: var(--space-1) 10px;
     border-radius: var(--radius-lg);
-    font-size: 12px;
+    font-size: var(--space-3);
 }
 
 .terminal-grid-agent {
@@ -16983,12 +16983,12 @@ h2 .gh-icon {
 }
 
 .mcp-agent-section:first-of-type {
-    margin-top: 12px;
+    margin-top: var(--space-3);
 }
 
 .mcp-agents-section-title {
     padding: 0 0 var(--space-2);
-    font-size: 12px;
+    font-size: var(--space-3);
     letter-spacing: 0.01em;
 }
 
@@ -17048,7 +17048,7 @@ h2 .gh-icon {
 }
 
 .graph-memory-banner {
-    margin-top: 12px;
+    margin-top: var(--space-3);
     border-color: rgba(124, 58, 237, 0.22);
 }
 
@@ -17139,7 +17139,7 @@ h2 .gh-icon {
     font-size: 12.5px;
     color: #7c3aed;
     text-decoration: none;
-    margin-bottom: 12px;
+    margin-bottom: var(--space-3);
     cursor: pointer;
     transition: color var(--transition-fast);
 }
@@ -17193,7 +17193,7 @@ h2 .gh-icon {
 .page-header-title-row {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: var(--space-3);
 }
 
 .ideation-count-badge {
@@ -17396,7 +17396,7 @@ h2 .gh-icon {
 }
 
 .insights-sidebar-header {
-    padding: 10px 12px;
+    padding: 10px var(--space-3);
     border-bottom-color: rgba(124, 58, 237, 0.2);
 }
 
@@ -17454,7 +17454,7 @@ h2 .gh-icon {
 
 .chat-bubble-user {
     border-color: rgba(124, 58, 237, 0.45);
-    box-shadow: 0 var(--space-1) 12px rgba(124, 58, 237, 0.18);
+    box-shadow: 0 var(--space-1) var(--space-3) rgba(124, 58, 237, 0.18);
 }
 
 .chat-bubble-role {
@@ -17512,7 +17512,7 @@ h2 .gh-icon {
 }
 
 .mcp-agent-section {
-    margin-top: 12px;
+    margin-top: var(--space-3);
     border-top-color: rgba(124, 58, 237, 0.28);
 }
 
@@ -17547,7 +17547,7 @@ h2 .gh-icon {
 }
 
 .worktree-cards {
-    gap: 12px;
+    gap: var(--space-3);
 }
 
 .worktree-card {
@@ -17563,7 +17563,7 @@ h2 .gh-icon {
 .worktree-actions .wt-btn {
     min-height: 30px;
     border-radius: var(--radius-lg);
-    padding: 0 12px;
+    padding: 0 var(--space-3);
 }
 
 .worktree-path-hint {
@@ -17595,7 +17595,7 @@ h2 .gh-icon {
 
 .pr-list-item {
     min-height: 70px;
-    padding: 10px 12px;
+    padding: 10px var(--space-3);
     border-bottom-color: rgba(124, 58, 237, 0.16);
 }
 
@@ -17619,7 +17619,7 @@ h2 .gh-icon {
 }
 
 .kanban {
-    gap: 12px;
+    gap: var(--space-3);
 }
 
 .kanban-column {
@@ -17717,7 +17717,7 @@ h2 .gh-icon {
     border-radius: 9px;
     border: 1px solid rgba(124, 58, 237, 0.28);
     background: rgba(124, 58, 237, 0.12);
-    font-size: 12px;
+    font-size: var(--space-3);
     font-weight: 500;
     color: var(--text-secondary);
 }
@@ -17742,8 +17742,8 @@ h2 .gh-icon {
 }
 
 .topbar-refresh-btn {
-    padding: 0 12px;
-    font-size: 12px;
+    padding: 0 var(--space-3);
+    font-size: var(--space-3);
     gap: 6px;
 }
 
@@ -17809,9 +17809,9 @@ h2 .gh-icon {
 .page-header .refresh-btn,
 .changelog-header-actions .refresh-btn {
     min-height: 32px;
-    padding: 0 12px;
+    padding: 0 var(--space-3);
     border-radius: 9px;
-    font-size: 12px;
+    font-size: var(--space-3);
 }
 
 .kanban-column h3 {
@@ -17851,7 +17851,7 @@ h2 .gh-icon {
 }
 
 .bead-card {
-    padding: 14px 14px 12px;
+    padding: 14px 14px var(--space-3);
     margin-bottom: 10px;
 }
 
@@ -17922,7 +17922,7 @@ h2 .gh-icon {
 }
 
 .settings-sidebar-section-header {
-    padding: 12px 18px 6px;
+    padding: var(--space-3) 18px 6px;
     letter-spacing: 0.1em;
 }
 
@@ -18062,7 +18062,7 @@ h2 .gh-icon {
     align-items: center;
     gap: var(--space-2);
     min-height: 38px;
-    padding: var(--space-2) 12px;
+    padding: var(--space-2) var(--space-3);
     border-radius: var(--radius-xl);
     font-size: 13px;
     line-height: 1.4;
@@ -18131,7 +18131,7 @@ h2 .gh-icon {
 
 .state-empty-hint {
     max-width: 480px;
-    font-size: 12px;
+    font-size: var(--space-3);
     line-height: 1.45;
     color: var(--text-secondary);
 }
@@ -18228,7 +18228,7 @@ h2 .gh-icon {
 }
 
 .release-row {
-    padding: 12px 14px;
+    padding: var(--space-3) 14px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.04);
 }
 
@@ -18275,7 +18275,7 @@ h2 .gh-icon {
     border: 1px solid rgba(35, 134, 54, 0.4);
     border-radius: var(--radius-lg);
     padding: 10px 16px;
-    margin: 0 0 12px;
+    margin: 0 0 var(--space-3);
     font-size: 13px;
     line-height: 1.5;
 }
@@ -18295,7 +18295,7 @@ h2 .gh-icon {
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
     color: var(--text-secondary);
-    font-size: 12px;
+    font-size: var(--space-3);
     padding: var(--space-1) var(--space-2);
     cursor: pointer;
     outline: none;
@@ -18326,8 +18326,8 @@ h2 .gh-icon {
     border: none;
     border-bottom: 2px solid transparent;
     color: var(--text-muted);
-    font-size: 12px;
-    padding: 6px 12px;
+    font-size: var(--space-3);
+    padding: 6px var(--space-3);
     cursor: pointer;
     white-space: nowrap;
     transition: color var(--transition-fast), border-color var(--transition-fast);
@@ -18387,7 +18387,7 @@ h2 .gh-icon {
     color: var(--text-secondary);
     font-size: 13px;
     font-weight: 600;
-    margin-bottom: 12px;
+    margin-bottom: var(--space-3);
     text-transform: uppercase;
     letter-spacing: 0.04em;
 }
@@ -18493,7 +18493,7 @@ h2 .gh-icon {
 .worktrees-page-header .page-header-actions .refresh-btn {
     min-height: 34px;
     border-radius: 9px;
-    padding: 0 12px;
+    padding: 0 var(--space-3);
 }
 
 .worktree-card {
@@ -18516,7 +18516,7 @@ h2 .gh-icon {
 }
 
 .worktree-stat-item {
-    font-size: 12px;
+    font-size: var(--space-3);
 }
 
 .worktree-stat-icon {
@@ -18627,7 +18627,7 @@ h2 .gh-icon {
 /* Keep 5 kanban columns usable on common laptop widths */
 .kanban {
     gap: 10px;
-    padding: 12px 16px;
+    padding: var(--space-3) 16px;
 }
 
 .kanban-column {
