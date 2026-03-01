@@ -7,6 +7,7 @@ members = [
     "crates/at-agents",
     "crates/at-daemon",
     "crates/at-telemetry",
+    "crates/at-api-types",
     "crates/at-cli",
     "crates/at-bridge",
     "crates/at-tui",
