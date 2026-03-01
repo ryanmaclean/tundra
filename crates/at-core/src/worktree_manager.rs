@@ -7,7 +7,6 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tracing::{info, warn};
 
-use crate::cache::CacheDb;
 use crate::git_read_adapter::{default_read_adapter, GitReadAdapter};
 use crate::repo::RepoPath;
 use crate::types::Task;
@@ -93,8 +92,6 @@ impl GitRunner for RealGitRunner {
 /// stale ones, and merging completed work back to the main branch.
 pub struct WorktreeManager {
     base_dir: PathBuf,
-    #[allow(dead_code)]
-    cache: Arc<CacheDb>,
     git: Box<dyn GitRunner>,
     git_read: Box<dyn GitReadAdapter>,
 }
@@ -104,10 +101,9 @@ impl WorktreeManager {
     ///
     /// Uses the best available read adapter: `Git2ReadAdapter` when the
     /// `libgit2` feature is enabled, otherwise `ShellGitReadAdapter`.
-    pub fn new(base_dir: impl Into<PathBuf>, cache: Arc<CacheDb>) -> Self {
+    pub fn new(base_dir: impl Into<PathBuf>) -> Self {
         Self {
             base_dir: base_dir.into(),
-            cache,
             git: Box::new(RealGitRunner),
             git_read: default_read_adapter(),
         }
@@ -118,12 +114,10 @@ impl WorktreeManager {
     /// Still uses the best available read adapter automatically.
     pub fn with_git_runner(
         base_dir: impl Into<PathBuf>,
-        cache: Arc<CacheDb>,
         git: Box<dyn GitRunner>,
     ) -> Self {
         Self {
             base_dir: base_dir.into(),
-            cache,
             git,
             git_read: default_read_adapter(),
         }
@@ -136,13 +130,11 @@ impl WorktreeManager {
     /// write-paths remain on the existing `GitRunner`.
     pub fn with_adapters(
         base_dir: impl Into<PathBuf>,
-        cache: Arc<CacheDb>,
         git: Box<dyn GitRunner>,
         git_read: Box<dyn GitReadAdapter>,
     ) -> Self {
         Self {
             base_dir: base_dir.into(),
-            cache,
             git,
             git_read,
         }
@@ -556,7 +548,6 @@ mod tests {
 
     #[tokio::test]
     async fn create_for_task_builds_correct_path() {
-        let cache = Arc::new(CacheDb::new_in_memory().await.unwrap());
         let tmp = std::env::temp_dir().join("at-wm-test-create");
         // Clean up from previous runs
         let _ = std::fs::remove_dir_all(&tmp);
@@ -567,7 +558,7 @@ mod tests {
             stderr: String::new(),
         }]));
 
-        let manager = WorktreeManager::with_git_runner(tmp.clone(), cache, git);
+        let manager = WorktreeManager::with_git_runner(tmp.clone(), git);
         let task = make_test_task();
 
         let result = manager.create_for_task(&task).await.unwrap();
@@ -581,7 +572,6 @@ mod tests {
 
     #[tokio::test]
     async fn create_for_task_rejects_duplicate() {
-        let cache = Arc::new(CacheDb::new_in_memory().await.unwrap());
         let tmp = std::env::temp_dir().join("at-wm-test-dup");
         let _ = std::fs::remove_dir_all(&tmp);
 
@@ -590,7 +580,7 @@ mod tests {
         std::fs::create_dir_all(&wt_dir).unwrap();
 
         let git = Box::new(MockGitRunner::new(vec![]));
-        let manager = WorktreeManager::with_git_runner(tmp.clone(), cache, git);
+        let manager = WorktreeManager::with_git_runner(tmp.clone(), git);
         let task = make_test_task();
 
         let result = manager.create_for_task(&task).await;
@@ -601,8 +591,6 @@ mod tests {
 
     #[tokio::test]
     async fn merge_to_main_success() {
-        let cache = Arc::new(CacheDb::new_in_memory().await.unwrap());
-
         // Responses: fetch, diff (has changes), merge (success), commit (success),
         // worktree remove, branch delete
         let git = Box::new(MockGitRunner::new(vec![
@@ -638,7 +626,7 @@ mod tests {
             }, // branch delete
         ]));
 
-        let manager = WorktreeManager::with_git_runner("/project", cache, git);
+        let manager = WorktreeManager::with_git_runner("/project", git);
         let wt = WorktreeInfo {
             path: "/project/.worktrees/test".to_string(),
             branch: "task/test".to_string(),
@@ -653,8 +641,6 @@ mod tests {
 
     #[tokio::test]
     async fn merge_to_main_nothing_to_merge() {
-        let cache = Arc::new(CacheDb::new_in_memory().await.unwrap());
-
         let git = Box::new(MockGitRunner::new(vec![
             GitOutput {
                 success: true,
@@ -668,7 +654,7 @@ mod tests {
             },
         ]));
 
-        let manager = WorktreeManager::with_git_runner("/project", cache, git);
+        let manager = WorktreeManager::with_git_runner("/project", git);
         let wt = WorktreeInfo {
             path: "/project/.worktrees/test".to_string(),
             branch: "task/test".to_string(),
@@ -683,8 +669,6 @@ mod tests {
 
     #[tokio::test]
     async fn merge_to_main_conflict() {
-        let cache = Arc::new(CacheDb::new_in_memory().await.unwrap());
-
         let git = Box::new(MockGitRunner::new(vec![
             GitOutput {
                 success: true,
@@ -713,7 +697,7 @@ mod tests {
             }, // merge --abort
         ]));
 
-        let manager = WorktreeManager::with_git_runner("/project", cache, git);
+        let manager = WorktreeManager::with_git_runner("/project", git);
         let wt = WorktreeInfo {
             path: "/project/.worktrees/test".to_string(),
             branch: "task/test".to_string(),
@@ -734,8 +718,7 @@ mod tests {
 
     #[tokio::test]
     async fn repo_path_for_worktree_sets_correct_paths() {
-        let cache = Arc::new(CacheDb::new_in_memory().await.unwrap());
-        let manager = WorktreeManager::new("/project", cache);
+        let manager = WorktreeManager::new("/project");
 
         let wt = WorktreeInfo {
             path: "/project/.worktrees/my-task".to_string(),
@@ -759,8 +742,7 @@ mod tests {
 
     #[tokio::test]
     async fn repo_path_main_not_worktree() {
-        let cache = Arc::new(CacheDb::new_in_memory().await.unwrap());
-        let manager = WorktreeManager::new("/project", cache);
+        let manager = WorktreeManager::new("/project");
         let rp = manager.repo_path();
         assert_eq!(rp.gitdir(), std::path::Path::new("/project/.git"));
         assert_eq!(rp.workdir(), std::path::Path::new("/project"));
@@ -769,9 +751,8 @@ mod tests {
 
     #[tokio::test]
     async fn cleanup_stale_with_no_worktrees_dir() {
-        let cache = Arc::new(CacheDb::new_in_memory().await.unwrap());
         let git = Box::new(MockGitRunner::new(vec![]));
-        let manager = WorktreeManager::with_git_runner("/nonexistent/path/xyz", cache, git);
+        let manager = WorktreeManager::with_git_runner("/nonexistent/path/xyz", git);
 
         let result = manager
             .cleanup_stale(Duration::from_secs(3600))
@@ -782,7 +763,6 @@ mod tests {
 
     #[tokio::test]
     async fn merge_uses_git_read_adapter_for_diff_check() {
-        let cache = Arc::new(CacheDb::new_in_memory().await.unwrap());
         let shared = Arc::new(MockGitRunner::new(vec![GitOutput {
             success: true,
             stdout: String::new(),
@@ -791,7 +771,6 @@ mod tests {
 
         let manager = WorktreeManager::with_adapters(
             "/project",
-            cache,
             Box::new(SharedMockGitRunner(shared.clone())),
             Box::new(MockReadAdapter {
                 diff_result: Ok(String::new()), // no changes
@@ -821,7 +800,6 @@ mod tests {
 
     #[tokio::test]
     async fn merge_uses_git_read_adapter_for_conflict_detection() {
-        let cache = Arc::new(CacheDb::new_in_memory().await.unwrap());
         let shared = Arc::new(MockGitRunner::new(vec![
             GitOutput {
                 success: true,
@@ -842,7 +820,6 @@ mod tests {
 
         let manager = WorktreeManager::with_adapters(
             "/project",
-            cache,
             Box::new(SharedMockGitRunner(shared.clone())),
             Box::new(MockReadAdapter {
                 diff_result: Ok("file.rs | 5 ++---\n".to_string()),
@@ -884,7 +861,6 @@ mod tests {
 
     #[tokio::test]
     async fn merge_falls_back_to_git_runner_when_read_adapter_fails() {
-        let cache = Arc::new(CacheDb::new_in_memory().await.unwrap());
         let shared = Arc::new(MockGitRunner::new(vec![
             GitOutput {
                 success: true,
@@ -900,7 +876,6 @@ mod tests {
 
         let manager = WorktreeManager::with_adapters(
             "/project",
-            cache,
             Box::new(SharedMockGitRunner(shared.clone())),
             Box::new(MockReadAdapter {
                 diff_result: Err("adapter failed".to_string()),
