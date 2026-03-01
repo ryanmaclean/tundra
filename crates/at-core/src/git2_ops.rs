@@ -146,59 +146,11 @@ impl Git2ReadOps {
             .diff_tree_to_workdir_with_index(head_tree.as_ref(), None)
             .map_err(RepoError::from)?;
 
-        let _stats = diff.stats().map_err(RepoError::from)?;
-        let mut entries = Vec::new();
+        // Single-pass collection using print() walk
+        let mut entries: Vec<DiffEntry> = Vec::new();
+        let mut last_path = String::new();
 
-        // Walk each delta for per-file stats
-        for (idx, delta) in diff.deltas().enumerate() {
-            let path = delta
-                .new_file()
-                .path()
-                .or_else(|| delta.old_file().path())
-                .map(|p| p.to_string_lossy().to_string())
-                .unwrap_or_default();
-
-            let status = match delta.status() {
-                git2::Delta::Added => DiffStatus::Added,
-                git2::Delta::Deleted => DiffStatus::Deleted,
-                git2::Delta::Modified => DiffStatus::Modified,
-                git2::Delta::Renamed => DiffStatus::Renamed,
-                git2::Delta::Copied => DiffStatus::Copied,
-                _ => DiffStatus::Modified,
-            };
-
-            // Per-file line stats require walking patches
-            let (additions, deletions) = diff
-                .get_delta(idx)
-                .map(|_| {
-                    // Use the overall stats as approximation when we can't
-                    // get per-file stats cheaply. For detailed per-file,
-                    // we'd need to iterate hunks which is more expensive.
-                    (0u32, 0u32)
-                })
-                .unwrap_or((0, 0));
-
-            entries.push(DiffEntry {
-                path,
-                status,
-                additions,
-                deletions,
-            });
-        }
-
-        // Try to get per-file line counts by walking patches
-        let _ = diff.foreach(
-            &mut |_, _| true, // file cb
-            None,             // binary cb
-            None,             // hunk cb
-            None,             // line cb
-        );
-
-        // More accurate: walk with print to get line stats
-        let mut line_stats: Vec<(u32, u32)> = vec![(0, 0); entries.len()];
-        let mut file_idx = 0usize;
         let _ = diff.print(git2::DiffFormat::Patch, |delta, _hunk, line| {
-            // Track which file we're in
             let current_path = delta
                 .new_file()
                 .path()
@@ -206,26 +158,37 @@ impl Git2ReadOps {
                 .map(|p| p.to_string_lossy().to_string())
                 .unwrap_or_default();
 
-            // Find matching entry
-            if let Some(pos) = entries.iter().position(|e| e.path == current_path) {
-                file_idx = pos;
+            // New file encountered — create entry
+            if current_path != last_path {
+                let status = match delta.status() {
+                    git2::Delta::Added => DiffStatus::Added,
+                    git2::Delta::Deleted => DiffStatus::Deleted,
+                    git2::Delta::Modified => DiffStatus::Modified,
+                    git2::Delta::Renamed => DiffStatus::Renamed,
+                    git2::Delta::Copied => DiffStatus::Copied,
+                    _ => DiffStatus::Modified,
+                };
+
+                entries.push(DiffEntry {
+                    path: current_path.clone(),
+                    status,
+                    additions: 0,
+                    deletions: 0,
+                });
+                last_path = current_path;
             }
 
-            if file_idx < line_stats.len() {
+            // Accumulate line stats for current file
+            if let Some(entry) = entries.last_mut() {
                 match line.origin() {
-                    '+' => line_stats[file_idx].0 += 1,
-                    '-' => line_stats[file_idx].1 += 1,
+                    '+' => entry.additions += 1,
+                    '-' => entry.deletions += 1,
                     _ => {}
                 }
             }
+
             true
         });
-
-        // Apply collected line stats
-        for (entry, (adds, dels)) in entries.iter_mut().zip(line_stats.iter()) {
-            entry.additions = *adds;
-            entry.deletions = *dels;
-        }
 
         Ok(entries)
     }
