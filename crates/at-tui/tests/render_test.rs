@@ -10,20 +10,28 @@ use ratatui::{backend::TestBackend, buffer::Buffer, Terminal};
 
 // Include binary-crate modules via path for testing.
 #[path = "../src/api_client.rs"]
+#[allow(dead_code)]
 mod api_client;
 #[path = "../src/app.rs"]
+#[allow(dead_code)]
 mod app;
 #[path = "../src/command.rs"]
+#[allow(dead_code)]
 mod command;
 #[path = "../src/effects.rs"]
+#[allow(dead_code)]
 mod effects;
 #[path = "../src/event.rs"]
+#[allow(dead_code)]
 mod event;
 #[path = "../src/tabs/mod.rs"]
+#[allow(dead_code)]
 mod tabs;
 #[path = "../src/ui.rs"]
+#[allow(dead_code)]
 mod ui;
 #[path = "../src/widgets/mod.rs"]
+#[allow(dead_code)]
 mod widgets;
 
 // ---------------------------------------------------------------------------

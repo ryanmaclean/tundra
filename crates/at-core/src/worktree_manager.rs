@@ -1,5 +1,4 @@
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::Utc;
@@ -444,7 +443,7 @@ mod tests {
     use super::*;
     use crate::git_read_adapter::GitReadError;
     use crate::types::*;
-    use std::sync::Mutex;
+    use std::sync::{Arc, Mutex};
     use uuid::Uuid;
 
     /// A mock git runner that records commands and returns canned responses.

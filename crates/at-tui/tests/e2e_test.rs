@@ -10,6 +10,7 @@
 //! tests are skipped (not failed) so CI doesn't break without a running daemon.
 
 #[path = "../src/api_client.rs"]
+#[allow(dead_code)]
 mod api_client;
 
 use api_client::*;
@@ -253,9 +254,9 @@ fn e2e_fetch_costs() {
     let client = require_daemon();
     let costs = client.fetch_costs().expect("fetch_costs");
 
-    // Token counts should be non-negative (they're u64)
-    assert!(costs.input_tokens >= 0);
-    assert!(costs.output_tokens >= 0);
+    // Token counts are u64, so they're always non-negative - just verify they exist
+    let _ = costs.input_tokens;
+    let _ = costs.output_tokens;
 }
 
 #[test]
