@@ -656,7 +656,7 @@ code, pre, kbd, .config-block {
 }
 
 .new-task-btn-text {
-    transition: opacity 0.25s ease;
+    transition: opacity var(--transition-slow);
 }
 
 .new-task-btn-text.collapsed {
@@ -725,7 +725,7 @@ code, pre, kbd, .config-block {
 }
 
 .sidebar-footer-link-text {
-    transition: opacity 0.25s ease;
+    transition: opacity var(--transition-slow);
 }
 
 .sidebar-footer-link-text.collapsed {
@@ -2632,7 +2632,7 @@ kbd {
     background: linear-gradient(90deg, var(--accent-purple), var(--accent-magenta));
     height: 100%;
     border-radius: var(--radius-base);
-    transition: width 0.3s;
+    transition: width var(--transition-slow);
 }
 
 /* ── Config Block ── */
@@ -3263,7 +3263,7 @@ code.file-path, code.branch-name {
     background: linear-gradient(90deg, var(--accent-purple), var(--accent-magenta));
     height: 100%;
     border-radius: var(--radius-base);
-    transition: width 0.3s;
+    transition: width var(--transition-slow);
 }
 
 .progress-label {
@@ -3520,7 +3520,7 @@ code.file-path, code.branch-name {
 
 .phase-seg {
     border-radius: var(--radius-sm);
-    transition: opacity 0.25s, background 0.25s;
+    transition: opacity var(--transition-slow), background var(--transition-slow);
     opacity: 0.18;
 }
 
@@ -5890,7 +5890,7 @@ code.file-path, code.branch-name {
     height: 100%;
     background: linear-gradient(90deg, var(--accent-purple), var(--accent-magenta));
     border-radius: var(--radius-base);
-    transition: width 0.3s;
+    transition: width var(--transition-slow);
 }
 
 .task-detail-progress-label {
@@ -10758,7 +10758,7 @@ button.toggle-switch.active .toggle-knob {
     font-size: 13px;
     font-weight: 600;
     color: var(--text-muted);
-    transition: all 0.3s;
+    transition: all var(--transition-slow);
     flex-shrink: 0;
 }
 
@@ -10779,7 +10779,7 @@ button.toggle-switch.active .toggle-knob {
     width: 32px;
     height: 2px;
     background: var(--border);
-    transition: background 0.3s;
+    transition: background var(--transition-slow);
 }
 
 .onboarding-connector.completed {
@@ -12308,7 +12308,7 @@ button.toggle-switch.active .toggle-knob {
   border: 1px solid rgba(139, 92, 246, 0.2);
   position: relative;
   overflow: hidden;
-  transition: box-shadow 0.3s ease, transform var(--transition-base);
+  transition: box-shadow var(--transition-slow), transform var(--transition-base);
   animation: foilCardEntrance 0.4s ease-out both;
 }
 
@@ -12849,7 +12849,7 @@ button.toggle-switch.active .toggle-knob {
 
 [data-mode="foil"] .settings-card-option {
   border: 1px solid rgba(139, 92, 246, 0.2);
-  transition: all 0.3s ease;
+  transition: all var(--transition-slow);
 }
 
 [data-mode="foil"] .settings-card-option:hover {
@@ -13976,7 +13976,7 @@ button[class*="-btn"]:active {
 
 /* ── Pipeline stage transition ── */
 .bead-pipeline .stage {
-    transition: background 0.3s ease, color 0.3s ease, box-shadow 0.3s ease;
+    transition: background var(--transition-slow), color var(--transition-slow), box-shadow var(--transition-slow);
 }
 
 /* ── Sidebar item hover slide ── */
@@ -14049,7 +14049,7 @@ button[class*="-btn"]:active {
 /* ── Phase 1A: Nav Icon Hover — stroke-draw + micro-bounce ── */
 
 .sidebar-item-icon svg {
-    transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1),
+    transition: transform var(--transition-slow),
                 filter 0.2s ease;
 }
 
@@ -14203,7 +14203,7 @@ button[class*="-btn"]:active {
     ) !important;
 }
 
-.stack-phase-badge { transition: box-shadow 0.3s ease; }
+.stack-phase-badge { transition: box-shadow var(--transition-slow); }
 
 @keyframes phaseGlow {
     0%, 100% { box-shadow: 0 0 4px rgba(124, 58, 237, 0.2); }
@@ -14254,7 +14254,7 @@ button[class*="-btn"]:active {
 
 .empty-state-svg {
     opacity: 0.4;
-    transition: opacity 0.3s ease;
+    transition: opacity var(--transition-slow);
 }
 
 .kanban-empty-state:hover .empty-state-svg,
@@ -14280,7 +14280,7 @@ button[class*="-btn"]:active {
     background-size: 200% 100%;
     animation: kpiUnderlineFlow 3s linear infinite;
     opacity: 0;
-    transition: opacity 0.3s ease;
+    transition: opacity var(--transition-slow);
 }
 
 .kpi-card:hover::after {
@@ -14294,7 +14294,7 @@ button[class*="-btn"]:active {
 
 .kpi-card:hover .value {
     text-shadow: 0 0 8px rgba(124, 58, 237, 0.3);
-    transition: text-shadow 0.3s ease;
+    transition: text-shadow var(--transition-slow);
 }
 
 /* =========================================================================
