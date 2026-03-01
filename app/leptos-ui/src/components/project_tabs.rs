@@ -1,7 +1,9 @@
+use leptos::ev::KeyboardEvent;
 use leptos::prelude::*;
 use wasm_bindgen_futures::spawn_local;
 
 use crate::api;
+use crate::components::focus_trap::use_focus_trap;
 
 /// Horizontal project tab bar displayed at the very top of the app.
 #[component]
@@ -152,9 +154,25 @@ pub fn ProjectTabs() -> impl IntoView {
             </div>
         </div>
 
-        {move || show_modal.get().then(|| view! {
+        {move || show_modal.get().then(|| {
+            let focus_trap = use_focus_trap();
+            let set_show_modal_clone = set_show_modal.clone();
+
+            // Combined keydown handler for focus trap and Escape key
+            let handle_keydown = move |ev: KeyboardEvent| {
+                // Handle Escape key to close modal
+                if ev.key() == "Escape" {
+                    set_show_modal_clone.set(false);
+                    return;
+                }
+
+                // Handle Tab/Shift+Tab for focus trapping
+                focus_trap(ev);
+            };
+
+            view! {
             <div class="modal-overlay" on:click=move |_| set_show_modal.set(false)>
-                <div class="add-project-modal" on:click=move |ev: web_sys::MouseEvent| ev.stop_propagation()>
+                <div class="add-project-modal" on:click=move |ev: web_sys::MouseEvent| ev.stop_propagation() on:keydown=handle_keydown>
                     <h3>"Add Project"</h3>
                     <div class="modal-field">
                         <label>"Name"</label>
@@ -198,6 +216,7 @@ pub fn ProjectTabs() -> impl IntoView {
                     </div>
                 </div>
             </div>
+            }
         })}
     }
 }
