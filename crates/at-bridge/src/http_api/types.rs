@@ -233,6 +233,12 @@ pub struct TaskDraftQuery {
     pub offset: Option<usize>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct WorktreeQuery {
+    pub limit: Option<usize>,
+    pub offset: Option<usize>,
+}
+
 // ---------------------------------------------------------------------------
 // Merge / Queue / DirectMode request types
 // ---------------------------------------------------------------------------
