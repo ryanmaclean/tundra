@@ -16,20 +16,111 @@ use at_intelligence::spec::{PhaseMetrics, PhaseResult, PhaseStatus, SpecPhase};
 // Errors
 // ---------------------------------------------------------------------------
 
+/// Errors that can occur during task orchestration.
+///
+/// This enum represents failures that may arise while coordinating task execution
+/// through the full pipeline, including agent execution, worktree management,
+/// git operations, and phase transitions.
+///
+/// # Examples
+///
+/// ```rust
+/// use at_daemon::orchestrator::{OrchestratorError, TaskOrchestrator};
+/// use uuid::Uuid;
+///
+/// fn handle_orchestration_error(result: Result<(), OrchestratorError>) {
+///     match result {
+///         Err(OrchestratorError::TaskNotFound(id)) => {
+///             eprintln!("Task {} not found", id);
+///         }
+///         Err(OrchestratorError::MergeConflict(files)) => {
+///             eprintln!("Merge conflicts in: {:?}", files);
+///         }
+///         Err(OrchestratorError::InvalidState(msg)) => {
+///             eprintln!("Invalid state: {}", msg);
+///         }
+///         _ => {}
+///     }
+/// }
+/// ```
 #[derive(Debug, Error)]
 pub enum OrchestratorError {
+    /// An error occurred during agent execution.
+    ///
+    /// This wraps errors from the underlying agent executor, such as:
+    /// - Agent process spawn failures
+    /// - Communication errors with the agent
+    /// - Agent tool use errors
+    /// - Agent timeout or abort failures
+    ///
+    /// The contained [`at_agents::executor::ExecutorError`] provides details
+    /// about what went wrong during agent execution.
     #[error("executor error: {0}")]
     Executor(#[from] at_agents::executor::ExecutorError),
+
+    /// An error occurred during worktree operations.
+    ///
+    /// This wraps errors from the worktree manager, such as:
+    /// - Failed to create or remove a git worktree
+    /// - Git command failures
+    /// - Invalid worktree paths or configurations
+    /// - Branch creation or switching errors
+    ///
+    /// The contained [`at_core::worktree_manager::WorktreeManagerError`] provides
+    /// details about the worktree operation that failed.
     #[error("worktree error: {0}")]
     Worktree(#[from] at_core::worktree_manager::WorktreeManagerError),
+
+    /// The requested task was not found.
+    ///
+    /// This occurs when attempting to operate on a task that doesn't exist
+    /// in the system, typically due to an invalid task ID or the task being
+    /// deleted.
+    ///
+    /// The contained [`Uuid`] is the ID of the task that could not be found.
     #[error("task not found: {0}")]
     TaskNotFound(Uuid),
+
+    /// The task is in an invalid state for the requested operation.
+    ///
+    /// This occurs when attempting operations that are not valid for the
+    /// task's current phase or state. For example:
+    /// - Retrying a task that is not in Error or Stopped phase
+    /// - Attempting to merge when no worktree exists
+    /// - Transitioning to an invalid phase
+    ///
+    /// The contained string provides details about the invalid state and
+    /// what was attempted.
     #[error("invalid state: {0}")]
     InvalidState(String),
+
+    /// A merge conflict was detected during the merge phase.
+    ///
+    /// This occurs when attempting to merge task changes back to the main branch
+    /// and git detects conflicting changes. The task must be manually resolved
+    /// before it can be completed.
+    ///
+    /// The contained vector lists the file paths that have merge conflicts.
     #[error("merge conflict in files: {0:?}")]
     MergeConflict(Vec<String>),
 }
 
+/// A specialized [`Result`](std::result::Result) type for orchestrator operations.
+///
+/// This type alias uses [`OrchestratorError`] as the error type, providing
+/// a convenient shorthand for functions that return orchestrator results.
+///
+/// # Examples
+///
+/// ```rust
+/// use at_daemon::orchestrator::Result;
+/// use at_core::types::Task;
+///
+/// async fn process_task(task: &mut Task) -> Result<()> {
+///     // ... orchestration logic ...
+///     Ok(())
+/// }
+/// ```
 pub type Result<T> = std::result::Result<T, OrchestratorError>;
 
 // ---------------------------------------------------------------------------
