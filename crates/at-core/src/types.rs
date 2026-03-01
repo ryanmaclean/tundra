@@ -324,15 +324,28 @@ impl Agent {
 // Convoy
 // ---------------------------------------------------------------------------
 
+/// Lifecycle status of a Convoy as it coordinates multiple Beads.
+///
+/// Convoys group related beads together for coordinated execution,
+/// progressing through formation, execution, and completion phases.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ConvoyStatus {
+    /// Convoy is being assembled, beads are being added.
     Forming,
+    /// Convoy is actively executing its grouped beads.
     Active,
+    /// All beads in the convoy have finished successfully.
     Completed,
+    /// Convoy execution was cancelled or failed.
     Aborted,
 }
 
+/// A coordinated group of Beads executed together as a unit.
+///
+/// Convoys enable multi-task coordination where related beads need to be
+/// processed as a cohesive set. This is useful for features that span
+/// multiple sub-tasks or require synchronized execution across agents.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Convoy {
     pub id: Uuid,
@@ -348,6 +361,12 @@ pub struct Convoy {
 // Mail
 // ---------------------------------------------------------------------------
 
+/// A message sent between agents for coordination and communication.
+///
+/// Mail enables asynchronous inter-agent messaging, allowing agents to
+/// share context, request assistance, or coordinate on shared tasks.
+/// Messages are tracked by read status and support structured content
+/// via subject/body fields.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Mail {
     pub id: Uuid,
@@ -363,6 +382,12 @@ pub struct Mail {
 // Event
 // ---------------------------------------------------------------------------
 
+/// A system event capturing state changes and significant actions.
+///
+/// Events provide an audit trail and enable event-driven coordination
+/// between system components. Each event has a kind (e.g., "bead.hooked",
+/// "agent.started"), a source identifier, and a flexible JSON payload
+/// for event-specific data.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Event {
     pub id: Uuid,
@@ -376,6 +401,11 @@ pub struct Event {
 // TokenMetric
 // ---------------------------------------------------------------------------
 
+/// Token usage and cost tracking for LLM API calls by an agent.
+///
+/// Captures input/output token counts and estimated costs for billing
+/// and usage analytics. Metrics are associated with specific agents
+/// to enable per-agent cost tracking and optimization.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TokenMetric {
     pub agent_id: Uuid,
