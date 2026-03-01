@@ -21,30 +21,101 @@ use serde_json::json;
 /// Unified error type for HTTP API handlers.
 ///
 /// Each variant maps to a specific HTTP status code and produces a JSON body
-/// of the form `{"error": "<message>"}`.
+/// of the form `{"error": "<message>"}`. This enum implements `IntoResponse`
+/// for seamless integration with Axum handlers.
+///
+/// # Examples
+///
+/// ```rust,ignore
+/// use axum::{Json, extract::Path};
+/// use uuid::Uuid;
+/// use at_bridge::api_error::ApiError;
+///
+/// async fn get_widget(Path(id): Path<Uuid>) -> Result<Json<Widget>, ApiError> {
+///     let widget = find_widget(id)
+///         .ok_or_else(|| ApiError::NotFound("widget not found".into()))?;
+///     Ok(Json(widget))
+/// }
+///
+/// async fn create_widget(Json(data): Json<WidgetData>) -> Result<Json<Widget>, ApiError> {
+///     if data.name.is_empty() {
+///         return Err(ApiError::BadRequest("name is required".into()));
+///     }
+///     // ...
+/// }
+/// ```
 #[derive(Debug, thiserror::Error)]
 pub enum ApiError {
-    /// 404 Not Found
+    /// HTTP 404 Not Found - The requested resource does not exist.
+    ///
+    /// This occurs when:
+    /// - A resource ID doesn't match any existing entity
+    /// - An endpoint path doesn't exist (though Axum typically handles this)
+    /// - A query returns no results when one was expected
+    ///
+    /// The contained string should identify what resource was not found.
     #[error("not found: {0}")]
     NotFound(String),
 
-    /// 400 Bad Request
+    /// HTTP 400 Bad Request - The request is malformed or invalid.
+    ///
+    /// This occurs when:
+    /// - Required fields are missing from the request body
+    /// - Field values fail validation (out of range, wrong format, etc.)
+    /// - Query parameters are invalid
+    /// - The request cannot be processed due to client error
+    ///
+    /// The contained string should explain what's wrong with the request.
     #[error("bad request: {0}")]
     BadRequest(String),
 
-    /// 401 Unauthorized
+    /// HTTP 401 Unauthorized - Authentication is required or has failed.
+    ///
+    /// This occurs when:
+    /// - No authentication credentials are provided
+    /// - The provided credentials are invalid
+    /// - The authentication token has expired
+    /// - The authentication method is not supported
+    ///
+    /// The contained string should explain the authentication issue without
+    /// leaking sensitive security details.
     #[error("unauthorized: {0}")]
     Unauthorized(String),
 
-    /// 503 Service Unavailable
+    /// HTTP 503 Service Unavailable - The service cannot handle the request.
+    ///
+    /// This occurs when:
+    /// - A required backend service is down
+    /// - The database is unreachable
+    /// - The system is overloaded or in maintenance mode
+    /// - A temporary condition prevents request processing
+    ///
+    /// The contained string should explain what service is unavailable.
     #[error("service unavailable: {0}")]
     ServiceUnavailable(String),
 
-    /// 500 Internal Server Error
+    /// HTTP 500 Internal Server Error - An unexpected error occurred.
+    ///
+    /// This occurs when:
+    /// - An unhandled exception happens during request processing
+    /// - A programming error is encountered (assertion failure, panic)
+    /// - An unexpected state is reached
+    /// - Database or I/O operations fail unexpectedly
+    ///
+    /// The contained string should provide error details while being careful
+    /// not to leak sensitive implementation details to clients.
     #[error("internal error: {0}")]
     Internal(String),
 
-    /// 409 Conflict
+    /// HTTP 409 Conflict - The request conflicts with current resource state.
+    ///
+    /// This occurs when:
+    /// - Creating a resource that already exists (duplicate ID/name)
+    /// - Concurrent modification conflicts (optimistic locking failure)
+    /// - The operation violates a uniqueness constraint
+    /// - State transitions are invalid (e.g., starting an already-started task)
+    ///
+    /// The contained string should explain what conflict occurred.
     #[error("conflict: {0}")]
     Conflict(String),
 }

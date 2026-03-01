@@ -8,24 +8,85 @@ use serde::{Deserialize, Serialize};
 // Command errors
 // ---------------------------------------------------------------------------
 
+/// Errors that can occur when registering, executing, or managing commands.
+///
+/// Commands in the at-bridge system can fail for various reasons related to
+/// permissions, configuration, validation, or execution. This enum standardizes
+/// error handling across all command implementations.
+///
+/// # Examples
+///
+/// ```rust,ignore
+/// use at_bridge::command_registry::{CommandError, CommandContext, CommandSource};
+///
+/// async fn execute_command(name: &str) -> Result<(), CommandError> {
+///     match registry.execute(name, CommandContext::new(CommandSource::Cli, "")).await {
+///         Err(CommandError::NotFound(msg)) => {
+///             eprintln!("Command not found: {}", msg);
+///             Err(CommandError::NotFound(msg))
+///         }
+///         Err(CommandError::PermissionDenied(msg)) => {
+///             eprintln!("Permission denied: {}", msg);
+///             Err(CommandError::PermissionDenied(msg))
+///         }
+///         Err(e) => Err(e),
+///         Ok(output) => Ok(()),
+///     }
+/// }
+/// ```
 #[derive(Debug, thiserror::Error)]
 pub enum CommandError {
+    /// The requested command does not exist in the registry.
+    ///
+    /// This occurs when attempting to execute or query a command that has not
+    /// been registered. The contained string identifies which command was requested.
     #[error("command not found: {0}")]
     NotFound(String),
 
+    /// The arguments provided to the command are invalid or malformed.
+    ///
+    /// This occurs when command arguments fail validation, such as:
+    /// - Missing required parameters
+    /// - Invalid parameter types or formats
+    /// - Out-of-range values
+    ///
+    /// The contained string provides details about what's invalid.
     #[error("invalid arguments: {0}")]
     InvalidArgs(String),
 
+    /// The command execution failed due to an internal error.
+    ///
+    /// This represents errors that occur during command execution, such as:
+    /// - I/O errors
+    /// - State inconsistencies
+    /// - External service failures
+    /// - Unexpected runtime conditions
+    ///
+    /// The contained string provides error details.
     #[error("execution failed: {0}")]
     ExecutionFailed(String),
 
+    /// The command is currently disabled and cannot be executed.
+    ///
+    /// This occurs when attempting to execute a command that exists but has
+    /// been disabled through configuration or feature flags. The contained
+    /// string explains why the command is disabled.
     #[error("command disabled: {0}")]
     Disabled(String),
 
+    /// The command execution was denied due to insufficient permissions.
+    ///
+    /// This occurs when the command source or user context lacks the required
+    /// permissions to execute the command. The contained string provides details
+    /// about what permission is missing or why access was denied.
     #[error("permission denied: {0}")]
     PermissionDenied(String),
 }
 
+/// Result type for command operations.
+///
+/// This is a convenience alias for `std::result::Result<T, CommandError>` used
+/// throughout the command registry system.
 pub type Result<T> = std::result::Result<T, CommandError>;
 
 // ---------------------------------------------------------------------------
