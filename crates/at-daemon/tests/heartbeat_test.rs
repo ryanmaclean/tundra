@@ -28,7 +28,7 @@ async fn fresh_agent_is_not_stale() {
     cache.upsert_agent(&agent).await.expect("upsert agent");
 
     let monitor = HeartbeatMonitor::new(Duration::from_secs(60));
-    monitor.register_agent("agent-fresh".to_string(), agent.id);
+    monitor.register_agent("agent-fresh".to_string(), agent.id).await;
 
     let stale = monitor
         .check_agents(&cache)
@@ -49,7 +49,7 @@ async fn old_agent_is_detected_as_stale() {
 
     // Threshold is 60 seconds, so 300 seconds ago is definitely stale.
     let monitor = HeartbeatMonitor::new(Duration::from_secs(60));
-    monitor.register_agent("agent-old".to_string(), agent.id);
+    monitor.register_agent("agent-old".to_string(), agent.id).await;
 
     let stale = monitor
         .check_agents(&cache)
@@ -89,7 +89,7 @@ async fn missing_agent_in_cache_reported_as_stale() {
 
     let monitor = HeartbeatMonitor::new(Duration::from_secs(60));
     let fake_id = Uuid::new_v4();
-    monitor.register_agent("ghost-agent".to_string(), fake_id);
+    monitor.register_agent("ghost-agent".to_string(), fake_id).await;
 
     let stale = monitor
         .check_agents(&cache)

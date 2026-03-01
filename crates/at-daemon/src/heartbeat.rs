@@ -1,6 +1,7 @@
 use std::collections::HashMap;
-use std::sync::Mutex;
 use std::time::Duration;
+
+use tokio::sync::Mutex;
 
 use anyhow::Result;
 use at_core::cache::CacheDb;
@@ -70,20 +71,14 @@ impl HeartbeatMonitor {
     }
 
     /// Register an agent for heartbeat tracking.
-    pub fn register_agent(&self, name: String, id: Uuid) {
-        let mut agents = self.tracked_agents.lock().unwrap_or_else(|e| {
-            tracing::warn!("HeartbeatMonitor lock was poisoned, recovering");
-            e.into_inner()
-        });
+    pub async fn register_agent(&self, name: String, id: Uuid) {
+        let mut agents = self.tracked_agents.lock().await;
         agents.insert(name, id);
     }
 
     /// Remove an agent from tracking.
-    pub fn unregister_agent(&self, name: &str) {
-        let mut agents = self.tracked_agents.lock().unwrap_or_else(|e| {
-            tracing::warn!("HeartbeatMonitor lock was poisoned, recovering");
-            e.into_inner()
-        });
+    pub async fn unregister_agent(&self, name: &str) {
+        let mut agents = self.tracked_agents.lock().await;
         agents.remove(name);
     }
 
@@ -99,10 +94,7 @@ impl HeartbeatMonitor {
     pub async fn check_agents(&self, cache: &CacheDb) -> Result<Vec<StaleAgent>> {
         let now = Utc::now();
         let tracked: Vec<(String, Uuid)> = {
-            let agents = self.tracked_agents.lock().unwrap_or_else(|e| {
-                tracing::warn!("HeartbeatMonitor lock was poisoned, recovering");
-                e.into_inner()
-            });
+            let agents = self.tracked_agents.lock().await;
             agents.iter().map(|(k, v)| (k.clone(), *v)).collect()
         };
 
