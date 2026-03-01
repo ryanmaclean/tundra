@@ -1,19 +1,28 @@
+#[cfg(feature = "i18n")]
 use fluent_bundle::{FluentArgs, FluentBundle, FluentResource};
+#[cfg(feature = "i18n")]
 use leptos::prelude::*;
+#[cfg(feature = "i18n")]
 use reactive_graph::owner::LocalStorage;
+#[cfg(feature = "i18n")]
 use std::collections::HashMap;
+#[cfg(feature = "i18n")]
 use unic_langid::LanguageIdentifier;
 
+#[cfg(feature = "i18n")]
 const EN_FTL: &str = include_str!("locales/en.ftl");
+#[cfg(feature = "i18n")]
 const FR_FTL: &str = include_str!("locales/fr.ftl");
 
 /// Supported locales
+#[cfg(feature = "i18n")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Locale {
     En,
     Fr,
 }
 
+#[cfg(feature = "i18n")]
 impl Locale {
     pub fn lang_id(&self) -> LanguageIdentifier {
         match self {
@@ -42,11 +51,13 @@ impl Locale {
 }
 
 /// Translation store holding Fluent bundles for each locale.
+#[cfg(feature = "i18n")]
 pub struct I18n {
     bundles: HashMap<Locale, FluentBundle<FluentResource>>,
     current: Locale,
 }
 
+#[cfg(feature = "i18n")]
 impl I18n {
     pub fn new(locale: Locale) -> Self {
         let mut bundles = HashMap::new();
@@ -121,12 +132,14 @@ impl I18n {
 /// Type alias for the i18n stored value using local (non-Send) storage,
 /// since FluentBundle contains RefCell and is not Send+Sync.
 /// This is safe in WASM which is single-threaded.
+#[cfg(feature = "i18n")]
 type I18nStore = StoredValue<I18n, LocalStorage>;
 
 /// Provide i18n context to the Leptos component tree.
 ///
 /// Call this once at the top of your `App` component. Downstream components
 /// can then use `t("key")` to obtain translated strings.
+#[cfg(feature = "i18n")]
 pub fn provide_i18n() {
     let (locale, set_locale) = signal(Locale::En);
     let i18n: I18nStore = StoredValue::new_local(I18n::new(Locale::En));
@@ -138,6 +151,7 @@ pub fn provide_i18n() {
 /// Get a translated string for `key` in the current locale.
 ///
 /// Must be called inside a component tree where `provide_i18n()` has been invoked.
+#[cfg(feature = "i18n")]
 pub fn t(key: &str) -> String {
     let locale: ReadSignal<Locale> =
         use_context().expect("i18n locale not provided — ensure provide_i18n() is called");
@@ -149,6 +163,7 @@ pub fn t(key: &str) -> String {
 }
 
 /// Get a translated string with interpolation arguments.
+#[cfg(feature = "i18n")]
 pub fn t_args(key: &str, args: &FluentArgs) -> String {
     let locale: ReadSignal<Locale> =
         use_context().expect("i18n locale not provided — ensure provide_i18n() is called");
