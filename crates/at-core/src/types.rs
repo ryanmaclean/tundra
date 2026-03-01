@@ -621,6 +621,10 @@ pub enum TaskImpact {
 // PhaseConfig
 // ---------------------------------------------------------------------------
 
+/// Configuration for a specific execution phase in an agent workflow.
+///
+/// Each phase (e.g., spec_creation, planning, code_review) can be configured
+/// with a specific model and thinking level to optimize cost and performance.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PhaseConfig {
     pub phase_name: String,
@@ -642,13 +646,23 @@ impl Default for PhaseConfig {
 // AgentProfile
 // ---------------------------------------------------------------------------
 
+/// Execution profile defining model selection and thinking levels for agents.
+///
+/// Profiles optimize the trade-off between speed, cost, and quality by selecting
+/// appropriate models and thinking levels for each phase of execution. Auto mode
+/// adapts based on task complexity.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentProfile {
+    /// Automatically selects optimal configuration based on task complexity.
     Auto,
+    /// High-quality execution using Opus model with high thinking levels.
     Complex,
+    /// Balanced approach mixing Opus for planning with faster models elsewhere.
     Balanced,
+    /// Fast execution using Haiku model with low thinking levels.
     Quick,
+    /// User-defined custom profile with specified configuration.
     Custom(String),
 }
 
@@ -1168,6 +1182,11 @@ pub enum TaskFileType {
     Documentation,
 }
 
+/// A file associated with a Task, tracking when and why it was added.
+///
+/// Files are categorized by type (Implementation, Test, Config, Documentation)
+/// and linked to the specific phase and optionally subtask that introduced them.
+/// This enables dependency tracking and change analysis across task execution.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskFile {
     pub id: Uuid,
@@ -1210,6 +1229,10 @@ impl TaskFile {
 // TaskFiles collection
 // ---------------------------------------------------------------------------
 
+/// Collection of files associated with a Task, with filtering helpers.
+///
+/// Provides efficient lookups and filtering by type, phase, and subtask to
+/// support dependency analysis and change tracking during task execution.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TaskFiles {
     pub files: Vec<TaskFile>,
@@ -1263,6 +1286,11 @@ impl TaskFiles {
 // KpiSnapshot
 // ---------------------------------------------------------------------------
 
+/// Point-in-time snapshot of system metrics and workflow status.
+///
+/// Captures the distribution of beads across all lifecycle states and the
+/// count of active agents, enabling performance monitoring, trend analysis,
+/// and capacity planning. Used by the cache layer for historical metrics.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KpiSnapshot {
     pub total_beads: u64,
