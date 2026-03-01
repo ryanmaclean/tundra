@@ -79,6 +79,53 @@ OPTIMIZATION OPPORTUNITIES IDENTIFIED
    - Only used by 1-2 crates but affects all
 
 ----------------------------------------
+WORKSPACE BUILD TIME (subtask-1-2)
+----------------------------------------
+
+Build Command:
+  cargo clean && time cargo check --all
+
+Clean Build Time:
+  60 seconds (1m 0s)
+
+Compilation Status:
+  - Successfully checked: ~350+ crates
+  - Failed: at-tauri (1 crate) - missing frontendDist
+  - Note: Build failure is due to missing leptos-ui/dist directory
+    which is expected in a clean workspace
+
+Workspace Members Checked:
+  - at-telemetry
+  - at-core
+  - at-harness
+  - at-integrations
+  - at-session
+  - at-tui
+  - at-cli
+  - at-intelligence
+  - at-bridge
+  - at-agents
+  - at-daemon
+  - at-tauri (failed due to missing dist)
+
+Heavy Dependencies Observed:
+  - OpenTelemetry stack (opentelemetry, opentelemetry_sdk, etc.)
+  - Datadog telemetry (datadog-apm-sync, datadog-tracing, etc.)
+  - Tauri ecosystem (tauri, tauri-runtime, wry, etc.)
+  - Serial port libraries
+  - Audio libraries (rodio, cpal, etc.)
+  - Many others compiled as workspace dependencies
+
+Compilation Overhead:
+  - All workspace members must resolve workspace-level dependencies
+  - Tauri, OpenTelemetry, and Datadog compiled even for unrelated crates
+  - This is the 15-20% overhead mentioned in the spec
+
+Target for Phase 5:
+  - Expected: <48 seconds (20% reduction from 60s baseline)
+  - Best case: <51 seconds (15% reduction)
+
+----------------------------------------
 NEXT STEPS
 ----------------------------------------
 
