@@ -628,7 +628,7 @@ code, pre, kbd, .config-block {
     font-size: 13px;
     font-weight: 600;
     cursor: pointer;
-    transition: opacity 0.15s, transform 0.15s, box-shadow 0.15s;
+    transition: opacity var(--transition-fast), transform var(--transition-fast), box-shadow var(--transition-fast);
     font-family: inherit;
     box-shadow: 0 2px 8px rgba(192, 38, 211, 0.3);
 }
@@ -681,7 +681,7 @@ code, pre, kbd, .config-block {
     font-weight: 500;
     cursor: pointer;
     font-family: inherit;
-    transition: background 0.15s, color 0.15s;
+    transition: background var(--transition-fast), color var(--transition-fast);
     text-align: left;
 }
 
@@ -743,7 +743,7 @@ code, pre, kbd, .config-block {
     justify-content: center;
     border-radius: 50%;
     color: var(--text-muted);
-    transition: color 0.15s, background 0.15s;
+    transition: color var(--transition-fast), background var(--transition-fast);
 }
 
 .sidebar-footer-link.collapsed .sidebar-help-icon {
@@ -876,7 +876,7 @@ html[data-native-shell="1"] .sidebar-header {
     font-size: 12px;
     font-weight: 500;
     cursor: pointer;
-    transition: background 0.15s, border-color 0.15s;
+    transition: background var(--transition-fast), border-color var(--transition-fast);
     font-family: inherit;
 }
 
@@ -898,7 +898,7 @@ html[data-native-shell="1"] .sidebar-header {
     font-size: 13px;
     font-weight: 600;
     cursor: pointer;
-    transition: background 0.15s, color 0.15s;
+    transition: background var(--transition-fast), color var(--transition-fast);
     font-family: inherit;
 }
 
@@ -1387,7 +1387,7 @@ html[data-native-shell="1"] .sidebar-header {
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: all 0.15s;
+    transition: all var(--transition-fast);
 }
 
 .column-add-btn:hover {
@@ -2186,7 +2186,7 @@ kbd {
     border-radius: 50%;
     display: inline-block;
     flex-shrink: 0;
-    transition: transform 0.15s ease;
+    transition: transform var(--transition-fast) ease;
     animation: agentDotPulse 2s ease-in-out infinite;
 }
 
@@ -2303,7 +2303,7 @@ kbd {
     font-weight: 600;
     border: none;
     cursor: pointer;
-    transition: opacity 0.15s;
+    transition: opacity var(--transition-fast);
     font-family: inherit;
 }
 
@@ -2409,7 +2409,7 @@ kbd {
     padding: 2px 4px;
     border-radius: var(--radius-base);
     opacity: 0.5;
-    transition: opacity 0.15s;
+    transition: opacity var(--transition-fast);
     flex-shrink: 0;
     line-height: 1;
 }
@@ -2442,7 +2442,7 @@ kbd {
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: var(--radius-lg);
     padding: 16px;
-    transition: border-color 0.15s;
+    transition: border-color var(--transition-fast);
 }
 
 .kpi-card:hover {
@@ -2482,7 +2482,7 @@ kbd {
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: var(--radius-lg);
     padding: 14px;
-    transition: border-color 0.15s;
+    transition: border-color var(--transition-fast);
 }
 
 .agent-card:hover {
@@ -2716,7 +2716,7 @@ kbd {
     font-family: inherit;
     font-size: 13px;
     font-weight: 500;
-    transition: background 0.15s;
+    transition: background var(--transition-fast);
 }
 
 .help-modal .close-btn:hover {
@@ -2988,7 +2988,7 @@ code.file-path, code.branch-name {
     font-family: inherit;
     font-size: 13px;
     outline: none;
-    transition: border-color 0.15s;
+    transition: border-color var(--transition-fast);
 }
 
 .form-input:focus {
@@ -3006,7 +3006,7 @@ code.file-path, code.branch-name {
     outline: none;
     resize: vertical;
     min-height: 80px;
-    transition: border-color 0.15s;
+    transition: border-color var(--transition-fast);
 }
 
 .form-textarea:focus {
@@ -3024,7 +3024,7 @@ code.file-path, code.branch-name {
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: var(--radius-lg);
     padding: 14px;
-    transition: border-color 0.15s;
+    transition: border-color var(--transition-fast);
 }
 
 .idea-card:hover {
@@ -3084,7 +3084,7 @@ code.file-path, code.branch-name {
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: var(--radius-lg);
     padding: 16px;
-    transition: border-color 0.15s;
+    transition: border-color var(--transition-fast);
 }
 
 .phase-card:hover {
@@ -3182,7 +3182,7 @@ code.file-path, code.branch-name {
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: var(--radius-lg);
     padding: 14px;
-    transition: border-color 0.15s;
+    transition: border-color var(--transition-fast);
 }
 
 .session-card:hover {
@@ -3441,7 +3441,7 @@ code.file-path, code.branch-name {
 
 .bead-card[draggable="true"] {
     cursor: grab;
-    transition: transform 0.15s, box-shadow 0.15s, opacity 0.15s;
+    transition: transform var(--transition-fast), box-shadow var(--transition-fast), opacity var(--transition-fast);
 }
 
 .bead-card[draggable="true"]:active {
@@ -3613,7 +3613,7 @@ code.file-path, code.branch-name {
     background: var(--bg-secondary);
     color: var(--text-primary);
     cursor: pointer;
-    transition: all 0.15s;
+    transition: all var(--transition-fast);
     white-space: nowrap;
     font-family: inherit;
 }
@@ -3974,7 +3974,7 @@ code.file-path, code.branch-name {
     cursor: pointer;
     font-family: inherit;
     font-size: 13px;
-    transition: border-color 0.15s;
+    transition: border-color var(--transition-fast);
 }
 
 .btn-back:hover {
@@ -3991,7 +3991,7 @@ code.file-path, code.branch-name {
     font-family: inherit;
     font-weight: 600;
     font-size: 13px;
-    transition: background 0.15s;
+    transition: background var(--transition-fast);
 }
 
 .btn-next:hover {
@@ -4023,7 +4023,7 @@ code.file-path, code.branch-name {
     justify-content: space-between;
     padding: 14px 16px;
     cursor: pointer;
-    transition: background 0.15s;
+    transition: background var(--transition-fast);
     user-select: none;
 }
 
@@ -4259,7 +4259,7 @@ code.file-path, code.branch-name {
     font-weight: 600;
     cursor: pointer;
     font-family: inherit;
-    transition: opacity 0.15s, transform 0.15s;
+    transition: opacity var(--transition-fast), transform var(--transition-fast);
 }
 
 .btn-save-settings:hover {
@@ -4406,7 +4406,7 @@ code.file-path, code.branch-name {
     padding: 8px 14px;
     flex: 1;
     min-width: 100px;
-    transition: border-color 0.15s;
+    transition: border-color var(--transition-fast);
 }
 
 .dash-kpi-chip:hover {
@@ -4499,7 +4499,7 @@ code.file-path, code.branch-name {
     gap: 8px;
     padding: 8px 12px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-    transition: background 0.15s;
+    transition: background var(--transition-fast);
 }
 
 .dash-activity-item:last-child {
@@ -4579,7 +4579,7 @@ code.file-path, code.branch-name {
     gap: 8px;
     padding: 10px 14px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-    transition: background 0.15s;
+    transition: background var(--transition-fast);
 }
 
 .dash-agent-item:last-child {
@@ -4707,7 +4707,7 @@ code.file-path, code.branch-name {
     font-size: 12px;
     font-weight: 600;
     cursor: pointer;
-    transition: all 0.15s;
+    transition: all var(--transition-fast);
     font-family: inherit;
     background: var(--bg-primary);
     border: 1px solid rgba(255, 255, 255, 0.06);
@@ -4754,7 +4754,7 @@ code.file-path, code.branch-name {
     font-size: 12px;
     font-weight: 600;
     cursor: pointer;
-    transition: all 0.15s;
+    transition: all var(--transition-fast);
     font-family: inherit;
     background: var(--bg-primary);
     border: 1px solid rgba(255, 255, 255, 0.06);
@@ -4793,7 +4793,7 @@ code.file-path, code.branch-name {
     cursor: pointer;
     font-family: inherit;
     white-space: nowrap;
-    transition: background 0.15s;
+    transition: background var(--transition-fast);
 }
 
 .btn-add-file:hover {
@@ -4833,7 +4833,7 @@ code.file-path, code.branch-name {
     font-weight: 700;
     font-family: inherit;
     opacity: 0.7;
-    transition: opacity 0.15s;
+    transition: opacity var(--transition-fast);
 }
 
 .wizard-file-remove:hover {
@@ -4946,7 +4946,7 @@ code.file-path, code.branch-name {
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: background 0.15s, color 0.15s;
+    transition: background var(--transition-fast), color var(--transition-fast);
 }
 
 .td-icon-btn:hover {
@@ -5379,7 +5379,7 @@ code.file-path, code.branch-name {
     border: 1px solid rgba(255, 255, 255, 0.1);
     background: rgba(255, 255, 255, 0.04);
     color: var(--text-primary);
-    transition: all 0.15s;
+    transition: all var(--transition-fast);
     font-family: inherit;
 }
 
@@ -5413,7 +5413,7 @@ code.file-path, code.branch-name {
     font-weight: 600;
     cursor: pointer;
     border: none;
-    transition: all 0.15s;
+    transition: all var(--transition-fast);
     font-family: inherit;
 }
 
@@ -5486,7 +5486,7 @@ code.file-path, code.branch-name {
     font-family: inherit;
     resize: vertical;
     outline: none;
-    transition: border-color 0.15s;
+    transition: border-color var(--transition-fast);
     box-sizing: border-box;
 }
 
@@ -5513,7 +5513,7 @@ code.file-path, code.branch-name {
     border: none;
     background: rgba(249, 115, 22, 0.2);
     color: var(--accent-orange);
-    transition: all 0.15s;
+    transition: all var(--transition-fast);
     font-family: inherit;
 }
 
@@ -5571,7 +5571,7 @@ code.file-path, code.branch-name {
     cursor: pointer;
     padding: 6px 12px;
     border-radius: var(--radius-md);
-    transition: background 0.15s;
+    transition: background var(--transition-fast);
     font-family: inherit;
 }
 
@@ -5588,7 +5588,7 @@ code.file-path, code.branch-name {
     border: 1px solid rgba(255, 255, 255, 0.1);
     background: rgba(255, 255, 255, 0.04);
     color: var(--text-primary);
-    transition: all 0.15s;
+    transition: all var(--transition-fast);
     font-family: inherit;
 }
 
@@ -5605,7 +5605,7 @@ code.file-path, code.branch-name {
     border: none;
     background: rgba(124, 58, 237, 0.2);
     color: var(--accent-purple);
-    transition: all 0.15s;
+    transition: all var(--transition-fast);
     font-family: inherit;
 }
 
@@ -5622,7 +5622,7 @@ code.file-path, code.branch-name {
     cursor: pointer;
     padding: 6px 12px;
     border-radius: var(--radius-md);
-    transition: background 0.15s, color 0.15s;
+    transition: background var(--transition-fast), color var(--transition-fast);
     font-family: inherit;
 }
 
@@ -5640,7 +5640,7 @@ code.file-path, code.branch-name {
     border: 1px solid rgba(6, 182, 212, 0.3);
     background: rgba(6, 182, 212, 0.15);
     color: var(--accent-cyan);
-    transition: all 0.15s;
+    transition: all var(--transition-fast);
     font-family: inherit;
 }
 
@@ -5715,7 +5715,7 @@ code.file-path, code.branch-name {
     justify-content: center;
     flex-shrink: 0;
     font-family: inherit;
-    transition: background 0.15s, color 0.15s;
+    transition: background var(--transition-fast), color var(--transition-fast);
 }
 
 .task-detail-close:hover {
@@ -5960,7 +5960,7 @@ code.file-path, code.branch-name {
     font-weight: 600;
     cursor: pointer;
     font-family: inherit;
-    transition: all 0.15s;
+    transition: all var(--transition-fast);
     border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
@@ -6014,7 +6014,7 @@ code.file-path, code.branch-name {
     padding: 0;
     margin-right: 4px;
     font-family: inherit;
-    transition: all 0.15s;
+    transition: all var(--transition-fast);
     flex-shrink: 0;
 }
 
@@ -6084,7 +6084,7 @@ code.file-path, code.branch-name {
     border-radius: var(--radius-xl);
     padding: 16px;
     cursor: pointer;
-    transition: border-color 0.15s, box-shadow 0.15s;
+    transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
 }
 
 .stack-card:hover {
@@ -6273,7 +6273,7 @@ code.file-path, code.branch-name {
     display: flex;
     gap: 4px;
     opacity: 0;
-    transition: opacity 0.15s;
+    transition: opacity var(--transition-fast);
     flex-shrink: 0;
     align-self: center;
 }
@@ -6294,7 +6294,7 @@ code.file-path, code.branch-name {
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: all 0.15s;
+    transition: all var(--transition-fast);
 }
 
 .stack-action-btn:hover {
@@ -6402,7 +6402,7 @@ code.file-path, code.branch-name {
     border-radius: var(--radius-lg);
     color: var(--text-secondary);
     cursor: pointer;
-    transition: background 0.15s, color 0.15s;
+    transition: background var(--transition-fast), color var(--transition-fast);
     font-size: 20px;
     line-height: 1;
     font-weight: 500;
@@ -6448,7 +6448,7 @@ code.file-path, code.branch-name {
     font-weight: 500;
     cursor: pointer;
     font-family: inherit;
-    transition: background 0.15s, color 0.15s;
+    transition: background var(--transition-fast), color var(--transition-fast);
 }
 
 .settings-modal-cancel-btn:hover {
@@ -6469,7 +6469,7 @@ code.file-path, code.branch-name {
     font-weight: 600;
     cursor: pointer;
     font-family: inherit;
-    transition: opacity 0.15s, transform 0.15s;
+    transition: opacity var(--transition-fast), transform var(--transition-fast);
 }
 
 .settings-modal-save-btn:hover {
@@ -6521,7 +6521,7 @@ code.file-path, code.branch-name {
     font-weight: 500;
     cursor: pointer;
     font-family: inherit;
-    transition: background 0.15s, color 0.15s;
+    transition: background var(--transition-fast), color var(--transition-fast);
     border-left: 3px solid transparent;
 }
 
@@ -6609,7 +6609,7 @@ code.file-path, code.branch-name {
     font-weight: 600;
     cursor: pointer;
     font-family: inherit;
-    transition: background 0.15s;
+    transition: background var(--transition-fast);
     margin-right: 12px;
 }
 
@@ -6670,7 +6670,7 @@ code.file-path, code.branch-name {
     font-weight: 600;
     cursor: pointer;
     font-family: inherit;
-    transition: opacity 0.15s;
+    transition: opacity var(--transition-fast);
 }
 
 .insights-new-session-btn:hover {
@@ -6697,7 +6697,7 @@ code.file-path, code.branch-name {
     font-weight: 500;
     cursor: pointer;
     font-family: inherit;
-    transition: background 0.15s, color 0.15s;
+    transition: background var(--transition-fast), color var(--transition-fast);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -6785,7 +6785,7 @@ code.file-path, code.branch-name {
     font-family: inherit;
     font-size: 13px;
     outline: none;
-    transition: border-color 0.15s;
+    transition: border-color var(--transition-fast);
 }
 
 .insights-input-field:focus {
@@ -6802,7 +6802,7 @@ code.file-path, code.branch-name {
     font-weight: 600;
     cursor: pointer;
     font-family: inherit;
-    transition: background 0.15s;
+    transition: background var(--transition-fast);
 }
 
 .insights-send-btn:hover {
@@ -6851,7 +6851,7 @@ code.file-path, code.branch-name {
     border-radius: var(--radius-lg);
     padding: 16px;
     cursor: pointer;
-    transition: border-color 0.15s, box-shadow 0.15s;
+    transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
 }
 
 .roadmap-feature-card:hover {
@@ -6973,7 +6973,7 @@ code.file-path, code.branch-name {
     border-radius: var(--radius-lg);
     padding: 16px;
     cursor: pointer;
-    transition: border-color 0.15s, box-shadow 0.15s;
+    transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
 }
 
 .ideation-card:hover {
@@ -7097,7 +7097,7 @@ code.file-path, code.branch-name {
     font-weight: 500;
     cursor: pointer;
     font-family: inherit;
-    transition: all 0.15s;
+    transition: all var(--transition-fast);
 }
 
 .terminal-cmd-btn:hover {
@@ -7120,7 +7120,7 @@ code.file-path, code.branch-name {
     border: 1px solid rgba(255, 255, 255, 0.06);
     font-size: 12px;
     font-weight: 500;
-    transition: background 0.15s, color 0.15s;
+    transition: background var(--transition-fast), color var(--transition-fast);
 }
 
 .layout-btn.active {
@@ -7143,7 +7143,7 @@ code.file-path, code.branch-name {
     font-size: 12px;
     font-weight: 600;
     cursor: pointer;
-    transition: background 0.15s;
+    transition: background var(--transition-fast);
 }
 
 .kill-all-btn:hover {
@@ -7276,7 +7276,7 @@ code.file-path, code.branch-name {
     font-size: 11px;
     cursor: pointer;
     line-height: 1;
-    transition: all 0.15s ease;
+    transition: all var(--transition-fast) ease;
 }
 
 .terminal-pane-icon-btn:hover {
@@ -7424,7 +7424,7 @@ code.file-path, code.branch-name {
     font-size: 13px;
     font-weight: 600;
     cursor: pointer;
-    transition: opacity 0.15s;
+    transition: opacity var(--transition-fast);
 }
 
 .new-terminal-btn:hover {
@@ -7622,7 +7622,7 @@ code.file-path, code.branch-name {
     background: none;
     font-family: inherit;
     border-bottom: 2px solid transparent;
-    transition: color 0.15s, border-color 0.15s;
+    transition: color var(--transition-fast), border-color var(--transition-fast);
 }
 
 .context-tab:hover {
@@ -7749,7 +7749,7 @@ code.file-path, code.branch-name {
     background: var(--bg-primary);
     color: var(--text-secondary);
     font-family: inherit;
-    transition: all 0.15s;
+    transition: all var(--transition-fast);
 }
 
 .memory-chip:hover {
@@ -7879,7 +7879,7 @@ code.file-path, code.branch-name {
     gap: 12px;
     padding: 12px 16px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-    transition: background 0.15s;
+    transition: background var(--transition-fast);
 }
 
 .mcp-server-item:last-child {
@@ -7950,7 +7950,7 @@ code.file-path, code.branch-name {
     background: rgba(124, 58, 237, 0.08);
     cursor: pointer;
     font-family: inherit;
-    transition: background 0.15s;
+    transition: background var(--transition-fast);
     margin-left: 8px;
 }
 
@@ -7994,7 +7994,7 @@ code.file-path, code.branch-name {
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: var(--radius-lg);
     padding: 12px 14px;
-    transition: border-color 0.15s;
+    transition: border-color var(--transition-fast);
 }
 
 .mcp-agent-card:hover {
@@ -8101,7 +8101,7 @@ code.file-path, code.branch-name {
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: var(--radius-lg);
     padding: 14px 16px;
-    transition: border-color 0.15s;
+    transition: border-color var(--transition-fast);
 }
 
 .worktree-card:hover {
@@ -8154,7 +8154,7 @@ code.file-path, code.branch-name {
     color: var(--accent-cyan);
     font-family: 'JetBrains Mono', monospace;
     cursor: pointer;
-    transition: color 0.15s;
+    transition: color var(--transition-fast);
 }
 
 .worktree-bead-link:hover {
@@ -8224,7 +8224,7 @@ code.file-path, code.branch-name {
     font-weight: 600;
     border: none;
     cursor: pointer;
-    transition: opacity 0.15s;
+    transition: opacity var(--transition-fast);
     font-family: inherit;
 }
 
@@ -8323,7 +8323,7 @@ code.file-path, code.branch-name {
     border: 1px solid rgba(255, 255, 255, 0.06);
     background: var(--bg-card);
     color: var(--text-primary);
-    transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+    transition: background var(--transition-fast), border-color var(--transition-fast), opacity var(--transition-fast);
 }
 
 .btn:hover {
@@ -8420,7 +8420,7 @@ code.file-path, code.branch-name {
     color: var(--text-secondary);
     cursor: pointer;
     font-family: inherit;
-    transition: background 0.15s;
+    transition: background var(--transition-fast);
 }
 
 .btn-small:hover {
@@ -8626,7 +8626,7 @@ code.file-path, code.branch-name {
     border-radius: var(--radius-lg);
     padding: 14px;
     cursor: pointer;
-    transition: border-color 0.15s, background 0.15s;
+    transition: border-color var(--transition-fast), background var(--transition-fast);
 }
 
 .changelog-source-card:hover {
@@ -8721,7 +8721,7 @@ code.file-path, code.branch-name {
     padding: 10px 14px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.04);
     cursor: pointer;
-    transition: background 0.15s;
+    transition: background var(--transition-fast);
 }
 
 .changelog-task-item:last-child {
@@ -8914,7 +8914,7 @@ code.file-path, code.branch-name {
     border-radius: var(--radius-lg);
     padding: 14px 16px;
     cursor: pointer;
-    transition: border-color 0.15s;
+    transition: border-color var(--transition-fast);
 }
 
 .changelog-entry:hover {
@@ -9044,7 +9044,7 @@ code.file-path, code.branch-name {
     cursor: pointer;
     font-family: inherit;
     color: var(--text-secondary);
-    transition: border-color 0.15s, background 0.15s;
+    transition: border-color var(--transition-fast), background var(--transition-fast);
     text-align: center;
 }
 
@@ -9736,7 +9736,7 @@ code.file-path, code.branch-name {
     font-family: inherit;
     font-size: 13px;
     outline: none;
-    transition: border-color 0.15s;
+    transition: border-color var(--transition-fast);
 }
 
 .issues-search-input:focus {
@@ -9844,7 +9844,7 @@ button.toggle-switch.active .toggle-knob {
     padding: 10px 14px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.04);
     cursor: pointer;
-    transition: background 0.15s;
+    transition: background var(--transition-fast);
 }
 
 .issue-list-item:hover {
@@ -10045,7 +10045,7 @@ button.toggle-switch.active .toggle-knob {
     font-family: inherit;
     font-size: 13px;
     outline: none;
-    transition: border-color 0.15s;
+    transition: border-color var(--transition-fast);
 }
 
 .prs-search-input:focus {
@@ -10067,7 +10067,7 @@ button.toggle-switch.active .toggle-knob {
     font-weight: 500;
     cursor: pointer;
     font-family: inherit;
-    transition: background 0.15s, color 0.15s, border-color 0.15s;
+    transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
 }
 
 .prs-sub-tab:hover {
@@ -10116,7 +10116,7 @@ button.toggle-switch.active .toggle-knob {
     padding: 10px 14px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.04);
     cursor: pointer;
-    transition: background 0.15s;
+    transition: background var(--transition-fast);
     position: relative;
 }
 
@@ -10283,7 +10283,7 @@ button.toggle-switch.active .toggle-knob {
     font-size: 12px;
     color: var(--text-secondary);
     cursor: pointer;
-    transition: background 0.15s, color 0.15s;
+    transition: background var(--transition-fast), color var(--transition-fast);
 }
 
 .claude-code-dropdown-item:hover {
@@ -10501,7 +10501,7 @@ button.toggle-switch.active .toggle-knob {
     border-bottom: 1px solid rgba(255, 255, 255, 0.04);
     display: flex;
     gap: 12px;
-    transition: background 0.15s;
+    transition: background var(--transition-fast);
     cursor: pointer;
 }
 
@@ -11203,7 +11203,7 @@ button.toggle-switch.active .toggle-knob {
     font-weight: 600;
     cursor: pointer;
     font-family: inherit;
-    transition: all 0.15s;
+    transition: all var(--transition-fast);
 }
 
 .task-tab:hover {
@@ -11658,7 +11658,7 @@ button.toggle-switch.active .toggle-knob {
     font-family: inherit;
     text-align: left;
     color: var(--text-secondary);
-    transition: background 0.15s;
+    transition: background var(--transition-fast);
 }
 
 .diff-file-item:hover {
@@ -11979,7 +11979,7 @@ button.toggle-switch.active .toggle-knob {
     font-weight: 600;
     cursor: pointer;
     font-family: inherit;
-    transition: all 0.15s;
+    transition: all var(--transition-fast);
 }
 
 .btn-warning:hover {
@@ -12013,7 +12013,7 @@ button.toggle-switch.active .toggle-knob {
     background-repeat: no-repeat;
     background-position: right 10px center;
     padding-right: 28px;
-    transition: border-color 0.15s;
+    transition: border-color var(--transition-fast);
 }
 
 .model-selector:hover {
@@ -12036,7 +12036,7 @@ button.toggle-switch.active .toggle-knob {
     opacity: 0.5;
     transform: scale(0.98);
     box-shadow: 0 0 12px rgba(124, 58, 237, 0.3);
-    transition: opacity 0.15s, transform 0.15s;
+    transition: opacity var(--transition-fast), transform var(--transition-fast);
 }
 
 .drag-over {
@@ -12085,7 +12085,7 @@ button.toggle-switch.active .toggle-knob {
     border-radius: var(--radius-base);
     font-size: 11px;
     cursor: pointer;
-    transition: all 0.15s;
+    transition: all var(--transition-fast);
 }
 
 .file-explorer-refresh-btn:hover {
@@ -12107,7 +12107,7 @@ button.toggle-switch.active .toggle-knob {
     color: var(--text-primary);
     font-size: 12px;
     outline: none;
-    transition: border-color 0.15s;
+    transition: border-color var(--transition-fast);
 }
 
 .file-explorer-search:focus {
@@ -12145,7 +12145,7 @@ button.toggle-switch.active .toggle-knob {
     cursor: pointer;
     font-size: 12px;
     color: var(--text-secondary);
-    transition: background 0.15s, color 0.15s;
+    transition: background var(--transition-fast), color var(--transition-fast);
     user-select: none;
     white-space: nowrap;
 }
@@ -12315,7 +12315,7 @@ button.toggle-switch.active .toggle-knob {
 /* Staggered entrance delays */
 [data-mode="foil"] .bead-card:nth-child(2) { animation-delay: 0.05s; }
 [data-mode="foil"] .bead-card:nth-child(3) { animation-delay: 0.1s; }
-[data-mode="foil"] .bead-card:nth-child(4) { animation-delay: 0.15s; }
+[data-mode="foil"] .bead-card:nth-child(4) { animation-delay: var(--transition-fast); }
 [data-mode="foil"] .bead-card:nth-child(5) { animation-delay: 0.2s; }
 [data-mode="foil"] .bead-card:nth-child(6) { animation-delay: 0.25s; }
 [data-mode="foil"] .bead-card:nth-child(7) { animation-delay: 0.3s; }
@@ -13526,7 +13526,7 @@ button.toggle-switch.active .toggle-knob {
 
 /* ── Sidebar Item — smooth hover transition with left-accent slide ── */
 .sidebar-item {
-  transition: background 0.2s ease, color 0.2s ease, transform 0.15s ease;
+  transition: background 0.2s ease, color 0.2s ease, transform var(--transition-fast) ease;
   position: relative;
 }
 
@@ -13564,7 +13564,7 @@ button.toggle-switch.active .toggle-knob {
 
 .kpi-card:nth-child(1) .value { animation-delay: 0.05s; }
 .kpi-card:nth-child(2) .value { animation-delay: 0.1s; }
-.kpi-card:nth-child(3) .value { animation-delay: 0.15s; }
+.kpi-card:nth-child(3) .value { animation-delay: var(--transition-fast); }
 .kpi-card:nth-child(4) .value { animation-delay: 0.2s; }
 
 /* ── Page Content — fade-in on tab switch ── */
@@ -13628,7 +13628,7 @@ button[class*="-btn"]:active {
 
 /* ── Settings Card — selection glow ring ── */
 .settings-card-option {
-  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform var(--transition-fast) ease;
 }
 
 .settings-card-option:hover {
@@ -13641,7 +13641,7 @@ button[class*="-btn"]:active {
 
 /* ── GitHub Issue/PR Row — hover highlight slide ── */
 .issue-row, .pr-row {
-  transition: background 0.15s ease, transform 0.15s ease;
+  transition: background var(--transition-fast) ease, transform var(--transition-fast) ease;
 }
 
 .issue-row:hover, .pr-row:hover {
@@ -13650,7 +13650,7 @@ button[class*="-btn"]:active {
 
 /* ── Tag/Badge — subtle hover glow ── */
 .tag, .label-tag, .status-badge {
-  transition: box-shadow 0.2s ease, transform 0.15s ease;
+  transition: box-shadow 0.2s ease, transform var(--transition-fast) ease;
 }
 
 .tag:hover, .label-tag:hover, .status-badge:hover {
@@ -13664,7 +13664,7 @@ button[class*="-btn"]:active {
 }
 
 .new-task-btn {
-  transition: transform 0.15s ease, box-shadow 0.2s ease;
+  transition: transform var(--transition-fast) ease, box-shadow 0.2s ease;
   background-size: 200% auto;
 }
 
@@ -13773,7 +13773,7 @@ button[class*="-btn"]:active {
     font-size: 12px;
     cursor: pointer;
     font-family: inherit;
-    transition: all 0.15s;
+    transition: all var(--transition-fast);
 }
 .view-toggle:hover {
     background: rgba(124, 58, 237, 0.1);
@@ -13958,7 +13958,7 @@ button[class*="-btn"]:active {
 .bead-card:nth-child(1) { animation-delay: 0s; }
 .bead-card:nth-child(2) { animation-delay: 0.05s; }
 .bead-card:nth-child(3) { animation-delay: 0.1s; }
-.bead-card:nth-child(4) { animation-delay: 0.15s; }
+.bead-card:nth-child(4) { animation-delay: var(--transition-fast); }
 .bead-card:nth-child(5) { animation-delay: 0.2s; }
 
 /* ── Column header count badge pulse on change ── */
@@ -13981,7 +13981,7 @@ button[class*="-btn"]:active {
 
 /* ── Sidebar item hover slide ── */
 .sidebar-item {
-    transition: background 0.15s ease, padding-left 0.15s ease;
+    transition: background var(--transition-fast) ease, padding-left var(--transition-fast) ease;
 }
 
 .sidebar-item:hover {
@@ -14414,7 +14414,7 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
     border: 1px solid transparent;
     border-radius: var(--radius-md);
     cursor: pointer;
-    transition: all 0.15s;
+    transition: all var(--transition-fast);
 }
 
 .view-toggle:hover {
@@ -14446,7 +14446,7 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    transition: border-color 0.15s;
+    transition: border-color var(--transition-fast);
 }
 
 .roadmap-kanban-column.drag-over {
@@ -14738,7 +14738,7 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
     display: flex;
     align-items: center;
     gap: 6px;
-    transition: all 0.15s;
+    transition: all var(--transition-fast);
 }
 
 .context-tab:hover {
@@ -14889,7 +14889,7 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: var(--radius-2xl);
     cursor: pointer;
-    transition: all 0.15s;
+    transition: all var(--transition-fast);
 }
 
 .memory-chip:hover {
@@ -15496,7 +15496,7 @@ h2 .gh-icon {
     display: flex;
     gap: 4px;
     opacity: 0;
-    transition: opacity 0.15s ease;
+    transition: opacity var(--transition-fast) ease;
 }
 
 .stack-child-node:hover .stack-node-actions {
@@ -15515,7 +15515,7 @@ h2 .gh-icon {
     align-items: center;
     justify-content: center;
     font-size: 14px;
-    transition: all 0.15s ease;
+    transition: all var(--transition-fast) ease;
 }
 
 .stack-action-btn:hover {
@@ -16471,7 +16471,7 @@ h2 .gh-icon {
     color: var(--text-secondary);
     font-size: 12px;
     cursor: pointer;
-    transition: background 0.15s, color 0.15s;
+    transition: background var(--transition-fast), color var(--transition-fast);
 }
 
 .terminal-dropdown-item:hover {
@@ -16722,7 +16722,7 @@ h2 .gh-icon {
     font-size: 12px;
     margin-bottom: 7px;
     cursor: pointer;
-    transition: border-color 0.15s, background 0.15s, color 0.15s;
+    transition: border-color var(--transition-fast), background var(--transition-fast), color var(--transition-fast);
 }
 
 .terminal-files-link-btn:last-child {
@@ -16841,7 +16841,7 @@ h2 .gh-icon {
 .memory-entry-item:nth-child(3) { animation-delay: 0.06s; }
 .memory-entry-item:nth-child(4) { animation-delay: 0.09s; }
 .memory-entry-item:nth-child(5) { animation-delay: 0.12s; }
-.memory-entry-item:nth-child(6) { animation-delay: 0.15s; }
+.memory-entry-item:nth-child(6) { animation-delay: var(--transition-fast); }
 
 .mcp-agent-grid {
     gap: 10px;
@@ -17141,7 +17141,7 @@ h2 .gh-icon {
     text-decoration: none;
     margin-bottom: 12px;
     cursor: pointer;
-    transition: color 0.15s;
+    transition: color var(--transition-fast);
 }
 
 .roadmap-project-show-more:hover {
@@ -17230,7 +17230,7 @@ h2 .gh-icon {
     background: rgba(255,255,255,0.04);
     color: var(--text-secondary, #8b8fa3);
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: all var(--transition-fast) ease;
 }
 
 .ideation-filter-pill:hover {
@@ -17309,7 +17309,7 @@ h2 .gh-icon {
     font-size: 13px;
     cursor: pointer;
     outline: none;
-    transition: border-color 0.15s ease;
+    transition: border-color var(--transition-fast) ease;
 }
 
 .ideation-sort-select:hover,
@@ -17329,7 +17329,7 @@ h2 .gh-icon {
     justify-content: center;
     font-size: 16px;
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: all var(--transition-fast) ease;
 }
 
 .ideation-sort-dir-btn:hover {
@@ -17408,7 +17408,7 @@ h2 .gh-icon {
     background: rgba(124, 58, 237, 0.08);
     color: var(--text-secondary);
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: all var(--transition-fast) ease;
 }
 
 .insights-collapse-btn:hover {
@@ -18330,7 +18330,7 @@ h2 .gh-icon {
     padding: 6px 12px;
     cursor: pointer;
     white-space: nowrap;
-    transition: color 0.15s, border-color 0.15s;
+    transition: color var(--transition-fast), border-color var(--transition-fast);
 }
 
 .terminal-tab:hover {
@@ -18370,7 +18370,7 @@ h2 .gh-icon {
     font-size: 14px;
     font-weight: 600;
     cursor: pointer;
-    transition: background 0.15s, transform 0.1s;
+    transition: background var(--transition-fast), transform 0.1s;
 }
 .insights-start-chat-btn:hover {
     background: var(--accent-purple-hover, #6d28d9);
@@ -18410,7 +18410,7 @@ h2 .gh-icon {
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: var(--radius-md);
     cursor: default;
-    transition: border-color 0.15s;
+    transition: border-color var(--transition-fast);
 }
 
 .insights-suggestion-item:hover {
