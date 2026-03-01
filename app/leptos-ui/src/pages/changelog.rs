@@ -1,3 +1,4 @@
+use crate::components::Spinner;
 use crate::state::use_app_state;
 use crate::themed::{themed, Prompt};
 use leptos::prelude::*;
@@ -273,7 +274,7 @@ pub fn ChangelogPage() -> impl IntoView {
         })}
 
         {move || loading.get().then(|| view! {
-            <div class="dashboard-loading">{move || themed(display_mode.get(), Prompt::Loading)}</div>
+            <div class="dashboard-loading"><Spinner size="md" label="Loading changelog..."/></div>
         })}
 
         // Step 1: Select source and tasks
@@ -334,7 +335,7 @@ pub fn ChangelogPage() -> impl IntoView {
                                     </div>
                                 </div>
                                 {move || tasks_loading.get().then(|| view! {
-                                    <div class="dashboard-loading">{move || themed(display_mode.get(), Prompt::Loading)}</div>
+                                    <div class="dashboard-loading"><Spinner size="md" label="Loading tasks..."/></div>
                                 })}
                                 <div class="changelog-task-list">
                                     {tasks.iter().map(|(id, title, date, has_specs)| {
