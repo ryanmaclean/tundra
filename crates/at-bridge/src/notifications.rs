@@ -146,6 +146,19 @@ impl NotificationStore {
     pub fn total_count(&self) -> usize {
         self.notifications.len()
     }
+
+    /// Remove notifications older than the specified TTL in seconds.
+    /// Returns the number of notifications removed.
+    pub fn cleanup_old(&mut self, ttl_secs: u64) -> usize {
+        let now = Utc::now();
+        let cutoff = now - chrono::Duration::seconds(ttl_secs as i64);
+
+        let before_count = self.notifications.len();
+        self.notifications.retain(|n| n.created_at >= cutoff);
+        let after_count = self.notifications.len();
+
+        before_count - after_count
+    }
 }
 
 impl Default for NotificationStore {
@@ -472,5 +485,182 @@ mod tests {
     fn test_notification_from_non_event() {
         let msg = BridgeMessage::GetStatus;
         assert!(notification_from_event(&msg).is_none());
+    }
+
+    // ---------------------------------------------------------------------------
+    // Notification cleanup tests
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn test_notification_cleanup_removes_old_notifications() {
+        let mut store = NotificationStore::new(100);
+
+        // Create a notification that's 10 days old
+        let old_id = store.add("Old notification", "old msg", NotificationLevel::Info, "system");
+        // Manually set created_at to 10 days ago
+        if let Some(n) = store.notifications.iter_mut().find(|n| n.id == old_id) {
+            n.created_at = Utc::now() - chrono::Duration::days(10);
+        }
+
+        // Create a recent notification (1 day old)
+        let recent_id = store.add("Recent notification", "recent msg", NotificationLevel::Info, "system");
+        if let Some(n) = store.notifications.iter_mut().find(|n| n.id == recent_id) {
+            n.created_at = Utc::now() - chrono::Duration::days(1);
+        }
+
+        assert_eq!(store.total_count(), 2);
+
+        // Cleanup with TTL of 7 days (604800 seconds)
+        let removed = store.cleanup_old(7 * 24 * 60 * 60);
+
+        assert_eq!(removed, 1);
+        assert_eq!(store.total_count(), 1);
+        assert_eq!(store.list_all(10, 0)[0].id, recent_id);
+    }
+
+    #[test]
+    fn test_notification_cleanup_keeps_recent_notifications() {
+        let mut store = NotificationStore::new(100);
+
+        // Create a notification that's 5 days old
+        let id = store.add("Recent notification", "msg", NotificationLevel::Info, "system");
+        if let Some(n) = store.notifications.iter_mut().find(|n| n.id == id) {
+            n.created_at = Utc::now() - chrono::Duration::days(5);
+        }
+
+        assert_eq!(store.total_count(), 1);
+
+        // Cleanup with TTL of 7 days (notification is only 5 days old)
+        let removed = store.cleanup_old(7 * 24 * 60 * 60);
+
+        assert_eq!(removed, 0);
+        assert_eq!(store.total_count(), 1);
+        assert_eq!(store.list_all(10, 0)[0].id, id);
+    }
+
+    #[test]
+    fn test_notification_cleanup_handles_multiple_notifications() {
+        let mut store = NotificationStore::new(100);
+
+        // Create multiple notifications with different ages
+        let old_id1 = store.add("Old 1", "msg1", NotificationLevel::Info, "system");
+        if let Some(n) = store.notifications.iter_mut().find(|n| n.id == old_id1) {
+            n.created_at = Utc::now() - chrono::Duration::days(10);
+        }
+
+        let old_id2 = store.add("Old 2", "msg2", NotificationLevel::Info, "system");
+        if let Some(n) = store.notifications.iter_mut().find(|n| n.id == old_id2) {
+            n.created_at = Utc::now() - chrono::Duration::days(15);
+        }
+
+        let recent_id1 = store.add("Recent 1", "msg3", NotificationLevel::Info, "system");
+        if let Some(n) = store.notifications.iter_mut().find(|n| n.id == recent_id1) {
+            n.created_at = Utc::now() - chrono::Duration::days(5);
+        }
+
+        let recent_id2 = store.add("Recent 2", "msg4", NotificationLevel::Info, "system");
+        if let Some(n) = store.notifications.iter_mut().find(|n| n.id == recent_id2) {
+            n.created_at = Utc::now() - chrono::Duration::days(3);
+        }
+
+        assert_eq!(store.total_count(), 4);
+
+        // Cleanup with TTL of 7 days (should remove 2 old notifications)
+        let removed = store.cleanup_old(7 * 24 * 60 * 60);
+
+        assert_eq!(removed, 2);
+        assert_eq!(store.total_count(), 2);
+
+        // Verify the correct notifications remain
+        let remaining = store.list_all(10, 0);
+        let remaining_ids: Vec<Uuid> = remaining.iter().map(|n| n.id).collect();
+        assert!(remaining_ids.contains(&recent_id1));
+        assert!(remaining_ids.contains(&recent_id2));
+        assert!(!remaining_ids.contains(&old_id1));
+        assert!(!remaining_ids.contains(&old_id2));
+    }
+
+    #[test]
+    fn test_notification_cleanup_empty_state() {
+        let mut store = NotificationStore::new(100);
+
+        // Cleanup with no notifications
+        let removed = store.cleanup_old(7 * 24 * 60 * 60);
+
+        assert_eq!(removed, 0);
+        assert_eq!(store.total_count(), 0);
+    }
+
+    #[test]
+    fn test_notification_cleanup_with_zero_ttl() {
+        let mut store = NotificationStore::new(100);
+
+        // Create a notification just now
+        store.add("New notification", "msg", NotificationLevel::Info, "system");
+        assert_eq!(store.total_count(), 1);
+
+        // Cleanup with TTL of 0 seconds (should remove all notifications)
+        let removed = store.cleanup_old(0);
+
+        assert_eq!(removed, 1);
+        assert_eq!(store.total_count(), 0);
+    }
+
+    #[test]
+    fn test_notification_cleanup_exact_ttl_boundary() {
+        let mut store = NotificationStore::new(100);
+
+        // Create a notification exactly 7 days old (plus 1 second to ensure it's before cutoff)
+        let id = store.add("Boundary notification", "msg", NotificationLevel::Info, "system");
+        if let Some(n) = store.notifications.iter_mut().find(|n| n.id == id) {
+            n.created_at = Utc::now() - chrono::Duration::seconds(7 * 24 * 60 * 60 + 1);
+        }
+
+        assert_eq!(store.total_count(), 1);
+
+        // Cleanup with TTL of 7 days (notification is just past the boundary)
+        // The notification should be removed because created_at < cutoff
+        let removed = store.cleanup_old(7 * 24 * 60 * 60);
+
+        assert_eq!(removed, 1);
+        assert_eq!(store.total_count(), 0);
+    }
+
+    #[test]
+    fn test_notification_cleanup_preserves_data() {
+        let mut store = NotificationStore::new(100);
+
+        // Create a notification with specific data
+        let id = store.add_with_url(
+            "Important notification",
+            "This has an action URL",
+            NotificationLevel::Warning,
+            "test-source",
+            Some("/action/url".to_string()),
+        );
+        if let Some(n) = store.notifications.iter_mut().find(|n| n.id == id) {
+            n.created_at = Utc::now() - chrono::Duration::days(3);
+            n.read = true; // Mark as read
+        }
+
+        assert_eq!(store.total_count(), 1);
+
+        // Cleanup with TTL of 7 days (should not remove)
+        let removed = store.cleanup_old(7 * 24 * 60 * 60);
+
+        assert_eq!(removed, 0);
+        assert_eq!(store.total_count(), 1);
+
+        // Verify all data is preserved
+        let notifications = store.list_all(10, 0);
+        assert_eq!(notifications.len(), 1);
+        let n = notifications[0];
+        assert_eq!(n.id, id);
+        assert_eq!(n.title, "Important notification");
+        assert_eq!(n.message, "This has an action URL");
+        assert_eq!(n.level, NotificationLevel::Warning);
+        assert_eq!(n.source, "test-source");
+        assert_eq!(n.action_url.as_deref(), Some("/action/url"));
+        assert!(n.read);
     }
 }
