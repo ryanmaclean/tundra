@@ -9,7 +9,6 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::Duration;
 
-use at_core::cache::CacheDb;
 use at_core::types::*;
 use at_core::worktree::{WorktreeError, WorktreeInfo, WorktreeManager as LowLevelWorktreeManager};
 use at_core::worktree_manager::{
@@ -17,7 +16,6 @@ use at_core::worktree_manager::{
 };
 
 use chrono::Utc;
-use std::sync::Arc;
 use uuid::Uuid;
 
 // ===========================================================================
@@ -77,10 +75,6 @@ fn make_test_task(title: &str) -> Task {
     )
 }
 
-async fn make_cache() -> Arc<CacheDb> {
-    Arc::new(CacheDb::new_in_memory().await.unwrap())
-}
-
 fn make_worktree_info(name: &str, branch: &str) -> WorktreeInfo {
     WorktreeInfo {
         path: format!("/project/.worktrees/{}", name),
@@ -97,12 +91,11 @@ fn make_worktree_info(name: &str, branch: &str) -> WorktreeInfo {
 
 #[tokio::test]
 async fn test_create_worktree() {
-    let cache = make_cache().await;
     let tmp = std::env::temp_dir().join("at-wt-test-create-basic");
     let _ = std::fs::remove_dir_all(&tmp);
 
     let git = Box::new(MockGitRunner::new(vec![ok_output()]));
-    let manager = WorktreeManager::with_git_runner(tmp.clone(), cache, git);
+    let manager = WorktreeManager::with_git_runner(tmp.clone(), git);
     let task = make_test_task("Create Test");
 
     let result = manager.create_for_task(&task).await;
@@ -119,12 +112,11 @@ async fn test_create_worktree() {
 
 #[tokio::test]
 async fn test_create_worktree_with_branch_name() {
-    let cache = make_cache().await;
     let tmp = std::env::temp_dir().join("at-wt-test-branch-name");
     let _ = std::fs::remove_dir_all(&tmp);
 
     let git = Box::new(MockGitRunner::new(vec![ok_output()]));
-    let manager = WorktreeManager::with_git_runner(tmp.clone(), cache, git);
+    let manager = WorktreeManager::with_git_runner(tmp.clone(), git);
     let task = make_test_task("auto-claude/003-resolve-dependabot-security-updates");
 
     let result = manager.create_for_task(&task).await.unwrap();
@@ -150,8 +142,7 @@ async fn test_create_worktree_with_branch_name() {
 async fn test_list_worktrees() {
     // The low-level list requires a real git repo; we test the manager's
     // worktree path computation for multiple tasks instead.
-    let cache = make_cache().await;
-    let manager = WorktreeManager::new("/project", cache);
+    let manager = WorktreeManager::new("/project");
 
     let task_a = make_test_task("Feature A");
     let task_b = make_test_task("Feature B");
@@ -185,7 +176,6 @@ async fn test_delete_worktree() {
 
 #[tokio::test]
 async fn test_worktree_has_unique_path() {
-    let cache = make_cache().await;
     let tmp = tempfile::tempdir().expect("tempdir");
     let tmp_path = tmp.path().to_path_buf();
 
@@ -194,7 +184,7 @@ async fn test_worktree_has_unique_path() {
     std::fs::create_dir_all(&wt_dir).expect("create_dir_all");
 
     let git = Box::new(MockGitRunner::new(vec![]));
-    let manager = WorktreeManager::with_git_runner(tmp_path.clone(), cache, git);
+    let manager = WorktreeManager::with_git_runner(tmp_path.clone(), git);
     let task = make_test_task("Unique Task");
 
     let result = manager.create_for_task(&task).await;
@@ -216,7 +206,6 @@ async fn test_worktree_has_unique_path() {
 #[tokio::test]
 async fn test_worktree_tracks_file_changes_count() {
     // Simulate the UI's "8 files changed" by checking git diff --stat output
-    let cache = make_cache().await;
 
     let git = Box::new(MockGitRunner::new(vec![
         ok_output(), // fetch
@@ -236,7 +225,7 @@ async fn test_worktree_tracks_file_changes_count() {
         }, // diff --stat
     ]));
 
-    let manager = WorktreeManager::with_git_runner("/project", cache, git);
+    let manager = WorktreeManager::with_git_runner("/project", git);
 
     let wt = make_worktree_info("test-files", "task/test-files");
 
@@ -252,7 +241,6 @@ async fn test_worktree_tracks_file_changes_count() {
 #[tokio::test]
 async fn test_worktree_tracks_commits_ahead() {
     // Simulate "1 commits ahead" shown in the UI card
-    let cache = make_cache().await;
 
     let git = Box::new(MockGitRunner::new(vec![
         ok_output(), // fetch
@@ -263,7 +251,7 @@ async fn test_worktree_tracks_commits_ahead() {
         }, // rev-list or diff
     ]));
 
-    let manager = WorktreeManager::with_git_runner("/project", cache, git);
+    let manager = WorktreeManager::with_git_runner("/project", git);
     let wt = make_worktree_info("ahead-test", "task/ahead-test");
 
     // The diff output is non-empty, meaning there are changes ahead
@@ -276,8 +264,7 @@ async fn test_worktree_tracks_commits_ahead() {
 #[tokio::test]
 async fn test_worktree_copy_path() {
     // "Copy Path" button in UI copies the worktree filesystem path
-    let cache = make_cache().await;
-    let manager = WorktreeManager::new("/Users/studio/projects/my-app", cache);
+    let manager = WorktreeManager::new("/Users/studio/projects/my-app");
 
     let task = make_test_task("Fix Login Bug");
     let path = manager.worktree_path(&task);
@@ -301,12 +288,11 @@ async fn test_worktree_copy_path() {
 #[tokio::test]
 async fn test_worktree_associated_with_task() {
     // Each worktree card shows a task/issue title and branch name
-    let cache = make_cache().await;
     let tmp = std::env::temp_dir().join("at-wt-test-assoc");
     let _ = std::fs::remove_dir_all(&tmp);
 
     let git = Box::new(MockGitRunner::new(vec![ok_output()]));
-    let manager = WorktreeManager::with_git_runner(tmp.clone(), cache, git);
+    let manager = WorktreeManager::with_git_runner(tmp.clone(), git);
 
     let mut task = make_test_task("Resolve dependabot security updates");
     task.description = Some("Fix all dependabot alerts".to_string());
@@ -330,7 +316,6 @@ async fn test_worktree_associated_with_task() {
 #[tokio::test]
 async fn test_merge_worktree_to_main() {
     // "Merge to main" orange button in UI
-    let cache = make_cache().await;
 
     let git = Box::new(MockGitRunner::new(vec![
         ok_output(), // fetch origin
@@ -345,7 +330,7 @@ async fn test_merge_worktree_to_main() {
         ok_output(), // branch -d
     ]));
 
-    let manager = WorktreeManager::with_git_runner("/project", cache, git);
+    let manager = WorktreeManager::with_git_runner("/project", git);
     let wt = make_worktree_info("merge-test", "task/merge-test");
 
     let result = manager.merge_to_main(&wt).await.unwrap();
@@ -355,7 +340,6 @@ async fn test_merge_worktree_to_main() {
 #[tokio::test]
 async fn test_merge_conflict_detection() {
     // When merge conflicts exist, UI should detect and report them
-    let cache = make_cache().await;
 
     let git = Box::new(MockGitRunner::new(vec![
         ok_output(), // fetch
@@ -377,7 +361,7 @@ async fn test_merge_conflict_detection() {
         ok_output(), // merge --abort
     ]));
 
-    let manager = WorktreeManager::with_git_runner("/project", cache, git);
+    let manager = WorktreeManager::with_git_runner("/project", git);
     let wt = make_worktree_info("conflict-test", "task/conflict-test");
 
     let result = manager.merge_to_main(&wt).await.unwrap();
@@ -399,8 +383,7 @@ async fn test_worktree_branch_naming_convention() {
     // "terminal/pr-review-worktrees"
     // Our system creates "task/{sanitized-title}" branches.
 
-    let cache = make_cache().await;
-    let manager = WorktreeManager::new("/project", cache);
+    let manager = WorktreeManager::new("/project");
 
     let cases = vec![
         (
@@ -436,7 +419,6 @@ async fn test_worktree_branch_naming_convention() {
 #[tokio::test]
 async fn test_worktree_cleanup_removes_directory() {
     // "Delete" red button in UI removes the worktree directory
-    let cache = make_cache().await;
     let tmp = std::env::temp_dir().join("at-wt-test-cleanup");
     let _ = std::fs::remove_dir_all(&tmp);
 
@@ -452,7 +434,7 @@ async fn test_worktree_cleanup_removes_directory() {
     // Set modification time to 2 hours ago using filetime if available,
     // otherwise just test that cleanup returns empty for recent dirs
     let git = Box::new(MockGitRunner::new(vec![ok_output()]));
-    let manager = WorktreeManager::with_git_runner(tmp.clone(), cache, git);
+    let manager = WorktreeManager::with_git_runner(tmp.clone(), git);
 
     // With a very short max_age, recent dirs won't be cleaned
     let _result = manager.cleanup_stale(Duration::from_secs(0)).await.unwrap();
@@ -471,12 +453,11 @@ async fn test_worktree_cleanup_removes_directory() {
 #[tokio::test]
 async fn test_manager_create_for_bead() {
     // WorktreeManager creates worktrees for beads/tasks
-    let cache = make_cache().await;
     let tmp = std::env::temp_dir().join("at-wt-test-bead");
     let _ = std::fs::remove_dir_all(&tmp);
 
     let git = Box::new(MockGitRunner::new(vec![ok_output()]));
-    let manager = WorktreeManager::with_git_runner(tmp.clone(), cache, git);
+    let manager = WorktreeManager::with_git_runner(tmp.clone(), git);
 
     let mut task = make_test_task("Implement OAuth flow");
     task.bead_id = Uuid::new_v4();
@@ -493,8 +474,7 @@ async fn test_manager_create_for_bead() {
 #[tokio::test]
 async fn test_manager_list_all() {
     // Manager can compute paths for all tasks (UI shows "Total Worktrees" count)
-    let cache = make_cache().await;
-    let manager = WorktreeManager::new("/project", cache);
+    let manager = WorktreeManager::new("/project");
 
     let tasks: Vec<Task> = (0..5)
         .map(|i| make_test_task(&format!("Task {}", i)))
@@ -511,9 +491,8 @@ async fn test_manager_list_all() {
 #[tokio::test]
 async fn test_manager_cleanup_completed() {
     // Cleanup with no .worktrees dir should return empty
-    let cache = make_cache().await;
     let git = Box::new(MockGitRunner::new(vec![]));
-    let manager = WorktreeManager::with_git_runner("/nonexistent/cleanup/test", cache, git);
+    let manager = WorktreeManager::with_git_runner("/nonexistent/cleanup/test", git);
 
     let result = manager
         .cleanup_stale(Duration::from_secs(3600))
@@ -526,12 +505,11 @@ async fn test_manager_cleanup_completed() {
 async fn test_manager_git_runner_integration() {
     // Verify that create_for_task produces a WorktreeInfo with the right fields,
     // proving that the git runner was called and succeeded.
-    let cache = make_cache().await;
     let tmp = std::env::temp_dir().join("at-wt-test-runner");
     let _ = std::fs::remove_dir_all(&tmp);
 
     let git = Box::new(MockGitRunner::new(vec![ok_output()]));
-    let manager = WorktreeManager::with_git_runner(tmp.clone(), cache, git);
+    let manager = WorktreeManager::with_git_runner(tmp.clone(), git);
 
     let task = make_test_task("Runner Test");
     let result = manager.create_for_task(&task).await;
@@ -557,7 +535,6 @@ async fn test_manager_git_runner_integration() {
 #[tokio::test]
 async fn test_nothing_to_merge() {
     // When a worktree has no changes, merge returns NothingToMerge
-    let cache = make_cache().await;
 
     let git = Box::new(MockGitRunner::new(vec![
         ok_output(), // fetch
@@ -568,7 +545,7 @@ async fn test_nothing_to_merge() {
         },
     ]));
 
-    let manager = WorktreeManager::with_git_runner("/project", cache, git);
+    let manager = WorktreeManager::with_git_runner("/project", git);
     let wt = make_worktree_info("no-changes", "task/no-changes");
 
     let result = manager.merge_to_main(&wt).await.unwrap();
@@ -628,7 +605,6 @@ fn test_low_level_create_rejects_duplicate_path() {
 
 #[tokio::test]
 async fn test_git_command_failure_propagates() {
-    let cache = make_cache().await;
     let tmp = std::env::temp_dir().join("at-wt-test-git-fail");
     let _ = std::fs::remove_dir_all(&tmp);
 
@@ -638,7 +614,7 @@ async fn test_git_command_failure_propagates() {
         stderr: "fatal: not a git repository".to_string(),
     }]));
 
-    let manager = WorktreeManager::with_git_runner(tmp.clone(), cache, git);
+    let manager = WorktreeManager::with_git_runner(tmp.clone(), git);
     let task = make_test_task("Git Fail Test");
 
     let result = manager.create_for_task(&task).await;
