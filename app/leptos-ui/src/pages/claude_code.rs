@@ -1,9 +1,11 @@
 use crate::state::use_app_state;
 use crate::themed::{themed, Prompt};
+use leptos::ev::KeyboardEvent;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 
 use crate::api;
+use crate::components::focus_trap::use_focus_trap;
 
 #[component]
 pub fn ClaudeCodePage() -> impl IntoView {
@@ -167,9 +169,24 @@ pub fn ClaudeCodePage() -> impl IntoView {
                 "idle" => "glyph-idle",
                 _ => "glyph-stopped",
             };
+
+            let focus_trap = use_focus_trap();
+
+            // Combined keydown handler for focus trap and Escape key
+            let handle_keydown = move |ev: KeyboardEvent| {
+                // Handle Escape key to close modal
+                if ev.key() == "Escape" {
+                    set_selected_agent.set(None);
+                    return;
+                }
+
+                // Handle Tab/Shift+Tab for focus trapping
+                focus_trap(ev);
+            };
+
             view! {
                 <div class="modal-overlay" on:click=move |_| set_selected_agent.set(None)>
-                    <div class="modal-content" style="max-width: 520px;" on:click=move |ev| ev.stop_propagation()>
+                    <div class="modal-content" style="max-width: 520px;" on:click=move |ev| ev.stop_propagation() on:keydown=handle_keydown>
                         <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center;">
                             <h3 style="margin: 0;">"Agent Output"</h3>
                             <button
