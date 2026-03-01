@@ -122,84 +122,144 @@ impl Bead {
 // Agent-related enums
 // ---------------------------------------------------------------------------
 
+/// Specialized role defining an agent's responsibilities in the Tundra system.
+///
+/// Agents are assigned specific roles that determine their capabilities and
+/// which tasks they can handle. Roles are organized by functional area:
+/// orchestration, spec pipeline, planning, coding, QA, analysis, ideation,
+/// roadmap, and utilities.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentRole {
     // --- Core orchestration ---
+    /// Top-level orchestrator managing task distribution and workflow.
     Mayor,
+    /// Coordinates agent communication and event propagation.
     Deacon,
+    /// Monitors system health and agent activity.
     Witness,
+    /// Processes and refines task metadata and context.
     Refinery,
+    /// Handles error recovery and task escalation.
     Polecat,
+    /// General-purpose worker agent for flexible task execution.
     Crew,
 
     // --- Spec pipeline ---
+    /// Collects requirements and context for spec creation.
     SpecGatherer,
+    /// Writes technical specifications from gathered requirements.
     SpecWriter,
+    /// Researches external context and dependencies for specs.
     SpecResearcher,
+    /// Reviews and critiques spec quality and completeness.
     SpecCritic,
+    /// Validates specs against acceptance criteria.
     SpecValidator,
 
     // --- Planning ---
+    /// Creates implementation plans from specifications.
     Planner,
+    /// Generates follow-up plans for additional work or refinements.
     FollowupPlanner,
 
     // --- Coding ---
+    /// Executes code implementation from plans.
     Coder,
+    /// Handles error recovery during coding phase.
     CoderRecovery,
 
     // --- QA ---
+    /// Reviews code quality and runs QA checks.
     QaReviewer,
+    /// Fixes issues identified during QA review.
     QaFixer,
+    /// Addresses validation failures in the pipeline.
     ValidationFixer,
 
     // --- Analysis ---
+    /// Extracts insights and metrics from codebase or tasks.
     InsightExtractor,
+    /// Assesses task complexity and effort estimates.
     ComplexityAssessor,
+    /// Analyzes competitor features and implementations.
     CompetitorAnalysis,
+    /// Performs AI-driven code and pattern analysis.
     AiAnalyzer,
 
     // --- Ideation ---
+    /// Generates ideas for code quality improvements.
     IdeationCodeQuality,
+    /// Generates ideas for performance optimizations.
     IdeationPerformance,
+    /// Generates ideas for security enhancements.
     IdeationSecurity,
+    /// Generates ideas for documentation improvements.
     IdeationDocumentation,
+    /// Generates ideas for UI/UX enhancements.
     IdeationUiUx,
+    /// Generates general code improvement suggestions.
     IdeationCodeImprovements,
 
     // --- Roadmap ---
+    /// Discovers and analyzes roadmap opportunities.
     RoadmapDiscovery,
+    /// Defines and prioritizes roadmap features.
     RoadmapFeatures,
 
     // --- Utilities ---
+    /// Generates commit messages from code changes.
     CommitMessage,
+    /// Fills pull request templates with task context.
     PrTemplateFiller,
+    /// Resolves merge conflicts automatically.
     MergeResolver,
 
     // --- Dynamic plugin agent (from .claude/agents/) ---
+    /// Custom plugin agent loaded from `.claude/agents/` directory.
     Plugin,
 }
 
+/// AI CLI provider type used by an agent for execution.
+///
+/// Determines which AI assistant CLI the agent uses to interact with
+/// language models and execute tasks.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CliType {
+    /// Claude AI assistant (Anthropic).
     Claude,
+    /// Codex AI assistant (OpenAI).
     Codex,
+    /// Gemini AI assistant (Google).
     Gemini,
+    /// OpenCode AI assistant.
     OpenCode,
 }
 
+/// Current operational status of an agent.
+///
+/// Tracks whether an agent is actively working, idle, or unavailable.
+/// Used for agent health monitoring and task routing decisions.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentStatus {
+    /// Agent is currently executing a task.
     Active,
+    /// Agent is online but not currently assigned work.
     Idle,
+    /// Agent is starting up or initializing.
     Pending,
+    /// Agent status cannot be determined.
     Unknown,
+    /// Agent has been stopped or shut down.
     Stopped,
 }
 
 impl AgentStatus {
+    /// Returns a single-character glyph representing the status.
+    ///
+    /// Used for compact status display in logs and UI.
     pub fn glyph(&self) -> &'static str {
         match self {
             AgentStatus::Active => "@",
@@ -215,6 +275,14 @@ impl AgentStatus {
 // Agent
 // ---------------------------------------------------------------------------
 
+/// An autonomous AI worker in the Tundra system.
+///
+/// Agents execute specialized tasks based on their assigned `role` and can be
+/// tracked across their lifecycle. Each agent has a unique name and uses a
+/// specific AI CLI provider (`cli_type`) to interact with language models.
+///
+/// Agents can be assigned to beads, monitored for health, and coordinated
+/// through the orchestration layer.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Agent {
     pub id: Uuid,
@@ -232,6 +300,7 @@ pub struct Agent {
 }
 
 impl Agent {
+    /// Create a new Agent in Pending status with the given name, role, and CLI type.
     pub fn new(name: impl Into<String>, role: AgentRole, cli_type: CliType) -> Self {
         let now = Utc::now();
         Self {
