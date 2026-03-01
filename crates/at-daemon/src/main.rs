@@ -291,7 +291,8 @@ async fn serve_frontend(api_port: u16, host: String, port_tx: tokio::sync::onesh
         ));
 
     // Bind to port 0 — OS assigns an ephemeral port.
-    let listener = match tokio::net::TcpListener::bind("[::]:0").await {
+    let frontend_bind_addr = format!("{}:0", host);
+    let listener = match tokio::net::TcpListener::bind(&frontend_bind_addr).await {
         Ok(l) => l,
         Err(e) => {
             tracing::error!(error = %e, "failed to bind frontend server");
