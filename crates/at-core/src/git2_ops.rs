@@ -59,6 +59,13 @@ impl Git2ReadOps {
     /// Get the current branch name (replaces `git rev-parse --abbrev-ref HEAD`).
     pub fn current_branch(workdir: &Path) -> Result<String, RepoError> {
         let repo = Self::open(workdir)?;
+        Self::current_branch_with_repo(&repo)
+    }
+
+    /// Helper to get the current branch name from an already-opened repository.
+    ///
+    /// Avoids redundant `discover()` calls when the repo handle is already cached.
+    pub fn current_branch_with_repo(repo: &git2::Repository) -> Result<String, RepoError> {
         let head = repo.head().map_err(RepoError::from)?;
 
         if head.is_branch() {
