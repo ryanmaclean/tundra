@@ -635,7 +635,7 @@ code, pre, kbd, .config-block {
 
 .new-task-btn.collapsed {
     padding: 10px;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
 }
 
 .new-task-btn:hover {
@@ -1404,7 +1404,7 @@ html[data-native-shell="1"] .sidebar-header {
     min-width: 20px;
     height: 20px;
     padding: 0 6px;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     background: rgba(124, 58, 237, 0.15);
     color: var(--accent-purple);
     font-size: 11px;
@@ -1915,7 +1915,7 @@ kbd {
     padding: 1px 7px;
     font-size: 9px;
     font-weight: 600;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     font-family: 'JetBrains Mono', monospace;
     letter-spacing: 0.2px;
     white-space: nowrap;
@@ -2440,7 +2440,7 @@ kbd {
 .kpi-card {
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     padding: 16px;
     transition: border-color 0.15s;
 }
@@ -2480,7 +2480,7 @@ kbd {
 .agent-card {
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     padding: 14px;
     transition: border-color 0.15s;
 }
@@ -2597,7 +2597,7 @@ kbd {
 .activity-feed {
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     padding: 4px 0;
 }
 
@@ -2640,7 +2640,7 @@ kbd {
 .config-block {
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     padding: 16px;
     margin: 16px;
     white-space: pre-wrap;
@@ -2975,7 +2975,7 @@ code.file-path, code.branch-name {
     gap: 10px;
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     padding: 16px;
 }
 
@@ -3022,7 +3022,7 @@ code.file-path, code.branch-name {
 .idea-card {
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     padding: 14px;
     transition: border-color 0.15s;
 }
@@ -3082,7 +3082,7 @@ code.file-path, code.branch-name {
 .phase-card {
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     padding: 16px;
     transition: border-color 0.15s;
 }
@@ -3180,7 +3180,7 @@ code.file-path, code.branch-name {
 .session-card {
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     padding: 14px;
     transition: border-color 0.15s;
 }
@@ -3309,7 +3309,7 @@ code.file-path, code.branch-name {
     font-size: 10px;
     font-weight: 600;
     padding: 1px 8px;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     line-height: 1.4;
     white-space: nowrap;
 }
@@ -3922,7 +3922,7 @@ code.file-path, code.branch-name {
 .review-section {
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     padding: 12px;
 }
 
@@ -4013,7 +4013,7 @@ code.file-path, code.branch-name {
 .settings-card {
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     overflow: hidden;
 }
 
@@ -4253,7 +4253,7 @@ code.file-path, code.branch-name {
     padding: 10px 24px;
     background: linear-gradient(135deg, var(--accent-purple), var(--accent-magenta));
     border: none;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     color: #fff;
     font-size: 13px;
     font-weight: 600;
@@ -4454,7 +4454,7 @@ code.file-path, code.branch-name {
 .dash-panel {
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -4482,7 +4482,7 @@ code.file-path, code.branch-name {
     color: var(--text-muted);
     background: rgba(255, 255, 255, 0.06);
     padding: 2px 8px;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     font-variant-numeric: tabular-nums;
 }
 
@@ -5231,7 +5231,7 @@ code.file-path, code.branch-name {
     font-size: 10px;
     font-weight: 700;
     padding: 2px 8px;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     text-transform: uppercase;
     letter-spacing: 0.05em;
 }
@@ -5372,7 +5372,7 @@ code.file-path, code.branch-name {
 
 .td-build-btn {
     padding: 6px 14px;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     font-size: 12px;
     font-weight: 600;
     cursor: pointer;
@@ -5408,7 +5408,7 @@ code.file-path, code.branch-name {
 
 .td-action-btn {
     padding: 8px 16px;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     font-size: 12px;
     font-weight: 600;
     cursor: pointer;
@@ -5478,7 +5478,7 @@ code.file-path, code.branch-name {
     width: 100%;
     min-height: 72px;
     padding: 10px 12px;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     border: 1px solid rgba(255, 255, 255, 0.08);
     background: var(--bg-primary);
     color: var(--text-primary);
@@ -5506,7 +5506,7 @@ code.file-path, code.branch-name {
 
 .td-rc-submit {
     padding: 7px 18px;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     font-size: 12px;
     font-weight: 600;
     cursor: pointer;
@@ -5581,7 +5581,7 @@ code.file-path, code.branch-name {
 
 .td-footer-close {
     padding: 7px 20px;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     font-size: 12px;
     font-weight: 600;
     cursor: pointer;
@@ -5598,7 +5598,7 @@ code.file-path, code.branch-name {
 
 .td-footer-resume {
     padding: 7px 20px;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     font-size: 12px;
     font-weight: 600;
     cursor: pointer;
@@ -5633,7 +5633,7 @@ code.file-path, code.branch-name {
 
 .td-footer-assign {
     padding: 7px 20px;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     font-size: 12px;
     font-weight: 600;
     cursor: pointer;
@@ -5655,7 +5655,7 @@ code.file-path, code.branch-name {
 
 .td-assign-msg {
     padding: 8px 16px;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     font-size: 12px;
     font-weight: 500;
     margin-top: 8px;
@@ -5809,7 +5809,7 @@ code.file-path, code.branch-name {
 .task-detail-meta {
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     padding: 12px;
     margin-bottom: 16px;
 }
@@ -5906,7 +5906,7 @@ code.file-path, code.branch-name {
 .task-detail-log {
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     padding: 8px 0;
     max-height: 200px;
     overflow-y: auto;
@@ -6179,7 +6179,7 @@ code.file-path, code.branch-name {
     font-size: 10px;
     font-weight: 600;
     padding: 2px 8px;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     text-transform: uppercase;
     letter-spacing: 0.04em;
     white-space: nowrap;
@@ -6240,7 +6240,7 @@ code.file-path, code.branch-name {
     color: var(--accent-purple);
     background: rgba(124, 58, 237, 0.1);
     padding: 2px 8px;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
 }
 
 .stack-count-tag {
@@ -6399,7 +6399,7 @@ code.file-path, code.branch-name {
     height: 32px;
     background: none;
     border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     color: var(--text-secondary);
     cursor: pointer;
     transition: background 0.15s, color 0.15s;
@@ -6442,7 +6442,7 @@ code.file-path, code.branch-name {
     padding: 8px 20px;
     background: rgba(255, 255, 255, 0.04);
     border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     color: var(--text-secondary);
     font-size: 13px;
     font-weight: 500;
@@ -6463,7 +6463,7 @@ code.file-path, code.branch-name {
     padding: 8px 20px;
     background: linear-gradient(135deg, var(--accent-purple), var(--accent-magenta));
     border: none;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     color: #fff;
     font-size: 13px;
     font-weight: 600;
@@ -6603,7 +6603,7 @@ code.file-path, code.branch-name {
     padding: 10px 24px;
     background: rgba(239, 68, 68, 0.1);
     border: 1px solid rgba(239, 68, 68, 0.3);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     color: var(--accent-red);
     font-size: 13px;
     font-weight: 600;
@@ -6624,7 +6624,7 @@ code.file-path, code.branch-name {
     background: var(--accent-green);
     color: #fff;
     padding: 12px 24px;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     font-size: 13px;
     font-weight: 600;
     z-index: 300;
@@ -6664,7 +6664,7 @@ code.file-path, code.branch-name {
     padding: 10px 16px;
     background: linear-gradient(135deg, var(--accent-purple), var(--accent-magenta));
     border: none;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     color: #fff;
     font-size: 13px;
     font-weight: 600;
@@ -6780,7 +6780,7 @@ code.file-path, code.branch-name {
     padding: 10px 14px;
     background: var(--bg-primary);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     color: var(--text-primary);
     font-family: inherit;
     font-size: 13px;
@@ -6796,7 +6796,7 @@ code.file-path, code.branch-name {
     padding: 10px 20px;
     background: var(--accent-purple);
     border: none;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     color: #fff;
     font-size: 13px;
     font-weight: 600;
@@ -6848,7 +6848,7 @@ code.file-path, code.branch-name {
 .roadmap-feature-card {
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     padding: 16px;
     cursor: pointer;
     transition: border-color 0.15s, box-shadow 0.15s;
@@ -6939,7 +6939,7 @@ code.file-path, code.branch-name {
     margin: 16px;
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     padding: 16px;
 }
 
@@ -6970,7 +6970,7 @@ code.file-path, code.branch-name {
 .ideation-card {
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     padding: 16px;
     cursor: pointer;
     transition: border-color 0.15s, box-shadow 0.15s;
@@ -7092,7 +7092,7 @@ code.file-path, code.branch-name {
     color: var(--text-secondary);
     border: 1px solid rgba(255, 255, 255, 0.06);
     padding: 5px 10px;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     font-size: 12px;
     font-weight: 500;
     cursor: pointer;
@@ -7184,7 +7184,7 @@ code.file-path, code.branch-name {
     flex-direction: column;
     height: 100%;
     background: var(--bg-primary);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     overflow: hidden;
     position: relative;
     font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
@@ -7641,7 +7641,7 @@ code.file-path, code.branch-name {
 .graph-memory-banner {
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     padding: 16px 20px;
     margin: 16px 16px 0;
     display: flex;
@@ -7791,7 +7791,7 @@ code.file-path, code.branch-name {
 .project-overview-card {
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     padding: 20px;
     margin: 16px;
 }
@@ -7869,7 +7869,7 @@ code.file-path, code.branch-name {
     margin: 0 16px;
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     overflow: hidden;
 }
 
@@ -7992,7 +7992,7 @@ code.file-path, code.branch-name {
 .mcp-agent-card {
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     padding: 12px 14px;
     transition: border-color 0.15s;
 }
@@ -8099,7 +8099,7 @@ code.file-path, code.branch-name {
 .worktree-card {
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     padding: 14px 16px;
     transition: border-color 0.15s;
 }
@@ -8520,7 +8520,7 @@ code.file-path, code.branch-name {
     align-items: center;
     gap: 8px;
     padding: 8px 16px;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
     transition: background 0.2s, border-color 0.2s;
@@ -8569,7 +8569,7 @@ code.file-path, code.branch-name {
 .changelog-step-content {
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     padding: 20px;
     display: flex;
     flex-direction: column;
@@ -8605,7 +8605,7 @@ code.file-path, code.branch-name {
     border: 1px solid rgba(34, 197, 94, 0.3);
     color: var(--accent-green);
     padding: 10px 16px;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     font-size: 13px;
     font-weight: 500;
     margin-bottom: 12px;
@@ -8623,7 +8623,7 @@ code.file-path, code.branch-name {
 .changelog-source-card {
     background: var(--bg-secondary);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     padding: 14px;
     cursor: pointer;
     transition: border-color 0.15s, background 0.15s;
@@ -8675,7 +8675,7 @@ code.file-path, code.branch-name {
     background: rgba(124, 58, 237, 0.15);
     color: var(--accent-purple);
     padding: 1px 6px;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     font-weight: 600;
 }
 
@@ -8690,7 +8690,7 @@ code.file-path, code.branch-name {
 .changelog-task-selection {
     background: var(--bg-secondary);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     overflow: hidden;
 }
 
@@ -8773,7 +8773,7 @@ code.file-path, code.branch-name {
     background: rgba(6, 182, 212, 0.12);
     color: var(--accent-cyan);
     padding: 2px 8px;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     font-weight: 500;
     flex-shrink: 0;
 }
@@ -8911,7 +8911,7 @@ code.file-path, code.branch-name {
 .changelog-entry {
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     padding: 14px 16px;
     cursor: pointer;
     transition: border-color 0.15s;
@@ -9040,7 +9040,7 @@ code.file-path, code.branch-name {
     padding: 14px 12px;
     background: var(--bg-secondary);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     cursor: pointer;
     font-family: inherit;
     color: var(--text-secondary);
@@ -9079,7 +9079,7 @@ code.file-path, code.branch-name {
     background: rgba(124, 58, 237, 0.15);
     color: var(--accent-purple);
     padding: 1px 8px;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     font-weight: 600;
 }
 
@@ -9224,7 +9224,7 @@ code.file-path, code.branch-name {
 .settings-warning-banner {
     background: rgba(239, 68, 68, 0.08);
     border: 1px solid rgba(239, 68, 68, 0.25);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     padding: 10px 14px;
     font-size: 12px;
     color: var(--accent-red);
@@ -9309,7 +9309,7 @@ code.file-path, code.branch-name {
 .settings-account-card {
     background: var(--bg-secondary);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     padding: 12px 14px;
     margin-bottom: 10px;
 }
@@ -9345,7 +9345,7 @@ code.file-path, code.branch-name {
 .settings-badge {
     font-size: 10px;
     padding: 2px 8px;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     font-weight: 500;
     background: rgba(155, 138, 184, 0.15);
     color: var(--text-secondary);
@@ -9371,7 +9371,7 @@ code.file-path, code.branch-name {
 .settings-info-banner {
     background: rgba(59, 130, 246, 0.08);
     border: 1px solid rgba(59, 130, 246, 0.2);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     padding: 10px 14px;
     font-size: 12px;
     color: var(--accent-blue);
@@ -9398,7 +9398,7 @@ code.file-path, code.branch-name {
     padding: 12px;
     border: 1px solid rgba(34, 197, 94, 0.24);
     background: rgba(34, 197, 94, 0.05);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     display: flex;
     flex-direction: column;
     gap: 8px;
@@ -9560,7 +9560,7 @@ code.file-path, code.branch-name {
     justify-content: space-between;
     background: var(--bg-secondary);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     padding: 16px;
     margin-bottom: 12px;
 }
@@ -9650,7 +9650,7 @@ code.file-path, code.branch-name {
 .settings-collapsible {
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     padding: 16px;
 }
 
@@ -9806,7 +9806,7 @@ button.toggle-switch.active .toggle-knob {
     gap: 0;
     height: calc(100vh - 240px);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     overflow: hidden;
 }
 
@@ -10015,7 +10015,7 @@ button.toggle-switch.active .toggle-knob {
 .pr-status-banner {
     background: rgba(124, 58, 237, 0.08);
     border: 1px solid rgba(124, 58, 237, 0.2);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     padding: 10px 16px;
     font-size: 13px;
     color: var(--accent-purple);
@@ -10089,7 +10089,7 @@ button.toggle-switch.active .toggle-knob {
     gap: 0;
     height: calc(100vh - 240px);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     overflow: hidden;
 }
 
@@ -10205,7 +10205,7 @@ button.toggle-switch.active .toggle-knob {
     font-size: 10px;
     font-weight: 600;
     padding: 2px 8px;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
 }
 
 .pr-status-open {
@@ -10271,7 +10271,7 @@ button.toggle-switch.active .toggle-knob {
     width: 200px;
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
     z-index: 100;
     overflow: hidden;
@@ -10417,7 +10417,7 @@ button.toggle-switch.active .toggle-knob {
     width: 380px;
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
     z-index: 1000;
     margin-top: 8px;
@@ -10607,7 +10607,7 @@ button.toggle-switch.active .toggle-knob {
     position: relative;
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     padding: 14px 16px;
     min-width: 280px;
     max-width: 420px;
@@ -10910,7 +10910,7 @@ button.toggle-switch.active .toggle-knob {
 .onboarding-option-icon {
     width: 40px;
     height: 40px;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
     display: flex;
@@ -10958,7 +10958,7 @@ button.toggle-switch.active .toggle-knob {
     padding: 16px;
     background: var(--bg-secondary);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
 }
 
 .onboarding-env-vars h3 {
@@ -11005,7 +11005,7 @@ button.toggle-switch.active .toggle-knob {
     align-items: center;
     gap: 8px;
     padding: 10px 16px;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     font-size: 13px;
     width: 100%;
 }
@@ -11048,7 +11048,7 @@ button.toggle-switch.active .toggle-knob {
     background: var(--bg-secondary);
     color: var(--text-primary);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     padding: 10px 12px;
     font-size: 13px;
 }
@@ -11147,7 +11147,7 @@ button.toggle-switch.active .toggle-knob {
     margin-top: 20px;
     background: var(--bg-secondary);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     padding: 16px 20px;
 }
 
@@ -11284,7 +11284,7 @@ button.toggle-switch.active .toggle-knob {
 .subtasks-list {
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     overflow: hidden;
 }
 
@@ -11346,7 +11346,7 @@ button.toggle-switch.active .toggle-knob {
 .code-file-tree {
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     overflow: hidden;
 }
 
@@ -11476,7 +11476,7 @@ button.toggle-switch.active .toggle-knob {
     align-items: center;
     gap: 12px;
     padding: 12px 16px;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     margin-bottom: 12px;
     border: 1px solid;
 }
@@ -11773,7 +11773,7 @@ button.toggle-switch.active .toggle-knob {
     padding: 12px;
     background: rgba(239, 68, 68, 0.1);
     border: 1px solid rgba(239, 68, 68, 0.3);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     margin-bottom: 12px;
 }
 
@@ -11855,7 +11855,7 @@ button.toggle-switch.active .toggle-knob {
 .qa-checks-list {
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     overflow: hidden;
 }
 
@@ -11928,7 +11928,7 @@ button.toggle-switch.active .toggle-knob {
     padding: 0;
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     overflow: hidden;
 }
 
@@ -12002,7 +12002,7 @@ button.toggle-switch.active .toggle-knob {
     padding: 8px 12px;
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     color: var(--text-primary);
     font-size: 12px;
     font-family: inherit;
@@ -12057,7 +12057,7 @@ button.toggle-switch.active .toggle-knob {
     flex-direction: column;
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     height: 100%;
     overflow: hidden;
 }
@@ -13795,7 +13795,7 @@ button[class*="-btn"]:active {
     min-width: 220px;
     background: var(--bg-secondary);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     flex: 1;
 }
 .roadmap-kanban-column h4 {
@@ -13859,7 +13859,7 @@ button[class*="-btn"]:active {
 .skeleton-card {
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     padding: 12px;
     margin-bottom: 8px;
     display: flex;
@@ -13896,7 +13896,7 @@ button[class*="-btn"]:active {
 .skeleton-badge {
     height: 16px;
     width: 48px;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
 }
 
 .skeleton-avatar {
@@ -14442,7 +14442,7 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
     min-width: 240px;
     background: var(--bg-secondary);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -14474,7 +14474,7 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
     color: var(--text-muted);
     background: rgba(124, 58, 237, 0.1);
     padding: 1px 6px;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
 }
 
 .roadmap-kanban-column > .roadmap-feature-card {
@@ -14519,7 +14519,7 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
     color: var(--text-muted);
     background: rgba(124, 58, 237, 0.1);
     padding: 1px 6px;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
 }
 
 .roadmap-priority-group .roadmap-grid {
@@ -14555,7 +14555,7 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
     color: var(--accent-cyan);
     background: rgba(6, 182, 212, 0.1);
     padding: 3px 10px;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
 }
 
 .mcp-custom-empty {
@@ -14607,7 +14607,7 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
     color: var(--accent-cyan);
     background: rgba(6, 182, 212, 0.1);
     padding: 3px 10px;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
 }
 
 .worktree-header-desc {
@@ -14641,7 +14641,7 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
 .changelog-preview {
     background: var(--bg-secondary);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     padding: 16px;
 }
 
@@ -14765,7 +14765,7 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
     margin: 16px;
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
 }
 
 .graph-memory-left {
@@ -14809,7 +14809,7 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
     font-size: 11px;
     font-weight: 500;
     padding: 3px 10px;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     white-space: nowrap;
 }
 
@@ -14823,7 +14823,7 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
     padding: 16px;
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
 }
 
 .project-overview-title {
@@ -14840,7 +14840,7 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
     color: var(--accent-cyan);
     background: rgba(6, 182, 212, 0.1);
     padding: 2px 8px;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     margin-bottom: 8px;
 }
 
@@ -15072,7 +15072,7 @@ h2 .gh-icon {
     align-items: center;
     gap: 4px;
     padding: 1px 8px;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     font-size: 10px;
     font-weight: 600;
     background: rgba(192, 38, 211, 0.12);
@@ -15567,7 +15567,7 @@ h2 .gh-icon {
     color: var(--accent-orange);
     border: 1px solid var(--accent-orange);
     padding: 10px 16px;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     margin: 0 20px 16px;
     font-size: 13px;
 }
@@ -15988,7 +15988,7 @@ h2 .gh-icon {
     gap: 10px;
     background: var(--bg-primary);
     padding: 12px;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     border: 1px solid var(--border-light);
 }
 
@@ -16059,7 +16059,7 @@ h2 .gh-icon {
 .td-sidebar-section {
     background: rgba(255, 255, 255, 0.02);
     border: 1px solid var(--border-light);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     padding: 16px;
     margin-bottom: 16px;
 }
@@ -16352,7 +16352,7 @@ h2 .gh-icon {
     padding: 16px;
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
 }
 
 .mcp-add-form-title {
@@ -16465,7 +16465,7 @@ h2 .gh-icon {
     display: block;
     text-align: left;
     padding: 7px 10px;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     background: transparent;
     border: none;
     color: var(--text-secondary);
@@ -16717,7 +16717,7 @@ h2 .gh-icon {
     border: 1px solid rgba(255, 255, 255, 0.08);
     background: rgba(255, 255, 255, 0.02);
     color: var(--text-secondary);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     padding: 8px 9px;
     font-size: 12px;
     margin-bottom: 7px;
@@ -16741,7 +16741,7 @@ h2 .gh-icon {
     justify-content: space-between;
     gap: 8px;
     padding: 8px;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     border: 1px solid rgba(255, 255, 255, 0.08);
     background: rgba(255, 255, 255, 0.015);
     margin-bottom: 7px;
@@ -16799,7 +16799,7 @@ h2 .gh-icon {
     color: #f87171;
     border: 1px solid rgba(239, 68, 68, 0.35);
     background: rgba(127, 29, 29, 0.18);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     padding: 8px;
 }
 
@@ -16956,7 +16956,7 @@ h2 .gh-icon {
     min-width: 52px;
     min-height: 27px;
     padding: 4px 10px;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     font-size: 12px;
 }
 
@@ -17304,7 +17304,7 @@ h2 .gh-icon {
     background: var(--bg-secondary, #1a1b26);
     color: var(--text-primary, #e2e8f0);
     border: 1px solid rgba(255,255,255,0.1);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     padding: 5px 10px;
     font-size: 13px;
     cursor: pointer;
@@ -17321,7 +17321,7 @@ h2 .gh-icon {
     background: rgba(255,255,255,0.04);
     border: 1px solid rgba(255,255,255,0.1);
     color: var(--text-secondary, #8b8fa3);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     width: 32px;
     height: 32px;
     display: flex;
@@ -17434,7 +17434,7 @@ h2 .gh-icon {
 
 .insights-session-item {
     border: 1px solid transparent;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
 }
 
 .insights-session-item.active {
@@ -17562,7 +17562,7 @@ h2 .gh-icon {
 
 .worktree-actions .wt-btn {
     min-height: 30px;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     padding: 0 12px;
 }
 
@@ -18273,7 +18273,7 @@ h2 .gh-icon {
     background: rgba(35, 134, 54, 0.15);
     color: #3fb950;
     border: 1px solid rgba(35, 134, 54, 0.4);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     padding: 10px 16px;
     margin: 0 0 12px;
     font-size: 13px;
@@ -18534,7 +18534,7 @@ h2 .gh-icon {
 .worktree-actions .wt-btn {
     min-height: 28px;
     padding: 0 11px;
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
 }
 
 .worktree-path-hint {
