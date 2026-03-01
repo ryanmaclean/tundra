@@ -3,23 +3,23 @@
   "spec": "022-extract-shared-api-response-types-into-a-common-cr",
   "state": "building",
   "subtasks": {
-    "completed": 5,
+    "completed": 10,
     "total": 19,
     "in_progress": 1,
     "failed": 0
   },
   "phase": {
-    "current": "Create Shared Types Crate",
+    "current": "Migrate TUI Client to Shared Types",
     "id": null,
-    "total": 6
+    "total": 3
   },
   "workers": {
     "active": 0,
     "max": 1
   },
   "session": {
-    "number": 7,
+    "number": 12,
     "started_at": "2026-03-01T09:55:02.686377"
   },
-  "last_update": "2026-03-01T10:09:17.593795"
+  "last_update": "2026-03-01T10:20:55.394021"
 }
