@@ -47,11 +47,48 @@ use uuid::Uuid;
 // Crate-level error type
 // ---------------------------------------------------------------------------
 
+/// Errors that can occur in the intelligence layer.
+///
+/// This enum provides error handling for high-level intelligence operations
+/// such as managing sessions, roadmaps, and ideation workflows.
+///
+/// # Examples
+///
+/// ```rust
+/// use at_intelligence::{IntelligenceError, insights::InsightsEngine};
+/// use uuid::Uuid;
+///
+/// fn handle_session_error(engine: &mut InsightsEngine) {
+///     let missing_id = Uuid::new_v4();
+///     match engine.get_session(&missing_id) {
+///         Some(_) => println!("Session found"),
+///         None => println!("Session not found"),
+///     }
+/// }
+/// ```
 #[derive(Debug, Error)]
 pub enum IntelligenceError {
+    /// The requested entity (session, roadmap, etc.) was not found.
+    ///
+    /// This occurs when:
+    /// - Attempting to retrieve an entity with an invalid ID
+    /// - The entity was deleted or never created
+    /// - Using a stale reference after removal
+    ///
+    /// The `entity` field indicates what type of entity was not found
+    /// (e.g., "session", "roadmap"), and the `id` field contains the UUID
+    /// that was queried.
     #[error("{entity} with id {id} not found")]
     NotFound { entity: String, id: Uuid },
 
+    /// An invalid operation was attempted.
+    ///
+    /// This occurs when:
+    /// - Attempting an operation in an invalid state
+    /// - Providing invalid parameters to a method
+    /// - Violating business logic constraints
+    ///
+    /// The contained string provides details about what operation failed and why.
     #[error("invalid operation: {0}")]
     InvalidOperation(String),
 }
