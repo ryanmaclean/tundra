@@ -3,6 +3,7 @@ use leptos::task::spawn_local;
 
 use crate::analytics_store;
 use crate::api;
+use crate::components::spinner::Spinner;
 use crate::i18n::t;
 use crate::webgpu;
 
@@ -147,7 +148,7 @@ pub fn AnalyticsPage() -> impl IntoView {
         })}
 
         {move || loading.get().then(|| view! {
-            <div class="dashboard-loading">{t("status-loading")}</div>
+            <Spinner size="md" label=""/>
         })}
 
         <div class="kpi-grid">

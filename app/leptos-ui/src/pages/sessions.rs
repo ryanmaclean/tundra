@@ -2,6 +2,7 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 
 use crate::api;
+use crate::components::spinner::Spinner;
 use crate::i18n::t;
 
 #[component]
@@ -46,7 +47,7 @@ pub fn SessionsPage() -> impl IntoView {
         })}
 
         {move || loading.get().then(|| view! {
-            <div class="dashboard-loading">{t("status-loading")}</div>
+            <Spinner size="md" label=""/>
         })}
 
         <table class="data-table">
