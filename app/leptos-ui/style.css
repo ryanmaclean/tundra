@@ -1839,7 +1839,7 @@ kbd {
 .progress-pipeline .stage {
     flex: 1;
     height: 4px;
-    border-radius: 2px;
+    border-radius: var(--radius-sm);
     background: var(--border);
     position: relative;
     transition: background 0.2s;
@@ -1935,7 +1935,7 @@ kbd {
     gap: 2px;
     margin-top: 8px;
     padding: 1px 4px;
-    border-radius: 2px;
+    border-radius: var(--radius-sm);
     text-transform: uppercase;
     letter-spacing: 0.5px;
     font-weight: 600;
@@ -2378,14 +2378,14 @@ kbd {
 .bead-progress-bar {
     height: 3px;
     background: rgba(107, 90, 133, 0.2);
-    border-radius: 2px;
+    border-radius: var(--radius-sm);
     margin: 4px 0 4px 0;
     position: relative;
     overflow: hidden;
 }
 .bead-progress-fill {
     height: 100%;
-    border-radius: 2px;
+    border-radius: var(--radius-sm);
     background: linear-gradient(90deg, var(--accent-purple), var(--accent-cyan));
     transition: width 0.4s ease;
 }
@@ -3519,7 +3519,7 @@ code.file-path, code.branch-name {
 }
 
 .phase-seg {
-    border-radius: 2px;
+    border-radius: var(--radius-sm);
     transition: opacity 0.25s, background 0.25s;
     opacity: 0.18;
 }
@@ -4210,7 +4210,7 @@ code.file-path, code.branch-name {
     width: 160px;
     height: 4px;
     background: var(--border);
-    border-radius: 2px;
+    border-radius: var(--radius-sm);
     outline: none;
 }
 
