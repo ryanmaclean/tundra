@@ -96,6 +96,12 @@ pub fn EditTaskModal(
 
     let bid = bead_id.clone();
     let on_save = move |ev: MouseEvent| {
+        // Prevent double-submit
+        if is_submitting.get() {
+            return;
+        }
+        set_is_submitting.set(true);
+
         let id = bid.clone();
         let new_title = task_title.get();
         let new_desc = description.get();
