@@ -766,16 +766,36 @@ impl std::fmt::Display for AgentProfile {
 // SubtaskStatus / Subtask
 // ---------------------------------------------------------------------------
 
+/// Execution status of a Subtask within a Task.
+///
+/// Subtasks progress from Pending through InProgress to a terminal state
+/// (Complete, Failed, or Skipped). This status tracking enables granular
+/// progress monitoring within larger tasks.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SubtaskStatus {
+    /// Queued and waiting to be started.
     Pending,
+    /// Currently being executed.
     InProgress,
+    /// Successfully completed.
     Complete,
+    /// Execution failed or encountered an error.
     Failed,
+    /// Intentionally skipped (e.g., due to dependencies or conditions).
     Skipped,
 }
 
+/// A granular unit of work within a Task, enabling detailed execution tracking.
+///
+/// Subtasks break down complex tasks into manageable steps, each with its own
+/// status and optional agent assignment. Dependencies between subtasks can be
+/// expressed via `depends_on`, enabling ordered execution and parallel work
+/// where possible.
+///
+/// Subtasks are particularly useful during the Coding and QA phases where
+/// implementation plans specify multiple discrete steps that need individual
+/// tracking and validation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Subtask {
     pub id: Uuid,
@@ -789,19 +809,42 @@ pub struct Subtask {
 // TaskLogType / TaskLogEntry
 // ---------------------------------------------------------------------------
 
+/// Classification of a task log entry by its semantic purpose.
+///
+/// Log types enable structured filtering and presentation of task execution
+/// history. They distinguish between phase transitions, tool invocations,
+/// status updates, and diagnostic messages.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskLogType {
+    /// General text message or narrative update.
     Text,
+    /// Marks the beginning of a new pipeline phase.
     PhaseStart,
+    /// Marks the completion of a pipeline phase.
     PhaseEnd,
+    /// Marks the beginning of a tool or command execution.
     ToolStart,
+    /// Marks the completion of a tool or command execution.
     ToolEnd,
+    /// Error condition or failure event.
     Error,
+    /// Success condition or completion event.
     Success,
+    /// Informational message or status update.
     Info,
 }
 
+/// A structured log entry capturing task execution events and status updates.
+///
+/// Task log entries provide an audit trail of task progression through phases,
+/// tool invocations, errors, and key decisions. Unlike raw build output
+/// (`BuildLogEntry`), these are semantic, human-readable records designed for
+/// task monitoring, debugging, and post-execution analysis.
+///
+/// Each entry is timestamped and associated with a specific pipeline phase,
+/// allowing reconstruction of the task's execution timeline and identification
+/// of where issues occurred.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskLogEntry {
     pub timestamp: DateTime<Utc>,
