@@ -9,15 +9,61 @@ use crate::event_bus::EventBus;
 use crate::protocol::{BridgeMessage, KpiPayload, StatusPayload};
 
 /// Errors that can occur during IPC message handling.
+///
+/// The IPC handler routes bridge messages between different components of the
+/// system. Errors can occur when messages are unrecognized, malformed, or when
+/// internal operations fail during message processing.
+///
+/// # Examples
+///
+/// ```rust,ignore
+/// use at_bridge::ipc::{IpcHandler, IpcError};
+/// use at_bridge::protocol::BridgeMessage;
+///
+/// async fn handle_ipc(handler: &IpcHandler, msg: BridgeMessage) -> Result<(), IpcError> {
+///     match handler.handle_message(msg).await {
+///         Err(IpcError::UnknownMessage) => {
+///             eprintln!("Received unsupported message type");
+///             Err(IpcError::UnknownMessage)
+///         }
+///         Err(IpcError::Internal(msg)) => {
+///             eprintln!("Internal error: {}", msg);
+///             Err(IpcError::Internal(msg))
+///         }
+///         Ok(response) => {
+///             // Process response
+///             Ok(())
+///         }
+///     }
+/// }
+/// ```
 #[derive(Debug, thiserror::Error)]
 pub enum IpcError {
+    /// The incoming message type is unknown or unsupported.
+    ///
+    /// This occurs when the handler receives a message variant that it doesn't
+    /// know how to process, such as frontend-only messages arriving at the backend
+    /// or deprecated message types that are no longer supported.
     #[error("unknown message type")]
     UnknownMessage,
 
+    /// An internal error occurred during message processing.
+    ///
+    /// This represents unexpected errors during message handling, such as:
+    /// - Serialization/deserialization failures
+    /// - State inconsistencies
+    /// - Lock acquisition failures
+    /// - Unexpected runtime conditions
+    ///
+    /// The contained string provides error details.
     #[error("internal error: {0}")]
     Internal(String),
 }
 
+/// Result type for IPC operations.
+///
+/// This is a convenience alias for `std::result::Result<T, IpcError>` used
+/// throughout the IPC message handling system.
 pub type Result<T> = std::result::Result<T, IpcError>;
 
 /// Handles incoming IPC messages and produces responses.

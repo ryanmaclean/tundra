@@ -13,22 +13,79 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
-/// Errors specific to OAuth token management.
+/// Errors that can occur during OAuth token management operations.
+///
+/// Token management errors cover the full lifecycle of OAuth tokens, from storage
+/// and retrieval to encryption/decryption and expiration checking. This enum
+/// standardizes error handling across all token operations.
+///
+/// # Examples
+///
+/// ```rust,ignore
+/// use at_bridge::oauth_token_manager::{OAuthTokenManager, TokenManagerError};
+///
+/// async fn get_valid_token(manager: &OAuthTokenManager) -> Result<String, TokenManagerError> {
+///     match manager.get_token().await {
+///         Err(TokenManagerError::NoToken) => {
+///             eprintln!("No token stored, need to authenticate first");
+///             Err(TokenManagerError::NoToken)
+///         }
+///         Err(TokenManagerError::TokenExpired) => {
+///             eprintln!("Token expired, attempting refresh");
+///             // Attempt to refresh using refresh token
+///             manager.get_refresh_token().await
+///                 .map(|_| "refreshed".to_string())
+///         }
+///         Err(e) => Err(e),
+///         Ok(token) => Ok(token),
+///     }
+/// }
+/// ```
 #[derive(Debug, thiserror::Error)]
 pub enum TokenManagerError {
+    /// No OAuth token has been stored yet.
+    ///
+    /// This occurs when attempting to retrieve or validate a token before any
+    /// token has been stored via `store_token()`. The application should initiate
+    /// the OAuth flow to obtain a token.
     #[error("No token stored")]
     NoToken,
 
+    /// The stored OAuth token has expired.
+    ///
+    /// This occurs when attempting to retrieve a token that has passed its
+    /// expiration time. The application should use the refresh token to obtain
+    /// a new access token, or re-authenticate if no refresh token is available.
     #[error("Token has expired")]
     TokenExpired,
 
+    /// A cryptographic operation failed.
+    ///
+    /// This occurs when encryption or decryption of token data fails, typically due to:
+    /// - Corrupted encrypted data
+    /// - Invalid encryption key
+    /// - Authentication tag verification failure (tampered data)
+    ///
+    /// This error is automatically converted from `CryptoError`.
     #[error("Encryption error: {0}")]
     Crypto(#[from] CryptoError),
 
+    /// Token data serialization or deserialization failed.
+    ///
+    /// This occurs when converting token data to/from JSON fails, typically due to:
+    /// - Corrupted token metadata
+    /// - Format changes between versions
+    /// - Invalid UTF-8 in decrypted data
+    ///
+    /// This error is automatically converted from `serde_json::Error`.
     #[error("Serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
 }
 
+/// Result type for OAuth token management operations.
+///
+/// This is a convenience alias for `std::result::Result<T, TokenManagerError>` used
+/// throughout the token manager system.
 pub type Result<T> = std::result::Result<T, TokenManagerError>;
 
 /// Internal representation of a stored OAuth token with metadata.
