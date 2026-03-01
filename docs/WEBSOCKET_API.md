@@ -2316,6 +2316,1148 @@ async def main():
 asyncio.run(main())
 ```
 
+## Example 4: TypeScript Client with Type Safety
+
+```typescript
+// types.ts - Define event types for type safety
+export type EventKind =
+  | 'agent.status'
+  | 'agent.spawned'
+  | 'task.progress'
+  | 'bead.done'
+  | 'notification.created';
+
+export interface BaseEvent<K extends EventKind, P = unknown> {
+  kind: K;
+  payload: P;
+  timestamp: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface AgentStatusPayload {
+  agent_id: string;
+  status: 'idle' | 'spawning' | 'active' | 'stopping' | 'stopped';
+}
+
+export interface TaskProgressPayload {
+  task_id: string;
+  progress: number;
+  message?: string;
+}
+
+export interface BeadDonePayload {
+  bead_id: string;
+  result: 'success' | 'failure';
+  error?: string;
+}
+
+export type AgentStatusEvent = BaseEvent<'agent.status', AgentStatusPayload>;
+export type TaskProgressEvent = BaseEvent<'task.progress', TaskProgressPayload>;
+export type BeadDoneEvent = BaseEvent<'bead.done', BeadDonePayload>;
+export type AutoTundraEvent = AgentStatusEvent | TaskProgressEvent | BeadDoneEvent;
+
+export interface HeartbeatMessage {
+  type: 'ping';
+  timestamp: string;
+}
+
+export type WebSocketMessage = AutoTundraEvent | HeartbeatMessage;
+
+// client.ts - Type-safe WebSocket client
+export class TypedEventClient {
+  private ws: WebSocket | null = null;
+  private handlers = new Map<EventKind, Set<(payload: any) => void>>();
+  private reconnectAttempts = 0;
+  private maxReconnectAttempts = 10;
+  private reconnectDelay = 1000; // Start at 1 second
+  private heartbeatInterval: number | null = null;
+  private connectionState: 'connecting' | 'connected' | 'disconnected' = 'disconnected';
+
+  constructor(
+    private url: string = 'ws://localhost:3000/api/events/ws',
+    private onStateChange?: (state: 'connecting' | 'connected' | 'disconnected') => void
+  ) {}
+
+  connect(): void {
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      console.warn('Already connected');
+      return;
+    }
+
+    this.updateState('connecting');
+    this.ws = new WebSocket(this.url);
+
+    this.ws.onopen = () => {
+      console.log('WebSocket connected');
+      this.reconnectAttempts = 0;
+      this.reconnectDelay = 1000;
+      this.updateState('connected');
+      this.startHeartbeatMonitor();
+    };
+
+    this.ws.onmessage = (event) => {
+      try {
+        const message: WebSocketMessage = JSON.parse(event.data);
+
+        // Handle heartbeat
+        if ('type' in message && message.type === 'ping') {
+          console.debug('Heartbeat received:', message.timestamp);
+          return;
+        }
+
+        // Handle events
+        const autoEvent = message as AutoTundraEvent;
+        const handlers = this.handlers.get(autoEvent.kind);
+
+        if (handlers) {
+          handlers.forEach(handler => {
+            try {
+              handler(autoEvent.payload);
+            } catch (error) {
+              console.error(`Error in handler for ${autoEvent.kind}:`, error);
+            }
+          });
+        }
+      } catch (error) {
+        console.error('Failed to parse WebSocket message:', error);
+      }
+    };
+
+    this.ws.onerror = (error) => {
+      console.error('WebSocket error:', error);
+    };
+
+    this.ws.onclose = (event) => {
+      console.log('WebSocket closed:', event.code, event.reason);
+      this.updateState('disconnected');
+      this.stopHeartbeatMonitor();
+      this.attemptReconnect();
+    };
+  }
+
+  private updateState(state: 'connecting' | 'connected' | 'disconnected'): void {
+    this.connectionState = state;
+    this.onStateChange?.(state);
+  }
+
+  private startHeartbeatMonitor(): void {
+    // Monitor for missed heartbeats (should arrive every 30s)
+    this.heartbeatInterval = window.setInterval(() => {
+      if (this.ws?.readyState !== WebSocket.OPEN) {
+        this.stopHeartbeatMonitor();
+      }
+    }, 35000); // Check every 35s (5s grace period)
+  }
+
+  private stopHeartbeatMonitor(): void {
+    if (this.heartbeatInterval !== null) {
+      clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = null;
+    }
+  }
+
+  private attemptReconnect(): void {
+    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+      console.error('Max reconnection attempts reached');
+      return;
+    }
+
+    this.reconnectAttempts++;
+
+    // Exponential backoff: 1s, 2s, 4s, 8s, 16s, 32s (capped at 32s)
+    const delay = Math.min(this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1), 32000);
+
+    console.log(`Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
+
+    setTimeout(() => this.connect(), delay);
+  }
+
+  on<K extends EventKind>(
+    kind: K,
+    handler: (payload: Extract<AutoTundraEvent, { kind: K }>['payload']) => void
+  ): void {
+    if (!this.handlers.has(kind)) {
+      this.handlers.set(kind, new Set());
+    }
+    this.handlers.get(kind)!.add(handler);
+  }
+
+  off<K extends EventKind>(
+    kind: K,
+    handler: (payload: Extract<AutoTundraEvent, { kind: K }>['payload']) => void
+  ): void {
+    this.handlers.get(kind)?.delete(handler);
+  }
+
+  disconnect(): void {
+    this.stopHeartbeatMonitor();
+    if (this.ws) {
+      this.ws.close(1000, 'Client disconnect');
+      this.ws = null;
+    }
+    this.updateState('disconnected');
+  }
+
+  getState(): 'connecting' | 'connected' | 'disconnected' {
+    return this.connectionState;
+  }
+}
+
+// Usage
+const client = new TypedEventClient(
+  'ws://localhost:3000/api/events/ws',
+  (state) => console.log('Connection state:', state)
+);
+
+client.on('agent.status', (payload) => {
+  // TypeScript knows payload is AgentStatusPayload
+  console.log(`Agent ${payload.agent_id}: ${payload.status}`);
+});
+
+client.on('task.progress', (payload) => {
+  // TypeScript knows payload is TaskProgressPayload
+  const percentage = Math.round(payload.progress * 100);
+  console.log(`Task ${payload.task_id}: ${percentage}%`);
+});
+
+client.connect();
+```
+
+## Example 5: Advanced Error Handling & Reconnection
+
+```typescript
+// reconnection-manager.ts - Advanced reconnection strategy
+export interface ReconnectionConfig {
+  maxAttempts: number;
+  initialDelay: number;
+  maxDelay: number;
+  backoffMultiplier: number;
+  jitter: boolean;
+}
+
+export class RobustWebSocketClient {
+  private ws: WebSocket | null = null;
+  private reconnectAttempts = 0;
+  private reconnectTimeout: number | null = null;
+  private intentionalClose = false;
+  private messageQueue: string[] = [];
+  private maxQueueSize = 100;
+
+  private config: ReconnectionConfig = {
+    maxAttempts: 15,
+    initialDelay: 1000,
+    maxDelay: 60000,
+    backoffMultiplier: 2,
+    jitter: true
+  };
+
+  constructor(
+    private url: string,
+    private onMessage: (data: any) => void,
+    private onStateChange?: (state: 'connecting' | 'connected' | 'disconnected' | 'error') => void,
+    config?: Partial<ReconnectionConfig>
+  ) {
+    this.config = { ...this.config, ...config };
+  }
+
+  connect(): void {
+    if (this.ws?.readyState === WebSocket.OPEN) return;
+
+    this.intentionalClose = false;
+    this.onStateChange?.('connecting');
+
+    try {
+      this.ws = new WebSocket(this.url);
+      this.setupEventHandlers();
+    } catch (error) {
+      console.error('Failed to create WebSocket:', error);
+      this.onStateChange?.('error');
+      this.scheduleReconnect();
+    }
+  }
+
+  private setupEventHandlers(): void {
+    if (!this.ws) return;
+
+    this.ws.onopen = () => {
+      console.log('✓ WebSocket connected');
+      this.reconnectAttempts = 0;
+      this.onStateChange?.('connected');
+      this.flushMessageQueue();
+    };
+
+    this.ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+
+        // Ignore heartbeats at this layer
+        if (data.type === 'ping') return;
+
+        this.onMessage(data);
+      } catch (error) {
+        console.error('Failed to parse message:', error);
+      }
+    };
+
+    this.ws.onerror = (error) => {
+      console.error('WebSocket error:', error);
+      this.onStateChange?.('error');
+    };
+
+    this.ws.onclose = (event) => {
+      console.log(`WebSocket closed: ${event.code} ${event.reason || '(no reason)'}`);
+      this.onStateChange?.('disconnected');
+
+      // Don't reconnect if closed intentionally
+      if (!this.intentionalClose) {
+        this.scheduleReconnect();
+      }
+    };
+  }
+
+  private calculateReconnectDelay(): number {
+    const { initialDelay, maxDelay, backoffMultiplier, jitter } = this.config;
+
+    // Exponential backoff
+    let delay = initialDelay * Math.pow(backoffMultiplier, this.reconnectAttempts);
+    delay = Math.min(delay, maxDelay);
+
+    // Add jitter to prevent thundering herd
+    if (jitter) {
+      const jitterAmount = delay * 0.3; // ±30% jitter
+      delay += (Math.random() * 2 - 1) * jitterAmount;
+    }
+
+    return Math.floor(delay);
+  }
+
+  private scheduleReconnect(): void {
+    if (this.reconnectAttempts >= this.config.maxAttempts) {
+      console.error('✗ Max reconnection attempts reached. Giving up.');
+      this.onStateChange?.('error');
+      return;
+    }
+
+    if (this.reconnectTimeout !== null) {
+      clearTimeout(this.reconnectTimeout);
+    }
+
+    const delay = this.calculateReconnectDelay();
+    this.reconnectAttempts++;
+
+    console.log(
+      `⟳ Reconnecting in ${(delay / 1000).toFixed(1)}s ` +
+      `(attempt ${this.reconnectAttempts}/${this.config.maxAttempts})`
+    );
+
+    this.reconnectTimeout = window.setTimeout(() => {
+      this.reconnectTimeout = null;
+      this.connect();
+    }, delay);
+  }
+
+  send(message: string | object): boolean {
+    const data = typeof message === 'string' ? message : JSON.stringify(message);
+
+    // If connected, send immediately
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      try {
+        this.ws.send(data);
+        return true;
+      } catch (error) {
+        console.error('Failed to send message:', error);
+        this.queueMessage(data);
+        return false;
+      }
+    }
+
+    // Otherwise queue for later
+    this.queueMessage(data);
+    return false;
+  }
+
+  private queueMessage(data: string): void {
+    if (this.messageQueue.length >= this.maxQueueSize) {
+      console.warn('Message queue full, dropping oldest message');
+      this.messageQueue.shift();
+    }
+    this.messageQueue.push(data);
+  }
+
+  private flushMessageQueue(): void {
+    while (this.messageQueue.length > 0 && this.ws?.readyState === WebSocket.OPEN) {
+      const message = this.messageQueue.shift()!;
+      try {
+        this.ws.send(message);
+      } catch (error) {
+        console.error('Failed to send queued message:', error);
+        this.messageQueue.unshift(message); // Put it back
+        break;
+      }
+    }
+  }
+
+  disconnect(): void {
+    this.intentionalClose = true;
+
+    if (this.reconnectTimeout !== null) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
+    }
+
+    if (this.ws) {
+      this.ws.close(1000, 'Client disconnect');
+      this.ws = null;
+    }
+
+    this.messageQueue = [];
+    this.onStateChange?.('disconnected');
+  }
+
+  isConnected(): boolean {
+    return this.ws?.readyState === WebSocket.OPEN;
+  }
+
+  getQueueSize(): number {
+    return this.messageQueue.length;
+  }
+}
+
+// Usage
+const client = new RobustWebSocketClient(
+  'ws://localhost:3000/api/events/ws',
+  (event) => {
+    console.log('Event:', event.kind, event.payload);
+  },
+  (state) => {
+    console.log('Connection state:', state);
+    document.getElementById('status')!.textContent = state;
+  }
+);
+
+client.connect();
+
+// Messages sent while disconnected are queued and sent on reconnection
+client.send({ type: 'subscribe', topics: ['agent.*', 'task.*'] });
+```
+
+## Example 6: React Integration
+
+```typescript
+// useWebSocket.ts - React Hook for WebSocket connection
+import { useEffect, useRef, useState, useCallback } from 'react';
+
+interface UseWebSocketOptions {
+  url: string;
+  onMessage?: (event: any) => void;
+  onError?: (error: Event) => void;
+  autoReconnect?: boolean;
+  reconnectInterval?: number;
+}
+
+interface WebSocketState {
+  isConnected: boolean;
+  isConnecting: boolean;
+  error: Error | null;
+  lastMessage: any | null;
+}
+
+export function useWebSocket(options: UseWebSocketOptions) {
+  const {
+    url,
+    onMessage,
+    onError,
+    autoReconnect = true,
+    reconnectInterval = 5000
+  } = options;
+
+  const wsRef = useRef<WebSocket | null>(null);
+  const reconnectTimeoutRef = useRef<number | null>(null);
+  const [state, setState] = useState<WebSocketState>({
+    isConnected: false,
+    isConnecting: false,
+    error: null,
+    lastMessage: null
+  });
+
+  const connect = useCallback(() => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) return;
+
+    setState(prev => ({ ...prev, isConnecting: true, error: null }));
+
+    const ws = new WebSocket(url);
+
+    ws.onopen = () => {
+      console.log('WebSocket connected');
+      setState(prev => ({ ...prev, isConnected: true, isConnecting: false }));
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+
+        // Ignore heartbeats
+        if (data.type === 'ping') return;
+
+        setState(prev => ({ ...prev, lastMessage: data }));
+        onMessage?.(data);
+      } catch (error) {
+        console.error('Failed to parse message:', error);
+      }
+    };
+
+    ws.onerror = (error) => {
+      console.error('WebSocket error:', error);
+      setState(prev => ({
+        ...prev,
+        error: new Error('WebSocket connection error')
+      }));
+      onError?.(error);
+    };
+
+    ws.onclose = () => {
+      console.log('WebSocket closed');
+      setState(prev => ({
+        ...prev,
+        isConnected: false,
+        isConnecting: false
+      }));
+
+      // Auto-reconnect if enabled
+      if (autoReconnect && reconnectTimeoutRef.current === null) {
+        reconnectTimeoutRef.current = window.setTimeout(() => {
+          reconnectTimeoutRef.current = null;
+          connect();
+        }, reconnectInterval);
+      }
+    };
+
+    wsRef.current = ws;
+  }, [url, onMessage, onError, autoReconnect, reconnectInterval]);
+
+  const disconnect = useCallback(() => {
+    if (reconnectTimeoutRef.current !== null) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+  }, []);
+
+  const sendMessage = useCallback((message: any) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify(message));
+      return true;
+    }
+    return false;
+  }, []);
+
+  useEffect(() => {
+    connect();
+
+    return () => {
+      disconnect();
+    };
+  }, [connect, disconnect]);
+
+  return {
+    ...state,
+    sendMessage,
+    reconnect: connect,
+    disconnect
+  };
+}
+
+// EventDashboard.tsx - React component using the hook
+import React from 'react';
+import { useWebSocket } from './useWebSocket';
+
+interface Event {
+  kind: string;
+  payload: any;
+  timestamp: string;
+}
+
+export function EventDashboard() {
+  const [events, setEvents] = React.useState<Event[]>([]);
+
+  const { isConnected, isConnecting, error, lastMessage } = useWebSocket({
+    url: 'ws://localhost:3000/api/events/ws',
+    onMessage: (event) => {
+      setEvents(prev => [event, ...prev].slice(0, 100)); // Keep last 100 events
+    }
+  });
+
+  return (
+    <div className="dashboard">
+      <header>
+        <h1>Auto-Tundra Events</h1>
+        <div className="status">
+          {isConnecting && <span className="badge connecting">Connecting...</span>}
+          {isConnected && <span className="badge connected">Connected</span>}
+          {error && <span className="badge error">Error: {error.message}</span>}
+        </div>
+      </header>
+
+      <div className="events-list">
+        {events.length === 0 ? (
+          <p className="empty">No events yet</p>
+        ) : (
+          events.map((event, index) => (
+            <div key={index} className="event-card">
+              <div className="event-header">
+                <span className="event-kind">{event.kind}</span>
+                <span className="event-time">
+                  {new Date(event.timestamp).toLocaleTimeString()}
+                </span>
+              </div>
+              <pre className="event-payload">
+                {JSON.stringify(event.payload, null, 2)}
+              </pre>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+```
+
+## Example 7: Vue Integration
+
+```typescript
+// useWebSocket.ts - Vue 3 Composable
+import { ref, onMounted, onUnmounted, Ref } from 'vue';
+
+interface UseWebSocketOptions {
+  url: string;
+  autoConnect?: boolean;
+  reconnect?: boolean;
+  reconnectInterval?: number;
+}
+
+export function useWebSocket(options: UseWebSocketOptions) {
+  const { url, autoConnect = true, reconnect = true, reconnectInterval = 5000 } = options;
+
+  const ws: Ref<WebSocket | null> = ref(null);
+  const isConnected = ref(false);
+  const isConnecting = ref(false);
+  const lastMessage: Ref<any> = ref(null);
+  const error: Ref<Error | null> = ref(null);
+
+  let reconnectTimeout: number | null = null;
+
+  const connect = () => {
+    if (ws.value?.readyState === WebSocket.OPEN) {
+      console.warn('Already connected');
+      return;
+    }
+
+    isConnecting.value = true;
+    error.value = null;
+
+    const websocket = new WebSocket(url);
+
+    websocket.onopen = () => {
+      console.log('WebSocket connected');
+      isConnected.value = true;
+      isConnecting.value = false;
+      ws.value = websocket;
+    };
+
+    websocket.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+
+        // Ignore heartbeats
+        if (data.type === 'ping') return;
+
+        lastMessage.value = data;
+      } catch (err) {
+        console.error('Failed to parse message:', err);
+      }
+    };
+
+    websocket.onerror = (event) => {
+      console.error('WebSocket error:', event);
+      error.value = new Error('WebSocket connection error');
+    };
+
+    websocket.onclose = () => {
+      console.log('WebSocket closed');
+      isConnected.value = false;
+      isConnecting.value = false;
+      ws.value = null;
+
+      // Auto-reconnect if enabled
+      if (reconnect && reconnectTimeout === null) {
+        reconnectTimeout = window.setTimeout(() => {
+          reconnectTimeout = null;
+          connect();
+        }, reconnectInterval);
+      }
+    };
+  };
+
+  const disconnect = () => {
+    if (reconnectTimeout !== null) {
+      clearTimeout(reconnectTimeout);
+      reconnectTimeout = null;
+    }
+
+    if (ws.value) {
+      ws.value.close();
+      ws.value = null;
+    }
+
+    isConnected.value = false;
+  };
+
+  const send = (message: any): boolean => {
+    if (ws.value?.readyState === WebSocket.OPEN) {
+      ws.value.send(JSON.stringify(message));
+      return true;
+    }
+    console.warn('Cannot send message: WebSocket not connected');
+    return false;
+  };
+
+  onMounted(() => {
+    if (autoConnect) {
+      connect();
+    }
+  });
+
+  onUnmounted(() => {
+    disconnect();
+  });
+
+  return {
+    ws,
+    isConnected,
+    isConnecting,
+    lastMessage,
+    error,
+    connect,
+    disconnect,
+    send
+  };
+}
+
+// EventMonitor.vue - Vue component using the composable
+<template>
+  <div class="event-monitor">
+    <div class="header">
+      <h2>Auto-Tundra Event Stream</h2>
+      <div class="connection-status">
+        <span v-if="isConnecting" class="badge connecting">
+          Connecting...
+        </span>
+        <span v-else-if="isConnected" class="badge connected">
+          Connected
+        </span>
+        <span v-else class="badge disconnected">
+          Disconnected
+        </span>
+      </div>
+    </div>
+
+    <div v-if="error" class="error-message">
+      {{ error.message }}
+    </div>
+
+    <div class="events-container">
+      <div
+        v-for="(event, index) in events"
+        :key="index"
+        :class="['event-item', `event-${event.kind.split('.')[0]}`]"
+      >
+        <div class="event-meta">
+          <span class="event-kind">{{ event.kind }}</span>
+          <span class="event-timestamp">
+            {{ formatTime(event.timestamp) }}
+          </span>
+        </div>
+        <div class="event-payload">
+          <pre>{{ JSON.stringify(event.payload, null, 2) }}</pre>
+        </div>
+      </div>
+
+      <div v-if="events.length === 0" class="empty-state">
+        <p>Waiting for events...</p>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, watch } from 'vue';
+import { useWebSocket } from './useWebSocket';
+
+interface Event {
+  kind: string;
+  payload: any;
+  timestamp: string;
+}
+
+const events = ref<Event[]>([]);
+const maxEvents = 100;
+
+const { isConnected, isConnecting, lastMessage, error } = useWebSocket({
+  url: 'ws://localhost:3000/api/events/ws',
+  autoConnect: true,
+  reconnect: true
+});
+
+// Watch for new messages and add to events list
+watch(lastMessage, (newMessage) => {
+  if (newMessage) {
+    events.value.unshift(newMessage);
+
+    // Keep only last 100 events
+    if (events.value.length > maxEvents) {
+      events.value = events.value.slice(0, maxEvents);
+    }
+  }
+});
+
+function formatTime(timestamp: string): string {
+  return new Date(timestamp).toLocaleTimeString();
+}
+</script>
+
+<style scoped>
+.event-monitor {
+  padding: 20px;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.badge {
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.badge.connected {
+  background: #d4edda;
+  color: #155724;
+}
+
+.badge.connecting {
+  background: #fff3cd;
+  color: #856404;
+}
+
+.badge.disconnected {
+  background: #f8d7da;
+  color: #721c24;
+}
+
+.event-item {
+  margin-bottom: 12px;
+  padding: 12px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.event-meta {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.event-kind {
+  font-weight: 600;
+  color: #2c3e50;
+}
+
+.event-timestamp {
+  color: #6c757d;
+  font-size: 14px;
+}
+
+.event-payload pre {
+  margin: 0;
+  padding: 8px;
+  background: #f8f9fa;
+  border-radius: 4px;
+  overflow-x: auto;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 40px;
+  color: #6c757d;
+}
+</style>
+```
+
+## Example 8: Rust Client with tokio-tungstenite
+
+```rust
+// Full-featured Rust client with error handling and reconnection
+use tokio_tungstenite::{connect_async, tungstenite::{Message, http::Request}};
+use futures_util::{StreamExt, SinkExt};
+use serde::{Deserialize, Serialize};
+use std::time::Duration;
+use anyhow::{Result, Context};
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "type")]
+enum ServerMessage {
+    #[serde(rename = "ping")]
+    Ping { timestamp: String },
+
+    #[serde(untagged)]
+    Event(Event),
+}
+
+#[derive(Debug, Deserialize)]
+struct Event {
+    kind: String,
+    payload: serde_json::Value,
+    timestamp: String,
+}
+
+#[derive(Debug, Serialize)]
+struct TerminalInput {
+    r#type: String,
+    data: String,
+}
+
+pub struct AutoTundraClient {
+    base_url: String,
+    max_reconnect_attempts: u32,
+}
+
+impl AutoTundraClient {
+    pub fn new(base_url: impl Into<String>) -> Self {
+        Self {
+            base_url: base_url.into(),
+            max_reconnect_attempts: 10,
+        }
+    }
+
+    /// Connect to event stream with automatic reconnection
+    pub async fn subscribe_events<F>(&self, mut handler: F) -> Result<()>
+    where
+        F: FnMut(Event) + Send,
+    {
+        let mut reconnect_attempts = 0;
+        let mut reconnect_delay = Duration::from_secs(1);
+
+        loop {
+            match self.try_connect_events(&mut handler).await {
+                Ok(()) => {
+                    // Clean disconnect, exit loop
+                    break;
+                }
+                Err(e) => {
+                    reconnect_attempts += 1;
+
+                    if reconnect_attempts > self.max_reconnect_attempts {
+                        eprintln!("✗ Max reconnection attempts reached");
+                        return Err(e);
+                    }
+
+                    eprintln!(
+                        "⟳ Connection lost: {}. Reconnecting in {:?} (attempt {}/{})",
+                        e, reconnect_delay, reconnect_attempts, self.max_reconnect_attempts
+                    );
+
+                    tokio::time::sleep(reconnect_delay).await;
+
+                    // Exponential backoff (cap at 32 seconds)
+                    reconnect_delay = std::cmp::min(reconnect_delay * 2, Duration::from_secs(32));
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn try_connect_events<F>(&self, handler: &mut F) -> Result<()>
+    where
+        F: FnMut(Event) + Send,
+    {
+        let ws_url = format!("{}/api/events/ws", self.base_url.replace("http", "ws"));
+
+        let request = Request::builder()
+            .uri(&ws_url)
+            .header("Origin", "http://localhost")
+            .body(())
+            .context("Failed to build WebSocket request")?;
+
+        let (mut ws_stream, _) = connect_async(request)
+            .await
+            .context("Failed to connect to WebSocket")?;
+
+        println!("✓ Connected to event stream");
+
+        while let Some(msg) = ws_stream.next().await {
+            match msg? {
+                Message::Text(text) => {
+                    match serde_json::from_str::<ServerMessage>(&text) {
+                        Ok(ServerMessage::Ping { timestamp }) => {
+                            // Heartbeat received, connection is alive
+                            eprintln!("❤ Heartbeat: {}", timestamp);
+                        }
+                        Ok(ServerMessage::Event(event)) => {
+                            handler(event);
+                        }
+                        Err(e) => {
+                            eprintln!("Failed to parse message: {}", e);
+                        }
+                    }
+                }
+                Message::Ping(_) => {
+                    // Pong sent automatically by tokio-tungstenite
+                }
+                Message::Close(frame) => {
+                    println!("✗ Server closed connection: {:?}", frame);
+                    break;
+                }
+                _ => {}
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Create a terminal and interact with it
+    pub async fn terminal_session(&self, commands: Vec<String>) -> Result<()> {
+        let client = reqwest::Client::new();
+
+        // 1. Create terminal
+        let response = client
+            .post(format!("{}/api/terminals", self.base_url))
+            .json(&serde_json::json!({
+                "agent_id": "00000000-0000-0000-0000-000000000000",
+                "title": "Rust Terminal Session",
+                "cols": 120,
+                "rows": 30
+            }))
+            .send()
+            .await
+            .context("Failed to create terminal")?;
+
+        if !response.status().is_success() {
+            anyhow::bail!("Failed to create terminal: {}", response.status());
+        }
+
+        let terminal: serde_json::Value = response.json().await?;
+        let terminal_id = terminal["id"]
+            .as_str()
+            .context("Terminal ID not found")?;
+
+        println!("✓ Created terminal: {}", terminal_id);
+
+        // 2. Connect to terminal WebSocket
+        let ws_url = format!(
+            "{}/ws/terminal/{}",
+            self.base_url.replace("http", "ws"),
+            terminal_id
+        );
+
+        let request = Request::builder()
+            .uri(&ws_url)
+            .header("Origin", "http://localhost")
+            .body(())
+            .context("Failed to build terminal WebSocket request")?;
+
+        let (mut ws_stream, _) = connect_async(request)
+            .await
+            .context("Failed to connect to terminal WebSocket")?;
+
+        println!("✓ Connected to terminal WebSocket");
+
+        // 3. Send commands
+        for cmd in commands {
+            let input = TerminalInput {
+                r#type: "input".to_string(),
+                data: format!("{}\n", cmd),
+            };
+
+            ws_stream
+                .send(Message::Text(serde_json::to_string(&input)?))
+                .await
+                .context("Failed to send command")?;
+
+            println!("> {}", cmd);
+
+            // Wait a bit for output
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+
+        // 4. Read output for a while
+        let timeout = tokio::time::sleep(Duration::from_secs(5));
+        tokio::pin!(timeout);
+
+        loop {
+            tokio::select! {
+                Some(msg) = ws_stream.next() => {
+                    match msg? {
+                        Message::Text(text) => {
+                            print!("{}", text);
+                        }
+                        Message::Close(_) => {
+                            println!("\n✗ Terminal closed");
+                            break;
+                        }
+                        _ => {}
+                    }
+                }
+                _ = &mut timeout => {
+                    println!("\n✓ Timeout reached, closing terminal");
+                    break;
+                }
+            }
+        }
+
+        // 5. Close WebSocket
+        ws_stream.close(None).await?;
+
+        Ok(())
+    }
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    let client = AutoTundraClient::new("http://localhost:3000");
+
+    // Example 1: Subscribe to events
+    println!("=== Event Stream Example ===");
+    tokio::spawn(async move {
+        let _ = client.subscribe_events(|event| {
+            println!("[{}] {}: {:?}", event.timestamp, event.kind, event.payload);
+        }).await;
+    });
+
+    // Example 2: Terminal session
+    println!("\n=== Terminal Session Example ===");
+    let terminal_client = AutoTundraClient::new("http://localhost:3000");
+    terminal_client.terminal_session(vec![
+        "echo 'Hello from Rust!'".to_string(),
+        "pwd".to_string(),
+        "ls -la".to_string(),
+    ]).await?;
+
+    Ok(())
+}
+```
+
 ---
 
 # 8. Troubleshooting
