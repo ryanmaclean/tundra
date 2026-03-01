@@ -1658,14 +1658,463 @@ Auto-Tundra uses Dolt (Git for data) for versioned storage. Dolt runs on port 33
 
 ### Common Errors
 
-**This section will be populated with specific error patterns in subtask-1-5:**
-- Port 3306 conflicts with MySQL
-- Connection refused errors
-- ConfigError (missing/invalid configuration)
-- Database migration failures
-- Permission issues
+#### Port 3306 Conflict (MySQL Already Running)
 
-*→ See [Subtask 1-5](../.auto-claude/specs/010-add-troubleshooting-guide-for-common-runtime-error/implementation_plan.json) for implementation details.*
+**Error Message:** `Address already in use (os error 48)` or `Cannot bind to port 3306`
+
+**Symptoms:**
+- Dolt server fails to start with "address already in use" error
+- Auto-Tundra daemon startup hangs or fails during database initialization
+- `lsof -i :3306` shows MySQL (`mysqld`) process bound to port
+- Database connection attempts timeout or return connection refused
+- Logs show `failed to start Dolt SQL server` errors
+
+**Causes:**
+- MySQL server running on default port 3306
+- Previous Dolt instance not properly shut down
+- Another database service (MariaDB, Percona) using port 3306
+- Port forwarding or tunneling conflict
+- System service manager (systemd, launchd) auto-starting MySQL
+
+**Solutions:**
+
+1. **Stop conflicting MySQL service:**
+   ```bash
+   # On macOS
+   brew services stop mysql
+   # or
+   sudo launchctl unload /Library/LaunchDaemons/com.mysql.mysql.plist
+
+   # On Linux (systemd)
+   sudo systemctl stop mysql
+   sudo systemctl disable mysql
+
+   # Verify port is free
+   lsof -i :3306
+   ```
+
+2. **Configure Dolt to use different port:**
+   ```bash
+   # Edit ~/.auto-tundra/config.toml
+   [dolt]
+   port = 3307  # or any free port (3307, 13306, etc.)
+   dir = "~/.auto-tundra/dolt"
+   auto_commit = false
+   ```
+
+   Then restart the daemon:
+   ```bash
+   pkill at-daemon
+   at-daemon
+   ```
+
+3. **Find and kill rogue Dolt process:**
+   ```bash
+   # Find Dolt process
+   ps aux | grep dolt
+   lsof -i :3306
+
+   # Kill by PID
+   kill -9 <PID>
+
+   # Or kill all Dolt processes
+   pkill -9 dolt
+   ```
+
+4. **Check for port forwarding conflicts:**
+   ```bash
+   # List all listening ports
+   netstat -an | grep LISTEN | grep 3306
+   # or
+   lsof -iTCP -sTCP:LISTEN | grep 3306
+
+   # Check SSH tunnels
+   ps aux | grep ssh | grep 3306
+   ```
+
+**Prevention:**
+- Configure Dolt to use non-standard port (3307, 13306) in `config.toml`
+- Disable MySQL auto-start: `sudo systemctl disable mysql`
+- Use Docker for Dolt with port mapping: `-p 13306:3306`
+- Document port assignments in team wiki/README
+- Add port check to daemon startup script
+
+---
+
+#### Connection Refused: Dolt Not Running
+
+**Error Message:** `Connection refused (os error 61)` or `Can't connect to MySQL server on '127.0.0.1:3306'`
+
+**Symptoms:**
+- Database queries fail with connection refused
+- Daemon startup sequence hangs at database initialization
+- `telnet localhost 3306` fails immediately
+- No `dolt sql-server` process in `ps aux` output
+- Logs show repeated connection retry attempts
+
+**Causes:**
+- Dolt server never started (installation incomplete)
+- Dolt process crashed after startup
+- Incorrect host/port in connection string
+- Dolt binary not in PATH
+- Database directory not initialized (missing `.dolt/` folder)
+- Permissions prevent Dolt from binding to port
+
+**Solutions:**
+
+1. **Verify Dolt installation:**
+   ```bash
+   # Check Dolt is installed
+   which dolt
+   dolt version
+
+   # If not found, install:
+   # macOS
+   brew install dolt
+   # Linux
+   curl -L https://github.com/dolthub/dolt/releases/latest/download/install.sh | bash
+   ```
+
+2. **Initialize Dolt database:**
+   ```bash
+   # Navigate to database directory
+   cd ~/.auto-tundra/dolt
+
+   # Initialize if not exists
+   dolt init
+
+   # Configure user (required for commits)
+   dolt config --global --add user.name "Auto Tundra"
+   dolt config --global --add user.email "auto@tundra.local"
+   ```
+
+3. **Start Dolt server manually:**
+   ```bash
+   # Start in foreground for debugging
+   cd ~/.auto-tundra/dolt
+   dolt sql-server --host 0.0.0.0 --port 3306 --user root
+
+   # Or start in background
+   dolt sql-server --host 0.0.0.0 --port 3306 --user root &
+
+   # Test connection
+   mysql -h 127.0.0.1 -P 3306 -u root
+   ```
+
+4. **Check daemon is starting Dolt:**
+   ```bash
+   # Enable debug logging
+   export RUST_LOG=at_daemon=debug,at_core=debug
+
+   # Watch startup sequence
+   at-daemon 2>&1 | grep -i dolt
+
+   # Look for Dolt initialization errors
+   tail -f ~/.auto-tundra/logs/daemon.log | grep -i dolt
+   ```
+
+5. **Verify connection configuration:**
+   ```bash
+   # Check configured port matches running server
+   grep -A 3 "\[dolt\]" ~/.auto-tundra/config.toml
+
+   # Test connection with mysql client
+   mysql -h 127.0.0.1 -P 3306 -u root -e "SHOW DATABASES;"
+   ```
+
+**Prevention:**
+- Add Dolt service health check to daemon startup
+- Configure auto-restart for Dolt process (systemd, supervisor)
+- Document Dolt initialization in onboarding/setup guide
+- Use connection retry with exponential backoff in daemon
+- Monitor Dolt process with systemd or launchd
+
+---
+
+#### ConfigError: Missing or Invalid Configuration
+
+**Error Message:** `ConfigError::Validation("invalid dolt configuration")` or `ConfigError::Parse("missing field 'dir'")`
+
+**Symptoms:**
+- Daemon fails to start with configuration validation error
+- `config.toml` missing required `[dolt]` section
+- Invalid port number (0, negative, >65535)
+- Directory path contains invalid characters or doesn't exist
+- TOML syntax errors in configuration file
+
+**Causes:**
+- Fresh installation without config file initialization
+- Manual editing introduced TOML syntax errors
+- Missing required fields: `dir`, `port`
+- Invalid data types (string for port, number for dir)
+- Path expansion issues (unresolved `~`, invalid `$VAR`)
+- Incompatible config version after upgrade
+
+**Solutions:**
+
+1. **Validate configuration syntax:**
+   ```bash
+   # Check for TOML syntax errors
+   cat ~/.auto-tundra/config.toml
+
+   # Use online validator if needed
+   # https://www.toml-lint.com/
+   ```
+
+2. **Create minimal valid configuration:**
+   ```bash
+   # Create config directory if missing
+   mkdir -p ~/.auto-tundra
+
+   # Create minimal config.toml
+   cat > ~/.auto-tundra/config.toml << 'EOF'
+[general]
+project_name = "auto-tundra"
+log_level = "info"
+
+[dolt]
+dir = "~/.auto-tundra/dolt"
+port = 3306
+auto_commit = false
+EOF
+
+   # Create Dolt database directory
+   mkdir -p ~/.auto-tundra/dolt
+   ```
+
+3. **Fix common validation errors:**
+   ```toml
+   # ❌ WRONG - port as string
+   [dolt]
+   port = "3306"
+
+   # ✅ CORRECT - port as integer
+   [dolt]
+   port = 3306
+
+   # ❌ WRONG - missing required field
+   [dolt]
+   port = 3306
+
+   # ✅ CORRECT - all required fields
+   [dolt]
+   dir = "~/.auto-tundra/dolt"
+   port = 3306
+   auto_commit = false
+   ```
+
+4. **Check file permissions:**
+   ```bash
+   # Verify config file is readable
+   ls -la ~/.auto-tundra/config.toml
+
+   # Should be -rw-r--r-- or -rw-------
+   chmod 644 ~/.auto-tundra/config.toml
+
+   # Verify directory is writable
+   test -w ~/.auto-tundra && echo "Writable" || echo "Not writable"
+   ```
+
+5. **Test configuration loading:**
+   ```bash
+   # Enable config debug logging
+   export RUST_LOG=at_core::config=debug
+
+   # Run daemon to see config loading
+   at-daemon 2>&1 | head -50
+   ```
+
+**Prevention:**
+- Provide `config.toml.example` with all valid fields
+- Validate config on save with `Config::validate()`
+- Use config migration scripts for version upgrades
+- Document all required fields in configuration reference
+- Add `--validate-config` flag to daemon for dry-run testing
+
+---
+
+#### Database Migration Failures
+
+**Error Message:** `Migration failed: <sql error>` or `Schema version mismatch: expected v5, found v3`
+
+**Symptoms:**
+- Daemon startup fails after upgrade with migration error
+- SQL schema incompatible with code expectations
+- Missing tables or columns in database queries
+- "Table doesn't exist" errors for expected tables
+- Version mismatch between Dolt database and application code
+
+**Causes:**
+- Upgrading Auto-Tundra skipped intermediate versions
+- Manual database modifications outside migration system
+- Interrupted migration (daemon killed mid-migration)
+- Corrupt Dolt database (disk full, power loss)
+- Migration rollback not implemented for failed upgrade
+
+**Solutions:**
+
+1. **Check migration status:**
+   ```bash
+   # Connect to Dolt database
+   mysql -h 127.0.0.1 -P 3306 -u root
+
+   # Check for schema_migrations table
+   SHOW TABLES;
+   SELECT * FROM schema_migrations ORDER BY version DESC;
+
+   # Verify expected tables exist
+   SHOW TABLES;
+   ```
+
+2. **Backup database before migration:**
+   ```bash
+   # Create Dolt commit before upgrade
+   cd ~/.auto-tundra/dolt
+   dolt add .
+   dolt commit -m "Pre-upgrade backup $(date +%Y%m%d)"
+
+   # Or export SQL dump
+   mysqldump -h 127.0.0.1 -P 3306 -u root --all-databases > backup.sql
+   ```
+
+3. **Rollback to previous version:**
+   ```bash
+   # Using Dolt version control
+   cd ~/.auto-tundra/dolt
+   dolt log  # Find previous commit
+   dolt reset --hard <commit-hash>
+
+   # Restart daemon with previous version
+   pkill at-daemon
+   at-daemon
+   ```
+
+4. **Force re-run migrations:**
+   ```bash
+   # WARNING: This may cause data loss!
+   # Delete migration tracking table
+   mysql -h 127.0.0.1 -P 3306 -u root -e "DROP TABLE IF EXISTS schema_migrations;"
+
+   # Restart daemon to re-run migrations
+   pkill at-daemon
+   export RUST_LOG=at_daemon=debug
+   at-daemon
+   ```
+
+5. **Manual migration repair:**
+   ```bash
+   # If specific migration failed, apply missing changes manually
+   mysql -h 127.0.0.1 -P 3306 -u root
+
+   # Example: add missing column
+   ALTER TABLE tasks ADD COLUMN priority INT DEFAULT 0;
+
+   # Update migration version
+   INSERT INTO schema_migrations (version, applied_at) VALUES (5, NOW());
+   ```
+
+**Prevention:**
+- Always backup Dolt database before upgrades: `dolt commit -m "pre-upgrade"`
+- Test migrations on staging/dev environment first
+- Implement rollback logic for all migrations
+- Use transactional DDL (Dolt supports this)
+- Document migration procedures in UPGRADING.md
+- Add migration dry-run mode for validation
+
+---
+
+#### Permission Denied: Database Access Issues
+
+**Error Message:** `Permission denied (os error 13)` or `Access denied for user 'root'@'localhost'`
+
+**Symptoms:**
+- Cannot create or write to database directory
+- Dolt fails to initialize in `~/.auto-tundra/dolt`
+- Connection succeeds but queries fail with permission errors
+- File ownership issues in Dolt directory
+- SELinux or AppArmor blocking database access
+
+**Causes:**
+- Insufficient filesystem permissions on `~/.auto-tundra/dolt`
+- Database directory owned by different user (root vs regular user)
+- SELinux/AppArmor policies blocking Dolt binary
+- Read-only filesystem (mounted partition, container)
+- Disk quota exceeded for user
+- Incorrect umask preventing file creation
+
+**Solutions:**
+
+1. **Check and fix directory permissions:**
+   ```bash
+   # Check ownership and permissions
+   ls -la ~/.auto-tundra/
+   ls -la ~/.auto-tundra/dolt/
+
+   # Fix ownership (replace 'username' with your user)
+   sudo chown -R $USER:$USER ~/.auto-tundra/
+
+   # Fix permissions
+   chmod 755 ~/.auto-tundra/
+   chmod -R 755 ~/.auto-tundra/dolt/
+   ```
+
+2. **Verify disk space and quotas:**
+   ```bash
+   # Check disk space
+   df -h ~/.auto-tundra/
+
+   # Check user quota (if enabled)
+   quota -s
+
+   # Check inode usage (can run out even with disk space)
+   df -i ~/.auto-tundra/
+   ```
+
+3. **Check SELinux/AppArmor policies:**
+   ```bash
+   # Check SELinux status
+   sestatus
+   getenforce
+
+   # View Dolt denials
+   sudo ausearch -m avc -ts recent | grep dolt
+
+   # Temporarily disable for testing (NOT for production)
+   sudo setenforce 0
+
+   # Or create proper SELinux policy
+   sudo semanage fcontext -a -t user_home_t "~/.auto-tundra(/.*)?"
+   sudo restorecon -Rv ~/.auto-tundra/
+   ```
+
+4. **Fix file ownership conflicts:**
+   ```bash
+   # If Dolt directory owned by root (ran with sudo accidentally)
+   sudo chown -R $USER:$USER ~/.auto-tundra/dolt/
+
+   # If files have wrong group
+   chgrp -R $USER ~/.auto-tundra/dolt/
+   ```
+
+5. **Test with explicit permissions:**
+   ```bash
+   # Create test database in /tmp (always writable)
+   mkdir -p /tmp/test-dolt
+   cd /tmp/test-dolt
+   dolt init
+   dolt sql-server --port 3307 &
+
+   # If works, permissions issue in ~/.auto-tundra/
+   # If fails, Dolt binary or SELinux issue
+   ```
+
+**Prevention:**
+- Document required permissions in installation guide
+- Add permission check to daemon startup (warn if wrong)
+- Use restrictive but functional permissions: `755` for dirs, `644` for files
+- Avoid running daemon with `sudo` (creates ownership issues)
+- Configure SELinux/AppArmor policies in packaging
+- Test installation as non-root user in CI/CD
 
 ---
 
