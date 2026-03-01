@@ -2148,15 +2148,462 @@ Auto-Tundra implements rate limiting (token bucket) and circuit breakers to prev
 └─────────────────┘
 ```
 
-### State Machine
+### Common Errors
 
-**This section will be populated with specific error patterns in subtask-1-6:**
-- RateLimitError::Exceeded (retry_after timing)
-- CircuitBreakerError::Open (failure threshold reached)
-- State transitions (Closed → Open → HalfOpen → Closed)
-- Recovery timeout and reset conditions
+#### RateLimitError::Exceeded: Token Bucket Exhaustion
 
-*→ See [Subtask 1-6](../.auto-claude/specs/010-add-troubleshooting-guide-for-common-runtime-error/implementation_plan.json) for implementation details.*
+**Error Message:** `rate limit exceeded for key '<key>' – retry after <duration>`
+
+**Symptoms:**
+- Error includes exact `retry_after` duration (e.g., "retry after 2.5s")
+- Affects specific keys: `global`, `user:<id>`, `endpoint:<name>`
+- May appear intermittently during traffic spikes
+- Logs show: `rate limit exceeded` with key and retry_after
+
+**Causes:**
+- Request rate exceeds configured tokens_per_second limit
+- Token bucket depleted (no available tokens)
+- Burst capacity (max_burst) exhausted during spike
+- Multiple rate limit tiers triggered (global, per-user, per-endpoint)
+- High-cost operations consuming multiple tokens
+
+**How Rate Limiting Works:**
+
+Auto-Tundra uses a **token bucket algorithm** with automatic refill:
+
+1. **Token Bucket Parameters:**
+   - `tokens_per_second`: Refill rate (e.g., 10 tokens/sec)
+   - `max_burst`: Maximum bucket capacity (e.g., 100 tokens)
+   - Tokens refill continuously based on elapsed time
+   - Each request consumes 1 token (or custom cost)
+
+2. **Multi-Tier Enforcement:**
+   ```
+   Request → Global Limit → Per-User Limit → Per-Endpoint Limit → Provider
+   ```
+   - **Global:** Protects entire system (e.g., 1000 req/min)
+   - **Per-User:** Prevents single-user abuse (e.g., 100 req/min)
+   - **Per-Endpoint:** Protects specific endpoints (e.g., 50 req/min)
+   - First tier to reject returns `RateLimitError::Exceeded`
+
+3. **Retry Timing Calculation:**
+   - When tokens insufficient, calculates wait time: `deficit / tokens_per_second`
+   - Example: Need 1 token, have 0.5 tokens, rate is 10/sec → wait 0.05s
+   - `retry_after` is exact minimum wait, not a suggestion
+
+**Solutions:**
+
+1. **Respect retry_after duration:**
+   ```rust
+   // Automatic retry in at-intelligence layer
+   match llm_call().await {
+       Err(RateLimitError::Exceeded { retry_after, .. }) => {
+           tokio::time::sleep(retry_after).await;
+           llm_call().await // Retry after waiting
+       }
+   }
+   ```
+
+2. **Check remaining tokens:**
+   ```bash
+   # Enable rate limiter debug logging
+   export RUST_LOG=at_harness::rate_limiter=debug
+
+   # Look for token bucket state in logs
+   tail -f ~/.auto-tundra/logs/daemon.log | grep "tokens remaining"
+   ```
+
+3. **Adjust rate limits in configuration:**
+   ```toml
+   # ~/.auto-tundra/config/harness.toml
+   [rate_limit.global]
+   tokens_per_second = 100.0
+   max_burst = 200.0
+
+   [rate_limit.per_user]
+   tokens_per_second = 10.0
+   max_burst = 50.0
+
+   [rate_limit.per_endpoint]
+   tokens_per_second = 5.0
+   max_burst = 20.0
+   ```
+
+4. **Use cost-based limiting for expensive operations:**
+   - Large context requests may consume multiple tokens
+   - Streaming responses may have higher cost
+   - Check logs for `cost=` parameter in rate limit messages
+
+5. **Identify which tier is limiting:**
+   ```bash
+   # Check logs for rate limit key
+   grep "rate limit exceeded" ~/.auto-tundra/logs/daemon.log
+
+   # Key patterns:
+   # - "key `global`" → Global limit hit
+   # - "key `user:<uuid>`" → Per-user limit hit
+   # - "key `endpoint:chat`" → Per-endpoint limit hit
+   ```
+
+**Prevention:**
+- Configure `max_burst` to handle traffic spikes (2-5x tokens_per_second recommended)
+- Use exponential backoff for retries instead of fixed delays
+- Implement client-side request queuing for high-volume operations
+- Monitor token bucket state with `RUST_LOG=at_harness=debug`
+- Spread large batch operations over time instead of bursting
+
+---
+
+#### CircuitBreakerError::Open: Service Protection Active
+
+**Error Message:** `circuit is open – refusing call`
+
+**Symptoms:**
+- All requests to provider immediately rejected (no network call)
+- Error appears after repeated failures (5 consecutive by default)
+- Logs show: `circuit breaker transitioning Closed -> Open`
+- Requests fail instantly without retry attempts
+- State persists for timeout period (60s by default)
+
+**Causes:**
+- Consecutive failures reached `failure_threshold` (default: 5)
+- Provider experiencing outage or high error rate
+- Network connectivity issues causing repeated timeouts
+- API key invalidation or account suspension
+- Request timeout exceeded `call_timeout` (default: 30s) multiple times
+
+**How Circuit Breaker Works:**
+
+Auto-Tundra implements a **three-state circuit breaker** with automatic recovery:
+
+1. **Closed (Normal Operation):**
+   - All requests pass through to provider
+   - Tracks consecutive failures
+   - On success: resets failure_count to 0
+   - On failure: increments failure_count
+   - Transitions to **Open** when `failure_count >= 5`
+
+2. **Open (Service Protection):**
+   - Immediately rejects all requests with `CircuitBreakerError::Open`
+   - No network calls made (fail fast)
+   - Tracks time since last failure
+   - After `timeout` (60s): transitions to **HalfOpen**
+   - Prevents cascading failures and resource exhaustion
+
+3. **HalfOpen (Testing Recovery):**
+   - Allows limited requests through to test provider health
+   - On success: increments success_count
+   - On failure: immediately transitions back to **Open**
+   - After `success_threshold` (2) consecutive successes: transitions to **Closed**
+   - Acts as a probe to verify provider recovery
+
+**State Transition Diagram:**
+
+```
+         failure_count >= 5
+    ┌────────────────────────┐
+    │                        ▼
+┌───┴────┐              ┌──────┐
+│ Closed │              │ Open │
+│        │◄──┐          │      │
+└────────┘   │          └───┬──┘
+    ▲        │              │
+    │        │              │ timeout (60s)
+    │        │              │
+    │        │              ▼
+    │    success_count >= 2
+    │        │          ┌──────────┐
+    └────────┴──────────┤ HalfOpen │
+             failure    │          │
+                        └──────────┘
+```
+
+**Default Configuration:**
+- `failure_threshold`: 5 consecutive failures
+- `success_threshold`: 2 consecutive successes (in HalfOpen)
+- `timeout`: 60 seconds (Open → HalfOpen)
+- `call_timeout`: 30 seconds per individual request
+
+**Solutions:**
+
+1. **Wait for automatic recovery:**
+   ```bash
+   # Circuit will automatically transition after timeout
+   # Open (60s wait) → HalfOpen (test) → Closed (if 2 successes)
+
+   # Monitor state transitions in logs
+   tail -f ~/.auto-tundra/logs/daemon.log | grep "circuit breaker transitioning"
+   ```
+
+   Expected log sequence:
+   ```
+   circuit breaker transitioning Closed -> Open
+   # ... 60 seconds later ...
+   circuit breaker transitioning Open -> HalfOpen
+   # ... after 2 successful calls ...
+   circuit breaker transitioning HalfOpen -> Closed
+   ```
+
+2. **Check circuit breaker state:**
+   ```bash
+   # Enable circuit breaker debug logging
+   export RUST_LOG=at_harness::circuit_breaker=info
+
+   # Check current state and failure count
+   grep "circuit" ~/.auto-tundra/logs/daemon.log | tail -20
+   ```
+
+3. **Manually reset circuit (advanced):**
+   ```bash
+   # Restart daemon to reset all circuit breakers
+   pkill at-daemon && at-daemon
+
+   # Or send SIGHUP for graceful reload (if implemented)
+   pkill -HUP at-daemon
+   ```
+
+4. **Configure circuit breaker thresholds:**
+   ```toml
+   # ~/.auto-tundra/config/harness.toml
+   [circuit_breaker]
+   failure_threshold = 5       # Consecutive failures before opening
+   success_threshold = 2       # Consecutive successes before closing
+   timeout_secs = 60           # Seconds to wait in Open state
+   call_timeout_secs = 30      # Timeout per individual call
+   ```
+
+5. **Investigate root cause during Open state:**
+   ```bash
+   # Check provider API status
+   curl -I https://api.anthropic.com/v1/messages
+
+   # Verify API key
+   echo $ANTHROPIC_API_KEY
+
+   # Test network connectivity
+   ping -c 3 api.anthropic.com
+
+   # Check for firewall blocks
+   sudo iptables -L | grep -i drop
+   ```
+
+6. **Failover to alternative provider:**
+   - Circuit breaker operates per-provider
+   - Configure multiple providers in `~/.auto-tundra/config/profiles.toml`
+   - at-intelligence layer automatically fails over to next available provider
+   - Each provider has independent circuit breaker state
+
+**Prevention:**
+- Set appropriate `call_timeout` for your network conditions (increase if slow connection)
+- Reduce `failure_threshold` to open circuit faster during outages (fail fast)
+- Increase `timeout` if provider recovery typically takes longer than 60s
+- Configure multiple providers for automatic failover
+- Monitor provider status pages proactively
+- Implement retry logic with exponential backoff at application layer
+
+---
+
+#### CircuitBreakerError::Timeout: Request Deadline Exceeded
+
+**Error Message:** `call timed out after <duration>`
+
+**Symptoms:**
+- Individual requests exceed `call_timeout` (default: 30s)
+- Contributes to circuit breaker failure count
+- May trigger circuit opening after repeated timeouts
+- Different from rate limiting or network errors
+
+**Causes:**
+- Large context windows causing slow provider responses
+- Provider experiencing degraded performance
+- Network latency or slow connection
+- Complex multi-tool agent operations
+- Streaming responses buffering delays
+
+**Solutions:**
+
+1. **Increase call_timeout for slow operations:**
+   ```toml
+   # ~/.auto-tundra/config/harness.toml
+   [circuit_breaker]
+   call_timeout_secs = 60  # Increase from 30s default
+   ```
+
+2. **Reduce request complexity:**
+   - Use smaller context windows
+   - Break large operations into smaller chunks
+   - Disable unnecessary tool calls
+
+3. **Check network performance:**
+   ```bash
+   # Measure latency to provider
+   curl -w "@-" -o /dev/null -s https://api.anthropic.com/v1/messages <<'EOF'
+   time_namelookup:  %{time_namelookup}s
+   time_connect:     %{time_connect}s
+   time_starttransfer: %{time_starttransfer}s
+   time_total:       %{time_total}s
+   EOF
+   ```
+
+4. **Monitor provider latency:**
+   ```bash
+   # Enable timing logs
+   export RUST_LOG=at_harness=debug
+
+   # Check request duration in logs
+   grep "call duration" ~/.auto-tundra/logs/daemon.log
+   ```
+
+**Prevention:**
+- Set `call_timeout` appropriate for your use case (streaming may need 60s+)
+- Use timeout safety margin (timeout > 95th percentile latency)
+- Monitor provider performance degradation trends
+- Implement client-side timeout with retry for critical operations
+
+---
+
+### Recovery Procedures
+
+#### Automatic Recovery (Recommended)
+
+The circuit breaker handles recovery automatically:
+
+1. **Detection Phase (Closed → Open):**
+   - System detects 5 consecutive failures
+   - Circuit opens immediately
+   - All requests fail fast with `CircuitBreakerError::Open`
+   - Logs: `circuit breaker transitioning Closed -> Open`
+
+2. **Waiting Phase (Open):**
+   - Circuit remains open for 60 seconds
+   - No requests sent to provider (fail fast)
+   - Preserves system resources
+   - Prevents cascading failures
+
+3. **Testing Phase (Open → HalfOpen):**
+   - After 60s timeout, circuit transitions to HalfOpen
+   - Allows probe requests through
+   - Logs: `circuit breaker transitioning Open -> HalfOpen`
+   - System tests provider health
+
+4. **Recovery Phase (HalfOpen → Closed):**
+   - If 2 consecutive requests succeed: circuit closes
+   - Logs: `circuit breaker transitioning HalfOpen -> Closed`
+   - Normal operation resumes
+   - Failure count resets to 0
+
+5. **Re-trigger Protection (HalfOpen → Open):**
+   - Any failure during HalfOpen immediately reopens circuit
+   - Logs: `circuit breaker transitioning HalfOpen -> Open (failure during probe)`
+   - Returns to 60s waiting phase
+
+#### Manual Recovery (When Needed)
+
+If automatic recovery fails or you need immediate reset:
+
+1. **Restart the daemon:**
+   ```bash
+   # Graceful shutdown
+   pkill at-daemon
+
+   # Restart (resets all circuit breakers to Closed)
+   at-daemon
+   ```
+
+2. **Fix underlying issue first:**
+   - Verify API key is valid
+   - Check provider status page
+   - Test connectivity manually
+   - Review error logs for root cause
+
+3. **Monitor recovery:**
+   ```bash
+   # Watch circuit breaker state changes
+   tail -f ~/.auto-tundra/logs/daemon.log | grep "circuit breaker"
+
+   # Look for successful state transitions
+   # Open -> HalfOpen (after 60s)
+   # HalfOpen -> Closed (after 2 successes)
+   ```
+
+#### Combined Rate Limiting + Circuit Breaker Scenarios
+
+**Scenario 1: Rate limit triggers circuit breaker**
+- High request volume hits rate limit repeatedly
+- Rate limit errors counted as failures (if not handled)
+- After 5 rate limit failures: circuit opens
+- **Solution:** Implement retry with backoff for rate limit errors
+
+**Scenario 2: Circuit breaker prevents rate limit recovery**
+- Circuit opens due to failures
+- Rate limit tokens refill during Open period
+- After recovery, full token bucket available
+- **Benefit:** Natural rate limiting reset during outages
+
+**Scenario 3: Cascading failures across providers**
+- Primary provider circuit opens
+- Traffic fails over to secondary provider
+- Secondary may hit rate limits from sudden traffic spike
+- **Solution:** Configure appropriate per-provider rate limits
+
+#### Health Check Commands
+
+```bash
+# Check circuit breaker state
+grep "circuit breaker transitioning" ~/.auto-tundra/logs/daemon.log | tail -5
+
+# Check rate limit errors
+grep "rate limit exceeded" ~/.auto-tundra/logs/daemon.log | tail -10
+
+# Monitor failure counts
+export RUST_LOG=at_harness=debug
+tail -f ~/.auto-tundra/logs/daemon.log | grep -E "(failure_count|success_count)"
+
+# Verify provider health
+curl -I https://api.anthropic.com/v1/messages \
+  -H "x-api-key: $ANTHROPIC_API_KEY"
+```
+
+#### Tuning Recommendations
+
+**For Development Environments:**
+```toml
+# ~/.auto-tundra/config/harness.toml
+[circuit_breaker]
+failure_threshold = 3       # Open faster during testing
+success_threshold = 1       # Close faster after recovery
+timeout_secs = 10           # Shorter wait during development
+call_timeout_secs = 60      # Longer for debugging
+
+[rate_limit.global]
+tokens_per_second = 100.0   # Higher limits for testing
+max_burst = 200.0
+```
+
+**For Production Environments:**
+```toml
+[circuit_breaker]
+failure_threshold = 5       # More tolerance before opening
+success_threshold = 2       # Verify stable recovery
+timeout_secs = 60           # Standard recovery period
+call_timeout_secs = 30      # Reasonable request deadline
+
+[rate_limit.global]
+tokens_per_second = 50.0    # Conservative global limit
+max_burst = 100.0           # Handle moderate spikes
+```
+
+**For High-Throughput Environments:**
+```toml
+[circuit_breaker]
+failure_threshold = 10      # Higher tolerance
+timeout_secs = 30           # Faster recovery attempts
+call_timeout_secs = 45      # More time for complex requests
+
+[rate_limit.global]
+tokens_per_second = 200.0   # High throughput
+max_burst = 500.0           # Large spike tolerance
+```
 
 ---
 
