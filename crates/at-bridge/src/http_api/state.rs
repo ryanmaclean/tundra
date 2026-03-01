@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use at_core::session_store::SessionStore;
 use at_core::settings::SettingsManager;
-use at_core::types::{Agent, Bead, BeadStatus, CliType, KpiSnapshot};
+use at_core::types::{Agent, Bead, BeadStatus, CliType, KpiSnapshot, RetentionConfig};
 use at_harness::rate_limiter::{MultiKeyRateLimiter, RateLimitConfig};
 use at_intelligence::{
     changelog::ChangelogEngine, ideation::IdeationEngine, insights::InsightsEngine,
@@ -145,6 +145,9 @@ pub struct ApiState {
     // ---- Rate limiting -------------------------------------------------------
     /// Multi-tier rate limiter (global, per-user, per-endpoint).
     pub rate_limiter: Arc<MultiKeyRateLimiter>,
+    // ---- Retention configuration ------------------------------------------
+    /// Memory retention policies for cleanup (TTL, max entries, cleanup intervals).
+    pub retention_config: Arc<RwLock<RetentionConfig>>,
 }
 
 impl ApiState {
@@ -243,6 +246,7 @@ impl ApiState {
                 RateLimitConfig::per_minute(20),  // Per-user tier
                 RateLimitConfig::per_minute(10),  // Per-endpoint tier
             )),
+            retention_config: Arc::new(RwLock::new(RetentionConfig::default())),
         }
     }
 
