@@ -223,3 +223,70 @@ pub struct ApiIdea {
     #[serde(default)]
     pub effort: String,
 }
+
+// ── Stack types (stacked diffs) ──
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiStackNode {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub phase: String,
+    #[serde(default)]
+    pub git_branch: Option<String>,
+    #[serde(default)]
+    pub pr_number: Option<u32>,
+    #[serde(default)]
+    pub stack_position: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiStack {
+    pub root: ApiStackNode,
+    #[serde(default)]
+    pub children: Vec<ApiStackNode>,
+    #[serde(default)]
+    pub total: u32,
+}
+
+// ── GitHub API types ──
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiGithubIssue {
+    #[serde(default)]
+    pub number: u32,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub labels: Vec<String>,
+    #[serde(default)]
+    pub assignee: Option<String>,
+    #[serde(default)]
+    pub state: String,
+    #[serde(default)]
+    pub created: String,
+    #[serde(default)]
+    pub created_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiGithubPr {
+    #[serde(default)]
+    pub number: u32,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub author: String,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub state: Option<String>,
+    #[serde(default)]
+    pub reviewers: Vec<String>,
+    #[serde(default)]
+    pub created: String,
+    #[serde(default)]
+    pub created_at: Option<String>,
+}
