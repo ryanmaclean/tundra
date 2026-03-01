@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use super::state::ApiState;
+use crate::api_error::ApiError;
 
 /// Represents a Model Context Protocol (MCP) server with its available tools.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -103,7 +104,10 @@ pub(crate) async fn call_mcp_tool(
             } else {
                 axum::http::StatusCode::OK
             };
-            (status, Json(serde_json::to_value(result).unwrap()))
+            match serde_json::to_value(result) {
+                Ok(value) => (status, Json(value)).into_response(),
+                Err(e) => ApiError::Internal(format!("failed to serialize tool result: {}", e)).into_response(),
+            }
         }
         None => (
             axum::http::StatusCode::NOT_FOUND,
@@ -114,6 +118,6 @@ pub(crate) async fn call_mcp_tool(
                     .map(|t| t.name.clone())
                     .collect::<Vec<_>>()
             })),
-        ),
+        ).into_response(),
     }
 }
