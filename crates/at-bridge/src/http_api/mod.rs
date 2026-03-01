@@ -369,7 +369,7 @@ mod router {
             )
             .route(
                 "/api/tasks/{task_id}/attachments",
-                post(misc::add_attachment),
+                post(misc::add_attachment).layer(DefaultBodyLimit::max(10 * 1024 * 1024)),
             )
             .route(
                 "/api/tasks/{task_id}/attachments/{id}",
