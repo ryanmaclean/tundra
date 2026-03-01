@@ -16,18 +16,64 @@ use crate::prompts::PromptRegistry;
 // Errors
 // ---------------------------------------------------------------------------
 
+/// Errors that can occur during task pipeline execution.
+///
+/// The task runner drives tasks through multiple phases (Discovery, Planning,
+/// Coding, QA, etc.) by coordinating with agent sessions and context steering.
+/// These errors represent failures in phase transitions, agent communication,
+/// or stuck/timeout detection.
 #[derive(Debug, thiserror::Error)]
 pub enum TaskRunnerError {
+    /// An error occurred during task phase execution.
+    ///
+    /// This indicates a failure while executing a specific phase of the task
+    /// pipeline, such as:
+    /// - Context gathering failures
+    /// - Spec creation errors
+    /// - Planning or coding phase failures
+    ///
+    /// The contained string provides details about the phase error.
     #[error("task phase error: {0}")]
     PhaseError(String),
+
+    /// An error occurred when communicating with the agent session.
+    ///
+    /// The task runner relies on an active agent session to execute each phase.
+    /// This error occurs when:
+    /// - The agent session dies unexpectedly
+    /// - Communication with the session fails
+    /// - The session is not responsive
+    ///
+    /// The contained string provides error details.
     #[error("agent session error: {0}")]
     SessionError(String),
+
+    /// Task execution was explicitly stopped.
+    ///
+    /// This is a clean cancellation of task execution, distinct from errors
+    /// or crashes. It occurs when the task is stopped by user request or
+    /// system intervention.
     #[error("task was stopped")]
     Stopped,
+
+    /// The agent appears to be stuck in a loop or unresponsive.
+    ///
+    /// The stuck detector monitors agent output for repetitive patterns or
+    /// lack of progress. This error is raised when the agent:
+    /// - Generates the same output repeatedly
+    /// - Exceeds the phase timeout without making progress
+    /// - Gets caught in an infinite loop
+    ///
+    /// The contained string provides details about the stuck condition.
     #[error("agent stuck: {0}")]
     Stuck(String),
 }
 
+/// Result type for task runner operations.
+///
+/// Alias for `std::result::Result<T, TaskRunnerError>` used throughout
+/// the task runner module to indicate operations that may fail with a
+/// [`TaskRunnerError`].
 pub type Result<T> = std::result::Result<T, TaskRunnerError>;
 
 // ---------------------------------------------------------------------------

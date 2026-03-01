@@ -20,22 +20,69 @@ use crate::roles::RoleConfig;
 // Errors
 // ---------------------------------------------------------------------------
 
+/// Errors that can occur during agent task execution.
+///
+/// The executor spawns CLI agent processes in PTY sessions and orchestrates
+/// task execution with approval workflows. These errors represent failures
+/// in process management, execution timeouts, parsing agent output, or
+/// unexpected termination scenarios.
 #[derive(Debug, Error)]
 pub enum ExecutorError {
+    /// An error occurred in the PTY pool when spawning or managing agent processes.
+    ///
+    /// This typically indicates:
+    /// - Failure to allocate a new PTY session
+    /// - Process spawn failures (command not found, permission denied)
+    /// - I/O errors when communicating with the PTY
+    ///
+    /// The contained string provides details about the PTY pool failure.
     #[error("pty pool error: {0}")]
     PtyPool(String),
+
+    /// The agent process terminated unexpectedly before completing the task.
+    ///
+    /// This occurs when:
+    /// - The agent CLI crashes or exits with an error
+    /// - The process is killed by the system (OOM, signal)
+    /// - The process exits without producing expected output
     #[error("agent process exited unexpectedly")]
     ProcessDied,
+
+    /// Task execution exceeded the configured timeout.
+    ///
+    /// The executor enforces timeouts to prevent runaway agent processes.
+    /// The contained value is the timeout duration in seconds that was exceeded.
     #[error("task execution timed out after {0}s")]
     Timeout(u64),
+
+    /// Task execution was explicitly aborted by the user or system.
+    ///
+    /// This is a clean cancellation, distinct from crashes or timeouts.
     #[error("task was aborted")]
     Aborted,
+
+    /// Failed to parse structured output from the agent process.
+    ///
+    /// Agents communicate via structured JSON events in their output stream.
+    /// This error occurs when the output is malformed or doesn't match the
+    /// expected schema. The contained string provides parse error details.
     #[error("parse error: {0}")]
     Parse(String),
+
+    /// An internal executor error occurred.
+    ///
+    /// This is a catch-all for unexpected failures that don't fit other
+    /// categories, such as invariant violations or resource exhaustion.
+    /// The contained string provides error details.
     #[error("internal error: {0}")]
     Internal(String),
 }
 
+/// Result type for executor operations.
+///
+/// Alias for `std::result::Result<T, ExecutorError>` used throughout
+/// the executor module to indicate operations that may fail with an
+/// [`ExecutorError`].
 pub type Result<T> = std::result::Result<T, ExecutorError>;
 
 // ---------------------------------------------------------------------------

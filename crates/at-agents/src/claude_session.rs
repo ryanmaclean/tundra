@@ -276,12 +276,33 @@ impl ClaudeSessionManager {
 // Errors
 // ---------------------------------------------------------------------------
 
-/// Errors that can occur during session operations.
+/// Errors that can occur during Claude session operations.
+///
+/// Session operations include creating sessions, sending messages, and managing
+/// conversation history. These errors represent failures in session lifecycle
+/// management or underlying LLM provider communication.
 #[derive(Debug, thiserror::Error)]
 pub enum SessionError {
+    /// The requested session ID does not exist in the manager.
+    ///
+    /// This occurs when:
+    /// - The session ID is invalid or was never created
+    /// - The session has been destroyed or removed from the manager
+    ///
+    /// The contained [`SessionId`] is the UUID that was not found.
     #[error("session not found: {0}")]
     NotFound(SessionId),
 
+    /// An error occurred when communicating with the LLM provider.
+    ///
+    /// This wraps [`LlmError`] from the underlying Anthropic provider and
+    /// represents failures such as:
+    /// - API errors (invalid requests, rate limiting, timeouts)
+    /// - Network/connection failures
+    /// - Response parsing errors
+    ///
+    /// The error is automatically converted from [`LlmError`] via the `#[from]`
+    /// attribute, making error propagation seamless.
     #[error("LLM error: {0}")]
     Llm(#[from] LlmError),
 }
