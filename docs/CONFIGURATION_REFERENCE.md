@@ -1341,9 +1341,14 @@ embedding_model = "text-embedding-3-small"
 
 ---
 
-## Example Configuration
+## Complete Example Configuration
+
+Below is a complete `config.toml` with all sections populated with recommended values:
 
 ```toml
+# ~/.auto-tundra/config.toml
+# Complete configuration example
+
 [general]
 project_name = "auto-tundra"
 log_level = "info"
@@ -1354,6 +1359,18 @@ dir = "~/.auto-tundra/dolt"
 port = 3306
 auto_commit = false
 
+[cache]
+path = "~/.auto-tundra/cache.db"
+max_size_mb = 512
+
+[providers]
+anthropic_key_env = "ANTHROPIC_API_KEY"
+openai_key_env = "OPENAI_API_KEY"
+local_base_url = "http://127.0.0.1:11434"
+local_model = "qwen2.5-coder:14b"
+local_api_key_env = "LOCAL_API_KEY"
+default_max_tokens = 16384
+
 [agents]
 max_concurrent = 10
 heartbeat_interval_secs = 30
@@ -1362,20 +1379,319 @@ direct_mode = false
 
 [security]
 allow_shell_exec = true
+sandbox = true
+allowed_paths = ["/tmp", "/Users/studio/projects"]
+allowed_origins = []
+auto_lock_timeout_mins = 15
+sandbox_mode = true
+active_execution_profile = "balanced"
+
+[[security.execution_profiles]]
+name = "safe"
+sandbox = true
+allow_network = false
+allow_shell_exec = false
+approval_mode = "always"
+
+[[security.execution_profiles]]
+name = "balanced"
+sandbox = true
+allow_network = true
+allow_shell_exec = true
+approval_mode = "on_failure"
+
+[[security.execution_profiles]]
+name = "trusted"
+sandbox = false
+allow_network = true
+allow_shell_exec = true
+approval_mode = "never"
 
 [daemon]
 port = 9090
 host = "127.0.0.1"
+tls = false
+
+[ui]
+theme = "dark"
+refresh_ms = 500
+show_token_costs = true
+
+[bridge]
+transport = "unix"
+socket_path = "/tmp/auto-tundra.sock"
+buffer_size = 8192
+
+[display]
+theme = "dark"
+font_size = 14
+compact_mode = false
+
+[kanban]
+column_mode = "classic_8"
+
+[kanban.planning_poker]
+enabled = true
+default_deck = "fibonacci"
+allow_custom_deck = true
+reveal_requires_all_votes = false
+round_duration_seconds = 300
+
+[terminal]
+font_family = "JetBrains Mono"
+font_size = 14
+cursor_style = "block"
 
 [integrations]
 github_token_env = "GITHUB_TOKEN"
+github_owner = "your-org"
+github_repo = "your-repo"
 gitlab_token_env = "GITLAB_TOKEN"
+gitlab_project_id = "12345"
+gitlab_url = "https://gitlab.com"
 linear_api_key_env = "LINEAR_API_KEY"
+linear_team_id = "TEAM-123"
+
+[appearance]
+appearance_mode = "system"
+color_theme = "arctic"
+
+[language]
+interface_language = "en"
+
+[dev_tools]
+preferred_ide = "vscode"
+preferred_terminal = "default"
+auto_name_terminals = false
+yolo_mode = false
+terminal_font_family = "JetBrains Mono, monospace"
+terminal_font_size = 14
+terminal_cursor_style = "block"
+terminal_cursor_blink = true
+terminal_scrollback_lines = 5000
+
+[agent_profile]
+default_profile = "default"
+agent_framework = "auto-tundra"
+ai_terminal_naming = false
+phase_configs = []
+
+[paths]
+python_path = ""
+git_path = ""
+github_cli_path = ""
+claude_cli_path = ""
+auto_claude_path = ""
+
+[api_profiles]
+profiles = []
+
+[updates]
+version = "0.1.0"
+is_latest = true
+auto_update_projects = false
+beta_updates = false
+
+[notifications]
+on_task_complete = true
+on_task_failed = true
+on_review_needed = true
+sound_enabled = true
+
+[debug]
+anonymous_error_reporting = false
 
 [memory]
 enable_memory = false
-graphiti_server_url = "http://localhost:8000"
-embedding_provider = "openai"
+enable_agent_memory_access = false
+graphiti_server_url = ""
+embedding_provider = ""
+embedding_model = ""
+```
+
+## Environment-Specific Configuration Examples
+
+### Development Environment
+
+Development configuration emphasizes debugging, verbose logging, and relaxed security:
+
+```toml
+# ~/.auto-tundra/config.toml (Development)
+
+[general]
+project_name = "auto-tundra-dev"
+log_level = "debug"
+
+[agents]
+max_concurrent = 4
+auto_restart = true
+
+[security]
+active_execution_profile = "balanced"
+
+[ui]
+show_token_costs = true
+
+[dev_tools]
+yolo_mode = false  # Keep false even in dev for safety
+preferred_ide = "vscode"
+
+[debug]
+anonymous_error_reporting = true
+
+[memory]
+enable_memory = true
+enable_agent_memory_access = true
+```
+
+**Environment Variables:**
+```bash
+# Development API keys (use test/sandbox keys where available)
+export ANTHROPIC_API_KEY=sk-ant-dev-key-here
+export OPENROUTER_API_KEY=sk-or-v1-dev-key-here
+export GITHUB_TOKEN=ghp_dev-token-here
+
+# Development Datadog settings
+export DD_SERVICE=at-daemon
+export DD_ENV=development
+export DD_VERSION=0.1.0-dev
+export DD_TRACE_AGENT_URL=http://localhost:8126
+export DD_TRACE_SAMPLE_RATE=1.0  # 100% sampling for debugging
+
+# Development Rust logging
+export RUST_LOG=debug,at_daemon=trace,at_core=trace,at_agents=debug
+export RUST_BACKTRACE=1
+
+# Development Tokio settings
+export TOKIO_WORKER_THREADS=4
+```
+
+### Staging Environment
+
+Staging configuration mirrors production but with more observability:
+
+```toml
+# ~/.auto-tundra/config.toml (Staging)
+
+[general]
+project_name = "auto-tundra-staging"
+log_level = "info"
+
+[agents]
+max_concurrent = 8
+heartbeat_interval_secs = 30
+auto_restart = true
+
+[security]
+active_execution_profile = "balanced"
+allowed_paths = ["/tmp", "/opt/staging/workspace"]
+
+[daemon]
+port = 9090
+host = "0.0.0.0"  # Allow external connections in staging
+tls = true
+
+[ui]
+show_token_costs = true
+
+[notifications]
+on_task_complete = true
+on_task_failed = true
+on_review_needed = true
+
+[debug]
+anonymous_error_reporting = true
+
+[memory]
+enable_memory = true
+```
+
+**Environment Variables:**
+```bash
+# Staging API keys (dedicated staging keys)
+export ANTHROPIC_API_KEY=sk-ant-staging-key-here
+export GITHUB_TOKEN=ghp_staging-token-here
+
+# Staging Datadog settings
+export DD_SERVICE=auto-tundra-staging
+export DD_ENV=staging
+export DD_VERSION=0.1.0
+export DD_API_KEY=ddapi-staging-key-here
+export DD_SITE=datadoghq.com
+export DD_TRACE_SAMPLE_RATE=0.5  # 50% sampling
+export DD_PROFILING_ENABLED=true
+
+# Staging Rust logging
+export RUST_LOG=info,at_daemon=debug,at_core=debug
+export RUST_BACKTRACE=1
+```
+
+### Production Environment
+
+Production configuration prioritizes security, stability, and performance:
+
+```toml
+# ~/.auto-tundra/config.toml (Production)
+
+[general]
+project_name = "auto-tundra-prod"
+log_level = "warn"  # Minimal logging for performance
+
+[agents]
+max_concurrent = 16
+heartbeat_interval_secs = 60
+auto_restart = true
+
+[security]
+active_execution_profile = "safe"  # Most restrictive
+allowed_paths = ["/opt/prod/workspace"]
+auto_lock_timeout_mins = 5
+
+[daemon]
+port = 9090
+host = "127.0.0.1"  # Internal only
+tls = true
+
+[ui]
+show_token_costs = false  # Hide costs in production UI
+
+[notifications]
+on_task_complete = true
+on_task_failed = true
+on_review_needed = true
+sound_enabled = false
+
+[debug]
+anonymous_error_reporting = false  # Disable in production
+
+[memory]
+enable_memory = true
+enable_agent_memory_access = false  # More restrictive
+```
+
+**Environment Variables:**
+```bash
+# Production API keys (production keys with rate limits)
+export ANTHROPIC_API_KEY=sk-ant-prod-key-here
+export GITHUB_TOKEN=ghp_prod-token-here
+
+# Production Datadog settings
+export DD_SERVICE=auto-tundra-prod
+export DD_ENV=production
+export DD_VERSION=0.1.0
+export DD_API_KEY=ddapi-prod-key-here
+export DD_SITE=datadoghq.com
+export DD_TRACE_SAMPLE_RATE=0.1  # 10% sampling for cost efficiency
+export DD_TRACE_RATE_LIMIT=100
+export DD_PROFILING_ENABLED=true
+export DD_PROFILING_ALLOCATION_ENABLED=false  # Reduce overhead
+
+# Production Rust logging
+export RUST_LOG=warn,at_daemon=info,at_core=info
+export RUST_BACKTRACE=0  # Disabled for performance
+
+# Production performance tuning
+export TOKIO_WORKER_THREADS=16
 ```
 
 ## Generating Default Config
@@ -1482,6 +1798,433 @@ export ANTHROPIC_API_KEY=sk-ant-dev-key-here
 export DD_ENV=production
 export ANTHROPIC_API_KEY=sk-ant-prod-key-here
 ```
+
+---
+
+# 4. Troubleshooting
+
+Common configuration issues and solutions.
+
+## Issue: "No LLM provider configured"
+
+**Symptoms:**
+```
+Error: No LLM provider configured. Set at least one of:
+  - ANTHROPIC_API_KEY
+  - OPENROUTER_API_KEY
+  - OPENAI_API_KEY
+```
+
+**Solution:**
+
+1. **Verify environment variables are set:**
+   ```bash
+   echo $ANTHROPIC_API_KEY
+   echo $OPENROUTER_API_KEY
+   echo $OPENAI_API_KEY
+   ```
+
+2. **Set at least one API key:**
+   ```bash
+   export ANTHROPIC_API_KEY=sk-ant-your-key-here
+   ```
+
+3. **For persistent configuration, add to shell profile:**
+   ```bash
+   echo 'export ANTHROPIC_API_KEY=sk-ant-your-key-here' >> ~/.zshrc
+   source ~/.zshrc
+   ```
+
+4. **Verify config.toml references correct env var names:**
+   ```toml
+   [providers]
+   anthropic_key_env = "ANTHROPIC_API_KEY"  # Must match your env var name
+   ```
+
+## Issue: "API request failed: 401 Unauthorized"
+
+**Symptoms:**
+```
+Error: API request failed with status 401
+Authentication failed for provider: anthropic
+```
+
+**Causes:**
+- Invalid or expired API key
+- API key for wrong provider
+- Typo in environment variable name
+
+**Solution:**
+
+1. **Check API key format:**
+   - Anthropic: `sk-ant-api03-...`
+   - OpenRouter: `sk-or-v1-...`
+   - OpenAI: `sk-...`
+
+2. **Test API key directly:**
+   ```bash
+   # Test Anthropic API key
+   curl https://api.anthropic.com/v1/messages \
+     -H "x-api-key: $ANTHROPIC_API_KEY" \
+     -H "anthropic-version: 2023-06-01" \
+     -H "content-type: application/json" \
+     -d '{"model":"claude-3-5-sonnet-20241022","max_tokens":1024,"messages":[{"role":"user","content":"Hello"}]}'
+   ```
+
+3. **Regenerate API key** if invalid (visit provider console)
+
+4. **Check config.toml env var name matches:**
+   ```bash
+   # If config says:
+   # anthropic_key_env = "MY_ANTHROPIC_KEY"
+   # Then set:
+   export MY_ANTHROPIC_KEY=sk-ant-...
+   ```
+
+## Issue: "Config file not found"
+
+**Symptoms:**
+```
+Warning: Config file not found at ~/.auto-tundra/config.toml
+Using default configuration
+```
+
+**Solution:**
+
+1. **Auto-generate config on first run:**
+   ```bash
+   cargo run --bin at -- status
+   ```
+
+2. **Manually create config directory:**
+   ```bash
+   mkdir -p ~/.auto-tundra
+   ```
+
+3. **Copy example config** from this documentation
+
+4. **Verify HOME environment variable:**
+   ```bash
+   echo $HOME  # Should be your home directory
+   ```
+
+## Issue: "Permission denied" when accessing config
+
+**Symptoms:**
+```
+Error: Permission denied (os error 13)
+  at path: /Users/studio/.auto-tundra/config.toml
+```
+
+**Solution:**
+
+1. **Check file permissions:**
+   ```bash
+   ls -la ~/.auto-tundra/
+   ```
+
+2. **Fix ownership:**
+   ```bash
+   sudo chown -R $USER:$USER ~/.auto-tundra
+   ```
+
+3. **Fix permissions:**
+   ```bash
+   chmod 600 ~/.auto-tundra/config.toml  # Config file
+   chmod 700 ~/.auto-tundra               # Directory
+   ```
+
+## Issue: "Database initialization failed"
+
+**Symptoms:**
+```
+Error: Failed to initialize Dolt database
+  at path: ~/.auto-tundra/dolt
+```
+
+**Solution:**
+
+1. **Check disk space:**
+   ```bash
+   df -h ~
+   ```
+
+2. **Verify Dolt directory permissions:**
+   ```bash
+   ls -la ~/.auto-tundra/dolt
+   chmod 700 ~/.auto-tundra/dolt
+   ```
+
+3. **Check Dolt port availability:**
+   ```bash
+   lsof -i :3306  # Default Dolt port
+   ```
+
+4. **Change Dolt port if 3306 is in use:**
+   ```toml
+   [dolt]
+   port = 3307  # Use alternative port
+   ```
+
+5. **Reset Dolt database (destructive):**
+   ```bash
+   rm -rf ~/.auto-tundra/dolt
+   cargo run --bin at -- status  # Reinitialize
+   ```
+
+## Issue: "GitHub/GitLab integration not working"
+
+**Symptoms:**
+```
+Error: GitHub API request failed: 401 Unauthorized
+Warning: GITHUB_TOKEN not found in environment
+```
+
+**Solution:**
+
+1. **Verify GitHub token is set:**
+   ```bash
+   echo $GITHUB_TOKEN
+   ```
+
+2. **Check token scopes** (must have `repo`, `read:org`):
+   - Visit https://github.com/settings/tokens
+   - Regenerate token with correct scopes
+
+3. **Verify config.toml references correct env var:**
+   ```toml
+   [integrations]
+   github_token_env = "GITHUB_TOKEN"  # Must match your env var
+   ```
+
+4. **Test GitHub CLI access:**
+   ```bash
+   gh auth status
+   gh api user  # Should return your user info
+   ```
+
+## Issue: "Agent stuck or not responding"
+
+**Symptoms:**
+```
+Warning: Agent agent_abc123 has not sent heartbeat in 120 seconds
+```
+
+**Solution:**
+
+1. **Check agent status:**
+   ```bash
+   cargo run --bin at -- status
+   ```
+
+2. **Nudge (restart) the agent:**
+   ```bash
+   cargo run --bin at -- nudge <agent-id>
+   ```
+
+3. **Enable auto-restart:**
+   ```toml
+   [agents]
+   auto_restart = true
+   ```
+
+4. **Check system resources:**
+   ```bash
+   top  # Check CPU/memory usage
+   ```
+
+5. **Review agent logs:**
+   ```bash
+   export RUST_LOG=debug,at_agents=trace
+   cargo run --bin at -- status
+   ```
+
+## Issue: "Datadog traces not appearing"
+
+**Symptoms:**
+- No traces in Datadog APM
+- Application runs but no observability data
+
+**Solution:**
+
+1. **Verify Datadog Agent is running:**
+   ```bash
+   # Check if agent is running
+   ps aux | grep datadog-agent
+
+   # Check agent status
+   datadog-agent status
+   ```
+
+2. **Check Datadog Agent URL:**
+   ```bash
+   export DD_TRACE_AGENT_URL=http://localhost:8126
+   telnet localhost 8126  # Should connect
+   ```
+
+3. **Enable trace debugging:**
+   ```bash
+   export DD_TRACE_DEBUG=true
+   export DD_TRACE_ENABLED=true
+   ```
+
+4. **Verify environment variables:**
+   ```bash
+   env | grep DD_
+   ```
+
+5. **Check Datadog site region:**
+   ```bash
+   export DD_SITE=datadoghq.com  # US
+   # or
+   export DD_SITE=datadoghq.eu   # EU
+   ```
+
+## Issue: "High memory usage"
+
+**Symptoms:**
+- Auto-Tundra consuming excessive RAM
+- System slowdown
+
+**Solution:**
+
+1. **Reduce concurrent agents:**
+   ```toml
+   [agents]
+   max_concurrent = 4  # Lower from 8 or 10
+   ```
+
+2. **Reduce cache size:**
+   ```toml
+   [cache]
+   max_size_mb = 128  # Lower from 512
+   ```
+
+3. **Disable memory-intensive features:**
+   ```toml
+   [memory]
+   enable_memory = false
+
+   [debug]
+   anonymous_error_reporting = false
+   ```
+
+4. **Disable allocation profiling:**
+   ```bash
+   export DD_PROFILING_ALLOCATION_ENABLED=false
+   ```
+
+5. **Reduce Tokio worker threads:**
+   ```bash
+   export TOKIO_WORKER_THREADS=2
+   ```
+
+## Issue: "Local LLM server connection failed"
+
+**Symptoms:**
+```
+Error: Failed to connect to local LLM server at http://127.0.0.1:11434
+Connection refused
+```
+
+**Solution:**
+
+1. **Verify local server is running:**
+   ```bash
+   # For Ollama
+   ollama serve
+
+   # Check if server is listening
+   curl http://127.0.0.1:11434/api/tags
+   ```
+
+2. **Update base URL in config:**
+   ```toml
+   [providers]
+   local_base_url = "http://127.0.0.1:11434"  # Adjust port if needed
+   ```
+
+3. **Check firewall settings:**
+   ```bash
+   # macOS
+   sudo /usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate
+   ```
+
+4. **Test OpenAI-compatible endpoint:**
+   ```bash
+   curl http://127.0.0.1:11434/v1/chat/completions \
+     -H "Content-Type: application/json" \
+     -d '{"model":"qwen2.5-coder:14b","messages":[{"role":"user","content":"Hello"}]}'
+   ```
+
+## Issue: "Configuration validation failed"
+
+**Symptoms:**
+```
+Error: Configuration validation failed:
+  - security.active_execution_profile 'custom' not found in execution_profiles
+  - kanban.planning_poker.default_deck must be one of: fibonacci, modified_fibonacci, powers_of_two, tshirt
+```
+
+**Solution:**
+
+1. **Read error message carefully** - it tells you exactly what's wrong
+
+2. **Fix referenced profile:**
+   ```toml
+   [security]
+   active_execution_profile = "balanced"  # Must exist in execution_profiles
+
+   [[security.execution_profiles]]
+   name = "balanced"  # Name must match active_execution_profile
+   sandbox = true
+   allow_network = true
+   allow_shell_exec = true
+   approval_mode = "on_failure"
+   ```
+
+3. **Fix enum values:**
+   ```toml
+   [kanban.planning_poker]
+   default_deck = "fibonacci"  # Must be exact match (lowercase)
+   ```
+
+4. **Validate numeric ranges:**
+   ```toml
+   [kanban.planning_poker]
+   round_duration_seconds = 300  # Must be 1-86400
+   ```
+
+## Getting Help
+
+If you're still experiencing issues:
+
+1. **Check logs with verbose output:**
+   ```bash
+   export RUST_LOG=debug,at_core=trace
+   export RUST_BACKTRACE=full
+   cargo run --bin at -- status 2>&1 | tee debug.log
+   ```
+
+2. **Review the Getting Started guide:**
+   - **[Getting Started](../GETTING_STARTED.md)** - Setup walkthrough
+
+3. **Check Project Handbook for architecture details:**
+   - **[Project Handbook](PROJECT_HANDBOOK.md)** - System architecture
+
+4. **Verify your environment:**
+   ```bash
+   # System info
+   rustc --version
+   cargo --version
+   uname -a
+
+   # Environment variables
+   env | grep -E 'ANTHROPIC|OPENAI|OPENROUTER|GITHUB|DD_|RUST_'
+
+   # Config file
+   cat ~/.auto-tundra/config.toml
+   ```
 
 ---
 
