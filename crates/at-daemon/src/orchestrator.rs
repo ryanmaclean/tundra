@@ -453,7 +453,7 @@ mod tests {
     use at_agents::executor::{PtySpawner, SpawnedProcess};
     use at_core::types::*;
     use at_core::worktree_manager::{GitOutput, GitRunner};
-    use std::sync::Mutex;
+    use std::sync::{Arc, Mutex};
 
     // -- Mock PtySpawner --
     struct MockSpawner {
@@ -542,14 +542,13 @@ mod tests {
         git_responses: Vec<GitOutput>,
     ) -> TaskOrchestrator {
         let bus = EventBus::new();
-        let cache = Arc::new(CacheDb::new_in_memory().await.unwrap());
         let spawner: Arc<dyn PtySpawner> = Arc::new(MockSpawner::new(spawner_output));
-        let executor = AgentExecutor::with_spawner(spawner, bus.clone(), cache.clone());
+        let executor = AgentExecutor::with_spawner(spawner, bus.clone());
 
         let tmp = std::env::temp_dir().join(format!("at-orch-test-{}", Uuid::new_v4()));
         let _ = std::fs::create_dir_all(&tmp);
         let git = Box::new(MockGit::new(git_responses));
-        let worktree_manager = WorktreeManager::with_git_runner(tmp, cache.clone(), git);
+        let worktree_manager = WorktreeManager::with_git_runner(tmp, git);
 
         TaskOrchestrator::new(executor, worktree_manager, bus)
     }
@@ -629,10 +628,9 @@ mod tests {
     async fn start_task_publishes_events() {
         let bus = EventBus::new();
         let rx = bus.subscribe();
-        let cache = Arc::new(CacheDb::new_in_memory().await.unwrap());
 
         let spawner: Arc<dyn PtySpawner> = Arc::new(MockSpawner::new(b"output\n".to_vec()));
-        let executor = AgentExecutor::with_spawner(spawner, bus.clone(), cache.clone());
+        let executor = AgentExecutor::with_spawner(spawner, bus.clone());
 
         let tmp = std::env::temp_dir().join(format!("at-orch-evt-{}", Uuid::new_v4()));
         let _ = std::fs::create_dir_all(&tmp);
@@ -653,7 +651,7 @@ mod tests {
                 stderr: String::new(),
             },
         ]));
-        let worktree_manager = WorktreeManager::with_git_runner(tmp, cache.clone(), git);
+        let worktree_manager = WorktreeManager::with_git_runner(tmp, git);
 
         let orchestrator = TaskOrchestrator::new(executor, worktree_manager, bus);
 
