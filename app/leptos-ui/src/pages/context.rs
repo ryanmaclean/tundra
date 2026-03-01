@@ -4,6 +4,7 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 
 use crate::api;
+use crate::components::spinner::Spinner;
 use crate::i18n::t;
 
 fn context_tab_icon_svg(kind: &str) -> &'static str {
@@ -386,7 +387,7 @@ pub fn ContextPage() -> impl IntoView {
                             <div class="skeleton skeleton-title"></div>
                             <div class="skeleton skeleton-short"></div>
                         </div>
-                        <div class="dashboard-loading context-loading">{move || themed(display_mode.get(), Prompt::Loading)}</div>
+                        <div class="dashboard-loading context-loading"><Spinner size="md" label="Loading memories..."/></div>
                     </div>
                 })}
 
