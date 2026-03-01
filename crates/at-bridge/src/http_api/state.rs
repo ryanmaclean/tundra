@@ -260,6 +260,47 @@ impl ApiState {
         state
     }
 
+    /// Clean up archived tasks that are older than the specified TTL.
+    ///
+    /// Removes tasks from the tasks HashMap if they are:
+    /// 1. In the archived_tasks list
+    /// 2. Have a completed_at timestamp
+    /// 3. completed_at is older than ttl_secs
+    ///
+    /// Returns the number of tasks removed.
+    pub async fn cleanup_archived_tasks(&self, ttl_secs: u64) -> usize {
+        let archived = self.archived_tasks.read().await;
+        let mut tasks = self.tasks.write().await;
+
+        let now = chrono::Utc::now();
+        let cutoff = now - chrono::Duration::seconds(ttl_secs as i64);
+
+        let mut removed_count = 0;
+        let mut tasks_to_remove = Vec::new();
+
+        // Identify tasks to remove
+        for (task_id, task) in tasks.iter() {
+            if archived.contains(task_id) {
+                if let Some(completed_at) = task.completed_at {
+                    if completed_at < cutoff {
+                        tasks_to_remove.push(*task_id);
+                    }
+                }
+            }
+        }
+
+        // Remove identified tasks
+        for task_id in tasks_to_remove {
+            tasks.remove(&task_id);
+            removed_count += 1;
+        }
+
+        // Update task count atomic
+        self.task_count.store(tasks.len(), Ordering::Relaxed);
+
+        removed_count
+    }
+
     /// Seed lightweight demo data for local development/web UI previews.
     ///
     /// No-op when beads are already present.
@@ -346,5 +387,222 @@ impl ApiState {
         self.agent_count.store(agents.len(), Ordering::Relaxed);
         let tasks = self.tasks.read().await;
         self.task_count.store(tasks.len(), Ordering::Relaxed);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use at_core::types::{Task, TaskPhase};
+    use chrono::{Duration, Utc};
+
+    fn create_test_state() -> ApiState {
+        ApiState::new(EventBus::new())
+    }
+
+    fn create_test_task(id: Uuid, completed_at: Option<chrono::DateTime<Utc>>) -> Task {
+        let bead_id = Uuid::new_v4();
+        Task {
+            id,
+            title: "Test Task".to_string(),
+            description: None,
+            bead_id,
+            phase: TaskPhase::Complete,
+            progress_percent: 100,
+            subtasks: vec![],
+            worktree_path: None,
+            git_branch: None,
+            category: at_core::types::TaskCategory::Feature,
+            priority: at_core::types::TaskPriority::Medium,
+            complexity: at_core::types::TaskComplexity::Medium,
+            impact: None,
+            agent_profile: None,
+            phase_configs: vec![],
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            started_at: None,
+            completed_at,
+            error: None,
+            logs: vec![],
+            qa_report: None,
+            source: None,
+            parent_task_id: None,
+            stack_position: None,
+            pr_number: None,
+            build_logs: vec![],
+        }
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_archived_tasks_removes_old_archived_tasks() {
+        let state = create_test_state();
+        let task_id = Uuid::new_v4();
+
+        // Create a task that was completed 10 days ago
+        let old_completed_at = Utc::now() - Duration::days(10);
+        let task = create_test_task(task_id, Some(old_completed_at));
+
+        // Add task to tasks HashMap
+        state.tasks.write().await.insert(task_id, task);
+        state.task_count.store(1, Ordering::Relaxed);
+
+        // Archive the task
+        state.archived_tasks.write().await.push(task_id);
+
+        // Cleanup with TTL of 7 days (604800 seconds)
+        let removed = state.cleanup_archived_tasks(7 * 24 * 60 * 60).await;
+
+        assert_eq!(removed, 1);
+        assert_eq!(state.tasks.read().await.len(), 0);
+        assert_eq!(state.task_count.load(Ordering::Relaxed), 0);
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_archived_tasks_keeps_recent_archived_tasks() {
+        let state = create_test_state();
+        let task_id = Uuid::new_v4();
+
+        // Create a task that was completed 5 days ago
+        let recent_completed_at = Utc::now() - Duration::days(5);
+        let task = create_test_task(task_id, Some(recent_completed_at));
+
+        // Add task to tasks HashMap
+        state.tasks.write().await.insert(task_id, task);
+        state.task_count.store(1, Ordering::Relaxed);
+
+        // Archive the task
+        state.archived_tasks.write().await.push(task_id);
+
+        // Cleanup with TTL of 7 days (task is only 5 days old)
+        let removed = state.cleanup_archived_tasks(7 * 24 * 60 * 60).await;
+
+        assert_eq!(removed, 0);
+        assert_eq!(state.tasks.read().await.len(), 1);
+        assert_eq!(state.task_count.load(Ordering::Relaxed), 1);
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_archived_tasks_keeps_non_archived_tasks() {
+        let state = create_test_state();
+        let task_id = Uuid::new_v4();
+
+        // Create a task that was completed 10 days ago but is NOT archived
+        let old_completed_at = Utc::now() - Duration::days(10);
+        let task = create_test_task(task_id, Some(old_completed_at));
+
+        // Add task to tasks HashMap but don't archive it
+        state.tasks.write().await.insert(task_id, task);
+        state.task_count.store(1, Ordering::Relaxed);
+
+        // Cleanup with TTL of 7 days
+        let removed = state.cleanup_archived_tasks(7 * 24 * 60 * 60).await;
+
+        assert_eq!(removed, 0);
+        assert_eq!(state.tasks.read().await.len(), 1);
+        assert_eq!(state.task_count.load(Ordering::Relaxed), 1);
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_archived_tasks_keeps_archived_tasks_without_completed_at() {
+        let state = create_test_state();
+        let task_id = Uuid::new_v4();
+
+        // Create a task without completed_at timestamp
+        let task = create_test_task(task_id, None);
+
+        // Add task to tasks HashMap and archive it
+        state.tasks.write().await.insert(task_id, task);
+        state.task_count.store(1, Ordering::Relaxed);
+        state.archived_tasks.write().await.push(task_id);
+
+        // Cleanup with TTL of 7 days
+        let removed = state.cleanup_archived_tasks(7 * 24 * 60 * 60).await;
+
+        assert_eq!(removed, 0);
+        assert_eq!(state.tasks.read().await.len(), 1);
+        assert_eq!(state.task_count.load(Ordering::Relaxed), 1);
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_archived_tasks_handles_multiple_tasks() {
+        let state = create_test_state();
+
+        // Create 4 tasks with different scenarios
+        let old_archived_id1 = Uuid::new_v4();
+        let old_archived_id2 = Uuid::new_v4();
+        let recent_archived_id = Uuid::new_v4();
+        let non_archived_id = Uuid::new_v4();
+
+        let old_completed_at = Utc::now() - Duration::days(10);
+        let recent_completed_at = Utc::now() - Duration::days(5);
+
+        // Old archived task 1
+        let task1 = create_test_task(old_archived_id1, Some(old_completed_at));
+        state.tasks.write().await.insert(old_archived_id1, task1);
+        state.archived_tasks.write().await.push(old_archived_id1);
+
+        // Old archived task 2
+        let task2 = create_test_task(old_archived_id2, Some(old_completed_at));
+        state.tasks.write().await.insert(old_archived_id2, task2);
+        state.archived_tasks.write().await.push(old_archived_id2);
+
+        // Recent archived task
+        let task3 = create_test_task(recent_archived_id, Some(recent_completed_at));
+        state.tasks.write().await.insert(recent_archived_id, task3);
+        state.archived_tasks.write().await.push(recent_archived_id);
+
+        // Non-archived task
+        let task4 = create_test_task(non_archived_id, Some(old_completed_at));
+        state.tasks.write().await.insert(non_archived_id, task4);
+
+        state.task_count.store(4, Ordering::Relaxed);
+
+        // Cleanup with TTL of 7 days
+        let removed = state.cleanup_archived_tasks(7 * 24 * 60 * 60).await;
+
+        assert_eq!(removed, 2);
+        assert_eq!(state.tasks.read().await.len(), 2);
+        assert_eq!(state.task_count.load(Ordering::Relaxed), 2);
+
+        // Verify the correct tasks remain
+        let tasks = state.tasks.read().await;
+        assert!(tasks.contains_key(&recent_archived_id));
+        assert!(tasks.contains_key(&non_archived_id));
+        assert!(!tasks.contains_key(&old_archived_id1));
+        assert!(!tasks.contains_key(&old_archived_id2));
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_archived_tasks_empty_state() {
+        let state = create_test_state();
+
+        // Cleanup with no tasks
+        let removed = state.cleanup_archived_tasks(7 * 24 * 60 * 60).await;
+
+        assert_eq!(removed, 0);
+        assert_eq!(state.tasks.read().await.len(), 0);
+        assert_eq!(state.task_count.load(Ordering::Relaxed), 0);
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_archived_tasks_with_zero_ttl() {
+        let state = create_test_state();
+        let task_id = Uuid::new_v4();
+
+        // Create a task that was just completed
+        let just_completed_at = Utc::now();
+        let task = create_test_task(task_id, Some(just_completed_at));
+
+        // Add task to tasks HashMap and archive it
+        state.tasks.write().await.insert(task_id, task);
+        state.task_count.store(1, Ordering::Relaxed);
+        state.archived_tasks.write().await.push(task_id);
+
+        // Cleanup with TTL of 0 seconds (should remove all archived tasks with completed_at)
+        let removed = state.cleanup_archived_tasks(0).await;
+
+        assert_eq!(removed, 1);
+        assert_eq!(state.tasks.read().await.len(), 0);
+        assert_eq!(state.task_count.load(Ordering::Relaxed), 0);
     }
 }
