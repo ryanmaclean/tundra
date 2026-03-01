@@ -1842,7 +1842,7 @@ kbd {
     border-radius: var(--radius-sm);
     background: var(--border);
     position: relative;
-    transition: background 0.2s;
+    transition: background var(--transition-base);
 }
 
 .progress-pipeline .stage.active {
@@ -2027,7 +2027,7 @@ kbd {
     font-weight: 700;
     color: var(--text-muted);
     font-family: 'JetBrains Mono', monospace;
-    transition: background 0.2s, color 0.2s, box-shadow 0.2s;
+    transition: background var(--transition-base), color var(--transition-base), box-shadow var(--transition-base);
 }
 
 .bead-pipeline .stage.completed {
@@ -3476,7 +3476,7 @@ code.file-path, code.branch-name {
     background: var(--bg-primary);
     color: var(--text-muted);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    transition: all 0.2s;
+    transition: all var(--transition-base);
     font-weight: 600;
     letter-spacing: 0.04em;
 }
@@ -3557,7 +3557,7 @@ code.file-path, code.branch-name {
     height: 4px;
     border-radius: 50%;
     display: inline-block;
-    transition: all 0.2s;
+    transition: all var(--transition-base);
 }
 
 .subtask-pending {
@@ -3875,7 +3875,7 @@ code.file-path, code.branch-name {
     background: var(--bg-card);
     border: 2px solid var(--border);
     color: var(--text-muted);
-    transition: all 0.2s;
+    transition: all var(--transition-base);
 }
 
 .wizard-step.active .wizard-step-number {
@@ -4040,7 +4040,7 @@ code.file-path, code.branch-name {
 .settings-card-chevron {
     font-size: 11px;
     color: var(--text-muted);
-    transition: transform 0.2s;
+    transition: transform var(--transition-base);
 }
 
 .settings-card-body {
@@ -4165,7 +4165,7 @@ code.file-path, code.branch-name {
     inset: 0;
     background: var(--border);
     border-radius: 22px;
-    transition: background 0.2s;
+    transition: background var(--transition-base);
 }
 
 .toggle-slider::before {
@@ -4177,7 +4177,7 @@ code.file-path, code.branch-name {
     bottom: 3px;
     background: #fff;
     border-radius: 50%;
-    transition: transform 0.2s;
+    transition: transform var(--transition-base);
 }
 
 .toggle-switch input:checked + .toggle-slider {
@@ -8523,7 +8523,7 @@ code.file-path, code.branch-name {
     border-radius: var(--radius-lg);
     background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    transition: background 0.2s, border-color 0.2s;
+    transition: background var(--transition-base), border-color var(--transition-base);
 }
 
 .changelog-step.active {
@@ -9773,7 +9773,7 @@ button.toggle-switch {
     border: none;
     cursor: pointer;
     padding: 0;
-    transition: background 0.2s;
+    transition: background var(--transition-base);
 }
 
 button.toggle-switch.active {
@@ -9788,7 +9788,7 @@ button.toggle-switch.active {
     background: #fff;
     top: 3px;
     left: 3px;
-    transition: transform 0.2s;
+    transition: transform var(--transition-base);
 }
 
 button.toggle-switch.active .toggle-knob {
@@ -10367,7 +10367,7 @@ button.toggle-switch.active .toggle-knob {
     padding: 6px 8px;
     font-size: 18px;
     color: var(--text-primary);
-    transition: color 0.2s, transform 0.2s;
+    transition: color var(--transition-base), transform var(--transition-base);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -10450,7 +10450,7 @@ button.toggle-switch.active .toggle-knob {
     font-weight: 500;
     cursor: pointer;
     padding: 4px 8px;
-    transition: color 0.2s;
+    transition: color var(--transition-base);
     border-radius: var(--radius-base);
 }
 
@@ -10670,7 +10670,7 @@ button.toggle-switch.active .toggle-knob {
     font-size: 16px;
     padding: 0;
     margin-left: 8px;
-    transition: color 0.2s;
+    transition: color var(--transition-base);
     flex-shrink: 0;
 }
 
@@ -10888,7 +10888,7 @@ button.toggle-switch.active .toggle-knob {
     border-radius: var(--radius-xl);
     padding: 16px 12px;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: all var(--transition-base);
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -11115,7 +11115,7 @@ button.toggle-switch.active .toggle-knob {
     border: none;
     cursor: pointer;
     position: relative;
-    transition: background 0.2s;
+    transition: background var(--transition-base);
     flex-shrink: 0;
 }
 
@@ -11131,7 +11131,7 @@ button.toggle-switch.active .toggle-knob {
     height: 18px;
     border-radius: 50%;
     background: #fff;
-    transition: transform 0.2s;
+    transition: transform var(--transition-base);
     pointer-events: none;
 }
 
@@ -12042,12 +12042,12 @@ button.toggle-switch.active .toggle-knob {
 .drag-over {
     border: 2px dashed var(--accent-purple) !important;
     background: rgba(124, 58, 237, 0.1) !important;
-    transition: all 0.2s ease;
+    transition: all var(--transition-base);
 }
 
 .drop-target {
     min-height: 40px;
-    transition: border 0.2s, background 0.2s;
+    transition: border var(--transition-base), background var(--transition-base);
 }
 
 /* ── File Explorer ── */
@@ -12206,7 +12206,7 @@ button.toggle-switch.active .toggle-knob {
 /* ── Project Tabs ── */
 
 .project-tabs { display: flex; background: var(--bg-primary); border-bottom: 1px solid rgba(255, 255, 255, 0.04); padding: 0 8px; gap: 2px; overflow-x: auto; }
-.project-tab { display: flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: var(--radius-md) 6px 0 0; cursor: pointer; font-size: 0.8rem; color: var(--text-muted); transition: all 0.2s; white-space: nowrap; }
+.project-tab { display: flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: var(--radius-md) 6px 0 0; cursor: pointer; font-size: 0.8rem; color: var(--text-muted); transition: all var(--transition-base); white-space: nowrap; }
 .project-tab:hover { background: var(--bg-card); color: var(--text-primary); }
 .project-tab.active { background: var(--bg-card); color: var(--accent-purple); border-bottom: 2px solid var(--accent-purple); }
 .project-tab-close { opacity: 0; font-size: 0.7rem; cursor: pointer; padding: 2px; border-radius: var(--radius-md); }
@@ -12308,7 +12308,7 @@ button.toggle-switch.active .toggle-knob {
   border: 1px solid rgba(139, 92, 246, 0.2);
   position: relative;
   overflow: hidden;
-  transition: box-shadow 0.3s ease, transform 0.2s ease;
+  transition: box-shadow 0.3s ease, transform var(--transition-base);
   animation: foilCardEntrance 0.4s ease-out both;
 }
 
@@ -12742,7 +12742,7 @@ button.toggle-switch.active .toggle-knob {
   background: rgba(139, 92, 246, 0.15);
   border: 1px solid rgba(139, 92, 246, 0.3);
   color: var(--text-primary);
-  transition: all 0.2s ease;
+  transition: all var(--transition-base);
 }
 
 [data-mode="foil"] button:hover,
@@ -13526,7 +13526,7 @@ button.toggle-switch.active .toggle-knob {
 
 /* ── Sidebar Item — smooth hover transition with left-accent slide ── */
 .sidebar-item {
-  transition: background 0.2s ease, color 0.2s ease, transform var(--transition-fast) ease;
+  transition: background var(--transition-base), color var(--transition-base), transform var(--transition-fast) ease;
   position: relative;
 }
 
@@ -13535,16 +13535,16 @@ button.toggle-switch.active .toggle-knob {
 }
 
 .sidebar-item.active {
-  transition: background 0.2s ease;
+  transition: background var(--transition-base);
 }
 
 .sidebar-item.active::before {
-  transition: height 0.2s ease, opacity 0.2s ease;
+  transition: height var(--transition-base), opacity var(--transition-base);
 }
 
 /* ── KPI Card — hover lift with shadow bloom ── */
 .kpi-card {
-  transition: border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+  transition: border-color var(--transition-base), transform var(--transition-base), box-shadow var(--transition-base);
 }
 
 .kpi-card:hover {
@@ -13589,7 +13589,7 @@ button[class*="-btn"]:active {
 
 /* ── Kanban Card — drag-ready lift on hover ── */
 .bead-card {
-  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  transition: transform var(--transition-base), box-shadow var(--transition-base), border-color var(--transition-base);
 }
 
 .bead-card:hover {
@@ -13628,7 +13628,7 @@ button[class*="-btn"]:active {
 
 /* ── Settings Card — selection glow ring ── */
 .settings-card-option {
-  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform var(--transition-fast) ease;
+  transition: border-color var(--transition-base), box-shadow var(--transition-base), transform var(--transition-fast) ease;
 }
 
 .settings-card-option:hover {
@@ -13650,7 +13650,7 @@ button[class*="-btn"]:active {
 
 /* ── Tag/Badge — subtle hover glow ── */
 .tag, .label-tag, .status-badge {
-  transition: box-shadow 0.2s ease, transform var(--transition-fast) ease;
+  transition: box-shadow var(--transition-base), transform var(--transition-fast) ease;
 }
 
 .tag:hover, .label-tag:hover, .status-badge:hover {
@@ -13664,7 +13664,7 @@ button[class*="-btn"]:active {
 }
 
 .new-task-btn {
-  transition: transform var(--transition-fast) ease, box-shadow 0.2s ease;
+  transition: transform var(--transition-fast) ease, box-shadow var(--transition-base);
   background-size: 200% auto;
 }
 
@@ -13717,7 +13717,7 @@ button[class*="-btn"]:active {
 ::-webkit-scrollbar-thumb {
   background: rgba(124, 58, 237, 0.2);
   border-radius: 3px;
-  transition: background 0.2s;
+  transition: background var(--transition-base);
 }
 
 ::-webkit-scrollbar-thumb:hover {
@@ -14213,7 +14213,7 @@ button[class*="-btn"]:active {
 /* ── Phase 2D: Notification Bell Ring ── */
 
 .bell-icon svg {
-    transition: transform 0.2s ease;
+    transition: transform var(--transition-base);
 }
 
 .bell-icon-ringing svg {
@@ -15327,7 +15327,7 @@ h2 .gh-icon {
     border-radius: var(--radius-xl);
     padding: 20px;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: all var(--transition-base);
 }
 
 .stack-card:hover {
@@ -16098,7 +16098,7 @@ h2 .gh-icon {
     align-items: flex-start;
     padding: 10px 12px;
     border-radius: var(--radius-md);
-    transition: background-color 0.2s;
+    transition: background-color var(--transition-base);
     margin-bottom: 6px;
     border: 1px solid transparent;
 }
@@ -17780,7 +17780,7 @@ h2 .gh-icon {
     color: var(--text-secondary);
     cursor: help;
     padding: 0;
-    transition: background 0.2s, border-color 0.2s;
+    transition: background var(--transition-base), border-color var(--transition-base);
 }
 
 .ws-status-indicator:hover {
