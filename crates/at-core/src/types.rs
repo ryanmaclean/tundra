@@ -1117,6 +1117,23 @@ impl Task {
         self.phase = phase;
         self.updated_at = Utc::now();
     }
+
+    /// Truncate task and build logs to keep only the most recent N entries.
+    /// This prevents unbounded memory growth for long-running tasks.
+    ///
+    /// # Arguments
+    /// * `max_entries` - Maximum number of log entries to keep (keeps most recent)
+    pub fn truncate_logs(&mut self, max_entries: usize) {
+        if self.logs.len() > max_entries {
+            let start_index = self.logs.len() - max_entries;
+            self.logs.drain(..start_index);
+        }
+        if self.build_logs.len() > max_entries {
+            let start_index = self.build_logs.len() - max_entries;
+            self.build_logs.drain(..start_index);
+        }
+        self.updated_at = Utc::now();
+    }
 }
 
 // ---------------------------------------------------------------------------

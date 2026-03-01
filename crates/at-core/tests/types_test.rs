@@ -250,3 +250,170 @@ fn all_task_categories_serialize() {
         assert_eq!(back, cat);
     }
 }
+
+// ---------------------------------------------------------------------------
+// Task log truncation tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn task_log_truncation_keeps_recent_entries() {
+    let mut task = Task::new(
+        "test",
+        Uuid::new_v4(),
+        TaskCategory::Feature,
+        TaskPriority::Medium,
+        TaskComplexity::Small,
+    );
+
+    // Add 10 log entries
+    for i in 0..10 {
+        task.log(TaskLogType::Info, format!("Log entry {}", i));
+    }
+    assert_eq!(task.logs.len(), 10);
+
+    // Truncate to keep only 3 most recent
+    task.truncate_logs(3);
+    assert_eq!(task.logs.len(), 3);
+
+    // Verify we kept the most recent entries (7, 8, 9)
+    assert_eq!(task.logs[0].message, "Log entry 7");
+    assert_eq!(task.logs[1].message, "Log entry 8");
+    assert_eq!(task.logs[2].message, "Log entry 9");
+}
+
+#[test]
+fn task_log_truncation_no_op_when_below_max() {
+    let mut task = Task::new(
+        "test",
+        Uuid::new_v4(),
+        TaskCategory::Feature,
+        TaskPriority::Medium,
+        TaskComplexity::Small,
+    );
+
+    // Add 5 log entries
+    for i in 0..5 {
+        task.log(TaskLogType::Info, format!("Log entry {}", i));
+    }
+    assert_eq!(task.logs.len(), 5);
+
+    // Truncate with max_entries > current length - should be no-op
+    task.truncate_logs(10);
+    assert_eq!(task.logs.len(), 5);
+
+    // Verify all entries still there
+    assert_eq!(task.logs[0].message, "Log entry 0");
+    assert_eq!(task.logs[4].message, "Log entry 4");
+}
+
+#[test]
+fn task_log_truncation_build_logs() {
+    let mut task = Task::new(
+        "test",
+        Uuid::new_v4(),
+        TaskCategory::Feature,
+        TaskPriority::Medium,
+        TaskComplexity::Small,
+    );
+
+    // Add 20 build log entries
+    for i in 0..20 {
+        task.add_build_log(BuildStream::Stdout, format!("Build log {}", i));
+    }
+    assert_eq!(task.build_logs.len(), 20);
+
+    // Truncate to keep only 5 most recent
+    task.truncate_logs(5);
+    assert_eq!(task.build_logs.len(), 5);
+
+    // Verify we kept the most recent entries (15, 16, 17, 18, 19)
+    assert_eq!(task.build_logs[0].line, "Build log 15");
+    assert_eq!(task.build_logs[1].line, "Build log 16");
+    assert_eq!(task.build_logs[2].line, "Build log 17");
+    assert_eq!(task.build_logs[3].line, "Build log 18");
+    assert_eq!(task.build_logs[4].line, "Build log 19");
+}
+
+#[test]
+fn task_log_truncation_both_logs_and_build_logs() {
+    let mut task = Task::new(
+        "test",
+        Uuid::new_v4(),
+        TaskCategory::Feature,
+        TaskPriority::Medium,
+        TaskComplexity::Small,
+    );
+
+    // Add both task logs and build logs
+    for i in 0..15 {
+        task.log(TaskLogType::Info, format!("Log {}", i));
+        task.add_build_log(BuildStream::Stdout, format!("Build {}", i));
+    }
+    assert_eq!(task.logs.len(), 15);
+    assert_eq!(task.build_logs.len(), 15);
+
+    // Truncate both to keep only 4 entries each
+    task.truncate_logs(4);
+    assert_eq!(task.logs.len(), 4);
+    assert_eq!(task.build_logs.len(), 4);
+
+    // Verify we kept the most recent entries from both
+    assert_eq!(task.logs[0].message, "Log 11");
+    assert_eq!(task.logs[3].message, "Log 14");
+    assert_eq!(task.build_logs[0].line, "Build 11");
+    assert_eq!(task.build_logs[3].line, "Build 14");
+}
+
+#[test]
+fn task_log_truncation_zero_max_entries() {
+    let mut task = Task::new(
+        "test",
+        Uuid::new_v4(),
+        TaskCategory::Feature,
+        TaskPriority::Medium,
+        TaskComplexity::Small,
+    );
+
+    // Add some logs
+    for i in 0..5 {
+        task.log(TaskLogType::Info, format!("Log {}", i));
+        task.add_build_log(BuildStream::Stdout, format!("Build {}", i));
+    }
+    assert_eq!(task.logs.len(), 5);
+    assert_eq!(task.build_logs.len(), 5);
+
+    // Truncate to 0 - should clear all logs
+    task.truncate_logs(0);
+    assert_eq!(task.logs.len(), 0);
+    assert_eq!(task.build_logs.len(), 0);
+}
+
+#[test]
+fn task_log_truncation_stress_test() {
+    let mut task = Task::new(
+        "stress test",
+        Uuid::new_v4(),
+        TaskCategory::Performance,
+        TaskPriority::High,
+        TaskComplexity::Complex,
+    );
+
+    // Simulate a long-running task with many log entries
+    for i in 0..10000 {
+        task.log(TaskLogType::Info, format!("Entry {}", i));
+        task.add_build_log(BuildStream::Stdout, format!("Build {}", i));
+    }
+    assert_eq!(task.logs.len(), 10000);
+    assert_eq!(task.build_logs.len(), 10000);
+
+    // Truncate to a reasonable size (1000 entries)
+    task.truncate_logs(1000);
+    assert_eq!(task.logs.len(), 1000);
+    assert_eq!(task.build_logs.len(), 1000);
+
+    // Verify we kept the most recent entries (9000-9999)
+    assert_eq!(task.logs[0].message, "Entry 9000");
+    assert_eq!(task.logs[999].message, "Entry 9999");
+    assert_eq!(task.build_logs[0].line, "Build 9000");
+    assert_eq!(task.build_logs[999].line, "Build 9999");
+}
