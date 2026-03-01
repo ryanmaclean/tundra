@@ -204,10 +204,9 @@ pub fn EditTaskModal(
                 metadata: None,
             };
             let _ = crate::api::update_bead(&api_id, &payload).await;
+            set_modal_done.set(true);
             set_is_submitting.set(false);
         });
-
-        on_close(ev);
     };
 
     view! {
