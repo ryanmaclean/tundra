@@ -77,8 +77,6 @@ pub struct ImportResult {
 #[derive(Debug, Clone)]
 pub struct LinearClient {
     pub api_key: String,
-    #[allow(dead_code)]
-    pub client: reqwest::Client,
     pub active_team_id: Option<String>,
 }
 
@@ -89,7 +87,6 @@ impl LinearClient {
         }
         Ok(Self {
             api_key: api_key.to_string(),
-            client: reqwest::Client::new(),
             active_team_id: None,
         })
     }
@@ -145,8 +142,8 @@ impl LinearClient {
             payload["variables"] = serde_json::Value::Object(vars);
         }
 
-        let resp = self
-            .client
+        let client = reqwest::Client::new();
+        let resp = client
             .post("https://api.linear.app/graphql")
             .header("Authorization", self.api_key.as_str())
             .json(&payload)
