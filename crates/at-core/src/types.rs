@@ -440,19 +440,35 @@ pub struct BuildLogEntry {
 // TaskPhase
 // ---------------------------------------------------------------------------
 
+/// Execution phase of a Task as it moves through the pipeline.
+///
+/// Tasks progress through a defined pipeline from discovery to completion.
+/// Valid transitions are enforced by the `can_transition_to` method.
+/// The `pipeline_order` method provides the canonical phase sequence.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskPhase {
+    /// Initial phase: discovering requirements and context.
     Discovery,
+    /// Gathering additional context and background information.
     ContextGathering,
+    /// Creating a technical specification document.
     SpecCreation,
+    /// Generating an implementation plan from the spec.
     Planning,
+    /// Actively implementing code changes.
     Coding,
+    /// Running quality assurance checks and code review.
     Qa,
+    /// Addressing issues found during QA.
     Fixing,
+    /// Merging changes into the target branch.
     Merging,
+    /// Task successfully completed.
     Complete,
+    /// Task encountered an unrecoverable error.
     Error,
+    /// Task was manually stopped or cancelled.
     Stopped,
 }
 
@@ -514,36 +530,68 @@ impl TaskPhase {
 // TaskCategory / TaskPriority / TaskComplexity
 // ---------------------------------------------------------------------------
 
+/// Classification of a Task by its functional purpose.
+///
+/// Categories help with routing tasks to appropriate agents, reporting,
+/// and prioritization. They describe what kind of work the task represents
+/// rather than its urgency or size.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskCategory {
+    /// New functionality or capability.
     Feature,
+    /// Fixing a defect or incorrect behavior.
     BugFix,
+    /// Code restructuring without behavior changes.
     Refactoring,
+    /// Adding or improving documentation.
     Documentation,
+    /// Security-related improvements or fixes.
     Security,
+    /// Performance optimization work.
     Performance,
+    /// User interface or user experience improvements.
     UiUx,
+    /// Infrastructure, tooling, or build system changes.
     Infrastructure,
+    /// Test creation or improvement.
     Testing,
 }
 
+/// Priority level of a Task for scheduling and execution order.
+///
+/// Higher priority tasks are processed before lower priority ones.
+/// Priority is independent of complexity or impact.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskPriority {
+    /// Low urgency, can be deferred.
     Low,
+    /// Normal priority, standard workflow.
     Medium,
+    /// Important, should be addressed soon.
     High,
+    /// Critical urgency, needs immediate attention.
     Urgent,
 }
 
+/// Estimated complexity and effort required for a Task.
+///
+/// Complexity assessment helps with time estimation, agent assignment,
+/// and resource planning. Larger complexity may trigger more thorough
+/// planning or assignment to more capable agents.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskComplexity {
+    /// Very simple, quick change (minutes).
     Trivial,
+    /// Small task, straightforward implementation (< 1 hour).
     Small,
+    /// Moderate effort, some complexity (1-4 hours).
     Medium,
+    /// Significant work, multiple components (4-8 hours).
     Large,
+    /// Complex task requiring careful planning (> 8 hours).
     Complex,
 }
 
@@ -551,12 +599,21 @@ pub enum TaskComplexity {
 // TaskImpact
 // ---------------------------------------------------------------------------
 
+/// Expected impact of a Task on the system or users.
+///
+/// Impact assessment helps prioritize work and determine appropriate
+/// QA rigor. Higher impact tasks may require more thorough testing,
+/// additional review, or special deployment considerations.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskImpact {
+    /// Minimal impact, isolated change.
     Low,
+    /// Moderate impact, affects specific features or areas.
     Medium,
+    /// Significant impact, affects major functionality or many users.
     High,
+    /// Critical impact, affects core systems or all users.
     Critical,
 }
 
@@ -758,16 +815,43 @@ pub struct TaskLogEntry {
 // TaskSource
 // ---------------------------------------------------------------------------
 
+/// Origin of a Task, tracking where it was created or imported from.
+///
+/// Task sources enable traceability back to issue trackers, pull requests,
+/// or internal systems. This helps with linking task execution back to
+/// external systems and maintaining audit trails.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskSource {
+    /// Manually created by a user directly in Tundra.
     Manual,
-    GithubIssue { issue_number: u32 },
-    GithubPr { pr_number: u32 },
-    GitlabIssue { iid: u32 },
-    LinearIssue { identifier: String },
+    /// Imported from a GitHub issue.
+    GithubIssue {
+        /// The GitHub issue number.
+        issue_number: u32,
+    },
+    /// Imported from a GitHub pull request.
+    GithubPr {
+        /// The GitHub PR number.
+        pr_number: u32,
+    },
+    /// Imported from a GitLab issue.
+    GitlabIssue {
+        /// The GitLab issue IID (internal ID).
+        iid: u32,
+    },
+    /// Imported from a Linear issue.
+    LinearIssue {
+        /// The Linear issue identifier (e.g., "ENG-123").
+        identifier: String,
+    },
+    /// Imported from an external source or file.
     Import,
-    Ideation { idea_id: String },
+    /// Generated from the ideation pipeline.
+    Ideation {
+        /// The unique identifier of the originating idea.
+        idea_id: String,
+    },
 }
 
 // ---------------------------------------------------------------------------
