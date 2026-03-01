@@ -99,6 +99,12 @@ pub struct ApiConvoy {
     pub status: String,
     #[serde(default)]
     pub bead_ids: Vec<String>,
+    #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
+    #[serde(default)]
+    pub metadata: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

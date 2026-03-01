@@ -3,6 +3,9 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{Request, RequestInit, Response};
 
+// Re-export shared API types from at-api-types crate
+pub use at_api_types::{ApiAgent, ApiBead, ApiConvoy, ApiKpi, ApiSession};
+
 /// Default API base when not running in Tauri (standalone web dev).
 // Use IPv4 loopback by default to avoid localhost IPv6 resolution mismatches in browsers.
 const DEFAULT_API_BASE: &str = "http://127.0.0.1:9090";
@@ -120,72 +123,7 @@ async fn post_json<T: Serialize, R: for<'de> Deserialize<'de>>(
 }
 
 // ── API response types (matching backend JSON) ──
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ApiBead {
-    #[serde(default)]
-    pub id: String,
-    #[serde(default)]
-    pub title: String,
-    #[serde(default)]
-    pub description: Option<String>,
-    #[serde(default)]
-    pub status: String,
-    #[serde(default)]
-    pub lane: String,
-    #[serde(default)]
-    pub priority: i32,
-    #[serde(default)]
-    pub category: Option<String>,
-    #[serde(default)]
-    pub priority_label: Option<String>,
-    #[serde(default)]
-    pub agent_profile: Option<String>,
-    #[serde(default)]
-    pub model: Option<String>,
-    #[serde(default)]
-    pub thinking_level: Option<String>,
-    #[serde(default)]
-    pub complexity: Option<String>,
-    #[serde(default)]
-    pub impact: Option<String>,
-    #[serde(default)]
-    pub effort: Option<String>,
-    #[serde(default)]
-    pub metadata: Option<serde_json::Value>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ApiAgent {
-    #[serde(default)]
-    pub id: String,
-    #[serde(default)]
-    pub name: String,
-    #[serde(default)]
-    pub role: String,
-    #[serde(default)]
-    pub status: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ApiKpi {
-    #[serde(default)]
-    pub total_beads: u64,
-    #[serde(default)]
-    pub backlog: u64,
-    #[serde(default)]
-    pub hooked: u64,
-    #[serde(default)]
-    pub slung: u64,
-    #[serde(default)]
-    pub review: u64,
-    #[serde(default)]
-    pub done: u64,
-    #[serde(default)]
-    pub failed: u64,
-    #[serde(default)]
-    pub active_agents: u64,
-}
+// Core types (ApiBead, ApiAgent, ApiKpi, ApiSession, ApiConvoy) are imported from at-api-types crate
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApiStatus {
@@ -846,40 +784,7 @@ async fn post_empty<R: for<'de> Deserialize<'de>>(url: &str) -> Result<R, String
 }
 
 // ── Additional API response types ──
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ApiSession {
-    #[serde(default)]
-    pub id: String,
-    #[serde(default)]
-    pub agent_name: String,
-    #[serde(default)]
-    pub cli_type: String,
-    #[serde(default)]
-    pub status: String,
-    #[serde(default)]
-    pub duration: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ApiConvoy {
-    #[serde(default)]
-    pub id: String,
-    #[serde(default)]
-    pub name: String,
-    #[serde(default)]
-    pub bead_count: u32,
-    #[serde(default)]
-    pub status: String,
-    #[serde(default)]
-    pub bead_ids: Vec<String>,
-    #[serde(default)]
-    pub created_at: Option<String>,
-    #[serde(default)]
-    pub updated_at: Option<String>,
-    #[serde(default)]
-    pub metadata: Option<serde_json::Value>,
-}
+// ApiSession and ApiConvoy imported from at-api-types crate
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApiWorktree {
