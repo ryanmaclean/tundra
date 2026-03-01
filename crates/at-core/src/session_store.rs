@@ -55,10 +55,28 @@ impl SessionState {
 // Errors
 // ---------------------------------------------------------------------------
 
+/// Errors that can occur when persisting or loading session state.
+///
+/// These errors cover filesystem operations and JSON serialization/deserialization
+/// for session files stored in `~/.config/auto-tundra/sessions/`.
 #[derive(Debug, thiserror::Error)]
 pub enum SessionStoreError {
+    /// Failed to read or write session files to disk.
+    ///
+    /// This typically occurs when:
+    /// - The session directory is inaccessible
+    /// - Insufficient file permissions
+    /// - Disk I/O errors
+    /// - Directory creation failed
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
+
+    /// Failed to serialize or deserialize session state as JSON.
+    ///
+    /// This typically occurs when:
+    /// - Session file is corrupted or has invalid JSON
+    /// - Schema mismatch between stored and current session format
+    /// - Non-UTF-8 characters in session file
     #[error("Serialization error: {0}")]
     Serde(#[from] serde_json::Error),
 }

@@ -136,12 +136,37 @@ impl Config {
 // Error
 // ---------------------------------------------------------------------------
 
+/// Errors that can occur when loading or validating configuration files.
+///
+/// These errors cover the full lifecycle of configuration management:
+/// reading from disk, parsing TOML, and semantic validation of settings.
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
+    /// Failed to read the configuration file from disk.
+    ///
+    /// This typically occurs when:
+    /// - The config file path is inaccessible
+    /// - Insufficient file permissions
+    /// - Disk I/O errors
     #[error("io: {0}")]
     Io(String),
+
+    /// Failed to parse the configuration file as valid TOML.
+    ///
+    /// This occurs when the config file contains:
+    /// - Syntax errors in TOML format
+    /// - Type mismatches (e.g., string where number expected)
+    /// - Unknown configuration keys (in strict mode)
     #[error("parse: {0}")]
     Parse(String),
+
+    /// Configuration settings failed semantic validation.
+    ///
+    /// This occurs when the config file is syntactically valid TOML
+    /// but contains logically invalid settings, such as:
+    /// - Invalid port numbers or paths
+    /// - Conflicting options
+    /// - Missing required dependencies between settings
     #[error("validation: {0}")]
     Validation(String),
 }
