@@ -51,7 +51,6 @@ pub(crate) async fn list_tasks(
 ) -> Json<Vec<Task>> {
     let tasks = state.tasks.read().await;
 
-
     let filtered: Vec<Task> = tasks
         .values()
         .filter(|task| {
@@ -184,7 +183,10 @@ pub(crate) async fn create_task(
 ///
 /// **Path Parameters:** `id` - UUID of the task to retrieve.
 /// **Response:** 200 OK with Task object, 404 if not found.
-pub(crate) async fn get_task(State(state): State<Arc<ApiState>>, Path(id): Path<Uuid>) -> Result<impl IntoResponse, ApiError> {
+pub(crate) async fn get_task(
+    State(state): State<Arc<ApiState>>,
+    Path(id): Path<Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
     let tasks = state.tasks.read().await;
     let Some(task) = tasks.get(&id) else {
         return Err(ApiError::NotFound("task not found".into()));
@@ -253,13 +255,10 @@ pub(crate) async fn update_task(
     let response_json = serde_json::json!(task_snapshot);
     state
         .event_bus
-        .publish(crate::protocol::BridgeMessage::TaskUpdate(
-            Box::new(task_snapshot),
-        ));
-    Ok((
-        axum::http::StatusCode::OK,
-        Json(response_json),
-    ))
+        .publish(crate::protocol::BridgeMessage::TaskUpdate(Box::new(
+            task_snapshot,
+        )));
+    Ok((axum::http::StatusCode::OK, Json(response_json)))
 }
 
 /// DELETE /api/tasks/{id} -- delete a task.
@@ -312,9 +311,9 @@ pub(crate) async fn update_task_phase(
     drop(tasks);
     state
         .event_bus
-        .publish(crate::protocol::BridgeMessage::TaskUpdate(
-            Box::new(task_snapshot.clone()),
-        ));
+        .publish(crate::protocol::BridgeMessage::TaskUpdate(Box::new(
+            task_snapshot.clone(),
+        )));
     Ok((
         axum::http::StatusCode::OK,
         Json(serde_json::json!(task_snapshot)),

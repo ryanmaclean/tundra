@@ -460,8 +460,7 @@ pub(crate) async fn simulate_planning_poker_for_bead(
         index.hash(&mut hasher);
         voter.hash(&mut hasher);
         let jitter = (hasher.finish() % 3) as i32 - 1; // -1, 0, +1
-        let card_idx =
-            (base_idx as i32 + jitter).clamp(0, estimate_deck.len() as i32 - 1) as usize;
+        let card_idx = (base_idx as i32 + jitter).clamp(0, estimate_deck.len() as i32 - 1) as usize;
         votes.push(PlanningPokerVote {
             voter: voter.clone(),
             card: estimate_deck[card_idx].clone(),
@@ -574,7 +573,9 @@ pub(crate) async fn submit_planning_poker_vote(
 
     let mut sessions = state.planning_poker_sessions.write().await;
     let Some(session) = sessions.get_mut(&req.bead_id) else {
-        return Err(ApiError::NotFound("planning poker session not found".into()));
+        return Err(ApiError::NotFound(
+            "planning poker session not found".into(),
+        ));
     };
 
     if !matches!(session.phase, PlanningPokerPhase::Voting) {
@@ -601,7 +602,10 @@ pub(crate) async fn submit_planning_poker_vote(
 
     Ok((
         axum::http::StatusCode::OK,
-        Json(serde_json::to_value(planning_poker_response(session)).map_err(|e| ApiError::Internal(e.to_string()))?),
+        Json(
+            serde_json::to_value(planning_poker_response(session))
+                .map_err(|e| ApiError::Internal(e.to_string()))?,
+        ),
     ))
 }
 
@@ -615,7 +619,9 @@ pub(crate) async fn reveal_planning_poker(
 
     let mut sessions = state.planning_poker_sessions.write().await;
     let Some(session) = sessions.get_mut(&req.bead_id) else {
-        return Err(ApiError::NotFound("planning poker session not found".into()));
+        return Err(ApiError::NotFound(
+            "planning poker session not found".into(),
+        ));
     };
 
     if matches!(session.phase, PlanningPokerPhase::Revealed) {
@@ -644,7 +650,10 @@ pub(crate) async fn reveal_planning_poker(
 
     Ok((
         axum::http::StatusCode::OK,
-        Json(serde_json::to_value(planning_poker_response(session)).map_err(|e| ApiError::Internal(e.to_string()))?),
+        Json(
+            serde_json::to_value(planning_poker_response(session))
+                .map_err(|e| ApiError::Internal(e.to_string()))?,
+        ),
     ))
 }
 
@@ -681,11 +690,16 @@ pub(crate) async fn get_planning_poker_session(
 ) -> Result<impl IntoResponse, ApiError> {
     let sessions = state.planning_poker_sessions.read().await;
     let Some(session) = sessions.get(&bead_id) else {
-        return Err(ApiError::NotFound("planning poker session not found".into()));
+        return Err(ApiError::NotFound(
+            "planning poker session not found".into(),
+        ));
     };
 
     Ok((
         axum::http::StatusCode::OK,
-        Json(serde_json::to_value(planning_poker_response(session)).map_err(|e| ApiError::Internal(e.to_string()))?),
+        Json(
+            serde_json::to_value(planning_poker_response(session))
+                .map_err(|e| ApiError::Internal(e.to_string()))?,
+        ),
     ))
 }

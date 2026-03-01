@@ -62,7 +62,9 @@ pub(crate) async fn mark_notification_read(
 }
 
 /// POST /api/notifications/read-all -- mark all notifications as read.
-pub(crate) async fn mark_all_notifications_read(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
+pub(crate) async fn mark_all_notifications_read(
+    State(state): State<Arc<ApiState>>,
+) -> impl IntoResponse {
     let mut store = state.notification_store.write().await;
     store.mark_all_read();
     Json(serde_json::json!({"status": "all_read"}))

@@ -93,8 +93,7 @@ mod tests {
 
     #[tokio::test]
     async fn unauthorized_returns_401() {
-        let (status, body) =
-            error_response(ApiError::Unauthorized("invalid token".into())).await;
+        let (status, body) = error_response(ApiError::Unauthorized("invalid token".into())).await;
         assert_eq!(status, StatusCode::UNAUTHORIZED);
         assert_eq!(body["error"], "invalid token");
     }
@@ -109,8 +108,7 @@ mod tests {
 
     #[tokio::test]
     async fn internal_returns_500() {
-        let (status, body) =
-            error_response(ApiError::Internal("unexpected failure".into())).await;
+        let (status, body) = error_response(ApiError::Internal("unexpected failure".into())).await;
         assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
         assert_eq!(body["error"], "unexpected failure");
     }
@@ -140,10 +138,7 @@ mod tests {
                 body.get("error").is_some(),
                 "response body must contain 'error' field"
             );
-            assert!(
-                body["error"].is_string(),
-                "'error' field must be a string"
-            );
+            assert!(body["error"].is_string(), "'error' field must be a string");
         }
     }
 

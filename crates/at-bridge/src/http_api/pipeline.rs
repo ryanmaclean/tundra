@@ -3,8 +3,8 @@ use axum::{
     response::IntoResponse,
     Json,
 };
-use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use std::sync::Arc;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
@@ -65,9 +65,9 @@ pub(crate) async fn execute_task_pipeline(
     // Publish the phase change.
     state
         .event_bus
-        .publish(crate::protocol::BridgeMessage::TaskUpdate(
-            Box::new(task_snapshot.clone()),
-        ));
+        .publish(crate::protocol::BridgeMessage::TaskUpdate(Box::new(
+            task_snapshot.clone(),
+        )));
 
     // Spawn a background task to drive the pipeline phases.
     let tasks_store = state.tasks.clone();
@@ -247,7 +247,9 @@ async fn run_pipeline_background(
         let mut tasks = tasks_store.write().await;
         if let Some(t) = tasks.get_mut(&task.id) {
             t.set_phase(TaskPhase::Qa);
-            event_bus.publish(crate::protocol::BridgeMessage::TaskUpdate(Box::new(t.clone())));
+            event_bus.publish(crate::protocol::BridgeMessage::TaskUpdate(Box::new(
+                t.clone(),
+            )));
         }
     }
 
@@ -313,7 +315,9 @@ async fn run_pipeline_background(
             let mut tasks = tasks_store.write().await;
             if let Some(t) = tasks.get_mut(&task.id) {
                 t.set_phase(TaskPhase::Fixing);
-                event_bus.publish(crate::protocol::BridgeMessage::TaskUpdate(Box::new(t.clone())));
+                event_bus.publish(crate::protocol::BridgeMessage::TaskUpdate(Box::new(
+                    t.clone(),
+                )));
             }
         }
 
@@ -322,7 +326,9 @@ async fn run_pipeline_background(
             let mut tasks = tasks_store.write().await;
             if let Some(t) = tasks.get_mut(&task.id) {
                 t.set_phase(TaskPhase::Qa);
-                event_bus.publish(crate::protocol::BridgeMessage::TaskUpdate(Box::new(t.clone())));
+                event_bus.publish(crate::protocol::BridgeMessage::TaskUpdate(Box::new(
+                    t.clone(),
+                )));
             }
         }
 
@@ -358,7 +364,9 @@ async fn run_pipeline_background(
 
             let next_phase = report.next_phase();
             t.set_phase(next_phase);
-            event_bus.publish(crate::protocol::BridgeMessage::TaskUpdate(Box::new(t.clone())));
+            event_bus.publish(crate::protocol::BridgeMessage::TaskUpdate(Box::new(
+                t.clone(),
+            )));
         }
     }
 

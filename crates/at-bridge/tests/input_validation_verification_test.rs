@@ -45,7 +45,11 @@ async fn test_all_validation_scenarios() {
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.status(), 201, "create_bead should succeed with valid short input");
+    assert_eq!(
+        resp.status(),
+        201,
+        "create_bead should succeed with valid short input"
+    );
     println!("  ✓ Valid short input succeeds");
 
     // Test 2: 10,001+ character input returns 400
@@ -60,7 +64,11 @@ async fn test_all_validation_scenarios() {
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.status(), 400, "create_bead should reject title with 10,001+ characters");
+    assert_eq!(
+        resp.status(),
+        400,
+        "create_bead should reject title with 10,001+ characters"
+    );
     println!("  ✓ 10,001+ character input returns 400");
 
     // Test 3: Prompt injection patterns return 400
@@ -74,7 +82,11 @@ async fn test_all_validation_scenarios() {
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.status(), 400, "create_bead should reject prompt injection pattern");
+    assert_eq!(
+        resp.status(),
+        400,
+        "create_bead should reject prompt injection pattern"
+    );
     println!("  ✓ Prompt injection patterns return 400");
 
     println!("\n✅ ALL MANUAL VERIFICATION TESTS PASSED!\n");

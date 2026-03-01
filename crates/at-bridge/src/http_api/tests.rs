@@ -1241,22 +1241,13 @@ async fn test_security_response_headers_present() {
     );
 
     // Security response headers (new)
-    assert_eq!(
-        headers.get("X-Content-Type-Options").unwrap(),
-        "nosniff"
-    );
-    assert_eq!(
-        headers.get("X-Frame-Options").unwrap(),
-        "DENY"
-    );
+    assert_eq!(headers.get("X-Content-Type-Options").unwrap(), "nosniff");
+    assert_eq!(headers.get("X-Frame-Options").unwrap(), "DENY");
     assert_eq!(
         headers.get("Strict-Transport-Security").unwrap(),
         "max-age=63072000; includeSubDomains"
     );
-    assert_eq!(
-        headers.get("X-XSS-Protection").unwrap(),
-        "1; mode=block"
-    );
+    assert_eq!(headers.get("X-XSS-Protection").unwrap(), "1; mode=block");
     assert_eq!(
         headers.get("Referrer-Policy").unwrap(),
         "strict-origin-when-cross-origin"

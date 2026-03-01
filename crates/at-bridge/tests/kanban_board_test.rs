@@ -790,10 +790,7 @@ async fn test_filter_tasks_by_priority() {
         let mut beads = state.beads.write().await;
         beads.get_mut(&id_low).unwrap().priority = 1;
         beads.get_mut(&id_high).unwrap().priority = 5;
-        beads
-            .get_mut(&id_urgent)
-            .unwrap()
-            .priority = 10;
+        beads.get_mut(&id_urgent).unwrap().priority = 10;
     }
 
     let beads = state.beads.read().await;

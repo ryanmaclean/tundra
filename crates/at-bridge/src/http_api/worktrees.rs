@@ -326,10 +326,12 @@ pub(crate) async fn merge_preview(Path(id): Path<String>) -> impl IntoResponse {
             current_branch = String::new();
         }
     }
-    if found_branch.is_none() && !current_path.is_empty()
-        && (current_branch.contains(&id) || current_path.contains(&id)) {
-            found_branch = Some(current_branch);
-        }
+    if found_branch.is_none()
+        && !current_path.is_empty()
+        && (current_branch.contains(&id) || current_path.contains(&id))
+    {
+        found_branch = Some(current_branch);
+    }
 
     let branch = match found_branch {
         Some(b) if !b.is_empty() => b,

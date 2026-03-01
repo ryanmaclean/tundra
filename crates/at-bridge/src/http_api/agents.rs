@@ -129,7 +129,10 @@ pub(crate) async fn nudge_agent(
 ///   "last_seen": "2024-01-15T10:37:00Z"
 /// }
 /// ```
-pub(crate) async fn stop_agent(State(state): State<Arc<ApiState>>, Path(id): Path<Uuid>) -> Result<impl IntoResponse, ApiError> {
+pub(crate) async fn stop_agent(
+    State(state): State<Arc<ApiState>>,
+    Path(id): Path<Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
     let mut agents = state.agents.write().await;
     let Some(agent) = agents.get_mut(&id) else {
         return Err(ApiError::NotFound("agent not found".into()));

@@ -1,7 +1,4 @@
-use axum::{
-    response::IntoResponse,
-    Json,
-};
+use axum::{response::IntoResponse, Json};
 
 use at_telemetry::metrics::global_metrics;
 

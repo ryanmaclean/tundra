@@ -99,8 +99,7 @@ struct TokenMetadata {
 impl OAuthTokenManager {
     /// Create a new token manager with a freshly generated encryption key.
     pub fn new() -> Self {
-        let encryption_key = EncryptionKey::generate()
-            .expect("failed to generate encryption key");
+        let encryption_key = EncryptionKey::generate().expect("failed to generate encryption key");
 
         Self {
             encrypted_token: Arc::new(RwLock::new(None)),
@@ -133,9 +132,7 @@ impl OAuthTokenManager {
         refresh_token: Option<&str>,
     ) {
         let stored_at = Utc::now();
-        let expires_at = expires_in.map(|seconds| {
-            stored_at + Duration::seconds(seconds as i64)
-        });
+        let expires_at = expires_in.map(|seconds| stored_at + Duration::seconds(seconds as i64));
 
         // Create token data structure
         let token_data = TokenData {
@@ -146,11 +143,9 @@ impl OAuthTokenManager {
         };
 
         // Serialize and encrypt
-        let plaintext = serde_json::to_vec(&token_data)
-            .expect("failed to serialize token data");
+        let plaintext = serde_json::to_vec(&token_data).expect("failed to serialize token data");
 
-        let encrypted = encrypt(&self.encryption_key, &plaintext)
-            .expect("failed to encrypt token");
+        let encrypted = encrypt(&self.encryption_key, &plaintext).expect("failed to encrypt token");
 
         // Store encrypted token and metadata
         *self.encrypted_token.write().await = Some(encrypted);
@@ -231,7 +226,10 @@ impl OAuthTokenManager {
         let mut token_data: TokenData = serde_json::from_slice(&plaintext)?;
 
         // Extract refresh token and zero out the decrypted data
-        let refresh_token = token_data.refresh_token.clone().ok_or(TokenManagerError::NoToken)?;
+        let refresh_token = token_data
+            .refresh_token
+            .clone()
+            .ok_or(TokenManagerError::NoToken)?;
         token_data.zeroize();
 
         Ok(refresh_token)
@@ -443,7 +441,9 @@ mod tests {
         let manager = OAuthTokenManager::new();
 
         // Store a token that expires in 3 minutes (180 seconds)
-        manager.store_token("ghp_refresh_test", Some(180), None).await;
+        manager
+            .store_token("ghp_refresh_test", Some(180), None)
+            .await;
 
         // Should recommend refresh (expires within 5 minutes)
         assert!(manager.should_refresh().await);
@@ -454,7 +454,9 @@ mod tests {
         let manager = OAuthTokenManager::new();
 
         // Store a token that expires in 1 hour (3600 seconds)
-        manager.store_token("ghp_long_lived", Some(3600), None).await;
+        manager
+            .store_token("ghp_long_lived", Some(3600), None)
+            .await;
 
         // Should not need refresh yet (expires in > 5 minutes)
         assert!(!manager.should_refresh().await);
@@ -545,8 +547,12 @@ mod tests {
     async fn test_multiple_store_overwrites() {
         let manager = OAuthTokenManager::new();
 
-        manager.store_token("ghp_first_token", Some(3600), None).await;
-        manager.store_token("ghp_second_token", Some(7200), None).await;
+        manager
+            .store_token("ghp_first_token", Some(3600), None)
+            .await;
+        manager
+            .store_token("ghp_second_token", Some(7200), None)
+            .await;
 
         // Should retrieve the second token
         let token = manager.get_token().await.unwrap();
@@ -560,7 +566,9 @@ mod tests {
         let refresh_token = "ghr_test_refresh_token";
 
         // Store token with refresh token
-        manager.store_token(access_token, Some(3600), Some(refresh_token)).await;
+        manager
+            .store_token(access_token, Some(3600), Some(refresh_token))
+            .await;
 
         // Should be able to retrieve access token
         let retrieved_access = manager.get_token().await.unwrap();
@@ -576,7 +584,9 @@ mod tests {
         let manager = OAuthTokenManager::new();
 
         // Store token without refresh token
-        manager.store_token("ghp_no_refresh", Some(3600), None).await;
+        manager
+            .store_token("ghp_no_refresh", Some(3600), None)
+            .await;
 
         // get_refresh_token should return NoToken error
         let result = manager.get_refresh_token().await;
@@ -599,23 +609,33 @@ mod tests {
         let refresh_token = "ghr_super_secret_refresh_67890";
 
         // Store sensitive tokens
-        manager.store_token(secret_token, Some(3600), Some(refresh_token)).await;
+        manager
+            .store_token(secret_token, Some(3600), Some(refresh_token))
+            .await;
 
         // Get debug output
         let debug_output = format!("{:?}", manager);
 
         // Verify the debug output does NOT contain the actual tokens
-        assert!(!debug_output.contains(secret_token),
-                "Debug output leaked access token");
-        assert!(!debug_output.contains(refresh_token),
-                "Debug output leaked refresh token");
+        assert!(
+            !debug_output.contains(secret_token),
+            "Debug output leaked access token"
+        );
+        assert!(
+            !debug_output.contains(refresh_token),
+            "Debug output leaked refresh token"
+        );
 
         // Verify the debug output DOES contain redaction markers
-        assert!(debug_output.contains("[REDACTED]"),
-                "Debug output should contain [REDACTED] markers");
+        assert!(
+            debug_output.contains("[REDACTED]"),
+            "Debug output should contain [REDACTED] markers"
+        );
 
         // Verify struct name is present
-        assert!(debug_output.contains("OAuthTokenManager"),
-                "Debug output should contain struct name");
+        assert!(
+            debug_output.contains("OAuthTokenManager"),
+            "Debug output should contain struct name"
+        );
     }
 }
