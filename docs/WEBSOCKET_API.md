@@ -751,19 +751,51 @@ pub enum BridgeMessage {
 - **Struct variants** (named fields): Serialized as `{"type": "variant_name", "payload": {...}}`
 - **Tuple variants** (unnamed data): Serialized as `{"type": "variant_name", "payload": ...}`
 
-### Message Direction
+### Message Direction & Quick Reference
 
-**Frontend → Backend** (Client Commands):
-- `GetStatus`, `ListBeads`, `ListAgents`, `SlingBead`, `HookBead`, `DoneBead`, `NudgeAgent`, `GetKpi`
+#### Frontend → Backend (Client Commands)
 
-**Backend → Frontend** (Server Responses/Events):
-- `StatusUpdate`, `BeadList`, `AgentList`, `KpiUpdate`, `AgentOutput`, `Error`, `Event`, `TaskUpdate`, `MergeResult`, `QueueUpdate`, `BeadCreated`, `BeadUpdated`
+These messages are sent by clients to request data or trigger server actions:
+
+| Message | Purpose | Expects Response |
+|---------|---------|------------------|
+| `GetStatus` | Request server status | `StatusUpdate` |
+| `GetKpi` | Request KPI metrics | `KpiUpdate` |
+| `ListBeads` | Request beads (with optional filter) | `BeadList` |
+| `ListAgents` | Request all agents | `AgentList` |
+| `HookBead` | Create and assign new bead | `BeadCreated`, `BeadUpdated` |
+| `SlingBead` | Assign bead to agent | `BeadUpdated` (broadcast) |
+| `DoneBead` | Mark bead as completed/failed | `BeadUpdated` (broadcast) |
+| `NudgeAgent` | Send message/command to agent | May trigger `AgentOutput` |
+
+#### Backend → Frontend (Server Responses/Events)
+
+These messages are sent by the server in response to requests or as real-time event broadcasts:
+
+| Message | Category | Trigger |
+|---------|----------|---------|
+| `StatusUpdate` | Response | Reply to `GetStatus` |
+| `KpiUpdate` | Response | Reply to `GetKpi` |
+| `BeadList` | Response | Reply to `ListBeads` |
+| `AgentList` | Response | Reply to `ListAgents` |
+| `AgentOutput` | Event | Agent produces output |
+| `Error` | Response/Event | Request error or system failure |
+| `Event` | Event | Generic system event notification |
+| `TaskUpdate` | Event | Task progress/phase change |
+| `BeadCreated` | Event | New bead created |
+| `BeadUpdated` | Event | Bead state changed |
+| `MergeResult` | Event | Git merge completed/conflicted |
+| `QueueUpdate` | Event | Task queue reordered |
 
 ### Message Examples
 
 #### Unit Variants (No Payload)
 
 **`GetStatus`** — Request server status
+
+**Direction:** Frontend → Backend
+**When sent:** Client requests current server status (version, uptime, active agents/beads)
+**Response:** Server sends `StatusUpdate` with current metrics
 
 ```json
 {
@@ -773,6 +805,10 @@ pub enum BridgeMessage {
 
 **`ListAgents`** — Request list of all agents
 
+**Direction:** Frontend → Backend
+**When sent:** Client needs to retrieve all registered agents and their current status
+**Response:** Server sends `AgentList` with array of agent objects
+
 ```json
 {
   "type": "list_agents"
@@ -780,6 +816,10 @@ pub enum BridgeMessage {
 ```
 
 **`GetKpi`** — Request KPI metrics
+
+**Direction:** Frontend → Backend
+**When sent:** Client requests system-wide KPI metrics (bead counts by status, active agents)
+**Response:** Server sends `KpiUpdate` with current statistics
 
 ```json
 {
@@ -790,6 +830,12 @@ pub enum BridgeMessage {
 #### Struct Variants (Named Fields)
 
 **`ListBeads`** — Request beads with optional status filter
+
+**Direction:** Frontend → Backend
+**When sent:** Client needs to retrieve beads, optionally filtered by status (backlog, hooked, slung, review, done, failed, escalated)
+**Response:** Server sends `BeadList` with array of matching bead objects
+**Payload:**
+- `status` (optional): Filter by bead status. If `null`, returns all beads.
 
 ```json
 {
@@ -811,6 +857,13 @@ pub enum BridgeMessage {
 
 **`SlingBead`** — Assign bead to agent
 
+**Direction:** Frontend → Backend
+**When sent:** Client assigns a specific bead to an agent for execution (transitions bead from hooked → slung)
+**Response:** Server updates bead status and broadcasts `BeadUpdated` event to all connected clients
+**Payload:**
+- `bead_id`: UUID of the bead to assign
+- `agent_id`: UUID of the target agent
+
 ```json
 {
   "type": "sling_bead",
@@ -822,6 +875,13 @@ pub enum BridgeMessage {
 ```
 
 **`HookBead`** — Create and assign new bead
+
+**Direction:** Frontend → Backend
+**When sent:** Client creates a new bead and immediately hooks it to an agent (combines creation + assignment)
+**Response:** Server creates bead, broadcasts `BeadCreated` event, and may send `BeadUpdated` when hooked
+**Payload:**
+- `title`: Human-readable bead title
+- `agent_name`: Name of the agent to hook the bead to
 
 ```json
 {
@@ -835,6 +895,13 @@ pub enum BridgeMessage {
 
 **`DoneBead`** — Mark bead as completed
 
+**Direction:** Frontend → Backend
+**When sent:** Client marks a bead as finished (success or failure) after review
+**Response:** Server transitions bead to done/failed status and broadcasts `BeadUpdated` event
+**Payload:**
+- `bead_id`: UUID of the bead to mark as done
+- `failed`: `true` if bead failed, `false` if completed successfully
+
 ```json
 {
   "type": "done_bead",
@@ -846,6 +913,13 @@ pub enum BridgeMessage {
 ```
 
 **`NudgeAgent`** — Send message to agent
+
+**Direction:** Frontend → Backend
+**When sent:** Client sends an instruction or message to a running agent (e.g., to trigger a specific action)
+**Response:** Agent receives message and may produce `AgentOutput` or state changes
+**Payload:**
+- `agent_name`: Name of the target agent
+- `message`: Text message/command to send to the agent
 
 ```json
 {
@@ -859,6 +933,13 @@ pub enum BridgeMessage {
 
 **`AgentOutput`** — Agent execution output
 
+**Direction:** Backend → Frontend
+**When sent:** Agent produces stdout/stderr output during task execution
+**Trigger:** Real-time streaming of agent console output as it executes commands or processes
+**Payload:**
+- `agent_id`: UUID of the agent producing output
+- `output`: Raw text output (may include ANSI escape codes, newlines)
+
 ```json
 {
   "type": "agent_output",
@@ -871,6 +952,13 @@ pub enum BridgeMessage {
 
 **`Error`** — Error response
 
+**Direction:** Backend → Frontend
+**When sent:** Server encounters an error processing a client request or during internal operations
+**Trigger:** Invalid request, missing resources, permission errors, or system failures
+**Payload:**
+- `code`: Machine-readable error code (e.g., `BEAD_NOT_FOUND`, `INVALID_STATUS_TRANSITION`)
+- `message`: Human-readable error description
+
 ```json
 {
   "type": "error",
@@ -882,6 +970,15 @@ pub enum BridgeMessage {
 ```
 
 **`MergeResult`** — Git merge completion/conflict notification
+
+**Direction:** Backend → Frontend
+**When sent:** Git merge operation completes (success or conflict) on a worktree branch
+**Trigger:** Automated merge attempts, worktree cleanup, or manual merge operations
+**Payload:**
+- `worktree_id`: Identifier of the git worktree
+- `branch`: Branch name involved in the merge
+- `status`: Merge result (`"success"`, `"conflict"`, `"failed"`)
+- `conflict_files`: Array of file paths with conflicts (empty if no conflicts)
 
 ```json
 {
@@ -900,6 +997,12 @@ pub enum BridgeMessage {
 
 **`QueueUpdate`** — Task queue reordering
 
+**Direction:** Backend → Frontend
+**When sent:** Task queue order or priorities change
+**Trigger:** Manual reordering, priority adjustments, or automatic queue optimization
+**Payload:**
+- `task_ids`: Ordered array of task UUIDs representing the new queue sequence
+
 ```json
 {
   "type": "queue_update",
@@ -917,6 +1020,15 @@ pub enum BridgeMessage {
 
 **`StatusUpdate`** — Server status information
 
+**Direction:** Backend → Frontend
+**When sent:** Response to `GetStatus` request or periodic server health broadcasts
+**Trigger:** Client requests status via `GetStatus` command
+**Payload:**
+- `version`: Server version string (semver format)
+- `uptime_seconds`: Time since server started (in seconds)
+- `agents_active`: Number of currently active agents
+- `beads_active`: Number of beads currently being processed
+
 ```json
 {
   "type": "status_update",
@@ -930,6 +1042,11 @@ pub enum BridgeMessage {
 ```
 
 **`BeadList`** — List of beads
+
+**Direction:** Backend → Frontend
+**When sent:** Response to `ListBeads` request
+**Trigger:** Client requests bead list (with optional status filter)
+**Payload:** Array of `Bead` objects (see `at_core::types::Bead` structure)
 
 ```json
 {
@@ -955,6 +1072,11 @@ pub enum BridgeMessage {
 
 **`AgentList`** — List of agents
 
+**Direction:** Backend → Frontend
+**When sent:** Response to `ListAgents` request
+**Trigger:** Client requests all registered agents
+**Payload:** Array of `Agent` objects (see `at_core::types::Agent` structure)
+
 ```json
 {
   "type": "agent_list",
@@ -977,6 +1099,19 @@ pub enum BridgeMessage {
 
 **`KpiUpdate`** — KPI metrics
 
+**Direction:** Backend → Frontend
+**When sent:** Response to `GetKpi` request or periodic KPI broadcasts
+**Trigger:** Client requests metrics via `GetKpi` command
+**Payload:**
+- `total_beads`: Total number of beads in the system
+- `backlog`: Beads in backlog status
+- `hooked`: Beads in hooked status (assigned but not started)
+- `slung`: Beads in slung status (actively being processed)
+- `review`: Beads in review status (awaiting approval)
+- `done`: Beads successfully completed
+- `failed`: Beads that failed
+- `active_agents`: Number of agents currently processing tasks
+
 ```json
 {
   "type": "kpi_update",
@@ -995,6 +1130,16 @@ pub enum BridgeMessage {
 
 **`Event`** — System event notification
 
+**Direction:** Backend → Frontend
+**When sent:** Generic system events that don't fit other specific message types
+**Trigger:** Various system events (bead status changes, agent lifecycle events, system notifications)
+**Payload:**
+- `event_type`: Event category (e.g., `"bead.status_change"`, `"agent.started"`)
+- `agent_id`: UUID of related agent (optional, `null` if not agent-specific)
+- `bead_id`: UUID of related bead (optional, `null` if not bead-specific)
+- `message`: Human-readable event description
+- `timestamp`: ISO 8601 timestamp when event occurred
+
 ```json
 {
   "type": "event",
@@ -1009,6 +1154,11 @@ pub enum BridgeMessage {
 ```
 
 **`TaskUpdate`** — Real-time task progress update
+
+**Direction:** Backend → Frontend
+**When sent:** Task phase changes, progress updates, or subtask status changes
+**Trigger:** Agent reports task progress, phase transitions (planning → implementation → QA), or subtask completions
+**Payload:** Complete `Task` object from `at_core::types::Task` (boxed for efficiency)
 
 ```json
 {
@@ -1036,6 +1186,11 @@ pub enum BridgeMessage {
 
 **`BeadCreated`** — New bead created event
 
+**Direction:** Backend → Frontend
+**When sent:** New bead is created in the system
+**Trigger:** REST API bead creation, `HookBead` command, or automated bead generation
+**Payload:** Complete `Bead` object (see `at_core::types::Bead` structure)
+
 ```json
 {
   "type": "bead_created",
@@ -1050,6 +1205,11 @@ pub enum BridgeMessage {
 ```
 
 **`BeadUpdated`** — Bead updated event
+
+**Direction:** Backend → Frontend
+**When sent:** Bead properties change (status, agent assignment, metadata, etc.)
+**Trigger:** Status transitions (slung, review, done), agent reassignment, or metadata updates
+**Payload:** Complete updated `Bead` object with current state
 
 ```json
 {
