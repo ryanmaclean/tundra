@@ -1,7 +1,7 @@
 use tauri::State;
 use uuid::Uuid;
 
-use at_core::types::{Bead, BeadStatus, Lane};
+use at_core::types::{Agent, Bead, BeadStatus, Lane};
 
 use crate::sounds::{SoundEffect, SoundEngine};
 use crate::state::AppState;
@@ -169,4 +169,37 @@ pub async fn cmd_delete_bead(state: State<'_, AppState>, id: String) -> Result<S
         ));
 
     Ok(bead_id.to_string())
+}
+
+// ---------------------------------------------------------------------------
+// Agent management commands
+// ---------------------------------------------------------------------------
+
+/// List all agents registered in the system.
+///
+/// Returns all agents with their current status, role, CLI type, process information,
+/// and metadata. Agents represent autonomous workers that execute tasks (e.g., coder,
+/// QA, fixer roles).
+#[tauri::command]
+pub async fn cmd_list_agents(state: State<'_, AppState>) -> Result<Vec<Agent>, String> {
+    let agents = state.daemon.api_state().agents.read().await;
+    Ok(agents.values().cloned().collect())
+}
+
+/// Get a specific agent by ID.
+///
+/// Returns the agent's current status and metadata, or an error if not found.
+///
+/// # Arguments
+/// * `id` - UUID string of the agent to retrieve
+#[tauri::command]
+pub async fn cmd_get_agent(state: State<'_, AppState>, id: String) -> Result<Agent, String> {
+    let agent_id = Uuid::parse_str(&id).map_err(|e| format!("invalid UUID: {}", e))?;
+
+    let agents = state.daemon.api_state().agents.read().await;
+    let agent = agents
+        .get(&agent_id)
+        .ok_or_else(|| "agent not found".to_string())?;
+
+    Ok(agent.clone())
 }

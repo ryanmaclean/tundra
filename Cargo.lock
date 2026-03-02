@@ -470,6 +470,7 @@ dependencies = [
  "at-daemon",
  "at-harness",
  "at-telemetry",
+ "chrono",
  "reqwest 0.12.28",
  "rodio",
  "serde",
@@ -480,6 +481,7 @@ dependencies = [
  "tokio",
  "toml 0.8.23",
  "tracing",
+ "uuid",
 ]
 
 [[package]]
