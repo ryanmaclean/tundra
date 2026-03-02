@@ -102,6 +102,8 @@ echo $ANTHROPIC_API_KEY    # Should show your key
 echo $OPENROUTER_API_KEY   # Should show your key
 ```
 
+> 📖 **For advanced configuration options** (Datadog integration, GitHub/GitLab tokens, system settings, etc.), see the **[Configuration Reference Guide](docs/CONFIGURATION_REFERENCE.md)**.
+
 ### Step 3: Build the Project
 
 ```bash
@@ -333,6 +335,8 @@ let skill = registry.get_skill("rust-refactor")?;
 ---
 
 ## 🔧 Configuration
+
+> 📖 **For comprehensive configuration documentation**, see the **[Configuration Reference Guide](docs/CONFIGURATION_REFERENCE.md)** which covers all environment variables, integration settings, and advanced options.
 
 ### Context Engine Settings
 

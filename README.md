@@ -199,12 +199,13 @@ See the **[CLI Guide](docs/PROJECT_HANDBOOK.md#2-cli-guide)** for comprehensive 
 
 **For Beginners:**
 1. **[GETTING_STARTED.md](GETTING_STARTED.md)** - Detailed setup, first agent run, understanding context files
-2. **[Project Handbook — CLI](docs/PROJECT_HANDBOOK.md#2-cli-guide)** - Command reference and usage patterns
+2. **[Configuration Reference](docs/CONFIGURATION_REFERENCE.md)** - Complete guide to environment variables and configuration options
+3. **[Project Handbook — CLI](docs/PROJECT_HANDBOOK.md#2-cli-guide)** - Command reference and usage patterns
 
 **For Developers:**
-3. **[Project Handbook — Architecture](docs/PROJECT_HANDBOOK.md#1-architecture)** - System design, crate interactions, data flows
-4. **[CONTRIBUTING.md](CONTRIBUTING.md)** - Development setup, testing, PR workflow, adding agents/skills
-5. **[AGENTS.md](AGENTS.md)** - Agent teams, crate ownership, context steering
+4. **[Project Handbook — Architecture](docs/PROJECT_HANDBOOK.md#1-architecture)** - System design, crate interactions, data flows
+5. **[CONTRIBUTING.md](CONTRIBUTING.md)** - Development setup, testing, PR workflow, adding agents/skills
+6. **[AGENTS.md](AGENTS.md)** - Agent teams, crate ownership, context steering
 
 **Technical Docs:**
 - `docs/plans/` - Design documents and implementation plans
