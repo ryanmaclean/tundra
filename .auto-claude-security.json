@@ -262,8 +262,7 @@
       "fix_modal3.sh"
     ]
   },
-  "project_dir": "/Users/studio/rust-harness",
-  "created_at": "2026-02-23T08:53:43.634589",
-  "project_hash": "8d12a5f020d0ae0350bfab4dda6497b1",
-  "inherited_from": "/Users/studio/rust-harness"
+  "project_dir": "/Users/studio/tundra/.auto-claude/worktrees/tasks/023-replace-112-unwrap-calls-in-http-api-rs-with-prope",
+  "created_at": "2026-03-01T11:18:31.484454",
+  "project_hash": "54bab89676b3815f6463560a8b415fc8"
 }
