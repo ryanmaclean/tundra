@@ -40,14 +40,16 @@ mod tests {
     async fn marks_bead_as_done_successfully() {
         let app = Router::new().route(
             "/api/beads/{id}/status",
-            post(|AxPath(id): AxPath<String>, Json(body): Json<serde_json::Value>| async move {
-                assert_eq!(id, "bead-123");
-                assert_eq!(body["status"], "done");
-                (
-                    StatusCode::OK,
-                    Json(json!({"id": "bead-123", "title": "Fix bug", "status": "done"})),
-                )
-            }),
+            post(
+                |AxPath(id): AxPath<String>, Json(body): Json<serde_json::Value>| async move {
+                    assert_eq!(id, "bead-123");
+                    assert_eq!(body["status"], "done");
+                    (
+                        StatusCode::OK,
+                        Json(json!({"id": "bead-123", "title": "Fix bug", "status": "done"})),
+                    )
+                },
+            ),
         );
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

@@ -496,16 +496,7 @@ mod tests {
 
     #[tokio::test]
     async fn smoke_url_parsing_validates() {
-        let result = run(
-            "not-a-url",
-            "/tmp/test",
-            false,
-            false,
-            false,
-            true,
-            None,
-        )
-        .await;
+        let result = run("not-a-url", "/tmp/test", false, false, false, true, None).await;
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
         assert!(err_msg.contains("invalid --ui-url"));
