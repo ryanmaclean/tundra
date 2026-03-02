@@ -9,6 +9,7 @@ use uuid::Uuid;
 
 use super::state::ApiState;
 use super::types::Project;
+use crate::api_error::ApiError;
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct CreateProjectRequest {
@@ -107,21 +108,22 @@ pub(crate) async fn delete_project(
 pub(crate) async fn activate_project(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, ApiError> {
     let mut projects = state.projects.write().await;
     let exists = projects.iter().any(|p| p.id == id);
     if !exists {
-        return (
-            axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "project not found"})),
-        );
+        return Err(ApiError::NotFound("project not found".into()));
     }
     for p in projects.iter_mut() {
         p.is_active = p.id == id;
     }
-    let activated = projects.iter().find(|p| p.id == id).cloned().unwrap();
-    (
+    let activated = projects
+        .iter()
+        .find(|p| p.id == id)
+        .cloned()
+        .ok_or_else(|| ApiError::NotFound("project not found".into()))?;
+    Ok((
         axum::http::StatusCode::OK,
         Json(serde_json::json!(activated)),
-    )
+    ))
 }
