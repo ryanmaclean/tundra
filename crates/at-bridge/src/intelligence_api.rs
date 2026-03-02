@@ -181,7 +181,7 @@ pub struct AddMemoryRequest {
 /// Query parameters for memory search.
 ///
 /// **Example:**
-/// ```
+/// ```text
 /// GET /api/memory/search?q=database
 /// ```
 #[derive(Debug, Deserialize)]
@@ -1074,7 +1074,7 @@ async fn add_memory(
 /// **Response:** 200 OK with array of matching memory entries.
 ///
 /// **Example Request:**
-/// ```
+/// ```text
 /// GET /api/memory/search?q=database
 /// ```
 ///
@@ -1146,7 +1146,7 @@ async fn delete_memory(
 /// Query parameters for changelog retrieval.
 ///
 /// **Example:**
-/// ```
+/// ```text
 /// GET /api/changelog?source=tasks
 /// ```
 #[derive(Debug, Deserialize)]
@@ -1167,7 +1167,7 @@ pub struct ChangelogQuery {
 /// **Response:** 200 OK with changelog entries or generated markdown.
 ///
 /// **Example Request (list mode):**
-/// ```
+/// ```text
 /// GET /api/changelog
 /// ```
 ///
@@ -1188,7 +1188,7 @@ pub struct ChangelogQuery {
 /// ```
 ///
 /// **Example Request (task-generated mode):**
-/// ```
+/// ```text
 /// GET /api/changelog?source=tasks
 /// ```
 ///
@@ -1316,7 +1316,7 @@ async fn generate_changelog(
 /// Query parameters for project context retrieval.
 ///
 /// **Example:**
-/// ```
+/// ```text
 /// GET /api/context?path=/path/to/project&budget=4000
 /// ```
 #[derive(Debug, Deserialize)]
@@ -1344,7 +1344,7 @@ fn default_budget() -> usize {
 /// **Response:** 200 OK with project context summary.
 ///
 /// **Example Request:**
-/// ```
+/// ```text
 /// GET /api/context?path=/workspace/myproject&budget=4000
 /// ```
 ///

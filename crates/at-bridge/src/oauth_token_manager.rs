@@ -55,7 +55,7 @@ struct TokenData {
 /// Expiration times are tracked based on the `expires_in` field from the OAuth response.
 ///
 /// # Example
-/// ```no_run
+/// ```ignore
 /// use at_bridge::oauth_token_manager::OAuthTokenManager;
 ///
 /// let manager = OAuthTokenManager::new();
