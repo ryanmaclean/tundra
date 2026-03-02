@@ -65,11 +65,7 @@ pub(crate) async fn list_gitlab_issues(
     };
 
     // Convert limit/offset to page/per_page for GitLab API
-    let per_page = q
-        .limit
-        .map(|l| l as u32)
-        .or(q.per_page)
-        .unwrap_or(20);
+    let per_page = q.limit.map(|l| l as u32).or(q.per_page).unwrap_or(20);
     let page = q
         .offset
         .map(|o| (o as u32 / per_page) + 1)
@@ -140,11 +136,7 @@ pub(crate) async fn list_gitlab_merge_requests(
     };
 
     // Convert limit/offset to page/per_page for GitLab API
-    let per_page = q
-        .limit
-        .map(|l| l as u32)
-        .or(q.per_page)
-        .unwrap_or(20);
+    let per_page = q.limit.map(|l| l as u32).or(q.per_page).unwrap_or(20);
     let page = q
         .offset
         .map(|o| (o as u32 / per_page) + 1)
@@ -280,7 +272,10 @@ pub(crate) async fn list_linear_issues(
     match client.list_issues(team, q.state.as_deref()).await {
         Ok(issues) => {
             let paginated: Vec<_> = issues.into_iter().skip(offset).take(limit).collect();
-            (axum::http::StatusCode::OK, Json(serde_json::json!(paginated)))
+            (
+                axum::http::StatusCode::OK,
+                Json(serde_json::json!(paginated)),
+            )
         }
         Err(e) => (
             axum::http::StatusCode::INTERNAL_SERVER_ERROR,

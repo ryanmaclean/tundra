@@ -44,9 +44,7 @@ fn stable_worktree_id(path: &str, branch: &str) -> String {
 }
 
 /// GET /api/worktrees -- list all git worktrees with path and branch info.
-pub(crate) async fn list_worktrees(
-    Query(params): Query<WorktreeQuery>,
-) -> impl IntoResponse {
+pub(crate) async fn list_worktrees(Query(params): Query<WorktreeQuery>) -> impl IntoResponse {
     let output = match tokio::process::Command::new("git")
         .args(["worktree", "list", "--porcelain"])
         .output()
@@ -106,11 +104,7 @@ pub(crate) async fn list_worktrees(
     let limit = params.limit.unwrap_or(50);
     let offset = params.offset.unwrap_or(0);
 
-    let paginated: Vec<WorktreeEntry> = worktrees
-        .into_iter()
-        .skip(offset)
-        .take(limit)
-        .collect();
+    let paginated: Vec<WorktreeEntry> = worktrees.into_iter().skip(offset).take(limit).collect();
 
     (
         axum::http::StatusCode::OK,

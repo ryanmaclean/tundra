@@ -367,12 +367,12 @@ async fn test_compression_works_across_all_list_endpoints() {
 
     // Test a variety of endpoints to ensure CompressionLayer is global
     let endpoints = vec![
-        "/api/tasks",     // Has data
-        "/api/beads",     // Empty, but should still work
-        "/api/agents",    // Empty, but should still work
-        "/api/projects",  // Empty, but should still work
-        "/api/queue",     // Empty, but should still work
-        "/api/kpi",       // Always has data (computed from state)
+        "/api/tasks",    // Has data
+        "/api/beads",    // Empty, but should still work
+        "/api/agents",   // Empty, but should still work
+        "/api/projects", // Empty, but should still work
+        "/api/queue",    // Empty, but should still work
+        "/api/kpi",      // Always has data (computed from state)
     ];
 
     for endpoint in endpoints {

@@ -101,11 +101,7 @@ async fn seed_agents(state: &ApiState, count: usize) -> Vec<Uuid> {
     let mut agents = state.agents.write().await;
     let mut ids = Vec::new();
     for i in 0..count {
-        let agent = Agent::new(
-            format!("Agent {}", i),
-            AgentRole::Crew,
-            CliType::Claude,
-        );
+        let agent = Agent::new(format!("Agent {}", i), AgentRole::Crew, CliType::Claude);
         ids.push(agent.id);
         agents.insert(agent.id, agent);
     }
@@ -179,7 +175,11 @@ async fn test_tasks_pagination_with_offset() {
     assert_eq!(resp.status(), StatusCode::OK);
 
     let tasks = body_json_array(resp).await;
-    assert_eq!(tasks.len(), 5, "Should return 5 tasks starting from offset 10");
+    assert_eq!(
+        tasks.len(),
+        5,
+        "Should return 5 tasks starting from offset 10"
+    );
 }
 
 #[tokio::test]
@@ -196,7 +196,11 @@ async fn test_tasks_pagination_offset_beyond_data() {
     assert_eq!(resp.status(), StatusCode::OK);
 
     let tasks = body_json_array(resp).await;
-    assert_eq!(tasks.len(), 0, "Should return empty array when offset beyond data");
+    assert_eq!(
+        tasks.len(),
+        0,
+        "Should return empty array when offset beyond data"
+    );
 }
 
 #[tokio::test]
@@ -264,7 +268,10 @@ async fn test_tasks_pagination_with_category_filter() {
     assert_eq!(resp.status(), StatusCode::OK);
 
     let tasks = body_json_array(resp).await;
-    assert!(tasks.len() <= 3, "Should respect limit with category filter");
+    assert!(
+        tasks.len() <= 3,
+        "Should respect limit with category filter"
+    );
 }
 
 #[tokio::test]
@@ -281,7 +288,10 @@ async fn test_tasks_pagination_with_priority_filter() {
     assert_eq!(resp.status(), StatusCode::OK);
 
     let tasks = body_json_array(resp).await;
-    assert!(tasks.len() <= 5, "Should respect limit with priority filter");
+    assert!(
+        tasks.len() <= 5,
+        "Should respect limit with priority filter"
+    );
 }
 
 #[tokio::test]
@@ -298,7 +308,11 @@ async fn test_tasks_pagination_large_limit() {
     assert_eq!(resp.status(), StatusCode::OK);
 
     let tasks = body_json_array(resp).await;
-    assert_eq!(tasks.len(), 10, "Should return all available tasks when limit exceeds count");
+    assert_eq!(
+        tasks.len(),
+        10,
+        "Should return all available tasks when limit exceeds count"
+    );
 }
 
 #[tokio::test]
@@ -315,7 +329,11 @@ async fn test_tasks_pagination_offset_only() {
     assert_eq!(resp.status(), StatusCode::OK);
 
     let tasks = body_json_array(resp).await;
-    assert_eq!(tasks.len(), 50, "Should use default limit of 50 with custom offset");
+    assert_eq!(
+        tasks.len(),
+        50,
+        "Should use default limit of 50 with custom offset"
+    );
 }
 
 // ===========================================================================
@@ -370,7 +388,11 @@ async fn test_beads_pagination_empty_result() {
     assert_eq!(resp.status(), StatusCode::OK);
 
     let beads = body_json_array(resp).await;
-    assert_eq!(beads.len(), 0, "Should return empty when offset beyond data");
+    assert_eq!(
+        beads.len(),
+        0,
+        "Should return empty when offset beyond data"
+    );
 }
 
 #[tokio::test]
@@ -474,7 +496,11 @@ async fn test_beads_pagination_partial_last_page() {
     assert_eq!(resp.status(), StatusCode::OK);
 
     let beads = body_json_array(resp).await;
-    assert_eq!(beads.len(), 2, "Should return remaining 2 beads on last page");
+    assert_eq!(
+        beads.len(),
+        2,
+        "Should return remaining 2 beads on last page"
+    );
 }
 
 // ===========================================================================
@@ -562,7 +588,11 @@ async fn test_agents_pagination_exact_page_size() {
     assert_eq!(resp.status(), StatusCode::OK);
 
     let agents = body_json_array(resp).await;
-    assert_eq!(agents.len(), 10, "Should return all agents when limit equals count");
+    assert_eq!(
+        agents.len(),
+        10,
+        "Should return all agents when limit equals count"
+    );
 }
 
 #[tokio::test]
@@ -600,7 +630,11 @@ async fn test_notifications_pagination_basic_limit() {
     assert_eq!(resp.status(), StatusCode::OK);
 
     let notifications = body_json_array(resp).await;
-    assert_eq!(notifications.len(), 5, "Should return exactly 5 notifications");
+    assert_eq!(
+        notifications.len(),
+        5,
+        "Should return exactly 5 notifications"
+    );
 }
 
 #[tokio::test]
@@ -617,7 +651,11 @@ async fn test_notifications_pagination_with_offset() {
     assert_eq!(resp.status(), StatusCode::OK);
 
     let notifications = body_json_array(resp).await;
-    assert_eq!(notifications.len(), 5, "Should return 5 notifications from offset");
+    assert_eq!(
+        notifications.len(),
+        5,
+        "Should return 5 notifications from offset"
+    );
 }
 
 #[tokio::test]
@@ -634,7 +672,10 @@ async fn test_notifications_pagination_with_unread_filter() {
     assert_eq!(resp.status(), StatusCode::OK);
 
     let notifications = body_json_array(resp).await;
-    assert!(notifications.len() <= 5, "Should respect limit with unread filter");
+    assert!(
+        notifications.len() <= 5,
+        "Should respect limit with unread filter"
+    );
 }
 
 #[tokio::test]
@@ -651,7 +692,11 @@ async fn test_notifications_pagination_empty_result() {
     assert_eq!(resp.status(), StatusCode::OK);
 
     let notifications = body_json_array(resp).await;
-    assert_eq!(notifications.len(), 0, "Should return empty when offset beyond data");
+    assert_eq!(
+        notifications.len(),
+        0,
+        "Should return empty when offset beyond data"
+    );
 }
 
 #[tokio::test]
@@ -685,7 +730,11 @@ async fn test_notifications_pagination_limit_exceeds_data() {
     assert_eq!(resp.status(), StatusCode::OK);
 
     let notifications = body_json_array(resp).await;
-    assert_eq!(notifications.len(), 5, "Should return all available when limit exceeds count");
+    assert_eq!(
+        notifications.len(),
+        5,
+        "Should return all available when limit exceeds count"
+    );
 }
 
 // ===========================================================================
@@ -740,7 +789,10 @@ async fn test_projects_pagination_empty_dataset() {
 
     let projects = body_json_array(resp).await;
     // Note: There may be a default project, so we just verify pagination works
-    assert!(projects.len() <= 10, "Should respect limit even for default projects");
+    assert!(
+        projects.len() <= 10,
+        "Should respect limit even for default projects"
+    );
 }
 
 #[tokio::test]
@@ -781,7 +833,11 @@ async fn test_projects_pagination_offset_at_boundary() {
     assert_eq!(resp.status(), StatusCode::OK);
 
     let projects = body_json_array(resp).await;
-    assert_eq!(projects.len(), 0, "Should return empty when offset equals total count");
+    assert_eq!(
+        projects.len(),
+        0,
+        "Should return empty when offset equals total count"
+    );
 }
 
 // ===========================================================================
@@ -878,7 +934,11 @@ async fn test_queue_pagination_empty_queue() {
         .unwrap();
     let queue: Value = serde_json::from_slice(&body_bytes).unwrap();
     let queue_array = queue.as_array().unwrap();
-    assert_eq!(queue_array.len(), 0, "Should return empty array for empty queue");
+    assert_eq!(
+        queue_array.len(),
+        0,
+        "Should return empty array for empty queue"
+    );
 }
 
 #[tokio::test]
@@ -945,10 +1005,20 @@ async fn test_pagination_consistent_across_endpoints() {
             .unwrap();
 
         let resp = app.clone().oneshot(req).await.unwrap();
-        assert_eq!(resp.status(), StatusCode::OK, "Endpoint {} should return 200", endpoint);
+        assert_eq!(
+            resp.status(),
+            StatusCode::OK,
+            "Endpoint {} should return 200",
+            endpoint
+        );
 
         let items = body_json_array(resp).await;
-        assert_eq!(items.len(), 5, "Endpoint {} should return exactly 5 items", endpoint);
+        assert_eq!(
+            items.len(),
+            5,
+            "Endpoint {} should return exactly 5 items",
+            endpoint
+        );
     }
 }
 
@@ -974,7 +1044,11 @@ async fn test_pagination_zero_offset_consistent() {
     let resp2 = app.oneshot(req2).await.unwrap();
     let tasks2 = body_json_array(resp2).await;
 
-    assert_eq!(tasks1.len(), tasks2.len(), "offset=0 should be same as no offset");
+    assert_eq!(
+        tasks1.len(),
+        tasks2.len(),
+        "offset=0 should be same as no offset"
+    );
 }
 
 #[tokio::test]

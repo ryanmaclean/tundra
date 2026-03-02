@@ -82,13 +82,17 @@ pub(crate) async fn get_kpi(State(state): State<Arc<ApiState>>) -> Json<KpiSnaps
         |(backlog, hooked, slung, review, done, failed, escalated), bead| {
             use at_core::types::BeadStatus;
             match bead.status {
-                BeadStatus::Backlog => (backlog + 1, hooked, slung, review, done, failed, escalated),
+                BeadStatus::Backlog => {
+                    (backlog + 1, hooked, slung, review, done, failed, escalated)
+                }
                 BeadStatus::Hooked => (backlog, hooked + 1, slung, review, done, failed, escalated),
                 BeadStatus::Slung => (backlog, hooked, slung + 1, review, done, failed, escalated),
                 BeadStatus::Review => (backlog, hooked, slung, review + 1, done, failed, escalated),
                 BeadStatus::Done => (backlog, hooked, slung, review, done + 1, failed, escalated),
                 BeadStatus::Failed => (backlog, hooked, slung, review, done, failed + 1, escalated),
-                BeadStatus::Escalated => (backlog, hooked, slung, review, done, failed, escalated + 1),
+                BeadStatus::Escalated => {
+                    (backlog, hooked, slung, review, done, failed, escalated + 1)
+                }
             }
         },
     );
@@ -341,12 +345,7 @@ pub(crate) async fn list_archived_tasks(
     let limit = params.limit.unwrap_or(50);
     let offset = params.offset.unwrap_or(0);
 
-    let paginated: Vec<Uuid> = archived
-        .iter()
-        .skip(offset)
-        .take(limit)
-        .cloned()
-        .collect();
+    let paginated: Vec<Uuid> = archived.iter().skip(offset).take(limit).cloned().collect();
 
     Json(paginated)
 }
@@ -535,12 +534,7 @@ pub(crate) async fn list_task_drafts(
     let limit = params.limit.unwrap_or(50);
     let offset = params.offset.unwrap_or(0);
 
-    let paginated: Vec<TaskDraft> = drafts
-        .values()
-        .skip(offset)
-        .take(limit)
-        .cloned()
-        .collect();
+    let paginated: Vec<TaskDraft> = drafts.values().skip(offset).take(limit).cloned().collect();
 
     Json(paginated)
 }

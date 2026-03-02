@@ -426,16 +426,15 @@ pub(crate) async fn list_github_prs(
             _ => None,
         });
 
-    let all_prs =
-        match pull_requests::list_pull_requests(&client, state_filter, None, None).await {
-            Ok(prs) => prs,
-            Err(e) => {
-                return (
-                    axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({ "error": e.to_string() })),
-                );
-            }
-        };
+    let all_prs = match pull_requests::list_pull_requests(&client, state_filter, None, None).await {
+        Ok(prs) => prs,
+        Err(e) => {
+            return (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            );
+        }
+    };
 
     let limit = q.limit.unwrap_or(50);
     let offset = q.offset.unwrap_or(0);
@@ -1080,5 +1079,8 @@ pub(crate) async fn list_releases(
     let limit = q.limit.unwrap_or(50);
     let offset = q.offset.unwrap_or(0);
     let releases: Vec<_> = cached.into_iter().skip(offset).take(limit).collect();
-    (axum::http::StatusCode::OK, Json(serde_json::json!(releases)))
+    (
+        axum::http::StatusCode::OK,
+        Json(serde_json::json!(releases)),
+    )
 }
