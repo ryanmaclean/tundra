@@ -33,6 +33,8 @@ pub struct Toast {
     pub title: String,
     pub message: String,
     pub level: String, // "info", "success", "warning", "error"
+    pub duration_ms: Option<u64>, // Auto-dismiss duration in milliseconds (None = no auto-dismiss)
+    pub auto_dismiss: bool, // Whether this toast should auto-dismiss
 }
 
 /// Start the WebSocket event subscription. Returns signals for connection state,
@@ -291,11 +293,21 @@ fn event_to_toast(value: &serde_json::Value) -> Option<Toast> {
                 _ => return None,
             };
 
+            // Set duration and auto_dismiss based on toast level
+            let (duration_ms, auto_dismiss) = match level.as_str() {
+                "info" | "success" => (Some(5000), true),
+                "warning" => (Some(8000), true),
+                "error" => (None, false),
+                _ => (Some(5000), true), // Default to 5s for unknown levels
+            };
+
             Some(Toast {
                 id: uuid::Uuid::new_v4().to_string(),
                 title,
                 message,
                 level,
+                duration_ms,
+                auto_dismiss,
             })
         }
         _ => None,
