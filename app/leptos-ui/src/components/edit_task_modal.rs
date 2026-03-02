@@ -57,6 +57,22 @@ pub fn EditTaskModal(
     let (impact, set_impact) = signal("".to_string());
     let (effort, set_effort) = signal("".to_string());
 
+    // Submission state
+    let (is_submitting, set_is_submitting) = signal(false);
+    // Auto-close signal: set to true when async update succeeds
+    let (modal_done, set_modal_done) = signal(false);
+    {
+        let on_close_done = on_close.clone();
+        Effect::new(move |_| {
+            if modal_done.get() {
+                // Create a synthetic click event to satisfy the MouseEvent callback
+                if let Ok(evt) = web_sys::MouseEvent::new("click") {
+                    on_close_done(evt);
+                }
+            }
+        });
+    }
+
     let on_close_bg = on_close.clone();
     let on_close_cancel = on_close.clone();
 
@@ -80,6 +96,12 @@ pub fn EditTaskModal(
 
     let bid = bead_id.clone();
     let on_save = move |ev: MouseEvent| {
+        // Prevent double-submit
+        if is_submitting.get() {
+            return;
+        }
+        set_is_submitting.set(true);
+
         let id = bid.clone();
         let new_title = task_title.get();
         let new_desc = description.get();
@@ -91,30 +113,6 @@ pub fn EditTaskModal(
         let new_complexity = complexity.get();
         let new_impact = impact.get();
         let new_effort = effort.get();
-
-        let req = crate::api::ApiBead {
-            id: id.clone(),
-            title: new_title.clone(),
-            description: Some(new_desc.clone()),
-            status: "pending".to_string(),
-            lane: "backlog".to_string(),
-            priority: if new_pri == "High" { 1 } else { 0 },
-            category: Some(new_cat.clone()),
-            priority_label: Some(new_pri.clone()),
-            agent_profile: Some(new_agent_profile.clone()),
-            model: Some(new_model.clone()),
-            thinking_level: Some(new_thinking.clone()),
-            complexity: Some(new_complexity.clone()),
-            impact: Some(new_impact.clone()),
-            effort: Some(new_effort.clone()),
-            metadata: None,
-        };
-
-        let async_id = id.clone();
-        leptos::task::spawn_local(async move {
-            let id_clone = async_id.clone();
-            let _ = crate::api::update_bead(&id_clone, &req).await;
-        });
 
         // Build tags including all classification fields
         let mut new_tags: Vec<String> = vec![new_cat.clone()];
@@ -181,10 +179,22 @@ pub fn EditTaskModal(
                 },
                 metadata: None,
             };
-            let _ = crate::api::update_bead(&api_id, &payload).await;
+            match crate::api::update_bead(&api_id, &payload).await {
+                Ok(_) => {
+                    set_modal_done.set(true);
+                    set_is_submitting.set(false);
+                }
+                Err(e) => {
+                    // Log error to console for debugging
+                    web_sys::console::error_1(
+                        &format!("Failed to update task: {}", e).into()
+                    );
+                    // Reset submitting state but DON'T close modal
+                    set_is_submitting.set(false);
+                    // User can see the button is enabled again and retry
+                }
+            }
         });
-
-        on_close(ev);
     };
 
     view! {
@@ -363,7 +373,18 @@ pub fn EditTaskModal(
             // Actions
             <div class="edit-task-actions">
                 <button class="btn btn-outline" on:click=move |ev| on_close_cancel(ev)>"Cancel"</button>
-                <button class="btn btn-primary" on:click=on_save>"Save Changes"</button>
+                <button
+                    class="btn btn-primary"
+                    on:click=on_save
+                    disabled=move || is_submitting.get()>
+                    {move || {
+                        if is_submitting.get() {
+                            "Saving..."
+                        } else {
+                            "Save Changes"
+                        }
+                    }}
+                </button>
             </div>
         </div>
     }
