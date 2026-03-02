@@ -2320,11 +2320,12 @@ kbd {
     font-size: 10px;
 }
 .action-btn-start:hover {
-    background: #16a34a;
+    background: var(--accent-green);
+    filter: brightness(0.85);
 }
 
 .action-btn-recover {
-    background: linear-gradient(135deg, #f59e0b, #ea580c);
+    background: var(--accent-orange);
     color: var(--text-inverse);
     border: none;
     border-radius: var(--radius-2xl);
@@ -2332,10 +2333,11 @@ kbd {
     font-size: 11px;
     font-weight: 600;
     letter-spacing: 0.02em;
-    box-shadow: 0 2px var(--space-2) rgba(245, 158, 11, 0.3);
+    box-shadow: 0 2px var(--space-2) rgba(249, 115, 22, 0.3);
 }
 .action-btn-recover:hover {
-    background: linear-gradient(135deg, #d97706, #dc2626);
+    background: var(--accent-orange);
+    filter: brightness(0.85);
 }
 
 .action-btn-resume {
@@ -2347,7 +2349,8 @@ kbd {
     font-size: 10px;
 }
 .action-btn-resume:hover {
-    background: #0891b2;
+    background: var(--accent-blue);
+    filter: brightness(0.85);
 }
 
 /* ── Action Button: Stop ── */
@@ -2361,7 +2364,8 @@ kbd {
     font-size: 10px;
 }
 .action-btn-stop:hover {
-    background: #dc2626;
+    background: var(--accent-red);
+    filter: brightness(0.85);
 }
 
 /* ── Column Border-Top Colors (matches Auto Claude) ── */
