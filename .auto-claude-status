@@ -1,25 +1,25 @@
 {
   "active": true,
-  "spec": "005-websocket-upgrade-endpoints-lack-origin-header-val",
-  "state": "building",
+  "spec": "019-replace-blocking-filesystem-i-o-with-async-equival",
+  "state": "planning",
   "subtasks": {
-    "completed": 5,
-    "total": 6,
+    "completed": 0,
+    "total": 0,
     "in_progress": 1,
     "failed": 0
   },
   "phase": {
-    "current": "Verification and Documentation",
+    "current": "Replace Blocking I/O with Async",
     "id": null,
-    "total": 6
+    "total": 3
   },
   "workers": {
     "active": 0,
     "max": 1
   },
   "session": {
-    "number": 7,
-    "started_at": "2026-03-01T11:36:58.336128"
+    "number": 2,
+    "started_at": "2026-03-01T12:21:45.497963"
   },
-  "last_update": "2026-03-01T11:51:56.505814"
+  "last_update": "2026-03-01T12:25:47.911168"
 }

@@ -671,12 +671,16 @@ async fn test_daemon_heartbeat_monitoring() {
     let mut agent = Agent::new("stale-agent", AgentRole::Crew, CliType::Claude);
     agent.last_seen = Utc::now() - chrono::Duration::seconds(120);
     cache.upsert_agent(&agent).await.unwrap();
-    monitor.register_agent("stale-agent".to_string(), agent.id);
+    monitor
+        .register_agent("stale-agent".to_string(), agent.id)
+        .await;
 
     // Register a fresh agent.
     let fresh = Agent::new("fresh-agent", AgentRole::Deacon, CliType::Codex);
     cache.upsert_agent(&fresh).await.unwrap();
-    monitor.register_agent("fresh-agent".to_string(), fresh.id);
+    monitor
+        .register_agent("fresh-agent".to_string(), fresh.id)
+        .await;
 
     let stale = monitor.check_agents(&cache).await.unwrap();
     assert_eq!(stale.len(), 1, "only the old agent should be stale");
