@@ -111,9 +111,9 @@ pub(crate) async fn prioritize_task(
 
     state
         .event_bus
-        .publish(crate::protocol::BridgeMessage::TaskUpdate(
-            Box::new(task_snapshot.clone()),
-        ));
+        .publish(crate::protocol::BridgeMessage::TaskUpdate(Box::new(
+            task_snapshot.clone(),
+        )));
 
     (
         axum::http::StatusCode::OK,

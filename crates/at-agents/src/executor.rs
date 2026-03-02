@@ -489,9 +489,7 @@ impl AgentExecutor {
         self.publish_event(task, "task_execution_start");
 
         // Send the prompt to stdin
-        process
-            .send_line(prompt)
-            .map_err(ExecutorError::Internal)?;
+        process.send_line(prompt).map_err(ExecutorError::Internal)?;
 
         // Collect output with timeout
         let timeout = Duration::from_secs(agent_config.timeout_secs);

@@ -196,10 +196,12 @@ mod tests {
 
         let imported_numbers = extract_imported_issue_numbers(&existing);
 
-        let incoming_issues = [make_github_issue(1, "Already imported", IssueState::Open),
+        let incoming_issues = [
+            make_github_issue(1, "Already imported", IssueState::Open),
             make_github_issue(2, "New issue", IssueState::Open),
             make_github_issue(3, "Also imported", IssueState::Open),
-            make_github_issue(4, "Another new", IssueState::Open)];
+            make_github_issue(4, "Another new", IssueState::Open),
+        ];
 
         let new_beads: Vec<Bead> = incoming_issues
             .iter()
@@ -285,7 +287,8 @@ mod tests {
         let recent = now - chrono::Duration::minutes(5);
         let since = now - chrono::Duration::hours(1);
 
-        let issues = [{
+        let issues = [
+            {
                 let mut i = make_github_issue(1, "Old issue", IssueState::Open);
                 i.updated_at = old;
                 i
@@ -294,7 +297,8 @@ mod tests {
                 let mut i = make_github_issue(2, "Recent issue", IssueState::Open);
                 i.updated_at = recent;
                 i
-            }];
+            },
+        ];
 
         let filtered: Vec<&GitHubIssue> = issues.iter().filter(|i| i.updated_at >= since).collect();
 

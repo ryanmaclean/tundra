@@ -100,7 +100,9 @@ pub struct ToastManager {
 
 impl ToastManager {
     pub fn new() -> Self {
-        Self { toasts: VecDeque::new() }
+        Self {
+            toasts: VecDeque::new(),
+        }
     }
 
     /// Push a new toast. If the stack exceeds the maximum, the oldest toast is removed.
@@ -272,8 +274,17 @@ mod tests {
     #[test]
     fn default_duration_method_returns_correct_values() {
         assert_eq!(ToastLevel::Info.default_duration(), Duration::from_secs(5));
-        assert_eq!(ToastLevel::Success.default_duration(), Duration::from_secs(5));
-        assert_eq!(ToastLevel::Warning.default_duration(), Duration::from_secs(8));
-        assert_eq!(ToastLevel::Error.default_duration(), Duration::from_secs(86400));
+        assert_eq!(
+            ToastLevel::Success.default_duration(),
+            Duration::from_secs(5)
+        );
+        assert_eq!(
+            ToastLevel::Warning.default_duration(),
+            Duration::from_secs(8)
+        );
+        assert_eq!(
+            ToastLevel::Error.default_duration(),
+            Duration::from_secs(86400)
+        );
     }
 }

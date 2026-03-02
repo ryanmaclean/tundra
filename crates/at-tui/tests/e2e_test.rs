@@ -640,7 +640,9 @@ fn e2e_concurrent_fetch_all() {
         .collect();
 
     for (i, handle) in handles.into_iter().enumerate() {
-        let data = handle.join().unwrap_or_else(|_| panic!("thread {i} panicked"));
+        let data = handle
+            .join()
+            .unwrap_or_else(|_| panic!("thread {i} panicked"));
         assert!(
             !data.agents.is_empty(),
             "concurrent fetch {i} returned empty agents"

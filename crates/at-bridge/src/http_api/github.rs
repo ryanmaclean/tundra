@@ -185,11 +185,7 @@ pub(crate) async fn trigger_github_sync(State(state): State<Arc<ApiState>>) -> i
         );
     }
 
-    let gh_config = GitHubConfig {
-        token,
-        owner,
-        repo,
-    };
+    let gh_config = GitHubConfig { token, owner, repo };
     let client = match at_integrations::github::client::GitHubClient::new(gh_config) {
         Ok(c) => c,
         Err(e) => {
@@ -664,9 +660,7 @@ pub(crate) async fn github_oauth_callback(
 }
 
 /// GET /api/github/oauth/status -- check whether the user is authenticated.
-pub(crate) async fn github_oauth_status(
-    State(state): State<Arc<ApiState>>,
-) -> impl IntoResponse {
+pub(crate) async fn github_oauth_status(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     let authenticated = state
         .oauth_token_manager
         .read()
@@ -682,9 +676,7 @@ pub(crate) async fn github_oauth_status(
 }
 
 /// POST /api/github/oauth/revoke -- clear the stored OAuth token.
-pub(crate) async fn github_oauth_revoke(
-    State(state): State<Arc<ApiState>>,
-) -> impl IntoResponse {
+pub(crate) async fn github_oauth_revoke(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     // Clear encrypted token
     state.oauth_token_manager.write().await.clear_token().await;
 
@@ -698,9 +690,7 @@ pub(crate) async fn github_oauth_revoke(
 }
 
 /// POST /api/github/oauth/refresh -- manually refresh the OAuth token using refresh token.
-pub(crate) async fn github_oauth_refresh(
-    State(state): State<Arc<ApiState>>,
-) -> impl IntoResponse {
+pub(crate) async fn github_oauth_refresh(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     // Get refresh token from token manager
     let refresh_token = match state
         .oauth_token_manager
@@ -930,9 +920,7 @@ pub(crate) async fn create_release(
         Err(e) => {
             return (
                 axum::http::StatusCode::BAD_GATEWAY,
-                Json(
-                    serde_json::json!({ "error": format!("GitHub release create failed: {e}") }),
-                ),
+                Json(serde_json::json!({ "error": format!("GitHub release create failed: {e}") })),
             );
         }
     };

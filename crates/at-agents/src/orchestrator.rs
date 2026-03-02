@@ -215,9 +215,7 @@ impl Orchestrator {
             .unwrap_or_else(|| {
                 format!(
                     "You are a {:?} agent working on: {}\n\n{}",
-                    exec.agent_role,
-                    exec.task_title,
-                    exec.task_description,
+                    exec.agent_role, exec.task_title, exec.task_description,
                 )
             });
 

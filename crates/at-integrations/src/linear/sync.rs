@@ -384,7 +384,11 @@ mod tests {
     #[tokio::test]
     async fn failed_push_stays_in_pending_for_retry() {
         let client = test_client();
-        let cfg = SyncConfig { direction: SyncDirection::Push, max_retries: 3, ..Default::default() };
+        let cfg = SyncConfig {
+            direction: SyncDirection::Push,
+            max_retries: 3,
+            ..Default::default()
+        };
         let mut engine = LinearSyncEngine::new(client, cfg);
         engine.set_fail_ids(["entity-bad".to_string()]);
 
@@ -401,7 +405,11 @@ mod tests {
     #[tokio::test]
     async fn exhausted_retries_goes_to_dead_letter() {
         let client = test_client();
-        let cfg = SyncConfig { direction: SyncDirection::Push, max_retries: 2, ..Default::default() };
+        let cfg = SyncConfig {
+            direction: SyncDirection::Push,
+            max_retries: 2,
+            ..Default::default()
+        };
         let mut engine = LinearSyncEngine::new(client, cfg);
         engine.set_fail_ids(["entity-bad".to_string()]);
 
@@ -424,7 +432,11 @@ mod tests {
     #[tokio::test]
     async fn retry_dead_letters_moves_back_to_pending() {
         let client = test_client();
-        let cfg = SyncConfig { direction: SyncDirection::Push, max_retries: 1, ..Default::default() };
+        let cfg = SyncConfig {
+            direction: SyncDirection::Push,
+            max_retries: 1,
+            ..Default::default()
+        };
         let mut engine = LinearSyncEngine::new(client, cfg);
         engine.set_fail_ids(["entity-bad".to_string()]);
 
@@ -459,7 +471,11 @@ mod tests {
     #[tokio::test]
     async fn successful_push_clears_retry_count() {
         let client = test_client();
-        let cfg = SyncConfig { direction: SyncDirection::Push, max_retries: 3, ..Default::default() };
+        let cfg = SyncConfig {
+            direction: SyncDirection::Push,
+            max_retries: 3,
+            ..Default::default()
+        };
         let mut engine = LinearSyncEngine::new(client, cfg);
         engine.set_fail_ids(["entity-flaky".to_string()]);
 

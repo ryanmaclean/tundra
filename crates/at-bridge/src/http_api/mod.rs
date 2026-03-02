@@ -171,10 +171,19 @@ mod router {
             .route("/api/tasks/{id}", axum::routing::delete(tasks::delete_task))
             .route("/api/tasks/{id}/phase", post(tasks::update_task_phase))
             .route("/api/tasks/{id}/logs", get(tasks::get_task_logs))
-            .route("/api/tasks/{id}/execute", post(pipeline::execute_task_pipeline))
+            .route(
+                "/api/tasks/{id}/execute",
+                post(pipeline::execute_task_pipeline),
+            )
             .route("/api/tasks/{id}/build-logs", get(pipeline::get_build_logs))
-            .route("/api/tasks/{id}/build-status", get(pipeline::get_build_status))
-            .route("/api/pipeline/queue", get(pipeline::get_pipeline_queue_status))
+            .route(
+                "/api/tasks/{id}/build-status",
+                get(pipeline::get_build_status),
+            )
+            .route(
+                "/api/pipeline/queue",
+                get(pipeline::get_pipeline_queue_status),
+            )
             .route("/api/terminals", get(terminal_ws::list_terminals))
             .route("/api/terminals", post(terminal_ws::create_terminal))
             .route(
@@ -208,11 +217,23 @@ mod router {
             .route("/api/github/prs", get(github::list_github_prs))
             .route("/api/github/pr/{task_id}", post(github::create_pr_for_task))
             // GitHub OAuth
-            .route("/api/github/oauth/authorize", get(github::github_oauth_authorize))
-            .route("/api/github/oauth/callback", post(github::github_oauth_callback))
+            .route(
+                "/api/github/oauth/authorize",
+                get(github::github_oauth_authorize),
+            )
+            .route(
+                "/api/github/oauth/callback",
+                post(github::github_oauth_callback),
+            )
             .route("/api/github/oauth/status", get(github::github_oauth_status))
-            .route("/api/github/oauth/revoke", post(github::github_oauth_revoke))
-            .route("/api/github/oauth/refresh", post(github::github_oauth_refresh))
+            .route(
+                "/api/github/oauth/revoke",
+                post(github::github_oauth_revoke),
+            )
+            .route(
+                "/api/github/oauth/refresh",
+                post(github::github_oauth_refresh),
+            )
             // GitLab integration
             .route("/api/gitlab/issues", get(integrations::list_gitlab_issues))
             .route(
@@ -225,13 +246,28 @@ mod router {
             )
             // Linear integration
             .route("/api/linear/issues", get(integrations::list_linear_issues))
-            .route("/api/linear/import", post(integrations::import_linear_issues))
+            .route(
+                "/api/linear/import",
+                post(integrations::import_linear_issues),
+            )
             .route("/api/kanban/columns", get(kanban::get_kanban_columns))
             .route("/api/kanban/columns", patch(kanban::patch_kanban_columns))
-            .route("/api/kanban/poker/start", post(kanban::start_planning_poker))
-            .route("/api/kanban/poker/vote", post(kanban::submit_planning_poker_vote))
-            .route("/api/kanban/poker/reveal", post(kanban::reveal_planning_poker))
-            .route("/api/kanban/poker/simulate", post(kanban::simulate_planning_poker))
+            .route(
+                "/api/kanban/poker/start",
+                post(kanban::start_planning_poker),
+            )
+            .route(
+                "/api/kanban/poker/vote",
+                post(kanban::submit_planning_poker_vote),
+            )
+            .route(
+                "/api/kanban/poker/reveal",
+                post(kanban::reveal_planning_poker),
+            )
+            .route(
+                "/api/kanban/poker/simulate",
+                post(kanban::simulate_planning_poker),
+            )
             .route(
                 "/api/kanban/poker/{bead_id}",
                 get(kanban::get_planning_poker_session),
@@ -246,12 +282,21 @@ mod router {
                 axum::routing::delete(worktrees::delete_worktree),
             )
             .route("/api/worktrees/{id}/merge", post(worktrees::merge_worktree))
-            .route("/api/worktrees/{id}/merge-preview", get(worktrees::merge_preview))
-            .route("/api/worktrees/{id}/resolve", post(worktrees::resolve_conflict))
+            .route(
+                "/api/worktrees/{id}/merge-preview",
+                get(worktrees::merge_preview),
+            )
+            .route(
+                "/api/worktrees/{id}/resolve",
+                post(worktrees::resolve_conflict),
+            )
             // Agent Queue
             .route("/api/queue", get(queue::list_queue))
             .route("/api/queue/reorder", post(queue::reorder_queue))
-            .route("/api/queue/{task_id}/prioritize", post(queue::prioritize_task))
+            .route(
+                "/api/queue/{task_id}/prioritize",
+                post(queue::prioritize_task),
+            )
             // Direct mode
             .route("/api/settings/direct-mode", post(misc::toggle_direct_mode))
             // Costs
@@ -264,8 +309,14 @@ mod router {
             .route("/api/convoys", get(misc::list_convoys))
             // Notification endpoints
             .route("/api/notifications", get(notifications::list_notifications))
-            .route("/api/notifications/count", get(notifications::notification_count))
-            .route("/api/notifications/{id}/read", post(notifications::mark_notification_read))
+            .route(
+                "/api/notifications/count",
+                get(notifications::notification_count),
+            )
+            .route(
+                "/api/notifications/{id}/read",
+                post(notifications::mark_notification_read),
+            )
             .route(
                 "/api/notifications/read-all",
                 post(notifications::mark_all_notifications_read),
@@ -285,8 +336,14 @@ mod router {
             .route("/api/projects", get(projects::list_projects))
             .route("/api/projects", post(projects::create_project))
             .route("/api/projects/{id}", put(projects::update_project))
-            .route("/api/projects/{id}", axum::routing::delete(projects::delete_project))
-            .route("/api/projects/{id}/activate", post(projects::activate_project))
+            .route(
+                "/api/projects/{id}",
+                axum::routing::delete(projects::delete_project),
+            )
+            .route(
+                "/api/projects/{id}/activate",
+                post(projects::activate_project),
+            )
             // PR polling
             .route("/api/github/pr/{number}/watch", post(github::watch_pr))
             .route(
@@ -302,8 +359,14 @@ mod router {
             .route("/api/tasks/{id}/unarchive", post(misc::unarchive_task))
             .route("/api/tasks/archived", get(misc::list_archived_tasks))
             // Attachments
-            .route("/api/tasks/{task_id}/attachments", get(misc::list_attachments))
-            .route("/api/tasks/{task_id}/attachments", post(misc::add_attachment))
+            .route(
+                "/api/tasks/{task_id}/attachments",
+                get(misc::list_attachments),
+            )
+            .route(
+                "/api/tasks/{task_id}/attachments",
+                post(misc::add_attachment),
+            )
             .route(
                 "/api/tasks/{task_id}/attachments/{id}",
                 axum::routing::delete(misc::delete_attachment),
@@ -329,7 +392,10 @@ mod router {
                 post(misc::run_competitor_analysis),
             )
             // Profile swap notification
-            .route("/api/notifications/profile-swap", post(misc::notify_profile_swap))
+            .route(
+                "/api/notifications/profile-swap",
+                post(misc::notify_profile_swap),
+            )
             // App update check
             .route("/api/notifications/app-update", get(misc::check_app_update))
             // WebSocket endpoints
@@ -438,15 +504,13 @@ mod oauth_monitor {
                     let client_secret = match std::env::var("GITHUB_OAUTH_CLIENT_SECRET") {
                         Ok(v) if !v.is_empty() => v,
                         _ => {
-                            warn!(
-                                "Cannot refresh OAuth token: GITHUB_OAUTH_CLIENT_SECRET not set"
-                            );
+                            warn!("Cannot refresh OAuth token: GITHUB_OAUTH_CLIENT_SECRET not set");
                             continue;
                         }
                     };
 
-                    let redirect_uri = std::env::var("GITHUB_OAUTH_REDIRECT_URI")
-                        .unwrap_or_else(|_| {
+                    let redirect_uri =
+                        std::env::var("GITHUB_OAUTH_REDIRECT_URI").unwrap_or_else(|_| {
                             "http://localhost:3000/api/github/oauth/callback".into()
                         });
 

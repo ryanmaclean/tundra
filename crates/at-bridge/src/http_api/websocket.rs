@@ -1,9 +1,6 @@
-use axum::{
-    extract::State,
-    response::IntoResponse,
-};
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::http::HeaderMap;
+use axum::{extract::State, response::IntoResponse};
 use futures_util::{SinkExt, StreamExt};
 use std::sync::Arc;
 

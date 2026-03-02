@@ -4,7 +4,9 @@
 //! for secure encryption with authentication. Keys and sensitive data are
 //! automatically zeroed from memory when dropped using the `zeroize` crate.
 
-use ring::aead::{Aad, BoundKey, Nonce, NonceSequence, OpeningKey, SealingKey, UnboundKey, CHACHA20_POLY1305};
+use ring::aead::{
+    Aad, BoundKey, Nonce, NonceSequence, OpeningKey, SealingKey, UnboundKey, CHACHA20_POLY1305,
+};
 use ring::error::Unspecified;
 use ring::rand::{SecureRandom, SystemRandom};
 use std::error::Error as StdError;
@@ -76,7 +78,8 @@ impl EncryptionKey {
     pub fn generate() -> Result<Self, CryptoError> {
         let rng = SystemRandom::new();
         let mut bytes = [0u8; KEY_LEN];
-        rng.fill(&mut bytes).map_err(|_| CryptoError::RandomGeneration)?;
+        rng.fill(&mut bytes)
+            .map_err(|_| CryptoError::RandomGeneration)?;
         Ok(Self { bytes })
     }
 
@@ -149,12 +152,13 @@ pub fn encrypt(key: &EncryptionKey, plaintext: &[u8]) -> Result<Vec<u8>, CryptoE
 
     // Generate random nonce
     let mut nonce_bytes = [0u8; NONCE_LEN];
-    rng.fill(&mut nonce_bytes).map_err(|_| CryptoError::RandomGeneration)?;
+    rng.fill(&mut nonce_bytes)
+        .map_err(|_| CryptoError::RandomGeneration)?;
     let nonce = Nonce::assume_unique_for_key(nonce_bytes);
 
     // Create sealing key
-    let unbound_key = UnboundKey::new(&CHACHA20_POLY1305, key.as_bytes())
-        .map_err(|_| CryptoError::Encryption)?;
+    let unbound_key =
+        UnboundKey::new(&CHACHA20_POLY1305, key.as_bytes()).map_err(|_| CryptoError::Encryption)?;
     let nonce_sequence = OneNonceSequence::new(nonce);
     let mut sealing_key = SealingKey::new(unbound_key, nonce_sequence);
 
@@ -202,8 +206,8 @@ pub fn decrypt(key: &EncryptionKey, ciphertext: &[u8]) -> Result<Vec<u8>, Crypto
     let nonce = Nonce::assume_unique_for_key(nonce_bytes);
 
     // Create opening key
-    let unbound_key = UnboundKey::new(&CHACHA20_POLY1305, key.as_bytes())
-        .map_err(|_| CryptoError::Decryption)?;
+    let unbound_key =
+        UnboundKey::new(&CHACHA20_POLY1305, key.as_bytes()).map_err(|_| CryptoError::Decryption)?;
     let nonce_sequence = OneNonceSequence::new(nonce);
     let mut opening_key = OpeningKey::new(unbound_key, nonce_sequence);
 

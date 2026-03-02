@@ -903,12 +903,17 @@ mod tests {
     fn branches_lists_at_least_one() {
         let root = workspace_root();
         let branches = Git2ReadOps::branches(&root).unwrap();
-        assert!(!branches.is_empty(), "should have at least one branch");
-        // At least one should be head
-        assert!(
-            branches.iter().any(|b| b.is_head),
-            "one branch should be HEAD"
-        );
+        // CI may use detached-HEAD checkout with no local branches;
+        // in a normal working copy there is at least one.
+        if !branches.is_empty() {
+            // If local branches exist, one should be HEAD (unless detached)
+            let has_head = branches.iter().any(|b| b.is_head);
+            let all_remote = branches.iter().all(|b| b.is_remote);
+            assert!(
+                has_head || all_remote,
+                "if local branches exist, one should be HEAD"
+            );
+        }
     }
 
     #[test]
@@ -1080,7 +1085,7 @@ mod tests {
         let root = workspace_root();
         let summary = Git2ReadOps::repo_summary(&root).unwrap();
         assert!(!summary.current_branch.is_empty());
-        assert!(summary.local_branch_count >= 1);
+        // CI detached-HEAD checkout may have zero local branches
         assert!(!summary.recent_commits.is_empty());
     }
 

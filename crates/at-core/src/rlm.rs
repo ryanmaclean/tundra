@@ -710,7 +710,10 @@ mod tests {
         let mut dec = Decomposition::new("task", 3);
         let id = dec.add_subtask("sub");
         assert!(dec.record_result(&id, "done"));
-        assert_eq!(dec.subtasks.get(&id).unwrap().status, SubTaskStatus::Complete);
+        assert_eq!(
+            dec.subtasks.get(&id).unwrap().status,
+            SubTaskStatus::Complete
+        );
         assert!(!dec.record_result(&Uuid::new_v4(), "nope"));
     }
 
@@ -766,10 +769,7 @@ mod tests {
         let mut dec = Decomposition::new("task", 3);
         dec.add_subtask("par 1");
         let id2 = dec.add_subtask("seq");
-        dec.subtasks
-            .get_mut(&id2)
-            .unwrap()
-            .parallelizable = false;
+        dec.subtasks.get_mut(&id2).unwrap().parallelizable = false;
 
         assert_eq!(dec.parallel_batch().len(), 1);
     }

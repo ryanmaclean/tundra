@@ -98,7 +98,9 @@ async fn test_should_refresh_before_expiration() {
 
     // Store a token that expires in 3 minutes (180 seconds)
     // should_refresh() triggers when expires_at <= now + 5 minutes
-    manager.store_token("ghp_refresh_soon", Some(180), None).await;
+    manager
+        .store_token("ghp_refresh_soon", Some(180), None)
+        .await;
 
     // Should recommend refresh (expires within 5 minutes)
     assert!(manager.should_refresh().await);
@@ -110,7 +112,9 @@ async fn test_long_lived_token_no_refresh_needed() {
     let manager = OAuthTokenManager::new();
 
     // Store a token that expires in 1 hour (3600 seconds)
-    manager.store_token("ghp_long_lived", Some(3600), None).await;
+    manager
+        .store_token("ghp_long_lived", Some(3600), None)
+        .await;
 
     // Should not need refresh yet (expires in > 5 minutes)
     assert!(!manager.should_refresh().await);
@@ -141,7 +145,9 @@ async fn test_refresh_token_stored_encrypted() {
     let refresh_token = "ghr_refresh_token_456";
 
     // Store with refresh token
-    manager.store_token(access_token, Some(3600), Some(refresh_token)).await;
+    manager
+        .store_token(access_token, Some(3600), Some(refresh_token))
+        .await;
 
     // Should be able to retrieve both tokens
     let retrieved_access = manager.get_token().await.unwrap();
@@ -156,7 +162,9 @@ async fn test_refresh_token_not_available_without_storage() {
     let manager = OAuthTokenManager::new();
 
     // Store token WITHOUT refresh token
-    manager.store_token("ghp_no_refresh", Some(3600), None).await;
+    manager
+        .store_token("ghp_no_refresh", Some(3600), None)
+        .await;
 
     // Access token should work
     assert!(manager.get_token().await.is_ok());
@@ -171,7 +179,9 @@ async fn test_refresh_token_cleared_with_access_token() {
     let manager = OAuthTokenManager::new();
 
     // Store with refresh token
-    manager.store_token("ghp_access", Some(3600), Some("ghr_refresh")).await;
+    manager
+        .store_token("ghp_access", Some(3600), Some("ghr_refresh"))
+        .await;
 
     // Verify both tokens exist
     assert!(manager.get_token().await.is_ok());
@@ -242,7 +252,11 @@ async fn test_status_endpoint_never_exposes_token() {
     let secret_token = "ghp_super_secret_token_should_never_leak";
 
     // Store token
-    manager.write().await.store_token(secret_token, Some(3600), None).await;
+    manager
+        .write()
+        .await
+        .store_token(secret_token, Some(3600), None)
+        .await;
 
     // Simulate status endpoint logic
     let authenticated = manager.read().await.has_valid_token().await;
@@ -291,17 +305,11 @@ async fn test_concurrent_access_to_encrypted_token() {
     let manager2 = Arc::clone(&manager);
     let manager3 = Arc::clone(&manager);
 
-    let handle1 = tokio::spawn(async move {
-        manager1.get_token().await.unwrap()
-    });
+    let handle1 = tokio::spawn(async move { manager1.get_token().await.unwrap() });
 
-    let handle2 = tokio::spawn(async move {
-        manager2.get_token().await.unwrap()
-    });
+    let handle2 = tokio::spawn(async move { manager2.get_token().await.unwrap() });
 
-    let handle3 = tokio::spawn(async move {
-        manager3.has_valid_token().await
-    });
+    let handle3 = tokio::spawn(async move { manager3.has_valid_token().await });
 
     // All concurrent operations should succeed
     let token1 = handle1.await.unwrap();
@@ -400,7 +408,9 @@ async fn test_refresh_token_independent_from_access_token_expiry() {
     let manager = OAuthTokenManager::new();
 
     // Store with short-lived access token but include refresh token
-    manager.store_token("ghp_expires_soon", Some(1), Some("ghr_refresh_valid")).await;
+    manager
+        .store_token("ghp_expires_soon", Some(1), Some("ghr_refresh_valid"))
+        .await;
 
     // Wait for access token to expire
     sleep(Duration::from_secs(2)).await;

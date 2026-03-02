@@ -19,7 +19,7 @@ use crate::oauth_token_manager::OAuthTokenManager;
 use crate::terminal::TerminalRegistry;
 
 use super::types::{
-    Attachment, KanbanColumnConfig, KanbanColumn, PlanningPokerSession, PrPollStatus, Project,
+    Attachment, KanbanColumn, KanbanColumnConfig, PlanningPokerSession, PrPollStatus, Project,
     SyncStatus, TaskDraft,
 };
 
@@ -238,7 +238,10 @@ impl ApiState {
         b1.priority = 2;
         b1.metadata = Some(serde_json::json!({"tags":["feature","stacks"]}));
 
-        let mut b2 = Bead::new("Wire GitLab + Linear live sync", at_core::types::Lane::Standard);
+        let mut b2 = Bead::new(
+            "Wire GitLab + Linear live sync",
+            at_core::types::Lane::Standard,
+        );
         b2.description = Some("Replace stubs with real integration calls and retries.".into());
         b2.status = BeadStatus::Hooked;
         b2.priority = 3;
@@ -256,11 +259,7 @@ impl ApiState {
 
         let mut agents = self.agents.write().await;
         if agents.is_empty() {
-            let agent1 = Agent::new(
-                "Crew",
-                at_core::types::AgentRole::Crew,
-                CliType::Claude,
-            );
+            let agent1 = Agent::new("Crew", at_core::types::AgentRole::Crew, CliType::Claude);
             let agent2 = Agent::new(
                 "Reviewer",
                 at_core::types::AgentRole::SpecCritic,

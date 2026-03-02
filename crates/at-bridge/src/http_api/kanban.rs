@@ -462,8 +462,7 @@ pub(crate) async fn simulate_planning_poker_for_bead(
         index.hash(&mut hasher);
         voter.hash(&mut hasher);
         let jitter = (hasher.finish() % 3) as i32 - 1; // -1, 0, +1
-        let card_idx =
-            (base_idx as i32 + jitter).clamp(0, estimate_deck.len() as i32 - 1) as usize;
+        let card_idx = (base_idx as i32 + jitter).clamp(0, estimate_deck.len() as i32 - 1) as usize;
         votes.push(PlanningPokerVote {
             voter: voter.clone(),
             card: estimate_deck[card_idx].clone(),

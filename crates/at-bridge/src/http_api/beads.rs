@@ -60,12 +60,7 @@ pub(crate) async fn list_beads(
             .cloned()
             .collect()
     } else {
-        beads
-            .values()
-            .skip(offset)
-            .take(limit)
-            .cloned()
-            .collect()
+        beads.values().skip(offset).take(limit).cloned().collect()
     };
 
     Json(filtered)
@@ -209,7 +204,9 @@ pub(crate) async fn update_bead_status(
     let bead_snapshot = bead.clone();
     state
         .event_bus
-        .publish(crate::protocol::BridgeMessage::BeadUpdated(bead_snapshot.clone()));
+        .publish(crate::protocol::BridgeMessage::BeadUpdated(
+            bead_snapshot.clone(),
+        ));
 
     Ok((
         axum::http::StatusCode::OK,
@@ -251,7 +248,9 @@ pub(crate) async fn delete_bead(
     // Publish updated bead list event
     state
         .event_bus
-        .publish(crate::protocol::BridgeMessage::BeadList(beads.values().cloned().collect()));
+        .publish(crate::protocol::BridgeMessage::BeadList(
+            beads.values().cloned().collect(),
+        ));
 
     Ok((
         axum::http::StatusCode::OK,

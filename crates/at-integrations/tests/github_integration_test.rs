@@ -323,10 +323,12 @@ fn test_update_issue_status() {
 #[test]
 fn test_search_issues_by_text() {
     // Mirrors the UI search bar: "Search issues..."
-    let issues = [make_github_issue(1, "Fix login page crash", IssueState::Open),
+    let issues = [
+        make_github_issue(1, "Fix login page crash", IssueState::Open),
         make_github_issue(2, "Add dark mode support", IssueState::Open),
         make_github_issue(3, "Login timeout too short", IssueState::Open),
-        make_github_issue(4, "Refactor database layer", IssueState::Closed)];
+        make_github_issue(4, "Refactor database layer", IssueState::Closed),
+    ];
 
     let search_term = "login";
     let results: Vec<&GitHubIssue> = issues
@@ -342,11 +344,13 @@ fn test_search_issues_by_text() {
 #[test]
 fn test_filter_issues_by_state() {
     // Mirrors the UI filter dropdown: "Open" / "Closed" / "All"
-    let issues = [make_github_issue(1, "Open bug", IssueState::Open),
+    let issues = [
+        make_github_issue(1, "Open bug", IssueState::Open),
         make_github_issue(2, "Another open", IssueState::Open),
         make_github_issue(3, "Fixed bug", IssueState::Closed),
         make_github_issue(4, "Old feature", IssueState::Closed),
-        make_github_issue(5, "New feature", IssueState::Open)];
+        make_github_issue(5, "New feature", IssueState::Open),
+    ];
 
     // Filter: Open
     let open: Vec<&GitHubIssue> = issues
@@ -501,8 +505,10 @@ fn test_export_bead_as_issue() {
 #[test]
 fn test_deduplication_by_issue_number() {
     // Already-imported issues should be skipped
-    let existing_beads = [make_bead_with_issue(1, BeadStatus::Backlog),
-        make_bead_with_issue(3, BeadStatus::Hooked)];
+    let existing_beads = [
+        make_bead_with_issue(1, BeadStatus::Backlog),
+        make_bead_with_issue(3, BeadStatus::Hooked),
+    ];
 
     let imported_numbers: Vec<u64> = existing_beads
         .iter()
@@ -512,10 +518,12 @@ fn test_deduplication_by_issue_number() {
     assert!(imported_numbers.contains(&1));
     assert!(imported_numbers.contains(&3));
 
-    let incoming = [make_github_issue(1, "Already imported", IssueState::Open),
+    let incoming = [
+        make_github_issue(1, "Already imported", IssueState::Open),
         make_github_issue(2, "New issue", IssueState::Open),
         make_github_issue(3, "Also imported", IssueState::Open),
-        make_github_issue(4, "Another new", IssueState::Open)];
+        make_github_issue(4, "Another new", IssueState::Open),
+    ];
 
     let new_beads: Vec<Bead> = incoming
         .iter()
@@ -536,7 +544,8 @@ fn test_poll_updates() {
     let five_min_ago = now - Duration::minutes(5);
     let since = now - Duration::hours(1);
 
-    let issues = [{
+    let issues = [
+        {
             let mut i = make_github_issue(1, "Old issue", IssueState::Open);
             i.updated_at = two_hours_ago;
             i
@@ -550,7 +559,8 @@ fn test_poll_updates() {
             let mut i = make_github_issue(3, "Very recent", IssueState::Open);
             i.updated_at = now;
             i
-        }];
+        },
+    ];
 
     let filtered: Vec<&GitHubIssue> = issues.iter().filter(|i| i.updated_at >= since).collect();
 
@@ -566,7 +576,8 @@ fn test_poll_updates() {
 #[test]
 fn test_list_pull_requests() {
     // UI shows PR list with number, title, status dots, date
-    let prs = [make_github_pr(
+    let prs = [
+        make_github_pr(
             101,
             "feat: allow project tabs to expand horizontally",
             PrState::Open,
@@ -586,7 +597,8 @@ fn test_list_pull_requests() {
             PrState::Closed,
             "auto-claude/221-refactor",
             "charlie",
-        )];
+        ),
+    ];
 
     assert_eq!(prs.len(), 3);
 
@@ -661,10 +673,12 @@ fn test_check_pr_status() {
 #[test]
 fn test_filter_prs_by_contributor() {
     // UI has Contributors tab for filtering PRs
-    let prs = [make_github_pr(1, "PR by Alice", PrState::Open, "branch-a", "alice"),
+    let prs = [
+        make_github_pr(1, "PR by Alice", PrState::Open, "branch-a", "alice"),
         make_github_pr(2, "PR by Bob", PrState::Open, "branch-b", "bob"),
         make_github_pr(3, "Another by Alice", PrState::Open, "branch-c", "alice"),
-        make_github_pr(4, "PR by Charlie", PrState::Merged, "branch-d", "charlie")];
+        make_github_pr(4, "PR by Charlie", PrState::Merged, "branch-d", "charlie"),
+    ];
 
     let alice_prs: Vec<&GitHubPullRequest> = prs.iter().filter(|p| p.author == "alice").collect();
     assert_eq!(alice_prs.len(), 2);
