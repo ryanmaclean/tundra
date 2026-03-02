@@ -32,9 +32,9 @@ pub struct Toast {
     pub id: String,
     pub title: String,
     pub message: String,
-    pub level: String, // "info", "success", "warning", "error"
+    pub level: String,            // "info", "success", "warning", "error"
     pub duration_ms: Option<u64>, // Auto-dismiss duration in milliseconds (None = no auto-dismiss)
-    pub auto_dismiss: bool, // Whether this toast should auto-dismiss
+    pub auto_dismiss: bool,       // Whether this toast should auto-dismiss
 }
 
 /// Start the WebSocket event subscription. Returns signals for connection state,

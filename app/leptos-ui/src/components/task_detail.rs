@@ -1,6 +1,7 @@
 use leptos::ev::{KeyboardEvent, MouseEvent};
 use leptos::prelude::*;
 use leptos::task::spawn_local;
+#[cfg(feature = "markdown")]
 use pulldown_cmark::{html, Parser};
 use web_sys;
 
@@ -683,9 +684,21 @@ fn TaskDetailInner(
                         let wt_path = wt_path.clone();
                         let _rerun = rerun_qa_overview.clone();
                         let (all_pass, checks, _suggestions) = qa_report.get();
-                        let mut html_output = String::new();
-                        let parser = Parser::new(&desc);
-                        html::push_html(&mut html_output, parser);
+                        #[cfg(feature = "markdown")]
+                        let html_output = {
+                            let mut html_output = String::new();
+                            let parser = Parser::new(&desc);
+                            html::push_html(&mut html_output, parser);
+                            html_output
+                        };
+                        #[cfg(not(feature = "markdown"))]
+                        let html_output = {
+                            // When markdown is disabled, escape HTML and preserve line breaks
+                            desc.replace('&', "&amp;")
+                                .replace('<', "&lt;")
+                                .replace('>', "&gt;")
+                                .replace('\n', "<br>")
+                        };
                         view! {
                             <div class="task-tab-overview">
                                 // Tags row

@@ -1,3 +1,4 @@
+use leptos::ev;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use std::cell::RefCell;
@@ -213,6 +214,31 @@ fn save_terminal_history(entries: &[String]) {
     }
 }
 
+fn should_skip_terminal_shortcut(event: &web_sys::KeyboardEvent) -> bool {
+    if event.default_prevented() || event.ctrl_key() || event.meta_key() {
+        return true;
+    }
+
+    let Some(target) = event.target() else {
+        return false;
+    };
+    let Some(element) = target.dyn_ref::<web_sys::Element>() else {
+        return false;
+    };
+
+    let tag = element.tag_name().to_ascii_lowercase();
+    if matches!(tag.as_str(), "input" | "textarea" | "select") {
+        return true;
+    }
+    if element.has_attribute("contenteditable") {
+        return true;
+    }
+    element
+        .get_attribute("role")
+        .map(|role| role.eq_ignore_ascii_case("textbox"))
+        .unwrap_or(false)
+}
+
 // ---------------------------------------------------------------------------
 // Agents Page
 // ---------------------------------------------------------------------------
@@ -281,8 +307,14 @@ pub fn AgentsPage() -> impl IntoView {
     // H=History, I=Invoke Claude All, N=New Terminal, F=Files drawer.
     let keydown_handle =
         window_event_listener(ev::keydown, move |event: web_sys::KeyboardEvent| {
-            if should_skip_terminal_shortcut(&event) {
-                return;
+            // Skip shortcuts when user is typing in an input/textarea
+            if let Some(target) = event.target() {
+                if let Ok(el) = target.dyn_into::<web_sys::HtmlElement>() {
+                    let tag = el.tag_name().to_uppercase();
+                    if tag == "INPUT" || tag == "TEXTAREA" || el.is_content_editable() {
+                        return;
+                    }
+                }
             }
 
             match event.key().as_str() {

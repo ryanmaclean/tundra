@@ -186,9 +186,7 @@ pub fn EditTaskModal(
                 }
                 Err(e) => {
                     // Log error to console for debugging
-                    web_sys::console::error_1(
-                        &format!("Failed to update task: {}", e).into()
-                    );
+                    web_sys::console::error_1(&format!("Failed to update task: {}", e).into());
                     // Reset submitting state but DON'T close modal
                     set_is_submitting.set(false);
                     // User can see the button is enabled again and retry

@@ -10,9 +10,11 @@ jobs = 10
 # Incremental compilation for faster rebuilds (enabled by default in dev, disabled in release)
 incremental = true
 
-# WASM-specific optimizations
+# WASM-specific optimizations (aligned with release-wasm profile)
 [target.wasm32-unknown-unknown]
 rustflags = [
-    "-C", "opt-level=s",       # Optimize for size (WASM is size-sensitive)
+    "-C", "opt-level=z",       # Optimize for size (z = aggressive size optimization)
     "-C", "codegen-units=1",   # Single codegen unit for better optimization
+    "-C", "panic=abort",       # Reduce binary size by removing unwinding code
+    "-C", "strip=symbols",     # Strip symbols for smaller binary
 ]

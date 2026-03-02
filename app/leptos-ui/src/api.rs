@@ -8,8 +8,8 @@ pub use at_api_types::{
     AddMemoryRequest, ApiAgent, ApiBead, ApiChangelogEntry, ApiChangelogSection, ApiConvoy,
     ApiCostSession, ApiCosts, ApiGithubIssue, ApiGithubPr, ApiIdea, ApiKpi, ApiMcpServer,
     ApiMemoryEntry, ApiRoadmap, ApiRoadmapFeature, ApiRoadmapItem, ApiSession, ApiStack,
-    ApiStackNode, ApiWorktree, CreateBeadRequest, CreateTaskRequest,
-    SendInsightsMessageRequest, SendInsightsMessageWithModelRequest, UpdateStatusRequest,
+    ApiStackNode, ApiWorktree, CreateBeadRequest, CreateTaskRequest, SendInsightsMessageRequest,
+    SendInsightsMessageWithModelRequest, UpdateStatusRequest,
 };
 
 /// Default API base when not running in Tauri (standalone web dev).
