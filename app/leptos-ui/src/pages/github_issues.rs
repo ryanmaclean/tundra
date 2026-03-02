@@ -71,6 +71,7 @@ pub fn GithubIssuesPage() -> impl IntoView {
     // Fetch issues from API on mount
     {
         let set_issues = set_issues.clone();
+        let set_error_msg = set_error_msg.clone();
         leptos::task::spawn_local(async move {
             match crate::api::fetch_github_issues().await {
                 Ok(api_issues) => {
@@ -90,7 +91,7 @@ pub fn GithubIssuesPage() -> impl IntoView {
                     }
                 }
                 Err(e) => {
-                    leptos::logging::log!("Failed to fetch GitHub issues from API: {}", e);
+                    set_error_msg.set(Some(format!("Failed to fetch GitHub issues from API: {}", e)));
                 }
             }
         });
@@ -125,7 +126,10 @@ pub fn GithubIssuesPage() -> impl IntoView {
                             // Auto-import open issues as beads when auto-fix is enabled
                             if auto_fix_enabled {
                                 for issue in ui_issues.iter().filter(|i| i.state == "open") {
-                                    let _ = crate::api::import_issue_as_bead(issue.number).await;
+                                    if let Err(e) = crate::api::import_issue_as_bead(issue.number).await {
+                                        set_error_msg.set(Some(format!("Failed to auto-import issue #{}: {}", issue.number, e)));
+                                        break;
+                                    }
                                 }
                             }
                             set_issues.set(ui_issues);
@@ -269,9 +273,13 @@ pub fn GithubIssuesPage() -> impl IntoView {
                             if new_val {
                                 // When enabled, auto-import all open issues as beads
                                 let current_issues = issues.get();
+                                set_error_msg.set(None);
                                 leptos::task::spawn_local(async move {
                                     for issue in current_issues.iter().filter(|i| i.state == "open") {
-                                        let _ = crate::api::import_issue_as_bead(issue.number).await;
+                                        if let Err(e) = crate::api::import_issue_as_bead(issue.number).await {
+                                            set_error_msg.set(Some(format!("Failed to auto-import issue #{}: {}", issue.number, e)));
+                                            break;
+                                        }
                                     }
                                 });
                             }
@@ -344,6 +352,7 @@ pub fn GithubIssuesPage() -> impl IntoView {
                             let import_handler = move |ev: web_sys::MouseEvent| {
                                 ev.stop_propagation();
                                 set_is_importing.set(true);
+                                set_error_msg.set(None);
                                 let title = issue_title.clone();
                                 leptos::task::spawn_local(async move {
                                     match crate::api::create_bead(&title, None, Some("standard")).await {
@@ -351,7 +360,7 @@ pub fn GithubIssuesPage() -> impl IntoView {
                                             leptos::logging::log!("Imported issue #{} as bead {}", issue_number, bead.id);
                                         }
                                         Err(e) => {
-                                            leptos::logging::log!("Failed to import issue #{}: {}", issue_number, e);
+                                            set_error_msg.set(Some(format!("Failed to import issue #{}: {}", issue_number, e)));
                                         }
                                     }
                                     set_is_importing.set(false);

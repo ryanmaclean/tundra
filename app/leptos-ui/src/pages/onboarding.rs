@@ -103,8 +103,8 @@ pub fn OnboardingPage() -> impl IntoView {
                     }
                 }
                 Err(e) => {
-                    // If backend is not running, just advance anyway
-                    leptos::logging::log!("Could not fetch settings: {e}");
+                    // If backend is not running, show error but still advance
+                    set_error_msg.set(Some(format!("Could not fetch settings: {e}")));
                     set_step.set(6);
                 }
             }
@@ -137,8 +137,8 @@ pub fn OnboardingPage() -> impl IntoView {
                     set_step.set(7);
                 }
                 Err(e) => {
-                    leptos::logging::log!("Could not create bead: {e}");
-                    // Still advance if backend is offline
+                    // Show error but still advance if backend is offline
+                    set_error_msg.set(Some(format!("Could not create bead: {e}")));
                     set_step.set(7);
                 }
             }
@@ -187,7 +187,7 @@ pub fn OnboardingPage() -> impl IntoView {
             </div>
 
             {move || error_msg.get().map(|msg| view! {
-                <div class="dashboard-error">{msg}</div>
+                <div class="dash-error">{msg}</div>
             })}
 
             // ── Step 1: Welcome ──

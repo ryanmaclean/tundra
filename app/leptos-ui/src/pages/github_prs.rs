@@ -67,6 +67,7 @@ pub fn GithubPrsPage() -> impl IntoView {
     // Fetch PRs from API on mount
     {
         let set_prs = set_prs.clone();
+        let set_pr_message = set_pr_message;
         leptos::task::spawn_local(async move {
             match crate::api::fetch_github_prs().await {
                 Ok(api_prs) => {
@@ -84,9 +85,10 @@ pub fn GithubPrsPage() -> impl IntoView {
                     if !ui_prs.is_empty() {
                         set_prs.set(ui_prs);
                     }
+                    set_pr_message.set(None);
                 }
                 Err(e) => {
-                    leptos::logging::log!("Failed to fetch GitHub PRs from API: {}", e);
+                    set_pr_message.set(Some(format!("Failed to fetch GitHub PRs: {}", e)));
                 }
             }
         });
@@ -132,20 +134,28 @@ pub fn GithubPrsPage() -> impl IntoView {
                 <button class="btn btn-sm btn-outline" on:click=move |_| {
                     // Refresh
                     let set_prs = set_prs.clone();
+                    let set_pr_message = set_pr_message;
+                    set_pr_message.set(None);
                     leptos::task::spawn_local(async move {
-                        if let Ok(api_prs) = crate::api::fetch_github_prs().await {
-                            let ui_prs: Vec<GithubPr> = api_prs
-                                .iter()
-                                .map(|p| GithubPr {
-                                    number: p.number,
-                                    title: p.title.clone(),
-                                    author: p.author.clone(),
-                                    status: p.state.clone().unwrap_or_else(|| p.status.clone()),
-                                    reviewers: p.reviewers.clone(),
-                                    created: p.created_at.clone().unwrap_or_else(|| p.created.clone()),
-                                })
-                                .collect();
-                            set_prs.set(ui_prs);
+                        match crate::api::fetch_github_prs().await {
+                            Ok(api_prs) => {
+                                let ui_prs: Vec<GithubPr> = api_prs
+                                    .iter()
+                                    .map(|p| GithubPr {
+                                        number: p.number,
+                                        title: p.title.clone(),
+                                        author: p.author.clone(),
+                                        status: p.state.clone().unwrap_or_else(|| p.status.clone()),
+                                        reviewers: p.reviewers.clone(),
+                                        created: p.created_at.clone().unwrap_or_else(|| p.created.clone()),
+                                    })
+                                    .collect();
+                                set_prs.set(ui_prs);
+                                set_pr_message.set(None);
+                            }
+                            Err(e) => {
+                                set_pr_message.set(Some(format!("Failed to refresh GitHub PRs: {}", e)));
+                            }
                         }
                     });
                 }>
@@ -184,10 +194,17 @@ pub fn GithubPrsPage() -> impl IntoView {
                     on:click=move |_| {
                         set_active_sub_tab.set("releases".to_string());
                         let set_releases = set_releases;
+                        let set_pr_message = set_pr_message;
+                        set_pr_message.set(None);
                         leptos::task::spawn_local(async move {
                             match api::fetch_github_releases().await {
-                                Ok(data) => set_releases.set(data),
-                                Err(e) => leptos::logging::log!("Failed to fetch releases: {}", e),
+                                Ok(data) => {
+                                    set_releases.set(data);
+                                    set_pr_message.set(None);
+                                }
+                                Err(e) => {
+                                    set_pr_message.set(Some(format!("Failed to fetch releases: {}", e)));
+                                }
                             }
                         });
                     }
