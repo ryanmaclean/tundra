@@ -91,6 +91,10 @@ fn main() {
             at_tauri::commands::cmd_set_sound_enabled,
             at_tauri::commands::cmd_set_sound_volume,
             at_tauri::commands::cmd_get_sound_settings,
+            at_tauri::commands::cmd_list_beads,
+            at_tauri::commands::cmd_create_bead,
+            at_tauri::commands::cmd_update_bead_status,
+            at_tauri::commands::cmd_delete_bead,
         ])
         .setup(move |app| {
             use tauri::Manager;
