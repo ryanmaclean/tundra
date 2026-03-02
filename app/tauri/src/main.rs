@@ -149,6 +149,11 @@ fn main() {
                 tracing::warn!(error = %e, "failed to initialize system tray");
             }
 
+            // Start notification listener for bead status changes.
+            let state = app.state::<AppState>();
+            let event_bus = state.daemon.event_bus();
+            at_tauri::notifications::start_notification_listener(&app.handle(), event_bus);
+
             Ok(())
         })
         .run(tauri::generate_context!())

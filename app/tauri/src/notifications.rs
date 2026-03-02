@@ -1,3 +1,6 @@
+use at_bridge::event_bus::EventBus;
+use at_bridge::protocol::BridgeMessage;
+use at_core::types::BeadStatus;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 
@@ -121,6 +124,77 @@ pub async fn send_error(
 pub enum NotificationError {
     #[error("tauri notification error: {0}")]
     TauriError(String),
+}
+
+// ---------------------------------------------------------------------------
+// Event Bus Listener
+// ---------------------------------------------------------------------------
+
+/// Subscribe to the event bus and send notifications when beads reach
+/// terminal states (Done, Failed, Review).
+///
+/// This function spawns a background task that listens for `BeadUpdated`
+/// messages and triggers OS notifications for status changes.
+///
+/// # Arguments
+///
+/// * `app` - Tauri application handle
+/// * `event_bus` - Event bus to subscribe to
+///
+/// # Example
+///
+/// ```no_run
+/// use at_tauri::notifications::start_notification_listener;
+///
+/// # tauri::async_runtime::block_on(async {
+/// # let app = tauri::test::mock_app();
+/// # let event_bus = at_bridge::event_bus::EventBus::new();
+/// start_notification_listener(&app, &event_bus);
+/// # });
+/// ```
+pub fn start_notification_listener(app: &AppHandle, event_bus: &EventBus) {
+    let rx = event_bus.subscribe_filtered(|msg| matches!(msg, BridgeMessage::BeadUpdated(_)));
+    let app_handle = app.clone();
+
+    tauri::async_runtime::spawn(async move {
+        loop {
+            match rx.recv_async().await {
+                Ok(msg) => {
+                    if let BridgeMessage::BeadUpdated(bead) = msg.as_ref() {
+                        // Send notifications for terminal/review states.
+                        let (title, body, level) = match &bead.status {
+                            BeadStatus::Done => (
+                                "Bead Completed",
+                                format!("✓ {}", bead.title),
+                                NotificationLevel::Success,
+                            ),
+                            BeadStatus::Failed => (
+                                "Bead Failed",
+                                format!("✗ {}", bead.title),
+                                NotificationLevel::Error,
+                            ),
+                            BeadStatus::Review => (
+                                "Bead Ready for Review",
+                                format!("⊙ {}", bead.title),
+                                NotificationLevel::Info,
+                            ),
+                            _ => continue,
+                        };
+
+                        if let Err(e) = send_notification(&app_handle, title, body, level).await {
+                            tracing::warn!(error = %e, "failed to send bead notification");
+                        }
+                    }
+                }
+                Err(_) => {
+                    tracing::debug!("notification listener event bus disconnected");
+                    break;
+                }
+            }
+        }
+    });
+
+    tracing::info!("notification listener started");
 }
 
 // ---------------------------------------------------------------------------
