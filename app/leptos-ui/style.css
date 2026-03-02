@@ -68,7 +68,7 @@
     --text-primary: #fafafa;
     --text-secondary: #a3a3a3;
     --text-muted: #737373;
-    --text-inverse: #0a0a0a;
+    --text-inverse: #ffffff;
     
     /* Accent system */
     --accent-purple: #a855f7;
@@ -624,7 +624,7 @@ code, pre, kbd, .config-block {
     background: linear-gradient(135deg, #c026d3, #7c3aed);
     border: none;
     border-radius: var(--radius-xl);
-    color: #fff;
+    color: var(--text-inverse);
     font-size: 13px;
     font-weight: 600;
     cursor: pointer;
@@ -858,7 +858,7 @@ html[data-native-shell="1"] .sidebar-header {
     padding: 0 5px;
     border-radius: 9px;
     background: var(--accent-purple);
-    color: #fff;
+    color: var(--text-inverse);
     font-size: 10px;
     font-weight: 700;
     font-family: 'JetBrains Mono', monospace;
@@ -1963,14 +1963,14 @@ kbd {
     font-weight: 700;
     border-radius: 50%;
     font-family: 'JetBrains Mono', monospace;
-    color: #fff;
+    color: var(--text-inverse);
 }
-.agent-badge.color-0 { background: #7c3aed; color: #fff; }
-.agent-badge.color-1 { background: #c026d3; color: #fff; }
-.agent-badge.color-2 { background: #06b6d4; color: #fff; }
-.agent-badge.color-3 { background: #22c55e; color: #fff; }
+.agent-badge.color-0 { background: #7c3aed; color: var(--text-inverse); }
+.agent-badge.color-1 { background: #c026d3; color: var(--text-inverse); }
+.agent-badge.color-2 { background: #06b6d4; color: var(--text-inverse); }
+.agent-badge.color-3 { background: #22c55e; color: var(--text-inverse); }
 .agent-badge.color-4 { background: #eab308; color: #1a1025; }
-.agent-badge.color-5 { background: #ef4444; color: #fff; }
+.agent-badge.color-5 { background: #ef4444; color: var(--text-inverse); }
 
 /* ── Time in Status ── */
 
@@ -2037,7 +2037,7 @@ kbd {
 
 .bead-pipeline .stage.active {
     background: var(--accent-purple);
-    color: #fff;
+    color: var(--text-inverse);
     box-shadow: 0 0 var(--space-2) rgba(124, 58, 237, 0.5);
 }
 
@@ -2313,7 +2313,7 @@ kbd {
 
 .action-btn-start {
     background: var(--accent-green);
-    color: #fff;
+    color: var(--text-inverse);
     border: none;
     border-radius: var(--radius-xl);
     padding: 3px var(--space-3);
@@ -2325,7 +2325,7 @@ kbd {
 
 .action-btn-recover {
     background: linear-gradient(135deg, #f59e0b, #ea580c);
-    color: #fff;
+    color: var(--text-inverse);
     border: none;
     border-radius: var(--radius-2xl);
     padding: var(--space-1) 14px;
@@ -2340,7 +2340,7 @@ kbd {
 
 .action-btn-resume {
     background: var(--accent-blue);
-    color: #fff;
+    color: var(--text-inverse);
     border: none;
     border-radius: var(--radius-xl);
     padding: 3px var(--space-3);
@@ -2354,7 +2354,7 @@ kbd {
 
 .action-btn-stop {
     background: var(--accent-red);
-    color: #fff;
+    color: var(--text-inverse);
     border: none;
     border-radius: var(--radius-xl);
     padding: 3px var(--space-3);
@@ -3346,19 +3346,19 @@ code.file-path, code.branch-name {
 /* Action button variants used inline */
 .action-start {
     background: var(--accent-green);
-    color: #fff;
+    color: var(--text-inverse);
     border: none;
 }
 
 .action-recover {
     background: var(--accent-magenta);
-    color: #fff;
+    color: var(--text-inverse);
     border: none;
 }
 
 .action-resume {
     background: var(--accent-blue);
-    color: #fff;
+    color: var(--text-inverse);
     border: none;
 }
 
@@ -3881,14 +3881,14 @@ code.file-path, code.branch-name {
 .wizard-step.active .wizard-step-number {
     background: var(--accent-purple);
     border-color: var(--accent-purple);
-    color: #fff;
+    color: var(--text-inverse);
     box-shadow: 0 0 var(--space-3) rgba(124, 58, 237, 0.4);
 }
 
 .wizard-step.completed .wizard-step-number {
     background: var(--accent-green);
     border-color: var(--accent-green);
-    color: #fff;
+    color: var(--text-inverse);
 }
 
 .wizard-step-label {
@@ -4254,7 +4254,7 @@ code.file-path, code.branch-name {
     background: linear-gradient(135deg, var(--accent-purple), var(--accent-magenta));
     border: none;
     border-radius: var(--radius-lg);
-    color: #fff;
+    color: var(--text-inverse);
     font-size: 13px;
     font-weight: 600;
     cursor: pointer;
@@ -6464,7 +6464,7 @@ code.file-path, code.branch-name {
     background: linear-gradient(135deg, var(--accent-purple), var(--accent-magenta));
     border: none;
     border-radius: var(--radius-lg);
-    color: #fff;
+    color: var(--text-inverse);
     font-size: 13px;
     font-weight: 600;
     cursor: pointer;
@@ -6622,7 +6622,7 @@ code.file-path, code.branch-name {
     bottom: var(--space-12);
     right: var(--space-6);
     background: var(--accent-green);
-    color: #fff;
+    color: var(--text-inverse);
     padding: var(--space-3) 24px;
     border-radius: var(--radius-lg);
     font-size: 13px;
@@ -6665,7 +6665,7 @@ code.file-path, code.branch-name {
     background: linear-gradient(135deg, var(--accent-purple), var(--accent-magenta));
     border: none;
     border-radius: var(--radius-lg);
-    color: #fff;
+    color: var(--text-inverse);
     font-size: 13px;
     font-weight: 600;
     cursor: pointer;
@@ -6742,7 +6742,7 @@ code.file-path, code.branch-name {
 .chat-bubble-user {
     align-self: flex-end;
     background: var(--accent-purple);
-    color: #fff;
+    color: var(--text-inverse);
     border-bottom-right-radius: var(--radius-base);
 }
 
@@ -6797,7 +6797,7 @@ code.file-path, code.branch-name {
     background: var(--accent-purple);
     border: none;
     border-radius: var(--radius-lg);
-    color: #fff;
+    color: var(--text-inverse);
     font-size: 13px;
     font-weight: 600;
     cursor: pointer;
@@ -8339,7 +8339,7 @@ code.file-path, code.branch-name {
 .btn-primary {
     background: linear-gradient(135deg, var(--accent-purple), var(--accent-magenta));
     border: none;
-    color: #fff;
+    color: var(--text-inverse);
     font-weight: 600;
 }
 
@@ -8546,7 +8546,7 @@ code.file-path, code.branch-name {
 
 .changelog-step.active .changelog-step-number {
     background: var(--accent-purple);
-    color: #fff;
+    color: var(--text-inverse);
 }
 
 .changelog-step-label {
@@ -9330,7 +9330,7 @@ code.file-path, code.branch-name {
     justify-content: center;
     font-size: var(--space-3);
     font-weight: 700;
-    color: #fff;
+    color: var(--text-inverse);
     flex-shrink: 0;
 }
 
@@ -10153,7 +10153,7 @@ button.toggle-switch.active .toggle-knob {
     justify-content: center;
     font-size: 11px;
     font-weight: 700;
-    color: #fff;
+    color: var(--text-inverse);
     flex-shrink: 0;
 }
 
@@ -10765,14 +10765,14 @@ button.toggle-switch.active .toggle-knob {
 .onboarding-dot.active {
     background: var(--accent-purple);
     border-color: var(--accent-purple);
-    color: #fff;
+    color: var(--text-inverse);
     box-shadow: 0 0 var(--space-3) rgba(124, 58, 237, 0.4);
 }
 
 .onboarding-dot.completed {
     background: var(--accent-green);
     border-color: var(--accent-green);
-    color: #fff;
+    color: var(--text-inverse);
 }
 
 .onboarding-connector {
@@ -10818,7 +10818,7 @@ button.toggle-switch.active .toggle-knob {
     justify-content: center;
     font-size: 24px;
     font-weight: 800;
-    color: #fff;
+    color: var(--text-inverse);
     letter-spacing: -0.02em;
 }
 
@@ -10923,7 +10923,7 @@ button.toggle-switch.active .toggle-knob {
 
 .onboarding-option-card.selected .onboarding-option-icon {
     background: var(--accent-purple);
-    color: #fff;
+    color: var(--text-inverse);
     border-color: var(--accent-purple);
 }
 
@@ -13780,7 +13780,7 @@ button[class*="-btn"]:active {
 }
 .view-toggle.active {
     background: var(--accent-purple);
-    color: #fff;
+    color: var(--text-inverse);
     border-color: var(--accent-purple);
 }
 
@@ -15208,7 +15208,7 @@ h2 .gh-icon {
     justify-content: center;
     font-size: 10px;
     font-weight: 700;
-    color: #fff;
+    color: var(--text-inverse);
     flex-shrink: 0;
 }
 
@@ -18364,7 +18364,7 @@ h2 .gh-icon {
     margin-top: var(--space-4);
     padding: var(--space-3) 24px;
     background: var(--accent-purple);
-    color: #fff;
+    color: var(--text-inverse);
     border: none;
     border-radius: var(--radius-md);
     font-size: 14px;
