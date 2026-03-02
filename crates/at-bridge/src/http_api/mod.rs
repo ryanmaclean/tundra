@@ -231,6 +231,7 @@ mod router {
             .route("/api/settings", put(settings::put_settings))
             .route("/api/settings", patch(settings::patch_settings))
             .route("/api/credentials/status", get(misc::get_credentials_status))
+            .route("/api/debug/memory", get(misc::get_memory_usage))
             .route("/api/github/sync", post(github::trigger_github_sync))
             .route("/api/github/sync/status", get(github::get_sync_status))
             .route("/api/github/issues", get(github::list_github_issues))

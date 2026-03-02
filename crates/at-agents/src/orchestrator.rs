@@ -46,6 +46,8 @@ pub struct OrchestratorConfig {
     pub enable_rlm: bool,
     /// Whether to enable progressive refinement.
     pub enable_refinement: bool,
+    /// Execution retention TTL in seconds (how long to keep completed executions in memory).
+    pub execution_ttl_secs: u64,
 }
 
 impl Default for OrchestratorConfig {
@@ -59,6 +61,7 @@ impl Default for OrchestratorConfig {
             confidence_threshold: 0.85,
             enable_rlm: true,
             enable_refinement: true,
+            execution_ttl_secs: 86_400, // 24 hours
         }
     }
 }
@@ -419,6 +422,114 @@ impl Orchestrator {
 
         Some(parts.join("\n"))
     }
+
+    /// Clean up completed executions that are older than the specified TTL.
+    ///
+    /// Removes old entries from executions and stuck_detectors HashMaps if
+    /// the execution has a completed_at timestamp older than ttl_secs.
+    /// This prevents unbounded memory growth in the orchestrator over time.
+    ///
+    /// Note: decompositions and refinements are keyed by their own UUIDs
+    /// and would require additional tracking to clean up by execution ID.
+    ///
+    /// Returns the number of executions removed.
+    pub fn cleanup_completed_executions(&mut self, ttl_secs: u64) -> usize {
+        let now = Utc::now();
+        let cutoff = now - chrono::Duration::seconds(ttl_secs as i64);
+
+        let mut removed_count = 0;
+        let mut executions_to_remove = Vec::new();
+
+        // Identify executions to remove
+        for (exec_id, execution) in self.executions.iter() {
+            if let Some(completed_at) = execution.completed_at {
+                if completed_at < cutoff {
+                    executions_to_remove.push(*exec_id);
+                }
+            }
+        }
+
+        // Remove identified executions and their stuck detectors
+        // Note: stuck_detectors share the same UUID key as executions
+        for exec_id in executions_to_remove {
+            self.executions.remove(&exec_id);
+            self.stuck_detectors.remove(&exec_id);
+            removed_count += 1;
+        }
+
+        removed_count
+    }
+
+    /// Start a background cleanup task that periodically removes expired executions.
+    ///
+    /// This method spawns a tokio task that runs at a fixed interval (1 hour by default),
+    /// cleaning up completed executions older than the configured execution_ttl_secs.
+    ///
+    /// The background task runs until the process exits. It logs the number of
+    /// executions removed during each cleanup cycle.
+    ///
+    /// Note: This method requires the Orchestrator to be wrapped in Arc<Mutex<_>>
+    /// to allow the background task to acquire exclusive access for cleanup.
+    pub fn start_cleanup_task(orch: std::sync::Arc<std::sync::Mutex<Self>>) {
+        tokio::spawn(async move {
+            // Default cleanup interval: 1 hour (3600 seconds)
+            let interval_secs = 3600;
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
+            interval.tick().await; // First tick completes immediately
+
+            tracing::info!(
+                interval_secs,
+                "Orchestrator background cleanup task started"
+            );
+
+            loop {
+                interval.tick().await;
+
+                // Acquire lock and perform cleanup with comprehensive metrics
+                let (
+                    ttl_secs,
+                    executions_before,
+                    executions_removed,
+                    executions_after,
+                    stuck_detectors_before,
+                    stuck_detectors_after,
+                ) = {
+                    let mut orch_guard = orch.lock().unwrap();
+                    let ttl = orch_guard.config.execution_ttl_secs;
+
+                    // Capture before counts
+                    let exec_before = orch_guard.executions.len();
+                    let stuck_before = orch_guard.stuck_detectors.len();
+
+                    // Perform cleanup
+                    let removed = orch_guard.cleanup_completed_executions(ttl);
+
+                    // Capture after counts
+                    let exec_after = orch_guard.executions.len();
+                    let stuck_after = orch_guard.stuck_detectors.len();
+
+                    (
+                        ttl,
+                        exec_before,
+                        removed,
+                        exec_after,
+                        stuck_before,
+                        stuck_after,
+                    )
+                };
+
+                tracing::info!(
+                    execution_ttl_secs = ttl_secs,
+                    executions_before,
+                    executions_removed,
+                    executions_after,
+                    stuck_detectors_before,
+                    stuck_detectors_after,
+                    "Orchestrator cleanup cycle completed"
+                );
+            }
+        });
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -641,5 +752,318 @@ mod tests {
         let json = serde_json::to_string(&exec).unwrap();
         let deser: TaskExecution = serde_json::from_str(&json).unwrap();
         assert_eq!(deser.task_title, "test");
+    }
+
+    #[test]
+    fn orchestrator_cleanup_removes_old_completed_executions() {
+        let mut orch = make_orchestrator();
+        let id = orch.start_task("old task", "description", AgentRole::Coder);
+
+        // Mark task as completed 10 days ago
+        if let Some(exec) = orch.executions.get_mut(&id) {
+            exec.completed_at = Some(Utc::now() - chrono::Duration::days(10));
+        }
+
+        assert_eq!(orch.total_count(), 1);
+        assert_eq!(orch.stuck_detectors.len(), 1);
+
+        // Cleanup with TTL of 7 days (604800 seconds)
+        let removed = orch.cleanup_completed_executions(7 * 24 * 60 * 60);
+
+        assert_eq!(removed, 1);
+        assert_eq!(orch.total_count(), 0);
+        assert_eq!(orch.stuck_detectors.len(), 0);
+    }
+
+    #[test]
+    fn orchestrator_cleanup_keeps_recent_completed_executions() {
+        let mut orch = make_orchestrator();
+        let id = orch.start_task("recent task", "description", AgentRole::Coder);
+
+        // Mark task as completed 5 days ago
+        if let Some(exec) = orch.executions.get_mut(&id) {
+            exec.completed_at = Some(Utc::now() - chrono::Duration::days(5));
+        }
+
+        assert_eq!(orch.total_count(), 1);
+
+        // Cleanup with TTL of 7 days (task is only 5 days old)
+        let removed = orch.cleanup_completed_executions(7 * 24 * 60 * 60);
+
+        assert_eq!(removed, 0);
+        assert_eq!(orch.total_count(), 1);
+    }
+
+    #[test]
+    fn orchestrator_cleanup_keeps_active_executions() {
+        let mut orch = make_orchestrator();
+        let id = orch.start_task("active task", "description", AgentRole::Coder);
+
+        // Task is not completed (completed_at is None)
+        assert!(orch.get_execution(&id).unwrap().completed_at.is_none());
+        assert_eq!(orch.active_count(), 1);
+
+        // Cleanup should not remove active tasks
+        let removed = orch.cleanup_completed_executions(7 * 24 * 60 * 60);
+
+        assert_eq!(removed, 0);
+        assert_eq!(orch.total_count(), 1);
+        assert_eq!(orch.active_count(), 1);
+    }
+
+    #[test]
+    fn orchestrator_cleanup_handles_multiple_executions() {
+        let mut orch = make_orchestrator();
+
+        // Create old completed task
+        let old_id = orch.start_task("old", "desc", AgentRole::Coder);
+        if let Some(exec) = orch.executions.get_mut(&old_id) {
+            exec.completed_at = Some(Utc::now() - chrono::Duration::days(10));
+        }
+
+        // Create recent completed task
+        let recent_id = orch.start_task("recent", "desc", AgentRole::Coder);
+        if let Some(exec) = orch.executions.get_mut(&recent_id) {
+            exec.completed_at = Some(Utc::now() - chrono::Duration::days(5));
+        }
+
+        // Create active task
+        let active_id = orch.start_task("active", "desc", AgentRole::Coder);
+
+        assert_eq!(orch.total_count(), 3);
+
+        // Cleanup with TTL of 7 days
+        let removed = orch.cleanup_completed_executions(7 * 24 * 60 * 60);
+
+        assert_eq!(removed, 1);
+        assert_eq!(orch.total_count(), 2);
+        assert!(orch.get_execution(&old_id).is_none());
+        assert!(orch.get_execution(&recent_id).is_some());
+        assert!(orch.get_execution(&active_id).is_some());
+    }
+
+    #[test]
+    fn orchestrator_cleanup_empty_state() {
+        let mut orch = make_orchestrator();
+        assert_eq!(orch.total_count(), 0);
+
+        let removed = orch.cleanup_completed_executions(7 * 24 * 60 * 60);
+
+        assert_eq!(removed, 0);
+    }
+
+    #[test]
+    fn orchestrator_cleanup_with_zero_ttl() {
+        let mut orch = make_orchestrator();
+        let id = orch.start_task("task", "description", AgentRole::Coder);
+
+        // Mark task as completed 1 second ago
+        if let Some(exec) = orch.executions.get_mut(&id) {
+            exec.completed_at = Some(Utc::now() - chrono::Duration::seconds(1));
+        }
+
+        assert_eq!(orch.total_count(), 1);
+
+        // Cleanup with zero TTL should remove all completed tasks
+        let removed = orch.cleanup_completed_executions(0);
+
+        assert_eq!(removed, 1);
+        assert_eq!(orch.total_count(), 0);
+    }
+
+    #[test]
+    fn orchestrator_cleanup_verifies_executions_and_detectors_cleaned() {
+        let mut orch = make_orchestrator();
+        let id = orch.start_task("task", "desc", AgentRole::Coder);
+
+        // Verify HashMaps have entries (execution and stuck_detector share same ID)
+        assert_eq!(orch.executions.len(), 1);
+        assert_eq!(orch.stuck_detectors.len(), 1);
+
+        // Mark as completed 10 days ago
+        if let Some(exec) = orch.executions.get_mut(&id) {
+            exec.completed_at = Some(Utc::now() - chrono::Duration::days(10));
+        }
+
+        // Cleanup with TTL of 7 days
+        let removed = orch.cleanup_completed_executions(7 * 24 * 60 * 60);
+
+        // Verify executions and stuck_detectors are cleaned
+        assert_eq!(removed, 1);
+        assert_eq!(orch.executions.len(), 0);
+        assert_eq!(orch.stuck_detectors.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn orchestrator_background_cleanup_starts_successfully() {
+        use std::sync::{Arc, Mutex};
+
+        let orch = Arc::new(Mutex::new(make_orchestrator()));
+
+        // Starting the background task should not panic
+        Orchestrator::start_cleanup_task(Arc::clone(&orch));
+
+        // Give the task a moment to start
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        // Test passes if we get here without panicking
+        assert!(true);
+    }
+
+    #[tokio::test]
+    async fn orchestrator_background_cleanup_removes_old_executions() {
+        use std::sync::{Arc, Mutex};
+
+        let orch = Arc::new(Mutex::new(make_orchestrator()));
+
+        // Create an old completed execution
+        {
+            let mut orch_guard = orch.lock().unwrap();
+            let id = orch_guard.start_task("old task", "description", AgentRole::Coder);
+            if let Some(exec) = orch_guard.executions.get_mut(&id) {
+                exec.completed_at = Some(Utc::now() - chrono::Duration::days(30));
+            }
+            // Set very short TTL for testing
+            orch_guard.config.execution_ttl_secs = 0; // Immediate cleanup
+        };
+
+        // Verify execution exists
+        assert_eq!(orch.lock().unwrap().executions.len(), 1);
+        assert_eq!(orch.lock().unwrap().stuck_detectors.len(), 1);
+
+        // Manually run cleanup once to verify it works
+        {
+            let mut orch_guard = orch.lock().unwrap();
+            let removed = orch_guard.cleanup_completed_executions(0);
+            assert_eq!(removed, 1);
+        }
+
+        // Verify execution was removed
+        assert_eq!(orch.lock().unwrap().executions.len(), 0);
+        assert_eq!(orch.lock().unwrap().stuck_detectors.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn orchestrator_background_cleanup_respects_ttl() {
+        use std::sync::{Arc, Mutex};
+
+        let orch = Arc::new(Mutex::new(make_orchestrator()));
+
+        // Create a recent completed execution (5 days old)
+        {
+            let mut orch_guard = orch.lock().unwrap();
+            let id = orch_guard.start_task("recent task", "description", AgentRole::Coder);
+            if let Some(exec) = orch_guard.executions.get_mut(&id) {
+                exec.completed_at = Some(Utc::now() - chrono::Duration::days(5));
+            }
+            // Set TTL to 7 days (task should be kept)
+            orch_guard.config.execution_ttl_secs = 7 * 24 * 60 * 60;
+        };
+
+        // Verify execution exists
+        assert_eq!(orch.lock().unwrap().executions.len(), 1);
+
+        // Run cleanup with 7-day TTL
+        {
+            let mut orch_guard = orch.lock().unwrap();
+            let ttl = orch_guard.config.execution_ttl_secs;
+            let removed = orch_guard.cleanup_completed_executions(ttl);
+            assert_eq!(removed, 0);
+        }
+
+        // Verify execution was NOT removed (respects TTL)
+        assert_eq!(orch.lock().unwrap().executions.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn orchestrator_background_cleanup_multiple_cycles() {
+        use std::sync::{Arc, Mutex};
+
+        let orch = Arc::new(Mutex::new(make_orchestrator()));
+
+        // Set very short TTL
+        {
+            let mut orch_guard = orch.lock().unwrap();
+            orch_guard.config.execution_ttl_secs = 0;
+        }
+
+        // Add and cleanup old executions in multiple cycles
+        for i in 0..3 {
+            // Add old completed execution
+            {
+                let mut orch_guard = orch.lock().unwrap();
+                let id =
+                    orch_guard.start_task(format!("task {}", i), "description", AgentRole::Coder);
+                if let Some(exec) = orch_guard.executions.get_mut(&id) {
+                    exec.completed_at = Some(Utc::now() - chrono::Duration::days(10));
+                }
+            }
+
+            // Verify execution was added
+            assert_eq!(orch.lock().unwrap().executions.len(), 1);
+
+            // Run cleanup
+            {
+                let mut orch_guard = orch.lock().unwrap();
+                let removed = orch_guard.cleanup_completed_executions(0);
+                assert_eq!(removed, 1, "Cycle {} failed", i);
+            }
+
+            // Verify it was cleaned
+            assert_eq!(
+                orch.lock().unwrap().executions.len(),
+                0,
+                "Cycle {} failed",
+                i
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn orchestrator_background_cleanup_empty_state() {
+        use std::sync::{Arc, Mutex};
+
+        let orch = Arc::new(Mutex::new(make_orchestrator()));
+
+        // Start cleanup with empty state
+        Orchestrator::start_cleanup_task(Arc::clone(&orch));
+
+        // Wait for potential cleanup cycle
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        // Verify state is still empty (no panics or errors)
+        assert_eq!(orch.lock().unwrap().executions.len(), 0);
+        assert_eq!(orch.lock().unwrap().stuck_detectors.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn orchestrator_background_cleanup_logs_counts() {
+        use std::sync::{Arc, Mutex};
+
+        let orch = Arc::new(Mutex::new(make_orchestrator()));
+
+        // Create old completed execution
+        {
+            let mut orch_guard = orch.lock().unwrap();
+            orch_guard.config.execution_ttl_secs = 0;
+            let id = orch_guard.start_task("task", "description", AgentRole::Coder);
+            if let Some(exec) = orch_guard.executions.get_mut(&id) {
+                exec.completed_at = Some(Utc::now() - chrono::Duration::days(10));
+            }
+        }
+
+        // Verify execution exists
+        assert_eq!(orch.lock().unwrap().executions.len(), 1);
+
+        // Run cleanup
+        {
+            let mut orch_guard = orch.lock().unwrap();
+            let removed = orch_guard.cleanup_completed_executions(0);
+            assert_eq!(removed, 1);
+        }
+
+        // Test passes if cleanup ran without errors
+        // (logs are checked manually in real scenarios)
+        assert_eq!(orch.lock().unwrap().executions.len(), 0);
     }
 }

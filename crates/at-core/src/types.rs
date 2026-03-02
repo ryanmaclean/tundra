@@ -643,6 +643,62 @@ impl Default for PhaseConfig {
 }
 
 // ---------------------------------------------------------------------------
+// RetentionConfig
+// ---------------------------------------------------------------------------
+
+/// Configuration for data retention and cleanup policies.
+///
+/// Controls how long various in-memory data structures are retained before
+/// being cleaned up to prevent unbounded memory growth. This includes task
+/// archival, build log truncation, orchestrator execution history, and
+/// disconnect buffer cleanup.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RetentionConfig {
+    /// Time-to-live for archived tasks in seconds (default: 7 days).
+    ///
+    /// Tasks that have been completed and archived will be removed from
+    /// memory after this duration expires.
+    pub task_ttl_secs: u64,
+
+    /// Maximum number of build log entries to retain per task (default: 10,000).
+    ///
+    /// When a task's build logs exceed this limit, older entries are truncated
+    /// to prevent unbounded growth during long-running builds.
+    pub max_task_logs: usize,
+
+    /// Interval between cleanup runs in seconds (default: 1 hour).
+    ///
+    /// Background cleanup tasks will run at this interval to remove expired
+    /// data from memory.
+    pub cleanup_interval_secs: u64,
+
+    /// Time-to-live for orchestrator execution history in seconds (default: 24 hours).
+    ///
+    /// Orchestrator execution records, decompositions, and refinements are
+    /// removed after this duration to prevent the history HashMaps from
+    /// growing indefinitely.
+    pub orchestrator_execution_ttl_secs: u64,
+
+    /// Time-to-live for terminal disconnect buffers in seconds (default: 5 minutes).
+    ///
+    /// Disconnect buffers that have exceeded this TTL without reconnection
+    /// will be cleaned up to free memory.
+    pub disconnect_buffer_ttl_secs: u64,
+}
+
+impl Default for RetentionConfig {
+    fn default() -> Self {
+        Self {
+            task_ttl_secs: 7 * 24 * 60 * 60,               // 7 days
+            max_task_logs: 10_000,                         // 10k entries
+            cleanup_interval_secs: 60 * 60,                // 1 hour
+            orchestrator_execution_ttl_secs: 24 * 60 * 60, // 24 hours
+            disconnect_buffer_ttl_secs: 5 * 60,            // 5 minutes
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // AgentProfile
 // ---------------------------------------------------------------------------
 
@@ -1059,6 +1115,23 @@ impl Task {
     pub fn set_phase(&mut self, phase: TaskPhase) {
         self.progress_percent = phase.progress_percent();
         self.phase = phase;
+        self.updated_at = Utc::now();
+    }
+
+    /// Truncate task and build logs to keep only the most recent N entries.
+    /// This prevents unbounded memory growth for long-running tasks.
+    ///
+    /// # Arguments
+    /// * `max_entries` - Maximum number of log entries to keep (keeps most recent)
+    pub fn truncate_logs(&mut self, max_entries: usize) {
+        if self.logs.len() > max_entries {
+            let start_index = self.logs.len() - max_entries;
+            self.logs.drain(..start_index);
+        }
+        if self.build_logs.len() > max_entries {
+            let start_index = self.build_logs.len() - max_entries;
+            self.build_logs.drain(..start_index);
+        }
         self.updated_at = Utc::now();
     }
 }

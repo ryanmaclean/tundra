@@ -162,6 +162,7 @@ impl Daemon {
         });
         info!(port, "embedded API server listening");
 
+        // Note: Background cleanup task is spawned in spawn_background_loops()
         self.spawn_background_loops();
         Ok(port)
     }
@@ -177,6 +178,9 @@ impl Daemon {
 
         // Spawn OAuth token refresh monitor
         at_bridge::http_api::spawn_oauth_token_refresh_monitor(api_state.clone());
+
+        // Spawn background cleanup task for memory retention
+        api_state.start_cleanup_task();
 
         tokio::spawn(async move {
             Self::run_loops(cache, api_state, event_bus, config, intervals, shutdown).await;
@@ -366,6 +370,9 @@ impl Daemon {
         });
         info!(%bind_addr, "API server listening");
 
+        // Spawn background cleanup task for memory retention
+        self.api_state.start_cleanup_task();
+
         // Run loops inline (blocking) for standalone mode.
         Self::run_loops(
             self.cache.clone(),
@@ -440,6 +447,9 @@ impl Daemon {
             }
         });
         info!(%bind_addr, "API server listening");
+
+        // Spawn background cleanup task for memory retention
+        self.api_state.start_cleanup_task();
 
         // Run loops inline (blocking) for standalone mode.
         Self::run_loops(
