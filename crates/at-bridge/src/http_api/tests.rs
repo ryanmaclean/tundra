@@ -15,7 +15,7 @@ use uuid::Uuid;
 /// Build a test router with fresh state.
 fn test_app() -> (axum::Router, Arc<ApiState>) {
     let event_bus = EventBus::new();
-    let state = Arc::new(ApiState::new(event_bus));
+    let state = Arc::new(ApiState::new(event_bus).with_relaxed_rate_limits());
     let app = router::api_router(state.clone());
     (app, state)
 }

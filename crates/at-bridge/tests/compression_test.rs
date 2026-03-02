@@ -28,7 +28,7 @@ use uuid::Uuid;
 /// Helper to get router with state for oneshot testing
 fn test_router_with_state() -> (axum::Router, Arc<ApiState>) {
     let event_bus = EventBus::new();
-    let state = Arc::new(ApiState::new(event_bus));
+    let state = Arc::new(ApiState::new(event_bus).with_relaxed_rate_limits());
     let router = api_router(state.clone());
     (router, state)
 }

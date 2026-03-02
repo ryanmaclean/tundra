@@ -250,6 +250,19 @@ impl ApiState {
         }
     }
 
+    /// Return a copy with relaxed rate limits suitable for integration tests.
+    ///
+    /// Uses high per-second limits so tests can fire many requests without
+    /// hitting 429 responses.
+    pub fn with_relaxed_rate_limits(mut self) -> Self {
+        self.rate_limiter = Arc::new(MultiKeyRateLimiter::new(
+            RateLimitConfig::per_second(10_000),
+            RateLimitConfig::per_second(10_000),
+            RateLimitConfig::per_second(10_000),
+        ));
+        self
+    }
+
     /// Create a new `ApiState` with a PTY pool for terminal support.
     pub fn with_pty_pool(
         event_bus: EventBus,

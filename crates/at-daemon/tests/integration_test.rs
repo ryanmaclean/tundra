@@ -33,7 +33,7 @@ fn ws_request(url: &str) -> tokio_tungstenite::tungstenite::http::Request<()> {
 /// Spin up an API server on a random port, return the base URL and shared state.
 async fn start_test_server() -> (String, Arc<ApiState>) {
     let event_bus = EventBus::new();
-    let state = Arc::new(ApiState::new(event_bus));
+    let state = Arc::new(ApiState::new(event_bus).with_relaxed_rate_limits());
     let router = api_router(state.clone());
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -51,7 +51,7 @@ async fn start_test_server() -> (String, Arc<ApiState>) {
 /// Start a test server with API-key auth enabled.
 async fn start_authed_server(api_key: &str) -> (String, Arc<ApiState>) {
     let event_bus = EventBus::new();
-    let state = Arc::new(ApiState::new(event_bus));
+    let state = Arc::new(ApiState::new(event_bus).with_relaxed_rate_limits());
     let allowed_origins = vec![
         "http://localhost".to_string(),
         "http://127.0.0.1".to_string(),
@@ -185,14 +185,23 @@ async fn test_kpi_endpoint_returns_valid_json() {
 
 #[tokio::test]
 async fn test_kpi_updates_when_beads_added() {
+    use at_core::types::{Bead, BeadStatus, Lane};
+
     let (base, state) = start_test_server().await;
 
-    // Mutate KPI directly to simulate a KPI collection pass.
+    // Insert beads directly so the KPI handler computes correct totals.
     {
-        let mut kpi = state.kpi.write().await;
-        kpi.total_beads = 5;
-        kpi.backlog = 3;
-        kpi.done = 2;
+        let mut beads = state.beads.write().await;
+        for i in 0..3 {
+            let mut b = Bead::new(format!("backlog-{i}"), Lane::Standard);
+            b.status = BeadStatus::Backlog;
+            beads.insert(b.id, b);
+        }
+        for i in 0..2 {
+            let mut b = Bead::new(format!("done-{i}"), Lane::Standard);
+            b.status = BeadStatus::Done;
+            beads.insert(b.id, b);
+        }
     }
 
     let resp = reqwest::get(format!("{base}/api/kpi")).await.unwrap();

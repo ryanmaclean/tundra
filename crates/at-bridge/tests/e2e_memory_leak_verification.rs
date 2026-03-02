@@ -76,7 +76,7 @@ async fn test_e2e_memory_leak_verification_100_tasks() {
     println!("Starting end-to-end memory leak verification test...");
 
     let event_bus = EventBus::new();
-    let state = Arc::new(ApiState::new(event_bus));
+    let state = Arc::new(ApiState::new(event_bus).with_relaxed_rate_limits());
 
     // Step 1: Create 100 tasks with heavy logging
     println!("\n[Step 1] Creating 100 tasks with heavy logging...");
@@ -201,7 +201,7 @@ async fn test_background_cleanup_cycle() {
     println!("Starting background cleanup cycle test...");
 
     let event_bus = EventBus::new();
-    let state = Arc::new(ApiState::new(event_bus));
+    let state = Arc::new(ApiState::new(event_bus).with_relaxed_rate_limits());
 
     // Create tasks with different ages
     println!("\n[Step 1] Creating tasks with different ages...");
@@ -286,7 +286,7 @@ async fn test_stress_cleanup_with_buffers() {
     println!("Starting stress test with disconnect buffers...");
 
     let event_bus = EventBus::new();
-    let state = Arc::new(ApiState::new(event_bus));
+    let state = Arc::new(ApiState::new(event_bus).with_relaxed_rate_limits());
 
     // Create 100 tasks with heavy logging
     println!("\n[Step 1] Creating 100 tasks...");

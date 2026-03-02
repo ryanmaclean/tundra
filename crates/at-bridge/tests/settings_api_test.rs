@@ -15,7 +15,7 @@ async fn start_test_server() -> (String, Arc<ApiState>) {
         .join("settings.toml");
     let settings_manager = Arc::new(SettingsManager::new(&tmp_path));
 
-    let mut state = ApiState::new(event_bus);
+    let mut state = ApiState::new(event_bus).with_relaxed_rate_limits();
     // Replace the settings_manager with our temp one.
     state.settings_manager = settings_manager;
     let state = Arc::new(state);

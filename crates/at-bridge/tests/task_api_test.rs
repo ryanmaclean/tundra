@@ -19,7 +19,7 @@ use uuid::Uuid;
 
 async fn start_test_server() -> (String, Arc<ApiState>) {
     let event_bus = EventBus::new();
-    let state = Arc::new(ApiState::new(event_bus));
+    let state = Arc::new(ApiState::new(event_bus).with_relaxed_rate_limits());
     let router = api_router(state.clone());
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")

@@ -34,7 +34,7 @@ fn ws_request(url: &str) -> tokio_tungstenite::tungstenite::http::Request<()> {
 async fn start_test_server() -> (String, Arc<ApiState>) {
     let event_bus = EventBus::new();
     let pool = Arc::new(at_session::pty_pool::PtyPool::new(4));
-    let state = Arc::new(ApiState::with_pty_pool(event_bus, pool));
+    let state = Arc::new(ApiState::with_pty_pool(event_bus, pool).with_relaxed_rate_limits());
     let router = api_router(state.clone());
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -53,7 +53,7 @@ async fn start_test_server() -> (String, Arc<ApiState>) {
 async fn start_test_server_with_capacity(max: usize) -> (String, Arc<ApiState>) {
     let event_bus = EventBus::new();
     let pool = Arc::new(at_session::pty_pool::PtyPool::new(max));
-    let state = Arc::new(ApiState::with_pty_pool(event_bus, pool));
+    let state = Arc::new(ApiState::with_pty_pool(event_bus, pool).with_relaxed_rate_limits());
     let router = api_router(state.clone());
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -973,7 +973,7 @@ async fn test_delete_terminal_with_invalid_uuid_returns_400() {
 async fn test_create_terminal_without_pty_pool_returns_503() {
     // Create state without a PTY pool.
     let event_bus = EventBus::new();
-    let state = Arc::new(ApiState::new(event_bus)); // no pty_pool
+    let state = Arc::new(ApiState::new(event_bus).with_relaxed_rate_limits()); // no pty_pool
     let router = api_router(state.clone());
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")

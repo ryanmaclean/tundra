@@ -21,7 +21,7 @@ fn auth_router(api_key: Option<String>) -> Router {
 /// Build the full API router with auth for integration-style tests.
 fn full_api_router(api_key: Option<String>) -> Router {
     let event_bus = EventBus::new();
-    let state = Arc::new(ApiState::new(event_bus));
+    let state = Arc::new(ApiState::new(event_bus).with_relaxed_rate_limits());
     api_router_with_auth(state, api_key, vec![])
 }
 

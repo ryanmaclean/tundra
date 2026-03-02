@@ -21,7 +21,7 @@ use serde_json::{json, Value};
 /// Spin up an API server on a random port, return the base URL and shared state.
 async fn start_test_server() -> (String, Arc<ApiState>) {
     let event_bus = EventBus::new();
-    let mut api_state = ApiState::new(event_bus);
+    let mut api_state = ApiState::new(event_bus).with_relaxed_rate_limits();
     // Use an isolated settings file per test server to avoid cross-test races.
     let settings_path = std::env::temp_dir()
         .join(format!("at-bridge-api-test-{}", uuid::Uuid::new_v4()))
