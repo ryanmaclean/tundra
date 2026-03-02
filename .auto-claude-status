@@ -1,25 +1,25 @@
 {
   "active": true,
-  "spec": "024-add-test-coverage-to-at-cli-0-7-tests-per-source-f",
+  "spec": "003-no-request-body-size-limits-on-api-endpoints",
   "state": "building",
   "subtasks": {
-    "completed": 7,
+    "completed": 5,
     "total": 8,
     "in_progress": 1,
     "failed": 0
   },
   "phase": {
-    "current": "Add CLI Command Tests",
+    "current": "Comprehensive Testing",
     "id": null,
-    "total": 8
+    "total": 3
   },
   "workers": {
     "active": 0,
     "max": 1
   },
   "session": {
-    "number": 9,
-    "started_at": "2026-03-01T09:55:01.088921"
+    "number": 7,
+    "started_at": "2026-03-01T11:02:38.268286"
   },
-  "last_update": "2026-03-01T10:16:40.145641"
+  "last_update": "2026-03-01T11:35:51.340953"
 }

@@ -89,7 +89,7 @@ mod router {
     use super::*;
     use axum::{
         body::Body,
-        extract::Request,
+        extract::{DefaultBodyLimit, Request},
         middleware::{self as axum_middleware, Next},
         response::Response,
         routing::{get, patch, post, put},
@@ -163,17 +163,29 @@ mod router {
             .route("/api/beads", get(beads::list_beads))
             .route("/api/beads", post(beads::create_bead))
             .route("/api/beads/{id}", axum::routing::delete(beads::delete_bead))
-            .route("/api/beads/{id}/status", post(beads::update_bead_status))
+            .route(
+                "/api/beads/{id}/status",
+                post(beads::update_bead_status).layer(DefaultBodyLimit::max(256 * 1024)),
+            )
             .route("/api/agents", get(agents::list_agents))
-            .route("/api/agents/{id}/nudge", post(agents::nudge_agent))
-            .route("/api/agents/{id}/stop", post(agents::stop_agent))
+            .route(
+                "/api/agents/{id}/nudge",
+                post(agents::nudge_agent).layer(DefaultBodyLimit::max(256 * 1024)),
+            )
+            .route(
+                "/api/agents/{id}/stop",
+                post(agents::stop_agent).layer(DefaultBodyLimit::max(256 * 1024)),
+            )
             .route("/api/kpi", get(misc::get_kpi))
             .route("/api/tasks", get(tasks::list_tasks))
             .route("/api/tasks", post(tasks::create_task))
             .route("/api/tasks/{id}", get(tasks::get_task))
             .route("/api/tasks/{id}", put(tasks::update_task))
             .route("/api/tasks/{id}", axum::routing::delete(tasks::delete_task))
-            .route("/api/tasks/{id}/phase", post(tasks::update_task_phase))
+            .route(
+                "/api/tasks/{id}/phase",
+                post(tasks::update_task_phase).layer(DefaultBodyLimit::max(256 * 1024)),
+            )
             .route("/api/tasks/{id}/logs", get(tasks::get_task_logs))
             .route(
                 "/api/tasks/{id}/execute",
@@ -285,24 +297,33 @@ mod router {
                 "/api/worktrees/{id}",
                 axum::routing::delete(worktrees::delete_worktree),
             )
-            .route("/api/worktrees/{id}/merge", post(worktrees::merge_worktree))
+            .route(
+                "/api/worktrees/{id}/merge",
+                post(worktrees::merge_worktree).layer(DefaultBodyLimit::max(256 * 1024)),
+            )
             .route(
                 "/api/worktrees/{id}/merge-preview",
                 get(worktrees::merge_preview),
             )
             .route(
                 "/api/worktrees/{id}/resolve",
-                post(worktrees::resolve_conflict),
+                post(worktrees::resolve_conflict).layer(DefaultBodyLimit::max(256 * 1024)),
             )
             // Agent Queue
             .route("/api/queue", get(queue::list_queue))
-            .route("/api/queue/reorder", post(queue::reorder_queue))
+            .route(
+                "/api/queue/reorder",
+                post(queue::reorder_queue).layer(DefaultBodyLimit::max(256 * 1024)),
+            )
             .route(
                 "/api/queue/{task_id}/prioritize",
-                post(queue::prioritize_task),
+                post(queue::prioritize_task).layer(DefaultBodyLimit::max(256 * 1024)),
             )
             // Direct mode
-            .route("/api/settings/direct-mode", post(misc::toggle_direct_mode))
+            .route(
+                "/api/settings/direct-mode",
+                post(misc::toggle_direct_mode).layer(DefaultBodyLimit::max(256 * 1024)),
+            )
             // Costs
             .route("/api/costs", get(misc::get_costs))
             // CLI availability
@@ -319,11 +340,13 @@ mod router {
             )
             .route(
                 "/api/notifications/{id}/read",
-                post(notifications::mark_notification_read),
+                post(notifications::mark_notification_read)
+                    .layer(DefaultBodyLimit::max(256 * 1024)),
             )
             .route(
                 "/api/notifications/read-all",
-                post(notifications::mark_all_notifications_read),
+                post(notifications::mark_all_notifications_read)
+                    .layer(DefaultBodyLimit::max(256 * 1024)),
             )
             .route(
                 "/api/notifications/{id}",
@@ -346,10 +369,13 @@ mod router {
             )
             .route(
                 "/api/projects/{id}/activate",
-                post(projects::activate_project),
+                post(projects::activate_project).layer(DefaultBodyLimit::max(256 * 1024)),
             )
             // PR polling
-            .route("/api/github/pr/{number}/watch", post(github::watch_pr))
+            .route(
+                "/api/github/pr/{number}/watch",
+                post(github::watch_pr).layer(DefaultBodyLimit::max(256 * 1024)),
+            )
             .route(
                 "/api/github/pr/{number}/watch",
                 axum::routing::delete(github::unwatch_pr),
@@ -359,8 +385,14 @@ mod router {
             .route("/api/github/releases", post(github::create_release))
             .route("/api/github/releases", get(github::list_releases))
             // Task archival
-            .route("/api/tasks/{id}/archive", post(misc::archive_task))
-            .route("/api/tasks/{id}/unarchive", post(misc::unarchive_task))
+            .route(
+                "/api/tasks/{id}/archive",
+                post(misc::archive_task).layer(DefaultBodyLimit::max(256 * 1024)),
+            )
+            .route(
+                "/api/tasks/{id}/unarchive",
+                post(misc::unarchive_task).layer(DefaultBodyLimit::max(256 * 1024)),
+            )
             .route("/api/tasks/archived", get(misc::list_archived_tasks))
             // Attachments
             .route(
@@ -369,7 +401,7 @@ mod router {
             )
             .route(
                 "/api/tasks/{task_id}/attachments",
-                post(misc::add_attachment),
+                post(misc::add_attachment).layer(DefaultBodyLimit::max(10 * 1024 * 1024)),
             )
             .route(
                 "/api/tasks/{task_id}/attachments/{id}",
@@ -384,12 +416,24 @@ mod router {
                 axum::routing::delete(misc::delete_task_draft),
             )
             // Kanban column locking
-            .route("/api/kanban/columns/lock", post(misc::lock_column))
+            .route(
+                "/api/kanban/columns/lock",
+                post(misc::lock_column).layer(DefaultBodyLimit::max(256 * 1024)),
+            )
             // Task ordering
-            .route("/api/kanban/ordering", post(misc::save_task_ordering))
+            .route(
+                "/api/kanban/ordering",
+                post(misc::save_task_ordering).layer(DefaultBodyLimit::max(256 * 1024)),
+            )
             // File watching
-            .route("/api/files/watch", post(misc::start_file_watch))
-            .route("/api/files/unwatch", post(misc::stop_file_watch))
+            .route(
+                "/api/files/watch",
+                post(misc::start_file_watch).layer(DefaultBodyLimit::max(256 * 1024)),
+            )
+            .route(
+                "/api/files/unwatch",
+                post(misc::stop_file_watch).layer(DefaultBodyLimit::max(256 * 1024)),
+            )
             // Competitor analysis
             .route(
                 "/api/roadmap/competitor-analysis",
@@ -398,7 +442,7 @@ mod router {
             // Profile swap notification
             .route(
                 "/api/notifications/profile-swap",
-                post(misc::notify_profile_swap),
+                post(misc::notify_profile_swap).layer(DefaultBodyLimit::max(256 * 1024)),
             )
             // App update check
             .route("/api/notifications/app-update", get(misc::check_app_update))
@@ -409,6 +453,7 @@ mod router {
             .layer(axum_middleware::from_fn(metrics_middleware))
             .layer(axum_middleware::from_fn(request_id_middleware))
             .layer(axum_middleware::from_fn(isolation_headers_middleware))
+            .layer(DefaultBodyLimit::max(2 * 1024 * 1024))
             .layer(AuthLayer::new(api_key))
             .layer(
                 CorsLayer::new()
