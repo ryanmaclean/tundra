@@ -1,25 +1,25 @@
 {
   "active": true,
-  "spec": "033-add-delete-endpoint-for-beads-with-event-publishin",
+  "spec": "030-add-query-param-filtering-to-list-tasks-endpoint",
   "state": "building",
   "subtasks": {
-    "completed": 3,
-    "total": 5,
+    "completed": 6,
+    "total": 10,
     "in_progress": 1,
     "failed": 0
   },
   "phase": {
-    "current": "Verify Existing Implementation",
+    "current": "Verification and Testing",
     "id": null,
-    "total": 4
+    "total": 10
   },
   "workers": {
     "active": 0,
     "max": 1
   },
   "session": {
-    "number": 5,
-    "started_at": "2026-02-28T00:25:02.328755"
+    "number": 8,
+    "started_at": "2026-02-28T13:20:19.819928"
   },
-  "last_update": "2026-02-28T00:32:44.119150"
+  "last_update": "2026-02-28T13:42:31.513349"
 }
