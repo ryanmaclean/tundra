@@ -27,6 +27,10 @@ use tauri::{
 };
 use tracing::{error, info};
 
+use at_bridge::protocol::BridgeMessage;
+use at_core::types::{Bead, Lane};
+use crate::state::AppState;
+
 // Re-export image crate for icon loading.
 use image;
 
@@ -165,27 +169,59 @@ fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, menu_id: &str) {
     match menu_id {
         menu_ids::NEW_TASK => {
             info!("tray: new task requested");
-            // Show the main window.
-            if let Some(window) = app.get_webview_window("main") {
-                if let Err(e) = window.show() {
-                    error!(error = %e, "failed to show main window");
-                    return;
-                }
-                if let Err(e) = window.set_focus() {
-                    error!(error = %e, "failed to focus main window");
-                    return;
+
+            // Clone app handle for async task.
+            let app_handle = app.clone();
+
+            // Create a new bead via the daemon in an async task.
+            tauri::async_runtime::spawn(async move {
+                // Access the app state to get the daemon.
+                let state = app_handle.state::<AppState>();
+
+                // Create a new bead with default title.
+                let title = "New Task from Tray".to_string();
+                let lane = Lane::Standard;
+                let mut bead = Bead::new(title, lane);
+                bead.description = Some("Created from system tray menu".to_string());
+
+                // Insert the bead into the daemon's bead list.
+                let bead_id = bead.id;
+                {
+                    let mut beads = state.daemon.api_state().beads.write().await;
+                    beads.insert(bead.id, bead.clone());
                 }
 
-                // Trigger the "new task" action in the frontend.
-                // Emit an event that the Leptos frontend listens for.
-                if let Err(e) = window.emit("tray:new-task", ()) {
-                    error!(error = %e, "failed to emit tray:new-task event");
+                // Publish event via event bus.
+                state
+                    .daemon
+                    .event_bus()
+                    .publish(at_bridge::protocol::BridgeMessage::BeadCreated(
+                        bead.clone(),
+                    ));
+
+                info!(bead_id = %bead_id, "tray: created new bead");
+
+                // Show the main window and emit event to navigate to the new bead.
+                if let Some(window) = app_handle.get_webview_window("main") {
+                    if let Err(e) = window.show() {
+                        error!(error = %e, "failed to show main window");
+                        return;
+                    }
+                    if let Err(e) = window.set_focus() {
+                        error!(error = %e, "failed to focus main window");
+                        return;
+                    }
+
+                    // Emit event with the new bead ID so the frontend can navigate to it.
+                    if let Err(e) = window.emit("tray:new-task", bead_id.to_string()) {
+                        error!(error = %e, "failed to emit tray:new-task event");
+                    }
                 }
-            }
+            });
         }
         menu_ids::QUIT => {
             info!("tray: quit requested");
-            // Gracefully exit the app.
+            // Gracefully exit the app (daemon cleanup happens in Drop).
             app.exit(0);
         }
         menu_ids::STATUS => {
