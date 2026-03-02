@@ -1,25 +1,25 @@
 {
   "active": true,
-  "spec": "042-apply-inputsanitizer-to-api-request-text-fields-fo",
-  "state": "building",
+  "spec": "006-document-all-error-enums-and-result-type-aliases-a",
+  "state": "complete",
   "subtasks": {
     "completed": 8,
-    "total": 9,
-    "in_progress": 1,
+    "total": 8,
+    "in_progress": 0,
     "failed": 0
   },
   "phase": {
-    "current": "Integration Testing",
+    "current": "Error and Result Type Documentation",
     "id": null,
-    "total": 2
+    "total": 8
   },
   "workers": {
     "active": 0,
     "max": 1
   },
   "session": {
-    "number": 11,
-    "started_at": "2026-02-27T17:49:37.048358"
+    "number": 9,
+    "started_at": "2026-03-01T11:48:53.111093"
   },
-  "last_update": "2026-02-27T18:22:48.975532"
+  "last_update": "2026-03-01T12:18:27.728166"
 }
