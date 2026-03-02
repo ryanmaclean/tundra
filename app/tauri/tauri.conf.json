@@ -51,6 +51,25 @@
       },
       "hardenedRuntime": true,
       "minimumSystemVersion": "10.13"
+    },
+    "windows": {
+      "wix": {
+        "language": "en-US",
+        "template": null,
+        "fragmentPaths": [],
+        "componentRefs": [],
+        "dialogImagePath": null,
+        "bannerPath": null
+      },
+      "nsis": {
+        "license": null,
+        "headerImage": null,
+        "sidebarImage": null,
+        "installerIcon": null,
+        "installMode": "perMachine",
+        "languages": ["en-US"],
+        "displayLanguageSelector": false
+      }
     }
   }
 }
