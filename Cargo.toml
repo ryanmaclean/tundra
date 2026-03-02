@@ -49,7 +49,7 @@ notify = { version = "7", default-features = false, features = ["macos_fsevent"]
 crossbeam-channel = "0.5"
 git2 = "0.20"
 subtle = "2"
-tauri = { version = "2", features = ["devtools"] }
+tauri = { version = "2", features = ["devtools", "tray-icon", "image-png"] }
 tauri-build = "2"
 datadog-tracing = "0.3"
 datadog-apm-sync = "0.8"

@@ -6,6 +6,8 @@
 //! in-process. The Leptos WASM frontend runs in the Tauri webview and
 //! discovers the API port via `window.__TUNDRA_API_PORT__`.
 
+mod tray;
+
 use at_core::config::Config;
 use at_daemon::daemon::Daemon;
 use at_tauri::bridge::ipc_handler_from_daemon;
@@ -141,6 +143,12 @@ fn main() {
                 // Safe: init_script is a trusted constant (port integer).
                 let _ = webview.eval(&init_script); // tauri::WebviewWindow::eval
             }
+
+            // Initialize system tray.
+            if let Err(e) = tray::init_tray(&app.handle()) {
+                tracing::warn!(error = %e, "failed to initialize system tray");
+            }
+
             Ok(())
         })
         .run(tauri::generate_context!())
