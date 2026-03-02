@@ -1,25 +1,25 @@
 {
   "active": true,
-  "spec": "042-apply-inputsanitizer-to-api-request-text-fields-fo",
+  "spec": "005-websocket-upgrade-endpoints-lack-origin-header-val",
   "state": "building",
   "subtasks": {
-    "completed": 8,
-    "total": 9,
+    "completed": 5,
+    "total": 6,
     "in_progress": 1,
     "failed": 0
   },
   "phase": {
-    "current": "Integration Testing",
+    "current": "Verification and Documentation",
     "id": null,
-    "total": 2
+    "total": 6
   },
   "workers": {
     "active": 0,
     "max": 1
   },
   "session": {
-    "number": 11,
-    "started_at": "2026-02-27T17:49:37.048358"
+    "number": 7,
+    "started_at": "2026-03-01T11:36:58.336128"
   },
-  "last_update": "2026-02-27T18:22:48.975532"
+  "last_update": "2026-03-01T11:51:56.505814"
 }
