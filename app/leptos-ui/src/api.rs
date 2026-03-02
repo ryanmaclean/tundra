@@ -47,6 +47,45 @@ pub fn is_connection_error(message: &str) -> bool {
         || m.contains("timed out")
 }
 
+// ── Tauri IPC helpers ──
+
+/// Tauri invoke binding for calling backend commands via IPC
+#[wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(js_namespace = ["window", "__TAURI__", "tauri"], catch)]
+    async fn invoke(cmd: &str, args: JsValue) -> Result<JsValue, JsValue>;
+}
+
+/// Check if we're running in a Tauri context
+pub fn is_tauri() -> bool {
+    if let Some(window) = web_sys::window() {
+        js_sys::Reflect::has(&window, &JsValue::from_str("__TAURI__")).unwrap_or(false)
+    } else {
+        false
+    }
+}
+
+/// Invoke a Tauri command with no arguments
+pub async fn tauri_invoke<R: for<'de> Deserialize<'de>>(cmd: &str) -> Result<R, String> {
+    let result = invoke(cmd, JsValue::NULL)
+        .await
+        .map_err(js_err)?;
+    serde_wasm_bindgen::from_value(result).map_err(|e| format!("Tauri invoke error: {e}"))
+}
+
+/// Invoke a Tauri command with arguments
+pub async fn tauri_invoke_with_args<T: Serialize, R: for<'de> Deserialize<'de>>(
+    cmd: &str,
+    args: &T,
+) -> Result<R, String> {
+    let js_args = serde_wasm_bindgen::to_value(args)
+        .map_err(|e| format!("Serialize error: {e}"))?;
+    let result = invoke(cmd, js_args)
+        .await
+        .map_err(js_err)?;
+    serde_wasm_bindgen::from_value(result).map_err(|e| format!("Tauri invoke error: {e}"))
+}
+
 // ── Generic fetch helpers ──
 
 /// Extract a clean error message from a JsValue.
