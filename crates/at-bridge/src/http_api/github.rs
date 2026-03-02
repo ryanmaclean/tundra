@@ -51,9 +51,9 @@ pub(crate) struct ListGitHubIssuesQuery {
     #[serde(default)]
     pub labels: Option<String>,
     #[serde(default)]
-    pub page: Option<u32>,
+    pub limit: Option<usize>,
     #[serde(default)]
-    pub per_page: Option<u8>,
+    pub offset: Option<usize>,
 }
 
 /// Query params for GET /api/github/prs.
@@ -62,9 +62,27 @@ pub(crate) struct ListGitHubPrsQuery {
     #[serde(default)]
     pub state: Option<String>,
     #[serde(default)]
-    pub page: Option<u32>,
+    pub limit: Option<usize>,
     #[serde(default)]
-    pub per_page: Option<u8>,
+    pub offset: Option<usize>,
+}
+
+/// Query params for GET /api/github/pr/watched.
+#[derive(Debug, Default, Deserialize)]
+pub(crate) struct ListWatchedPrsQuery {
+    #[serde(default)]
+    pub limit: Option<usize>,
+    #[serde(default)]
+    pub offset: Option<usize>,
+}
+
+/// Query params for GET /api/github/releases.
+#[derive(Debug, Default, Deserialize)]
+pub(crate) struct ListReleasesQuery {
+    #[serde(default)]
+    pub limit: Option<usize>,
+    #[serde(default)]
+    pub offset: Option<usize>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -142,7 +160,7 @@ pub(crate) async fn list_github_issues(
             .filter(|l| !l.is_empty())
             .collect()
     });
-    let list = match issues::list_issues(&client, state_filter, labels, q.page, q.per_page).await {
+    let all_issues = match issues::list_issues(&client, state_filter, labels, None, None).await {
         Ok(issues) => issues,
         Err(e) => {
             return (
@@ -151,6 +169,10 @@ pub(crate) async fn list_github_issues(
             );
         }
     };
+
+    let limit = q.limit.unwrap_or(50);
+    let offset = q.offset.unwrap_or(0);
+    let list: Vec<_> = all_issues.into_iter().skip(offset).take(limit).collect();
 
     (axum::http::StatusCode::OK, Json(serde_json::json!(list)))
 }
@@ -404,16 +426,19 @@ pub(crate) async fn list_github_prs(
             _ => None,
         });
 
-    let list =
-        match pull_requests::list_pull_requests(&client, state_filter, q.page, q.per_page).await {
-            Ok(prs) => prs,
-            Err(e) => {
-                return (
-                    axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({ "error": e.to_string() })),
-                );
-            }
-        };
+    let all_prs = match pull_requests::list_pull_requests(&client, state_filter, None, None).await {
+        Ok(prs) => prs,
+        Err(e) => {
+            return (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            );
+        }
+    };
+
+    let limit = q.limit.unwrap_or(50);
+    let offset = q.offset.unwrap_or(0);
+    let list: Vec<_> = all_prs.into_iter().skip(offset).take(limit).collect();
 
     (axum::http::StatusCode::OK, Json(serde_json::json!(list)))
 }
@@ -856,9 +881,18 @@ pub(crate) async fn unwatch_pr(
 /// GET /api/github/pr/watched -- list all currently watched pull requests.
 pub(crate) async fn list_watched_prs(
     State(state): State<Arc<ApiState>>,
+    Query(q): Query<ListWatchedPrsQuery>,
 ) -> Json<Vec<PrPollStatus>> {
     let registry = state.pr_poll_registry.read().await;
-    Json(registry.values().cloned().collect())
+    let limit = q.limit.unwrap_or(50);
+    let offset = q.offset.unwrap_or(0);
+    let list: Vec<PrPollStatus> = registry
+        .values()
+        .skip(offset)
+        .take(limit)
+        .cloned()
+        .collect();
+    Json(list)
 }
 
 // ---------------------------------------------------------------------------
@@ -972,7 +1006,10 @@ pub(crate) async fn create_release(
 }
 
 /// GET /api/github/releases -- list all GitHub releases.
-pub(crate) async fn list_releases(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
+pub(crate) async fn list_releases(
+    State(state): State<Arc<ApiState>>,
+    Query(q): Query<ListReleasesQuery>,
+) -> impl IntoResponse {
     let config = state.settings_manager.load_or_default();
     let int = &config.integrations;
     let token = CredentialProvider::from_env(&int.github_token_env);
@@ -988,7 +1025,7 @@ pub(crate) async fn list_releases(State(state): State<Arc<ApiState>>) -> impl In
                 .get::<Vec<serde_json::Value>, _, _>(&route, None::<&()>)
                 .await
             {
-                let releases: Vec<GitHubRelease> = remote
+                let all_releases: Vec<GitHubRelease> = remote
                     .into_iter()
                     .map(|r| GitHubRelease {
                         tag_name: r
@@ -1024,7 +1061,12 @@ pub(crate) async fn list_releases(State(state): State<Arc<ApiState>>) -> impl In
                     .collect();
 
                 let mut cache = state.releases.write().await;
-                *cache = releases.clone();
+                *cache = all_releases.clone();
+
+                let limit = q.limit.unwrap_or(50);
+                let offset = q.offset.unwrap_or(0);
+                let releases: Vec<_> = all_releases.into_iter().skip(offset).take(limit).collect();
+
                 return (
                     axum::http::StatusCode::OK,
                     Json(serde_json::json!(releases)),
@@ -1034,5 +1076,11 @@ pub(crate) async fn list_releases(State(state): State<Arc<ApiState>>) -> impl In
     }
 
     let cached = state.releases.read().await.clone();
-    (axum::http::StatusCode::OK, Json(serde_json::json!(cached)))
+    let limit = q.limit.unwrap_or(50);
+    let offset = q.offset.unwrap_or(0);
+    let releases: Vec<_> = cached.into_iter().skip(offset).take(limit).collect();
+    (
+        axum::http::StatusCode::OK,
+        Json(serde_json::json!(releases)),
+    )
 }

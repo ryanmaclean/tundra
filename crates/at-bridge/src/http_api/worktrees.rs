@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     response::IntoResponse,
     Json,
 };
@@ -8,7 +8,7 @@ use std::sync::Arc;
 use tracing::warn;
 
 use super::state::ApiState;
-use super::types::ResolveConflictRequest;
+use super::types::{ResolveConflictRequest, WorktreeQuery};
 
 /// Represents a git worktree entry returned by the list endpoint.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -44,7 +44,7 @@ fn stable_worktree_id(path: &str, branch: &str) -> String {
 }
 
 /// GET /api/worktrees -- list all git worktrees with path and branch info.
-pub(crate) async fn list_worktrees() -> impl IntoResponse {
+pub(crate) async fn list_worktrees(Query(params): Query<WorktreeQuery>) -> impl IntoResponse {
     let output = match tokio::process::Command::new("git")
         .args(["worktree", "list", "--porcelain"])
         .output()
@@ -101,9 +101,14 @@ pub(crate) async fn list_worktrees() -> impl IntoResponse {
         });
     }
 
+    let limit = params.limit.unwrap_or(50);
+    let offset = params.offset.unwrap_or(0);
+
+    let paginated: Vec<WorktreeEntry> = worktrees.into_iter().skip(offset).take(limit).collect();
+
     (
         axum::http::StatusCode::OK,
-        Json(serde_json::json!(worktrees)),
+        Json(serde_json::json!(paginated)),
     )
 }
 

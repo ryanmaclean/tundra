@@ -50,6 +50,8 @@ pub(crate) async fn list_tasks(
     Query(query): Query<TaskListQuery>,
 ) -> Json<Vec<Task>> {
     let tasks = state.tasks.read().await;
+    let limit = query.limit.unwrap_or(50);
+    let offset = query.offset.unwrap_or(0);
 
     let filtered: Vec<Task> = tasks
         .values()
@@ -110,6 +112,8 @@ pub(crate) async fn list_tasks(
 
             true
         })
+        .skip(offset)
+        .take(limit)
         .cloned()
         .collect();
 

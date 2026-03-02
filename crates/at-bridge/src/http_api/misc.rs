@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     response::IntoResponse,
     Json,
 };
@@ -12,9 +12,9 @@ use at_core::types::KpiSnapshot;
 
 use super::state::ApiState;
 use super::types::{
-    Attachment, CliAvailabilityEntry, CompetitorAnalysisRequest, CompetitorAnalysisResult,
-    DirectModeRequest, FileWatchRequest, LockColumnRequest, StatusResponse, TaskDraft,
-    TaskOrderingRequest,
+    ArchivedTaskQuery, Attachment, AttachmentQuery, CliAvailabilityEntry,
+    CompetitorAnalysisRequest, CompetitorAnalysisResult, DirectModeRequest, FileWatchRequest,
+    LockColumnRequest, StatusResponse, TaskDraft, TaskDraftQuery, TaskOrderingRequest,
 };
 
 // ---------------------------------------------------------------------------
@@ -73,8 +73,44 @@ pub(crate) async fn get_status(State(state): State<Arc<ApiState>>) -> Json<Statu
 
 /// GET /api/kpi -- retrieve the current KPI snapshot.
 pub(crate) async fn get_kpi(State(state): State<Arc<ApiState>>) -> Json<KpiSnapshot> {
-    let kpi = state.kpi.read().await;
-    Json(kpi.clone())
+    let beads = state.beads.read().await;
+    let agents = state.agents.read().await;
+
+    // Single fold replaces 7 separate filter().count() calls
+    let (backlog, hooked, slung, review, done, failed, escalated) = beads.values().fold(
+        (0u64, 0u64, 0u64, 0u64, 0u64, 0u64, 0u64),
+        |(backlog, hooked, slung, review, done, failed, escalated), bead| {
+            use at_core::types::BeadStatus;
+            match bead.status {
+                BeadStatus::Backlog => {
+                    (backlog + 1, hooked, slung, review, done, failed, escalated)
+                }
+                BeadStatus::Hooked => (backlog, hooked + 1, slung, review, done, failed, escalated),
+                BeadStatus::Slung => (backlog, hooked, slung + 1, review, done, failed, escalated),
+                BeadStatus::Review => (backlog, hooked, slung, review + 1, done, failed, escalated),
+                BeadStatus::Done => (backlog, hooked, slung, review, done + 1, failed, escalated),
+                BeadStatus::Failed => (backlog, hooked, slung, review, done, failed + 1, escalated),
+                BeadStatus::Escalated => {
+                    (backlog, hooked, slung, review, done, failed, escalated + 1)
+                }
+            }
+        },
+    );
+
+    let snapshot = KpiSnapshot {
+        total_beads: beads.len() as u64,
+        backlog,
+        hooked,
+        slung,
+        review,
+        done,
+        failed,
+        escalated,
+        active_agents: agents.len() as u64,
+        timestamp: chrono::Utc::now(),
+    };
+
+    Json(snapshot)
 }
 
 // ---------------------------------------------------------------------------
@@ -283,9 +319,35 @@ pub(crate) async fn unarchive_task(
 }
 
 /// GET /api/tasks/archived -- retrieve all archived task IDs.
-pub(crate) async fn list_archived_tasks(State(state): State<Arc<ApiState>>) -> Json<Vec<Uuid>> {
+///
+/// Returns a paginated JSON array of archived task UUIDs. Archived tasks are
+/// tasks that have been removed from the active kanban board but retained for
+/// historical reference.
+///
+/// **Query Parameters:**
+/// - `limit` (optional): Maximum number of results to return. Defaults to 50.
+/// - `offset` (optional): Number of results to skip. Defaults to 0.
+///
+/// **Response:** 200 OK with array of UUID strings.
+///
+/// **Example Response:**
+/// ```json
+/// [
+///   "550e8400-e29b-41d4-a716-446655440000",
+///   "660e8400-e29b-41d4-a716-446655440001"
+/// ]
+/// ```
+pub(crate) async fn list_archived_tasks(
+    State(state): State<Arc<ApiState>>,
+    Query(params): Query<ArchivedTaskQuery>,
+) -> Json<Vec<Uuid>> {
     let archived = state.archived_tasks.read().await;
-    Json(archived.clone())
+    let limit = params.limit.unwrap_or(50);
+    let offset = params.offset.unwrap_or(0);
+
+    let paginated: Vec<Uuid> = archived.iter().skip(offset).take(limit).cloned().collect();
+
+    Json(paginated)
 }
 
 // ---------------------------------------------------------------------------
@@ -293,16 +355,48 @@ pub(crate) async fn list_archived_tasks(State(state): State<Arc<ApiState>>) -> J
 // ---------------------------------------------------------------------------
 
 /// GET /api/tasks/{task_id}/attachments -- list all attachments for a task.
+///
+/// Returns a paginated JSON array of attachment metadata (images, screenshots,
+/// files) associated with the specified task. Each attachment includes file
+/// information and upload timestamp.
+///
+/// **Path Parameters:** `task_id` - UUID of the task.
+/// **Query Parameters:**
+/// - `limit` (optional): Maximum number of results to return. Defaults to 50.
+/// - `offset` (optional): Number of results to skip. Defaults to 0.
+///
+/// **Response:** 200 OK with array of Attachment objects.
+///
+/// **Example Response:**
+/// ```json
+/// [
+///   {
+///     "id": "550e8400-e29b-41d4-a716-446655440000",
+///     "task_id": "660e8400-e29b-41d4-a716-446655440001",
+///     "filename": "screenshot.png",
+///     "content_type": "image/png",
+///     "size_bytes": 102400,
+///     "uploaded_at": "2026-02-23T10:00:00Z"
+///   }
+/// ]
+/// ```
 pub(crate) async fn list_attachments(
     State(state): State<Arc<ApiState>>,
     Path(task_id): Path<Uuid>,
+    Query(params): Query<AttachmentQuery>,
 ) -> Json<Vec<Attachment>> {
     let attachments = state.attachments.read().await;
+    let limit = params.limit.unwrap_or(50);
+    let offset = params.offset.unwrap_or(0);
+
     let filtered: Vec<Attachment> = attachments
         .iter()
         .filter(|a| a.task_id == task_id)
+        .skip(offset)
+        .take(limit)
         .cloned()
         .collect();
+
     Json(filtered)
 }
 
@@ -407,9 +501,42 @@ pub(crate) async fn delete_task_draft(
 }
 
 /// GET /api/tasks/drafts -- retrieve all saved task drafts.
-pub(crate) async fn list_task_drafts(State(state): State<Arc<ApiState>>) -> Json<Vec<TaskDraft>> {
+///
+/// Returns a paginated JSON array of task drafts. Drafts are auto-saved task
+/// creation forms that haven't been finalized yet, allowing users to resume
+/// their work later.
+///
+/// **Query Parameters:**
+/// - `limit` (optional): Maximum number of results to return. Defaults to 50.
+/// - `offset` (optional): Number of results to skip. Defaults to 0.
+///
+/// **Response:** 200 OK with array of TaskDraft objects.
+///
+/// **Example Response:**
+/// ```json
+/// [
+///   {
+///     "id": "550e8400-e29b-41d4-a716-446655440000",
+///     "title": "Implement user authentication",
+///     "description": "Add OAuth2 support",
+///     "category": "feature",
+///     "priority": "high",
+///     "files": ["src/auth.rs", "src/oauth.rs"],
+///     "updated_at": "2026-02-23T10:00:00Z"
+///   }
+/// ]
+/// ```
+pub(crate) async fn list_task_drafts(
+    State(state): State<Arc<ApiState>>,
+    Query(params): Query<TaskDraftQuery>,
+) -> Json<Vec<TaskDraft>> {
     let drafts = state.task_drafts.read().await;
-    Json(drafts.values().cloned().collect())
+    let limit = params.limit.unwrap_or(50);
+    let offset = params.offset.unwrap_or(0);
+
+    let paginated: Vec<TaskDraft> = drafts.values().skip(offset).take(limit).cloned().collect();
+
+    Json(paginated)
 }
 
 // ---------------------------------------------------------------------------
