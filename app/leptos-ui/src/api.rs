@@ -668,7 +668,13 @@ pub async fn update_bead_status(id: &str, status: &str) -> Result<ApiBead, Strin
 }
 
 pub async fn fetch_settings() -> Result<ApiSettings, String> {
-    fetch_json(&format!("{}/api/settings", get_api_base())).await
+    if is_tauri() {
+        // Use Tauri IPC
+        tauri_invoke("cmd_get_settings").await
+    } else {
+        // Fallback to HTTP
+        fetch_json(&format!("{}/api/settings", get_api_base())).await
+    }
 }
 
 pub async fn fetch_local_provider_settings() -> Result<ApiLocalProviderSettings, String> {
@@ -765,7 +771,20 @@ pub async fn probe_local_provider(base_url: &str) -> Result<ApiLocalProviderProb
 }
 
 pub async fn save_settings(settings: &ApiSettings) -> Result<ApiSettings, String> {
-    put_json(&format!("{}/api/settings", get_api_base()), settings).await
+    if is_tauri() {
+        // Use Tauri IPC
+        #[derive(Serialize)]
+        struct CmdPutSettingsArgs {
+            config: ApiSettings,
+        }
+        let args = CmdPutSettingsArgs {
+            config: settings.clone(),
+        };
+        tauri_invoke_with_args("cmd_put_settings", &args).await
+    } else {
+        // Fallback to HTTP
+        put_json(&format!("{}/api/settings", get_api_base()), settings).await
+    }
 }
 
 pub async fn fetch_credential_status() -> Result<ApiCredentialStatus, String> {
