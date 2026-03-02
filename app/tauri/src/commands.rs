@@ -203,3 +203,193 @@ pub async fn cmd_get_agent(state: State<'_, AppState>, id: String) -> Result<Age
 
     Ok(agent.clone())
 }
+
+// ---------------------------------------------------------------------------
+// Worktree management commands
+// ---------------------------------------------------------------------------
+
+/// Represents a git worktree entry.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct WorktreeEntry {
+    /// Stable identifier derived from path or branch name
+    pub id: String,
+    /// Absolute filesystem path to the worktree
+    pub path: String,
+    /// Git branch name (empty for detached HEAD)
+    pub branch: String,
+    /// Associated bead ID (currently unused, reserved for future)
+    pub bead_id: String,
+    /// Worktree status ("active" for all current worktrees)
+    pub status: String,
+}
+
+/// Generates a stable, filesystem-safe identifier for a worktree.
+fn stable_worktree_id(path: &str, branch: &str) -> String {
+    let raw = if branch.is_empty() {
+        format!("path:{path}")
+    } else {
+        format!("branch:{branch}")
+    };
+    raw.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+/// List all git worktrees with path and branch info.
+#[tauri::command]
+pub async fn cmd_list_worktrees(
+    limit: Option<usize>,
+    offset: Option<usize>,
+) -> Result<Vec<WorktreeEntry>, String> {
+    let output = tokio::process::Command::new("git")
+        .args(["worktree", "list", "--porcelain"])
+        .output()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        return Err(stderr);
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut worktrees = Vec::new();
+    let mut current_path = String::new();
+    let mut current_branch = String::new();
+
+    for line in stdout.lines() {
+        if let Some(path) = line.strip_prefix("worktree ") {
+            current_path = path.to_string();
+            current_branch = String::new();
+        } else if let Some(branch) = line.strip_prefix("branch refs/heads/") {
+            current_branch = branch.to_string();
+        } else if line.is_empty() && !current_path.is_empty() {
+            worktrees.push(WorktreeEntry {
+                id: stable_worktree_id(&current_path, &current_branch),
+                path: current_path.clone(),
+                branch: current_branch.clone(),
+                bead_id: String::new(),
+                status: "active".into(),
+            });
+            current_path = String::new();
+            current_branch = String::new();
+        }
+    }
+    // Handle last entry if stdout doesn't end with empty line
+    if !current_path.is_empty() {
+        worktrees.push(WorktreeEntry {
+            id: stable_worktree_id(&current_path, &current_branch),
+            path: current_path,
+            branch: current_branch,
+            bead_id: String::new(),
+            status: "active".into(),
+        });
+    }
+
+    let limit = limit.unwrap_or(50);
+    let offset = offset.unwrap_or(0);
+
+    let paginated: Vec<WorktreeEntry> = worktrees.into_iter().skip(offset).take(limit).collect();
+
+    Ok(paginated)
+}
+
+/// Create a new git worktree with the given path and branch name.
+#[tauri::command]
+pub async fn cmd_create_worktree(
+    path: String,
+    branch: String,
+) -> Result<WorktreeEntry, String> {
+    // Validate inputs
+    if path.trim().is_empty() {
+        return Err("path cannot be empty".to_string());
+    }
+    if branch.trim().is_empty() {
+        return Err("branch cannot be empty".to_string());
+    }
+
+    let output = tokio::process::Command::new("git")
+        .args(["worktree", "add", "-b", &branch, &path])
+        .output()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        return Err(stderr);
+    }
+
+    Ok(WorktreeEntry {
+        id: stable_worktree_id(&path, &branch),
+        path,
+        branch,
+        bead_id: String::new(),
+        status: "active".into(),
+    })
+}
+
+/// Delete a git worktree by ID.
+#[tauri::command]
+pub async fn cmd_delete_worktree(id: String) -> Result<String, String> {
+    let output = tokio::process::Command::new("git")
+        .args(["worktree", "list", "--porcelain"])
+        .output()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        return Err(stderr);
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut current_path = String::new();
+    let mut current_branch = String::new();
+    let mut found_path: Option<String> = None;
+
+    for line in stdout.lines() {
+        if let Some(path) = line.strip_prefix("worktree ") {
+            current_path = path.to_string();
+            current_branch = String::new();
+        } else if let Some(branch) = line.strip_prefix("branch refs/heads/") {
+            current_branch = branch.to_string();
+        } else if line.is_empty() && !current_path.is_empty() {
+            let candidate_id = stable_worktree_id(&current_path, &current_branch);
+            if candidate_id == id || current_branch.contains(&id) || current_path.contains(&id) {
+                found_path = Some(current_path.clone());
+                break;
+            }
+            current_path.clear();
+            current_branch.clear();
+        }
+    }
+    if found_path.is_none() && !current_path.is_empty() {
+        let candidate_id = stable_worktree_id(&current_path, &current_branch);
+        if candidate_id == id || current_branch.contains(&id) || current_path.contains(&id) {
+            found_path = Some(current_path);
+        }
+    }
+
+    let Some(path) = found_path else {
+        return Err("worktree not found".to_string());
+    };
+
+    let rm = tokio::process::Command::new("git")
+        .args(["worktree", "remove", "--force", &path])
+        .output()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if !rm.status.success() {
+        let stderr = String::from_utf8_lossy(&rm.stderr).to_string();
+        return Err(stderr);
+    }
+
+    Ok(id)
+}

@@ -97,6 +97,9 @@ fn main() {
             at_tauri::commands::cmd_delete_bead,
             at_tauri::commands::cmd_list_agents,
             at_tauri::commands::cmd_get_agent,
+            at_tauri::commands::cmd_list_worktrees,
+            at_tauri::commands::cmd_create_worktree,
+            at_tauri::commands::cmd_delete_worktree,
         ])
         .setup(move |app| {
             use tauri::Manager;
