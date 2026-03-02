@@ -33,7 +33,7 @@ build_variant() {
     RUSTFLAGS="${rustflags}" cargo build --target "${TARGET}" --${PROFILE}
   )
 
-  local wasm_path="${UI_DIR}/target/${TARGET}/${PROFILE}/at_leptos_ui.wasm"
+  local wasm_path="${ROOT_DIR}/target/${TARGET}/${PROFILE}/at_leptos_ui.wasm"
   if [[ ! -f "${wasm_path}" ]]; then
     echo "error: expected wasm artifact not found: ${wasm_path}" >&2
     exit 1
