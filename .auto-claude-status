@@ -1,25 +1,25 @@
 {
   "active": true,
-  "spec": "042-apply-inputsanitizer-to-api-request-text-fields-fo",
-  "state": "building",
+  "spec": "009-add-websocket-event-protocol-documentation-for-rea",
+  "state": "complete",
   "subtasks": {
-    "completed": 8,
-    "total": 9,
-    "in_progress": 1,
+    "completed": 7,
+    "total": 7,
+    "in_progress": 0,
     "failed": 0
   },
   "phase": {
-    "current": "Integration Testing",
+    "current": "WebSocket API Documentation",
     "id": null,
-    "total": 2
+    "total": 7
   },
   "workers": {
     "active": 0,
     "max": 1
   },
   "session": {
-    "number": 11,
-    "started_at": "2026-02-27T17:49:37.048358"
+    "number": 8,
+    "started_at": "2026-03-01T13:32:18.130859"
   },
-  "last_update": "2026-02-27T18:22:48.975532"
+  "last_update": "2026-03-01T13:59:22.973107"
 }
