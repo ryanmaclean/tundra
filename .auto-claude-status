@@ -3,23 +3,23 @@
   "spec": "045-desktop-application-completion-tauri",
   "state": "building",
   "subtasks": {
-    "completed": 6,
+    "completed": 8,
     "total": 25,
     "in_progress": 1,
     "failed": 0
   },
   "phase": {
-    "current": "Tauri IPC Commands",
+    "current": "Leptos IPC Client",
     "id": null,
-    "total": 7
+    "total": 4
   },
   "workers": {
     "active": 0,
     "max": 1
   },
   "session": {
-    "number": 8,
+    "number": 10,
     "started_at": "2026-03-01T20:58:10.989590"
   },
-  "last_update": "2026-03-01T21:30:56.757043"
+  "last_update": "2026-03-01T21:38:23.065919"
 }

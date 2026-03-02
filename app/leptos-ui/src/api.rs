@@ -501,7 +501,18 @@ pub struct ApiPipelineQueueStatus {
 // ── Public API functions ──
 
 pub async fn fetch_beads() -> Result<Vec<ApiBead>, String> {
-    fetch_json(&format!("{}/api/beads", get_api_base())).await
+    if is_tauri() {
+        // Use Tauri IPC
+        #[derive(Serialize)]
+        struct ListBeadsArgs {
+            status: Option<String>,
+        }
+        let args = ListBeadsArgs { status: None };
+        tauri_invoke_with_args("cmd_list_beads", &args).await
+    } else {
+        // Fallback to HTTP
+        fetch_json(&format!("{}/api/beads", get_api_base())).await
+    }
 }
 
 pub async fn fetch_agents() -> Result<Vec<ApiAgent>, String> {
@@ -617,12 +628,31 @@ pub async fn create_bead(
     description: Option<&str>,
     lane: Option<&str>,
 ) -> Result<ApiBead, String> {
-    let body = CreateBeadRequest {
-        title: title.to_string(),
-        description: description.map(|s| s.to_string()),
-        lane: lane.map(|s| s.to_string()),
-    };
-    post_json(&format!("{}/api/beads", get_api_base()), &body).await
+    if is_tauri() {
+        // Use Tauri IPC
+        #[derive(Serialize)]
+        struct CreateBeadArgs {
+            title: String,
+            description: Option<String>,
+            lane: Option<String>,
+            tags: Option<Vec<String>>,
+        }
+        let args = CreateBeadArgs {
+            title: title.to_string(),
+            description: description.map(|s| s.to_string()),
+            lane: lane.map(|s| s.to_string()),
+            tags: None,
+        };
+        tauri_invoke_with_args("cmd_create_bead", &args).await
+    } else {
+        // Fallback to HTTP
+        let body = CreateBeadRequest {
+            title: title.to_string(),
+            description: description.map(|s| s.to_string()),
+            lane: lane.map(|s| s.to_string()),
+        };
+        post_json(&format!("{}/api/beads", get_api_base()), &body).await
+    }
 }
 
 pub async fn update_bead_status(id: &str, status: &str) -> Result<ApiBead, String> {
@@ -1568,7 +1598,28 @@ pub async fn delete_bead(id: &str) -> Result<(), String> {
 }
 
 pub async fn update_bead(id: &str, bead: &ApiBead) -> Result<ApiBead, String> {
-    put_json(&format!("{}/api/beads/{id}", get_api_base()), bead).await
+    if is_tauri() {
+        // Use Tauri IPC
+        #[derive(Serialize)]
+        struct UpdateBeadArgs {
+            id: String,
+            title: String,
+            description: Option<String>,
+            lane: Option<String>,
+            status: Option<String>,
+        }
+        let args = UpdateBeadArgs {
+            id: id.to_string(),
+            title: bead.title.clone(),
+            description: bead.description.clone(),
+            lane: Some(bead.lane.clone()),
+            status: Some(bead.status.clone()),
+        };
+        tauri_invoke_with_args("cmd_update_bead", &args).await
+    } else {
+        // Fallback to HTTP
+        put_json(&format!("{}/api/beads/{id}", get_api_base()), bead).await
+    }
 }
 
 pub async fn execute_task(id: &str) -> Result<serde_json::Value, String> {

@@ -160,6 +160,70 @@ pub async fn cmd_update_bead_status(
     Ok(bead_snapshot)
 }
 
+/// Update a bead's full details by ID.
+#[tauri::command]
+pub async fn cmd_update_bead(
+    state: State<'_, AppState>,
+    id: String,
+    title: String,
+    description: Option<String>,
+    lane: Option<Lane>,
+    status: Option<BeadStatus>,
+) -> Result<Bead, String> {
+    let bead_id = Uuid::parse_str(&id).map_err(|e| format!("invalid UUID: {}", e))?;
+
+    // Validate title
+    if title.trim().is_empty() {
+        return Err("title cannot be empty".to_string());
+    }
+    if title.len() > 1000 {
+        return Err("title too long (max 1000 characters)".to_string());
+    }
+
+    // Validate description if present
+    if let Some(ref desc) = description {
+        if desc.len() > 10000 {
+            return Err("description too long (max 10000 characters)".to_string());
+        }
+    }
+
+    let mut beads = state.daemon.api_state().beads.write().await;
+    let bead = beads
+        .get_mut(&bead_id)
+        .ok_or_else(|| "bead not found".to_string())?;
+
+    // Validate status transition if status is being updated
+    if let Some(new_status) = status {
+        if !bead.status.can_transition_to(&new_status) {
+            return Err(format!(
+                "invalid transition from {:?} to {:?}",
+                bead.status, new_status
+            ));
+        }
+        bead.status = new_status;
+    }
+
+    // Update fields
+    bead.title = title;
+    bead.description = description;
+    if let Some(lane) = lane {
+        bead.lane = lane;
+    }
+    bead.updated_at = chrono::Utc::now();
+
+    let bead_snapshot = bead.clone();
+
+    // Publish event
+    state
+        .daemon
+        .event_bus()
+        .publish(at_bridge::protocol::BridgeMessage::BeadUpdated(
+            bead_snapshot.clone(),
+        ));
+
+    Ok(bead_snapshot)
+}
+
 /// Delete a bead by ID.
 #[tauri::command]
 pub async fn cmd_delete_bead(state: State<'_, AppState>, id: String) -> Result<String, String> {
