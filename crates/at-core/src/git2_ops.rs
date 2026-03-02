@@ -46,7 +46,7 @@ pub struct Git2ReadOps;
 
 impl Git2ReadOps {
     /// Open a git2 Repository from a working directory path.
-    fn open(workdir: &Path) -> Result<git2::Repository, RepoError> {
+    pub fn open(workdir: &Path) -> Result<git2::Repository, RepoError> {
         git2::Repository::discover(workdir).map_err(RepoError::from)
     }
 
@@ -59,6 +59,13 @@ impl Git2ReadOps {
     /// Get the current branch name (replaces `git rev-parse --abbrev-ref HEAD`).
     pub fn current_branch(workdir: &Path) -> Result<String, RepoError> {
         let repo = Self::open(workdir)?;
+        Self::current_branch_with_repo(&repo)
+    }
+
+    /// Helper to get the current branch name from an already-opened repository.
+    ///
+    /// Avoids redundant `discover()` calls when the repo handle is already cached.
+    pub fn current_branch_with_repo(repo: &git2::Repository) -> Result<String, RepoError> {
         let head = repo.head().map_err(RepoError::from)?;
 
         if head.is_branch() {
@@ -78,7 +85,13 @@ impl Git2ReadOps {
     /// files that differ from HEAD or are untracked.
     pub fn status(workdir: &Path) -> Result<Vec<DiffEntry>, RepoError> {
         let repo = Self::open(workdir)?;
+        Self::status_with_repo(&repo)
+    }
 
+    /// Helper to get working directory status from an already-opened repository.
+    ///
+    /// Avoids redundant `discover()` calls when the repo handle is already cached.
+    pub fn status_with_repo(repo: &git2::Repository) -> Result<Vec<DiffEntry>, RepoError> {
         let mut opts = git2::StatusOptions::new();
         opts.include_untracked(true)
             .recurse_untracked_dirs(true)
@@ -133,59 +146,11 @@ impl Git2ReadOps {
             .diff_tree_to_workdir_with_index(head_tree.as_ref(), None)
             .map_err(RepoError::from)?;
 
-        let _stats = diff.stats().map_err(RepoError::from)?;
-        let mut entries = Vec::new();
+        // Single-pass collection using print() walk
+        let mut entries: Vec<DiffEntry> = Vec::new();
+        let mut last_path = String::new();
 
-        // Walk each delta for per-file stats
-        for (idx, delta) in diff.deltas().enumerate() {
-            let path = delta
-                .new_file()
-                .path()
-                .or_else(|| delta.old_file().path())
-                .map(|p| p.to_string_lossy().to_string())
-                .unwrap_or_default();
-
-            let status = match delta.status() {
-                git2::Delta::Added => DiffStatus::Added,
-                git2::Delta::Deleted => DiffStatus::Deleted,
-                git2::Delta::Modified => DiffStatus::Modified,
-                git2::Delta::Renamed => DiffStatus::Renamed,
-                git2::Delta::Copied => DiffStatus::Copied,
-                _ => DiffStatus::Modified,
-            };
-
-            // Per-file line stats require walking patches
-            let (additions, deletions) = diff
-                .get_delta(idx)
-                .map(|_| {
-                    // Use the overall stats as approximation when we can't
-                    // get per-file stats cheaply. For detailed per-file,
-                    // we'd need to iterate hunks which is more expensive.
-                    (0u32, 0u32)
-                })
-                .unwrap_or((0, 0));
-
-            entries.push(DiffEntry {
-                path,
-                status,
-                additions,
-                deletions,
-            });
-        }
-
-        // Try to get per-file line counts by walking patches
-        let _ = diff.foreach(
-            &mut |_, _| true, // file cb
-            None,             // binary cb
-            None,             // hunk cb
-            None,             // line cb
-        );
-
-        // More accurate: walk with print to get line stats
-        let mut line_stats: Vec<(u32, u32)> = vec![(0, 0); entries.len()];
-        let mut file_idx = 0usize;
         let _ = diff.print(git2::DiffFormat::Patch, |delta, _hunk, line| {
-            // Track which file we're in
             let current_path = delta
                 .new_file()
                 .path()
@@ -193,26 +158,37 @@ impl Git2ReadOps {
                 .map(|p| p.to_string_lossy().to_string())
                 .unwrap_or_default();
 
-            // Find matching entry
-            if let Some(pos) = entries.iter().position(|e| e.path == current_path) {
-                file_idx = pos;
+            // New file encountered — create entry
+            if current_path != last_path {
+                let status = match delta.status() {
+                    git2::Delta::Added => DiffStatus::Added,
+                    git2::Delta::Deleted => DiffStatus::Deleted,
+                    git2::Delta::Modified => DiffStatus::Modified,
+                    git2::Delta::Renamed => DiffStatus::Renamed,
+                    git2::Delta::Copied => DiffStatus::Copied,
+                    _ => DiffStatus::Modified,
+                };
+
+                entries.push(DiffEntry {
+                    path: current_path.clone(),
+                    status,
+                    additions: 0,
+                    deletions: 0,
+                });
+                last_path = current_path;
             }
 
-            if file_idx < line_stats.len() {
+            // Accumulate line stats for current file
+            if let Some(entry) = entries.last_mut() {
                 match line.origin() {
-                    '+' => line_stats[file_idx].0 += 1,
-                    '-' => line_stats[file_idx].1 += 1,
+                    '+' => entry.additions += 1,
+                    '-' => entry.deletions += 1,
                     _ => {}
                 }
             }
+
             true
         });
-
-        // Apply collected line stats
-        for (entry, (adds, dels)) in entries.iter_mut().zip(line_stats.iter()) {
-            entry.additions = *adds;
-            entry.deletions = *dels;
-        }
 
         Ok(entries)
     }
@@ -220,6 +196,13 @@ impl Git2ReadOps {
     /// List all branches (replaces `git branch -a --format=%(refname:short)`).
     pub fn branches(workdir: &Path) -> Result<Vec<BranchInfo>, RepoError> {
         let repo = Self::open(workdir)?;
+        Self::branches_with_repo(&repo)
+    }
+
+    /// Helper to list all branches from an already-opened repository.
+    ///
+    /// Avoids redundant `discover()` calls when the repo handle is already cached.
+    pub fn branches_with_repo(repo: &git2::Repository) -> Result<Vec<BranchInfo>, RepoError> {
         let branches = repo.branches(None).map_err(RepoError::from)?;
 
         let mut result = Vec::new();
@@ -266,6 +249,16 @@ impl Git2ReadOps {
     /// Get commit log (replaces `git log -N --oneline --decorate`).
     pub fn log(workdir: &Path, count: usize) -> Result<Vec<CommitInfo>, RepoError> {
         let repo = Self::open(workdir)?;
+        Self::log_with_repo(&repo, count)
+    }
+
+    /// Helper to get commit log from an already-opened repository.
+    ///
+    /// Avoids redundant `discover()` calls when the repo handle is already cached.
+    pub fn log_with_repo(
+        repo: &git2::Repository,
+        count: usize,
+    ) -> Result<Vec<CommitInfo>, RepoError> {
         let mut revwalk = repo.revwalk().map_err(RepoError::from)?;
         revwalk.push_head().map_err(RepoError::from)?;
         revwalk
@@ -733,10 +726,13 @@ impl Git2ReadOps {
     /// Combines multiple queries into one response — ideal for a dashboard
     /// widget that shows repo status at a glance without N separate API calls.
     pub fn repo_summary(workdir: &Path) -> Result<RepoSummary, RepoError> {
-        let branch = Self::current_branch(workdir).unwrap_or_else(|_| "unknown".to_string());
-        let status = Self::status(workdir).unwrap_or_default();
-        let branches = Self::branches(workdir).unwrap_or_default();
-        let recent = Self::log(workdir, 5).unwrap_or_default();
+        let repo = Self::open(workdir)?;
+
+        let branch =
+            Self::current_branch_with_repo(&repo).unwrap_or_else(|_| "unknown".to_string());
+        let status = Self::status_with_repo(&repo).unwrap_or_default();
+        let branches = Self::branches_with_repo(&repo).unwrap_or_default();
+        let recent = Self::log_with_repo(&repo, 5).unwrap_or_default();
         let clean = status.is_empty();
 
         let modified_count = status
