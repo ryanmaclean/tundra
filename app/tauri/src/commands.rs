@@ -5,6 +5,13 @@ use at_core::config::CredentialProvider;
 use at_core::types::{Agent, Bead, BeadStatus, Lane};
 use at_integrations::github::{issues, pull_requests, sync::IssueSyncEngine};
 use at_integrations::types::{GitHubConfig, GitHubIssue, GitHubPullRequest, IssueState, PrState};
+use at_intelligence::{
+    ideation::IdeaCategory,
+    insights::ChatRole,
+    memory::{MemoryCategory, MemoryEntry},
+    roadmap::{FeatureStatus, RoadmapFeature},
+};
+use chrono::{Datelike, Utc};
 
 use crate::sounds::{SoundEffect, SoundEngine};
 use crate::state::AppState;
@@ -647,4 +654,394 @@ pub async fn cmd_import_github_issue(
         ));
 
     Ok(bead)
+}
+
+// ---------------------------------------------------------------------------
+// Intelligence: Insights commands
+// ---------------------------------------------------------------------------
+
+/// List all insights chat sessions.
+#[tauri::command]
+pub async fn cmd_insights_list_sessions(
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let engine = state.daemon.api_state().insights_engine.read().await;
+    let sessions = engine.list_sessions().to_vec();
+    Ok(serde_json::json!(sessions))
+}
+
+/// Create a new insights chat session.
+#[tauri::command]
+pub async fn cmd_insights_create_session(
+    state: State<'_, AppState>,
+    title: String,
+    model: String,
+) -> Result<serde_json::Value, String> {
+    let mut engine = state.daemon.api_state().insights_engine.write().await;
+    let session = engine.create_session(&title, &model).clone();
+    Ok(serde_json::json!(session))
+}
+
+/// Delete an insights session by ID.
+#[tauri::command]
+pub async fn cmd_insights_delete_session(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<bool, String> {
+    let session_id = Uuid::parse_str(&id).map_err(|e| format!("invalid UUID: {}", e))?;
+    let mut engine = state.daemon.api_state().insights_engine.write().await;
+    Ok(engine.delete_session(&session_id))
+}
+
+/// Get all messages for an insights session.
+#[tauri::command]
+pub async fn cmd_insights_get_messages(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<serde_json::Value, String> {
+    let session_id = Uuid::parse_str(&id).map_err(|e| format!("invalid UUID: {}", e))?;
+    let engine = state.daemon.api_state().insights_engine.read().await;
+    match engine.get_session(&session_id) {
+        Some(session) => Ok(serde_json::json!(session.messages)),
+        None => Err("session not found".to_string()),
+    }
+}
+
+/// Add a message to an insights session.
+#[tauri::command]
+pub async fn cmd_insights_add_message(
+    state: State<'_, AppState>,
+    id: String,
+    content: String,
+) -> Result<bool, String> {
+    let session_id = Uuid::parse_str(&id).map_err(|e| format!("invalid UUID: {}", e))?;
+    let mut engine = state.daemon.api_state().insights_engine.write().await;
+    engine
+        .add_message(&session_id, ChatRole::User, &content)
+        .map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
+// ---------------------------------------------------------------------------
+// Intelligence: Ideation commands
+// ---------------------------------------------------------------------------
+
+/// List all generated ideas.
+#[tauri::command]
+pub async fn cmd_ideation_list_ideas(
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let engine = state.daemon.api_state().ideation_engine.read().await;
+    let ideas = engine.list_ideas().to_vec();
+    Ok(serde_json::json!(ideas))
+}
+
+/// Generate new ideas using AI.
+#[tauri::command]
+pub async fn cmd_ideation_generate(
+    state: State<'_, AppState>,
+    category: IdeaCategory,
+    context: String,
+) -> Result<serde_json::Value, String> {
+    let mut engine = state.daemon.api_state().ideation_engine.write().await;
+    // Try AI-powered ideation first; fall back to deterministic generation
+    // when no LLM provider is configured (e.g. in tests or offline mode).
+    let result = match engine.generate_ideas_with_ai(&category, &context).await {
+        Ok(result) => result,
+        Err(_) => engine.generate_ideas(&category, &context),
+    };
+    Ok(serde_json::json!(result))
+}
+
+/// Convert an idea to a task (bead).
+#[tauri::command]
+pub async fn cmd_ideation_convert(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<Bead, String> {
+    let idea_id = Uuid::parse_str(&id).map_err(|e| format!("invalid UUID: {}", e))?;
+
+    let bead = {
+        let engine = state.daemon.api_state().ideation_engine.read().await;
+        engine
+            .convert_to_task(&idea_id)
+            .ok_or_else(|| "idea not found".to_string())?
+    };
+
+    // Insert the bead into the system
+    state
+        .daemon
+        .api_state()
+        .beads
+        .write()
+        .await
+        .insert(bead.id, bead.clone());
+
+    // Publish event
+    state
+        .daemon
+        .event_bus()
+        .publish(at_bridge::protocol::BridgeMessage::BeadCreated(
+            bead.clone(),
+        ));
+
+    Ok(bead)
+}
+
+// ---------------------------------------------------------------------------
+// Intelligence: Roadmap commands
+// ---------------------------------------------------------------------------
+
+/// List all roadmaps.
+#[tauri::command]
+pub async fn cmd_roadmap_list(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let engine = state.daemon.api_state().roadmap_engine.read().await;
+    let roadmaps = engine.list_roadmaps().to_vec();
+    Ok(serde_json::json!(roadmaps))
+}
+
+/// Create a new roadmap.
+#[tauri::command]
+pub async fn cmd_roadmap_create(
+    state: State<'_, AppState>,
+    name: String,
+) -> Result<serde_json::Value, String> {
+    let mut engine = state.daemon.api_state().roadmap_engine.write().await;
+    let roadmap = engine.create_roadmap(&name).clone();
+    Ok(serde_json::json!(roadmap))
+}
+
+/// Generate a roadmap from codebase analysis.
+#[tauri::command]
+pub async fn cmd_roadmap_generate(
+    state: State<'_, AppState>,
+    analysis: String,
+) -> Result<serde_json::Value, String> {
+    let mut engine = state.daemon.api_state().roadmap_engine.write().await;
+    let roadmap = engine.generate_from_codebase(&analysis).clone();
+    Ok(serde_json::json!(roadmap))
+}
+
+/// Add a feature to a specific roadmap.
+#[tauri::command]
+pub async fn cmd_roadmap_add_feature(
+    state: State<'_, AppState>,
+    roadmap_id: String,
+    title: String,
+    description: String,
+    priority: u8,
+) -> Result<serde_json::Value, String> {
+    let id = Uuid::parse_str(&roadmap_id).map_err(|e| format!("invalid UUID: {}", e))?;
+
+    let feature = RoadmapFeature {
+        id: Uuid::new_v4(),
+        title,
+        description,
+        status: FeatureStatus::Planned,
+        priority,
+        estimated_effort: String::new(),
+        dependencies: Vec::new(),
+        created_at: Utc::now(),
+    };
+
+    let mut engine = state.daemon.api_state().roadmap_engine.write().await;
+    engine
+        .add_feature(&id, feature.clone())
+        .map_err(|e| e.to_string())?;
+    Ok(serde_json::json!(feature))
+}
+
+/// Add a feature to the latest roadmap.
+#[tauri::command]
+pub async fn cmd_roadmap_add_feature_to_latest(
+    state: State<'_, AppState>,
+    title: String,
+    description: String,
+    priority: String,
+    status: Option<String>,
+) -> Result<serde_json::Value, String> {
+    // Parse priority string to u8
+    let priority_num = priority.parse::<u8>().unwrap_or_else(|_| {
+        match priority.to_lowercase().as_str() {
+            "critical" => 1,
+            "high" => 2,
+            "medium" => 3,
+            "low" => 4,
+            "lowest" => 5,
+            _ => 3, // default to medium
+        }
+    });
+
+    // Parse status if provided
+    let feature_status = match status.as_deref() {
+        Some(s) => match s.to_lowercase().as_str() {
+            "planned" => FeatureStatus::Planned,
+            "inprogress" | "in_progress" => FeatureStatus::InProgress,
+            "completed" | "complete" => FeatureStatus::Complete,
+            "cancelled" | "deferred" => FeatureStatus::Deferred,
+            _ => FeatureStatus::Planned,
+        },
+        None => FeatureStatus::Planned,
+    };
+
+    let mut engine = state.daemon.api_state().roadmap_engine.write().await;
+
+    // Get or create latest roadmap
+    let roadmap = if let Some(r) = engine.list_roadmaps().first() {
+        r.clone()
+    } else {
+        engine.create_roadmap("Default Roadmap").clone()
+    };
+
+    let feature = RoadmapFeature {
+        id: Uuid::new_v4(),
+        title,
+        description,
+        status: feature_status,
+        priority: priority_num,
+        estimated_effort: String::new(),
+        dependencies: Vec::new(),
+        created_at: Utc::now(),
+    };
+
+    engine
+        .add_feature(&roadmap.id, feature.clone())
+        .map_err(|e| e.to_string())?;
+
+    Ok(serde_json::json!(feature))
+}
+
+/// Update a roadmap feature's status.
+#[tauri::command]
+pub async fn cmd_roadmap_update_feature_status(
+    state: State<'_, AppState>,
+    roadmap_id: String,
+    feature_id: String,
+    status: FeatureStatus,
+) -> Result<bool, String> {
+    let rid = Uuid::parse_str(&roadmap_id).map_err(|e| format!("invalid UUID: {}", e))?;
+    let fid = Uuid::parse_str(&feature_id).map_err(|e| format!("invalid UUID: {}", e))?;
+    let mut engine = state.daemon.api_state().roadmap_engine.write().await;
+    engine
+        .update_feature_status(&rid, &fid, status)
+        .map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
+// ---------------------------------------------------------------------------
+// Intelligence: Changelog commands
+// ---------------------------------------------------------------------------
+
+/// Get changelog entries or generate from tasks.
+#[tauri::command]
+pub async fn cmd_changelog_get(
+    state: State<'_, AppState>,
+    source: Option<String>,
+) -> Result<serde_json::Value, String> {
+    // Support source=tasks to generate from task history
+    if source.as_deref() == Some("tasks") {
+        let tasks = state.daemon.api_state().tasks.read().await;
+        let completed_tasks: Vec<_> = tasks
+            .values()
+            .filter(|t| t.phase == at_core::types::TaskPhase::Complete)
+            .collect();
+
+        if completed_tasks.is_empty() {
+            return Ok(serde_json::json!({
+                "markdown": "# Changelog\n\nNo completed tasks found.\n",
+                "entries": []
+            }));
+        }
+
+        // Generate changelog entries from completed tasks
+        let mut engine = state.daemon.api_state().changelog_engine.write().await;
+        let mut commits = String::new();
+        for task in &completed_tasks {
+            let category = match task.category {
+                at_core::types::TaskCategory::Feature => "feat",
+                at_core::types::TaskCategory::BugFix => "fix",
+                at_core::types::TaskCategory::Refactoring => "refactor",
+                at_core::types::TaskCategory::Documentation => "docs",
+                at_core::types::TaskCategory::Security => "security",
+                at_core::types::TaskCategory::Performance => "perf",
+                at_core::types::TaskCategory::Infrastructure => "infra",
+                at_core::types::TaskCategory::Testing => "test",
+                at_core::types::TaskCategory::UiUx => "ui",
+            };
+            commits.push_str(&format!("{}: {}\n", category, task.title));
+        }
+        let now = Utc::now();
+        let version = format!("{}.{}.{}", now.year(), now.month(), now.day());
+        let entry = engine.generate_from_commits(&commits, &version);
+        let markdown = engine.generate_markdown();
+
+        Ok(serde_json::json!({
+            "markdown": markdown,
+            "entries": vec![entry]
+        }))
+    } else {
+        // Default: list existing entries
+        let engine = state.daemon.api_state().changelog_engine.read().await;
+        let entries = engine.list_entries().to_vec();
+        Ok(serde_json::json!(entries))
+    }
+}
+
+/// Generate a changelog entry from commit messages.
+#[tauri::command]
+pub async fn cmd_changelog_generate(
+    state: State<'_, AppState>,
+    commits: String,
+    version: String,
+) -> Result<serde_json::Value, String> {
+    let mut engine = state.daemon.api_state().changelog_engine.write().await;
+    let entry = engine.generate_from_commits(&commits, &version);
+    Ok(serde_json::json!(entry))
+}
+
+// ---------------------------------------------------------------------------
+// Intelligence: Memory commands
+// ---------------------------------------------------------------------------
+
+/// List all memory entries.
+#[tauri::command]
+pub async fn cmd_memory_list(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let store = state.daemon.api_state().memory_store.read().await;
+    // search("") matches every entry because every string contains "".
+    let entries: Vec<_> = store.search("").into_iter().cloned().collect();
+    Ok(serde_json::json!(entries))
+}
+
+/// Add a new memory entry.
+#[tauri::command]
+pub async fn cmd_memory_add(
+    state: State<'_, AppState>,
+    key: String,
+    value: String,
+    category: MemoryCategory,
+    source: String,
+) -> Result<String, String> {
+    let mut store = state.daemon.api_state().memory_store.write().await;
+    let entry = MemoryEntry::new(key, value, category, source);
+    let id = store.add_entry(entry);
+    Ok(id.to_string())
+}
+
+/// Search memory entries.
+#[tauri::command]
+pub async fn cmd_memory_search(
+    state: State<'_, AppState>,
+    query: String,
+) -> Result<serde_json::Value, String> {
+    let store = state.daemon.api_state().memory_store.read().await;
+    let results: Vec<_> = store.search(&query).into_iter().cloned().collect();
+    Ok(serde_json::json!(results))
+}
+
+/// Delete a memory entry by ID.
+#[tauri::command]
+pub async fn cmd_memory_delete(state: State<'_, AppState>, id: String) -> Result<bool, String> {
+    let memory_id = Uuid::parse_str(&id).map_err(|e| format!("invalid UUID: {}", e))?;
+    let mut store = state.daemon.api_state().memory_store.write().await;
+    Ok(store.delete_entry(&memory_id))
 }

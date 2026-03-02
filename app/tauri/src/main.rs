@@ -104,6 +104,31 @@ fn main() {
             at_tauri::commands::cmd_list_github_prs,
             at_tauri::commands::cmd_sync_github_issues,
             at_tauri::commands::cmd_import_github_issue,
+            // Intelligence: Insights
+            at_tauri::commands::cmd_insights_list_sessions,
+            at_tauri::commands::cmd_insights_create_session,
+            at_tauri::commands::cmd_insights_delete_session,
+            at_tauri::commands::cmd_insights_get_messages,
+            at_tauri::commands::cmd_insights_add_message,
+            // Intelligence: Ideation
+            at_tauri::commands::cmd_ideation_list_ideas,
+            at_tauri::commands::cmd_ideation_generate,
+            at_tauri::commands::cmd_ideation_convert,
+            // Intelligence: Roadmap
+            at_tauri::commands::cmd_roadmap_list,
+            at_tauri::commands::cmd_roadmap_create,
+            at_tauri::commands::cmd_roadmap_generate,
+            at_tauri::commands::cmd_roadmap_add_feature,
+            at_tauri::commands::cmd_roadmap_add_feature_to_latest,
+            at_tauri::commands::cmd_roadmap_update_feature_status,
+            // Intelligence: Changelog
+            at_tauri::commands::cmd_changelog_get,
+            at_tauri::commands::cmd_changelog_generate,
+            // Intelligence: Memory
+            at_tauri::commands::cmd_memory_list,
+            at_tauri::commands::cmd_memory_add,
+            at_tauri::commands::cmd_memory_search,
+            at_tauri::commands::cmd_memory_delete,
         ])
         .setup(move |app| {
             use tauri::Manager;
