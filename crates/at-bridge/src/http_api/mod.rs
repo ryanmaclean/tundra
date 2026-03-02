@@ -100,6 +100,7 @@ mod router {
 
     use crate::auth::AuthLayer;
     use crate::intelligence_api;
+    use crate::rate_limit_middleware::RateLimitLayer;
     use crate::terminal_ws;
     use at_telemetry::middleware::metrics_middleware;
     use at_telemetry::tracing_setup::request_id_middleware;
@@ -162,6 +163,9 @@ mod router {
         api_key: Option<String>,
         allowed_origins: Vec<String>,
     ) -> Router {
+        // Clone the rate limiter before building the router.
+        let rate_limiter = state.rate_limiter.clone();
+
         Router::new()
             .route("/api/status", get(misc::get_status))
             .route("/api/beads", get(beads::list_beads))
@@ -458,6 +462,9 @@ mod router {
             .layer(axum_middleware::from_fn(request_id_middleware))
             .layer(axum_middleware::from_fn(isolation_headers_middleware))
             .layer(DefaultBodyLimit::max(2 * 1024 * 1024))
+            // Apply three-tier rate limiting (global, per-user, per-endpoint).
+            // Returns HTTP 429 when limits exceeded. See ApiState::new() for config.
+            .layer(RateLimitLayer::new(rate_limiter))
             .layer(AuthLayer::new(api_key))
             .layer(
                 CorsLayer::new()

@@ -27,6 +27,7 @@ pub mod notifications;
 pub mod oauth_token_manager;
 pub mod origin_validation;
 pub mod protocol;
+pub mod rate_limit_middleware;
 pub mod terminal;
 pub mod terminal_ws;
 pub mod transport;
