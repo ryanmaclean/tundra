@@ -8,6 +8,7 @@ use uuid::Uuid;
 use at_core::session_store::SessionStore;
 use at_core::settings::SettingsManager;
 use at_core::types::{Agent, Bead, BeadStatus, CliType, KpiSnapshot};
+use at_harness::rate_limiter::{MultiKeyRateLimiter, RateLimitConfig};
 use at_intelligence::{
     changelog::ChangelogEngine, ideation::IdeationEngine, insights::InsightsEngine,
     memory::MemoryStore, roadmap::RoadmapEngine,
@@ -141,6 +142,9 @@ pub struct ApiState {
     // ---- Disconnect buffers for terminal WS reconnection ------------------
     pub disconnect_buffers:
         Arc<RwLock<std::collections::HashMap<Uuid, crate::terminal::DisconnectBuffer>>>,
+    // ---- Rate limiting -------------------------------------------------------
+    /// Multi-tier rate limiter (global, per-user, per-endpoint).
+    pub rate_limiter: Arc<MultiKeyRateLimiter>,
 }
 
 impl ApiState {
@@ -210,6 +214,35 @@ impl ApiState {
             attachments: Arc::new(RwLock::new(Vec::new())),
             task_drafts: Arc::new(RwLock::new(std::collections::HashMap::new())),
             disconnect_buffers: Arc::new(RwLock::new(std::collections::HashMap::new())),
+            // ---- Rate Limiter Configuration -------------------------------------
+            // Three-tier rate limiting protects the API from abuse and overload:
+            //
+            // 1. Global Limit: 100 requests/minute across ALL clients
+            //    - Prevents total server overload
+            //    - First line of defense against DoS attacks
+            //    - Shared bucket for entire API
+            //
+            // 2. Per-User Limit: 20 requests/minute per client IP
+            //    - Prevents single client monopolization
+            //    - IP extracted from X-Forwarded-For or X-Real-IP headers
+            //    - Each IP gets independent bucket
+            //
+            // 3. Per-Endpoint Limit: 10 requests/minute per URI path
+            //    - Prevents abuse of expensive endpoints (AI, GitHub sync)
+            //    - Each endpoint (e.g., /api/tasks, /api/beads) tracked separately
+            //    - Allows high-frequency status polling on cheap endpoints
+            //
+            // To adjust limits:
+            // - Use RateLimitConfig::per_second(n), per_minute(n), or per_hour(n)
+            // - For production: increase global and per-user limits
+            // - For development: use per_second(n) for faster iteration
+            //
+            // When exceeded, middleware returns HTTP 429 with Retry-After header.
+            rate_limiter: Arc::new(MultiKeyRateLimiter::new(
+                RateLimitConfig::per_minute(100), // Global tier
+                RateLimitConfig::per_minute(20),  // Per-user tier
+                RateLimitConfig::per_minute(10),  // Per-endpoint tier
+            )),
         }
     }
 
