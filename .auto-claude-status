@@ -1,25 +1,25 @@
 {
   "active": true,
-  "spec": "042-apply-inputsanitizer-to-api-request-text-fields-fo",
-  "state": "building",
+  "spec": "007-document-core-domain-model-structs-in-at-core-src-",
+  "state": "complete",
   "subtasks": {
-    "completed": 8,
+    "completed": 9,
     "total": 9,
-    "in_progress": 1,
+    "in_progress": 0,
     "failed": 0
   },
   "phase": {
-    "current": "Integration Testing",
+    "current": "Verification",
     "id": null,
-    "total": 2
+    "total": 1
   },
   "workers": {
     "active": 0,
     "max": 1
   },
   "session": {
-    "number": 11,
-    "started_at": "2026-02-27T17:49:37.048358"
+    "number": 10,
+    "started_at": "2026-03-01T12:50:59.530268"
   },
-  "last_update": "2026-02-27T18:22:48.975532"
+  "last_update": "2026-03-01T13:17:48.113647"
 }
