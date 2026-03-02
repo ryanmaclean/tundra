@@ -149,6 +149,10 @@ mod router {
             "Referrer-Policy",
             axum::http::HeaderValue::from_static("strict-origin-when-cross-origin"),
         );
+        headers.insert(
+            "Cache-Control",
+            axum::http::HeaderValue::from_static("no-store, no-cache, must-revalidate, private"),
+        );
         response
     }
 
