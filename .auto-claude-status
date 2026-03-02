@@ -1,11 +1,11 @@
 {
   "active": true,
   "spec": "025-remove-dead-code-profiling-old-rs-and-5-allow-dead",
-  "state": "building",
+  "state": "complete",
   "subtasks": {
-    "completed": 7,
+    "completed": 8,
     "total": 8,
-    "in_progress": 1,
+    "in_progress": 0,
     "failed": 0
   },
   "phase": {
@@ -21,5 +21,5 @@
     "number": 9,
     "started_at": "2026-02-28T23:27:36.123180"
   },
-  "last_update": "2026-03-01T00:07:32.504076"
+  "last_update": "2026-03-01T00:13:24.941116"
 }
