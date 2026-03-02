@@ -172,3 +172,36 @@ pub fn t_args(key: &str, args: &FluentArgs) -> String {
     let current = locale.get();
     i18n.with_value(|i| i.t_args_with_locale(current, key, args))
 }
+
+// Stub implementations when i18n feature is disabled
+#[cfg(not(feature = "i18n"))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Locale {
+    En,
+    Fr,
+}
+
+#[cfg(not(feature = "i18n"))]
+impl Locale {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Locale::En => "English",
+            Locale::Fr => "Français",
+        }
+    }
+
+    pub fn all() -> &'static [Locale] {
+        &[Locale::En, Locale::Fr]
+    }
+}
+
+#[cfg(not(feature = "i18n"))]
+pub fn provide_i18n() {
+    // No-op when i18n is disabled
+}
+
+#[cfg(not(feature = "i18n"))]
+pub fn t(key: &str) -> String {
+    // Return the key as-is when i18n is disabled
+    key.to_string()
+}

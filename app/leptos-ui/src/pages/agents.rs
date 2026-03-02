@@ -214,6 +214,31 @@ fn save_terminal_history(entries: &[String]) {
     }
 }
 
+fn should_skip_terminal_shortcut(event: &web_sys::KeyboardEvent) -> bool {
+    if event.default_prevented() || event.ctrl_key() || event.meta_key() {
+        return true;
+    }
+
+    let Some(target) = event.target() else {
+        return false;
+    };
+    let Some(element) = target.dyn_ref::<web_sys::Element>() else {
+        return false;
+    };
+
+    let tag = element.tag_name().to_ascii_lowercase();
+    if matches!(tag.as_str(), "input" | "textarea" | "select") {
+        return true;
+    }
+    if element.has_attribute("contenteditable") {
+        return true;
+    }
+    element
+        .get_attribute("role")
+        .map(|role| role.eq_ignore_ascii_case("textbox"))
+        .unwrap_or(false)
+}
+
 // ---------------------------------------------------------------------------
 // Agents Page
 // ---------------------------------------------------------------------------
