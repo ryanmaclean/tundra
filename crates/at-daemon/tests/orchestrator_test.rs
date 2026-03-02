@@ -163,16 +163,15 @@ async fn make_orchestrator(
     git_responses: Vec<GitOutput>,
 ) -> TaskOrchestrator {
     let bus = EventBus::new();
-    let cache = Arc::new(CacheDb::new_in_memory().await.unwrap());
     let spawner: Arc<dyn PtySpawner> = Arc::new(MockSpawner::new(spawner_output));
-    let executor = AgentExecutor::with_spawner(spawner, bus.clone(), cache.clone());
+    let executor = AgentExecutor::with_spawner(spawner, bus.clone());
 
     let tmp = std::env::temp_dir().join(format!("at-orch-test-{}", Uuid::new_v4()));
     let _ = std::fs::create_dir_all(&tmp);
     let git = Box::new(MockGit::new(git_responses));
-    let worktree_manager = WorktreeManager::with_git_runner(tmp, cache.clone(), git);
+    let worktree_manager = WorktreeManager::with_git_runner(tmp, git);
 
-    TaskOrchestrator::new(executor, worktree_manager, cache, bus)
+    TaskOrchestrator::new(executor, worktree_manager, bus)
 }
 
 async fn make_orchestrator_with_bus(
@@ -181,33 +180,28 @@ async fn make_orchestrator_with_bus(
 ) -> (TaskOrchestrator, flume::Receiver<Arc<BridgeMessage>>) {
     let bus = EventBus::new();
     let rx = bus.subscribe();
-    let cache = Arc::new(CacheDb::new_in_memory().await.unwrap());
     let spawner: Arc<dyn PtySpawner> = Arc::new(MockSpawner::new(spawner_output));
-    let executor = AgentExecutor::with_spawner(spawner, bus.clone(), cache.clone());
+    let executor = AgentExecutor::with_spawner(spawner, bus.clone());
 
     let tmp = std::env::temp_dir().join(format!("at-orch-evt-{}", Uuid::new_v4()));
     let _ = std::fs::create_dir_all(&tmp);
     let git = Box::new(MockGit::new(git_responses));
-    let worktree_manager = WorktreeManager::with_git_runner(tmp, cache.clone(), git);
+    let worktree_manager = WorktreeManager::with_git_runner(tmp, git);
 
-    (
-        TaskOrchestrator::new(executor, worktree_manager, cache, bus),
-        rx,
-    )
+    (TaskOrchestrator::new(executor, worktree_manager, bus), rx)
 }
 
 async fn make_failing_orchestrator(git_responses: Vec<GitOutput>) -> TaskOrchestrator {
     let bus = EventBus::new();
-    let cache = Arc::new(CacheDb::new_in_memory().await.unwrap());
     let spawner: Arc<dyn PtySpawner> = Arc::new(FailingSpawner);
-    let executor = AgentExecutor::with_spawner(spawner, bus.clone(), cache.clone());
+    let executor = AgentExecutor::with_spawner(spawner, bus.clone());
 
     let tmp = std::env::temp_dir().join(format!("at-orch-fail-{}", Uuid::new_v4()));
     let _ = std::fs::create_dir_all(&tmp);
     let git = Box::new(MockGit::new(git_responses));
-    let worktree_manager = WorktreeManager::with_git_runner(tmp, cache.clone(), git);
+    let worktree_manager = WorktreeManager::with_git_runner(tmp, git);
 
-    TaskOrchestrator::new(executor, worktree_manager, cache, bus)
+    TaskOrchestrator::new(executor, worktree_manager, bus)
 }
 
 fn collect_events(rx: &flume::Receiver<Arc<BridgeMessage>>) -> Vec<String> {

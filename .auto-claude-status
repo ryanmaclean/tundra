@@ -1,25 +1,25 @@
 {
   "active": true,
-  "spec": "017-cache-git2-repository-handle-and-consolidate-redun",
+  "spec": "025-remove-dead-code-profiling-old-rs-and-5-allow-dead",
   "state": "building",
   "subtasks": {
-    "completed": 8,
-    "total": 10,
+    "completed": 7,
+    "total": 8,
     "in_progress": 1,
     "failed": 0
   },
   "phase": {
-    "current": "Testing and Verification",
+    "current": "Final Verification",
     "id": null,
-    "total": 3
+    "total": 2
   },
   "workers": {
     "active": 0,
     "max": 1
   },
   "session": {
-    "number": 10,
-    "started_at": "2026-03-01T12:21:45.294691"
+    "number": 9,
+    "started_at": "2026-02-28T23:27:36.123180"
   },
-  "last_update": "2026-03-01T12:51:18.544182"
+  "last_update": "2026-03-01T00:07:32.504076"
 }

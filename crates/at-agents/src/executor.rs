@@ -4,7 +4,6 @@ use std::time::Duration;
 
 use at_bridge::event_bus::EventBus;
 use at_bridge::protocol::{BridgeMessage, EventPayload};
-use at_core::cache::CacheDb;
 use at_core::types::Task;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -320,8 +319,6 @@ impl PtySpawner for PtyPoolSpawner {
 pub struct AgentExecutor {
     spawner: Arc<dyn PtySpawner>,
     event_bus: EventBus,
-    #[allow(dead_code)]
-    cache: Arc<CacheDb>,
     /// Active task handles, keyed by task ID.
     active_tasks: Arc<Mutex<HashMap<Uuid, Arc<SpawnedProcess>>>>,
     /// Tool approval system for gating tool invocations.
@@ -330,30 +327,20 @@ pub struct AgentExecutor {
 
 impl AgentExecutor {
     /// Create a new executor with a real PtyPool.
-    pub fn new(
-        pty_pool: Arc<at_session::pty_pool::PtyPool>,
-        event_bus: EventBus,
-        cache: Arc<CacheDb>,
-    ) -> Self {
+    pub fn new(pty_pool: Arc<at_session::pty_pool::PtyPool>, event_bus: EventBus) -> Self {
         Self {
             spawner: Arc::new(PtyPoolSpawner::new(pty_pool)),
             event_bus,
-            cache,
             active_tasks: Arc::new(Mutex::new(HashMap::new())),
             approval_system: Arc::new(Mutex::new(ToolApprovalSystem::new())),
         }
     }
 
     /// Create an executor with a custom spawner (useful for testing).
-    pub fn with_spawner(
-        spawner: Arc<dyn PtySpawner>,
-        event_bus: EventBus,
-        cache: Arc<CacheDb>,
-    ) -> Self {
+    pub fn with_spawner(spawner: Arc<dyn PtySpawner>, event_bus: EventBus) -> Self {
         Self {
             spawner,
             event_bus,
-            cache,
             active_tasks: Arc::new(Mutex::new(HashMap::new())),
             approval_system: Arc::new(Mutex::new(ToolApprovalSystem::new())),
         }
@@ -363,13 +350,11 @@ impl AgentExecutor {
     pub fn with_spawner_and_approval(
         spawner: Arc<dyn PtySpawner>,
         event_bus: EventBus,
-        cache: Arc<CacheDb>,
         approval_system: ToolApprovalSystem,
     ) -> Self {
         Self {
             spawner,
             event_bus,
-            cache,
             active_tasks: Arc::new(Mutex::new(HashMap::new())),
             approval_system: Arc::new(Mutex::new(approval_system)),
         }
@@ -886,9 +871,8 @@ mod tests {
             false,
         ));
         let bus = EventBus::new();
-        let cache = Arc::new(CacheDb::new_in_memory().await.unwrap());
 
-        let executor = AgentExecutor::with_spawner(spawner, bus, cache);
+        let executor = AgentExecutor::with_spawner(spawner, bus);
         let task = make_test_task();
         let mut config = make_config();
         config.timeout_secs = 2;
@@ -907,9 +891,8 @@ mod tests {
 
         let spawner = Arc::new(MockSpawner::new(vec![output.into_bytes()], false));
         let bus = EventBus::new();
-        let cache = Arc::new(CacheDb::new_in_memory().await.unwrap());
 
-        let executor = AgentExecutor::with_spawner(spawner, bus, cache);
+        let executor = AgentExecutor::with_spawner(spawner, bus);
         let task = make_test_task();
         let mut config = make_config();
         config.timeout_secs = 2;
@@ -926,9 +909,8 @@ mod tests {
 
         let spawner = Arc::new(MockSpawner::new(vec![output], false));
         let bus = EventBus::new();
-        let cache = Arc::new(CacheDb::new_in_memory().await.unwrap());
 
-        let executor = AgentExecutor::with_spawner(spawner, bus, cache);
+        let executor = AgentExecutor::with_spawner(spawner, bus);
         let task = make_test_task();
         let mut config = make_config();
         config.timeout_secs = 2;
@@ -944,9 +926,8 @@ mod tests {
         let spawner = Arc::new(MockSpawner::new(vec![b"output\n".to_vec()], false));
         let bus = EventBus::new();
         let rx = bus.subscribe();
-        let cache = Arc::new(CacheDb::new_in_memory().await.unwrap());
 
-        let executor = AgentExecutor::with_spawner(spawner, bus, cache);
+        let executor = AgentExecutor::with_spawner(spawner, bus);
         let task = make_test_task();
         let mut config = make_config();
         config.timeout_secs = 2;
@@ -979,10 +960,9 @@ mod tests {
         let process = Arc::new(SpawnedProcess::new(Uuid::new_v4(), read_rx, write_tx, true));
 
         let bus = EventBus::new();
-        let cache = Arc::new(CacheDb::new_in_memory().await.unwrap());
         let spawner: Arc<dyn PtySpawner> = Arc::new(MockSpawner::new(vec![], true));
 
-        let executor = AgentExecutor::with_spawner(spawner, bus, cache);
+        let executor = AgentExecutor::with_spawner(spawner, bus);
 
         // Manually insert a task as active
         {
@@ -1145,9 +1125,8 @@ text in between
 
         let spawner = Arc::new(MockSpawner::new(vec![output_with_error], false));
         let bus = EventBus::new();
-        let cache = Arc::new(CacheDb::new_in_memory().await.unwrap());
 
-        let executor = AgentExecutor::with_spawner(spawner, bus, cache);
+        let executor = AgentExecutor::with_spawner(spawner, bus);
         let task = make_test_task();
         let mut config = make_config();
         config.timeout_secs = 2;

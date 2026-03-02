@@ -93,13 +93,9 @@ pub struct TaskOrchestrator {
 
 impl TaskOrchestrator {
     /// Create a new orchestrator backed by a real PTY pool.
-    pub fn new(
-        pty_pool: Arc<at_session::pty_pool::PtyPool>,
-        event_bus: EventBus,
-        cache: Arc<at_core::cache::CacheDb>,
-    ) -> Self {
+    pub fn new(pty_pool: Arc<at_session::pty_pool::PtyPool>, event_bus: EventBus) -> Self {
         Self {
-            executor: AgentExecutor::new(pty_pool, event_bus.clone(), cache),
+            executor: AgentExecutor::new(pty_pool, event_bus.clone()),
             event_bus,
             max_fix_iterations: 3,
             cli_type: CliType::Claude,
@@ -108,13 +104,9 @@ impl TaskOrchestrator {
     }
 
     /// Create an orchestrator with a custom spawner (useful for testing).
-    pub fn with_spawner(
-        spawner: Arc<dyn PtySpawner>,
-        event_bus: EventBus,
-        cache: Arc<at_core::cache::CacheDb>,
-    ) -> Self {
+    pub fn with_spawner(spawner: Arc<dyn PtySpawner>, event_bus: EventBus) -> Self {
         Self {
-            executor: AgentExecutor::with_spawner(spawner, event_bus.clone(), cache),
+            executor: AgentExecutor::with_spawner(spawner, event_bus.clone()),
             event_bus,
             max_fix_iterations: 3,
             cli_type: CliType::Claude,
@@ -463,16 +455,11 @@ mod tests {
         task
     }
 
-    async fn make_cache() -> Arc<at_core::cache::CacheDb> {
-        Arc::new(at_core::cache::CacheDb::new_in_memory().await.unwrap())
-    }
-
     #[tokio::test]
     async fn coding_phase_produces_result() {
         let spawner = Arc::new(MockSpawner::success("code written successfully\n"));
         let bus = EventBus::new();
-        let cache = make_cache().await;
-        let orch = TaskOrchestrator::with_spawner(spawner, bus, cache);
+        let orch = TaskOrchestrator::with_spawner(spawner, bus);
 
         let task = make_task();
         let result = orch.run_coding_phase(&task, vec![]).await.unwrap();
@@ -486,8 +473,7 @@ mod tests {
     async fn coding_phase_with_subtasks() {
         let spawner = Arc::new(MockSpawner::success("subtask done\n"));
         let bus = EventBus::new();
-        let cache = make_cache().await;
-        let orch = TaskOrchestrator::with_spawner(spawner, bus, cache);
+        let orch = TaskOrchestrator::with_spawner(spawner, bus);
 
         let task = make_task();
         let subtasks = vec![
@@ -517,8 +503,7 @@ mod tests {
     async fn qa_phase_returns_report() {
         let spawner = Arc::new(MockSpawner::success("ok\n"));
         let bus = EventBus::new();
-        let cache = make_cache().await;
-        let orch = TaskOrchestrator::with_spawner(spawner, bus, cache);
+        let orch = TaskOrchestrator::with_spawner(spawner, bus);
 
         let task = make_task();
         let report = orch.run_qa_phase(&task, "/tmp/wt").await.unwrap();
@@ -532,8 +517,7 @@ mod tests {
     async fn qa_fix_loop_terminates_at_max_iterations() {
         let spawner = Arc::new(MockSpawner::success("fix attempted\n"));
         let bus = EventBus::new();
-        let cache = make_cache().await;
-        let orch = TaskOrchestrator::with_spawner(spawner, bus, cache);
+        let orch = TaskOrchestrator::with_spawner(spawner, bus);
 
         let task = make_task();
 
@@ -561,8 +545,7 @@ mod tests {
         let spawner = Arc::new(MockSpawner::success("pipeline output\n"));
         let bus = EventBus::new();
         let rx = bus.subscribe();
-        let cache = make_cache().await;
-        let orch = TaskOrchestrator::with_spawner(spawner, bus, cache);
+        let orch = TaskOrchestrator::with_spawner(spawner, bus);
 
         let task = make_task();
         let result = orch.execute_full_pipeline(&task).await.unwrap();

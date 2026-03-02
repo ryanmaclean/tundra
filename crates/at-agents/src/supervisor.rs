@@ -1,4 +1,4 @@
-use at_core::types::{AgentRole, CliType};
+use at_core::types::AgentRole;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -52,8 +52,6 @@ struct ManagedAgent {
     id: Uuid,
     name: String,
     role: AgentRole,
-    #[allow(dead_code)]
-    cli_type: CliType,
     sm: AgentStateMachine,
     lifecycle: Box<dyn AgentLifecycle>,
     last_seen: DateTime<Utc>,
@@ -74,14 +72,9 @@ impl AgentSupervisor {
         }
     }
 
-    /// Spawn a new agent with the given name, role, and CLI type.
+    /// Spawn a new agent with the given name and role.
     /// Returns the unique id assigned to the agent.
-    pub async fn spawn_agent(
-        &self,
-        name: impl Into<String>,
-        role: AgentRole,
-        cli_type: CliType,
-    ) -> Result<Uuid> {
+    pub async fn spawn_agent(&self, name: impl Into<String>, role: AgentRole) -> Result<Uuid> {
         let name = name.into();
         let id = Uuid::new_v4();
         let mut sm = AgentStateMachine::new();
@@ -112,7 +105,6 @@ impl AgentSupervisor {
             id,
             name: name.clone(),
             role: role.clone(),
-            cli_type,
             sm,
             lifecycle,
             last_seen: Utc::now(),

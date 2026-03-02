@@ -1,8 +1,5 @@
-use std::sync::Arc;
-
 use at_bridge::event_bus::EventBus;
 use at_bridge::protocol::{BridgeMessage, EventPayload};
-use at_core::cache::CacheDb;
 use at_core::types::{Task, TaskLogType, TaskPhase};
 use chrono::Utc;
 use thiserror::Error;
@@ -40,13 +37,11 @@ pub type Result<T> = std::result::Result<T, OrchestratorError>;
 // ---------------------------------------------------------------------------
 
 /// High-level orchestrator that ties together the agent executor,
-/// worktree manager, cache, and event bus to drive tasks through
+/// worktree manager, and event bus to drive tasks through
 /// the full pipeline.
 pub struct TaskOrchestrator {
     executor: AgentExecutor,
     worktree_manager: WorktreeManager,
-    #[allow(dead_code)]
-    cache: Arc<CacheDb>,
     event_bus: EventBus,
 }
 
@@ -55,13 +50,11 @@ impl TaskOrchestrator {
     pub fn new(
         executor: AgentExecutor,
         worktree_manager: WorktreeManager,
-        cache: Arc<CacheDb>,
         event_bus: EventBus,
     ) -> Self {
         Self {
             executor,
             worktree_manager,
-            cache,
             event_bus,
         }
     }
@@ -460,7 +453,7 @@ mod tests {
     use at_agents::executor::{PtySpawner, SpawnedProcess};
     use at_core::types::*;
     use at_core::worktree_manager::{GitOutput, GitRunner};
-    use std::sync::Mutex;
+    use std::sync::{Arc, Mutex};
 
     // -- Mock PtySpawner --
     struct MockSpawner {
@@ -549,16 +542,15 @@ mod tests {
         git_responses: Vec<GitOutput>,
     ) -> TaskOrchestrator {
         let bus = EventBus::new();
-        let cache = Arc::new(CacheDb::new_in_memory().await.unwrap());
         let spawner: Arc<dyn PtySpawner> = Arc::new(MockSpawner::new(spawner_output));
-        let executor = AgentExecutor::with_spawner(spawner, bus.clone(), cache.clone());
+        let executor = AgentExecutor::with_spawner(spawner, bus.clone());
 
         let tmp = std::env::temp_dir().join(format!("at-orch-test-{}", Uuid::new_v4()));
         let _ = std::fs::create_dir_all(&tmp);
         let git = Box::new(MockGit::new(git_responses));
-        let worktree_manager = WorktreeManager::with_git_runner(tmp, cache.clone(), git);
+        let worktree_manager = WorktreeManager::with_git_runner(tmp, git);
 
-        TaskOrchestrator::new(executor, worktree_manager, cache, bus)
+        TaskOrchestrator::new(executor, worktree_manager, bus)
     }
 
     #[tokio::test]
@@ -636,10 +628,9 @@ mod tests {
     async fn start_task_publishes_events() {
         let bus = EventBus::new();
         let rx = bus.subscribe();
-        let cache = Arc::new(CacheDb::new_in_memory().await.unwrap());
 
         let spawner: Arc<dyn PtySpawner> = Arc::new(MockSpawner::new(b"output\n".to_vec()));
-        let executor = AgentExecutor::with_spawner(spawner, bus.clone(), cache.clone());
+        let executor = AgentExecutor::with_spawner(spawner, bus.clone());
 
         let tmp = std::env::temp_dir().join(format!("at-orch-evt-{}", Uuid::new_v4()));
         let _ = std::fs::create_dir_all(&tmp);
@@ -660,9 +651,9 @@ mod tests {
                 stderr: String::new(),
             },
         ]));
-        let worktree_manager = WorktreeManager::with_git_runner(tmp, cache.clone(), git);
+        let worktree_manager = WorktreeManager::with_git_runner(tmp, git);
 
-        let orchestrator = TaskOrchestrator::new(executor, worktree_manager, cache, bus);
+        let orchestrator = TaskOrchestrator::new(executor, worktree_manager, bus);
 
         let mut task = make_test_task();
         let _ = orchestrator.start_task(&mut task).await;
