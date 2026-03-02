@@ -5,6 +5,7 @@ edition.workspace = true
 publish = false
 
 [dependencies]
+at-api-types = { path = "../at-api-types" }
 at-core = { path = "../at-core" }
 at-harness = { path = "../at-harness" }
 at-integrations = { path = "../at-integrations" }

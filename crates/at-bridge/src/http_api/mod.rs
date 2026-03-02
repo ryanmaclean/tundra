@@ -35,6 +35,14 @@ mod worktrees;
 pub use state::ApiState;
 pub use types::*;
 
+// ---- Shared API types -----------------------------------------------------
+//
+// Re-export at-api-types to provide a single source of truth for API contracts.
+// The backend uses at_core::types internally but serializes to JSON that matches
+// these Api* type structures. Frontend clients (leptos-ui, at-tui) use these
+// types for deserializing responses and constructing requests.
+pub use at_api_types;
+
 // Re-export items used by intelligence_api.rs
 pub(crate) use kanban::simulate_planning_poker_for_bead;
 

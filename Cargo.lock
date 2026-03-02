@@ -202,11 +202,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "at-api-types"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
+ "uuid",
+]
+
+[[package]]
 name = "at-bridge"
 version = "0.1.0"
 dependencies = [
  "ahash",
  "async-trait",
+ "at-api-types",
  "at-core",
  "at-harness",
  "at-integrations",
@@ -430,6 +441,7 @@ name = "at-tui"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "at-api-types",
  "at-core",
  "at-telemetry",
  "chrono",
