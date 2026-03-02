@@ -196,6 +196,296 @@ async fn test_delete_bead() {
 }
 
 #[tokio::test]
+async fn test_list_beads_filter_by_status() {
+    let (base, _state) = start_test_server().await;
+    let client = reqwest::Client::new();
+
+    // Create multiple beads
+    let resp1 = client
+        .post(format!("{base}/api/beads"))
+        .json(&serde_json::json!({ "title": "Bead 1" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp1.status(), 201);
+    let bead1: Value = resp1.json().await.unwrap();
+    let id1 = bead1["id"].as_str().unwrap();
+
+    let resp2 = client
+        .post(format!("{base}/api/beads"))
+        .json(&serde_json::json!({ "title": "Bead 2" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp2.status(), 201);
+    let bead2: Value = resp2.json().await.unwrap();
+    let id2 = bead2["id"].as_str().unwrap();
+
+    let resp3 = client
+        .post(format!("{base}/api/beads"))
+        .json(&serde_json::json!({ "title": "Bead 3" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp3.status(), 201);
+
+    // Update some beads to different statuses
+    client
+        .post(format!("{base}/api/beads/{id1}/status"))
+        .json(&serde_json::json!({ "status": "hooked" }))
+        .send()
+        .await
+        .unwrap();
+
+    client
+        .post(format!("{base}/api/beads/{id2}/status"))
+        .json(&serde_json::json!({ "status": "hooked" }))
+        .send()
+        .await
+        .unwrap();
+
+    // Filter by backlog status
+    let resp = reqwest::get(format!("{base}/api/beads?status=backlog"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let beads: Vec<Value> = resp.json().await.unwrap();
+    assert_eq!(beads.len(), 1);
+    assert_eq!(beads[0]["status"], "backlog");
+
+    // Filter by hooked status
+    let resp = reqwest::get(format!("{base}/api/beads?status=hooked"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let beads: Vec<Value> = resp.json().await.unwrap();
+    assert_eq!(beads.len(), 2);
+    assert_eq!(beads[0]["status"], "hooked");
+    assert_eq!(beads[1]["status"], "hooked");
+}
+
+#[tokio::test]
+async fn test_list_beads_pagination() {
+    let (base, _state) = start_test_server().await;
+    let client = reqwest::Client::new();
+
+    // Create 10 beads
+    for i in 0..10 {
+        let resp = client
+            .post(format!("{base}/api/beads"))
+            .json(&serde_json::json!({
+                "title": format!("Bead {}", i),
+                "description": format!("Description {}", i)
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 201);
+    }
+
+    // Test first page: limit=3, offset=0
+    let resp = reqwest::get(format!("{base}/api/beads?limit=3&offset=0"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let page1: Vec<Value> = resp.json().await.unwrap();
+    assert_eq!(page1.len(), 3);
+
+    // Test second page: limit=3, offset=3
+    let resp = reqwest::get(format!("{base}/api/beads?limit=3&offset=3"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let page2: Vec<Value> = resp.json().await.unwrap();
+    assert_eq!(page2.len(), 3);
+
+    // Verify pages contain different beads (no overlap)
+    let page1_ids: Vec<String> = page1
+        .iter()
+        .map(|b| b["id"].as_str().unwrap().to_string())
+        .collect();
+    let page2_ids: Vec<String> = page2
+        .iter()
+        .map(|b| b["id"].as_str().unwrap().to_string())
+        .collect();
+    for id in &page1_ids {
+        assert!(!page2_ids.contains(id), "Pages should not overlap");
+    }
+
+    // Test offset and limit with different values
+    let resp = reqwest::get(format!("{base}/api/beads?limit=5&offset=2"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let page3: Vec<Value> = resp.json().await.unwrap();
+    assert_eq!(page3.len(), 5);
+
+    // Test offset beyond count -> empty
+    let resp = reqwest::get(format!("{base}/api/beads?limit=10&offset=100"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let empty: Vec<Value> = resp.json().await.unwrap();
+    assert!(empty.is_empty());
+}
+
+#[tokio::test]
+async fn test_list_beads_pagination_with_status_filter() {
+    let (base, _state) = start_test_server().await;
+    let client = reqwest::Client::new();
+
+    // Create 10 beads
+    let mut bead_ids = Vec::new();
+    for i in 0..10 {
+        let resp = client
+            .post(format!("{base}/api/beads"))
+            .json(&serde_json::json!({
+                "title": format!("Bead {}", i),
+                "description": format!("Description {}", i)
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 201);
+        let bead: Value = resp.json().await.unwrap();
+        bead_ids.push(bead["id"].as_str().unwrap().to_string());
+    }
+
+    // Update first 6 beads to "hooked" status, leaving last 4 as "backlog"
+    for id in bead_ids.iter().take(6) {
+        client
+            .post(format!("{base}/api/beads/{id}/status"))
+            .json(&serde_json::json!({ "status": "hooked" }))
+            .send()
+            .await
+            .unwrap();
+    }
+
+    // Test pagination with status filter: hooked status, first page
+    let resp = reqwest::get(format!("{base}/api/beads?status=hooked&limit=3&offset=0"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let page1: Vec<Value> = resp.json().await.unwrap();
+    assert_eq!(page1.len(), 3);
+    for bead in &page1 {
+        assert_eq!(bead["status"], "hooked");
+    }
+
+    // Test pagination with status filter: hooked status, second page
+    let resp = reqwest::get(format!("{base}/api/beads?status=hooked&limit=3&offset=3"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let page2: Vec<Value> = resp.json().await.unwrap();
+    assert_eq!(page2.len(), 3);
+    for bead in &page2 {
+        assert_eq!(bead["status"], "hooked");
+    }
+
+    // Verify pages contain different beads (no overlap)
+    let page1_ids: Vec<String> = page1
+        .iter()
+        .map(|b| b["id"].as_str().unwrap().to_string())
+        .collect();
+    let page2_ids: Vec<String> = page2
+        .iter()
+        .map(|b| b["id"].as_str().unwrap().to_string())
+        .collect();
+    for id in &page1_ids {
+        assert!(!page2_ids.contains(id), "Pages should not overlap");
+    }
+
+    // Test pagination with status filter: backlog status
+    let resp = reqwest::get(format!("{base}/api/beads?status=backlog&limit=2&offset=0"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let backlog_page: Vec<Value> = resp.json().await.unwrap();
+    assert_eq!(backlog_page.len(), 2);
+    for bead in &backlog_page {
+        assert_eq!(bead["status"], "backlog");
+    }
+
+    // Test pagination with status filter: offset beyond filtered count
+    let resp = reqwest::get(format!(
+        "{base}/api/beads?status=backlog&limit=10&offset=100"
+    ))
+    .await
+    .unwrap();
+    assert_eq!(resp.status(), 200);
+    let empty: Vec<Value> = resp.json().await.unwrap();
+    assert!(empty.is_empty());
+
+    // Verify total counts: 6 hooked + 4 backlog = 10 total
+    let resp = reqwest::get(format!("{base}/api/beads?status=hooked"))
+        .await
+        .unwrap();
+    let all_hooked: Vec<Value> = resp.json().await.unwrap();
+    assert_eq!(all_hooked.len(), 6);
+
+    let resp = reqwest::get(format!("{base}/api/beads?status=backlog"))
+        .await
+        .unwrap();
+    let all_backlog: Vec<Value> = resp.json().await.unwrap();
+    assert_eq!(all_backlog.len(), 4);
+}
+
+#[tokio::test]
+async fn test_pagination_defaults() {
+    let (base, state) = start_test_server().await;
+    let client = reqwest::Client::new();
+
+    // Create 60 beads (more than the default limit of 50)
+    for i in 0..60 {
+        let resp = client
+            .post(format!("{base}/api/beads"))
+            .json(&serde_json::json!({
+                "title": format!("Bead {}", i),
+                "description": format!("Description {}", i)
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 201);
+    }
+
+    // Test beads endpoint without pagination parameters
+    // Should return default limit of 50 beads
+    let resp = reqwest::get(format!("{base}/api/beads")).await.unwrap();
+    assert_eq!(resp.status(), 200);
+    let beads: Vec<Value> = resp.json().await.unwrap();
+    assert_eq!(beads.len(), 50, "Default limit should be 50");
+
+    // Create 60 agents (more than the default limit of 50)
+    use at_core::types::{Agent, AgentRole, AgentStatus, CliType};
+    for i in 0..60 {
+        let agent = Agent {
+            id: uuid::Uuid::new_v4(),
+            name: format!("agent-{}", i),
+            role: AgentRole::Coder,
+            cli_type: CliType::Claude,
+            model: Some("claude-sonnet-4".to_string()),
+            status: AgentStatus::Active,
+            rig: Some("test-rig".to_string()),
+            pid: Some(1000 + i),
+            session_id: Some(format!("session-{}", i)),
+            created_at: chrono::Utc::now(),
+            last_seen: chrono::Utc::now(),
+            metadata: None,
+        };
+        state.agents.write().await.insert(agent.id, agent);
+    }
+
+    // Test agents endpoint without pagination parameters
+    // Should return default limit of 50 agents
+    let resp = reqwest::get(format!("{base}/api/agents")).await.unwrap();
+    assert_eq!(resp.status(), 200);
+    let agents: Vec<Value> = resp.json().await.unwrap();
+    assert_eq!(agents.len(), 50, "Default limit should be 50");
+}
+
+#[tokio::test]
 async fn test_list_agents_empty() {
     let (base, _state) = start_test_server().await;
 
@@ -204,6 +494,67 @@ async fn test_list_agents_empty() {
 
     let body: Vec<Value> = resp.json().await.unwrap();
     assert!(body.is_empty());
+}
+
+#[tokio::test]
+async fn test_list_agents_pagination() {
+    let (base, state) = start_test_server().await;
+
+    // Create 10 agents
+    for i in 0..10 {
+        let agent = at_core::types::Agent::new(
+            &format!("agent-{}", i),
+            at_core::types::AgentRole::Crew,
+            at_core::types::CliType::Claude,
+        );
+        let mut agents = state.agents.write().await;
+        agents.insert(agent.id, agent);
+    }
+
+    // Test first page: limit=3, offset=0
+    let resp = reqwest::get(format!("{base}/api/agents?limit=3&offset=0"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let page1: Vec<Value> = resp.json().await.unwrap();
+    assert_eq!(page1.len(), 3);
+
+    // Test second page: limit=3, offset=3
+    let resp = reqwest::get(format!("{base}/api/agents?limit=3&offset=3"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let page2: Vec<Value> = resp.json().await.unwrap();
+    assert_eq!(page2.len(), 3);
+
+    // Verify pages contain different agents (no overlap)
+    let page1_ids: Vec<String> = page1
+        .iter()
+        .map(|a| a["id"].as_str().unwrap().to_string())
+        .collect();
+    let page2_ids: Vec<String> = page2
+        .iter()
+        .map(|a| a["id"].as_str().unwrap().to_string())
+        .collect();
+    for id in &page1_ids {
+        assert!(!page2_ids.contains(id), "Pages should not overlap");
+    }
+
+    // Test offset and limit with different values
+    let resp = reqwest::get(format!("{base}/api/agents?limit=5&offset=2"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let page3: Vec<Value> = resp.json().await.unwrap();
+    assert_eq!(page3.len(), 5);
+
+    // Test offset beyond count -> empty
+    let resp = reqwest::get(format!("{base}/api/agents?limit=10&offset=100"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let empty: Vec<Value> = resp.json().await.unwrap();
+    assert!(empty.is_empty());
 }
 
 #[tokio::test]
