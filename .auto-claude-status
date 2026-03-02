@@ -1,25 +1,25 @@
 {
   "active": true,
-  "spec": "042-apply-inputsanitizer-to-api-request-text-fields-fo",
-  "state": "building",
+  "spec": "018-fix-unbounded-in-memory-growth-in-tasks-build-logs",
+  "state": "complete",
   "subtasks": {
-    "completed": 8,
-    "total": 9,
-    "in_progress": 1,
+    "completed": 17,
+    "total": 17,
+    "in_progress": 0,
     "failed": 0
   },
   "phase": {
-    "current": "Integration Testing",
+    "current": "Integration Testing & Verification",
     "id": null,
-    "total": 2
+    "total": 3
   },
   "workers": {
     "active": 0,
     "max": 1
   },
   "session": {
-    "number": 11,
-    "started_at": "2026-02-27T17:49:37.048358"
+    "number": 18,
+    "started_at": "2026-02-28T22:31:12.049371"
   },
-  "last_update": "2026-02-27T18:22:48.975532"
+  "last_update": "2026-02-28T23:40:54.347599"
 }
