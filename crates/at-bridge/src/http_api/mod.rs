@@ -340,7 +340,8 @@ mod router {
             )
             .route(
                 "/api/notifications/{id}/read",
-                post(notifications::mark_notification_read).layer(DefaultBodyLimit::max(256 * 1024)),
+                post(notifications::mark_notification_read)
+                    .layer(DefaultBodyLimit::max(256 * 1024)),
             )
             .route(
                 "/api/notifications/read-all",

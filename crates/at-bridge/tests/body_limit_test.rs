@@ -286,15 +286,11 @@ async fn test_get_requests_not_affected() {
     let (base, _state) = start_test_server().await;
 
     // GET requests should not be affected by body limits
-    let resp = reqwest::get(format!("{base}/api/status"))
-        .await
-        .unwrap();
+    let resp = reqwest::get(format!("{base}/api/status")).await.unwrap();
 
     assert_eq!(resp.status(), 200);
 
-    let resp = reqwest::get(format!("{base}/api/beads"))
-        .await
-        .unwrap();
+    let resp = reqwest::get(format!("{base}/api/beads")).await.unwrap();
 
     assert_eq!(resp.status(), 200);
 }
@@ -347,10 +343,12 @@ async fn test_dos_prevention() {
     }
 
     // Verify the server is still responsive after the "attack"
-    let resp = reqwest::get(format!("{base}/api/status"))
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), 200, "Server should still respond after DOS attempt");
+    let resp = reqwest::get(format!("{base}/api/status")).await.unwrap();
+    assert_eq!(
+        resp.status(),
+        200,
+        "Server should still respond after DOS attempt"
+    );
 
     // Verify legitimate requests still work
     let resp = client
@@ -363,7 +361,11 @@ async fn test_dos_prevention() {
         .await
         .unwrap();
 
-    assert_eq!(resp.status(), 201, "Server should accept legitimate requests after DOS attempt");
+    assert_eq!(
+        resp.status(),
+        201,
+        "Server should accept legitimate requests after DOS attempt"
+    );
     let created: serde_json::Value = resp.json().await.unwrap();
     assert!(created["id"].is_string());
     assert_eq!(created["title"], "Post-DOS test");
