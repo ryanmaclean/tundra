@@ -23,20 +23,65 @@ use crate::profiles::AgentConfig;
 // Errors
 // ---------------------------------------------------------------------------
 
+/// Errors that can occur during task pipeline orchestration.
+///
+/// The orchestrator manages the coding → QA → fix loop, coordinating agent
+/// execution, QA validation, and iterative fixes. These errors represent
+/// failures in pipeline execution, phase transitions, or resource availability.
 #[derive(Debug, Error)]
 pub enum PipelineError {
+    /// An error occurred in the underlying agent executor.
+    ///
+    /// This wraps [`crate::executor::ExecutorError`] from the agent executor
+    /// and indicates failures such as:
+    /// - PTY pool errors
+    /// - Process crashes or timeouts
+    /// - Output parsing failures
+    ///
+    /// The error is automatically converted from [`crate::executor::ExecutorError`]
+    /// via the `#[from]` attribute.
     #[error("executor error: {0}")]
     Executor(#[from] crate::executor::ExecutorError),
+
+    /// QA validation failed and all fix attempts were exhausted.
+    ///
+    /// The orchestrator iteratively runs QA checks and spawns fix agents when
+    /// validation fails. This error occurs when the maximum number of fix
+    /// iterations is reached without QA passing. The contained value indicates
+    /// how many fix iterations were attempted.
     #[error("qa failed after {0} fix iterations")]
     QaExhausted(usize),
+
+    /// The task does not have a worktree path assigned.
+    ///
+    /// Tasks must have an isolated git worktree for safe execution. This error
+    /// occurs when attempting to execute a task that lacks a worktree path,
+    /// indicating incomplete task initialization.
     #[error("task has no worktree path")]
     NoWorktree,
+
+    /// The task is in an invalid phase for pipeline execution.
+    ///
+    /// The pipeline expects tasks to be in specific phases (e.g., Coding, QA).
+    /// This error occurs when attempting to run pipeline operations on a task
+    /// in an incompatible phase such as Complete, Error, or Stopped.
     #[error("task is in invalid phase for pipeline: {0:?}")]
     InvalidPhase(TaskPhase),
+
+    /// An internal pipeline error occurred.
+    ///
+    /// This is a catch-all for unexpected failures during orchestration, such
+    /// as invariant violations or resource exhaustion. The contained string
+    /// provides error details.
     #[error("internal error: {0}")]
     Internal(String),
 }
 
+/// Result type for pipeline operations.
+///
+/// Alias for `std::result::Result<T, PipelineError>` used throughout
+/// the orchestrator module to indicate operations that may fail with a
+/// [`PipelineError`].
 pub type Result<T> = std::result::Result<T, PipelineError>;
 
 // ---------------------------------------------------------------------------

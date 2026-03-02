@@ -11,30 +11,106 @@ use crate::protocol::BridgeMessage;
 // Transport errors
 // ---------------------------------------------------------------------------
 
+/// Errors that can occur during transport operations.
+///
+/// Transport errors represent failures in the communication layer between
+/// frontend and backend components. They cover connection lifecycle issues,
+/// message transmission failures, and protocol-level problems.
+///
+/// # Examples
+///
+/// ```rust,ignore
+/// use at_bridge::transport::{ProxyTransport, TransportError};
+///
+/// async fn send_message(transport: &impl ProxyTransport) -> Result<(), TransportError> {
+///     match transport.send(msg).await {
+///         Err(TransportError::NotConnected) => {
+///             eprintln!("Transport not connected, attempting reconnect");
+///             Err(TransportError::NotConnected)
+///         }
+///         Err(TransportError::Timeout(ms)) => {
+///             eprintln!("Timeout after {}ms", ms);
+///             Err(TransportError::Timeout(ms))
+///         }
+///         Err(e) => Err(e),
+///         Ok(()) => Ok(()),
+///     }
+/// }
+/// ```
 #[derive(Debug, thiserror::Error)]
 pub enum TransportError {
+    /// The connection was closed unexpectedly.
+    ///
+    /// This occurs when the transport connection is terminated before message
+    /// transmission completes, either due to the remote side closing the connection
+    /// or network failures.
     #[error("connection closed")]
     ConnectionClosed,
 
+    /// Failed to send a message through the transport.
+    ///
+    /// This occurs when message transmission fails due to:
+    /// - Network errors
+    /// - Channel send failures (in-process transport)
+    /// - WebSocket write errors
+    /// - I/O errors
+    ///
+    /// The contained string provides error details.
     #[error("send failed: {0}")]
     SendFailed(String),
 
+    /// Failed to receive a message from the transport.
+    ///
+    /// This occurs when message reception fails due to:
+    /// - Network errors
+    /// - Channel receive failures (in-process transport)
+    /// - WebSocket read errors
+    /// - I/O errors
+    ///
+    /// The contained string provides error details.
     #[error("receive failed: {0}")]
     ReceiveFailed(String),
 
+    /// Message serialization or deserialization failed.
+    ///
+    /// This occurs when converting messages to/from their wire format fails,
+    /// typically due to:
+    /// - Invalid JSON
+    /// - Protocol version mismatches
+    /// - Corrupted message data
+    ///
+    /// The contained string provides error details.
     #[error("serialization error: {0}")]
     Serialization(String),
 
+    /// Attempted to use transport before establishing a connection.
+    ///
+    /// This occurs when trying to send or receive messages through a transport
+    /// that is in the `Disconnected` or `Failed` state. Call `connect()` first
+    /// to establish a connection.
     #[error("transport not connected")]
     NotConnected,
 
+    /// Attempted to connect an already-connected transport.
+    ///
+    /// This occurs when calling `connect()` on a transport that is already in
+    /// the `Connected` state. Disconnect first if you need to reconnect.
     #[error("transport already connected")]
     AlreadyConnected,
 
+    /// The operation timed out.
+    ///
+    /// This occurs when a transport operation (send, receive, connect) takes
+    /// longer than the configured timeout. The contained value is the timeout
+    /// duration in milliseconds.
     #[error("timeout after {0}ms")]
     Timeout(u64),
 }
 
+/// Result type for transport operations.
+///
+/// This is a convenience alias for `std::result::Result<T, TransportError>` used
+/// throughout the transport layer.
 pub type Result<T> = std::result::Result<T, TransportError>;
 
 // ---------------------------------------------------------------------------

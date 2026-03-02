@@ -15,18 +15,59 @@ use crate::worktree::{WorktreeError, WorktreeInfo};
 // Errors
 // ---------------------------------------------------------------------------
 
+/// Errors that can occur in high-level worktree management operations.
+///
+/// This enum wraps lower-level [`WorktreeError`]s and adds task-specific
+/// error conditions for operations like creating worktrees for tasks,
+/// merging branches, and cleaning up stale worktrees.
 #[derive(Debug, Error)]
 pub enum WorktreeManagerError {
+    /// An error occurred in the underlying worktree operations.
+    ///
+    /// This wraps errors from the lower-level `WorktreeManager` implementation,
+    /// such as:
+    /// - Worktree creation failures
+    /// - Worktree deletion failures
+    /// - Git worktree command errors
     #[error("worktree error: {0}")]
     Worktree(#[from] WorktreeError),
+
+    /// A git command executed by the manager failed.
+    ///
+    /// This typically occurs when:
+    /// - Git binary is not installed or not in PATH
+    /// - Git merge/rebase operations fail
+    /// - Branch operations encounter errors
+    /// - The git command returned a non-zero exit code
     #[error("git command failed: {0}")]
     GitCommand(String),
+
+    /// Failed to read from or write to the filesystem during manager operations.
+    ///
+    /// This typically occurs when:
+    /// - Worktree directory is inaccessible
+    /// - Insufficient file permissions
+    /// - Disk I/O errors
+    /// - Failed to create directories
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
+
+    /// No worktree exists for the specified task.
+    ///
+    /// This occurs when:
+    /// - Attempting to operate on a worktree that hasn't been created
+    /// - The task ID doesn't map to any existing worktree
+    /// - The worktree was manually deleted
+    ///
+    /// The task name or ID is included in the error message.
     #[error("worktree not found for task: {0}")]
     NotFound(String),
 }
 
+/// Result type alias for worktree manager operations.
+///
+/// Equivalent to `std::result::Result<T, WorktreeManagerError>`. Used
+/// throughout the high-level worktree management API for consistent error handling.
 pub type Result<T> = std::result::Result<T, WorktreeManagerError>;
 
 // ---------------------------------------------------------------------------

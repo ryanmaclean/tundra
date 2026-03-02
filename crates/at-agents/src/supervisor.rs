@@ -14,21 +14,60 @@ use crate::state_machine::{AgentEvent, AgentState, AgentStateMachine};
 // Error
 // ---------------------------------------------------------------------------
 
+/// Errors that can occur during agent supervision and lifecycle management.
+///
+/// The supervisor orchestrates multiple agents, managing their state transitions,
+/// lifecycle hooks, and recovery from failures. These errors represent failures
+/// in agent spawning, state management, lifecycle operations, or general
+/// supervision tasks.
 #[derive(Debug, thiserror::Error)]
 pub enum SupervisorError {
+    /// The requested agent ID does not exist in the supervisor.
+    ///
+    /// This occurs when:
+    /// - The agent ID is invalid or was never spawned
+    /// - The agent has been stopped and removed from the supervisor
+    ///
+    /// The contained [`Uuid`] is the agent ID that was not found.
     #[error("agent not found: {0}")]
     AgentNotFound(Uuid),
 
+    /// An error occurred during agent state transition.
+    ///
+    /// This wraps [`crate::state_machine::StateMachineError`] from the underlying
+    /// state machine and indicates an invalid state transition was attempted
+    /// (e.g., pausing an agent that is already stopped).
+    ///
+    /// The error is automatically converted from
+    /// [`crate::state_machine::StateMachineError`] via the `#[from]` attribute.
     #[error("state machine error: {0}")]
     StateMachine(#[from] crate::state_machine::StateMachineError),
 
+    /// An error occurred during agent lifecycle hook execution.
+    ///
+    /// This wraps [`crate::lifecycle::LifecycleError`] from the agent lifecycle
+    /// system and indicates a failure during `on_start()`, `on_stop()`,
+    /// `on_heartbeat()`, or other lifecycle callbacks.
+    ///
+    /// The error is automatically converted from [`crate::lifecycle::LifecycleError`]
+    /// via the `#[from]` attribute.
     #[error("lifecycle error: {0}")]
     Lifecycle(#[from] crate::lifecycle::LifecycleError),
 
+    /// A general supervisor error occurred.
+    ///
+    /// This is a catch-all for supervision failures that don't fit other
+    /// categories, such as internal consistency errors or unexpected conditions.
+    /// The contained string provides error details.
     #[error("supervisor error: {0}")]
     General(String),
 }
 
+/// Result type for supervisor operations.
+///
+/// Alias for `std::result::Result<T, SupervisorError>` used throughout
+/// the supervisor module to indicate operations that may fail with a
+/// [`SupervisorError`].
 pub type Result<T> = std::result::Result<T, SupervisorError>;
 
 // ---------------------------------------------------------------------------

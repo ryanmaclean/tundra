@@ -5,30 +5,78 @@ use std::path::{Path, PathBuf};
 // Errors
 // ---------------------------------------------------------------------------
 
+/// Errors that can occur when working with git repositories.
+///
+/// This enum covers repository discovery, path validation, git operations,
+/// and async job execution. It is used by [`RepoPath`], [`AsyncGitJob`],
+/// and related repository management types.
 #[derive(Debug, thiserror::Error)]
 pub enum RepoError {
+    /// A git command returned a non-zero exit code.
+    ///
+    /// This typically occurs when:
+    /// - Git binary is not installed or not in PATH
+    /// - The git command encountered an error (stderr is captured)
+    /// - Invalid arguments were passed to the git command
     #[error("git command failed: {0}")]
     GitCommand(String),
 
+    /// The specified path is not a valid git repository.
+    ///
+    /// This occurs when:
+    /// - The directory doesn't contain a `.git` folder
+    /// - The path is not inside a git repository
+    /// - Repository discovery failed
     #[error("not a git repository: {0}")]
     NotARepo(String),
 
+    /// The specified path does not exist on the filesystem.
+    ///
+    /// This typically occurs when:
+    /// - The repository or worktree path is invalid
+    /// - The directory has been deleted
+    /// - The path was mistyped or incorrectly constructed
     #[error("path not found: {0}")]
     PathNotFound(String),
 
+    /// The repository path has inconsistent gitdir and workdir.
+    ///
+    /// This internal error indicates a logic bug where the gitdir
+    /// and workdir don't match the expected relationship for the
+    /// repository type (normal repo, worktree, or bare repo).
     #[error("invalid repo path: gitdir and workdir mismatch")]
     InvalidRepoPath,
 
+    /// Failed to read from or write to the filesystem during repository operations.
+    ///
+    /// This typically occurs when:
+    /// - Repository directory is inaccessible
+    /// - Insufficient file permissions
+    /// - Disk I/O errors
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
 
+    /// An async git job was cancelled before completion.
+    ///
+    /// This occurs when:
+    /// - The job's cancel method was called
+    /// - The job handle was dropped before completion
+    /// - A timeout or shutdown signal was received
     #[error("job cancelled")]
     Cancelled,
 
+    /// An async git job failed to execute successfully.
+    ///
+    /// This wraps the underlying failure reason from the job,
+    /// including git command errors, I/O failures, or execution issues.
     #[error("job failed: {0}")]
     JobFailed(String),
 }
 
+/// Result type alias for repository operations.
+///
+/// Equivalent to `std::result::Result<T, RepoError>`. Used throughout
+/// the repository management API for consistent error handling.
 pub type Result<T> = std::result::Result<T, RepoError>;
 
 // ---------------------------------------------------------------------------

@@ -8,21 +8,51 @@ use thiserror::Error;
 // Error type
 // ---------------------------------------------------------------------------
 
+/// Errors that can occur when interacting with the Linear GraphQL API.
+///
+/// This enum represents failures that may happen during Linear client
+/// operations, including GraphQL errors, authentication failures, and network issues.
 #[derive(Debug, Error)]
 pub enum LinearError {
+    /// The Linear API returned an error response.
+    ///
+    /// This includes GraphQL errors, invalid queries, authorization failures,
+    /// and resource-not-found errors. The contained string provides details
+    /// about the failure, typically including the GraphQL error message(s)
+    /// returned by the Linear API.
     #[error("Linear API error: {0}")]
     Api(String),
 
+    /// Linear API key was not provided.
+    ///
+    /// This occurs when attempting to create a client without a valid
+    /// API key. Provide a key via [`LinearClient::new`]. Linear API keys
+    /// typically start with `lin_api_` and can be generated from the
+    /// Linear settings page.
     #[error("missing Linear API key")]
     MissingApiKey,
 
+    /// Failed to serialize or deserialize JSON data.
+    ///
+    /// This may occur when parsing Linear GraphQL responses or constructing
+    /// request bodies for queries and mutations. Since Linear uses GraphQL,
+    /// this typically involves nested JSON structures.
     #[error("serialization error: {0}")]
     Serde(#[from] serde_json::Error),
 
+    /// An HTTP-level error occurred.
+    ///
+    /// This includes network failures, connection errors, DNS resolution
+    /// failures, and other transport-layer issues when communicating with
+    /// the Linear GraphQL API endpoint.
     #[error("HTTP error: {0}")]
     Http(#[from] reqwest::Error),
 }
 
+/// Result type alias for Linear operations.
+///
+/// This is a convenience alias for `Result<T, LinearError>` used throughout
+/// the Linear client implementation.
 pub type Result<T> = std::result::Result<T, LinearError>;
 
 // ---------------------------------------------------------------------------

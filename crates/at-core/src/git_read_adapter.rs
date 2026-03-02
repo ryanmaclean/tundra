@@ -1,12 +1,35 @@
 use thiserror::Error;
 
-/// Error returned by git read adapters.
+/// Errors that can occur when performing read-only git operations.
+///
+/// These errors are returned by implementations of [`GitReadAdapter`] and
+/// cover both low-level I/O failures and git-specific command errors.
 #[derive(Debug, Error)]
 pub enum GitReadError {
+    /// A git command returned a non-zero exit code.
+    ///
+    /// This typically occurs when:
+    /// - The repository path is invalid or not a git repository
+    /// - The requested branch or ref doesn't exist
+    /// - Git binary is not installed or not in PATH
+    /// - Git command encountered an error (stderr is captured in the message)
     #[error("git command failed: {0}")]
     Command(String),
+
+    /// Failed to read from or write to the filesystem during git operations.
+    ///
+    /// This typically occurs when:
+    /// - Repository directory is inaccessible
+    /// - Insufficient file permissions
+    /// - Disk I/O errors
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
+
+    /// Git command output contained invalid UTF-8.
+    ///
+    /// This is rare but can occur if:
+    /// - File paths in the repository use non-UTF-8 encoding
+    /// - Git binary produces unexpected output
     #[error("utf8 error: {0}")]
     Utf8(#[from] std::string::FromUtf8Error),
 }

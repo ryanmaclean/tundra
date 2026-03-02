@@ -11,16 +11,54 @@ use crate::roles::RoleConfig;
 // Error
 // ---------------------------------------------------------------------------
 
+/// Errors that can occur when managing the agent and skill registry.
+///
+/// The registry dynamically loads agents and skills from markdown files in the
+/// project directory (`.claude/agents/*.md` and `.claude/skills/*/SKILL.md`).
+/// These errors represent failures in registration, lookup, or file I/O operations.
 #[derive(Debug, thiserror::Error)]
 pub enum RegistryError {
+    /// The requested agent name does not exist in the registry.
+    ///
+    /// This occurs when attempting to retrieve an agent by name that was
+    /// never registered or has been removed. The contained string is the
+    /// agent name that was not found.
     #[error("agent not found: `{0}`")]
     AgentNotFound(String),
+
+    /// The requested skill name does not exist in the registry.
+    ///
+    /// This occurs when attempting to retrieve a skill by name that was
+    /// never registered or has been removed. The contained string is the
+    /// skill name that was not found.
     #[error("skill not found: `{0}`")]
     SkillNotFound(String),
+
+    /// An agent with the same name already exists in the registry.
+    ///
+    /// Agent names must be unique within the registry. Attempting to register
+    /// a duplicate agent name will result in this error. The contained string
+    /// is the duplicate agent name.
     #[error("duplicate agent name: `{0}`")]
     DuplicateAgent(String),
+
+    /// A skill with the same name already exists in the registry.
+    ///
+    /// Skill names must be unique within the registry. Attempting to register
+    /// a duplicate skill name will result in this error. The contained string
+    /// is the duplicate skill name.
     #[error("duplicate skill name: `{0}`")]
     DuplicateSkill(String),
+
+    /// An I/O error occurred while loading agents or skills from disk.
+    ///
+    /// This wraps [`std::io::Error`] and typically indicates:
+    /// - File read failures (permission denied, file not found)
+    /// - Directory traversal errors
+    /// - Markdown parsing failures
+    ///
+    /// The error is automatically converted from [`std::io::Error`] via the
+    /// `#[from]` attribute.
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
 }

@@ -466,10 +466,73 @@ impl ComplexityAssessment {
 // Error
 // ---------------------------------------------------------------------------
 
+/// Errors that can occur during spec pipeline operations.
+///
+/// This enum provides error handling for the spec creation and validation
+/// pipeline, covering issues with spec lifecycle management and phase transitions.
+///
+/// # Examples
+///
+/// ```rust
+/// use at_intelligence::spec::{SpecPipeline, SpecError, SpecPhase, PhaseResult, PhaseStatus, PhaseMetrics};
+/// use uuid::Uuid;
+/// use chrono::Utc;
+///
+/// fn handle_spec_operations(pipeline: &mut SpecPipeline) -> Result<(), SpecError> {
+///     let spec = pipeline.create_spec("Add feature", "Description");
+///     let spec_id = spec.id;
+///
+///     // Try to record a phase result
+///     pipeline.record_phase(&spec_id, PhaseResult {
+///         id: Uuid::new_v4(),
+///         phase: SpecPhase::Discovery,
+///         status: PhaseStatus::Complete,
+///         content: "Analysis complete".to_string(),
+///         artifacts: vec![],
+///         metrics: PhaseMetrics::default(),
+///         created_at: Utc::now(),
+///     })?;
+///
+///     // Try with invalid ID - will return NotFound error
+///     let invalid_id = Uuid::new_v4();
+///     match pipeline.record_phase(&invalid_id, PhaseResult {
+///         id: Uuid::new_v4(),
+///         phase: SpecPhase::Requirements,
+///         status: PhaseStatus::Complete,
+///         content: "".to_string(),
+///         artifacts: vec![],
+///         metrics: PhaseMetrics::default(),
+///         created_at: Utc::now(),
+///     }) {
+///         Err(SpecError::NotFound(_)) => println!("Spec not found"),
+///         _ => {}
+///     }
+///
+///     Ok(())
+/// }
+/// ```
 #[derive(Debug, thiserror::Error)]
 pub enum SpecError {
+    /// The requested spec was not found.
+    ///
+    /// This occurs when:
+    /// - Attempting to retrieve a spec with an invalid ID
+    /// - The spec was deleted or never created
+    /// - Using a stale reference after removal
+    ///
+    /// The contained UUID identifies the spec that was not found.
     #[error("spec not found: {0}")]
     NotFound(Uuid),
+
+    /// An invalid phase transition was attempted.
+    ///
+    /// This occurs when:
+    /// - Trying to skip required phases in the pipeline
+    /// - Attempting to transition backward in the phase sequence
+    /// - Violating phase ordering constraints
+    ///
+    /// The `from` and `to` fields show the attempted invalid transition.
+    /// Valid transitions follow: Discovery → Requirements → Writing → Critique → Validation.
     #[error("invalid phase transition: {from:?} -> {to:?}")]
     InvalidTransition { from: SpecPhase, to: SpecPhase },
 }

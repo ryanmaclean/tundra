@@ -9,22 +9,52 @@
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
-/// Errors specific to the OAuth flow.
+/// Errors that can occur during the GitLab OAuth 2.0 flow.
+///
+/// This enum represents failures that may happen when exchanging
+/// authorization codes for tokens, refreshing tokens, or fetching
+/// user profiles via the GitLab OAuth API.
 #[derive(Debug, thiserror::Error)]
 pub enum OAuthError {
+    /// An HTTP-level error occurred.
+    ///
+    /// This includes network failures, connection errors, timeouts,
+    /// and other transport-layer issues when communicating with GitLab's
+    /// OAuth endpoints.
     #[error("HTTP request failed: {0}")]
     Http(#[from] reqwest::Error),
 
+    /// GitLab's OAuth endpoint returned an error response.
+    ///
+    /// This occurs when GitLab rejects an authorization code exchange,
+    /// token refresh, or other OAuth operation. The `error` field contains
+    /// the error code (e.g., "invalid_grant"), and `error_description`
+    /// provides additional details.
+    ///
+    /// Common error codes include:
+    /// - `invalid_grant`: The authorization code or refresh token is invalid or expired
+    /// - `invalid_client`: Client authentication failed
+    /// - `invalid_request`: Required parameters are missing or malformed
+    /// - `unauthorized_client`: The client is not authorized for this grant type
     #[error("GitLab returned an error: {error} — {error_description}")]
     GitLabError {
         error: String,
         error_description: String,
     },
 
+    /// Failed to parse GitLab's response.
+    ///
+    /// This occurs when the OAuth response body cannot be deserialized
+    /// into the expected structure, typically indicating an unexpected
+    /// response format or API change.
     #[error("failed to parse response: {0}")]
     Parse(String),
 }
 
+/// Result type alias for GitLab OAuth operations.
+///
+/// This is a convenience alias for `Result<T, OAuthError>` used throughout
+/// the GitLab OAuth client implementation.
 pub type Result<T> = std::result::Result<T, OAuthError>;
 
 /// Configuration for the GitLab OAuth application.
