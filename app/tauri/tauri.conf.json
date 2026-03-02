@@ -70,6 +70,14 @@
         "languages": ["en-US"],
         "displayLanguageSelector": false
       }
+    },
+    "linux": {
+      "deb": {
+        "depends": []
+      },
+      "appimage": {
+        "bundleMediaFramework": false
+      }
     }
   }
 }
