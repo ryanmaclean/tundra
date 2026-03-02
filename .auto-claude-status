@@ -1,11 +1,11 @@
 {
   "active": true,
   "spec": "015-standardize-css-design-tokens-usage-across-the-sty",
-  "state": "building",
+  "state": "complete",
   "subtasks": {
-    "completed": 27,
+    "completed": 28,
     "total": 28,
-    "in_progress": 1,
+    "in_progress": 0,
     "failed": 0
   },
   "phase": {
@@ -21,5 +21,5 @@
     "number": 29,
     "started_at": "2026-03-01T15:15:46.797861"
   },
-  "last_update": "2026-03-01T16:24:00.634961"
+  "last_update": "2026-03-01T16:24:38.454462"
 }
