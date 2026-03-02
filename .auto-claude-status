@@ -1,25 +1,25 @@
 {
   "active": true,
-  "spec": "022-extract-shared-api-response-types-into-a-common-cr",
+  "spec": "015-standardize-css-design-tokens-usage-across-the-sty",
   "state": "building",
   "subtasks": {
-    "completed": 18,
-    "total": 19,
+    "completed": 27,
+    "total": 28,
     "in_progress": 1,
     "failed": 0
   },
   "phase": {
-    "current": "Integration and Verification",
+    "current": "Cleanup and Documentation",
     "id": null,
-    "total": 3
+    "total": 2
   },
   "workers": {
     "active": 0,
     "max": 1
   },
   "session": {
-    "number": 20,
-    "started_at": "2026-03-01T09:55:02.686377"
+    "number": 29,
+    "started_at": "2026-03-01T15:15:46.797861"
   },
-  "last_update": "2026-03-01T10:59:43.694698"
+  "last_update": "2026-03-01T16:24:00.634961"
 }
