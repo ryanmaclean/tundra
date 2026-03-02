@@ -1,11 +1,11 @@
 {
   "active": true,
   "spec": "019-replace-blocking-filesystem-i-o-with-async-equival",
-  "state": "planning",
+  "state": "complete",
   "subtasks": {
-    "completed": 0,
-    "total": 0,
-    "in_progress": 1,
+    "completed": 3,
+    "total": 3,
+    "in_progress": 0,
     "failed": 0
   },
   "phase": {
@@ -18,8 +18,8 @@
     "max": 1
   },
   "session": {
-    "number": 2,
+    "number": 4,
     "started_at": "2026-03-01T12:21:45.497963"
   },
-  "last_update": "2026-03-01T12:25:47.911168"
+  "last_update": "2026-03-01T12:50:45.820936"
 }
