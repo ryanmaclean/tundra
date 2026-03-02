@@ -1,6 +1,6 @@
 {
   "active": true,
-  "spec": "025-remove-dead-code-profiling-old-rs-and-5-allow-dead",
+  "spec": "024-add-test-coverage-to-at-cli-0-7-tests-per-source-f",
   "state": "building",
   "subtasks": {
     "completed": 7,
@@ -9,9 +9,9 @@
     "failed": 0
   },
   "phase": {
-    "current": "Final Verification",
+    "current": "Add CLI Command Tests",
     "id": null,
-    "total": 2
+    "total": 8
   },
   "workers": {
     "active": 0,
@@ -19,7 +19,7 @@
   },
   "session": {
     "number": 9,
-    "started_at": "2026-02-28T23:27:36.123180"
+    "started_at": "2026-03-01T09:55:01.088921"
   },
-  "last_update": "2026-03-01T00:07:32.504076"
+  "last_update": "2026-03-01T10:16:40.145641"
 }

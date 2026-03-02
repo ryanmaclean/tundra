@@ -25,3 +25,60 @@ pub async fn run(api_url: &str, agent_id: &str) -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use axum::{extract::Path as AxPath, http::StatusCode, routing::post, Json, Router};
+    use serde_json::json;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn nudges_agent_successfully() {
+        let app = Router::new().route(
+            "/api/agents/{id}/nudge",
+            post(|AxPath(id): AxPath<String>| async move {
+                assert_eq!(id, "agent-123");
+                (
+                    StatusCode::OK,
+                    Json(json!({"id": "agent-123", "name": "test-agent", "status": "running"})),
+                )
+            }),
+        );
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        let api_url = format!("http://{addr}");
+        let result = run(&api_url, "agent-123").await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn handles_error_response_from_api() {
+        let app = Router::new().route(
+            "/api/agents/{id}/nudge",
+            post(|AxPath(_id): AxPath<String>| async move {
+                (
+                    StatusCode::NOT_FOUND,
+                    Json(json!({"error": "agent not found"})),
+                )
+            }),
+        );
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        let api_url = format!("http://{addr}");
+        let result = run(&api_url, "nonexistent").await;
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("agent not found"));
+    }
+}

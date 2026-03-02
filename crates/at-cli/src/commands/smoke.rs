@@ -397,3 +397,108 @@ fn write_json_artifact(path: &str, value: &serde_json::Value) -> anyhow::Result<
     std::fs::write(out_path, serde_json::to_string_pretty(value)?)?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn unique_temp_dir(prefix: &str) -> PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        std::env::temp_dir().join(format!("{prefix}-{}-{nanos}", std::process::id()))
+    }
+
+    #[test]
+    fn smoke_script_presence_deserializes() {
+        let json = r#"{"webgpuAnalytics":true,"pokerAudio":false}"#;
+        let parsed: ScriptPresence = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.webgpu_analytics, true);
+        assert_eq!(parsed.poker_audio, false);
+    }
+
+    #[test]
+    fn smoke_cue_result_deserializes() {
+        let json = r#"{"ok":true,"cue":"consensus","state":"ready","error":null}"#;
+        let parsed: CueResult = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.ok, true);
+        assert_eq!(parsed.cue, Some("consensus".to_string()));
+        assert_eq!(parsed.state, Some("ready".to_string()));
+        assert_eq!(parsed.error, None);
+    }
+
+    #[test]
+    fn smoke_webgpu_result_deserializes() {
+        let json = r#"{"supported":true,"error":null}"#;
+        let parsed: WebGpuResult = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.supported, Some(true));
+        assert_eq!(parsed.error, None);
+    }
+
+    #[test]
+    fn smoke_browser_result_deserializes() {
+        let json = r#"{
+            "url": "http://localhost:3001",
+            "scriptsPresent": {"webgpuAnalytics": true, "pokerAudio": true},
+            "webgpu": {"supported": true, "error": null},
+            "audioWarmup": {"ok": true, "state": "ready", "error": null},
+            "audioCue": {"ok": true, "cue": "consensus", "error": null},
+            "errors": []
+        }"#;
+        let parsed: BrowserSmokeResult = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.url, Some("http://localhost:3001".to_string()));
+        assert_eq!(parsed.scripts_present.webgpu_analytics, true);
+        assert_eq!(parsed.scripts_present.poker_audio, true);
+        assert_eq!(parsed.webgpu.supported, Some(true));
+        assert_eq!(parsed.audio_warmup.ok, true);
+        assert_eq!(parsed.audio_cue.ok, true);
+        assert!(parsed.errors.is_empty());
+    }
+
+    #[test]
+    fn smoke_writes_artifact_file() {
+        let out = unique_temp_dir("at-cli-smoke-out").with_extension("json");
+        let value = json!({
+            "url": "http://localhost:3001",
+            "served_dist": false,
+            "headless": true,
+            "failures": []
+        });
+
+        write_json_artifact(&out.display().to_string(), &value).unwrap();
+
+        let written = std::fs::read_to_string(&out).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&written).unwrap();
+        assert_eq!(parsed["url"], "http://localhost:3001");
+        assert_eq!(parsed["served_dist"], false);
+        assert_eq!(parsed["headless"], true);
+
+        let _ = std::fs::remove_file(out);
+    }
+
+    #[test]
+    fn smoke_write_script_creates_file() {
+        let runtime_dir = unique_temp_dir("at-cli-smoke-runtime");
+        std::fs::create_dir_all(&runtime_dir).unwrap();
+
+        let script = write_smoke_script(&runtime_dir).unwrap();
+        assert!(script.exists());
+        assert_eq!(script.file_name().unwrap(), "tundra-smoke.cjs");
+
+        let content = std::fs::read_to_string(&script).unwrap();
+        assert!(content.contains("const { chromium } = require('playwright')"));
+        assert!(content.contains("webgpuAnalytics"));
+        assert!(content.contains("pokerAudio"));
+
+        let _ = std::fs::remove_dir_all(runtime_dir);
+    }
+
+    #[tokio::test]
+    async fn smoke_url_parsing_validates() {
+        let result = run("not-a-url", "/tmp/test", false, false, false, true, None).await;
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("invalid --ui-url"));
+    }
+}
