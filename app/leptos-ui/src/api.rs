@@ -47,6 +47,45 @@ pub fn is_connection_error(message: &str) -> bool {
         || m.contains("timed out")
 }
 
+// ── Tauri IPC helpers ──
+
+/// Tauri invoke binding for calling backend commands via IPC
+#[wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(js_namespace = ["window", "__TAURI__", "tauri"], catch)]
+    async fn invoke(cmd: &str, args: JsValue) -> Result<JsValue, JsValue>;
+}
+
+/// Check if we're running in a Tauri context
+pub fn is_tauri() -> bool {
+    if let Some(window) = web_sys::window() {
+        js_sys::Reflect::has(&window, &JsValue::from_str("__TAURI__")).unwrap_or(false)
+    } else {
+        false
+    }
+}
+
+/// Invoke a Tauri command with no arguments
+pub async fn tauri_invoke<R: for<'de> Deserialize<'de>>(cmd: &str) -> Result<R, String> {
+    let result = invoke(cmd, JsValue::NULL)
+        .await
+        .map_err(js_err)?;
+    serde_wasm_bindgen::from_value(result).map_err(|e| format!("Tauri invoke error: {e}"))
+}
+
+/// Invoke a Tauri command with arguments
+pub async fn tauri_invoke_with_args<T: Serialize, R: for<'de> Deserialize<'de>>(
+    cmd: &str,
+    args: &T,
+) -> Result<R, String> {
+    let js_args = serde_wasm_bindgen::to_value(args)
+        .map_err(|e| format!("Serialize error: {e}"))?;
+    let result = invoke(cmd, js_args)
+        .await
+        .map_err(js_err)?;
+    serde_wasm_bindgen::from_value(result).map_err(|e| format!("Tauri invoke error: {e}"))
+}
+
 // ── Generic fetch helpers ──
 
 /// Extract a clean error message from a JsValue.
@@ -462,11 +501,27 @@ pub struct ApiPipelineQueueStatus {
 // ── Public API functions ──
 
 pub async fn fetch_beads() -> Result<Vec<ApiBead>, String> {
-    fetch_json(&format!("{}/api/beads", get_api_base())).await
+    if is_tauri() {
+        // Use Tauri IPC
+        #[derive(Serialize)]
+        struct ListBeadsArgs {
+            status: Option<String>,
+        }
+        let args = ListBeadsArgs { status: None };
+        tauri_invoke_with_args("cmd_list_beads", &args).await
+    } else {
+        // Fallback to HTTP
+        fetch_json(&format!("{}/api/beads", get_api_base())).await
+    }
 }
 
 pub async fn fetch_agents() -> Result<Vec<ApiAgent>, String> {
-    fetch_json(&format!("{}/api/agents", get_api_base())).await
+    if is_tauri() {
+        tauri_invoke("cmd_list_agents").await
+    } else {
+        // Fallback to HTTP
+        fetch_json(&format!("{}/api/agents", get_api_base())).await
+    }
 }
 
 pub async fn fetch_kpi() -> Result<ApiKpi, String> {
@@ -578,12 +633,31 @@ pub async fn create_bead(
     description: Option<&str>,
     lane: Option<&str>,
 ) -> Result<ApiBead, String> {
-    let body = CreateBeadRequest {
-        title: title.to_string(),
-        description: description.map(|s| s.to_string()),
-        lane: lane.map(|s| s.to_string()),
-    };
-    post_json(&format!("{}/api/beads", get_api_base()), &body).await
+    if is_tauri() {
+        // Use Tauri IPC
+        #[derive(Serialize)]
+        struct CreateBeadArgs {
+            title: String,
+            description: Option<String>,
+            lane: Option<String>,
+            tags: Option<Vec<String>>,
+        }
+        let args = CreateBeadArgs {
+            title: title.to_string(),
+            description: description.map(|s| s.to_string()),
+            lane: lane.map(|s| s.to_string()),
+            tags: None,
+        };
+        tauri_invoke_with_args("cmd_create_bead", &args).await
+    } else {
+        // Fallback to HTTP
+        let body = CreateBeadRequest {
+            title: title.to_string(),
+            description: description.map(|s| s.to_string()),
+            lane: lane.map(|s| s.to_string()),
+        };
+        post_json(&format!("{}/api/beads", get_api_base()), &body).await
+    }
 }
 
 pub async fn update_bead_status(id: &str, status: &str) -> Result<ApiBead, String> {
@@ -594,7 +668,13 @@ pub async fn update_bead_status(id: &str, status: &str) -> Result<ApiBead, Strin
 }
 
 pub async fn fetch_settings() -> Result<ApiSettings, String> {
-    fetch_json(&format!("{}/api/settings", get_api_base())).await
+    if is_tauri() {
+        // Use Tauri IPC
+        tauri_invoke("cmd_get_settings").await
+    } else {
+        // Fallback to HTTP
+        fetch_json(&format!("{}/api/settings", get_api_base())).await
+    }
 }
 
 pub async fn fetch_local_provider_settings() -> Result<ApiLocalProviderSettings, String> {
@@ -691,7 +771,20 @@ pub async fn probe_local_provider(base_url: &str) -> Result<ApiLocalProviderProb
 }
 
 pub async fn save_settings(settings: &ApiSettings) -> Result<ApiSettings, String> {
-    put_json(&format!("{}/api/settings", get_api_base()), settings).await
+    if is_tauri() {
+        // Use Tauri IPC
+        #[derive(Serialize)]
+        struct CmdPutSettingsArgs {
+            config: ApiSettings,
+        }
+        let args = CmdPutSettingsArgs {
+            config: settings.clone(),
+        };
+        tauri_invoke_with_args("cmd_put_settings", &args).await
+    } else {
+        // Fallback to HTTP
+        put_json(&format!("{}/api/settings", get_api_base()), settings).await
+    }
 }
 
 pub async fn fetch_credential_status() -> Result<ApiCredentialStatus, String> {
@@ -810,11 +903,38 @@ pub async fn fetch_convoys() -> Result<Vec<ApiConvoy>, String> {
 }
 
 pub async fn fetch_worktrees() -> Result<Vec<ApiWorktree>, String> {
-    fetch_json(&format!("{}/api/worktrees", get_api_base())).await
+    if is_tauri() {
+        #[derive(serde::Serialize)]
+        struct ListWorktreesArgs {
+            limit: Option<usize>,
+            offset: Option<usize>,
+        }
+        let args = ListWorktreesArgs {
+            limit: None,
+            offset: None,
+        };
+        tauri_invoke_with_args("cmd_list_worktrees", &args).await
+    } else {
+        // Fallback to HTTP
+        fetch_json(&format!("{}/api/worktrees", get_api_base())).await
+    }
 }
 
 pub async fn delete_worktree(id: &str) -> Result<(), String> {
-    delete_request(&format!("{}/api/worktrees/{id}", get_api_base())).await
+    if is_tauri() {
+        #[derive(serde::Serialize)]
+        struct DeleteWorktreeArgs {
+            id: String,
+        }
+        let args = DeleteWorktreeArgs {
+            id: id.to_string(),
+        };
+        let _result: String = tauri_invoke_with_args("cmd_delete_worktree", &args).await?;
+        Ok(())
+    } else {
+        // Fallback to HTTP
+        delete_request(&format!("{}/api/worktrees/{id}", get_api_base())).await
+    }
 }
 
 pub async fn fetch_costs() -> Result<ApiCosts, String> {
@@ -904,45 +1024,91 @@ pub async fn convert_idea_to_task(idea_id: &str) -> Result<serde_json::Value, St
 }
 
 pub async fn fetch_insights_sessions() -> Result<Vec<ApiInsightsSession>, String> {
-    fetch_json(&format!("{}/api/insights/sessions", get_api_base())).await
+    if is_tauri() {
+        let result: serde_json::Value = tauri_invoke("cmd_insights_list_sessions").await?;
+        serde_json::from_value(result).map_err(|e| format!("Parse error: {e}"))
+    } else {
+        // Fallback to HTTP
+        fetch_json(&format!("{}/api/insights/sessions", get_api_base())).await
+    }
 }
 
 pub async fn fetch_insights_messages(session_id: &str) -> Result<Vec<ApiInsightsMessage>, String> {
-    fetch_json(&format!(
-        "{}/api/insights/sessions/{session_id}/messages",
-        get_api_base()
-    ))
-    .await
+    if is_tauri() {
+        #[derive(serde::Serialize)]
+        struct GetMessagesArgs {
+            id: String,
+        }
+        let args = GetMessagesArgs {
+            id: session_id.to_string(),
+        };
+        let result: serde_json::Value = tauri_invoke_with_args("cmd_insights_get_messages", &args).await?;
+        serde_json::from_value(result).map_err(|e| format!("Parse error: {e}"))
+    } else {
+        // Fallback to HTTP
+        fetch_json(&format!(
+            "{}/api/insights/sessions/{session_id}/messages",
+            get_api_base()
+        ))
+        .await
+    }
 }
 
 pub async fn send_insights_message(
     session_id: &str,
     content: &str,
 ) -> Result<ApiInsightsMessage, String> {
-    let body = SendInsightsMessageRequest {
-        content: content.to_string(),
-    };
-    let _: serde_json::Value = post_json(
-        &format!(
-            "{}/api/insights/sessions/{session_id}/messages",
-            get_api_base()
-        ),
-        &body,
-    )
-    .await?;
+    if is_tauri() {
+        #[derive(serde::Serialize)]
+        struct AddMessageArgs {
+            id: String,
+            content: String,
+        }
+        let args = AddMessageArgs {
+            id: session_id.to_string(),
+            content: content.to_string(),
+        };
+        let _success: bool = tauri_invoke_with_args("cmd_insights_add_message", &args).await?;
 
-    // Backend returns {"ok": true} — re-fetch messages to pick up any
-    // server-side assistant reply that may have been generated.
-    let messages = fetch_insights_messages(session_id).await?;
-    if let Some(last) = messages.into_iter().rev().find(|m| m.role == "assistant") {
-        Ok(last)
+        // Re-fetch messages to pick up any server-side assistant reply that may have been generated.
+        let messages = fetch_insights_messages(session_id).await?;
+        if let Some(last) = messages.into_iter().rev().find(|m| m.role == "assistant") {
+            Ok(last)
+        } else {
+            // No assistant reply was generated yet; return acknowledgement.
+            Ok(ApiInsightsMessage {
+                id: String::new(),
+                role: "assistant".to_string(),
+                content: "Message acknowledged.".to_string(),
+            })
+        }
     } else {
-        // No assistant reply was generated yet; return acknowledgement.
-        Ok(ApiInsightsMessage {
-            id: String::new(),
-            role: "assistant".to_string(),
-            content: "Message acknowledged.".to_string(),
-        })
+        // Fallback to HTTP
+        let body = SendInsightsMessageRequest {
+            content: content.to_string(),
+        };
+        let _: serde_json::Value = post_json(
+            &format!(
+                "{}/api/insights/sessions/{session_id}/messages",
+                get_api_base()
+            ),
+            &body,
+        )
+        .await?;
+
+        // Backend returns {"ok": true} — re-fetch messages to pick up any
+        // server-side assistant reply that may have been generated.
+        let messages = fetch_insights_messages(session_id).await?;
+        if let Some(last) = messages.into_iter().rev().find(|m| m.role == "assistant") {
+            Ok(last)
+        } else {
+            // No assistant reply was generated yet; return acknowledgement.
+            Ok(ApiInsightsMessage {
+                id: String::new(),
+                role: "assistant".to_string(),
+                content: "Message acknowledged.".to_string(),
+            })
+        }
     }
 }
 
@@ -1113,11 +1279,45 @@ pub struct ApiTask {
 // ── GitHub API functions ──
 
 pub async fn fetch_github_issues() -> Result<Vec<ApiGithubIssue>, String> {
-    fetch_json(&format!("{}/api/github/issues", get_api_base())).await
+    if is_tauri() {
+        #[derive(serde::Serialize)]
+        struct ListGithubIssuesArgs {
+            state_filter: Option<String>,
+            labels: Option<String>,
+            limit: Option<usize>,
+            offset: Option<usize>,
+        }
+        let args = ListGithubIssuesArgs {
+            state_filter: None,
+            labels: None,
+            limit: None,
+            offset: None,
+        };
+        tauri_invoke_with_args("cmd_list_github_issues", &args).await
+    } else {
+        // Fallback to HTTP
+        fetch_json(&format!("{}/api/github/issues", get_api_base())).await
+    }
 }
 
 pub async fn fetch_github_prs() -> Result<Vec<ApiGithubPr>, String> {
-    fetch_json(&format!("{}/api/github/prs", get_api_base())).await
+    if is_tauri() {
+        #[derive(serde::Serialize)]
+        struct ListGithubPrsArgs {
+            state_filter: Option<String>,
+            limit: Option<usize>,
+            offset: Option<usize>,
+        }
+        let args = ListGithubPrsArgs {
+            state_filter: None,
+            limit: None,
+            offset: None,
+        };
+        tauri_invoke_with_args("cmd_list_github_prs", &args).await
+    } else {
+        // Fallback to HTTP
+        fetch_json(&format!("{}/api/github/prs", get_api_base())).await
+    }
 }
 
 pub async fn fetch_gitlab_merge_requests(
@@ -1168,15 +1368,37 @@ pub async fn review_gitlab_merge_request(
 }
 
 pub async fn sync_github() -> Result<serde_json::Value, String> {
-    post_empty(&format!("{}/api/github/sync", get_api_base())).await
+    if is_tauri() {
+        let result: (String, u64, u64) = tauri_invoke("cmd_sync_github_issues").await?;
+        Ok(serde_json::json!({
+            "message": result.0,
+            "imported_count": result.1,
+            "statuses_synced": result.2
+        }))
+    } else {
+        // Fallback to HTTP
+        post_empty(&format!("{}/api/github/sync", get_api_base())).await
+    }
 }
 
 pub async fn import_issue_as_bead(issue_number: u32) -> Result<ApiBead, String> {
-    post_empty(&format!(
-        "{}/api/github/issues/{issue_number}/import",
-        get_api_base()
-    ))
-    .await
+    if is_tauri() {
+        #[derive(serde::Serialize)]
+        struct ImportGithubIssueArgs {
+            issue_number: u64,
+        }
+        let args = ImportGithubIssueArgs {
+            issue_number: issue_number as u64,
+        };
+        tauri_invoke_with_args("cmd_import_github_issue", &args).await
+    } else {
+        // Fallback to HTTP
+        post_empty(&format!(
+            "{}/api/github/issues/{issue_number}/import",
+            get_api_base()
+        ))
+        .await
+    }
 }
 
 // ── Task API functions ──
@@ -1529,7 +1751,28 @@ pub async fn delete_bead(id: &str) -> Result<(), String> {
 }
 
 pub async fn update_bead(id: &str, bead: &ApiBead) -> Result<ApiBead, String> {
-    put_json(&format!("{}/api/beads/{id}", get_api_base()), bead).await
+    if is_tauri() {
+        // Use Tauri IPC
+        #[derive(Serialize)]
+        struct UpdateBeadArgs {
+            id: String,
+            title: String,
+            description: Option<String>,
+            lane: Option<String>,
+            status: Option<String>,
+        }
+        let args = UpdateBeadArgs {
+            id: id.to_string(),
+            title: bead.title.clone(),
+            description: bead.description.clone(),
+            lane: Some(bead.lane.clone()),
+            status: Some(bead.status.clone()),
+        };
+        tauri_invoke_with_args("cmd_update_bead", &args).await
+    } else {
+        // Fallback to HTTP
+        put_json(&format!("{}/api/beads/{id}", get_api_base()), bead).await
+    }
 }
 
 pub async fn execute_task(id: &str) -> Result<serde_json::Value, String> {

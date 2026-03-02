@@ -1,15 +1,15 @@
 {
   "active": true,
-  "spec": "020-optimize-wasm-binary-size-for-leptos-ui-and-reduce",
+  "spec": "045-desktop-application-completion-tauri",
   "state": "building",
   "subtasks": {
-    "completed": 7,
-    "total": 20,
+    "completed": 24,
+    "total": 25,
     "in_progress": 1,
     "failed": 0
   },
   "phase": {
-    "current": "Feature-gate Heavy Dependencies",
+    "current": "Integration & E2E Testing",
     "id": null,
     "total": 5
   },
@@ -18,8 +18,8 @@
     "max": 1
   },
   "session": {
-    "number": 9,
-    "started_at": "2026-02-28T22:11:57.276901"
+    "number": 26,
+    "started_at": "2026-03-01T20:58:10.989590"
   },
-  "last_update": "2026-02-28T22:37:07.600319"
+  "last_update": "2026-03-01T22:40:57.866948"
 }
