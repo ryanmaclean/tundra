@@ -1201,19 +1201,37 @@ async fn test_list_tasks_filter_by_phase() {
     let client = reqwest::Client::new();
 
     // Create tasks with different phases
-    let (_, task1) = api_create_task(&client, &base, "Discovery Task", "feature", "low", "small").await;
+    let (_, task1) =
+        api_create_task(&client, &base, "Discovery Task", "feature", "low", "small").await;
     let id1 = task1["id"].as_str().unwrap();
 
-    let (_, task2) = api_create_task(&client, &base, "Planning Task", "bug_fix", "medium", "medium").await;
+    let (_, task2) = api_create_task(
+        &client,
+        &base,
+        "Planning Task",
+        "bug_fix",
+        "medium",
+        "medium",
+    )
+    .await;
     let id2 = task2["id"].as_str().unwrap();
 
-    let (_, task3) = api_create_task(&client, &base, "Coding Task", "refactoring", "high", "large").await;
+    let (_, task3) = api_create_task(
+        &client,
+        &base,
+        "Coding Task",
+        "refactoring",
+        "high",
+        "large",
+    )
+    .await;
     let id3 = task3["id"].as_str().unwrap();
 
     let (_, task4) = api_create_task(&client, &base, "QA Task", "feature", "low", "small").await;
     let id4 = task4["id"].as_str().unwrap();
 
-    let (_, task5) = api_create_task(&client, &base, "Error Task", "bug_fix", "urgent", "complex").await;
+    let (_, task5) =
+        api_create_task(&client, &base, "Error Task", "bug_fix", "urgent", "complex").await;
     let id5 = task5["id"].as_str().unwrap();
 
     // Update task2 to planning phase (Discovery -> ContextGathering -> SpecCreation -> Planning)
@@ -1353,19 +1371,52 @@ async fn test_list_tasks_filter_by_category() {
     let client = reqwest::Client::new();
 
     // Create tasks with different categories
-    let (_, task1) = api_create_task(&client, &base, "Feature Task", "feature", "low", "small").await;
+    let (_, task1) =
+        api_create_task(&client, &base, "Feature Task", "feature", "low", "small").await;
     let id1 = task1["id"].as_str().unwrap();
 
-    let (_, task2) = api_create_task(&client, &base, "Bug Fix Task", "bug_fix", "medium", "medium").await;
+    let (_, task2) = api_create_task(
+        &client,
+        &base,
+        "Bug Fix Task",
+        "bug_fix",
+        "medium",
+        "medium",
+    )
+    .await;
     let id2 = task2["id"].as_str().unwrap();
 
-    let (_, task3) = api_create_task(&client, &base, "Refactoring Task", "refactoring", "high", "large").await;
+    let (_, task3) = api_create_task(
+        &client,
+        &base,
+        "Refactoring Task",
+        "refactoring",
+        "high",
+        "large",
+    )
+    .await;
     let id3 = task3["id"].as_str().unwrap();
 
-    let (_, task4) = api_create_task(&client, &base, "Another Feature", "feature", "urgent", "complex").await;
+    let (_, task4) = api_create_task(
+        &client,
+        &base,
+        "Another Feature",
+        "feature",
+        "urgent",
+        "complex",
+    )
+    .await;
     let id4 = task4["id"].as_str().unwrap();
 
-    let (_, task5) = api_create_task(&client, &base, "Documentation Task", "documentation", "low", "small").await;
+    let (_, task5) = api_create_task(
+        &client,
+        &base,
+        "Documentation Task",
+        "documentation",
+        "low",
+        "small",
+    )
+    .await;
     let id5 = task5["id"].as_str().unwrap();
 
     // Test filtering by feature category
@@ -1387,14 +1438,16 @@ async fn test_list_tasks_filter_by_category() {
     assert_eq!(tasks[0]["category"], "bug_fix");
 
     // Test filtering by refactoring category
-    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("category", "refactoring")]).await;
+    let (code, tasks) =
+        api_list_tasks_with_query(&client, &base, &[("category", "refactoring")]).await;
     assert_eq!(code, 200);
     assert_eq!(tasks.len(), 1);
     assert_eq!(tasks[0]["id"], id3);
     assert_eq!(tasks[0]["category"], "refactoring");
 
     // Test filtering by documentation category
-    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("category", "documentation")]).await;
+    let (code, tasks) =
+        api_list_tasks_with_query(&client, &base, &[("category", "documentation")]).await;
     assert_eq!(code, 200);
     assert_eq!(tasks.len(), 1);
     assert_eq!(tasks[0]["id"], id5);
@@ -1416,19 +1469,59 @@ async fn test_list_tasks_filter_by_priority() {
     let client = reqwest::Client::new();
 
     // Create tasks with different priorities
-    let (_, task1) = api_create_task(&client, &base, "Low Priority Task", "feature", "low", "small").await;
+    let (_, task1) = api_create_task(
+        &client,
+        &base,
+        "Low Priority Task",
+        "feature",
+        "low",
+        "small",
+    )
+    .await;
     let id1 = task1["id"].as_str().unwrap();
 
-    let (_, task2) = api_create_task(&client, &base, "Medium Priority Task", "bug_fix", "medium", "medium").await;
+    let (_, task2) = api_create_task(
+        &client,
+        &base,
+        "Medium Priority Task",
+        "bug_fix",
+        "medium",
+        "medium",
+    )
+    .await;
     let id2 = task2["id"].as_str().unwrap();
 
-    let (_, task3) = api_create_task(&client, &base, "High Priority Task", "refactoring", "high", "large").await;
+    let (_, task3) = api_create_task(
+        &client,
+        &base,
+        "High Priority Task",
+        "refactoring",
+        "high",
+        "large",
+    )
+    .await;
     let id3 = task3["id"].as_str().unwrap();
 
-    let (_, task4) = api_create_task(&client, &base, "Urgent Priority Task", "feature", "urgent", "complex").await;
+    let (_, task4) = api_create_task(
+        &client,
+        &base,
+        "Urgent Priority Task",
+        "feature",
+        "urgent",
+        "complex",
+    )
+    .await;
     let id4 = task4["id"].as_str().unwrap();
 
-    let (_, task5) = api_create_task(&client, &base, "Another Low Priority", "documentation", "low", "small").await;
+    let (_, task5) = api_create_task(
+        &client,
+        &base,
+        "Another Low Priority",
+        "documentation",
+        "low",
+        "small",
+    )
+    .await;
     let id5 = task5["id"].as_str().unwrap();
 
     // Test filtering by low priority
@@ -1464,7 +1557,8 @@ async fn test_list_tasks_filter_by_priority() {
     assert_eq!(tasks[0]["priority"], "urgent");
 
     // Test filtering by non-existent priority (should return empty)
-    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("priority", "critical")]).await;
+    let (code, tasks) =
+        api_list_tasks_with_query(&client, &base, &[("priority", "critical")]).await;
     assert_eq!(code, 200);
     assert_eq!(tasks.len(), 0);
 
@@ -1603,21 +1697,24 @@ async fn test_list_tasks_filter_by_source() {
     }
 
     // Test filtering by github_issue source
-    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("source", "github_issue")]).await;
+    let (code, tasks) =
+        api_list_tasks_with_query(&client, &base, &[("source", "github_issue")]).await;
     assert_eq!(code, 200);
     assert_eq!(tasks.len(), 1);
     assert_eq!(tasks[0]["id"], id2);
     assert!(tasks[0]["source"]["github_issue"].is_object());
 
     // Test filtering by gitlab_issue source
-    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("source", "gitlab_issue")]).await;
+    let (code, tasks) =
+        api_list_tasks_with_query(&client, &base, &[("source", "gitlab_issue")]).await;
     assert_eq!(code, 200);
     assert_eq!(tasks.len(), 1);
     assert_eq!(tasks[0]["id"], id3);
     assert!(tasks[0]["source"]["gitlab_issue"].is_object());
 
     // Test filtering by linear_issue source
-    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("source", "linear_issue")]).await;
+    let (code, tasks) =
+        api_list_tasks_with_query(&client, &base, &[("source", "linear_issue")]).await;
     assert_eq!(code, 200);
     assert_eq!(tasks.len(), 1);
     assert_eq!(tasks[0]["id"], id4);
@@ -1638,7 +1735,8 @@ async fn test_list_tasks_filter_by_source() {
     assert_eq!(tasks[0]["source"], "import");
 
     // Test filtering by non-existent source (should return empty)
-    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("source", "nonexistent")]).await;
+    let (code, tasks) =
+        api_list_tasks_with_query(&client, &base, &[("source", "nonexistent")]).await;
     assert_eq!(code, 200);
     assert_eq!(tasks.len(), 0);
 
@@ -1654,19 +1752,51 @@ async fn test_list_tasks_filter_multiple_params() {
 
     // Create tasks with various combinations of attributes
     // Task 1: feature, low priority, discovery phase
-    let (_, task1) = api_create_task(&client, &base, "Feature Low Discovery", "feature", "low", "small").await;
+    let (_, task1) = api_create_task(
+        &client,
+        &base,
+        "Feature Low Discovery",
+        "feature",
+        "low",
+        "small",
+    )
+    .await;
     let id1 = task1["id"].as_str().unwrap();
 
     // Task 2: feature, high priority, discovery phase
-    let (_, task2) = api_create_task(&client, &base, "Feature High Discovery", "feature", "high", "medium").await;
+    let (_, task2) = api_create_task(
+        &client,
+        &base,
+        "Feature High Discovery",
+        "feature",
+        "high",
+        "medium",
+    )
+    .await;
     let id2 = task2["id"].as_str().unwrap();
 
     // Task 3: bug_fix, high priority, discovery phase
-    let (_, task3) = api_create_task(&client, &base, "Bug High Discovery", "bug_fix", "high", "large").await;
+    let (_, task3) = api_create_task(
+        &client,
+        &base,
+        "Bug High Discovery",
+        "bug_fix",
+        "high",
+        "large",
+    )
+    .await;
     let id3 = task3["id"].as_str().unwrap();
 
     // Task 4: feature, high priority, planning phase
-    let (_, task4) = api_create_task(&client, &base, "Feature High Planning", "feature", "high", "medium").await;
+    let (_, task4) = api_create_task(
+        &client,
+        &base,
+        "Feature High Planning",
+        "feature",
+        "high",
+        "medium",
+    )
+    .await;
     let id4 = task4["id"].as_str().unwrap();
     // Advance to planning phase
     client
@@ -1689,7 +1819,15 @@ async fn test_list_tasks_filter_multiple_params() {
         .unwrap();
 
     // Task 5: bug_fix, urgent priority, error phase
-    let (_, task5) = api_create_task(&client, &base, "Bug Urgent Error", "bug_fix", "urgent", "complex").await;
+    let (_, task5) = api_create_task(
+        &client,
+        &base,
+        "Bug Urgent Error",
+        "bug_fix",
+        "urgent",
+        "complex",
+    )
+    .await;
     let id5 = task5["id"].as_str().unwrap();
     client
         .post(format!("{base}/api/tasks/{id5}/phase"))
@@ -1699,12 +1837,25 @@ async fn test_list_tasks_filter_multiple_params() {
         .unwrap();
 
     // Task 6: refactoring, high priority, discovery phase
-    let (_, task6) = api_create_task(&client, &base, "Refactor High Discovery", "refactoring", "high", "large").await;
+    let (_, task6) = api_create_task(
+        &client,
+        &base,
+        "Refactor High Discovery",
+        "refactoring",
+        "high",
+        "large",
+    )
+    .await;
     let id6 = task6["id"].as_str().unwrap();
 
     // Test 1: Filter by phase=discovery AND priority=high
     // Should return tasks 2, 3, and 6
-    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("phase", "discovery"), ("priority", "high")]).await;
+    let (code, tasks) = api_list_tasks_with_query(
+        &client,
+        &base,
+        &[("phase", "discovery"), ("priority", "high")],
+    )
+    .await;
     assert_eq!(code, 200);
     assert_eq!(tasks.len(), 3);
     let task_ids: Vec<&str> = tasks.iter().map(|t| t["id"].as_str().unwrap()).collect();
@@ -1718,7 +1869,12 @@ async fn test_list_tasks_filter_multiple_params() {
 
     // Test 2: Filter by phase=discovery AND category=feature
     // Should return tasks 1 and 2
-    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("phase", "discovery"), ("category", "feature")]).await;
+    let (code, tasks) = api_list_tasks_with_query(
+        &client,
+        &base,
+        &[("phase", "discovery"), ("category", "feature")],
+    )
+    .await;
     assert_eq!(code, 200);
     assert_eq!(tasks.len(), 2);
     let task_ids: Vec<&str> = tasks.iter().map(|t| t["id"].as_str().unwrap()).collect();
@@ -1731,7 +1887,16 @@ async fn test_list_tasks_filter_multiple_params() {
 
     // Test 3: Filter by phase=discovery AND category=feature AND priority=high
     // Should return only task 2
-    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("phase", "discovery"), ("category", "feature"), ("priority", "high")]).await;
+    let (code, tasks) = api_list_tasks_with_query(
+        &client,
+        &base,
+        &[
+            ("phase", "discovery"),
+            ("category", "feature"),
+            ("priority", "high"),
+        ],
+    )
+    .await;
     assert_eq!(code, 200);
     assert_eq!(tasks.len(), 1);
     assert_eq!(tasks[0]["id"], id2);
@@ -1741,7 +1906,12 @@ async fn test_list_tasks_filter_multiple_params() {
 
     // Test 4: Filter by category=bug_fix AND priority=high
     // Should return task 3
-    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("category", "bug_fix"), ("priority", "high")]).await;
+    let (code, tasks) = api_list_tasks_with_query(
+        &client,
+        &base,
+        &[("category", "bug_fix"), ("priority", "high")],
+    )
+    .await;
     assert_eq!(code, 200);
     assert_eq!(tasks.len(), 1);
     assert_eq!(tasks[0]["id"], id3);
@@ -1750,7 +1920,12 @@ async fn test_list_tasks_filter_multiple_params() {
 
     // Test 5: Filter by category=feature AND phase=planning
     // Should return task 4
-    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("category", "feature"), ("phase", "planning")]).await;
+    let (code, tasks) = api_list_tasks_with_query(
+        &client,
+        &base,
+        &[("category", "feature"), ("phase", "planning")],
+    )
+    .await;
     assert_eq!(code, 200);
     assert_eq!(tasks.len(), 1);
     assert_eq!(tasks[0]["id"], id4);
@@ -1759,7 +1934,12 @@ async fn test_list_tasks_filter_multiple_params() {
 
     // Test 6: Filter by phase=error AND category=bug_fix
     // Should return task 5
-    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("phase", "error"), ("category", "bug_fix")]).await;
+    let (code, tasks) = api_list_tasks_with_query(
+        &client,
+        &base,
+        &[("phase", "error"), ("category", "bug_fix")],
+    )
+    .await;
     assert_eq!(code, 200);
     assert_eq!(tasks.len(), 1);
     assert_eq!(tasks[0]["id"], id5);
@@ -1768,13 +1948,27 @@ async fn test_list_tasks_filter_multiple_params() {
 
     // Test 7: Filter with no matching results
     // phase=coding AND category=documentation
-    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("phase", "coding"), ("category", "documentation")]).await;
+    let (code, tasks) = api_list_tasks_with_query(
+        &client,
+        &base,
+        &[("phase", "coding"), ("category", "documentation")],
+    )
+    .await;
     assert_eq!(code, 200);
     assert_eq!(tasks.len(), 0);
 
     // Test 8: Filter by category=bug_fix AND priority=urgent AND phase=error
     // Should return task 5
-    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("category", "bug_fix"), ("priority", "urgent"), ("phase", "error")]).await;
+    let (code, tasks) = api_list_tasks_with_query(
+        &client,
+        &base,
+        &[
+            ("category", "bug_fix"),
+            ("priority", "urgent"),
+            ("phase", "error"),
+        ],
+    )
+    .await;
     assert_eq!(code, 200);
     assert_eq!(tasks.len(), 1);
     assert_eq!(tasks[0]["id"], id5);
@@ -1793,16 +1987,41 @@ async fn test_list_tasks_case_insensitive_filtering() {
     let client = reqwest::Client::new();
 
     // Create tasks with different phases, categories, and priorities
-    let (_, task1) = api_create_task(&client, &base, "Discovery Task", "feature", "low", "small").await;
+    let (_, task1) =
+        api_create_task(&client, &base, "Discovery Task", "feature", "low", "small").await;
     let id1 = task1["id"].as_str().unwrap();
 
-    let (_, task2) = api_create_task(&client, &base, "Planning Task", "bug_fix", "medium", "medium").await;
+    let (_, task2) = api_create_task(
+        &client,
+        &base,
+        "Planning Task",
+        "bug_fix",
+        "medium",
+        "medium",
+    )
+    .await;
     let id2 = task2["id"].as_str().unwrap();
 
-    let (_, task3) = api_create_task(&client, &base, "Refactor Task", "refactoring", "high", "large").await;
+    let (_, task3) = api_create_task(
+        &client,
+        &base,
+        "Refactor Task",
+        "refactoring",
+        "high",
+        "large",
+    )
+    .await;
     let id3 = task3["id"].as_str().unwrap();
 
-    let (_, task4) = api_create_task(&client, &base, "Urgent Feature", "feature", "urgent", "complex").await;
+    let (_, task4) = api_create_task(
+        &client,
+        &base,
+        "Urgent Feature",
+        "feature",
+        "urgent",
+        "complex",
+    )
+    .await;
     let id4 = task4["id"].as_str().unwrap();
 
     // Advance task2 to planning phase
@@ -1857,7 +2076,8 @@ async fn test_list_tasks_case_insensitive_filtering() {
     assert_eq!(tasks[0]["category"], "bug_fix");
 
     // Test 5: Filter by category with snake_case uppercase
-    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("category", "REFACTORING")]).await;
+    let (code, tasks) =
+        api_list_tasks_with_query(&client, &base, &[("category", "REFACTORING")]).await;
     assert_eq!(code, 200);
     assert_eq!(tasks.len(), 1);
     assert_eq!(tasks[0]["id"], id3);
@@ -1892,7 +2112,12 @@ async fn test_list_tasks_case_insensitive_filtering() {
     assert_eq!(tasks[0]["priority"], "urgent");
 
     // Test 10: Multiple filters with mixed case
-    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("phase", "DISCOVERY"), ("category", "FEATURE")]).await;
+    let (code, tasks) = api_list_tasks_with_query(
+        &client,
+        &base,
+        &[("phase", "DISCOVERY"), ("category", "FEATURE")],
+    )
+    .await;
     assert_eq!(code, 200);
     assert_eq!(tasks.len(), 2);
     let task_ids: Vec<&str> = tasks.iter().map(|t| t["id"].as_str().unwrap()).collect();
@@ -1900,7 +2125,12 @@ async fn test_list_tasks_case_insensitive_filtering() {
     assert!(task_ids.contains(&id4));
 
     // Test 11: Multiple filters with mixed case - category and priority
-    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("category", "Bug_Fix"), ("priority", "MEDIUM")]).await;
+    let (code, tasks) = api_list_tasks_with_query(
+        &client,
+        &base,
+        &[("category", "Bug_Fix"), ("priority", "MEDIUM")],
+    )
+    .await;
     assert_eq!(code, 200);
     assert_eq!(tasks.len(), 1);
     assert_eq!(tasks[0]["id"], id2);
@@ -1908,7 +2138,16 @@ async fn test_list_tasks_case_insensitive_filtering() {
     assert_eq!(tasks[0]["priority"], "medium");
 
     // Test 12: All filters combined with uppercase
-    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("phase", "PLANNING"), ("category", "BUG_FIX"), ("priority", "MEDIUM")]).await;
+    let (code, tasks) = api_list_tasks_with_query(
+        &client,
+        &base,
+        &[
+            ("phase", "PLANNING"),
+            ("category", "BUG_FIX"),
+            ("priority", "MEDIUM"),
+        ],
+    )
+    .await;
     assert_eq!(code, 200);
     assert_eq!(tasks.len(), 1);
     assert_eq!(tasks[0]["id"], id2);
@@ -1925,16 +2164,34 @@ async fn test_list_tasks_no_matches() {
 
     // Create some tasks with known values
     api_create_task(&client, &base, "Feature Task", "feature", "low", "small").await;
-    api_create_task(&client, &base, "Bug Fix Task", "bug_fix", "medium", "medium").await;
-    api_create_task(&client, &base, "Refactoring Task", "refactoring", "high", "large").await;
+    api_create_task(
+        &client,
+        &base,
+        "Bug Fix Task",
+        "bug_fix",
+        "medium",
+        "medium",
+    )
+    .await;
+    api_create_task(
+        &client,
+        &base,
+        "Refactoring Task",
+        "refactoring",
+        "high",
+        "large",
+    )
+    .await;
 
     // Test 1: Filter by non-existent category
-    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("category", "nonexistent")]).await;
+    let (code, tasks) =
+        api_list_tasks_with_query(&client, &base, &[("category", "nonexistent")]).await;
     assert_eq!(code, 200);
     assert_eq!(tasks.len(), 0);
 
     // Test 2: Filter by non-existent priority
-    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("priority", "critical")]).await;
+    let (code, tasks) =
+        api_list_tasks_with_query(&client, &base, &[("priority", "critical")]).await;
     assert_eq!(code, 200);
     assert_eq!(tasks.len(), 0);
 
@@ -1944,12 +2201,26 @@ async fn test_list_tasks_no_matches() {
     assert_eq!(tasks.len(), 0);
 
     // Test 4: Filter by valid category but non-matching priority
-    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("category", "feature"), ("priority", "urgent")]).await;
+    let (code, tasks) = api_list_tasks_with_query(
+        &client,
+        &base,
+        &[("category", "feature"), ("priority", "urgent")],
+    )
+    .await;
     assert_eq!(code, 200);
     assert_eq!(tasks.len(), 0);
 
     // Test 5: Multiple filters with no matches
-    let (code, tasks) = api_list_tasks_with_query(&client, &base, &[("category", "documentation"), ("priority", "high"), ("phase", "code_review")]).await;
+    let (code, tasks) = api_list_tasks_with_query(
+        &client,
+        &base,
+        &[
+            ("category", "documentation"),
+            ("priority", "high"),
+            ("phase", "code_review"),
+        ],
+    )
+    .await;
     assert_eq!(code, 200);
     assert_eq!(tasks.len(), 0);
 
