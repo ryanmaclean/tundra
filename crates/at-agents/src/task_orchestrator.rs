@@ -93,10 +93,7 @@ pub struct TaskOrchestrator {
 
 impl TaskOrchestrator {
     /// Create a new orchestrator backed by a real PTY pool.
-    pub fn new(
-        pty_pool: Arc<at_session::pty_pool::PtyPool>,
-        event_bus: EventBus,
-    ) -> Self {
+    pub fn new(pty_pool: Arc<at_session::pty_pool::PtyPool>, event_bus: EventBus) -> Self {
         Self {
             executor: AgentExecutor::new(pty_pool, event_bus.clone()),
             event_bus,
@@ -107,10 +104,7 @@ impl TaskOrchestrator {
     }
 
     /// Create an orchestrator with a custom spawner (useful for testing).
-    pub fn with_spawner(
-        spawner: Arc<dyn PtySpawner>,
-        event_bus: EventBus,
-    ) -> Self {
+    pub fn with_spawner(spawner: Arc<dyn PtySpawner>, event_bus: EventBus) -> Self {
         Self {
             executor: AgentExecutor::with_spawner(spawner, event_bus.clone()),
             event_bus,

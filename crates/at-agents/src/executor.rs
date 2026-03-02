@@ -327,10 +327,7 @@ pub struct AgentExecutor {
 
 impl AgentExecutor {
     /// Create a new executor with a real PtyPool.
-    pub fn new(
-        pty_pool: Arc<at_session::pty_pool::PtyPool>,
-        event_bus: EventBus,
-    ) -> Self {
+    pub fn new(pty_pool: Arc<at_session::pty_pool::PtyPool>, event_bus: EventBus) -> Self {
         Self {
             spawner: Arc::new(PtyPoolSpawner::new(pty_pool)),
             event_bus,
@@ -340,10 +337,7 @@ impl AgentExecutor {
     }
 
     /// Create an executor with a custom spawner (useful for testing).
-    pub fn with_spawner(
-        spawner: Arc<dyn PtySpawner>,
-        event_bus: EventBus,
-    ) -> Self {
+    pub fn with_spawner(spawner: Arc<dyn PtySpawner>, event_bus: EventBus) -> Self {
         Self {
             spawner,
             event_bus,

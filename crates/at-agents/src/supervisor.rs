@@ -74,11 +74,7 @@ impl AgentSupervisor {
 
     /// Spawn a new agent with the given name and role.
     /// Returns the unique id assigned to the agent.
-    pub async fn spawn_agent(
-        &self,
-        name: impl Into<String>,
-        role: AgentRole,
-    ) -> Result<Uuid> {
+    pub async fn spawn_agent(&self, name: impl Into<String>, role: AgentRole) -> Result<Uuid> {
         let name = name.into();
         let id = Uuid::new_v4();
         let mut sm = AgentStateMachine::new();

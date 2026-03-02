@@ -111,10 +111,7 @@ impl WorktreeManager {
     /// Create a new WorktreeManager with a custom git runner (for testing).
     ///
     /// Still uses the best available read adapter automatically.
-    pub fn with_git_runner(
-        base_dir: impl Into<PathBuf>,
-        git: Box<dyn GitRunner>,
-    ) -> Self {
+    pub fn with_git_runner(base_dir: impl Into<PathBuf>, git: Box<dyn GitRunner>) -> Self {
         Self {
             base_dir: base_dir.into(),
             git,

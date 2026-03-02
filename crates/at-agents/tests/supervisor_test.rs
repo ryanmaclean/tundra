@@ -6,10 +6,7 @@ use at_core::types::AgentRole;
 async fn spawn_and_list() {
     let sup = AgentSupervisor::new();
 
-    let id = sup
-        .spawn_agent("mayor-1", AgentRole::Mayor)
-        .await
-        .unwrap();
+    let id = sup.spawn_agent("mayor-1", AgentRole::Mayor).await.unwrap();
 
     let agents = sup.list_agents().await;
     assert_eq!(agents.len(), 1);
@@ -23,10 +20,7 @@ async fn spawn_and_list() {
 async fn stop_agent() {
     let sup = AgentSupervisor::new();
 
-    let id = sup
-        .spawn_agent("crew-1", AgentRole::Crew)
-        .await
-        .unwrap();
+    let id = sup.spawn_agent("crew-1", AgentRole::Crew).await.unwrap();
 
     sup.stop_agent(id).await.unwrap();
 
@@ -61,24 +55,12 @@ async fn stop_nonexistent_agent_errors() {
 async fn spawn_all_roles() {
     let sup = AgentSupervisor::new();
 
-    sup.spawn_agent("m", AgentRole::Mayor)
-        .await
-        .unwrap();
-    sup.spawn_agent("d", AgentRole::Deacon)
-        .await
-        .unwrap();
-    sup.spawn_agent("w", AgentRole::Witness)
-        .await
-        .unwrap();
-    sup.spawn_agent("r", AgentRole::Refinery)
-        .await
-        .unwrap();
-    sup.spawn_agent("p", AgentRole::Polecat)
-        .await
-        .unwrap();
-    sup.spawn_agent("c", AgentRole::Crew)
-        .await
-        .unwrap();
+    sup.spawn_agent("m", AgentRole::Mayor).await.unwrap();
+    sup.spawn_agent("d", AgentRole::Deacon).await.unwrap();
+    sup.spawn_agent("w", AgentRole::Witness).await.unwrap();
+    sup.spawn_agent("r", AgentRole::Refinery).await.unwrap();
+    sup.spawn_agent("p", AgentRole::Polecat).await.unwrap();
+    sup.spawn_agent("c", AgentRole::Crew).await.unwrap();
 
     assert_eq!(sup.agent_count().await, 6);
 }

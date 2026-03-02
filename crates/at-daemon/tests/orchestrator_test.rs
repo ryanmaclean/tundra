@@ -188,10 +188,7 @@ async fn make_orchestrator_with_bus(
     let git = Box::new(MockGit::new(git_responses));
     let worktree_manager = WorktreeManager::with_git_runner(tmp, git);
 
-    (
-        TaskOrchestrator::new(executor, worktree_manager, bus),
-        rx,
-    )
+    (TaskOrchestrator::new(executor, worktree_manager, bus), rx)
 }
 
 async fn make_failing_orchestrator(git_responses: Vec<GitOutput>) -> TaskOrchestrator {

@@ -931,10 +931,7 @@ async fn test_agent_supervisor_spawn_all_roles() {
         ("c", AgentRole::Crew),
     ];
     for (name, role) in &roles {
-        supervisor
-            .spawn_agent(*name, role.clone())
-            .await
-            .unwrap();
+        supervisor.spawn_agent(*name, role.clone()).await.unwrap();
     }
     assert_eq!(supervisor.agent_count().await, 6);
 }
