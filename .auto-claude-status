@@ -3,7 +3,7 @@
   "spec": "045-desktop-application-completion-tauri",
   "state": "building",
   "subtasks": {
-    "completed": 4,
+    "completed": 5,
     "total": 25,
     "in_progress": 1,
     "failed": 0
@@ -18,8 +18,8 @@
     "max": 1
   },
   "session": {
-    "number": 6,
+    "number": 7,
     "started_at": "2026-03-01T20:58:10.989590"
   },
-  "last_update": "2026-03-01T21:20:46.506090"
+  "last_update": "2026-03-01T21:27:05.851542"
 }

@@ -129,6 +129,10 @@ fn main() {
             at_tauri::commands::cmd_memory_add,
             at_tauri::commands::cmd_memory_search,
             at_tauri::commands::cmd_memory_delete,
+            // Settings/Configuration
+            at_tauri::commands::cmd_get_settings,
+            at_tauri::commands::cmd_put_settings,
+            at_tauri::commands::cmd_patch_settings,
         ])
         .setup(move |app| {
             use tauri::Manager;

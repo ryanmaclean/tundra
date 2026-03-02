@@ -1,7 +1,7 @@
 use tauri::State;
 use uuid::Uuid;
 
-use at_core::config::CredentialProvider;
+use at_core::config::{Config, CredentialProvider};
 use at_core::types::{Agent, Bead, BeadStatus, Lane};
 use at_integrations::github::{issues, pull_requests, sync::IssueSyncEngine};
 use at_integrations::types::{GitHubConfig, GitHubIssue, GitHubPullRequest, IssueState, PrState};
@@ -1044,4 +1044,130 @@ pub async fn cmd_memory_delete(state: State<'_, AppState>, id: String) -> Result
     let memory_id = Uuid::parse_str(&id).map_err(|e| format!("invalid UUID: {}", e))?;
     let mut store = state.daemon.api_state().memory_store.write().await;
     Ok(store.delete_entry(&memory_id))
+}
+
+// ---------------------------------------------------------------------------
+// Settings/Configuration commands
+// ---------------------------------------------------------------------------
+
+/// Deep-merge `patch` into `target`. Objects are merged recursively; other
+/// values are replaced. Helper function for patch_settings.
+fn merge_json(target: &mut serde_json::Value, patch: &serde_json::Value) {
+    match (target.is_object(), patch.is_object()) {
+        (true, true) => {
+            let t = target
+                .as_object_mut()
+                .expect("target.is_object() already verified");
+            let p = patch
+                .as_object()
+                .expect("patch.is_object() already verified");
+            for (key, value) in p {
+                let entry = t.entry(key.clone()).or_insert(serde_json::Value::Null);
+                merge_json(entry, value);
+            }
+        }
+        _ => {
+            *target = patch.clone();
+        }
+    }
+}
+
+/// Get the current application configuration.
+///
+/// Returns the full Config object including all sections (general, security, UI,
+/// bridge, agents, integrations, kanban, etc.). If no saved configuration exists,
+/// returns the default configuration.
+#[tauri::command]
+pub fn cmd_get_settings(state: State<'_, AppState>) -> Config {
+    state.daemon.api_state().settings_manager.load_or_default()
+}
+
+/// Replace the entire application configuration.
+///
+/// Replaces the entire configuration with the provided Config object and persists it to disk.
+/// All sections of the config must be provided; any omitted sections will be reset to their
+/// default values. Use cmd_patch_settings for partial updates.
+#[tauri::command]
+pub fn cmd_put_settings(state: State<'_, AppState>, config: Config) -> Result<Config, String> {
+    state
+        .daemon
+        .api_state()
+        .settings_manager
+        .save(&config)
+        .map_err(|e| e.to_string())?;
+    Ok(config)
+}
+
+/// Partially update the application configuration.
+///
+/// Merges the provided partial configuration into the existing configuration and persists
+/// the updated result to disk. Only the fields present in the request are updated;
+/// all other fields retain their current values.
+#[tauri::command]
+pub fn cmd_patch_settings(
+    state: State<'_, AppState>,
+    partial: serde_json::Value,
+) -> Result<Config, String> {
+    let mut current = state.daemon.api_state().settings_manager.load_or_default();
+    let mut current_val =
+        serde_json::to_value(&current).map_err(|e| format!("serialization error: {}", e))?;
+
+    // Merge partial into current
+    merge_json(&mut current_val, &partial);
+
+    current = serde_json::from_value(current_val)
+        .map_err(|e| format!("invalid config after merge: {}", e))?;
+
+    state
+        .daemon
+        .api_state()
+        .settings_manager
+        .save(&current)
+        .map_err(|e| e.to_string())?;
+
+    Ok(current)
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_merge_json_simple_replace() {
+        let mut target = serde_json::json!({"a": 1, "b": 2});
+        let patch = serde_json::json!({"b": 3});
+        merge_json(&mut target, &patch);
+        assert_eq!(target, serde_json::json!({"a": 1, "b": 3}));
+    }
+
+    #[test]
+    fn test_merge_json_nested_objects() {
+        let mut target = serde_json::json!({"a": {"x": 1, "y": 2}, "b": 3});
+        let patch = serde_json::json!({"a": {"y": 99}, "c": 4});
+        merge_json(&mut target, &patch);
+        assert_eq!(
+            target,
+            serde_json::json!({"a": {"x": 1, "y": 99}, "b": 3, "c": 4})
+        );
+    }
+
+    #[test]
+    fn test_merge_json_array_replace() {
+        let mut target = serde_json::json!({"arr": [1, 2, 3]});
+        let patch = serde_json::json!({"arr": [4, 5]});
+        merge_json(&mut target, &patch);
+        assert_eq!(target, serde_json::json!({"arr": [4, 5]}));
+    }
+
+    #[test]
+    fn test_merge_json_empty_patch() {
+        let mut target = serde_json::json!({"a": 1});
+        let patch = serde_json::json!({});
+        merge_json(&mut target, &patch);
+        assert_eq!(target, serde_json::json!({"a": 1}));
+    }
 }
