@@ -356,10 +356,7 @@ impl ApiState {
             let mut interval = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
             interval.tick().await; // First tick completes immediately
 
-            tracing::info!(
-                interval_secs,
-                "Background cleanup task started"
-            );
+            tracing::info!(interval_secs, "Background cleanup task started");
 
             loop {
                 interval.tick().await;

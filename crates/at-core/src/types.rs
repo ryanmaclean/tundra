@@ -689,11 +689,11 @@ pub struct RetentionConfig {
 impl Default for RetentionConfig {
     fn default() -> Self {
         Self {
-            task_ttl_secs: 7 * 24 * 60 * 60,        // 7 days
-            max_task_logs: 10_000,                   // 10k entries
-            cleanup_interval_secs: 60 * 60,          // 1 hour
+            task_ttl_secs: 7 * 24 * 60 * 60,               // 7 days
+            max_task_logs: 10_000,                         // 10k entries
+            cleanup_interval_secs: 60 * 60,                // 1 hour
             orchestrator_execution_ttl_secs: 24 * 60 * 60, // 24 hours
-            disconnect_buffer_ttl_secs: 5 * 60,      // 5 minutes
+            disconnect_buffer_ttl_secs: 5 * 60,            // 5 minutes
         }
     }
 }

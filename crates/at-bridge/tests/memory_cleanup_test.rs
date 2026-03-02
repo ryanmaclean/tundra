@@ -75,7 +75,9 @@ async fn test_task_archival_and_manual_cleanup() {
         task3.completed_at = Some(chrono::Utc::now() - chrono::Duration::days(30));
         tasks.insert(task_id_3, task3);
 
-        state.task_count.store(tasks.len(), std::sync::atomic::Ordering::Relaxed);
+        state
+            .task_count
+            .store(tasks.len(), std::sync::atomic::Ordering::Relaxed);
     }
 
     // Archive task_id_1 and task_id_2

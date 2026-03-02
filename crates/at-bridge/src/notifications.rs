@@ -496,14 +496,24 @@ mod tests {
         let mut store = NotificationStore::new(100);
 
         // Create a notification that's 10 days old
-        let old_id = store.add("Old notification", "old msg", NotificationLevel::Info, "system");
+        let old_id = store.add(
+            "Old notification",
+            "old msg",
+            NotificationLevel::Info,
+            "system",
+        );
         // Manually set created_at to 10 days ago
         if let Some(n) = store.notifications.iter_mut().find(|n| n.id == old_id) {
             n.created_at = Utc::now() - chrono::Duration::days(10);
         }
 
         // Create a recent notification (1 day old)
-        let recent_id = store.add("Recent notification", "recent msg", NotificationLevel::Info, "system");
+        let recent_id = store.add(
+            "Recent notification",
+            "recent msg",
+            NotificationLevel::Info,
+            "system",
+        );
         if let Some(n) = store.notifications.iter_mut().find(|n| n.id == recent_id) {
             n.created_at = Utc::now() - chrono::Duration::days(1);
         }
@@ -523,7 +533,12 @@ mod tests {
         let mut store = NotificationStore::new(100);
 
         // Create a notification that's 5 days old
-        let id = store.add("Recent notification", "msg", NotificationLevel::Info, "system");
+        let id = store.add(
+            "Recent notification",
+            "msg",
+            NotificationLevel::Info,
+            "system",
+        );
         if let Some(n) = store.notifications.iter_mut().find(|n| n.id == id) {
             n.created_at = Utc::now() - chrono::Duration::days(5);
         }
@@ -611,7 +626,12 @@ mod tests {
         let mut store = NotificationStore::new(100);
 
         // Create a notification exactly 7 days old (plus 1 second to ensure it's before cutoff)
-        let id = store.add("Boundary notification", "msg", NotificationLevel::Info, "system");
+        let id = store.add(
+            "Boundary notification",
+            "msg",
+            NotificationLevel::Info,
+            "system",
+        );
         if let Some(n) = store.notifications.iter_mut().find(|n| n.id == id) {
             n.created_at = Utc::now() - chrono::Duration::seconds(7 * 24 * 60 * 60 + 1);
         }

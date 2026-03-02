@@ -12,15 +12,21 @@
 /// Note: The archived_tasks Vec is not cleaned up (by design) - it's just a list
 /// of task IDs. The main memory consumption comes from the Task objects in the
 /// tasks HashMap, which contain all the log entries.
-
 use std::sync::Arc;
 
 use at_bridge::event_bus::EventBus;
 use at_bridge::http_api::ApiState;
-use at_core::types::{BuildLogEntry, BuildStream, Task, TaskCategory, TaskComplexity, TaskPriority, TaskLogType, TaskLogEntry, TaskPhase};
+use at_core::types::{
+    BuildLogEntry, BuildStream, Task, TaskCategory, TaskComplexity, TaskLogEntry, TaskLogType,
+    TaskPhase, TaskPriority,
+};
 
 /// Create a task with heavy logging to simulate long-running tasks
-fn create_task_with_heavy_logging(title: String, log_count: usize, completed_days_ago: i64) -> Task {
+fn create_task_with_heavy_logging(
+    title: String,
+    log_count: usize,
+    completed_days_ago: i64,
+) -> Task {
     let mut task = Task::new(
         title,
         uuid::Uuid::new_v4(),
@@ -36,15 +42,25 @@ fn create_task_with_heavy_logging(title: String, log_count: usize, completed_day
             timestamp: chrono::Utc::now(),
             phase: TaskPhase::Coding,
             log_type: TaskLogType::Info,
-            message: format!("Task log entry {} - simulating long-running operation with detailed output", i),
+            message: format!(
+                "Task log entry {} - simulating long-running operation with detailed output",
+                i
+            ),
             detail: Some(format!("Detailed information for entry {}", i)),
         });
 
         // Add build logs
         task.build_logs.push(BuildLogEntry {
             timestamp: chrono::Utc::now(),
-            stream: if i % 2 == 0 { BuildStream::Stdout } else { BuildStream::Stderr },
-            line: format!("Build output line {} - compiling modules and running tests with verbose output\n", i),
+            stream: if i % 2 == 0 {
+                BuildStream::Stdout
+            } else {
+                BuildStream::Stderr
+            },
+            line: format!(
+                "Build output line {} - compiling modules and running tests with verbose output\n",
+                i
+            ),
             phase: TaskPhase::Coding,
         });
     }
@@ -85,7 +101,9 @@ async fn test_e2e_memory_leak_verification_100_tasks() {
             task_ids.push(task_id);
         }
 
-        state.task_count.store(tasks.len(), std::sync::atomic::Ordering::Relaxed);
+        state
+            .task_count
+            .store(tasks.len(), std::sync::atomic::Ordering::Relaxed);
     }
 
     println!("✓ Created 100 tasks with heavy logging");
@@ -129,8 +147,14 @@ async fn test_e2e_memory_leak_verification_100_tasks() {
 
     println!("  Tasks in memory: {}", tasks_after_archive);
     println!("  Archived tasks: {}", archived_after_archive);
-    assert_eq!(tasks_after_archive, 100, "All tasks should still be in memory");
-    assert_eq!(archived_after_archive, 100, "All tasks should be marked as archived");
+    assert_eq!(
+        tasks_after_archive, 100,
+        "All tasks should still be in memory"
+    );
+    assert_eq!(
+        archived_after_archive, 100,
+        "All tasks should be marked as archived"
+    );
 
     // Step 5: Manually trigger cleanup (tasks older than 7 days)
     println!("\n[Step 5] Running cleanup for tasks older than 7 days...");
@@ -153,9 +177,15 @@ async fn test_e2e_memory_leak_verification_100_tasks() {
     println!("  Archived tasks: {}", archived_after_cleanup);
 
     // All tasks should be removed from HashMap because they're all older than 7 days (30-39 days old)
-    assert_eq!(tasks_after_cleanup, 0, "All old archived tasks should be removed from memory");
+    assert_eq!(
+        tasks_after_cleanup, 0,
+        "All old archived tasks should be removed from memory"
+    );
     // Note: archived_tasks Vec is not cleaned up - it's just task IDs (minimal memory overhead)
-    assert_eq!(archived_after_cleanup, 100, "Archived list retains IDs for historical reference");
+    assert_eq!(
+        archived_after_cleanup, 100,
+        "Archived list retains IDs for historical reference"
+    );
 
     // Calculate memory reduction
     let reduction = tasks_before - tasks_after_cleanup;
@@ -205,7 +235,9 @@ async fn test_background_cleanup_cycle() {
             recent_task_ids.push(task_id);
         }
 
-        state.task_count.store(tasks.len(), std::sync::atomic::Ordering::Relaxed);
+        state
+            .task_count
+            .store(tasks.len(), std::sync::atomic::Ordering::Relaxed);
     }
 
     println!("✓ Created 50 old tasks and 50 recent tasks");
@@ -240,7 +272,10 @@ async fn test_background_cleanup_cycle() {
     // Only recent tasks (1 day old) should remain in HashMap
     assert_eq!(tasks_after, 50, "Recent tasks should remain in memory");
     // Note: archived_tasks Vec retains all IDs (both old and recent)
-    assert_eq!(archived_after, 100, "Archived list retains all IDs for historical reference");
+    assert_eq!(
+        archived_after, 100,
+        "Archived list retains all IDs for historical reference"
+    );
 
     println!("\n✓ Selective cleanup works correctly - old tasks removed, recent tasks kept");
     println!("\n[SUCCESS] Background cleanup cycle test passed!");
@@ -265,7 +300,9 @@ async fn test_stress_cleanup_with_buffers() {
             );
             tasks.insert(task.id, task);
         }
-        state.task_count.store(tasks.len(), std::sync::atomic::Ordering::Relaxed);
+        state
+            .task_count
+            .store(tasks.len(), std::sync::atomic::Ordering::Relaxed);
     }
 
     // Add disconnect buffers
@@ -337,8 +374,14 @@ async fn test_stress_cleanup_with_buffers() {
     println!("  Disconnect buffers: {}", buffers_after);
 
     // Verify cleanup
-    assert_eq!(tasks_after, 0, "All archived tasks should be removed from HashMap");
-    assert_eq!(buffers_after, 0, "All old disconnect buffers should be removed");
+    assert_eq!(
+        tasks_after, 0,
+        "All archived tasks should be removed from HashMap"
+    );
+    assert_eq!(
+        buffers_after, 0,
+        "All old disconnect buffers should be removed"
+    );
 
     println!("\n✓ Comprehensive cleanup successful - old tasks and buffers removed");
     println!("\n[SUCCESS] Stress test with disconnect buffers passed!");

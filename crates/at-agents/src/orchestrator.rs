@@ -486,7 +486,14 @@ impl Orchestrator {
                 interval.tick().await;
 
                 // Acquire lock and perform cleanup with comprehensive metrics
-                let (ttl_secs, executions_before, executions_removed, executions_after, stuck_detectors_before, stuck_detectors_after) = {
+                let (
+                    ttl_secs,
+                    executions_before,
+                    executions_removed,
+                    executions_after,
+                    stuck_detectors_before,
+                    stuck_detectors_after,
+                ) = {
                     let mut orch_guard = orch.lock().unwrap();
                     let ttl = orch_guard.config.execution_ttl_secs;
 
@@ -501,7 +508,14 @@ impl Orchestrator {
                     let exec_after = orch_guard.executions.len();
                     let stuck_after = orch_guard.stuck_detectors.len();
 
-                    (ttl, exec_before, removed, exec_after, stuck_before, stuck_after)
+                    (
+                        ttl,
+                        exec_before,
+                        removed,
+                        exec_after,
+                        stuck_before,
+                        stuck_after,
+                    )
                 };
 
                 tracing::info!(
@@ -978,11 +992,8 @@ mod tests {
             // Add old completed execution
             {
                 let mut orch_guard = orch.lock().unwrap();
-                let id = orch_guard.start_task(
-                    format!("task {}", i),
-                    "description",
-                    AgentRole::Coder,
-                );
+                let id =
+                    orch_guard.start_task(format!("task {}", i), "description", AgentRole::Coder);
                 if let Some(exec) = orch_guard.executions.get_mut(&id) {
                     exec.completed_at = Some(Utc::now() - chrono::Duration::days(10));
                 }
@@ -999,7 +1010,12 @@ mod tests {
             }
 
             // Verify it was cleaned
-            assert_eq!(orch.lock().unwrap().executions.len(), 0, "Cycle {} failed", i);
+            assert_eq!(
+                orch.lock().unwrap().executions.len(),
+                0,
+                "Cycle {} failed",
+                i
+            );
         }
     }
 
