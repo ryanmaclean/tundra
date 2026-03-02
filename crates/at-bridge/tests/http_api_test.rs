@@ -408,9 +408,11 @@ async fn test_list_beads_pagination_with_status_filter() {
     }
 
     // Test pagination with status filter: offset beyond filtered count
-    let resp = reqwest::get(format!("{base}/api/beads?status=backlog&limit=10&offset=100"))
-        .await
-        .unwrap();
+    let resp = reqwest::get(format!(
+        "{base}/api/beads?status=backlog&limit=10&offset=100"
+    ))
+    .await
+    .unwrap();
     assert_eq!(resp.status(), 200);
     let empty: Vec<Value> = resp.json().await.unwrap();
     assert!(empty.is_empty());
@@ -450,9 +452,7 @@ async fn test_pagination_defaults() {
 
     // Test beads endpoint without pagination parameters
     // Should return default limit of 50 beads
-    let resp = reqwest::get(format!("{base}/api/beads"))
-        .await
-        .unwrap();
+    let resp = reqwest::get(format!("{base}/api/beads")).await.unwrap();
     assert_eq!(resp.status(), 200);
     let beads: Vec<Value> = resp.json().await.unwrap();
     assert_eq!(beads.len(), 50, "Default limit should be 50");
@@ -479,9 +479,7 @@ async fn test_pagination_defaults() {
 
     // Test agents endpoint without pagination parameters
     // Should return default limit of 50 agents
-    let resp = reqwest::get(format!("{base}/api/agents"))
-        .await
-        .unwrap();
+    let resp = reqwest::get(format!("{base}/api/agents")).await.unwrap();
     assert_eq!(resp.status(), 200);
     let agents: Vec<Value> = resp.json().await.unwrap();
     assert_eq!(agents.len(), 50, "Default limit should be 50");
