@@ -18,6 +18,7 @@ at-daemon = { path = "../../crates/at-daemon" }
 at-harness = { path = "../../crates/at-harness" }
 at-telemetry = { path = "../../crates/at-telemetry" }
 at-bridge = { path = "../../crates/at-bridge" }
+at-integrations = { path = "../../crates/at-integrations" }
 tauri = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }

@@ -1,7 +1,10 @@
 use tauri::State;
 use uuid::Uuid;
 
+use at_core::config::CredentialProvider;
 use at_core::types::{Agent, Bead, BeadStatus, Lane};
+use at_integrations::github::{issues, pull_requests, sync::IssueSyncEngine};
+use at_integrations::types::{GitHubConfig, GitHubIssue, GitHubPullRequest, IssueState, PrState};
 
 use crate::sounds::{SoundEffect, SoundEngine};
 use crate::state::AppState;
@@ -392,4 +395,256 @@ pub async fn cmd_delete_worktree(id: String) -> Result<String, String> {
     }
 
     Ok(id)
+}
+
+// ---------------------------------------------------------------------------
+// GitHub integration commands
+// ---------------------------------------------------------------------------
+
+/// List GitHub issues with optional filters.
+///
+/// # Arguments
+/// * `state` - Application state containing daemon and API configuration
+/// * `state_filter` - Optional issue state filter ("open" or "closed")
+/// * `labels` - Optional comma-separated list of labels to filter by
+/// * `limit` - Maximum number of issues to return (default: 50)
+/// * `offset` - Number of issues to skip for pagination (default: 0)
+///
+/// # Returns
+/// A list of GitHub issues matching the filters, or an error message if the
+/// operation fails (e.g., missing credentials, network error).
+#[tauri::command]
+pub async fn cmd_list_github_issues(
+    state: State<'_, AppState>,
+    state_filter: Option<String>,
+    labels: Option<String>,
+    limit: Option<usize>,
+    offset: Option<usize>,
+) -> Result<Vec<GitHubIssue>, String> {
+    let config = state.daemon.api_state().settings_manager.load_or_default();
+    let int = &config.integrations;
+    let token = CredentialProvider::from_env(&int.github_token_env);
+    let owner = int.github_owner.as_deref().unwrap_or("").to_string();
+    let repo = int.github_repo.as_deref().unwrap_or("").to_string();
+
+    if token.as_ref().is_none_or(|t| t.is_empty()) {
+        return Err(format!(
+            "GitHub token not configured. Set the environment variable: {}",
+            int.github_token_env
+        ));
+    }
+    if owner.is_empty() || repo.is_empty() {
+        return Err("GitHub owner and repo must be set in settings (integrations).".to_string());
+    }
+
+    let gh_config = GitHubConfig { token, owner, repo };
+    let client = at_integrations::github::client::GitHubClient::new(gh_config)
+        .map_err(|e| e.to_string())?;
+
+    let state_enum = state_filter
+        .as_deref()
+        .and_then(|s| match s.to_lowercase().as_str() {
+            "open" => Some(IssueState::Open),
+            "closed" => Some(IssueState::Closed),
+            _ => None,
+        });
+
+    let labels_vec: Option<Vec<String>> = labels.as_deref().filter(|s| !s.is_empty()).map(|s| {
+        s.split(',')
+            .map(|l| l.trim().to_string())
+            .filter(|l| !l.is_empty())
+            .collect()
+    });
+
+    let all_issues = issues::list_issues(&client, state_enum, labels_vec, None, None)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let limit = limit.unwrap_or(50);
+    let offset = offset.unwrap_or(0);
+    let list: Vec<GitHubIssue> = all_issues.into_iter().skip(offset).take(limit).collect();
+
+    Ok(list)
+}
+
+/// List GitHub pull requests with optional filters.
+///
+/// # Arguments
+/// * `state` - Application state containing daemon and API configuration
+/// * `state_filter` - Optional PR state filter ("open", "closed", or "merged")
+/// * `limit` - Maximum number of PRs to return (default: 50)
+/// * `offset` - Number of PRs to skip for pagination (default: 0)
+///
+/// # Returns
+/// A list of GitHub pull requests matching the filters, or an error message
+/// if the operation fails.
+#[tauri::command]
+pub async fn cmd_list_github_prs(
+    state: State<'_, AppState>,
+    state_filter: Option<String>,
+    limit: Option<usize>,
+    offset: Option<usize>,
+) -> Result<Vec<GitHubPullRequest>, String> {
+    let config = state.daemon.api_state().settings_manager.load_or_default();
+    let int = &config.integrations;
+    let token = CredentialProvider::from_env(&int.github_token_env);
+    let owner = int.github_owner.as_deref().unwrap_or("").to_string();
+    let repo = int.github_repo.as_deref().unwrap_or("").to_string();
+
+    if token.as_ref().is_none_or(|t| t.is_empty()) {
+        return Err(format!(
+            "GitHub token not configured. Set the environment variable: {}",
+            int.github_token_env
+        ));
+    }
+    if owner.is_empty() || repo.is_empty() {
+        return Err("GitHub owner and repo must be set in settings (integrations).".to_string());
+    }
+
+    let gh_config = GitHubConfig { token, owner, repo };
+    let client = at_integrations::github::client::GitHubClient::new(gh_config)
+        .map_err(|e| e.to_string())?;
+
+    let state_enum = state_filter
+        .as_deref()
+        .and_then(|s| match s.to_lowercase().as_str() {
+            "open" => Some(PrState::Open),
+            "closed" => Some(PrState::Closed),
+            "merged" => Some(PrState::Merged),
+            _ => None,
+        });
+
+    let all_prs = pull_requests::list_pull_requests(&client, state_enum, None, None)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let limit = limit.unwrap_or(50);
+    let offset = offset.unwrap_or(0);
+    let list: Vec<GitHubPullRequest> = all_prs.into_iter().skip(offset).take(limit).collect();
+
+    Ok(list)
+}
+
+/// Sync GitHub issues to local beads.
+///
+/// Imports all open GitHub issues as local beads. Existing beads linked to
+/// GitHub issues will be skipped to avoid duplicates.
+///
+/// # Arguments
+/// * `state` - Application state containing daemon and API configuration
+///
+/// # Returns
+/// A tuple containing (message, imported_count, statuses_synced_count), or an
+/// error message if the operation fails.
+#[tauri::command]
+pub async fn cmd_sync_github_issues(
+    state: State<'_, AppState>,
+) -> Result<(String, u64, u64), String> {
+    let config = state.daemon.api_state().settings_manager.load_or_default();
+    let int = &config.integrations;
+    let token = CredentialProvider::from_env(&int.github_token_env);
+    let owner = int.github_owner.as_deref().unwrap_or("").to_string();
+    let repo = int.github_repo.as_deref().unwrap_or("").to_string();
+
+    if token.as_ref().is_none_or(|t| t.is_empty()) {
+        return Err(format!(
+            "GitHub token not configured. Set the environment variable: {}",
+            int.github_token_env
+        ));
+    }
+    if owner.is_empty() || repo.is_empty() {
+        return Err("GitHub owner and repo must be set in settings (integrations).".to_string());
+    }
+
+    let gh_config = GitHubConfig { token, owner, repo };
+    let client = at_integrations::github::client::GitHubClient::new(gh_config)
+        .map_err(|e| e.to_string())?;
+
+    let existing_beads: Vec<Bead> = state
+        .daemon
+        .api_state()
+        .beads
+        .read()
+        .await
+        .values()
+        .cloned()
+        .collect();
+
+    let engine = IssueSyncEngine::new(client);
+    let new_beads = engine
+        .import_open_issues(&existing_beads)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let imported_count = new_beads.len() as u64;
+
+    {
+        let mut beads = state.daemon.api_state().beads.write().await;
+        for b in new_beads {
+            beads.insert(b.id, b);
+        }
+    }
+
+    Ok((
+        "Sync completed".to_string(),
+        imported_count,
+        0, // statuses_synced not implemented yet
+    ))
+}
+
+/// Import a specific GitHub issue as a local bead.
+///
+/// # Arguments
+/// * `state` - Application state containing daemon and API configuration
+/// * `issue_number` - The GitHub issue number to import
+///
+/// # Returns
+/// The newly created bead, or an error message if the operation fails.
+#[tauri::command]
+pub async fn cmd_import_github_issue(
+    state: State<'_, AppState>,
+    issue_number: u64,
+) -> Result<Bead, String> {
+    let config = state.daemon.api_state().settings_manager.load_or_default();
+    let int = &config.integrations;
+    let token = CredentialProvider::from_env(&int.github_token_env);
+    let owner = int.github_owner.as_deref().unwrap_or("").to_string();
+    let repo = int.github_repo.as_deref().unwrap_or("").to_string();
+
+    if token.as_ref().is_none_or(|t| t.is_empty()) {
+        return Err(format!(
+            "GitHub token not configured. Set the environment variable: {}",
+            int.github_token_env
+        ));
+    }
+    if owner.is_empty() || repo.is_empty() {
+        return Err("GitHub owner and repo must be set in settings (integrations).".to_string());
+    }
+
+    let gh_config = GitHubConfig { token, owner, repo };
+    let client = at_integrations::github::client::GitHubClient::new(gh_config)
+        .map_err(|e| e.to_string())?;
+
+    let issue = issues::get_issue(&client, issue_number)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let bead = issues::import_issue_as_task(&issue);
+    state
+        .daemon
+        .api_state()
+        .beads
+        .write()
+        .await
+        .insert(bead.id, bead.clone());
+
+    // Publish event
+    state
+        .daemon
+        .event_bus()
+        .publish(at_bridge::protocol::BridgeMessage::BeadCreated(
+            bead.clone(),
+        ));
+
+    Ok(bead)
 }

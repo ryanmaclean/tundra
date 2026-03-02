@@ -100,6 +100,10 @@ fn main() {
             at_tauri::commands::cmd_list_worktrees,
             at_tauri::commands::cmd_create_worktree,
             at_tauri::commands::cmd_delete_worktree,
+            at_tauri::commands::cmd_list_github_issues,
+            at_tauri::commands::cmd_list_github_prs,
+            at_tauri::commands::cmd_sync_github_issues,
+            at_tauri::commands::cmd_import_github_issue,
         ])
         .setup(move |app| {
             use tauri::Manager;

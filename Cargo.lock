@@ -469,6 +469,7 @@ dependencies = [
  "at-core",
  "at-daemon",
  "at-harness",
+ "at-integrations",
  "at-telemetry",
  "chrono",
  "reqwest 0.12.28",
