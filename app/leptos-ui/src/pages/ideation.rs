@@ -1,5 +1,5 @@
+use crate::components::spinner::Spinner;
 use crate::state::use_app_state;
-use crate::themed::{themed, Prompt};
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 
@@ -10,7 +10,6 @@ use crate::poker_audio;
 #[component]
 pub fn IdeationPage() -> impl IntoView {
     let app_state = use_app_state();
-    let display_mode = app_state.display_mode;
     let (ideas, set_ideas) = signal(Vec::<api::ApiIdea>::new());
     let (loading, set_loading) = signal(true);
     let (error_msg, set_error_msg) = signal(Option::<String>::None);
@@ -208,7 +207,7 @@ pub fn IdeationPage() -> impl IntoView {
         })}
 
         {move || loading.get().then(|| view! {
-            <div class="dashboard-loading">{move || themed(display_mode.get(), Prompt::Loading)}</div>
+            <div class="dashboard-loading"><Spinner size="md" label="Loading ideas..."/></div>
         })}
 
         <div class="ideation-grid">

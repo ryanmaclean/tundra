@@ -2,9 +2,9 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 
 use crate::api;
+use crate::components::spinner::Spinner;
 use crate::i18n::t;
 use crate::state::use_app_state;
-use crate::themed::{themed, Prompt};
 use crate::types::{AgentStatus, BeadStatus};
 
 fn activity_icon_class(status: &BeadStatus) -> &'static str {
@@ -30,7 +30,6 @@ fn activity_icon(status: &BeadStatus) -> &'static str {
 #[component]
 pub fn DashboardPage() -> impl IntoView {
     let app = use_app_state();
-    let display_mode = app.display_mode;
 
     let beads = app.beads;
     let agents = app.agents;
@@ -147,7 +146,7 @@ pub fn DashboardPage() -> impl IntoView {
             })}
 
             {move || loading.get().then(|| view! {
-                <div class="dash-loading">{move || themed(display_mode.get(), Prompt::Loading)}</div>
+                <div class="dash-loading"><Spinner size="lg" label="Loading dashboard..."/></div>
             })}
 
             <div class="dash-kpi-row">

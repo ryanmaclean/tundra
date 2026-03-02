@@ -295,7 +295,8 @@ pub fn TerminalView(
             let ws = match WebSocket::new(&ws_url) {
                 Ok(ws) => ws,
                 Err(e) => {
-                    set_init_error.set(Some(format!("failed to connect terminal websocket: {e:?}")));
+                    set_init_error
+                        .set(Some(format!("failed to connect terminal websocket: {e:?}")));
                     return;
                 }
             };

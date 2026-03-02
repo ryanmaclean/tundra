@@ -2,6 +2,7 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 
 use crate::api::{self, ApiFileNode};
+use crate::components::spinner::Spinner;
 
 /// Count files and directories in a tree recursively.
 fn count_nodes(nodes: &[ApiFileNode]) -> (usize, usize) {
@@ -134,7 +135,7 @@ pub fn FileExplorer() -> impl IntoView {
             })}
 
             {move || loading.get().then(|| view! {
-                <div class="file-explorer-loading">"Loading..."</div>
+                <div class="file-explorer-loading"><Spinner size="md"/></div>
             })}
 
             <div class="file-tree">

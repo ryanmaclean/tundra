@@ -277,6 +277,53 @@ pub fn AgentsPage() -> impl IntoView {
         });
     };
 
+    // Command bar keyboard shortcuts:
+    // H=History, I=Invoke Claude All, N=New Terminal, F=Files drawer.
+    let keydown_handle =
+        window_event_listener(ev::keydown, move |event: web_sys::KeyboardEvent| {
+            if should_skip_terminal_shortcut(&event) {
+                return;
+            }
+
+            match event.key().as_str() {
+                "h" | "H" => {
+                    event.prevent_default();
+                    event.stop_propagation();
+                    set_show_history_menu.update(|v| *v = !*v);
+                    set_show_files_drawer.set(false);
+                }
+                "i" | "I" => {
+                    event.prevent_default();
+                    event.stop_propagation();
+                    do_refresh();
+                    append_history(format!(
+                        "{} Invoked terminal command bar refresh",
+                        history_timestamp()
+                    ));
+                }
+                "n" | "N" => {
+                    event.prevent_default();
+                    event.stop_propagation();
+                    if let Some(set_tab) = set_current_tab {
+                        set_tab.set(14);
+                    }
+                }
+                "f" | "F" => {
+                    event.prevent_default();
+                    event.stop_propagation();
+                    let opening = !show_files_drawer.get_untracked();
+                    set_show_files_drawer.set(opening);
+                    set_show_history_menu.set(false);
+                    if opening {
+                        do_refresh_worktrees();
+                        append_history(format!("{} Opened files drawer", history_timestamp()));
+                    }
+                }
+                _ => {}
+            }
+        });
+    on_cleanup(move || keydown_handle.remove());
+
     // Initial fetch
     do_refresh();
 

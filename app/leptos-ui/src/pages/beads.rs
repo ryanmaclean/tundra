@@ -136,7 +136,10 @@ pub fn api_bead_to_bead_response(ab: &ApiBead) -> BeadResponse {
         "qa" => vec!["complete", "complete", "in_progress", "pending"],
         "done" => vec!["complete", "complete", "complete", "complete"],
         _ => vec!["pending", "pending"],
-    }.into_iter().map(String::from).collect();
+    }
+    .into_iter()
+    .map(String::from)
+    .collect();
 
     BeadResponse {
         id: ab.id.clone(),
@@ -363,11 +366,15 @@ pub fn BeadsPage() -> impl IntoView {
     };
 
     let lanes = vec![
-        (Lane::Planning, "Planning", "column-dot column-dot-planning"),
-        (Lane::InProgress, "In Progress", "column-dot column-dot-inprogress"),
-        (Lane::AiReview, "AI Review", "column-dot column-dot-aireview"),
-        (Lane::HumanReview, "Human Review", "column-dot column-dot-humanreview"),
-        (Lane::Done, "Done", "column-dot column-dot-done"),
+        (Lane::Planning, "Planning", "column-border-planning"),
+        (Lane::InProgress, "In Progress", "column-border-inprogress"),
+        (Lane::AiReview, "AI Review", "column-border-aireview"),
+        (
+            Lane::HumanReview,
+            "Human Review",
+            "column-border-humanreview",
+        ),
+        (Lane::Done, "Done", "column-border-done"),
     ];
 
     // Move a bead to a target lane (optimistic local update + API call with rollback)

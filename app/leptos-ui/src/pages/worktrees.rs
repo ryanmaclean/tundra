@@ -1,3 +1,4 @@
+use crate::components::spinner::Spinner;
 use crate::i18n::t;
 use crate::state::use_app_state;
 use crate::themed::{themed, Prompt};
@@ -173,9 +174,7 @@ pub fn WorktreesPage() -> impl IntoView {
                     set_worktrees.set(display);
                 }
                 Err(e) => {
-                    if e.contains("404")
-                        || e.contains("Not Found")
-                        || api::is_connection_error(&e)
+                    if e.contains("404") || e.contains("Not Found") || api::is_connection_error(&e)
                     {
                         set_offline_demo.set(true);
                         set_worktrees.set(demo_worktrees());
@@ -271,7 +270,7 @@ pub fn WorktreesPage() -> impl IntoView {
         })}
 
         {move || loading.get().then(|| view! {
-            <div class="dashboard-loading">{move || themed(display_mode.get(), Prompt::Loading)}</div>
+            <div class="dashboard-loading"><Spinner size="md" label=""/></div>
         })}
 
         // Worktree cards

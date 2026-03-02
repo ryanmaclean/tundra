@@ -1,13 +1,9 @@
+use crate::components::spinner::Spinner;
 use crate::i18n::t;
-use crate::state::use_app_state;
-use crate::themed::{themed, Prompt};
 use leptos::prelude::*;
 
 #[component]
 pub fn StacksPage() -> impl IntoView {
-    let app_state = use_app_state();
-    let display_mode = app_state.display_mode;
-
     let (stacks, set_stacks) = signal(Vec::<crate::api::ApiStack>::new());
 
     let (loading, set_loading) = signal(true);
@@ -75,7 +71,7 @@ pub fn StacksPage() -> impl IntoView {
             // Loading state
             {move || loading.get().then(|| {
                 view! {
-                    <div class="dashboard-loading">{move || themed(display_mode.get(), Prompt::Loading)}</div>
+                    <div class="dashboard-loading"><Spinner size="md" label="Loading..."/></div>
                 }
             })}
 

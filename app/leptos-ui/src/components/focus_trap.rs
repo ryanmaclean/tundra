@@ -52,9 +52,7 @@ pub fn use_focus_trap() -> impl Fn(leptos::ev::KeyboardEvent) {
         // Find the index of currently focused element
         let current_index = focusable_elements
             .iter()
-            .position(|el| {
-                el.is_same_node(Some(&active_element))
-            });
+            .position(|el| el.is_same_node(Some(&active_element)));
 
         let Some(current_index) = current_index else {
             // If no focusable element is currently focused within the container,
