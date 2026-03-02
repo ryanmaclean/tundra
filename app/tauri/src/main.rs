@@ -156,6 +156,15 @@ fn main() {
 
             Ok(())
         })
+        .on_window_event(|window, event| {
+            // Keep the app running in system tray when window is closed.
+            // Instead of exiting, hide the window and let tray icon restore it.
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                info!("window close requested, hiding instead (tray icon will restore)");
+                window.hide().unwrap();
+                api.prevent_close();
+            }
+        })
         .run(tauri::generate_context!())
         .expect("error while running auto-tundra");
 
