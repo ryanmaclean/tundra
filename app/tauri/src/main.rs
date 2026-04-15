@@ -6,6 +6,8 @@
 //! in-process. The Leptos WASM frontend runs in the Tauri webview and
 //! discovers the API port via `window.__TUNDRA_API_PORT__`.
 
+mod tray;
+
 use at_core::config::Config;
 use at_daemon::daemon::Daemon;
 use at_tauri::bridge::ipc_handler_from_daemon;
@@ -91,6 +93,49 @@ fn main() {
             at_tauri::commands::cmd_set_sound_enabled,
             at_tauri::commands::cmd_set_sound_volume,
             at_tauri::commands::cmd_get_sound_settings,
+            at_tauri::commands::cmd_list_beads,
+            at_tauri::commands::cmd_create_bead,
+            at_tauri::commands::cmd_update_bead_status,
+            at_tauri::commands::cmd_update_bead,
+            at_tauri::commands::cmd_delete_bead,
+            at_tauri::commands::cmd_list_agents,
+            at_tauri::commands::cmd_get_agent,
+            at_tauri::commands::cmd_list_worktrees,
+            at_tauri::commands::cmd_create_worktree,
+            at_tauri::commands::cmd_delete_worktree,
+            at_tauri::commands::cmd_list_github_issues,
+            at_tauri::commands::cmd_list_github_prs,
+            at_tauri::commands::cmd_sync_github_issues,
+            at_tauri::commands::cmd_import_github_issue,
+            // Intelligence: Insights
+            at_tauri::commands::cmd_insights_list_sessions,
+            at_tauri::commands::cmd_insights_create_session,
+            at_tauri::commands::cmd_insights_delete_session,
+            at_tauri::commands::cmd_insights_get_messages,
+            at_tauri::commands::cmd_insights_add_message,
+            // Intelligence: Ideation
+            at_tauri::commands::cmd_ideation_list_ideas,
+            at_tauri::commands::cmd_ideation_generate,
+            at_tauri::commands::cmd_ideation_convert,
+            // Intelligence: Roadmap
+            at_tauri::commands::cmd_roadmap_list,
+            at_tauri::commands::cmd_roadmap_create,
+            at_tauri::commands::cmd_roadmap_generate,
+            at_tauri::commands::cmd_roadmap_add_feature,
+            at_tauri::commands::cmd_roadmap_add_feature_to_latest,
+            at_tauri::commands::cmd_roadmap_update_feature_status,
+            // Intelligence: Changelog
+            at_tauri::commands::cmd_changelog_get,
+            at_tauri::commands::cmd_changelog_generate,
+            // Intelligence: Memory
+            at_tauri::commands::cmd_memory_list,
+            at_tauri::commands::cmd_memory_add,
+            at_tauri::commands::cmd_memory_search,
+            at_tauri::commands::cmd_memory_delete,
+            // Settings/Configuration
+            at_tauri::commands::cmd_get_settings,
+            at_tauri::commands::cmd_put_settings,
+            at_tauri::commands::cmd_patch_settings,
         ])
         .setup(move |app| {
             use tauri::Manager;
@@ -98,7 +143,27 @@ fn main() {
                 // Safe: init_script is a trusted constant (port integer).
                 let _ = webview.eval(&init_script); // tauri::WebviewWindow::eval
             }
+
+            // Initialize system tray.
+            if let Err(e) = tray::init_tray(&app.handle()) {
+                tracing::warn!(error = %e, "failed to initialize system tray");
+            }
+
+            // Start notification listener for bead status changes.
+            let state = app.state::<AppState>();
+            let event_bus = state.daemon.event_bus();
+            at_tauri::notifications::start_notification_listener(&app.handle(), event_bus);
+
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            // Keep the app running in system tray when window is closed.
+            // Instead of exiting, hide the window and let tray icon restore it.
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                info!("window close requested, hiding instead (tray icon will restore)");
+                window.hide().unwrap();
+                api.prevent_close();
+            }
         })
         .run(tauri::generate_context!())
         .expect("error while running auto-tundra");

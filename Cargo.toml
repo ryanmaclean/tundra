@@ -49,7 +49,7 @@ notify = { version = "7", default-features = false, features = ["macos_fsevent"]
 crossbeam-channel = "0.5"
 git2 = "0.20"
 subtle = "2"
-tauri = { version = "2", features = ["devtools"] }
+tauri = { version = "2", features = ["devtools", "tray-icon", "image-png"] }
 tauri-build = "2"
 datadog-tracing = "0.3"
 datadog-apm-sync = "0.8"
@@ -64,10 +64,11 @@ opentelemetry_sdk = { version = "0.21", features = ["rt-tokio"] }
 # ---------------------------------------------------------------------------
 
 [profile.release]
-lto = "thin"
-codegen-units = 1
-strip = "symbols"
-opt-level = 3
+lto = true            # Full link-time optimization for smaller binary
+codegen-units = 1     # Better optimization at cost of compile time
+strip = "symbols"     # Strip symbols for smaller binary
+opt-level = 'z'       # Optimize for size (<30MB target)
+panic = 'abort'       # Reduce binary size by removing unwinding code
 
 [profile.dev]
 opt-level = 1
