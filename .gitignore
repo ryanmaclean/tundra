@@ -19,5 +19,6 @@ app/leptos-ui/dist/
 .auto-claude-*
 .claude_settings.json
 .worktrees/
+.claude/worktrees/
 .security-key
 logs/security/
