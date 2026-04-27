@@ -108,3 +108,79 @@ impl std::fmt::Debug for AgentSession {
             .finish()
     }
 }
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::pty_pool::PtyError;
+
+    // -- Spawn error path: capacity-exhausted pool --------------------------
+
+    #[tokio::test]
+    async fn spawn_into_zero_capacity_pool_propagates_at_capacity() {
+        let pool = PtyPool::new(0);
+        let agent = Uuid::new_v4();
+        let result =
+            AgentSession::spawn(&pool, agent, &CliType::Claude, "task", "/tmp").await;
+        assert!(matches!(
+            result,
+            Err(PtyError::AtCapacity { max: 0 })
+        ));
+    }
+
+    #[tokio::test]
+    async fn spawn_for_each_cli_type_propagates_capacity_error() {
+        // Verifies the error is returned regardless of which adapter is
+        // chosen — exercises the `adapter_for` -> `adapter.spawn` path for
+        // every CliType variant.
+        for cli in [
+            CliType::Claude,
+            CliType::Codex,
+            CliType::Gemini,
+            CliType::OpenCode,
+        ] {
+            let pool = PtyPool::new(0);
+            let agent = Uuid::new_v4();
+            let result =
+                AgentSession::spawn(&pool, agent, &cli, "task", "/tmp").await;
+            assert!(
+                matches!(result, Err(PtyError::AtCapacity { max: 0 })),
+                "expected AtCapacity for {cli:?}"
+            );
+        }
+    }
+
+    // -- parse_status delegation: each CliType --------------------------
+
+    // We need an `AgentSession` to call parse_status, but constructing one
+    // requires a real PTY. Instead, verify by direct adapter access through
+    // the public API: `adapter_for` is in cli_adapter, so we know the
+    // delegation in parse_status is a 1:1 forward. The cli_adapter tests
+    // already cover all the regex paths.
+    //
+    // The remaining session-specific surface is the `cli_type()`,
+    // `binary_name()`, and `handle_id()` accessors plus the `Debug` impl —
+    // all of which require a real PTY handle to instantiate. We cover the
+    // adapter-selection path (the only branching logic in `spawn`) above.
+
+    #[test]
+    fn cli_type_round_trips_through_adapter_for() {
+        // Sanity check: the adapter-selection logic that AgentSession::spawn
+        // relies on returns an adapter whose cli_type() matches the input.
+        // This indirectly verifies the contract that `session.cli_type()`
+        // returns the requested CliType.
+        for cli in [
+            CliType::Claude,
+            CliType::Codex,
+            CliType::Gemini,
+            CliType::OpenCode,
+        ] {
+            let adapter = crate::cli_adapter::adapter_for(&cli);
+            assert_eq!(adapter.cli_type(), cli);
+        }
+    }
+}
