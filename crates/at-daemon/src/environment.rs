@@ -262,4 +262,256 @@ mod tests {
             env::remove_var("DD_TRACE_AGENT_URL");
         }
     }
+
+    /// Capture the current value of an env var so we can restore it after a
+    /// test mutates it. Returns the previous value (or `None` if it was unset).
+    fn capture(var: &str) -> Option<String> {
+        env::var(var).ok()
+    }
+
+    /// Restore a previously-captured env var to its original state.
+    fn restore(var: &str, original: Option<String>) {
+        match original {
+            Some(v) => env::set_var(var, v),
+            None => env::remove_var(var),
+        }
+    }
+
+    /// List of env vars that the module under test reads or sets. Helper tests
+    /// snapshot all of these and restore them at the end.
+    const ALL_VARS: &[&str] = &[
+        "DD_SERVICE",
+        "DD_ENV",
+        "DD_VERSION",
+        "DD_TRACE_AGENT_URL",
+        "DD_TRACE_AGENT_PORT",
+        "DD_TRACE_ENABLED",
+        "DD_TRACE_SAMPLE_RATE",
+        "DD_PROFILING_ENABLED",
+        "DD_API_KEY",
+        "RUST_LOG",
+    ];
+
+    fn snapshot_all() -> Vec<(String, Option<String>)> {
+        ALL_VARS
+            .iter()
+            .map(|v| (v.to_string(), capture(v)))
+            .collect()
+    }
+
+    fn restore_all(snap: Vec<(String, Option<String>)>) {
+        for (k, v) in snap {
+            restore(&k, v);
+        }
+    }
+
+    #[test]
+    fn set_default_env_vars_preserves_preexisting_values() {
+        let _lock = ENV_TEST_LOCK.lock().unwrap();
+        let snap = snapshot_all();
+
+        env::set_var("DD_SERVICE", "custom-service");
+        env::set_var("DD_ENV", "staging");
+        env::set_var("DD_VERSION", "9.9.9");
+
+        set_default_env_vars();
+
+        // Pre-existing values must NOT be overwritten by defaults.
+        assert_eq!(env::var("DD_SERVICE").unwrap(), "custom-service");
+        assert_eq!(env::var("DD_ENV").unwrap(), "staging");
+        assert_eq!(env::var("DD_VERSION").unwrap(), "9.9.9");
+
+        restore_all(snap);
+    }
+
+    #[test]
+    fn set_default_env_vars_populates_all_expected_keys() {
+        let _lock = ENV_TEST_LOCK.lock().unwrap();
+        let snap = snapshot_all();
+
+        for v in ALL_VARS.iter().filter(|v| **v != "DD_API_KEY") {
+            env::remove_var(v);
+        }
+
+        set_default_env_vars();
+
+        assert_eq!(
+            env::var("DD_TRACE_AGENT_URL").unwrap(),
+            "http://localhost:8126"
+        );
+        assert_eq!(env::var("DD_TRACE_AGENT_PORT").unwrap(), "8126");
+        assert_eq!(env::var("DD_TRACE_ENABLED").unwrap(), "true");
+        assert_eq!(env::var("DD_TRACE_SAMPLE_RATE").unwrap(), "1.0");
+        assert_eq!(env::var("DD_PROFILING_ENABLED").unwrap(), "true");
+        assert_eq!(env::var("RUST_LOG").unwrap(), "info,at_daemon=debug");
+
+        restore_all(snap);
+    }
+
+    #[test]
+    fn validate_environment_accepts_sample_rate_at_lower_bound() {
+        let _lock = ENV_TEST_LOCK.lock().unwrap();
+        let snap = snapshot_all();
+
+        env::set_var("DD_SERVICE", "svc");
+        env::set_var("DD_ENV", "test");
+        env::set_var("DD_VERSION", "0.0.1");
+        env::set_var("DD_TRACE_AGENT_URL", "http://localhost:8126");
+        env::set_var("DD_TRACE_SAMPLE_RATE", "0.0");
+
+        assert!(validate_environment().is_ok());
+
+        restore_all(snap);
+    }
+
+    #[test]
+    fn validate_environment_accepts_sample_rate_at_upper_bound() {
+        let _lock = ENV_TEST_LOCK.lock().unwrap();
+        let snap = snapshot_all();
+
+        env::set_var("DD_SERVICE", "svc");
+        env::set_var("DD_ENV", "test");
+        env::set_var("DD_VERSION", "0.0.1");
+        env::set_var("DD_TRACE_AGENT_URL", "http://localhost:8126");
+        env::set_var("DD_TRACE_SAMPLE_RATE", "1.0");
+
+        assert!(validate_environment().is_ok());
+
+        restore_all(snap);
+    }
+
+    #[test]
+    fn validate_environment_rejects_sample_rate_above_one() {
+        let _lock = ENV_TEST_LOCK.lock().unwrap();
+        let snap = snapshot_all();
+
+        env::set_var("DD_SERVICE", "svc");
+        env::set_var("DD_ENV", "test");
+        env::set_var("DD_VERSION", "0.0.1");
+        env::set_var("DD_TRACE_AGENT_URL", "http://localhost:8126");
+        env::set_var("DD_TRACE_SAMPLE_RATE", "1.5");
+
+        assert!(validate_environment().is_err());
+
+        restore_all(snap);
+    }
+
+    #[test]
+    fn validate_environment_rejects_sample_rate_below_zero() {
+        let _lock = ENV_TEST_LOCK.lock().unwrap();
+        let snap = snapshot_all();
+
+        env::set_var("DD_SERVICE", "svc");
+        env::set_var("DD_ENV", "test");
+        env::set_var("DD_VERSION", "0.0.1");
+        env::set_var("DD_TRACE_AGENT_URL", "http://localhost:8126");
+        env::set_var("DD_TRACE_SAMPLE_RATE", "-0.1");
+
+        assert!(validate_environment().is_err());
+
+        restore_all(snap);
+    }
+
+    #[test]
+    fn validate_environment_rejects_malformed_sample_rate() {
+        let _lock = ENV_TEST_LOCK.lock().unwrap();
+        let snap = snapshot_all();
+
+        env::set_var("DD_SERVICE", "svc");
+        env::set_var("DD_ENV", "test");
+        env::set_var("DD_VERSION", "0.0.1");
+        env::set_var("DD_TRACE_AGENT_URL", "http://localhost:8126");
+        env::set_var("DD_TRACE_SAMPLE_RATE", "not-a-number");
+
+        assert!(validate_environment().is_err());
+
+        restore_all(snap);
+    }
+
+    #[test]
+    fn validate_environment_treats_empty_sample_rate_as_invalid() {
+        let _lock = ENV_TEST_LOCK.lock().unwrap();
+        let snap = snapshot_all();
+
+        env::set_var("DD_SERVICE", "svc");
+        env::set_var("DD_ENV", "test");
+        env::set_var("DD_VERSION", "0.0.1");
+        env::set_var("DD_TRACE_AGENT_URL", "http://localhost:8126");
+        env::set_var("DD_TRACE_SAMPLE_RATE", "");
+
+        assert!(validate_environment().is_err());
+
+        restore_all(snap);
+    }
+
+    #[test]
+    fn validate_environment_omitting_sample_rate_is_ok() {
+        let _lock = ENV_TEST_LOCK.lock().unwrap();
+        let snap = snapshot_all();
+
+        env::set_var("DD_SERVICE", "svc");
+        env::set_var("DD_ENV", "test");
+        env::set_var("DD_VERSION", "0.0.1");
+        env::set_var("DD_TRACE_AGENT_URL", "http://localhost:8126");
+        // No DD_TRACE_SAMPLE_RATE — code path should be skipped entirely.
+        env::remove_var("DD_TRACE_SAMPLE_RATE");
+
+        assert!(validate_environment().is_ok());
+
+        restore_all(snap);
+    }
+
+    #[test]
+    fn validate_environment_missing_each_required_var_fails() {
+        let _lock = ENV_TEST_LOCK.lock().unwrap();
+        let snap = snapshot_all();
+
+        // All four required vars set → ok.
+        env::set_var("DD_SERVICE", "svc");
+        env::set_var("DD_ENV", "test");
+        env::set_var("DD_VERSION", "0.0.1");
+        env::set_var("DD_TRACE_AGENT_URL", "http://localhost:8126");
+        env::remove_var("DD_TRACE_SAMPLE_RATE");
+        assert!(validate_environment().is_ok());
+
+        // Removing each in turn must fail validation.
+        for required in ["DD_SERVICE", "DD_ENV", "DD_VERSION", "DD_TRACE_AGENT_URL"] {
+            let saved = env::var(required).ok();
+            env::remove_var(required);
+            assert!(
+                validate_environment().is_err(),
+                "expected error when {required} is missing",
+            );
+            if let Some(v) = saved {
+                env::set_var(required, v);
+            }
+        }
+
+        restore_all(snap);
+    }
+
+    #[test]
+    fn get_environment_returns_default_when_no_arg() {
+        // get_environment uses std::env::args(), which during cargo test is
+        // the test harness invocation. We assert it returns *some* non-empty
+        // string — either an arg or the documented "development" default.
+        let env = get_environment();
+        assert!(!env.is_empty());
+    }
+
+    #[test]
+    fn load_environment_config_does_not_error_on_missing_file() {
+        let _lock = ENV_TEST_LOCK.lock().unwrap();
+        let snap = snapshot_all();
+
+        // A name unlikely to correspond to any real environment file.
+        let result = load_environment_config("nonexistent-env-for-tests");
+        assert!(result.is_ok(), "expected graceful fallback, got {result:?}");
+
+        // Defaults should still be set after fallback.
+        assert!(env::var("DD_SERVICE").is_ok());
+        assert!(env::var("DD_TRACE_AGENT_URL").is_ok());
+
+        restore_all(snap);
+    }
 }

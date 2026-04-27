@@ -133,3 +133,188 @@ impl HeartbeatMonitor {
         Ok(stale)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use at_core::types::{Agent, AgentRole, CliType};
+
+    fn make_agent(name: &str, last_seen: DateTime<Utc>) -> Agent {
+        let mut agent = Agent::new(name, AgentRole::Crew, CliType::Claude);
+        agent.last_seen = last_seen;
+        agent
+    }
+
+    #[test]
+    fn staleness_threshold_round_trips() {
+        let monitor = HeartbeatMonitor::new(Duration::from_secs(42));
+        assert_eq!(monitor.staleness_threshold(), Duration::from_secs(42));
+    }
+
+    #[test]
+    fn zero_threshold_is_preserved() {
+        let monitor = HeartbeatMonitor::new(Duration::ZERO);
+        assert_eq!(monitor.staleness_threshold(), Duration::ZERO);
+    }
+
+    #[test]
+    fn stale_agent_serde_round_trip() {
+        let stale = StaleAgent {
+            agent_id: Uuid::new_v4(),
+            name: "alpha".to_string(),
+            last_seen: DateTime::<Utc>::MIN_UTC,
+            duration_since: Duration::new(7, 250),
+        };
+
+        let json = serde_json::to_string(&stale).expect("serialize");
+        let back: StaleAgent = serde_json::from_str(&json).expect("deserialize");
+
+        assert_eq!(back.agent_id, stale.agent_id);
+        assert_eq!(back.name, stale.name);
+        assert_eq!(back.duration_since, stale.duration_since);
+        assert_eq!(back.last_seen, stale.last_seen);
+    }
+
+    #[tokio::test]
+    async fn register_and_unregister_round_trip() {
+        let monitor = HeartbeatMonitor::new(Duration::from_secs(60));
+        let id = Uuid::new_v4();
+        monitor.register_agent("ranger".to_string(), id).await;
+
+        // Internal map exposed through check_agents: with empty cache the
+        // tracked agent is reported stale (Ok(None) branch).
+        let cache = CacheDb::new_in_memory().await.expect("cache");
+        let stale = monitor.check_agents(&cache).await.expect("check");
+        assert_eq!(stale.len(), 1);
+        assert_eq!(stale[0].name, "ranger");
+        assert_eq!(stale[0].agent_id, id);
+
+        monitor.unregister_agent("ranger").await;
+        let stale = monitor.check_agents(&cache).await.expect("check");
+        assert!(stale.is_empty(), "agent should not be tracked anymore");
+    }
+
+    #[tokio::test]
+    async fn unregistering_unknown_name_is_noop() {
+        let monitor = HeartbeatMonitor::new(Duration::from_secs(10));
+        // Removing a name that was never registered must not panic.
+        monitor.unregister_agent("ghost").await;
+
+        let cache = CacheDb::new_in_memory().await.expect("cache");
+        let stale = monitor.check_agents(&cache).await.expect("check");
+        assert!(stale.is_empty());
+    }
+
+    #[tokio::test]
+    async fn empty_monitor_reports_no_stale_agents() {
+        let monitor = HeartbeatMonitor::new(Duration::from_secs(5));
+        let cache = CacheDb::new_in_memory().await.expect("cache");
+        let stale = monitor.check_agents(&cache).await.expect("check");
+        assert!(stale.is_empty());
+    }
+
+    #[tokio::test]
+    async fn agent_missing_from_cache_is_marked_stale() {
+        let monitor = HeartbeatMonitor::new(Duration::from_secs(30));
+        let id = Uuid::new_v4();
+        monitor.register_agent("phantom".to_string(), id).await;
+
+        let cache = CacheDb::new_in_memory().await.expect("cache");
+        let stale = monitor.check_agents(&cache).await.expect("check");
+
+        assert_eq!(stale.len(), 1);
+        let entry = &stale[0];
+        assert_eq!(entry.agent_id, id);
+        assert_eq!(entry.name, "phantom");
+        assert_eq!(entry.last_seen, DateTime::<Utc>::MIN_UTC);
+        // Sentinel duration must exceed the threshold so callers treat as stale.
+        assert!(entry.duration_since > monitor.staleness_threshold());
+    }
+
+    #[tokio::test]
+    async fn fresh_heartbeat_is_not_stale() {
+        let threshold = Duration::from_secs(60);
+        let monitor = HeartbeatMonitor::new(threshold);
+        let cache = CacheDb::new_in_memory().await.expect("cache");
+
+        // Insert an agent whose last_seen is "now" — well within threshold.
+        let agent = make_agent("fresh", Utc::now());
+        cache.upsert_agent(&agent).await.expect("upsert");
+
+        monitor.register_agent("fresh".to_string(), agent.id).await;
+        let stale = monitor.check_agents(&cache).await.expect("check");
+        assert!(
+            stale.is_empty(),
+            "fresh agent should not be flagged: {stale:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn agent_just_beyond_threshold_is_stale() {
+        let threshold = Duration::from_secs(60);
+        let monitor = HeartbeatMonitor::new(threshold);
+        let cache = CacheDb::new_in_memory().await.expect("cache");
+
+        // last_seen is 120s in the past — clearly beyond a 60s threshold.
+        let last_seen = Utc::now() - chrono::Duration::seconds(120);
+        let agent = make_agent("slowpoke", last_seen);
+        cache.upsert_agent(&agent).await.expect("upsert");
+
+        monitor
+            .register_agent("slowpoke".to_string(), agent.id)
+            .await;
+        let stale = monitor.check_agents(&cache).await.expect("check");
+
+        assert_eq!(stale.len(), 1);
+        assert_eq!(stale[0].name, "slowpoke");
+        assert!(stale[0].duration_since > threshold);
+    }
+
+    #[tokio::test]
+    async fn agent_inside_threshold_is_not_stale_boundary() {
+        // One second in the past, threshold an hour away.
+        let threshold = Duration::from_secs(3600);
+        let monitor = HeartbeatMonitor::new(threshold);
+        let cache = CacheDb::new_in_memory().await.expect("cache");
+
+        let last_seen = Utc::now() - chrono::Duration::seconds(1);
+        let agent = make_agent("just-pinged", last_seen);
+        cache.upsert_agent(&agent).await.expect("upsert");
+
+        monitor
+            .register_agent("just-pinged".to_string(), agent.id)
+            .await;
+        let stale = monitor.check_agents(&cache).await.expect("check");
+        assert!(stale.is_empty());
+    }
+
+    #[tokio::test]
+    async fn check_agents_handles_mixed_population() {
+        let threshold = Duration::from_secs(30);
+        let monitor = HeartbeatMonitor::new(threshold);
+        let cache = CacheDb::new_in_memory().await.expect("cache");
+
+        let fresh = make_agent("alpha", Utc::now());
+        let stale = make_agent("bravo", Utc::now() - chrono::Duration::seconds(600));
+        cache.upsert_agent(&fresh).await.expect("upsert alpha");
+        cache.upsert_agent(&stale).await.expect("upsert bravo");
+
+        monitor.register_agent("alpha".to_string(), fresh.id).await;
+        monitor.register_agent("bravo".to_string(), stale.id).await;
+        // charlie is registered but never inserted — should land in the
+        // "missing from cache" branch.
+        let charlie_id = Uuid::new_v4();
+        monitor
+            .register_agent("charlie".to_string(), charlie_id)
+            .await;
+
+        let result = monitor.check_agents(&cache).await.expect("check");
+
+        let names: std::collections::HashSet<_> =
+            result.iter().map(|s| s.name.as_str()).collect();
+        assert!(!names.contains("alpha"), "alpha should be fresh");
+        assert!(names.contains("bravo"), "bravo should be stale");
+        assert!(names.contains("charlie"), "charlie should be stale");
+        assert_eq!(result.len(), 2);
+    }
+}
