@@ -68,6 +68,28 @@ impl GitHubClient {
         })
     }
 
+    /// Create a new `GitHubClient` with a custom API base URL.
+    ///
+    /// This is primarily useful for tests against a mock HTTP server (e.g.
+    /// `wiremock`) and for self-hosted GitHub Enterprise instances. Production
+    /// callers should use [`GitHubClient::new`], which defaults to the public
+    /// `https://api.github.com` endpoint.
+    pub fn new_with_base_url(config: GitHubConfig, base_url: &str) -> Result<Self> {
+        let token = config.token.ok_or(GitHubError::MissingToken)?;
+
+        let octocrab = Octocrab::builder()
+            .personal_token(token)
+            .base_uri(base_url)
+            .map_err(GitHubError::Api)?
+            .build()?;
+
+        Ok(Self {
+            octocrab,
+            owner: config.owner,
+            repo: config.repo,
+        })
+    }
+
     /// Create a new `GitHubClient` by reading `GITHUB_TOKEN`, `GITHUB_OWNER`,
     /// and `GITHUB_REPO` from the environment.
     pub fn new_from_env() -> Result<Self> {
