@@ -104,20 +104,37 @@ pub struct ImportResult {
 // Client
 // ---------------------------------------------------------------------------
 
+/// Default endpoint for the Linear GraphQL API.
+pub(crate) const LINEAR_DEFAULT_GRAPHQL_URL: &str = "https://api.linear.app/graphql";
+
 #[derive(Debug, Clone)]
 pub struct LinearClient {
     pub api_key: String,
     pub active_team_id: Option<String>,
+    /// Full GraphQL endpoint URL. Defaults to [`LINEAR_DEFAULT_GRAPHQL_URL`];
+    /// override via [`LinearClient::new_with_url`] for tests / self-hosted
+    /// deployments.
+    pub graphql_url: String,
 }
 
 impl LinearClient {
     pub fn new(api_key: &str) -> Result<Self> {
+        Self::new_with_url(api_key, LINEAR_DEFAULT_GRAPHQL_URL)
+    }
+
+    /// Create a Linear client targeting a custom GraphQL endpoint.
+    ///
+    /// Primarily useful for tests against a mock HTTP server (e.g.
+    /// `wiremock`). Production callers should use [`LinearClient::new`],
+    /// which defaults to the public Linear API.
+    pub fn new_with_url(api_key: &str, graphql_url: &str) -> Result<Self> {
         if api_key.is_empty() {
             return Err(LinearError::MissingApiKey);
         }
         Ok(Self {
             api_key: api_key.to_string(),
             active_team_id: None,
+            graphql_url: graphql_url.to_string(),
         })
     }
 
@@ -174,7 +191,7 @@ impl LinearClient {
 
         let client = reqwest::Client::new();
         let resp = client
-            .post("https://api.linear.app/graphql")
+            .post(self.graphql_url.as_str())
             .header("Authorization", self.api_key.as_str())
             .json(&payload)
             .send()
