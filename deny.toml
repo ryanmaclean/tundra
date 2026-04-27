@@ -33,6 +33,12 @@ ignore = [
     # expires: 2026-07-26
     # owner: TBD
     "RUSTSEC-2024-0429",
+    # rand 0.9.2 unsound only when a custom global logger calls rand::rng();
+    # we don't install a custom logger and neither do our transitive deps
+    # (pulled via tungstenite + proptest + tracing-datadog). Re-evaluate on rand 0.10.
+    # expires: 2026-07-26
+    # owner: TBD
+    "RUSTSEC-2026-0097",
 ]
 
 # ---------------------------------------------------------------------------
@@ -55,6 +61,7 @@ allow = [
     "Unlicense",
     "CC0-1.0",
     "LGPL-2.1-or-later",       # r-efi (Windows-only, header-only, no linking risk)
+    "NCSA",                    # libfuzzer-sys (transitive via tauri/image/ravif/rav1e); OSI-approved permissive
 ]
 confidence-threshold = 0.8
 
