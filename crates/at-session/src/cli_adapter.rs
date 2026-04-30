@@ -674,23 +674,40 @@ mod tests {
 
     // -- Spawn error path: nonexistent binary returns SpawnFailed -----------
     //
-    // We can't easily redirect the binary name without modifying production
-    // code, so we verify by trying to spawn the real binary names — if any
-    // of them happen to exist on the test machine, the test will (correctly)
-    // fall through to a successful spawn. We only check that *if* it fails,
-    // it fails with SpawnFailed (not a panic or other variant).
+    // We make this hermetic by clearing PATH for the duration of the test so
+    // the spawn cannot resolve `claude` (or any other binary) to an
+    // executable. Without this, on a host where `claude` happens to be on
+    // PATH the test would silently spawn a real interactive CLI inside a
+    // PTY that can hang or leak processes.
 
+    /// Serialize tests that mutate process-global env vars (PATH).
+    static PATH_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    // Holding a std::sync::MutexGuard across `.await` is intentional here —
+    // the lock guards a process-wide mutation (PATH) that must remain in
+    // effect while the adapter spawns. This test is sequential (no
+    // concurrent awaits inside it) so the lint's deadlock concern does not
+    // apply.
+    #[allow(clippy::await_holding_lock)]
     #[tokio::test]
     async fn claude_spawn_with_missing_binary_fails_cleanly() {
+        let _guard = PATH_LOCK.lock().unwrap();
+        let original_path = std::env::var_os("PATH");
+        std::env::set_var("PATH", "/nonexistent-path-for-cli-adapter-test");
+
         let pool = PtyPool::new(4);
         let result = ClaudeAdapter.spawn(&pool, "task", "/tmp").await;
-        if let Err(e) = result {
-            assert!(
-                matches!(e, crate::pty_pool::PtyError::SpawnFailed(_)),
-                "expected SpawnFailed, got: {e:?}"
-            );
+
+        // Restore PATH before any panicking assertion.
+        match original_path {
+            Some(p) => std::env::set_var("PATH", p),
+            None => std::env::remove_var("PATH"),
         }
-        // If Ok: the binary happens to exist on this machine; nothing to
-        // assert beyond "no panic".
+
+        let err = result.expect_err("expected SpawnFailed when binary is unreachable");
+        assert!(
+            matches!(err, crate::pty_pool::PtyError::SpawnFailed(_)),
+            "expected SpawnFailed, got: {err:?}"
+        );
     }
 }

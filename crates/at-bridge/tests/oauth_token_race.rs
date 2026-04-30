@@ -25,7 +25,7 @@
 //!
 //! That correctness gap is **out of scope for this test-coverage PR**
 //! (the brief explicitly forbids fixing it here, and forbids modifying any
-//! crate other than `at-bridge`). It is recorded as finding #5 in
+//! crate other than `at-bridge`). It is recorded as finding #4 in
 //! `docs/test-coverage-followups.md`.
 //!
 //! What this file pins:
@@ -41,7 +41,7 @@
 //!
 //! Group C (auth-class HTTP error variants — 401/429/500) is not
 //! applicable to this primitive — there is no HTTP code in this file.
-//! Documented as a gap in finding #5.
+//! Documented as a gap in finding #4.
 
 use at_bridge::oauth_token_manager::{OAuthTokenManager, TokenManagerError};
 use std::sync::Arc;

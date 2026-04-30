@@ -12,11 +12,10 @@
 //!    fallback path in `main.rs` does not vary based on host state.
 //!  * Tests are independent — each one allocates its own `tempfile` paths.
 
-use std::path::PathBuf;
-
 use assert_cmd::Command;
 use predicates::prelude::*;
 use predicates::str as pstr;
+use tempfile::TempDir;
 
 /// Bogus API URL used for every command. Dry-run / help / parse-error code
 /// paths never reach this URL, and any path that *would* reach it is not
@@ -37,15 +36,16 @@ fn at_raw() -> Command {
     Command::cargo_bin("at").expect("at binary built")
 }
 
-fn unique_tmp(prefix: &str, ext: &str) -> PathBuf {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    std::env::temp_dir().join(format!(
-        "at-cli-it-{prefix}-{}-{nanos}.{ext}",
-        std::process::id()
-    ))
+/// Allocate a uniquely-named, RAII-guarded temporary directory for a test.
+///
+/// The returned [`TempDir`] is auto-removed when dropped, replacing the
+/// previous `(pid, SystemTime nanos)` filename scheme that could collide on
+/// coarse-clock systems or under parallel execution.
+fn unique_tmp_dir(prefix: &str) -> TempDir {
+    tempfile::Builder::new()
+        .prefix(&format!("at-cli-it-{prefix}-"))
+        .tempdir()
+        .expect("tempdir creation")
 }
 
 // ---------------------------------------------------------------------------
@@ -182,8 +182,10 @@ fn run_unknown_skill_errors_with_path_in_message() {
 #[test]
 fn skill_list_missing_project_path_errors() {
     // `skill list -p <missing-path>` should fail with a path-mentioning error.
-    let bogus = unique_tmp("missing-project", "dir");
-    assert!(!bogus.exists(), "tempfile collision");
+    // Build a path inside a tempdir that we deliberately never create.
+    let td = unique_tmp_dir("missing-project");
+    let bogus = td.path().join("does-not-exist");
+    assert!(!bogus.exists(), "child path must not exist");
     at_raw()
         .args(["skill", "list", "-p"])
         .arg(&bogus)
@@ -195,17 +197,15 @@ fn skill_list_missing_project_path_errors() {
 #[test]
 fn skill_show_unknown_skill_errors() {
     // Use a temp project root with no skills — `show` of any name must fail.
-    let root = unique_tmp("skill-show-empty", "dir");
-    std::fs::create_dir_all(&root).unwrap();
+    let td = unique_tmp_dir("skill-show-empty");
+    let root = td.path();
 
     at_raw()
         .args(["skill", "show", "-s", "no-such-skill", "-p"])
-        .arg(&root)
+        .arg(root)
         .assert()
         .failure()
         .stderr(pstr::contains("Skill not found").or(pstr::contains("no-such-skill")));
-
-    let _ = std::fs::remove_dir_all(&root);
 }
 
 // ---------------------------------------------------------------------------
@@ -214,7 +214,8 @@ fn skill_show_unknown_skill_errors() {
 
 #[test]
 fn run_dry_run_prints_marker_and_writes_artifact() {
-    let out = unique_tmp("run-dry", "json");
+    let td = unique_tmp_dir("run-dry");
+    let out = td.path().join("out.json");
     at()
         .args([
             "run",
@@ -236,8 +237,6 @@ fn run_dry_run_prints_marker_and_writes_artifact() {
     let v: serde_json::Value = serde_json::from_str(&body).expect("artifact parses as JSON");
     assert_eq!(v["mode"], "dry-run");
     assert_eq!(v["task"], "smoke task title");
-
-    let _ = std::fs::remove_file(&out);
 }
 
 #[test]
@@ -266,7 +265,8 @@ fn run_dry_run_json_output_is_parseable() {
 
 #[test]
 fn agent_run_dry_run_writes_role_prefixed_artifact() {
-    let out = unique_tmp("agent-dry", "json");
+    let td = unique_tmp_dir("agent-dry");
+    let out = td.path().join("out.json");
     at()
         .args([
             "agent",
@@ -299,40 +299,34 @@ fn agent_run_dry_run_writes_role_prefixed_artifact() {
         "title should be role-prefixed: {:?}",
         v["task_title"]
     );
-
-    let _ = std::fs::remove_file(&out);
 }
 
 #[test]
 fn skill_list_empty_project_succeeds_with_no_skills_message() {
     // `skill list` does not need a daemon; on an empty project root it
     // should succeed and print the "No skills found" message.
-    let root = unique_tmp("skill-list-empty", "dir");
-    std::fs::create_dir_all(&root).unwrap();
+    let td = unique_tmp_dir("skill-list-empty");
+    let root = td.path();
 
     at_raw()
         .args(["skill", "list", "-p"])
-        .arg(&root)
+        .arg(root)
         .assert()
         .success()
         .stdout(pstr::contains("No skills found"));
-
-    let _ = std::fs::remove_dir_all(&root);
 }
 
 #[test]
 fn skill_validate_strict_fails_when_skills_dir_missing() {
-    let root = unique_tmp("skill-validate-empty", "dir");
-    std::fs::create_dir_all(&root).unwrap();
+    let td = unique_tmp_dir("skill-validate-empty");
+    let root = td.path();
 
     at_raw()
         .args(["skill", "validate", "--strict", "-p"])
-        .arg(&root)
+        .arg(root)
         .assert()
         .failure()
         .stderr(pstr::contains("skill validation failed").or(pstr::contains("Missing")));
-
-    let _ = std::fs::remove_dir_all(&root);
 }
 
 // ---------------------------------------------------------------------------
@@ -355,7 +349,8 @@ fn run_dry_run_lifecycle_artifact_is_self_describing() {
     //   1. Compile prompt + skills locally (`run --dry-run --emit-prompt`)
     //   2. Persist the dry-run payload to an artifact (`--out`)
     //   3. Re-read the artifact and confirm it is internally consistent.
-    let out = unique_tmp("lifecycle", "json");
+    let td = unique_tmp_dir("lifecycle");
+    let out = td.path().join("out.json");
     at()
         .args([
             "run",
@@ -388,6 +383,4 @@ fn run_dry_run_lifecycle_artifact_is_self_describing() {
     assert_eq!(v["priority"], "high");
     assert_eq!(v["complexity"], "low");
     assert!(v["description"].as_str().unwrap_or("").contains("lifecycle smoke"));
-
-    let _ = std::fs::remove_file(&out);
 }
