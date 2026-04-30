@@ -2295,7 +2295,7 @@ pub fn ConfigPage(#[prop(optional)] on_close: Option<Callback<()>>) -> impl Into
                                                         class:btn-selected=move || embedding_model.get() == name_cmp
                                                         on:click=move |_| set_embedding_model.set(name_str.clone())
                                                     >
-                                                        {move || if embedding_model.get() == name.to_string() { "Selected" } else { "Download" }}
+                                                        {move || if embedding_model.get() == name { "Selected" } else { "Download" }}
                                                     </button>
                                                 </div>
                                             }

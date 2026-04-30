@@ -241,7 +241,7 @@ const IDEATION_AGENTS: &[AgentDef] = &[
 
 #[component]
 pub fn McpPage() -> impl IntoView {
-    let app_state = use_app_state();
+    let _app_state = use_app_state();
     let (servers, set_servers) = signal(Vec::<api::ApiMcpServer>::new());
     let (loading, set_loading) = signal(true);
     let (error_msg, set_error_msg) = signal(Option::<String>::None);
