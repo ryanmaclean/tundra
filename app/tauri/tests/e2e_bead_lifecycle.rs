@@ -110,7 +110,11 @@ async fn test_e2e_bead_creation_and_notification() {
         .send()
         .await
         .expect("create bead");
-    assert_eq!(resp.status(), 201, "bead creation should return 201 Created");
+    assert_eq!(
+        resp.status(),
+        201,
+        "bead creation should return 201 Created"
+    );
 
     let bead: serde_json::Value = resp.json().await.expect("parse created bead");
     let bead_id = bead["id"].as_str().expect("bead id").to_string();

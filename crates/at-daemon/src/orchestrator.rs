@@ -772,4 +772,219 @@ mod tests {
         assert_eq!(sanitize_task_title("My Feature!"), "my-feature-");
         assert_eq!(sanitize_task_title("fix/bug #42"), "fix-bug--42");
     }
+
+    // ---------------------------------------------------------------------
+    // Additional unit tests
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn sanitize_task_title_preserves_alphanumeric_underscore_hyphen() {
+        assert_eq!(sanitize_task_title("abc_DEF-123"), "abc_def-123");
+        assert_eq!(sanitize_task_title("ALL_CAPS"), "all_caps");
+    }
+
+    #[test]
+    fn sanitize_task_title_replaces_whitespace_and_punct() {
+        // All punctuation/whitespace chars become '-'
+        assert_eq!(sanitize_task_title("a b\tc\nd"), "a-b-c-d");
+        assert_eq!(sanitize_task_title("hello, world!"), "hello--world-");
+    }
+
+    #[test]
+    fn sanitize_task_title_handles_empty_string() {
+        assert_eq!(sanitize_task_title(""), "");
+    }
+
+    #[test]
+    fn sanitize_task_title_handles_only_invalid_chars() {
+        assert_eq!(sanitize_task_title("!@#$%"), "-----");
+    }
+
+    #[tokio::test]
+    async fn build_prompt_for_each_phase_includes_title() {
+        let orchestrator = make_orchestrator(vec![], vec![]).await;
+        let task = make_test_task();
+        let phases = [
+            TaskPhase::Discovery,
+            TaskPhase::ContextGathering,
+            TaskPhase::SpecCreation,
+            TaskPhase::Planning,
+            TaskPhase::Coding,
+            TaskPhase::Qa,
+            TaskPhase::Fixing,
+            TaskPhase::Merging,
+        ];
+        for phase in phases {
+            let prompt = orchestrator.build_prompt_for_phase(&task, phase.clone());
+            assert!(
+                prompt.contains("Test Feature"),
+                "phase {phase:?} prompt missing title: {prompt}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn build_prompt_for_unhandled_phase_falls_through() {
+        // Complete/Error/Stopped fall through to the generic _ arm.
+        let orchestrator = make_orchestrator(vec![], vec![]).await;
+        let task = make_test_task();
+
+        let p = orchestrator.build_prompt_for_phase(&task, TaskPhase::Complete);
+        assert!(p.contains("Continue working"));
+        assert!(p.contains("Test Feature"));
+
+        let p = orchestrator.build_prompt_for_phase(&task, TaskPhase::Error);
+        assert!(p.contains("Continue working"));
+
+        let p = orchestrator.build_prompt_for_phase(&task, TaskPhase::Stopped);
+        assert!(p.contains("Continue working"));
+    }
+
+    #[tokio::test]
+    async fn build_prompt_uses_default_description_when_missing() {
+        let orchestrator = make_orchestrator(vec![], vec![]).await;
+        let task = make_test_task();
+        // Discovery prompt embeds description; default is "No description"
+        let prompt = orchestrator.build_prompt_for_phase(&task, TaskPhase::Discovery);
+        assert!(prompt.contains("No description"));
+    }
+
+    #[tokio::test]
+    async fn build_prompt_uses_default_worktree_when_missing() {
+        let orchestrator = make_orchestrator(vec![], vec![]).await;
+        let task = make_test_task();
+        let prompt = orchestrator.build_prompt_for_phase(&task, TaskPhase::Coding);
+        assert!(prompt.contains("(no worktree)"));
+    }
+
+    #[tokio::test]
+    async fn build_prompt_includes_provided_description_and_worktree() {
+        let orchestrator = make_orchestrator(vec![], vec![]).await;
+        let mut task = make_test_task();
+        task.description = Some("custom desc".to_string());
+        task.worktree_path = Some("/tmp/custom-wt".to_string());
+
+        let prompt = orchestrator.build_prompt_for_phase(&task, TaskPhase::Discovery);
+        assert!(prompt.contains("custom desc"));
+        assert!(prompt.contains("/tmp/custom-wt"));
+    }
+
+    #[test]
+    fn orchestrator_error_display_task_not_found() {
+        let id = Uuid::nil();
+        let err = OrchestratorError::TaskNotFound(id);
+        let s = err.to_string();
+        assert!(s.contains("task not found"));
+        assert!(s.contains(&id.to_string()));
+    }
+
+    #[test]
+    fn orchestrator_error_display_invalid_state() {
+        let err = OrchestratorError::InvalidState("bad phase".to_string());
+        let s = err.to_string();
+        assert!(s.contains("invalid state"));
+        assert!(s.contains("bad phase"));
+    }
+
+    #[test]
+    fn orchestrator_error_display_merge_conflict_lists_files() {
+        let err = OrchestratorError::MergeConflict(vec!["a.rs".to_string(), "b.rs".to_string()]);
+        let s = err.to_string();
+        assert!(s.contains("merge conflict"));
+        assert!(s.contains("a.rs"));
+        assert!(s.contains("b.rs"));
+    }
+
+    #[tokio::test]
+    async fn cancel_task_publishes_cancelled_event() {
+        let bus = EventBus::new();
+        let rx = bus.subscribe();
+
+        let spawner: Arc<dyn PtySpawner> = Arc::new(MockSpawner::new(vec![]));
+        let executor = AgentExecutor::with_spawner(spawner, bus.clone());
+        let tmp = std::env::temp_dir().join(format!("at-orch-cancel-{}", Uuid::new_v4()));
+        let _ = std::fs::create_dir_all(&tmp);
+        let git = Box::new(MockGit::new(vec![]));
+        let worktree_manager = WorktreeManager::with_git_runner(tmp, git);
+        let orchestrator = TaskOrchestrator::new(executor, worktree_manager, bus);
+
+        let mut task = make_test_task();
+        orchestrator.cancel_task(&mut task).await.unwrap();
+
+        let mut found_cancelled = false;
+        while let Ok(msg) = rx.try_recv() {
+            if let BridgeMessage::Event(payload) = &*msg {
+                if payload.event_type == "task_cancelled" {
+                    found_cancelled = true;
+                    break;
+                }
+            }
+        }
+        assert!(
+            found_cancelled,
+            "cancel_task did not publish task_cancelled"
+        );
+    }
+
+    #[tokio::test]
+    async fn retry_task_rejects_complete_state() {
+        let orchestrator = make_orchestrator(vec![], vec![]).await;
+        let mut task = make_test_task();
+        task.set_phase(TaskPhase::Complete);
+
+        let result = orchestrator.retry_task(&mut task).await;
+        assert!(matches!(result, Err(OrchestratorError::InvalidState(_))));
+    }
+
+    #[tokio::test]
+    async fn retry_task_rejects_coding_state() {
+        let orchestrator = make_orchestrator(vec![], vec![]).await;
+        let mut task = make_test_task();
+        task.set_phase(TaskPhase::Coding);
+
+        let result = orchestrator.retry_task(&mut task).await;
+        assert!(matches!(result, Err(OrchestratorError::InvalidState(_))));
+    }
+
+    #[tokio::test]
+    async fn cancel_task_records_log_entry() {
+        let orchestrator = make_orchestrator(vec![], vec![]).await;
+        let mut task = make_test_task();
+        let logs_before = task.logs.len();
+
+        orchestrator.cancel_task(&mut task).await.unwrap();
+
+        assert!(task.logs.len() > logs_before);
+        assert!(task
+            .logs
+            .iter()
+            .any(|l| l.message.contains("cancelled") || l.message.contains("Cancelled")));
+    }
+
+    #[test]
+    fn run_spec_pipeline_appends_log() {
+        let mut task = make_test_task();
+        let before = task.logs.len();
+        run_spec_pipeline_for_task(&mut task);
+        assert!(task.logs.len() > before);
+        // Ensure the spec pipeline log mentions the task title.
+        assert!(task.logs.iter().any(|l| l.message.contains("Test Feature")));
+    }
+
+    #[test]
+    fn run_spec_pipeline_includes_all_phase_labels() {
+        let mut task = make_test_task();
+        run_spec_pipeline_for_task(&mut task);
+        // Each spec phase produces a placeholder line; combined log should
+        // contain every phase label exactly once.
+        let combined = task
+            .logs
+            .iter()
+            .map(|l| l.message.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        // The labels come from SpecPhase::label(); we only require non-empty
+        // and that all five placeholder lines are present.
+        assert_eq!(combined.matches("Placeholder output for task").count(), 5);
+    }
 }

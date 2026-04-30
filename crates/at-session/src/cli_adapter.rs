@@ -416,3 +416,298 @@ pub fn adapter_for(cli_type: &CliType) -> Box<dyn CliAdapter> {
         CliType::OpenCode => Box::new(OpenCodeAdapter),
     }
 }
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // -- Factory ------------------------------------------------------------
+
+    #[test]
+    fn adapter_for_claude_returns_claude_adapter() {
+        let adapter = adapter_for(&CliType::Claude);
+        assert_eq!(adapter.binary_name(), "claude");
+        assert_eq!(adapter.cli_type(), CliType::Claude);
+    }
+
+    #[test]
+    fn adapter_for_codex_returns_codex_adapter() {
+        let adapter = adapter_for(&CliType::Codex);
+        assert_eq!(adapter.binary_name(), "codex");
+        assert_eq!(adapter.cli_type(), CliType::Codex);
+    }
+
+    #[test]
+    fn adapter_for_gemini_returns_gemini_adapter() {
+        let adapter = adapter_for(&CliType::Gemini);
+        assert_eq!(adapter.binary_name(), "gemini");
+        assert_eq!(adapter.cli_type(), CliType::Gemini);
+    }
+
+    #[test]
+    fn adapter_for_opencode_returns_opencode_adapter() {
+        let adapter = adapter_for(&CliType::OpenCode);
+        assert_eq!(adapter.binary_name(), "opencode");
+        assert_eq!(adapter.cli_type(), CliType::OpenCode);
+    }
+
+    // -- Default args -------------------------------------------------------
+
+    #[test]
+    fn claude_default_args_include_skip_permissions() {
+        let args = ClaudeAdapter.default_args();
+        assert_eq!(args, vec!["--dangerously-skip-permissions".to_string()]);
+    }
+
+    #[test]
+    fn codex_default_args_include_full_auto_and_quiet() {
+        let args = CodexAdapter.default_args();
+        assert_eq!(
+            args,
+            vec![
+                "--approval-mode".to_string(),
+                "full-auto".to_string(),
+                "-q".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn gemini_default_args_are_empty() {
+        let args = GeminiAdapter.default_args();
+        assert!(args.is_empty());
+    }
+
+    #[test]
+    fn opencode_default_args_are_empty() {
+        let args = OpenCodeAdapter.default_args();
+        assert!(args.is_empty());
+    }
+
+    // -- Status parsing: Claude ---------------------------------------------
+
+    #[test]
+    fn claude_parses_task_complete_as_completed() {
+        let status = ClaudeAdapter.parse_status_output("All work finished. Task complete.");
+        assert_eq!(status.as_deref(), Some("completed"));
+    }
+
+    #[test]
+    fn claude_parses_done_bang_as_completed() {
+        let status = ClaudeAdapter.parse_status_output("Done!");
+        assert_eq!(status.as_deref(), Some("completed"));
+    }
+
+    #[test]
+    fn claude_parses_error_capital_as_error() {
+        let status = ClaudeAdapter.parse_status_output("Error: something blew up");
+        assert_eq!(status.as_deref(), Some("error"));
+    }
+
+    #[test]
+    fn claude_parses_error_lowercase_as_error() {
+        let status = ClaudeAdapter.parse_status_output("note: error: bad input");
+        assert_eq!(status.as_deref(), Some("error"));
+    }
+
+    #[test]
+    fn claude_parses_unrelated_output_as_none() {
+        let status = ClaudeAdapter.parse_status_output("just some normal output here");
+        assert!(status.is_none());
+    }
+
+    #[test]
+    fn claude_parses_empty_output_as_none() {
+        let status = ClaudeAdapter.parse_status_output("");
+        assert!(status.is_none());
+    }
+
+    // -- Status parsing: Codex ----------------------------------------------
+
+    #[test]
+    fn codex_parses_completed_as_completed() {
+        let status = CodexAdapter.parse_status_output("Job completed successfully");
+        assert_eq!(status.as_deref(), Some("completed"));
+    }
+
+    #[test]
+    fn codex_parses_finished_as_completed() {
+        let status = CodexAdapter.parse_status_output("All steps finished.");
+        assert_eq!(status.as_deref(), Some("completed"));
+    }
+
+    #[test]
+    fn codex_parses_error_as_error() {
+        let status = CodexAdapter.parse_status_output("there was an error here");
+        assert_eq!(status.as_deref(), Some("error"));
+    }
+
+    #[test]
+    fn codex_parses_unrelated_output_as_none() {
+        let status = CodexAdapter.parse_status_output("Working on it...");
+        assert!(status.is_none());
+    }
+
+    // -- Status parsing: Gemini ---------------------------------------------
+
+    #[test]
+    fn gemini_parses_done_as_completed() {
+        let status = GeminiAdapter.parse_status_output("Done with task.");
+        assert_eq!(status.as_deref(), Some("completed"));
+    }
+
+    #[test]
+    fn gemini_parses_complete_as_completed() {
+        let status = GeminiAdapter.parse_status_output("Complete.");
+        assert_eq!(status.as_deref(), Some("completed"));
+    }
+
+    #[test]
+    fn gemini_parses_error_capital_as_error() {
+        let status = GeminiAdapter.parse_status_output("Error happened");
+        assert_eq!(status.as_deref(), Some("error"));
+    }
+
+    #[test]
+    fn gemini_parses_unrelated_output_as_none() {
+        let status = GeminiAdapter.parse_status_output("hello world");
+        assert!(status.is_none());
+    }
+
+    // -- Status parsing: OpenCode -------------------------------------------
+
+    #[test]
+    fn opencode_parses_done_as_completed() {
+        let status = OpenCodeAdapter.parse_status_output("done");
+        assert_eq!(status.as_deref(), Some("completed"));
+    }
+
+    #[test]
+    fn opencode_parses_complete_as_completed() {
+        let status = OpenCodeAdapter.parse_status_output("step is complete now");
+        assert_eq!(status.as_deref(), Some("completed"));
+    }
+
+    #[test]
+    fn opencode_parses_error_lowercase_as_error() {
+        let status = OpenCodeAdapter.parse_status_output("error: oh no");
+        assert_eq!(status.as_deref(), Some("error"));
+    }
+
+    #[test]
+    fn opencode_parses_error_capital_as_error() {
+        let status = OpenCodeAdapter.parse_status_output("Error: caught it");
+        assert_eq!(status.as_deref(), Some("error"));
+    }
+
+    #[test]
+    fn opencode_parses_unrelated_output_as_none() {
+        let status = OpenCodeAdapter.parse_status_output("running...");
+        assert!(status.is_none());
+    }
+
+    // -- Precedence: completion checks before error -------------------------
+
+    #[test]
+    fn claude_completion_takes_priority_over_error() {
+        // Claude's parser checks "Task complete" or "Done!" first; if both
+        // markers are present, the implementation prefers "completed".
+        let status = ClaudeAdapter.parse_status_output("Done! No Error here.");
+        assert_eq!(status.as_deref(), Some("completed"));
+    }
+
+    #[test]
+    fn codex_completion_takes_priority_over_error() {
+        let status = CodexAdapter.parse_status_output("completed with no error");
+        assert_eq!(status.as_deref(), Some("completed"));
+    }
+
+    // -- Spawn error path: spawning into a full pool returns AtCapacity -----
+    //
+    // We can exercise the *capacity* path of every adapter without ever
+    // touching a real PTY: fill the pool with sentinel UUIDs by spawning
+    // into a 0-capacity pool, which fails before openpty() is called.
+
+    #[tokio::test]
+    async fn claude_spawn_into_full_pool_returns_at_capacity() {
+        let pool = PtyPool::new(0);
+        let result = ClaudeAdapter.spawn(&pool, "task", "/tmp").await;
+        assert!(matches!(
+            result,
+            Err(crate::pty_pool::PtyError::AtCapacity { max: 0 })
+        ));
+    }
+
+    #[tokio::test]
+    async fn codex_spawn_into_full_pool_returns_at_capacity() {
+        let pool = PtyPool::new(0);
+        let result = CodexAdapter.spawn(&pool, "task", "/tmp").await;
+        assert!(matches!(
+            result,
+            Err(crate::pty_pool::PtyError::AtCapacity { max: 0 })
+        ));
+    }
+
+    #[tokio::test]
+    async fn gemini_spawn_into_full_pool_returns_at_capacity() {
+        let pool = PtyPool::new(0);
+        let result = GeminiAdapter.spawn(&pool, "task", "/tmp").await;
+        assert!(matches!(
+            result,
+            Err(crate::pty_pool::PtyError::AtCapacity { max: 0 })
+        ));
+    }
+
+    #[tokio::test]
+    async fn opencode_spawn_into_full_pool_returns_at_capacity() {
+        let pool = PtyPool::new(0);
+        let result = OpenCodeAdapter.spawn(&pool, "task", "/tmp").await;
+        assert!(matches!(
+            result,
+            Err(crate::pty_pool::PtyError::AtCapacity { max: 0 })
+        ));
+    }
+
+    // -- Spawn error path: nonexistent binary returns SpawnFailed -----------
+    //
+    // We make this hermetic by clearing PATH for the duration of the test so
+    // the spawn cannot resolve `claude` (or any other binary) to an
+    // executable. Without this, on a host where `claude` happens to be on
+    // PATH the test would silently spawn a real interactive CLI inside a
+    // PTY that can hang or leak processes.
+
+    /// Serialize tests that mutate process-global env vars (PATH).
+    static PATH_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    // Holding a std::sync::MutexGuard across `.await` is intentional here —
+    // the lock guards a process-wide mutation (PATH) that must remain in
+    // effect while the adapter spawns. This test is sequential (no
+    // concurrent awaits inside it) so the lint's deadlock concern does not
+    // apply.
+    #[allow(clippy::await_holding_lock)]
+    #[tokio::test]
+    async fn claude_spawn_with_missing_binary_fails_cleanly() {
+        let _guard = PATH_LOCK.lock().unwrap();
+        let original_path = std::env::var_os("PATH");
+        std::env::set_var("PATH", "/nonexistent-path-for-cli-adapter-test");
+
+        let pool = PtyPool::new(4);
+        let result = ClaudeAdapter.spawn(&pool, "task", "/tmp").await;
+
+        // Restore PATH before any panicking assertion.
+        match original_path {
+            Some(p) => std::env::set_var("PATH", p),
+            None => std::env::remove_var("PATH"),
+        }
+
+        let err = result.expect_err("expected SpawnFailed when binary is unreachable");
+        assert!(
+            matches!(err, crate::pty_pool::PtyError::SpawnFailed(_)),
+            "expected SpawnFailed, got: {err:?}"
+        );
+    }
+}

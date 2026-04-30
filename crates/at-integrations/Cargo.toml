@@ -19,3 +19,5 @@ urlencoding = "2"
 
 [dev-dependencies]
 tokio = { workspace = true }
+wiremock = "0.6"
+serde_json = { workspace = true }

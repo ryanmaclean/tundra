@@ -104,20 +104,86 @@ pub struct ImportResult {
 // Client
 // ---------------------------------------------------------------------------
 
+/// Default endpoint for the Linear GraphQL API.
+pub(crate) const LINEAR_DEFAULT_GRAPHQL_URL: &str = "https://api.linear.app/graphql";
+
 #[derive(Debug, Clone)]
 pub struct LinearClient {
     pub api_key: String,
     pub active_team_id: Option<String>,
+    /// Full GraphQL endpoint URL. Defaults to [`LINEAR_DEFAULT_GRAPHQL_URL`];
+    /// override via [`LinearClient::new_with_url`] for tests / self-hosted
+    /// deployments.
+    pub graphql_url: String,
+    /// Optional configured request timeout. When `None`, `client` is built
+    /// with default settings (no explicit timeout) — matching the historical
+    /// behavior of `LinearClient::new` and `LinearClient::new_with_url`. When
+    /// `Some(duration)`, the duration is wired through
+    /// `reqwest::ClientBuilder::timeout` so slow servers surface as a
+    /// `LinearError::Http` carrying a reqwest timeout.
+    ///
+    /// Kept as a marker so callers can introspect what the underlying
+    /// `client` was built with; the timeout itself is wired into `client` at
+    /// construction time and is not re-read on each request.
+    #[allow(dead_code)]
+    pub(crate) request_timeout: Option<std::time::Duration>,
+    /// Shared `reqwest::Client` used for every GraphQL request. Built once at
+    /// construction time so connection pooling actually works across calls.
+    pub(crate) client: reqwest::Client,
 }
 
 impl LinearClient {
     pub fn new(api_key: &str) -> Result<Self> {
+        Self::new_with_url(api_key, LINEAR_DEFAULT_GRAPHQL_URL)
+    }
+
+    /// Create a Linear client targeting a custom GraphQL endpoint.
+    ///
+    /// Primarily useful for tests against a mock HTTP server (e.g.
+    /// `wiremock`). Production callers should use [`LinearClient::new`],
+    /// which defaults to the public Linear API.
+    pub fn new_with_url(api_key: &str, graphql_url: &str) -> Result<Self> {
+        Self::new_with_url_and_timeout(api_key, graphql_url, None)
+    }
+
+    /// Create a Linear client with a custom GraphQL endpoint and an optional
+    /// request timeout.
+    ///
+    /// When `timeout` is `None`, behavior is identical to
+    /// [`LinearClient::new_with_url`] (the per-request `reqwest::Client` is
+    /// built without an explicit timeout). When `Some(duration)`, the
+    /// duration is applied via `reqwest::ClientBuilder::timeout` to every
+    /// GraphQL request, so slow servers surface as a `LinearError::Http`.
+    ///
+    /// This constructor is additive: existing call sites of `new` and
+    /// `new_with_url` continue to compile unchanged and exhibit identical
+    /// behavior.
+    pub fn new_with_url_and_timeout(
+        api_key: &str,
+        graphql_url: &str,
+        timeout: Option<std::time::Duration>,
+    ) -> Result<Self> {
         if api_key.is_empty() {
             return Err(LinearError::MissingApiKey);
         }
+        // Build the reqwest client once so subsequent GraphQL requests share
+        // a connection pool. `Client::builder().build()` is effectively
+        // infallible for our use; on the rare TLS/system error we surface a
+        // panic via `expect` rather than changing the public constructor
+        // signature.
+        let client = match timeout {
+            Some(t) => reqwest::Client::builder()
+                .timeout(t)
+                .build()
+                .expect("reqwest client builder"),
+            None => reqwest::Client::new(),
+        };
         Ok(Self {
             api_key: api_key.to_string(),
             active_team_id: None,
+            graphql_url: graphql_url.to_string(),
+            request_timeout: timeout,
+            client,
         })
     }
 
@@ -172,9 +238,9 @@ impl LinearClient {
             payload["variables"] = serde_json::Value::Object(vars);
         }
 
-        let client = reqwest::Client::new();
-        let resp = client
-            .post("https://api.linear.app/graphql")
+        let resp = self
+            .client
+            .post(self.graphql_url.as_str())
             .header("Authorization", self.api_key.as_str())
             .json(&payload)
             .send()

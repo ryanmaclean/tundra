@@ -43,12 +43,12 @@ async fn test_desktop_app_ui_pages_api_endpoints() {
 
     // Test core API endpoints that pages depend on
     let endpoints = vec![
-        "/api/status",        // Dashboard, status bar
-        "/api/beads",         // Beads page, kanban board
-        "/api/agents",        // Agents page, terminals
-        "/api/worktrees",     // Worktrees page
-        "/api/github/issues", // GitHub Issues page
-        "/api/github/prs",    // GitHub PRs page
+        "/api/status",            // Dashboard, status bar
+        "/api/beads",             // Beads page, kanban board
+        "/api/agents",            // Agents page, terminals
+        "/api/worktrees",         // Worktrees page
+        "/api/github/issues",     // GitHub Issues page
+        "/api/github/prs",        // GitHub PRs page
         "/api/insights/sessions", // Insights page
         "/api/ideation/ideas",    // Ideation page
         "/api/roadmap/roadmaps",  // Roadmap page
@@ -62,10 +62,7 @@ async fn test_desktop_app_ui_pages_api_endpoints() {
     for endpoint in endpoints {
         let url = format!("http://localhost:{port}{endpoint}");
         let resp = client.get(&url).send().await;
-        assert!(
-            resp.is_ok(),
-            "API endpoint {endpoint} should be reachable"
-        );
+        assert!(resp.is_ok(), "API endpoint {endpoint} should be reachable");
         let resp = resp.unwrap();
         assert!(
             resp.status().is_success() || resp.status() == 404,
@@ -163,7 +160,10 @@ async fn test_desktop_app_ipc_agent_management() {
     assert_eq!(resp.status(), 200);
     let agents: Vec<serde_json::Value> = resp.json().await.expect("parse agents");
     // Agent list may be empty or populated depending on daemon state
-    assert!(agents.is_empty() || !agents.is_empty(), "list agents should return a valid list");
+    assert!(
+        agents.is_empty() || !agents.is_empty(),
+        "list agents should return a valid list"
+    );
 
     daemon.shutdown();
 }
@@ -226,7 +226,10 @@ async fn test_desktop_app_multiple_instances() {
     let port1 = daemon1.start_embedded().await.expect("start embedded 1");
     let port2 = daemon2.start_embedded().await.expect("start embedded 2");
 
-    assert_ne!(port1, port2, "two daemon instances must get different ports");
+    assert_ne!(
+        port1, port2,
+        "two daemon instances must get different ports"
+    );
 
     // Both should be independently accessible
     let url1 = format!("http://localhost:{port1}/api/status");

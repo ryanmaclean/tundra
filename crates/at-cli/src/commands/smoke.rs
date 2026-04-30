@@ -414,15 +414,15 @@ mod tests {
     fn smoke_script_presence_deserializes() {
         let json = r#"{"webgpuAnalytics":true,"pokerAudio":false}"#;
         let parsed: ScriptPresence = serde_json::from_str(json).unwrap();
-        assert_eq!(parsed.webgpu_analytics, true);
-        assert_eq!(parsed.poker_audio, false);
+        assert!(parsed.webgpu_analytics);
+        assert!(!parsed.poker_audio);
     }
 
     #[test]
     fn smoke_cue_result_deserializes() {
         let json = r#"{"ok":true,"cue":"consensus","state":"ready","error":null}"#;
         let parsed: CueResult = serde_json::from_str(json).unwrap();
-        assert_eq!(parsed.ok, true);
+        assert!(parsed.ok);
         assert_eq!(parsed.cue, Some("consensus".to_string()));
         assert_eq!(parsed.state, Some("ready".to_string()));
         assert_eq!(parsed.error, None);
@@ -448,11 +448,11 @@ mod tests {
         }"#;
         let parsed: BrowserSmokeResult = serde_json::from_str(json).unwrap();
         assert_eq!(parsed.url, Some("http://localhost:3001".to_string()));
-        assert_eq!(parsed.scripts_present.webgpu_analytics, true);
-        assert_eq!(parsed.scripts_present.poker_audio, true);
+        assert!(parsed.scripts_present.webgpu_analytics);
+        assert!(parsed.scripts_present.poker_audio);
         assert_eq!(parsed.webgpu.supported, Some(true));
-        assert_eq!(parsed.audio_warmup.ok, true);
-        assert_eq!(parsed.audio_cue.ok, true);
+        assert!(parsed.audio_warmup.ok);
+        assert!(parsed.audio_cue.ok);
         assert!(parsed.errors.is_empty());
     }
 

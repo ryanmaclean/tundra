@@ -68,6 +68,49 @@ jobs:
           path: target/nextest/ci/ci-junit.xml
           retention-days: 30
 
+  coverage:
+    name: Coverage (non-blocking)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+
+      - name: Cache cargo registry & build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@nextest
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Generate LCOV coverage report
+        run: cargo llvm-cov nextest --workspace --exclude at-tauri --lcov --output-path lcov.info -E 'not (package(at-tui) and test(/^e2e_/))'
+
+      - name: Print coverage summary
+        run: cargo llvm-cov report --summary-only
+
+      - name: Upload coverage artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-lcov
+          path: lcov.info
+          retention-days: 14
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
@@ -120,6 +163,16 @@ jobs:
 
       - name: cargo-deny (advisories + licenses + bans + sources)
         run: cargo deny check
+
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@cargo-audit
+
+      - name: cargo-audit (RustSec advisories — vulnerabilities only)
+        # Vulnerabilities (non-zero exit by default) catch supply-chain CVEs.
+        # We deliberately do NOT pass --deny warnings: the workspace pulls 20+
+        # unmaintained/unsound *warnings* via tauri's gtk stack that we cannot
+        # fix from our end. cargo-deny provides the policy gate for those.
+        run: cargo audit
 
       - name: Install ast-grep
         run: cargo install ast-grep --locked

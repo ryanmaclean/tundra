@@ -156,3 +156,200 @@ pub async fn reap_orphan_ptys(state: &Arc<ApiState>) -> usize {
 
     orphan_count
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use at_core::types::{Bead, Lane};
+
+    fn make_slung_bead(slung_at: Option<DateTime<Utc>>) -> Bead {
+        let mut bead = Bead::new("test bead", Lane::Standard);
+        bead.status = BeadStatus::Slung;
+        bead.slung_at = slung_at;
+        bead
+    }
+
+    async fn insert_beads(cache: &CacheDb, beads: &[Bead]) {
+        for b in beads {
+            cache.upsert_bead(b).await.expect("upsert bead");
+        }
+    }
+
+    #[test]
+    fn new_uses_default_thirty_minute_slung_timeout() {
+        let runner = PatrolRunner::new(60);
+        assert_eq!(runner.slung_timeout, ChronoDuration::minutes(30));
+    }
+
+    #[test]
+    fn new_records_heartbeat_interval() {
+        let runner = PatrolRunner::new(123);
+        assert_eq!(runner._heartbeat_interval_secs, 123);
+    }
+
+    #[test]
+    fn with_slung_timeout_overrides_default() {
+        let runner = PatrolRunner::new(60).with_slung_timeout(ChronoDuration::minutes(5));
+        assert_eq!(runner.slung_timeout, ChronoDuration::minutes(5));
+    }
+
+    #[test]
+    fn with_slung_timeout_accepts_zero() {
+        let runner = PatrolRunner::new(60).with_slung_timeout(ChronoDuration::zero());
+        assert_eq!(runner.slung_timeout, ChronoDuration::zero());
+    }
+
+    #[test]
+    fn patrol_report_serde_round_trip() {
+        let report = PatrolReport {
+            stale_agents: 1,
+            stuck_beads: 2,
+            orphan_ptys: 3,
+            stuck_bead_ids: vec![uuid::Uuid::new_v4(), uuid::Uuid::new_v4()],
+            timestamp: Utc::now(),
+        };
+        let json = serde_json::to_string(&report).expect("serialize");
+        let back: PatrolReport = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(back.stuck_beads, report.stuck_beads);
+        assert_eq!(back.stale_agents, report.stale_agents);
+        assert_eq!(back.orphan_ptys, report.orphan_ptys);
+        assert_eq!(back.stuck_bead_ids, report.stuck_bead_ids);
+    }
+
+    #[tokio::test]
+    async fn run_patrol_on_empty_cache_yields_zero_counts() {
+        let runner = PatrolRunner::new(60);
+        let cache = CacheDb::new_in_memory().await.expect("cache");
+
+        let report = runner.run_patrol(&cache).await.expect("patrol");
+        assert_eq!(report.stuck_beads, 0);
+        assert_eq!(report.stale_agents, 0);
+        assert_eq!(report.orphan_ptys, 0);
+        assert!(report.stuck_bead_ids.is_empty());
+    }
+
+    #[tokio::test]
+    async fn run_patrol_skips_beads_without_slung_at() {
+        let runner = PatrolRunner::new(60);
+        let cache = CacheDb::new_in_memory().await.expect("cache");
+
+        // Slung beads with no slung_at timestamp must not be flagged.
+        let bead = make_slung_bead(None);
+        insert_beads(&cache, &[bead]).await;
+
+        let report = runner.run_patrol(&cache).await.expect("patrol");
+        assert_eq!(report.stuck_beads, 0);
+        assert!(report.stuck_bead_ids.is_empty());
+    }
+
+    #[tokio::test]
+    async fn run_patrol_does_not_flag_recently_slung_beads() {
+        let runner = PatrolRunner::new(60);
+        let cache = CacheDb::new_in_memory().await.expect("cache");
+
+        // Slung 5 minutes ago, default timeout 30 minutes — not stuck.
+        let recent = make_slung_bead(Some(Utc::now() - ChronoDuration::minutes(5)));
+        insert_beads(&cache, &[recent]).await;
+
+        let report = runner.run_patrol(&cache).await.expect("patrol");
+        assert_eq!(report.stuck_beads, 0);
+    }
+
+    #[tokio::test]
+    async fn run_patrol_flags_stuck_beads_past_timeout() {
+        let runner = PatrolRunner::new(60);
+        let cache = CacheDb::new_in_memory().await.expect("cache");
+
+        // Slung 45 minutes ago, default timeout 30 minutes — stuck.
+        let stuck = make_slung_bead(Some(Utc::now() - ChronoDuration::minutes(45)));
+        let stuck_id = stuck.id;
+        insert_beads(&cache, &[stuck]).await;
+
+        let report = runner.run_patrol(&cache).await.expect("patrol");
+        assert_eq!(report.stuck_beads, 1);
+        assert_eq!(report.stuck_bead_ids, vec![stuck_id]);
+    }
+
+    #[tokio::test]
+    async fn run_patrol_respects_custom_slung_timeout() {
+        let runner = PatrolRunner::new(60).with_slung_timeout(ChronoDuration::seconds(10));
+        let cache = CacheDb::new_in_memory().await.expect("cache");
+
+        // Slung 30 seconds ago — exceeds the custom 10-second timeout.
+        let stuck = make_slung_bead(Some(Utc::now() - ChronoDuration::seconds(30)));
+        let stuck_id = stuck.id;
+        insert_beads(&cache, &[stuck]).await;
+
+        let report = runner.run_patrol(&cache).await.expect("patrol");
+        assert_eq!(report.stuck_beads, 1);
+        assert_eq!(report.stuck_bead_ids, vec![stuck_id]);
+    }
+
+    #[tokio::test]
+    async fn run_patrol_ignores_non_slung_beads() {
+        let runner = PatrolRunner::new(60);
+        let cache = CacheDb::new_in_memory().await.expect("cache");
+
+        // Backlog/Done beads must not be considered stuck regardless of
+        // slung_at, because list_beads_by_status(Slung) excludes them.
+        let mut backlog = Bead::new("backlog", Lane::Standard);
+        backlog.slung_at = Some(Utc::now() - ChronoDuration::hours(99));
+        let mut done = Bead::new("done", Lane::Standard);
+        done.status = BeadStatus::Done;
+        done.slung_at = Some(Utc::now() - ChronoDuration::hours(99));
+
+        insert_beads(&cache, &[backlog, done]).await;
+
+        let report = runner.run_patrol(&cache).await.expect("patrol");
+        assert_eq!(report.stuck_beads, 0);
+        assert!(report.stuck_bead_ids.is_empty());
+    }
+
+    #[tokio::test]
+    async fn run_patrol_separates_stuck_from_fresh_in_mixed_population() {
+        let runner = PatrolRunner::new(60);
+        let cache = CacheDb::new_in_memory().await.expect("cache");
+
+        let fresh = make_slung_bead(Some(Utc::now() - ChronoDuration::minutes(1)));
+        let stuck1 = make_slung_bead(Some(Utc::now() - ChronoDuration::hours(1)));
+        let stuck2 = make_slung_bead(Some(Utc::now() - ChronoDuration::hours(3)));
+        let no_slung = make_slung_bead(None);
+
+        let stuck_ids = [stuck1.id, stuck2.id];
+        insert_beads(&cache, &[fresh, stuck1, stuck2, no_slung]).await;
+
+        let report = runner.run_patrol(&cache).await.expect("patrol");
+
+        assert_eq!(report.stuck_beads, 2);
+        for id in stuck_ids {
+            assert!(
+                report.stuck_bead_ids.contains(&id),
+                "expected stuck id {id} in report",
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn run_patrol_timestamp_is_recent() {
+        let runner = PatrolRunner::new(60);
+        let cache = CacheDb::new_in_memory().await.expect("cache");
+
+        let before = Utc::now();
+        let report = runner.run_patrol(&cache).await.expect("patrol");
+        let after = Utc::now();
+
+        assert!(report.timestamp >= before);
+        assert!(report.timestamp <= after);
+    }
+
+    #[tokio::test]
+    async fn run_patrol_stale_agents_count_is_zero_placeholder() {
+        // Per the impl, run_patrol always reports 0 stale agents because
+        // CacheDb has no list-all-agents API. This test pins that contract.
+        let runner = PatrolRunner::new(60);
+        let cache = CacheDb::new_in_memory().await.expect("cache");
+        let report = runner.run_patrol(&cache).await.expect("patrol");
+        assert_eq!(report.stale_agents, 0);
+        assert_eq!(report.orphan_ptys, 0);
+    }
+}

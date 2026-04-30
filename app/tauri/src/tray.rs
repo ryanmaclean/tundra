@@ -27,9 +27,9 @@ use tauri::{
 };
 use tracing::{error, info};
 
+use crate::state::AppState;
 use at_bridge::protocol::BridgeMessage;
 use at_core::types::{Bead, Lane};
-use crate::state::AppState;
 
 // Re-export image crate for icon loading.
 use image;

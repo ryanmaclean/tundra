@@ -66,7 +66,7 @@ use std::sync::{Arc, Mutex};
 
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use thiserror::Error;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 // ---------------------------------------------------------------------------
@@ -245,6 +245,33 @@ pub struct PtyHandle {
 }
 
 impl PtyHandle {
+    /// Construct a `PtyHandle` directly from parts.
+    ///
+    /// This is intentionally `pub(crate)` and exists so unit tests in sibling
+    /// modules (notably `session`) can build a `PtyHandle` around in-memory
+    /// fakes for `Child` / `MasterPty` instead of spawning a real process.
+    ///
+    /// Production code MUST go through [`PtyPool::spawn`]; calling this from
+    /// outside the crate is impossible by design (no `pub` visibility).
+    #[cfg(test)]
+    pub(crate) fn from_parts(
+        id: Uuid,
+        reader: flume::Receiver<Vec<u8>>,
+        writer: flume::Sender<Vec<u8>>,
+        child: Arc<Mutex<Box<dyn portable_pty::Child + Send + Sync>>>,
+        master: Arc<Mutex<Box<dyn portable_pty::MasterPty + Send>>>,
+    ) -> Self {
+        Self {
+            id,
+            reader,
+            writer,
+            child,
+            master,
+            _reader_thread: None,
+            _writer_thread: None,
+        }
+    }
+
     /// Check whether the underlying child process is still running.
     ///
     /// Returns `true` if the process has not exited, `false` if it has exited
@@ -833,5 +860,139 @@ impl std::fmt::Debug for PtyPool {
             .field("max_ptys", &self.max_ptys)
             .field("active_count", &self.active_count())
             .finish()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // -- PtyPool: pure constructor / accessor logic -------------------------
+
+    #[test]
+    fn new_pool_starts_empty() {
+        let pool = PtyPool::new(5);
+        assert_eq!(pool.active_count(), 0);
+        assert_eq!(pool.max_ptys(), 5);
+    }
+
+    #[test]
+    fn new_pool_with_zero_capacity_is_valid_construction() {
+        let pool = PtyPool::new(0);
+        assert_eq!(pool.max_ptys(), 0);
+        assert_eq!(pool.active_count(), 0);
+    }
+
+    #[test]
+    fn spawn_into_zero_capacity_pool_returns_at_capacity() {
+        // This exercises the AtCapacity error path *without* needing a real
+        // PTY — the capacity check happens before openpty().
+        let pool = PtyPool::new(0);
+        let result = pool.spawn("/bin/true", &[], &[]);
+        match result {
+            Err(PtyError::AtCapacity { max }) => assert_eq!(max, 0),
+            other => panic!("expected AtCapacity, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn release_unknown_handle_is_noop() {
+        let pool = PtyPool::new(4);
+        // Should not panic, should leave count at 0.
+        pool.release(Uuid::new_v4());
+        assert_eq!(pool.active_count(), 0);
+    }
+
+    #[test]
+    fn release_does_not_return_error_for_unknown_id() {
+        // Distinguishes release() (idempotent) from kill() (errors).
+        let pool = PtyPool::new(4);
+        pool.release(Uuid::new_v4());
+        // No assertion needed beyond "didn't panic".
+    }
+
+    #[test]
+    fn kill_unknown_handle_returns_handle_not_found() {
+        let pool = PtyPool::new(4);
+        let bogus = Uuid::new_v4();
+        match pool.kill(bogus) {
+            Err(PtyError::HandleNotFound(id)) => assert_eq!(id, bogus),
+            other => panic!("expected HandleNotFound, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn kill_on_empty_pool_returns_error_not_panic() {
+        let pool = PtyPool::new(0);
+        assert!(pool.kill(Uuid::new_v4()).is_err());
+    }
+
+    // -- Debug formatting ---------------------------------------------------
+
+    #[test]
+    fn pool_debug_format_contains_fields() {
+        let pool = PtyPool::new(7);
+        let s = format!("{pool:?}");
+        assert!(s.contains("PtyPool"), "got: {s}");
+        assert!(s.contains("max_ptys"), "got: {s}");
+        assert!(s.contains("active_count"), "got: {s}");
+        assert!(s.contains('7'), "expected capacity in debug, got: {s}");
+    }
+
+    // -- PtyError: Display + From + variant construction --------------------
+
+    #[test]
+    fn at_capacity_error_display_includes_max() {
+        let e = PtyError::AtCapacity { max: 12 };
+        let s = e.to_string();
+        assert!(s.contains("capacity"), "got: {s}");
+        assert!(s.contains("12"), "got: {s}");
+    }
+
+    #[test]
+    fn handle_not_found_error_display_includes_uuid() {
+        let id = Uuid::new_v4();
+        let e = PtyError::HandleNotFound(id);
+        let s = e.to_string();
+        assert!(s.contains(&id.to_string()), "got: {s}");
+    }
+
+    #[test]
+    fn spawn_failed_error_display_includes_message() {
+        let e = PtyError::SpawnFailed("boom".into());
+        let s = e.to_string();
+        assert!(s.contains("boom"), "got: {s}");
+        assert!(s.contains("spawn"), "got: {s}");
+    }
+
+    #[test]
+    fn internal_error_display_includes_message() {
+        let e = PtyError::Internal("locked out".into());
+        let s = e.to_string();
+        assert!(s.contains("locked out"), "got: {s}");
+        assert!(s.contains("internal"), "got: {s}");
+    }
+
+    #[test]
+    fn io_error_converts_via_from_impl() {
+        // Verifies the `#[from] std::io::Error` derive on the Io variant.
+        let io_err = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "nope");
+        let pty_err: PtyError = io_err.into();
+        assert!(matches!(pty_err, PtyError::Io(_)));
+        assert!(pty_err.to_string().contains("nope"));
+    }
+
+    // -- Result alias is usable --------------------------------------------
+
+    #[test]
+    fn result_type_alias_works_with_question_mark() {
+        fn helper() -> Result<u32> {
+            Err(PtyError::AtCapacity { max: 0 })
+        }
+        assert!(helper().is_err());
     }
 }
