@@ -75,13 +75,38 @@ impl GitHubClient {
     /// callers should use [`GitHubClient::new`], which defaults to the public
     /// `https://api.github.com` endpoint.
     pub fn new_with_base_url(config: GitHubConfig, base_url: &str) -> Result<Self> {
+        Self::new_with_base_url_and_timeout(config, base_url, None)
+    }
+
+    /// Create a new `GitHubClient` with a custom API base URL and an optional
+    /// request timeout.
+    ///
+    /// When `timeout` is `None`, the underlying `octocrab` builder is used
+    /// without any explicit timeout configuration — i.e. behavior is identical
+    /// to [`GitHubClient::new_with_base_url`]. When `Some(duration)`, the
+    /// duration is applied to both `set_connect_timeout` and `set_read_timeout`
+    /// on the `octocrab` builder so slow servers surface as errors.
+    ///
+    /// This constructor is additive: existing call sites of `new`,
+    /// `new_from_env`, and `new_with_base_url` continue to compile unchanged
+    /// and exhibit identical behavior.
+    pub fn new_with_base_url_and_timeout(
+        config: GitHubConfig,
+        base_url: &str,
+        timeout: Option<std::time::Duration>,
+    ) -> Result<Self> {
         let token = config.token.ok_or(GitHubError::MissingToken)?;
 
-        let octocrab = Octocrab::builder()
+        let mut builder = Octocrab::builder()
             .personal_token(token)
             .base_uri(base_url)
-            .map_err(GitHubError::Api)?
-            .build()?;
+            .map_err(GitHubError::Api)?;
+
+        if let Some(t) = timeout {
+            builder = builder.set_connect_timeout(Some(t)).set_read_timeout(Some(t));
+        }
+
+        let octocrab = builder.build()?;
 
         Ok(Self {
             octocrab,

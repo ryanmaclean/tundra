@@ -123,13 +123,37 @@ impl GitLabClient {
 
     /// Create a client for a custom GitLab instance.
     pub fn new_with_url(base_url: &str, token: &str) -> Result<Self> {
+        Self::new_with_url_and_timeout(base_url, token, None)
+    }
+
+    /// Create a client for a custom GitLab instance with an optional request
+    /// timeout.
+    ///
+    /// When `timeout` is `None`, behavior is identical to
+    /// [`GitLabClient::new_with_url`] — the inner `reqwest::Client` is built
+    /// with default settings (no explicit timeout). When `Some(duration)`, the
+    /// duration is wired through `reqwest::ClientBuilder::timeout` so slow
+    /// servers surface as a `GitLabError::Http` carrying a reqwest timeout.
+    ///
+    /// This constructor is additive: existing call sites of `new` and
+    /// `new_with_url` continue to compile unchanged and exhibit identical
+    /// behavior.
+    pub fn new_with_url_and_timeout(
+        base_url: &str,
+        token: &str,
+        timeout: Option<std::time::Duration>,
+    ) -> Result<Self> {
         if token.is_empty() {
             return Err(GitLabError::MissingToken);
         }
+        let client = match timeout {
+            Some(t) => reqwest::Client::builder().timeout(t).build()?,
+            None => reqwest::Client::new(),
+        };
         Ok(Self {
             base_url: base_url.trim_end_matches('/').to_string(),
             token: token.to_string(),
-            client: reqwest::Client::new(),
+            client,
         })
     }
 

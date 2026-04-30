@@ -20,6 +20,8 @@
 //! both constraints and forces the real HTTP path. See
 //! `crates/at-integrations/src/linear/mod.rs::is_stub_key`.
 
+use std::time::Duration;
+
 use at_integrations::linear::{LinearClient, LinearError};
 use wiremock::matchers::{any, method};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -228,10 +230,45 @@ async fn linear_graphql_errors_field_returns_api_error() {
 // ---------------------------------------------------------------------------
 // Slow response / timeouts
 // ---------------------------------------------------------------------------
-//
-// TODO(failures): The Linear client constructs `reqwest::Client::new()` with
-// no `.timeout(...)` configured (see
-// `crates/at-integrations/src/linear/mod.rs::graphql`), so a slow response
-// scenario cannot be tested deterministically without holding the test open
-// for the OS-level TCP read timeout. Add a timeout-on-build path and a test
-// here once the client exposes a configurable timeout.
+
+/// Pin: when a configurable timeout is wired, a slow upstream response must
+/// surface as a typed `LinearError::Http` carrying a reqwest timeout (rather
+/// than blocking on the OS-level TCP read timeout). The timeout is plumbed
+/// via the additive `LinearClient::new_with_url_and_timeout` constructor;
+/// production callers using `new` / `new_with_url` are unaffected.
+#[tokio::test]
+async fn linear_slow_response_times_out() {
+    let server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(serde_json::json!({ "data": { "teams": { "nodes": [] } } }))
+                .set_delay(Duration::from_secs(5)),
+        )
+        .mount(&server)
+        .await;
+
+    let client = LinearClient::new_with_url_and_timeout(
+        TEST_API_KEY,
+        &server.uri(),
+        Some(Duration::from_millis(500)),
+    )
+    .expect("valid client");
+
+    let started = std::time::Instant::now();
+    let result = client.list_teams().await;
+    let elapsed = started.elapsed();
+
+    let err = result.expect_err("expected timeout error");
+    assert!(
+        elapsed < Duration::from_secs(4),
+        "client should give up well before the 5s server delay (took {elapsed:?})"
+    );
+    // reqwest's timeout failures arrive on the `reqwest::Error` path, which
+    // our wrapper carries as `LinearError::Http`.
+    assert!(
+        matches!(&err, LinearError::Http(e) if e.is_timeout()),
+        "expected LinearError::Http with is_timeout()==true, got {err:?}"
+    );
+}
