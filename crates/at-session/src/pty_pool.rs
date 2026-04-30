@@ -245,6 +245,33 @@ pub struct PtyHandle {
 }
 
 impl PtyHandle {
+    /// Construct a `PtyHandle` directly from parts.
+    ///
+    /// This is intentionally `pub(crate)` and exists so unit tests in sibling
+    /// modules (notably `session`) can build a `PtyHandle` around in-memory
+    /// fakes for `Child` / `MasterPty` instead of spawning a real process.
+    ///
+    /// Production code MUST go through [`PtyPool::spawn`]; calling this from
+    /// outside the crate is impossible by design (no `pub` visibility).
+    #[cfg(test)]
+    pub(crate) fn from_parts(
+        id: Uuid,
+        reader: flume::Receiver<Vec<u8>>,
+        writer: flume::Sender<Vec<u8>>,
+        child: Arc<Mutex<Box<dyn portable_pty::Child + Send + Sync>>>,
+        master: Arc<Mutex<Box<dyn portable_pty::MasterPty + Send>>>,
+    ) -> Self {
+        Self {
+            id,
+            reader,
+            writer,
+            child,
+            master,
+            _reader_thread: None,
+            _writer_thread: None,
+        }
+    }
+
     /// Check whether the underlying child process is still running.
     ///
     /// Returns `true` if the process has not exited, `false` if it has exited
