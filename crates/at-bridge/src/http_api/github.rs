@@ -715,8 +715,81 @@ pub(crate) async fn github_oauth_revoke(State(state): State<Arc<ApiState>>) -> i
 }
 
 /// POST /api/github/oauth/refresh -- manually refresh the OAuth token using refresh token.
+///
+/// Single-flight deduplication: N concurrent callers sharing an expired token
+/// result in exactly **one** outbound HTTP refresh request.  The first caller
+/// to arrive installs a `watch` channel in `state.github_refresh_gate` and
+/// performs the HTTP call; every subsequent concurrent caller subscribes to
+/// that channel and waits for the result rather than issuing its own request.
 pub(crate) async fn github_oauth_refresh(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
-    // Get refresh token from token manager
+    // -------------------------------------------------------------------
+    // Step 1 — check for an in-flight refresh.  Hold the gate mutex only
+    // long enough to inspect / install the watch channel; never across
+    // the await boundary of the HTTP call.
+    // -------------------------------------------------------------------
+    let maybe_rx = {
+        let gate = state.github_refresh_gate.lock().await;
+        gate.as_ref().map(|tx| tx.subscribe())
+    };
+
+    if let Some(mut rx) = maybe_rx {
+        // Another caller is already doing the HTTP refresh.  Wait for it.
+        //
+        // Check the current value first: if the leader already finished (raced)
+        // between our gate lock check and now, `borrow()` will immediately give
+        // us the result without needing to call `changed()`.
+        loop {
+            let current = rx.borrow().clone();
+            if let Some(outcome) = current {
+                return match outcome {
+                    Ok(body) => (axum::http::StatusCode::OK, Json(body)),
+                    Err(msg) => (
+                        axum::http::StatusCode::BAD_REQUEST,
+                        Json(serde_json::json!({ "error": msg })),
+                    ),
+                };
+            }
+            // Result not yet available — wait for the next send.
+            if rx.changed().await.is_err() {
+                // Sender dropped without sending a value — treat as failure.
+                return (
+                    axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({
+                        "error": "Token refresh cancelled unexpectedly"
+                    })),
+                );
+            }
+            // Loop back and read the result via borrow().
+        }
+    }
+
+    // -------------------------------------------------------------------
+    // Step 2 — this caller is the "leader".  Install the gate so other
+    // concurrent callers become followers.
+    // -------------------------------------------------------------------
+    let (tx, _rx) = tokio::sync::watch::channel::<Option<Result<serde_json::Value, String>>>(None);
+    {
+        let mut gate = state.github_refresh_gate.lock().await;
+        *gate = Some(tx.clone());
+    }
+
+    // Helper: broadcast result and clear the gate.
+    let finish = |state: &Arc<ApiState>,
+                  tx: tokio::sync::watch::Sender<_>,
+                  outcome: Result<serde_json::Value, String>| {
+        // Send result to all waiters before clearing so they can observe it.
+        let _ = tx.send(Some(outcome));
+        // Scope the lock so we don't hold it across an await.
+        let gate_ref = state.github_refresh_gate.clone();
+        tokio::spawn(async move {
+            *gate_ref.lock().await = None;
+        });
+    };
+
+    // -------------------------------------------------------------------
+    // Step 3 — pre-flight validation (same as before, but errors now also
+    // unblock followers via the watch channel).
+    // -------------------------------------------------------------------
     let refresh_token = match state
         .oauth_token_manager
         .read()
@@ -726,35 +799,34 @@ pub(crate) async fn github_oauth_refresh(State(state): State<Arc<ApiState>>) -> 
     {
         Ok(token) => token,
         Err(_) => {
+            let msg = "No refresh token available. Please re-authenticate.".to_string();
+            finish(&state, tx, Err(msg.clone()));
             return (
                 axum::http::StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({
-                    "error": "No refresh token available. Please re-authenticate."
-                })),
+                Json(serde_json::json!({ "error": msg })),
             );
         }
     };
 
-    // Get OAuth client configuration
     let client_id = match std::env::var("GITHUB_OAUTH_CLIENT_ID") {
         Ok(v) if !v.is_empty() => v,
         _ => {
+            let msg = "GITHUB_OAUTH_CLIENT_ID not set".to_string();
+            finish(&state, tx, Err(msg.clone()));
             return (
                 axum::http::StatusCode::SERVICE_UNAVAILABLE,
-                Json(serde_json::json!({
-                    "error": "GITHUB_OAUTH_CLIENT_ID not set"
-                })),
+                Json(serde_json::json!({ "error": msg })),
             );
         }
     };
     let client_secret = match std::env::var("GITHUB_OAUTH_CLIENT_SECRET") {
         Ok(v) if !v.is_empty() => v,
         _ => {
+            let msg = "GITHUB_OAUTH_CLIENT_SECRET not set".to_string();
+            finish(&state, tx, Err(msg.clone()));
             return (
                 axum::http::StatusCode::SERVICE_UNAVAILABLE,
-                Json(serde_json::json!({
-                    "error": "GITHUB_OAUTH_CLIENT_SECRET not set"
-                })),
+                Json(serde_json::json!({ "error": msg })),
             );
         }
     };
@@ -774,22 +846,28 @@ pub(crate) async fn github_oauth_refresh(State(state): State<Arc<ApiState>>) -> 
         scopes,
     };
 
-    let oauth_client = gh_oauth::GitHubOAuthClient::new(oauth_config);
+    // Allow test code to redirect the token endpoint to a mock server.
+    let oauth_client = match &state.github_token_url_override {
+        Some(url) => gh_oauth::GitHubOAuthClient::new_with_token_url(oauth_config, url.clone()),
+        None => gh_oauth::GitHubOAuthClient::new(oauth_config),
+    };
 
-    // Refresh the token
+    // -------------------------------------------------------------------
+    // Step 4 — the single outbound HTTP refresh call.
+    // -------------------------------------------------------------------
     let token_resp = match oauth_client.refresh_token(&refresh_token).await {
         Ok(t) => t,
         Err(e) => {
+            let msg = format!("Failed to refresh token: {}", e);
+            finish(&state, tx, Err(msg.clone()));
             return (
                 axum::http::StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({
-                    "error": format!("Failed to refresh token: {}", e)
-                })),
+                Json(serde_json::json!({ "error": msg })),
             );
         }
     };
 
-    // Store new token with OAuthTokenManager
+    // Store new token with OAuthTokenManager.
     state
         .oauth_token_manager
         .write()
@@ -801,16 +879,17 @@ pub(crate) async fn github_oauth_refresh(State(state): State<Arc<ApiState>>) -> 
         )
         .await;
 
-    // Update legacy plaintext storage for backward compatibility
+    // Update legacy plaintext storage for backward compatibility.
     *state.github_oauth_token.write().await = Some(token_resp.access_token.clone());
 
-    (
-        axum::http::StatusCode::OK,
-        Json(serde_json::json!({
-            "refreshed": true,
-            "expires_in": token_resp.expires_in,
-        })),
-    )
+    let body = serde_json::json!({
+        "refreshed": true,
+        "expires_in": token_resp.expires_in,
+    });
+
+    finish(&state, tx, Ok(body.clone()));
+
+    (axum::http::StatusCode::OK, Json(body))
 }
 
 // ---------------------------------------------------------------------------
