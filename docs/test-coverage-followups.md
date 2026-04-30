@@ -53,7 +53,51 @@ future docs and agent guidance: the "decompose" step is a caller
 responsibility, not an algorithm in this crate, and any documentation
 that implies otherwise should be corrected.
 
-### 4. at-leptos-ui tests carry ~94 pre-existing clippy warnings
+### 4. at-bridge: OAuth token refresh has no single-flight deduplication
+
+`OAuthTokenManager` at `crates/at-bridge/src/oauth_token_manager.rs` is a
+storage primitive only — it encrypts tokens, tracks expiry, and exposes
+getter/setter accessors. It does **not** perform OAuth HTTP refresh.
+
+The actual HTTP refresh lives in `crates/at-integrations/src/github/oauth.rs`
+(`GitHubOAuthClient::refresh_token`) and the GitLab equivalent at
+`crates/at-integrations/src/gitlab/oauth.rs`. It is invoked from the
+axum handler `github_oauth_refresh` at
+`crates/at-bridge/src/http_api/github.rs:718`. That handler holds a
+coarse-grained `tokio::sync::RwLock<OAuthTokenManager>` write lock while
+issuing the outbound refresh — so concurrent refresh callers serialize
+on the lock but each still issues its own outbound HTTP request. There
+is no `Notify` / `oneshot` / held-`Mutex` single-flight that would
+collapse N simultaneous refresh attempts into one HTTP call. Under load
+this opens the classic refresh race: every concurrent expired-token
+caller hits the OAuth endpoint, the endpoint may rate-limit the burst,
+and a slower-arriving response can overwrite a freshly-stored token from
+a faster sibling refresh.
+
+The pinning tests for the storage primitive's contracts
+(`concurrent_get_token_callers_all_see_same_value`,
+`clear_during_concurrent_get_returns_typed_error_not_torn_state`,
+`concurrent_writers_overwrite_atomically`,
+`concurrent_callers_on_expired_token_all_see_typed_error`,
+`store_after_expired_failure_recovers`) live in
+`crates/at-bridge/tests/oauth_token_race.rs`. They pin the contracts a
+future single-flight refresh fix would rely on (atomic writes, no torn
+reads, no cached failure state) but do not — and cannot, without
+crossing crate boundaries — pin HTTP-level dedup. Auth-class HTTP
+behaviors (401, 429, 500 responses, retry/backoff posture) are
+deliberately not covered here for the same reason.
+
+Suggested fix shape for a follow-up PR: lift the refresh entry point
+into `OAuthTokenManager` itself behind an injectable HTTP-call trait,
+gate it with `tokio::sync::Mutex<Option<oneshot::Receiver<...>>>` (or
+`Notify`-based fan-out), and add `wiremock`-backed tests for the
+auth-class scenarios listed in the original test-coverage brief
+(`refresh_429_does_not_retry_indefinitely`, `refresh_401_returns_typed_error`,
+`concurrent_callers_share_one_refresh`,
+`refresh_failure_propagates_to_all_concurrent_callers`,
+`subsequent_call_after_failure_retries`).
+
+### 5. at-leptos-ui tests carry ~94 pre-existing clippy warnings
 
 The cleanup wave (D1 in this PR) fixed 17 targeted warnings: 7
 `bool_assert_comparison` in `crates/at-cli/tests/smoke.rs`, 6 in
