@@ -22,3 +22,10 @@ app/leptos-ui/dist/
 .claude/worktrees/
 .security-key
 logs/security/
+
+# Generated artifacts and logs
+*.log
+flamegraph.svg
+run.json
+ddprof
+ddprof*.tar.*
