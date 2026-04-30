@@ -1,6 +1,6 @@
 # cargo-audit configuration
 #
-# Mirrors the [advisories.ignore] list in deny.toml so `cargo audit --deny warnings`
+# Mirrors the [advisories.ignore] list in deny.toml so `cargo audit`
 # in CI accepts the same set of documented exceptions.
 #
 # Keep these two files in sync. If you add or remove an ignore here, update deny.toml
