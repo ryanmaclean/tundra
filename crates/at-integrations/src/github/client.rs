@@ -103,7 +103,9 @@ impl GitHubClient {
             .map_err(GitHubError::Api)?;
 
         if let Some(t) = timeout {
-            builder = builder.set_connect_timeout(Some(t)).set_read_timeout(Some(t));
+            builder = builder
+                .set_connect_timeout(Some(t))
+                .set_read_timeout(Some(t));
         }
 
         let octocrab = builder.build()?;

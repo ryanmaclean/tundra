@@ -208,13 +208,8 @@ mod tests {
     #[tokio::test]
     async fn test_send_notification() {
         let app = tauri::test::mock_app();
-        let result = send_notification(
-            &app,
-            "Test Title",
-            "Test Body",
-            NotificationLevel::Info,
-        )
-        .await;
+        let result =
+            send_notification(&app, "Test Title", "Test Body", NotificationLevel::Info).await;
         assert!(result.is_ok());
     }
 

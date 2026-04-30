@@ -118,8 +118,16 @@ fn idempotent_structural_shape() {
     assert_eq!(one.depth, two.depth);
     assert_eq!(one.synthesize(), two.synthesize());
 
-    let mut descs_one: Vec<&str> = one.subtasks.values().map(|s| s.description.as_str()).collect();
-    let mut descs_two: Vec<&str> = two.subtasks.values().map(|s| s.description.as_str()).collect();
+    let mut descs_one: Vec<&str> = one
+        .subtasks
+        .values()
+        .map(|s| s.description.as_str())
+        .collect();
+    let mut descs_two: Vec<&str> = two
+        .subtasks
+        .values()
+        .map(|s| s.description.as_str())
+        .collect();
     descs_one.sort();
     descs_two.sort();
     assert_eq!(descs_one, descs_two);

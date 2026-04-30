@@ -310,8 +310,7 @@ mod tests {
 
         let result = monitor.check_agents(&cache).await.expect("check");
 
-        let names: std::collections::HashSet<_> =
-            result.iter().map(|s| s.name.as_str()).collect();
+        let names: std::collections::HashSet<_> = result.iter().map(|s| s.name.as_str()).collect();
         assert!(!names.contains("alpha"), "alpha should be fresh");
         assert!(names.contains("bravo"), "bravo should be stale");
         assert!(names.contains("charlie"), "charlie should be stale");

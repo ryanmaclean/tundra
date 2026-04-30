@@ -518,8 +518,13 @@ mod serde_tests {
     #[test]
     fn convoy_metadata_some_null_collapses_to_none() {
         let v = ApiConvoy {
-            id: "c".into(), name: "n".into(), bead_count: 0, status: "".into(),
-            bead_ids: vec![], created_at: None, updated_at: None,
+            id: "c".into(),
+            name: "n".into(),
+            bead_count: 0,
+            status: "".into(),
+            bead_ids: vec![],
+            created_at: None,
+            updated_at: None,
             metadata: Some(serde_json::Value::Null),
         };
         let back: ApiConvoy = serde_json::from_str(&serde_json::to_string(&v).unwrap()).unwrap();
@@ -854,9 +859,16 @@ mod serde_tests {
     #[test]
     fn skip_serializing_if_none_omits_field() {
         // CreateBeadRequest.description is `skip_serializing_if = "Option::is_none"`.
-        let v = CreateBeadRequest { title: "t".into(), description: None, lane: None };
+        let v = CreateBeadRequest {
+            title: "t".into(),
+            description: None,
+            lane: None,
+        };
         let json = serde_json::to_string(&v).unwrap();
-        assert!(!json.contains("description"), "None field must be omitted: {json}");
+        assert!(
+            !json.contains("description"),
+            "None field must be omitted: {json}"
+        );
         assert!(!json.contains("lane"), "None field must be omitted: {json}");
     }
 
@@ -996,110 +1008,266 @@ mod serde_tests {
 
         pub fn api_bead() -> ApiBead {
             ApiBead {
-                id: "b".into(), title: "t".into(), description: Some("d".into()),
-                status: "queued".into(), lane: "default".into(), priority: 1,
-                category: Some("c".into()), priority_label: Some("p1".into()),
-                agent_profile: Some("ap".into()), model: Some("m".into()),
-                thinking_level: Some("high".into()), complexity: Some("M".into()),
-                impact: Some("high".into()), effort: Some("low".into()),
+                id: "b".into(),
+                title: "t".into(),
+                description: Some("d".into()),
+                status: "queued".into(),
+                lane: "default".into(),
+                priority: 1,
+                category: Some("c".into()),
+                priority_label: Some("p1".into()),
+                agent_profile: Some("ap".into()),
+                model: Some("m".into()),
+                thinking_level: Some("high".into()),
+                complexity: Some("M".into()),
+                impact: Some("high".into()),
+                effort: Some("low".into()),
                 metadata: None,
             }
         }
         pub fn api_agent() -> ApiAgent {
-            ApiAgent { id: "a".into(), name: "n".into(), role: "r".into(), status: "s".into() }
+            ApiAgent {
+                id: "a".into(),
+                name: "n".into(),
+                role: "r".into(),
+                status: "s".into(),
+            }
         }
         pub fn api_session() -> ApiSession {
-            ApiSession { id: "s".into(), agent_name: "a".into(), cli_type: "c".into(), status: "running".into(), duration: "1m".into() }
+            ApiSession {
+                id: "s".into(),
+                agent_name: "a".into(),
+                cli_type: "c".into(),
+                status: "running".into(),
+                duration: "1m".into(),
+            }
         }
         pub fn api_convoy() -> ApiConvoy {
             ApiConvoy {
-                id: "c".into(), name: "n".into(), bead_count: 1, status: "active".into(),
-                bead_ids: vec!["b".into()], created_at: None, updated_at: None, metadata: None,
+                id: "c".into(),
+                name: "n".into(),
+                bead_count: 1,
+                status: "active".into(),
+                bead_ids: vec!["b".into()],
+                created_at: None,
+                updated_at: None,
+                metadata: None,
             }
         }
         pub fn api_worktree() -> ApiWorktree {
-            ApiWorktree { id: "w".into(), path: "/tmp".into(), branch: "b".into(), bead_id: "b".into(), status: "open".into() }
+            ApiWorktree {
+                id: "w".into(),
+                path: "/tmp".into(),
+                branch: "b".into(),
+                bead_id: "b".into(),
+                status: "open".into(),
+            }
         }
         pub fn api_cost_session() -> ApiCostSession {
-            ApiCostSession { session_id: "s".into(), agent_name: "a".into(), input_tokens: 1, output_tokens: 1 }
+            ApiCostSession {
+                session_id: "s".into(),
+                agent_name: "a".into(),
+                input_tokens: 1,
+                output_tokens: 1,
+            }
         }
         pub fn api_mcp_server() -> ApiMcpServer {
-            ApiMcpServer { name: "fs".into(), status: "ready".into(), tools: vec!["read".into()] }
+            ApiMcpServer {
+                name: "fs".into(),
+                status: "ready".into(),
+                tools: vec!["read".into()],
+            }
         }
         pub fn api_memory_entry() -> ApiMemoryEntry {
-            ApiMemoryEntry { id: "m".into(), category: "c".into(), content: "x".into(), created_at: "0".into() }
+            ApiMemoryEntry {
+                id: "m".into(),
+                category: "c".into(),
+                content: "x".into(),
+                created_at: "0".into(),
+            }
         }
         pub fn api_roadmap_feature() -> ApiRoadmapFeature {
             ApiRoadmapFeature {
-                id: "rf".into(), title: "t".into(), description: "d".into(), status: "p".into(),
-                priority: 1, estimated_effort: "1d".into(), dependencies: vec![], created_at: "0".into(),
+                id: "rf".into(),
+                title: "t".into(),
+                description: "d".into(),
+                status: "p".into(),
+                priority: 1,
+                estimated_effort: "1d".into(),
+                dependencies: vec![],
+                created_at: "0".into(),
             }
         }
         pub fn api_roadmap() -> ApiRoadmap {
-            ApiRoadmap { id: "r".into(), name: "n".into(), features: vec![api_roadmap_feature()], generated_at: "0".into() }
+            ApiRoadmap {
+                id: "r".into(),
+                name: "n".into(),
+                features: vec![api_roadmap_feature()],
+                generated_at: "0".into(),
+            }
         }
         pub fn api_roadmap_item() -> ApiRoadmapItem {
-            ApiRoadmapItem { id: "ri".into(), title: "t".into(), description: "d".into(), status: "o".into(), priority: "p".into() }
+            ApiRoadmapItem {
+                id: "ri".into(),
+                title: "t".into(),
+                description: "d".into(),
+                status: "o".into(),
+                priority: "p".into(),
+            }
         }
         pub fn api_idea() -> ApiIdea {
-            ApiIdea { id: "i".into(), title: "t".into(), description: "d".into(), category: "c".into(), impact: "h".into(), effort: "l".into() }
+            ApiIdea {
+                id: "i".into(),
+                title: "t".into(),
+                description: "d".into(),
+                category: "c".into(),
+                impact: "h".into(),
+                effort: "l".into(),
+            }
         }
         pub fn api_stack_node() -> ApiStackNode {
-            ApiStackNode { id: "sn".into(), title: "t".into(), phase: "p".into(), git_branch: None, pr_number: None, stack_position: 0 }
+            ApiStackNode {
+                id: "sn".into(),
+                title: "t".into(),
+                phase: "p".into(),
+                git_branch: None,
+                pr_number: None,
+                stack_position: 0,
+            }
         }
         pub fn api_stack() -> ApiStack {
-            ApiStack { root: api_stack_node(), children: vec![], total: 1 }
+            ApiStack {
+                root: api_stack_node(),
+                children: vec![],
+                total: 1,
+            }
         }
         pub fn api_github_issue() -> ApiGithubIssue {
-            ApiGithubIssue { number: 1, title: "t".into(), labels: vec![], assignee: None, state: "open".into(), created: "0".into(), created_at: None }
+            ApiGithubIssue {
+                number: 1,
+                title: "t".into(),
+                labels: vec![],
+                assignee: None,
+                state: "open".into(),
+                created: "0".into(),
+                created_at: None,
+            }
         }
         pub fn api_github_pr() -> ApiGithubPr {
-            ApiGithubPr { number: 1, title: "t".into(), author: "a".into(), status: "open".into(), state: None, reviewers: vec![], created: "0".into(), created_at: None }
+            ApiGithubPr {
+                number: 1,
+                title: "t".into(),
+                author: "a".into(),
+                status: "open".into(),
+                state: None,
+                reviewers: vec![],
+                created: "0".into(),
+                created_at: None,
+            }
         }
         pub fn api_changelog_section() -> ApiChangelogSection {
-            ApiChangelogSection { category: "Added".into(), items: vec!["x".into()] }
+            ApiChangelogSection {
+                category: "Added".into(),
+                items: vec!["x".into()],
+            }
         }
         pub fn api_changelog_entry() -> ApiChangelogEntry {
-            ApiChangelogEntry { id: "cl".into(), version: "1.0.0".into(), date: "0".into(), sections: vec![api_changelog_section()] }
+            ApiChangelogEntry {
+                id: "cl".into(),
+                version: "1.0.0".into(),
+                date: "0".into(),
+                sections: vec![api_changelog_section()],
+            }
         }
         pub fn create_bead_request() -> CreateBeadRequest {
-            CreateBeadRequest { title: "t".into(), description: None, lane: None }
+            CreateBeadRequest {
+                title: "t".into(),
+                description: None,
+                lane: None,
+            }
         }
         pub fn update_status_request() -> UpdateStatusRequest {
-            UpdateStatusRequest { status: "done".into() }
+            UpdateStatusRequest {
+                status: "done".into(),
+            }
         }
         pub fn add_memory_request() -> AddMemoryRequest {
-            AddMemoryRequest { key: "k".into(), value: "v".into(), category: "c".into(), source: "u".into() }
+            AddMemoryRequest {
+                key: "k".into(),
+                value: "v".into(),
+                category: "c".into(),
+                source: "u".into(),
+            }
         }
         pub fn send_insights_message_request() -> SendInsightsMessageRequest {
-            SendInsightsMessageRequest { content: "h".into() }
+            SendInsightsMessageRequest {
+                content: "h".into(),
+            }
         }
         pub fn add_mcp_server_request() -> AddMcpServerRequest {
-            AddMcpServerRequest { name: "n".into(), command: "/x".into(), args: None }
+            AddMcpServerRequest {
+                name: "n".into(),
+                command: "/x".into(),
+                args: None,
+            }
         }
         pub fn review_gitlab_mr_request() -> ReviewGitLabMrRequest {
-            ReviewGitLabMrRequest { project_id: None, strict: None, severity_threshold: None }
+            ReviewGitLabMrRequest {
+                project_id: None,
+                strict: None,
+                severity_threshold: None,
+            }
         }
         pub fn create_task_request() -> CreateTaskRequest {
-            CreateTaskRequest { title: "t".into(), description: None, bead_id: "b".into(), priority: "p1".into(), complexity: "M".into(), category: "c".into() }
+            CreateTaskRequest {
+                title: "t".into(),
+                description: None,
+                bead_id: "b".into(),
+                priority: "p1".into(),
+                complexity: "M".into(),
+                category: "c".into(),
+            }
         }
         pub fn generate_changelog_request() -> GenerateChangelogRequest {
-            GenerateChangelogRequest { commits: "0..1".into(), version: "1.0.0".into() }
+            GenerateChangelogRequest {
+                commits: "0..1".into(),
+                version: "1.0.0".into(),
+            }
         }
         pub fn publish_github_release_request() -> PublishGithubReleaseRequest {
-            PublishGithubReleaseRequest { tag_name: "v1".into(), name: "r".into(), body: "n".into(), draft: false, prerelease: false }
+            PublishGithubReleaseRequest {
+                tag_name: "v1".into(),
+                name: "r".into(),
+                body: "n".into(),
+                draft: false,
+                prerelease: false,
+            }
         }
         pub fn add_roadmap_feature_request() -> AddRoadmapFeatureRequest {
-            AddRoadmapFeatureRequest { title: "t".into(), description: "d".into(), status: "p".into(), priority: "p1".into() }
+            AddRoadmapFeatureRequest {
+                title: "t".into(),
+                description: "d".into(),
+                status: "p".into(),
+                priority: "p1".into(),
+            }
         }
         pub fn send_insights_message_with_model_request() -> SendInsightsMessageWithModelRequest {
-            SendInsightsMessageWithModelRequest { content: "h".into(), model: None }
+            SendInsightsMessageWithModelRequest {
+                content: "h".into(),
+                model: None,
+            }
         }
         pub fn create_project_request() -> CreateProjectRequest {
-            CreateProjectRequest { name: "p".into(), path: "/tmp/p".into() }
+            CreateProjectRequest {
+                name: "p".into(),
+                path: "/tmp/p".into(),
+            }
         }
         pub fn update_project_request() -> UpdateProjectRequest {
-            UpdateProjectRequest { name: None, path: None }
+            UpdateProjectRequest {
+                name: None,
+                path: None,
+            }
         }
     }
 }

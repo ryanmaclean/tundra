@@ -71,8 +71,7 @@ fn version_prints_semver_ish() {
         .success()
         // clap prints "<bin> <version>"; match a digit.major.minor pattern.
         .stdout(predicate::function(|s: &str| {
-            s.chars().filter(|c| *c == '.').count() >= 2
-                && s.chars().any(|c| c.is_ascii_digit())
+            s.chars().filter(|c| *c == '.').count() >= 2 && s.chars().any(|c| c.is_ascii_digit())
         }));
 }
 
@@ -160,23 +159,19 @@ fn agent_run_missing_required_role_errors() {
 fn run_unknown_skill_errors_with_path_in_message() {
     // Dry-run still loads skills first; unknown skill should produce a
     // graceful error, not a panic.
-    at()
-        .args([
-            "run",
-            "--dry-run",
-            "-t",
-            "smoke task",
-            "-s",
-            "definitely-not-a-real-skill-xyz",
-            "-p",
-            ".",
-        ])
-        .assert()
-        .failure()
-        .stderr(
-            pstr::contains("Unknown skills")
-                .or(pstr::contains("definitely-not-a-real-skill-xyz")),
-        );
+    at().args([
+        "run",
+        "--dry-run",
+        "-t",
+        "smoke task",
+        "-s",
+        "definitely-not-a-real-skill-xyz",
+        "-p",
+        ".",
+    ])
+    .assert()
+    .failure()
+    .stderr(pstr::contains("Unknown skills").or(pstr::contains("definitely-not-a-real-skill-xyz")));
 }
 
 #[test]
@@ -216,21 +211,20 @@ fn skill_show_unknown_skill_errors() {
 fn run_dry_run_prints_marker_and_writes_artifact() {
     let td = unique_tmp_dir("run-dry");
     let out = td.path().join("out.json");
-    at()
-        .args([
-            "run",
-            "--dry-run",
-            "-t",
-            "smoke task title",
-            "-p",
-            ".",
-            "-o",
-        ])
-        .arg(&out)
-        .assert()
-        .success()
-        .stdout(pstr::contains("dry-run"))
-        .stdout(pstr::contains("smoke task title"));
+    at().args([
+        "run",
+        "--dry-run",
+        "-t",
+        "smoke task title",
+        "-p",
+        ".",
+        "-o",
+    ])
+    .arg(&out)
+    .assert()
+    .success()
+    .stdout(pstr::contains("dry-run"))
+    .stdout(pstr::contains("smoke task title"));
 
     let body = std::fs::read_to_string(&out).expect("artifact written");
     assert!(!body.is_empty(), "artifact must be non-empty");
@@ -241,16 +235,7 @@ fn run_dry_run_prints_marker_and_writes_artifact() {
 
 #[test]
 fn run_dry_run_json_output_is_parseable() {
-    at()
-        .args([
-            "run",
-            "--dry-run",
-            "--json",
-            "-t",
-            "json mode",
-            "-p",
-            ".",
-        ])
+    at().args(["run", "--dry-run", "--json", "-t", "json mode", "-p", "."])
         .assert()
         .success()
         .stdout(predicate::function(|s: &str| {
@@ -267,23 +252,22 @@ fn run_dry_run_json_output_is_parseable() {
 fn agent_run_dry_run_writes_role_prefixed_artifact() {
     let td = unique_tmp_dir("agent-dry");
     let out = td.path().join("out.json");
-    at()
-        .args([
-            "agent",
-            "run",
-            "--dry-run",
-            "-r",
-            "qa-reviewer",
-            "-t",
-            "audit changes",
-            "-p",
-            ".",
-            "-o",
-        ])
-        .arg(&out)
-        .assert()
-        .success()
-        .stdout(pstr::contains("dry-run"));
+    at().args([
+        "agent",
+        "run",
+        "--dry-run",
+        "-r",
+        "qa-reviewer",
+        "-t",
+        "audit changes",
+        "-p",
+        ".",
+        "-o",
+    ])
+    .arg(&out)
+    .assert()
+    .success()
+    .stdout(pstr::contains("dry-run"));
 
     let body = std::fs::read_to_string(&out).expect("artifact written");
     let v: serde_json::Value = serde_json::from_str(&body).expect("artifact parses as JSON");
@@ -351,30 +335,29 @@ fn run_dry_run_lifecycle_artifact_is_self_describing() {
     //   3. Re-read the artifact and confirm it is internally consistent.
     let td = unique_tmp_dir("lifecycle");
     let out = td.path().join("out.json");
-    at()
-        .args([
-            "run",
-            "--dry-run",
-            "--emit-prompt",
-            "-t",
-            "lifecycle smoke",
-            "-l",
-            "experimental",
-            "-c",
-            "feature",
-            "-P",
-            "high",
-            "-x",
-            "low",
-            "-p",
-            ".",
-            "-o",
-        ])
-        .arg(&out)
-        .assert()
-        .success()
-        .stdout(pstr::contains("dry-run"))
-        .stdout(pstr::contains("--- prompt ---"));
+    at().args([
+        "run",
+        "--dry-run",
+        "--emit-prompt",
+        "-t",
+        "lifecycle smoke",
+        "-l",
+        "experimental",
+        "-c",
+        "feature",
+        "-P",
+        "high",
+        "-x",
+        "low",
+        "-p",
+        ".",
+        "-o",
+    ])
+    .arg(&out)
+    .assert()
+    .success()
+    .stdout(pstr::contains("dry-run"))
+    .stdout(pstr::contains("--- prompt ---"));
 
     let body = std::fs::read_to_string(&out).expect("artifact written");
     let v: serde_json::Value = serde_json::from_str(&body).expect("artifact parses as JSON");
@@ -382,5 +365,8 @@ fn run_dry_run_lifecycle_artifact_is_self_describing() {
     assert_eq!(v["lane"], "experimental");
     assert_eq!(v["priority"], "high");
     assert_eq!(v["complexity"], "low");
-    assert!(v["description"].as_str().unwrap_or("").contains("lifecycle smoke"));
+    assert!(v["description"]
+        .as_str()
+        .unwrap_or("")
+        .contains("lifecycle smoke"));
 }

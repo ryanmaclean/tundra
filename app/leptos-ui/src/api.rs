@@ -67,9 +67,7 @@ pub fn is_tauri() -> bool {
 
 /// Invoke a Tauri command with no arguments
 pub async fn tauri_invoke<R: for<'de> Deserialize<'de>>(cmd: &str) -> Result<R, String> {
-    let result = invoke(cmd, JsValue::NULL)
-        .await
-        .map_err(js_err)?;
+    let result = invoke(cmd, JsValue::NULL).await.map_err(js_err)?;
     serde_wasm_bindgen::from_value(result).map_err(|e| format!("Tauri invoke error: {e}"))
 }
 
@@ -78,11 +76,9 @@ pub async fn tauri_invoke_with_args<T: Serialize, R: for<'de> Deserialize<'de>>(
     cmd: &str,
     args: &T,
 ) -> Result<R, String> {
-    let js_args = serde_wasm_bindgen::to_value(args)
-        .map_err(|e| format!("Serialize error: {e}"))?;
-    let result = invoke(cmd, js_args)
-        .await
-        .map_err(js_err)?;
+    let js_args =
+        serde_wasm_bindgen::to_value(args).map_err(|e| format!("Serialize error: {e}"))?;
+    let result = invoke(cmd, js_args).await.map_err(js_err)?;
     serde_wasm_bindgen::from_value(result).map_err(|e| format!("Tauri invoke error: {e}"))
 }
 
@@ -926,9 +922,7 @@ pub async fn delete_worktree(id: &str) -> Result<(), String> {
         struct DeleteWorktreeArgs {
             id: String,
         }
-        let args = DeleteWorktreeArgs {
-            id: id.to_string(),
-        };
+        let args = DeleteWorktreeArgs { id: id.to_string() };
         let _result: String = tauri_invoke_with_args("cmd_delete_worktree", &args).await?;
         Ok(())
     } else {
@@ -1042,7 +1036,8 @@ pub async fn fetch_insights_messages(session_id: &str) -> Result<Vec<ApiInsights
         let args = GetMessagesArgs {
             id: session_id.to_string(),
         };
-        let result: serde_json::Value = tauri_invoke_with_args("cmd_insights_get_messages", &args).await?;
+        let result: serde_json::Value =
+            tauri_invoke_with_args("cmd_insights_get_messages", &args).await?;
         serde_json::from_value(result).map_err(|e| format!("Parse error: {e}"))
     } else {
         // Fallback to HTTP

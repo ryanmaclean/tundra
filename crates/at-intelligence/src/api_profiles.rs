@@ -1293,9 +1293,7 @@ mod fallback_tests {
         }
         fn count(&self, name: &str) -> usize {
             let g = self.inner.lock().unwrap();
-            g.get(name)
-                .map(|c| c.load(Ordering::SeqCst))
-                .unwrap_or(0)
+            g.get(name).map(|c| c.load(Ordering::SeqCst)).unwrap_or(0)
         }
     }
 
@@ -1428,10 +1426,7 @@ mod fallback_tests {
             .await;
 
         // Current contract: auth errors fall through to the next provider.
-        assert_eq!(
-            result.expect("secondary handles request").0,
-            id_secondary
-        );
+        assert_eq!(result.expect("secondary handles request").0, id_secondary);
         assert_eq!(counters.count("primary"), 1);
         assert_eq!(counters.count("secondary"), 1);
     }
@@ -1537,9 +1532,7 @@ mod fallback_tests {
         reg.add_profile(local_profile("only", 0));
 
         let result = reg
-            .call_with_failover(|_profile| async {
-                Err::<String, SimError>(SimError::Server5xx)
-            })
+            .call_with_failover(|_profile| async { Err::<String, SimError>(SimError::Server5xx) })
             .await;
 
         assert!(matches!(
@@ -1694,7 +1687,11 @@ mod fallback_tests {
 
         assert_eq!(result.expect("p4 should win").0, id_p4);
         for name in ["p1", "p2", "p3", "p4"] {
-            assert_eq!(counters.count(name), 1, "{name} should have been tried once");
+            assert_eq!(
+                counters.count(name),
+                1,
+                "{name} should have been tried once"
+            );
         }
     }
 
@@ -1714,8 +1711,7 @@ mod fallback_tests {
             timeout: Duration::from_secs(60),
             call_timeout: Duration::from_secs(30),
         };
-        let id_primary =
-            reg.add_profile_with_config(local_profile("primary", 0), breaker_cfg);
+        let id_primary = reg.add_profile_with_config(local_profile("primary", 0), breaker_cfg);
         let id_secondary = reg.add_profile(local_profile("secondary", 1));
 
         // Trip the primary's breaker. Each call also falls over to secondary,
@@ -1723,9 +1719,7 @@ mod fallback_tests {
         // primary failures *and* we ignore the resulting secondary outcome.
         for _ in 0..2 {
             let _ = reg
-                .call_with_failover(|_p| async {
-                    Err::<String, SimError>(SimError::Server5xx)
-                })
+                .call_with_failover(|_p| async { Err::<String, SimError>(SimError::Server5xx) })
                 .await;
         }
 

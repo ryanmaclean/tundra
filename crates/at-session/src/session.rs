@@ -143,12 +143,8 @@ mod tests {
     async fn spawn_into_zero_capacity_pool_propagates_at_capacity() {
         let pool = PtyPool::new(0);
         let agent = Uuid::new_v4();
-        let result =
-            AgentSession::spawn(&pool, agent, &CliType::Claude, "task", "/tmp").await;
-        assert!(matches!(
-            result,
-            Err(PtyError::AtCapacity { max: 0 })
-        ));
+        let result = AgentSession::spawn(&pool, agent, &CliType::Claude, "task", "/tmp").await;
+        assert!(matches!(result, Err(PtyError::AtCapacity { max: 0 })));
     }
 
     #[tokio::test]
@@ -164,8 +160,7 @@ mod tests {
         ] {
             let pool = PtyPool::new(0);
             let agent = Uuid::new_v4();
-            let result =
-                AgentSession::spawn(&pool, agent, &cli, "task", "/tmp").await;
+            let result = AgentSession::spawn(&pool, agent, &cli, "task", "/tmp").await;
             assert!(
                 matches!(result, Err(PtyError::AtCapacity { max: 0 })),
                 "expected AtCapacity for {cli:?}"
@@ -372,9 +367,7 @@ mod unix_tests {
             handle_id,
             read_rx,
             write_tx,
-            Arc::new(Mutex::new(
-                Box::new(child) as Box<dyn Child + Send + Sync>
-            )),
+            Arc::new(Mutex::new(Box::new(child) as Box<dyn Child + Send + Sync>)),
             Arc::new(Mutex::new(Box::new(FakeMaster) as Box<dyn MasterPty + Send>)),
         );
         let agent_id = Uuid::new_v4();
@@ -453,7 +446,10 @@ mod unix_tests {
             test_adapter_with_status(CliType::Claude, "claude-test", "completed"),
             FakeChild::alive(),
         );
-        assert_eq!(s.parse_status("STATUS_TRIGGER bla"), Some("completed".into()));
+        assert_eq!(
+            s.parse_status("STATUS_TRIGGER bla"),
+            Some("completed".into())
+        );
     }
 
     #[test]
@@ -471,7 +467,10 @@ mod unix_tests {
             test_adapter_with_status(CliType::Codex, "codex-test", "error"),
             FakeChild::alive(),
         );
-        assert_eq!(s.parse_status("STATUS_TRIGGER explosion"), Some("error".into()));
+        assert_eq!(
+            s.parse_status("STATUS_TRIGGER explosion"),
+            Some("error".into())
+        );
     }
 
     // -- send_command / send_raw / read_output ----------------------------
@@ -600,10 +599,7 @@ mod unix_tests {
     fn kill_propagates_internal_error_when_killer_fails() {
         let mut child = FakeChild::alive();
         child.kill_should_fail = true;
-        let (s, _r, _w, _id) = make_session(
-            test_adapter(CliType::Claude, "claude-test"),
-            child,
-        );
+        let (s, _r, _w, _id) = make_session(test_adapter(CliType::Claude, "claude-test"), child);
         let err = s.kill().expect_err("expected kill error");
         let msg = format!("{err}");
         // PtyError::Internal wraps the underlying io::Error message.

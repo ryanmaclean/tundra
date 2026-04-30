@@ -68,11 +68,7 @@ pub async fn cmd_list_beads(
 ) -> Result<Vec<Bead>, String> {
     let beads = state.daemon.api_state().beads.read().await;
     let filtered: Vec<Bead> = match status {
-        Some(s) => beads
-            .values()
-            .filter(|b| b.status == s)
-            .cloned()
-            .collect(),
+        Some(s) => beads.values().filter(|b| b.status == s).cloned().collect(),
         None => beads.values().cloned().collect(),
     };
     Ok(filtered)
@@ -376,10 +372,7 @@ pub async fn cmd_list_worktrees(
 
 /// Create a new git worktree with the given path and branch name.
 #[tauri::command]
-pub async fn cmd_create_worktree(
-    path: String,
-    branch: String,
-) -> Result<WorktreeEntry, String> {
+pub async fn cmd_create_worktree(path: String, branch: String) -> Result<WorktreeEntry, String> {
     // Validate inputs
     if path.trim().is_empty() {
         return Err("path cannot be empty".to_string());
@@ -509,8 +502,8 @@ pub async fn cmd_list_github_issues(
     }
 
     let gh_config = GitHubConfig { token, owner, repo };
-    let client = at_integrations::github::client::GitHubClient::new(gh_config)
-        .map_err(|e| e.to_string())?;
+    let client =
+        at_integrations::github::client::GitHubClient::new(gh_config).map_err(|e| e.to_string())?;
 
     let state_enum = state_filter
         .as_deref()
@@ -573,8 +566,8 @@ pub async fn cmd_list_github_prs(
     }
 
     let gh_config = GitHubConfig { token, owner, repo };
-    let client = at_integrations::github::client::GitHubClient::new(gh_config)
-        .map_err(|e| e.to_string())?;
+    let client =
+        at_integrations::github::client::GitHubClient::new(gh_config).map_err(|e| e.to_string())?;
 
     let state_enum = state_filter
         .as_deref()
@@ -628,8 +621,8 @@ pub async fn cmd_sync_github_issues(
     }
 
     let gh_config = GitHubConfig { token, owner, repo };
-    let client = at_integrations::github::client::GitHubClient::new(gh_config)
-        .map_err(|e| e.to_string())?;
+    let client =
+        at_integrations::github::client::GitHubClient::new(gh_config).map_err(|e| e.to_string())?;
 
     let existing_beads: Vec<Bead> = state
         .daemon
@@ -693,8 +686,8 @@ pub async fn cmd_import_github_issue(
     }
 
     let gh_config = GitHubConfig { token, owner, repo };
-    let client = at_integrations::github::client::GitHubClient::new(gh_config)
-        .map_err(|e| e.to_string())?;
+    let client =
+        at_integrations::github::client::GitHubClient::new(gh_config).map_err(|e| e.to_string())?;
 
     let issue = issues::get_issue(&client, issue_number)
         .await
@@ -819,10 +812,7 @@ pub async fn cmd_ideation_generate(
 
 /// Convert an idea to a task (bead).
 #[tauri::command]
-pub async fn cmd_ideation_convert(
-    state: State<'_, AppState>,
-    id: String,
-) -> Result<Bead, String> {
+pub async fn cmd_ideation_convert(state: State<'_, AppState>, id: String) -> Result<Bead, String> {
     let idea_id = Uuid::parse_str(&id).map_err(|e| format!("invalid UUID: {}", e))?;
 
     let bead = {

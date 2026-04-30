@@ -920,7 +920,10 @@ mod tests {
                 }
             }
         }
-        assert!(found_cancelled, "cancel_task did not publish task_cancelled");
+        assert!(
+            found_cancelled,
+            "cancel_task did not publish task_cancelled"
+        );
     }
 
     #[tokio::test]
@@ -965,10 +968,7 @@ mod tests {
         run_spec_pipeline_for_task(&mut task);
         assert!(task.logs.len() > before);
         // Ensure the spec pipeline log mentions the task title.
-        assert!(task
-            .logs
-            .iter()
-            .any(|l| l.message.contains("Test Feature")));
+        assert!(task.logs.iter().any(|l| l.message.contains("Test Feature")));
     }
 
     #[test]

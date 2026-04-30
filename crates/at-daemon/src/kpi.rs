@@ -180,8 +180,7 @@ mod tests {
             .expect("snapshot ok");
 
         let json = serde_json::to_string(&original).expect("serialize");
-        let decoded: KpiSnapshot =
-            serde_json::from_str(&json).expect("deserialize");
+        let decoded: KpiSnapshot = serde_json::from_str(&json).expect("deserialize");
 
         assert_eq!(decoded.total_beads, original.total_beads);
         assert_eq!(decoded.backlog, original.backlog);

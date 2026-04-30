@@ -40,7 +40,9 @@ const LIST_ISSUES_PATH: &str = "/repos/testowner/testrepo/issues";
 /// crate-internal helpers; the failure-mode behavior we care about lives
 /// inside octocrab and is identical regardless of which list-shaped helper
 /// invokes it.
-async fn list_issues(client: &GitHubClient) -> octocrab::Result<octocrab::Page<octocrab::models::issues::Issue>> {
+async fn list_issues(
+    client: &GitHubClient,
+) -> octocrab::Result<octocrab::Page<octocrab::models::issues::Issue>> {
     client
         .inner()
         .issues(client.owner(), client.repo())
@@ -121,8 +123,7 @@ async fn github_503_persistent_returns_error() {
 
     Mock::given(method("GET"))
         .respond_with(
-            ResponseTemplate::new(503)
-                .set_body_json(serde_json::json!({ "message": "down" })),
+            ResponseTemplate::new(503).set_body_json(serde_json::json!({ "message": "down" })),
         )
         .mount(&server)
         .await;
@@ -142,12 +143,10 @@ async fn github_401_unauthorized_no_retry() {
 
     Mock::given(method("GET"))
         .and(path(LIST_ISSUES_PATH))
-        .respond_with(
-            ResponseTemplate::new(401).set_body_json(serde_json::json!({
-                "message": "Bad credentials",
-                "documentation_url": "https://docs.github.com/rest"
-            })),
-        )
+        .respond_with(ResponseTemplate::new(401).set_body_json(serde_json::json!({
+            "message": "Bad credentials",
+            "documentation_url": "https://docs.github.com/rest"
+        })))
         .expect(1) // pin: exactly one request — no retry on 401.
         .mount(&server)
         .await;
@@ -171,12 +170,10 @@ async fn github_403_forbidden_returns_error() {
 
     Mock::given(method("GET"))
         .and(path(LIST_ISSUES_PATH))
-        .respond_with(
-            ResponseTemplate::new(403).set_body_json(serde_json::json!({
-                "message": "Forbidden",
-                "documentation_url": "https://docs.github.com/rest"
-            })),
-        )
+        .respond_with(ResponseTemplate::new(403).set_body_json(serde_json::json!({
+            "message": "Forbidden",
+            "documentation_url": "https://docs.github.com/rest"
+        })))
         .expect(1)
         .mount(&server)
         .await;

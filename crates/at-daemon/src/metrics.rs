@@ -401,14 +401,8 @@ mod tests {
         let snapshot = metrics.get_metrics_snapshot().await;
         // Exactly two distinct keys, with independent counts.
         assert_eq!(snapshot.counters.len(), 2);
-        assert_eq!(
-            snapshot.counters.get("{status:200}requests"),
-            Some(&2)
-        );
-        assert_eq!(
-            snapshot.counters.get("{status:500}requests"),
-            Some(&1)
-        );
+        assert_eq!(snapshot.counters.get("{status:200}requests"), Some(&2));
+        assert_eq!(snapshot.counters.get("{status:500}requests"), Some(&1));
     }
 
     /// Pin behavior: u64 counter increments do NOT saturate; they will overflow
@@ -464,10 +458,7 @@ mod tests {
             metrics.record_histogram("seq", v, &[]).await;
         }
         let snapshot = metrics.get_metrics_snapshot().await;
-        assert_eq!(
-            snapshot.histograms.get("seq"),
-            Some(&vec![1.0, 2.0, 3.0])
-        );
+        assert_eq!(snapshot.histograms.get("seq"), Some(&vec![1.0, 2.0, 3.0]));
     }
 
     #[test]
@@ -524,9 +515,10 @@ mod tests {
     fn test_histogram_stats_sorts_unsorted_input() {
         let mut snapshot = MetricsSnapshot::default();
         // Deliberately scrambled input must still produce min/max correctly.
-        snapshot
-            .histograms
-            .insert("u".to_string(), vec![3.0, 1.0, 4.0, 1.0, 5.0, 9.0, 2.0, 6.0]);
+        snapshot.histograms.insert(
+            "u".to_string(),
+            vec![3.0, 1.0, 4.0, 1.0, 5.0, 9.0, 2.0, 6.0],
+        );
         let stats = snapshot.histogram_stats("u").unwrap();
         assert_eq!(stats.count, 8);
         assert_eq!(stats.min, 1.0);
@@ -569,10 +561,7 @@ mod tests {
     fn test_build_key_empty_string_tag_value_preserved() {
         let m = MetricsCollector::new();
         // Empty values must round-trip without being dropped (escaping pin).
-        assert_eq!(
-            m.build_key("evt", &[("tag", "")]),
-            "{tag:}evt"
-        );
+        assert_eq!(m.build_key("evt", &[("tag", "")]), "{tag:}evt");
     }
 
     // ------------------------------------------------------------------

@@ -339,9 +339,7 @@ async fn expiry_check_is_not_cached_by_prior_get_token() {
     // Overwrite with an expired token. is_expired must reflect the new
     // metadata immediately — there must be no stale cached "not expired"
     // decision from the prior get_token call.
-    manager
-        .store_token("ghp_now_expired", Some(0), None)
-        .await;
+    manager.store_token("ghp_now_expired", Some(0), None).await;
     assert!(
         manager.is_expired().await,
         "is_expired must re-read metadata; prior get_token must not cache"
