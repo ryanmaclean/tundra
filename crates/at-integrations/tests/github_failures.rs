@@ -12,6 +12,8 @@
 //! these. Each test below pins the surfaced variant so a future error-mapping
 //! change is detectable.
 
+use std::time::Duration;
+
 use at_integrations::github::client::{GitHubClient, GitHubError};
 use at_integrations::types::GitHubConfig;
 use wiremock::matchers::{method, path};
@@ -237,10 +239,50 @@ async fn github_empty_body_returns_error() {
 // ---------------------------------------------------------------------------
 // Slow response / timeouts
 // ---------------------------------------------------------------------------
-//
-// TODO(failures): octocrab's default builder doesn't expose a per-request
-// timeout in `GitHubClient::new` (cf.
-// `crates/at-integrations/src/github/client.rs::new`). A `set_delay`-based
-// timeout test would either deadlock the test harness or rely on OS-level
-// TCP timeouts. Wire `octocrab::OctocrabBuilder::add_retry_config` /
-// custom hyper layers when a configurable timeout is added.
+
+/// Pin: when a configurable timeout is wired, a slow upstream response must
+/// surface as an error (rather than blocking on the OS-level TCP read
+/// timeout). The timeout is plumbed via the additive
+/// `GitHubClient::new_with_base_url_and_timeout` constructor; production
+/// callers using `new` / `new_from_env` / `new_with_base_url` are unaffected.
+#[tokio::test]
+async fn github_slow_response_times_out() {
+    let server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path(LIST_ISSUES_PATH))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "application/json")
+                .set_body_json(serde_json::json!([]))
+                .set_delay(Duration::from_secs(5)),
+        )
+        .mount(&server)
+        .await;
+
+    let config = GitHubConfig {
+        token: Some(TEST_TOKEN.to_string()),
+        owner: OWNER.to_string(),
+        repo: REPO.to_string(),
+    };
+    let client = GitHubClient::new_with_base_url_and_timeout(
+        config,
+        &server.uri(),
+        Some(Duration::from_millis(500)),
+    )
+    .expect("valid client");
+
+    let started = std::time::Instant::now();
+    let result = list_issues(&client).await.map_err(GitHubError::from);
+    let elapsed = started.elapsed();
+
+    let err = result.expect_err("expected timeout error");
+    assert!(
+        elapsed < Duration::from_secs(4),
+        "client should give up well before the 5s server delay (took {elapsed:?})"
+    );
+    assert!(
+        matches!(err, GitHubError::Api(_)),
+        "expected GitHubError::Api wrapping a timeout, got {err:?}"
+    );
+}

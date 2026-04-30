@@ -115,6 +115,13 @@ pub struct LinearClient {
     /// override via [`LinearClient::new_with_url`] for tests / self-hosted
     /// deployments.
     pub graphql_url: String,
+    /// Optional configured request timeout. When `None`, the per-request
+    /// `reqwest::Client` is built with default settings (no explicit timeout)
+    /// — matching the historical behavior of `LinearClient::new` and
+    /// `LinearClient::new_with_url`. When `Some(duration)`, the duration is
+    /// wired through `reqwest::ClientBuilder::timeout` so slow servers
+    /// surface as a `LinearError::Http` carrying a reqwest timeout.
+    pub(crate) request_timeout: Option<std::time::Duration>,
 }
 
 impl LinearClient {
@@ -128,6 +135,26 @@ impl LinearClient {
     /// `wiremock`). Production callers should use [`LinearClient::new`],
     /// which defaults to the public Linear API.
     pub fn new_with_url(api_key: &str, graphql_url: &str) -> Result<Self> {
+        Self::new_with_url_and_timeout(api_key, graphql_url, None)
+    }
+
+    /// Create a Linear client with a custom GraphQL endpoint and an optional
+    /// request timeout.
+    ///
+    /// When `timeout` is `None`, behavior is identical to
+    /// [`LinearClient::new_with_url`] (the per-request `reqwest::Client` is
+    /// built without an explicit timeout). When `Some(duration)`, the
+    /// duration is applied via `reqwest::ClientBuilder::timeout` to every
+    /// GraphQL request, so slow servers surface as a `LinearError::Http`.
+    ///
+    /// This constructor is additive: existing call sites of `new` and
+    /// `new_with_url` continue to compile unchanged and exhibit identical
+    /// behavior.
+    pub fn new_with_url_and_timeout(
+        api_key: &str,
+        graphql_url: &str,
+        timeout: Option<std::time::Duration>,
+    ) -> Result<Self> {
         if api_key.is_empty() {
             return Err(LinearError::MissingApiKey);
         }
@@ -135,6 +162,7 @@ impl LinearClient {
             api_key: api_key.to_string(),
             active_team_id: None,
             graphql_url: graphql_url.to_string(),
+            request_timeout: timeout,
         })
     }
 
@@ -189,7 +217,13 @@ impl LinearClient {
             payload["variables"] = serde_json::Value::Object(vars);
         }
 
-        let client = reqwest::Client::new();
+        let client = match self.request_timeout {
+            Some(t) => reqwest::Client::builder()
+                .timeout(t)
+                .build()
+                .map_err(LinearError::Http)?,
+            None => reqwest::Client::new(),
+        };
         let resp = client
             .post(self.graphql_url.as_str())
             .header("Authorization", self.api_key.as_str())

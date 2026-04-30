@@ -11,6 +11,8 @@
 //! `glpat-realistic-token-1234567890` here — long enough and without the
 //! sentinel prefixes — to force the real HTTP path.
 
+use std::time::Duration;
+
 use at_integrations::gitlab::{GitLabClient, GitLabError};
 use wiremock::matchers::{method, path_regex};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -184,9 +186,46 @@ async fn gitlab_empty_body_returns_error() {
 // ---------------------------------------------------------------------------
 // Slow response / timeouts
 // ---------------------------------------------------------------------------
-//
-// TODO(failures): The GitLab client uses `reqwest::Client::new()` without a
-// configured timeout (see `crates/at-integrations/src/gitlab/mod.rs:132`).
-// A wiremock `set_delay`-based timeout test would block on the OS-level TCP
-// read timeout and is not deterministic; add a timeout-on-build path and
-// a test here once the client exposes a configurable timeout.
+
+/// Pin: when a configurable timeout is wired, a slow upstream response must
+/// surface as a typed `GitLabError::Http` carrying a reqwest timeout (rather
+/// than blocking on the OS-level TCP read timeout). The timeout is plumbed
+/// via the additive `GitLabClient::new_with_url_and_timeout` constructor;
+/// production callers using `new` / `new_with_url` are unaffected.
+#[tokio::test]
+async fn gitlab_slow_response_times_out() {
+    let server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path_regex(r"^/api/v4/projects/.*/issues$"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(serde_json::json!([]))
+                .set_delay(Duration::from_secs(5)),
+        )
+        .mount(&server)
+        .await;
+
+    let client = GitLabClient::new_with_url_and_timeout(
+        &server.uri(),
+        TEST_TOKEN,
+        Some(Duration::from_millis(500)),
+    )
+    .expect("valid client");
+
+    let started = std::time::Instant::now();
+    let result = client.list_issues("42", None, 1, 5).await;
+    let elapsed = started.elapsed();
+
+    let err = result.expect_err("expected timeout error");
+    assert!(
+        elapsed < Duration::from_secs(4),
+        "client should give up well before the 5s server delay (took {elapsed:?})"
+    );
+    // reqwest's timeout failures arrive on the `reqwest::Error` path, which
+    // our wrapper carries as `GitLabError::Http`.
+    assert!(
+        matches!(&err, GitLabError::Http(e) if e.is_timeout()),
+        "expected GitLabError::Http with is_timeout()==true, got {err:?}"
+    );
+}
