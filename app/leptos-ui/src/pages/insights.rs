@@ -46,7 +46,7 @@ fn demo_insights_sessions() -> Vec<ChatSession> {
 
 #[component]
 pub fn InsightsPage() -> impl IntoView {
-    let app_state = use_app_state();
+    let _app_state = use_app_state();
     let (sessions, set_sessions) = signal(Vec::<ChatSession>::new());
     let (active_session_id, set_active_session_id) = signal(Option::<String>::None);
     let (input_text, set_input_text) = signal(String::new());
@@ -358,7 +358,7 @@ pub fn InsightsPage() -> impl IntoView {
                             let sid_click = session.id.clone();
                             let title = session.title.clone();
                             let msg_count = session.messages.len();
-                            let load = load_messages.clone();
+                            let load = load_messages;
                             view! {
                                 <button
                                     class="insights-session-item"
@@ -438,7 +438,7 @@ pub fn InsightsPage() -> impl IntoView {
                     }
 
                     None => {
-                        let on_start_chat = on_new_session.clone();
+                        let on_start_chat = on_new_session;
                         view! {
                             <div class="insights-empty-state">
                                 <div

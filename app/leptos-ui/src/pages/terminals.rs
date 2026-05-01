@@ -281,7 +281,7 @@ pub fn TerminalsPage() -> impl IntoView {
                 let:info
             >
                 {
-                    let on_close = close_terminal.clone();
+                    let on_close = close_terminal;
                     let tid = info.id.clone();
                     let title = info.title.clone();
                     let c = info.cols as u32;
