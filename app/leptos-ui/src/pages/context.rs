@@ -221,8 +221,7 @@ pub fn ContextPage() -> impl IntoView {
                     <div class="dashboard-error context-error">{msg}</div>
                 }).into_any()
             } else {
-                let _: () = view! { <></> };
-                ().into_any()
+                view! { <></> }.into_any()
             }
         }}
 
