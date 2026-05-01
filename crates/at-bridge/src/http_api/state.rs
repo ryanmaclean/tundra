@@ -32,12 +32,17 @@ use at_integrations::types::GitHubRelease;
 
 /// The payload broadcast by the single-flight gate when a GitHub token
 /// refresh completes: `Ok(json_body)` on success, `Err(message)` on failure.
-type RefreshOutcome = Option<Result<serde_json::Value, String>>;
+/// Outcome of a single OAuth refresh attempt that the leader broadcasts to
+/// followers via the gate's `watch` channel.  `None` = still in-flight.
+/// `Ok(body)` = success, response body that the leader will return.
+/// `Err((status, msg))` = failure, with the `StatusCode` that the leader will
+/// return so followers report the same status (not always 400).
+pub type RefreshOutcome = Result<serde_json::Value, (axum::http::StatusCode, String)>;
 
 /// Shared gate that serialises concurrent GitHub OAuth token refreshes into a
 /// single outbound HTTP request.  `None` = no refresh in-flight.
 pub type GitHubRefreshGate =
-    Arc<tokio::sync::Mutex<Option<tokio::sync::watch::Sender<RefreshOutcome>>>>;
+    Arc<tokio::sync::Mutex<Option<tokio::sync::watch::Sender<Option<RefreshOutcome>>>>>;
 
 // ---------------------------------------------------------------------------
 // Default configuration functions

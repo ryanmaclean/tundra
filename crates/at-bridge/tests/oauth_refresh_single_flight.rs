@@ -35,6 +35,29 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 // ---------------------------------------------------------------------------
 static ENV_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+/// RAII guard that removes a list of env vars on Drop, even on panic.
+/// Without this, a test that sets GITHUB_OAUTH_CLIENT_ID and panics would
+/// leak the var into the next test (which might assert missing-var behavior).
+struct EnvGuard {
+    keys: &'static [&'static str],
+}
+
+impl EnvGuard {
+    fn new(keys: &'static [&'static str]) -> Self {
+        Self { keys }
+    }
+}
+
+impl Drop for EnvGuard {
+    fn drop(&mut self) {
+        for k in self.keys {
+            std::env::remove_var(k);
+        }
+    }
+}
+
+const OAUTH_ENV_KEYS: &[&str] = &["GITHUB_OAUTH_CLIENT_ID", "GITHUB_OAUTH_CLIENT_SECRET"];
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -118,6 +141,7 @@ async fn concurrent_expired_callers_result_in_single_http_refresh() {
 
     std::env::set_var("GITHUB_OAUTH_CLIENT_ID", "test_client_id");
     std::env::set_var("GITHUB_OAUTH_CLIENT_SECRET", "test_secret");
+    let _env_cleanup = EnvGuard::new(OAUTH_ENV_KEYS);
 
     // Fire 10 concurrent refresh requests.
     const N: usize = 10;
@@ -193,6 +217,7 @@ async fn refresh_failure_propagates_to_all_concurrent_callers() {
 
     std::env::set_var("GITHUB_OAUTH_CLIENT_ID", "test_client_id");
     std::env::set_var("GITHUB_OAUTH_CLIENT_SECRET", "test_secret");
+    let _env_cleanup = EnvGuard::new(OAUTH_ENV_KEYS);
 
     const N: usize = 10;
     let client = reqwest::Client::new();
@@ -265,6 +290,7 @@ async fn subsequent_call_after_failure_retries() {
 
     std::env::set_var("GITHUB_OAUTH_CLIENT_ID", "test_client_id");
     std::env::set_var("GITHUB_OAUTH_CLIENT_SECRET", "test_secret");
+    let _env_cleanup = EnvGuard::new(OAUTH_ENV_KEYS);
 
     let client = reqwest::Client::new();
     let url = format!("{base}/api/github/oauth/refresh");
@@ -282,9 +308,13 @@ async fn subsequent_call_after_failure_retries() {
     );
     let _ = resp1.bytes().await;
 
-    // The gate should now be cleared; wait a brief moment for the spawned
-    // gate-clearing task to execute.
-    tokio::time::sleep(Duration::from_millis(20)).await;
+    // The gate is now cleared synchronously by LeaderGuard::finish before
+    // the leader's response is sent — assert it directly rather than
+    // sleeping for a spawned task.
+    assert!(
+        state.github_refresh_gate.lock().await.is_none(),
+        "gate must be cleared deterministically by LeaderGuard::finish"
+    );
 
     // Re-seed the refresh token (the failed refresh didn't overwrite it).
     store_expired_token_with_refresh(&state).await;
@@ -343,6 +373,7 @@ async fn refresh_429_does_not_retry_indefinitely() {
 
     std::env::set_var("GITHUB_OAUTH_CLIENT_ID", "test_client_id");
     std::env::set_var("GITHUB_OAUTH_CLIENT_SECRET", "test_secret");
+    let _env_cleanup = EnvGuard::new(OAUTH_ENV_KEYS);
 
     let start = std::time::Instant::now();
 
