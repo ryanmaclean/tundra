@@ -30,7 +30,7 @@ thiserror = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
 toml = "0.8"
-rodio = { version = "0.19", optional = true }
+rodio = { version = "0.22", optional = true }
 image = "0.25"
 
 [features]
