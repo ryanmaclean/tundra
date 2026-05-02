@@ -70,8 +70,6 @@ pub fn GithubIssuesPage() -> impl IntoView {
 
     // Fetch issues from API on mount
     {
-        let set_issues = set_issues.clone();
-        let set_error_msg = set_error_msg.clone();
         leptos::task::spawn_local(async move {
             match crate::api::fetch_github_issues().await {
                 Ok(api_issues) => {
@@ -104,7 +102,6 @@ pub fn GithubIssuesPage() -> impl IntoView {
     let trigger_sync = move |_| {
         set_is_syncing.set(true);
         set_error_msg.set(None);
-        let set_issues = set_issues.clone();
         let auto_fix_enabled = auto_fix.get();
         leptos::task::spawn_local(async move {
             match crate::api::sync_github().await {

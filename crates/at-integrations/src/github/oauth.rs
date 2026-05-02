@@ -98,6 +98,9 @@ struct GitHubOAuthError {
 pub struct GitHubOAuthClient {
     config: GitHubOAuthConfig,
     http: Client,
+    /// Base URL for the token endpoint (default: `https://github.com/login/oauth/access_token`).
+    /// Overridable for testing against a local mock server.
+    token_url: String,
 }
 
 impl GitHubOAuthClient {
@@ -108,7 +111,28 @@ impl GitHubOAuthClient {
             .build()
             .expect("failed to build reqwest client");
 
-        Self { config, http }
+        Self {
+            config,
+            http,
+            token_url: "https://github.com/login/oauth/access_token".into(),
+        }
+    }
+
+    /// Create a new OAuth client with a custom token endpoint URL.
+    ///
+    /// Intended for use in tests where a mock HTTP server stands in for
+    /// GitHub's token endpoint.
+    pub fn new_with_token_url(config: GitHubOAuthConfig, token_url: impl Into<String>) -> Self {
+        let http = Client::builder()
+            .user_agent("auto-tundra/1.0")
+            .build()
+            .expect("failed to build reqwest client");
+
+        Self {
+            config,
+            http,
+            token_url: token_url.into(),
+        }
     }
 
     /// Build the GitHub authorization URL the user should be redirected to.
@@ -134,7 +158,7 @@ impl GitHubOAuthClient {
     pub async fn exchange_code(&self, code: &str) -> Result<OAuthTokenResponse> {
         let resp = self
             .http
-            .post("https://github.com/login/oauth/access_token")
+            .post(&self.token_url)
             .header("Accept", "application/json")
             .json(&serde_json::json!({
                 "client_id": self.config.client_id,
@@ -165,7 +189,7 @@ impl GitHubOAuthClient {
     pub async fn refresh_token(&self, refresh_token: &str) -> Result<OAuthTokenResponse> {
         let resp = self
             .http
-            .post("https://github.com/login/oauth/access_token")
+            .post(&self.token_url)
             .header("Accept", "application/json")
             .json(&serde_json::json!({
                 "client_id": self.config.client_id,

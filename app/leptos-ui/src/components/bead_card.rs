@@ -190,7 +190,6 @@ pub fn BeadCard(
                     {action_class.map(|cls| {
                         let action_id = action_id.clone();
                         let action_value = action.clone().unwrap_or_default();
-                        let on_action = on_action.clone();
                         view! {
                             <button class={cls} on:click=move |ev: leptos::ev::MouseEvent| {
                                 ev.stop_propagation();

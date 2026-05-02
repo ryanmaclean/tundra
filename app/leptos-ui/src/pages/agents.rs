@@ -440,10 +440,11 @@ pub fn AgentsPage() -> impl IntoView {
         set_error_msg.set(None);
         spawn_local(async move {
             match api::stop_agent(&id).await {
-                Ok(_) => match api::fetch_agents().await {
-                    Ok(data) => set_agents.set(data),
-                    Err(_) => {}
-                },
+                Ok(_) => {
+                    if let Ok(data) = api::fetch_agents().await {
+                        set_agents.set(data)
+                    }
+                }
                 Err(e) => {
                     set_error_msg.set(Some(format!("Failed to stop agent: {e}")));
                 }
@@ -754,7 +755,7 @@ pub fn AgentsPage() -> impl IntoView {
                         let id_stop = agent.id.clone();
                         let dot_cls = status_dot_class(&status);
                         let is_active = status == "active" || status == "running" || status == "idle";
-                        let stop_agent = stop_agent.clone();
+                        let stop_agent = stop_agent;
                         let terminal_name = format!("Terminal {}", idx + 1);
                         let role_badge = role.to_uppercase();
                         let pane_idx = idx;
@@ -791,7 +792,7 @@ pub fn AgentsPage() -> impl IntoView {
                                                 <span inner_html=agents_icon_svg("maximize")></span>
                                             </button>
                                             {is_active.then(|| {
-                                                let stop = stop_agent.clone();
+                                                let stop = stop_agent;
                                                 view! {
                                                     <button
                                                         class="terminal-pane-icon-btn"

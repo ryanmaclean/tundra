@@ -91,7 +91,7 @@ pub fn StacksPage() -> impl IntoView {
 
             // Stack list
             <div class="stacks-grid">
-                {move || stacks.get().iter().cloned().map(|stack| {
+                {move || stacks.get().iter().map(|stack| {
                     let root_id = stack.root.id.clone();
                     let root_title = stack.root.title.clone();
                     let root_phase = stack.root.phase.clone();
@@ -144,7 +144,7 @@ pub fn StacksPage() -> impl IntoView {
                             // Children nodes
                             <div class="stack-children">
                                 {let child_count = children.len() as u32;
-                                children.iter().cloned().map(|child| {
+                                children.iter().map(|child| {
                                     let child_branch = child.git_branch.clone().unwrap_or_default();
                                     let child_pr = child.pr_number;
                                     let child_phase = child.phase.clone();

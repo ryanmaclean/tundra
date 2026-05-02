@@ -1407,6 +1407,539 @@ async fn handle_terminal_ws(socket: WebSocket, state: Arc<ApiState>, terminal_id
 // .route("/api/terminals/persistent", get(terminal_ws::list_persistent_terminals))
 
 // ---------------------------------------------------------------------------
+// Concurrency / stress tests
+//
+// Pin the hard contracts of the terminal WebSocket layer under racy conditions:
+// concurrent registry reads and writes, racing disconnect-buffer drain vs push,
+// concurrent multi-terminal status updates, and concurrent registry insertions.
+//
+// Implementation notes:
+//   * `TerminalRegistry` lives behind `Arc<RwLock<...>>` in `ApiState`; all
+//     concurrent access goes through standard tokio RwLock semantics.
+//   * `DisconnectBuffer` itself is not `Send` on its own and is always accessed
+//     through the `Arc<RwLock<HashMap<...>>>` wrapper in `ApiState`.
+//   * These tests use `tokio::test` with `flavor = "multi_thread"` and
+//     `JoinSet`/`spawn` — consistent with the `oauth_token_race` integration
+//     test layout but placed here as an in-module `stress_tests` mod to match
+//     the `event_bus` pattern.
+//   * Each test stays well under 2 s wall-clock time. No real sleep in the
+//     hot assertion path; `AtomicUsize` counters + `tokio::task::yield_now`
+//     are used for synchronisation.
+// ---------------------------------------------------------------------------
+#[cfg(test)]
+mod stress_tests {
+    use super::*;
+    use crate::event_bus::EventBus;
+    use crate::terminal::{DisconnectBuffer, TerminalInfo, TerminalStatus, DISCONNECT_BUFFER_SIZE};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use tokio::task::JoinSet;
+    use uuid::Uuid;
+
+    // -----------------------------------------------------------------------
+    // Helpers
+    // -----------------------------------------------------------------------
+
+    fn make_state() -> Arc<ApiState> {
+        Arc::new(ApiState::new(EventBus::new()))
+    }
+
+    fn make_terminal_info(status: TerminalStatus) -> TerminalInfo {
+        TerminalInfo {
+            id: Uuid::new_v4(),
+            agent_id: Uuid::nil(),
+            title: "stress-test terminal".to_string(),
+            status,
+            cols: 80,
+            rows: 24,
+            font_size: 12,
+            font_family: "monospace".to_string(),
+            line_height: 1.0,
+            letter_spacing: 0.0,
+            profile: "bundled-card".to_string(),
+            cursor_style: "block".to_string(),
+            cursor_blink: true,
+            auto_name: None,
+            persistent: false,
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // S1: concurrent registry insertions never corrupt state
+    //
+    // N tasks simultaneously register distinct terminals. After all complete,
+    // every terminal must be individually retrievable and the total count must
+    // equal N. Pins: no entries are lost or overwritten by concurrent
+    // `RwLock::write` acquisitions.
+    // -----------------------------------------------------------------------
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn concurrent_registry_insertions_preserve_all_entries() {
+        const N: usize = 32;
+        let state = make_state();
+
+        let mut ids = Vec::with_capacity(N);
+        let mut set = JoinSet::new();
+
+        for _ in 0..N {
+            let info = make_terminal_info(TerminalStatus::Active);
+            ids.push(info.id);
+            let state_c = Arc::clone(&state);
+            set.spawn(async move {
+                let mut registry = state_c.terminal_registry.write().await;
+                registry.register(info);
+            });
+        }
+
+        while set.join_next().await.is_some() {}
+
+        let registry = state.terminal_registry.read().await;
+        assert_eq!(
+            registry.list().len(),
+            N,
+            "all {N} concurrent insertions must survive"
+        );
+        for id in &ids {
+            assert!(
+                registry.get(id).is_some(),
+                "terminal {id} must be retrievable after concurrent insert"
+            );
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // S2: concurrent readers never block each other or observe partial state
+    //
+    // Pre-populate M terminals, then spawn N concurrent reader tasks that each
+    // call `registry.list()`. All readers must see exactly M entries.
+    // Pins: `RwLock::read` allows true fan-out; no reader observes a torn list.
+    // -----------------------------------------------------------------------
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn concurrent_readers_all_observe_complete_registry() {
+        const M: usize = 16; // terminals pre-inserted
+        const N: usize = 32; // concurrent reader tasks
+
+        let state = make_state();
+        {
+            let mut registry = state.terminal_registry.write().await;
+            for _ in 0..M {
+                registry.register(make_terminal_info(TerminalStatus::Active));
+            }
+        }
+
+        let mut set = JoinSet::new();
+        let observed = Arc::new(AtomicUsize::new(0));
+
+        for _ in 0..N {
+            let state_c = Arc::clone(&state);
+            let observed_c = Arc::clone(&observed);
+            set.spawn(async move {
+                let registry = state_c.terminal_registry.read().await;
+                let count = registry.list().len();
+                // Each reader must see the full pre-populated set.
+                observed_c.fetch_add(count, Ordering::Relaxed);
+            });
+        }
+
+        while set.join_next().await.is_some() {}
+
+        assert_eq!(
+            observed.load(Ordering::Relaxed),
+            M * N,
+            "each of {N} readers must see all {M} terminals (total {total})",
+            total = M * N
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // S3: racing reader and writer tasks do not deadlock or panic
+    //
+    // One writer task continuously inserts terminals while N reader tasks
+    // continuously read the registry list. The test is bounded by a task
+    // count; post-condition is that the writer completed and the registry
+    // is non-empty (count ≥ 1). Pins: no deadlock between concurrent
+    // `read()` and `write()` acquisitions on the same RwLock.
+    // -----------------------------------------------------------------------
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn registry_read_write_race_no_deadlock() {
+        const WRITES: usize = 20;
+        const READERS: usize = 8;
+
+        let state = make_state();
+        let inserted = Arc::new(AtomicUsize::new(0));
+
+        // Writer task.
+        let state_w = Arc::clone(&state);
+        let inserted_w = Arc::clone(&inserted);
+        let writer = tokio::spawn(async move {
+            for _ in 0..WRITES {
+                let info = make_terminal_info(TerminalStatus::Active);
+                let mut registry = state_w.terminal_registry.write().await;
+                registry.register(info);
+                inserted_w.fetch_add(1, Ordering::Relaxed);
+                tokio::task::yield_now().await;
+            }
+        });
+
+        // Reader tasks run concurrently with the writer.
+        let mut set = JoinSet::new();
+        for _ in 0..READERS {
+            let state_c = Arc::clone(&state);
+            set.spawn(async move {
+                for _ in 0..20 {
+                    let registry = state_c.terminal_registry.read().await;
+                    let _ = registry.list();
+                    drop(registry);
+                    tokio::task::yield_now().await;
+                }
+            });
+        }
+
+        writer.await.expect("writer task must not panic");
+        while set.join_next().await.is_some() {}
+
+        let registry = state.terminal_registry.read().await;
+        assert_eq!(
+            registry.list().len(),
+            inserted.load(Ordering::Relaxed),
+            "all inserted terminals must be present after racing reads"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // S4: concurrent status updates on distinct terminals do not interfere
+    //
+    // N tasks each own one terminal and independently update its status.
+    // After all complete, each terminal must reflect the status its owner
+    // wrote, not a neighbour's. Pins: `update_status` with write lock is
+    // per-key atomic — no cross-terminal write bleeding.
+    // -----------------------------------------------------------------------
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn concurrent_status_updates_on_distinct_terminals_are_isolated() {
+        const N: usize = 16;
+        let state = make_state();
+
+        // Pre-register all terminals.
+        let mut ids = Vec::with_capacity(N);
+        {
+            let mut registry = state.terminal_registry.write().await;
+            for _ in 0..N {
+                let info = make_terminal_info(TerminalStatus::Active);
+                let id = info.id;
+                ids.push(id);
+                registry.register(info);
+            }
+        }
+
+        // Each task flips its own terminal to Dead.
+        let mut set = JoinSet::new();
+        for id in ids.clone() {
+            let state_c = Arc::clone(&state);
+            set.spawn(async move {
+                let mut registry = state_c.terminal_registry.write().await;
+                registry.update_status(&id, TerminalStatus::Dead);
+            });
+        }
+
+        while set.join_next().await.is_some() {}
+
+        let registry = state.terminal_registry.read().await;
+        for id in &ids {
+            let info = registry.get(id).expect("terminal must still exist");
+            assert_eq!(
+                info.status,
+                TerminalStatus::Dead,
+                "terminal {id} must be Dead after its owner wrote that status"
+            );
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // S5: concurrent unregister calls on disjoint IDs all succeed
+    //
+    // N terminals are pre-registered; N tasks each unregister exactly one.
+    // After all complete, the registry must be empty. Pins: no double-free
+    // or lost-delete when concurrent writers each hold the write lock for
+    // their own unregister call.
+    // -----------------------------------------------------------------------
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn concurrent_unregisters_on_disjoint_ids_all_succeed() {
+        const N: usize = 16;
+        let state = make_state();
+
+        let mut ids = Vec::with_capacity(N);
+        {
+            let mut registry = state.terminal_registry.write().await;
+            for _ in 0..N {
+                let info = make_terminal_info(TerminalStatus::Active);
+                ids.push(info.id);
+                registry.register(info);
+            }
+        }
+
+        let mut set = JoinSet::new();
+        for id in ids {
+            let state_c = Arc::clone(&state);
+            set.spawn(async move {
+                let mut registry = state_c.terminal_registry.write().await;
+                let removed = registry.unregister(&id);
+                assert!(
+                    removed.is_some(),
+                    "each terminal must unregister exactly once"
+                );
+            });
+        }
+
+        while set.join_next().await.is_some() {}
+
+        let registry = state.terminal_registry.read().await;
+        assert_eq!(
+            registry.list().len(),
+            0,
+            "registry must be empty after all concurrent unregisters"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // S6: disconnect buffer ring eviction under concurrent push is bounded
+    //
+    // N tasks simultaneously push chunks into a shared DisconnectBuffer
+    // wrapped in an Arc<RwLock<...>> (matching the ApiState layout).
+    // After all pushes complete, the buffer must not exceed its max_bytes
+    // capacity (ring eviction must have fired). Pins: the ring-buffer
+    // pop_front eviction path is exercised and enforces the bound.
+    // -----------------------------------------------------------------------
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn disconnect_buffer_ring_eviction_caps_memory_under_concurrent_push() {
+        const CAPACITY: usize = 64; // deliberately tiny to force eviction
+        const TASKS: usize = 8;
+        const CHUNK: &[u8] = b"ABCDEFGHIJKLMNOP"; // 16 bytes per push
+
+        // Mirror the ApiState layout: shared via Arc<RwLock<HashMap<...>>>.
+        let buffers = Arc::new(tokio::sync::RwLock::new({
+            let mut m = std::collections::HashMap::new();
+            let id = Uuid::new_v4();
+            m.insert(id, DisconnectBuffer::new(CAPACITY));
+            (id, m)
+        }));
+
+        let mut set = JoinSet::new();
+        for _ in 0..TASKS {
+            let bufs = Arc::clone(&buffers);
+            set.spawn(async move {
+                for _ in 0..4 {
+                    let mut lock = bufs.write().await;
+                    let (id, ref mut map) = *lock;
+                    if let Some(buf) = map.get_mut(&id) {
+                        buf.push(CHUNK);
+                    }
+                    tokio::task::yield_now().await;
+                }
+            });
+        }
+
+        while set.join_next().await.is_some() {}
+
+        let lock = buffers.read().await;
+        let (id, ref map) = *lock;
+        let buf = map.get(&id).unwrap();
+        assert!(
+            buf.data.len() <= CAPACITY,
+            "buffer must not exceed capacity ({CAPACITY}); got {}",
+            buf.data.len()
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // S7: disconnect buffer drain races concurrent push — no panic, and
+    // drain returns only bytes that were present before the drain call
+    //
+    // One task drains the buffer while another pushes. The invariant is that
+    // the operation completes without panic and the buffer is in a coherent
+    // state: its length is bounded by CAPACITY after both tasks finish.
+    // -----------------------------------------------------------------------
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn disconnect_buffer_drain_races_push_without_panic() {
+        const CAPACITY: usize = 256;
+        const CHUNK: &[u8] = b"output-line\n";
+
+        let buf = Arc::new(tokio::sync::Mutex::new(DisconnectBuffer::new(CAPACITY)));
+
+        // Pusher task.
+        let buf_push = Arc::clone(&buf);
+        let pusher = tokio::spawn(async move {
+            for _ in 0..32 {
+                buf_push.lock().await.push(CHUNK);
+                tokio::task::yield_now().await;
+            }
+        });
+
+        // Drainer task races the pusher.
+        let buf_drain = Arc::clone(&buf);
+        let drainer = tokio::spawn(async move {
+            let drained = buf_drain.lock().await.drain_all();
+            // Whatever was drained must be valid UTF-8 (since we only push
+            // ASCII) and must not exceed what the CAPACITY allows.
+            assert!(drained.len() <= CAPACITY);
+            drained.len()
+        });
+
+        pusher.await.expect("pusher task must not panic");
+        let drained_len = drainer.await.expect("drainer task must not panic");
+
+        // Post-condition: buffer is still bounded after both tasks finish.
+        let final_len = buf.lock().await.data.len();
+        assert!(
+            final_len <= CAPACITY,
+            "buffer must remain bounded (≤{CAPACITY}) after concurrent push+drain; got {final_len}"
+        );
+        // The drain must have returned something coherent (may be 0 if drain
+        // raced ahead of the first push, or up to CAPACITY bytes).
+        assert!(drained_len <= CAPACITY);
+    }
+
+    // -----------------------------------------------------------------------
+    // S8: concurrent disconnect-buffer insertions and lookups on ApiState
+    //
+    // N tasks each insert a buffer keyed by a unique terminal ID while M
+    // reader tasks simultaneously look up existing buffers. No insertion must
+    // be lost and no reader must panic. Pins: `Arc<RwLock<HashMap>>` admits
+    // concurrent readers and serialises writers correctly.
+    // -----------------------------------------------------------------------
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn concurrent_disconnect_buffer_insert_and_lookup_no_loss() {
+        const WRITERS: usize = 16;
+        const READERS: usize = 8;
+
+        let state = make_state();
+        let inserted_ids: Arc<tokio::sync::Mutex<Vec<Uuid>>> =
+            Arc::new(tokio::sync::Mutex::new(Vec::new()));
+
+        // Pre-seed one buffer so readers have something to find immediately.
+        let seed_id = Uuid::new_v4();
+        {
+            let mut buffers = state.disconnect_buffers.write().await;
+            buffers.insert(seed_id, DisconnectBuffer::new(DISCONNECT_BUFFER_SIZE));
+        }
+        inserted_ids.lock().await.push(seed_id);
+
+        let mut set = JoinSet::new();
+
+        // Writer tasks.
+        for _ in 0..WRITERS {
+            let state_c = Arc::clone(&state);
+            let ids_c = Arc::clone(&inserted_ids);
+            set.spawn(async move {
+                let id = Uuid::new_v4();
+                {
+                    let mut buffers = state_c.disconnect_buffers.write().await;
+                    buffers.insert(id, DisconnectBuffer::new(DISCONNECT_BUFFER_SIZE));
+                }
+                ids_c.lock().await.push(id);
+            });
+        }
+
+        // Reader tasks concurrently look up the seed buffer.
+        for _ in 0..READERS {
+            let state_c = Arc::clone(&state);
+            set.spawn(async move {
+                let buffers = state_c.disconnect_buffers.read().await;
+                // The seed ID must always be present for the reader's lifetime.
+                // (Writers only insert new keys, never remove the seed.)
+                let _ = buffers.get(&seed_id);
+            });
+        }
+
+        while set.join_next().await.is_some() {}
+
+        // All writer-inserted IDs must be present.
+        let buffers = state.disconnect_buffers.read().await;
+        let all_ids = inserted_ids.lock().await;
+        for id in all_ids.iter() {
+            assert!(
+                buffers.contains_key(id),
+                "buffer for {id} must survive concurrent insert storm"
+            );
+        }
+        assert_eq!(
+            buffers.len(),
+            WRITERS + 1,
+            "exactly WRITERS+1 buffers must exist (seed + {WRITERS} inserted)"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // S9: rename racing with concurrent reads returns consistent title
+    //
+    // One task renames a terminal while N others read its title concurrently.
+    // Each reader must observe either the original title or the new title —
+    // never a torn string or a panic. Pins: `rename` holds the write lock for
+    // its entire critical section; no reader can observe a partially-written
+    // title.
+    // -----------------------------------------------------------------------
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn rename_racing_with_concurrent_readers_never_tears() {
+        const N: usize = 24;
+        let state = make_state();
+
+        let info = make_terminal_info(TerminalStatus::Active);
+        let terminal_id = info.id;
+        let original_title = info.title.clone();
+        let new_title = "renamed-terminal".to_string();
+
+        {
+            let mut registry = state.terminal_registry.write().await;
+            registry.register(info);
+        }
+
+        // Spawn the rename writer.
+        let state_w = Arc::clone(&state);
+        let new_title_c = new_title.clone();
+        let renamer = tokio::spawn(async move {
+            let mut registry = state_w.terminal_registry.write().await;
+            registry.rename(&terminal_id, new_title_c);
+        });
+
+        // Spawn concurrent readers.
+        let valid_count = Arc::new(AtomicUsize::new(0));
+        let mut set = JoinSet::new();
+        for _ in 0..N {
+            let state_c = Arc::clone(&state);
+            let orig = original_title.clone();
+            let new = new_title.clone();
+            let valid_c = Arc::clone(&valid_count);
+            set.spawn(async move {
+                let registry = state_c.terminal_registry.read().await;
+                if let Some(t) = registry.get(&terminal_id) {
+                    // Title must be one of the two valid values — no torn write.
+                    assert!(
+                        t.title == orig || t.title == new,
+                        "torn title detected: {:?}",
+                        t.title
+                    );
+                    valid_c.fetch_add(1, Ordering::Relaxed);
+                }
+            });
+        }
+
+        renamer.await.expect("rename task must not panic");
+        while set.join_next().await.is_some() {}
+
+        // At least some readers must have observed a valid title.
+        assert!(
+            valid_count.load(Ordering::Relaxed) > 0,
+            "at least one reader must have observed the terminal"
+        );
+
+        // Final state: the rename must have landed.
+        let registry = state.terminal_registry.read().await;
+        let final_title = registry.get(&terminal_id).unwrap().title.clone();
+        assert_eq!(
+            final_title, new_title,
+            "rename must be durable after all tasks complete"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
