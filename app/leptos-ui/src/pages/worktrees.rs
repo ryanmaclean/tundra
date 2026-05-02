@@ -193,14 +193,13 @@ pub fn WorktreesPage() -> impl IntoView {
     let delete_worktree = move |id: String| {
         spawn_local(async move {
             match api::delete_worktree(&id).await {
-                Ok(_) => match api::fetch_worktrees().await {
-                    Ok(data) => {
+                Ok(_) => {
+                    if let Ok(data) = api::fetch_worktrees().await {
                         let display: Vec<WorktreeDisplay> =
                             data.into_iter().map(WorktreeDisplay::from_api).collect();
                         set_worktrees.set(display);
                     }
-                    Err(_) => {}
-                },
+                }
                 Err(e) => {
                     web_sys::console::error_1(&format!("Failed to delete worktree: {e}").into());
                 }
@@ -280,7 +279,7 @@ pub fn WorktreesPage() -> impl IntoView {
                 let id_merge = id.clone();
                 let id_done = id.clone();
                 let id_checkbox = id.clone();
-                let delete_done = delete_worktree.clone();
+                let delete_done = delete_worktree;
                 let status_class = match wt.inner.status.as_str() {
                     "active" => "glyph-active",
                     "stale" => "glyph-stopped",
@@ -394,7 +393,7 @@ pub fn WorktreesPage() -> impl IntoView {
                             <button class="wt-btn wt-btn-done" on:click=move |_| {
                                 let done_id = id_done.clone();
                                 set_status_msg.set(Some(format!("Marking worktree {} as done and cleaning up...", done_id)));
-                                let delete_fn = delete_done.clone();
+                                let delete_fn = delete_done;
                                 delete_fn(done_id);
                             }>"Done"</button>
                         </div>

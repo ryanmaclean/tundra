@@ -66,8 +66,6 @@ pub fn GithubPrsPage() -> impl IntoView {
 
     // Fetch PRs from API on mount
     {
-        let set_prs = set_prs.clone();
-        let set_pr_message = set_pr_message;
         leptos::task::spawn_local(async move {
             match crate::api::fetch_github_prs().await {
                 Ok(api_prs) => {
@@ -133,8 +131,6 @@ pub fn GithubPrsPage() -> impl IntoView {
             <div class="page-header-right">
                 <button class="btn btn-sm btn-outline" on:click=move |_| {
                     // Refresh
-                    let set_prs = set_prs.clone();
-                    let set_pr_message = set_pr_message;
                     set_pr_message.set(None);
                     leptos::task::spawn_local(async move {
                         match crate::api::fetch_github_prs().await {
@@ -356,7 +352,6 @@ pub fn GithubPrsPage() -> impl IntoView {
                                 };
                                 let state = mr.state.clone();
                                 let created = mr.created_at.clone();
-                                let set_pr_message = set_pr_message;
                                 view! {
                                     <div class="pr-list-item">
                                         <div class="pr-list-item-main">

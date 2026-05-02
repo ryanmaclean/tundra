@@ -27,6 +27,24 @@ use super::types::{
 use at_integrations::types::GitHubRelease;
 
 // ---------------------------------------------------------------------------
+// Type aliases
+// ---------------------------------------------------------------------------
+
+/// The payload broadcast by the single-flight gate when a GitHub token
+/// refresh completes: `Ok(json_body)` on success, `Err(message)` on failure.
+/// Outcome of a single OAuth refresh attempt that the leader broadcasts to
+/// followers via the gate's `watch` channel.  `None` = still in-flight.
+/// `Ok(body)` = success, response body that the leader will return.
+/// `Err((status, msg))` = failure, with the `StatusCode` that the leader will
+/// return so followers report the same status (not always 400).
+pub type RefreshOutcome = Result<serde_json::Value, (axum::http::StatusCode, String)>;
+
+/// Shared gate that serialises concurrent GitHub OAuth token refreshes into a
+/// single outbound HTTP request.  `None` = no refresh in-flight.
+pub type GitHubRefreshGate =
+    Arc<tokio::sync::Mutex<Option<tokio::sync::watch::Sender<Option<RefreshOutcome>>>>>;
+
+// ---------------------------------------------------------------------------
 // Default configuration functions
 // ---------------------------------------------------------------------------
 
@@ -127,6 +145,18 @@ pub struct ApiState {
     /// Pending OAuth state parameters for CSRF protection.
     pub oauth_pending_states: Arc<RwLock<std::collections::HashMap<String, String>>>,
     pub oauth_token_manager: Arc<RwLock<OAuthTokenManager>>,
+    /// Single-flight gate for GitHub OAuth token refresh.
+    ///
+    /// Holds a `watch::Sender` while a refresh is in-flight so that N
+    /// concurrent callers share a single outbound HTTP request:
+    /// - First caller finds `None`, installs the sender, does the HTTP call.
+    /// - Subsequent callers find `Some(tx)`, subscribe to its receiver, and
+    ///   wait for the in-flight result without issuing their own requests.
+    /// - `None` in the watch channel = still in-flight; `Some(...)` = done.
+    pub github_refresh_gate: GitHubRefreshGate,
+    /// Override for the GitHub token endpoint URL (default: GitHub production).
+    /// Setting this is only useful in tests; production code leaves it `None`.
+    pub github_token_url_override: Option<String>,
     // ---- Projects --------------------------------------------------------
     pub projects: Arc<RwLock<Vec<Project>>>,
     // ---- PR polling -------------------------------------------------------
@@ -202,6 +232,8 @@ impl ApiState {
             github_oauth_user: Arc::new(RwLock::new(None)),
             oauth_pending_states: Arc::new(RwLock::new(std::collections::HashMap::new())),
             oauth_token_manager: Arc::new(RwLock::new(OAuthTokenManager::new())),
+            github_refresh_gate: Arc::new(tokio::sync::Mutex::new(None)) as GitHubRefreshGate,
+            github_token_url_override: None,
             pr_poll_registry: Arc::new(RwLock::new(std::collections::HashMap::new())),
             releases: Arc::new(RwLock::new(Vec::new())),
             archived_tasks: Arc::new(RwLock::new(Vec::new())),
@@ -248,6 +280,15 @@ impl ApiState {
             )),
             retention_config: Arc::new(RwLock::new(RetentionConfig::default())),
         }
+    }
+
+    /// Override the GitHub token endpoint URL.
+    ///
+    /// Used in integration tests to redirect refresh calls to a local mock
+    /// server.  Has no effect on production deployments where this is `None`.
+    pub fn with_github_token_url(mut self, url: impl Into<String>) -> Self {
+        self.github_token_url_override = Some(url.into());
+        self
     }
 
     /// Return a copy with relaxed rate limits suitable for integration tests.

@@ -14,7 +14,7 @@ use at_integrations::github::{
 };
 use at_integrations::types::{GitHubConfig, GitHubRelease, IssueState, PrState};
 
-use super::state::ApiState;
+use super::state::{ApiState, RefreshOutcome};
 use super::types::PrPollStatus;
 
 // ---------------------------------------------------------------------------
@@ -714,9 +714,147 @@ pub(crate) async fn github_oauth_revoke(State(state): State<Arc<ApiState>>) -> i
     }))
 }
 
+/// Atomic check-and-install result for the refresh gate.
+///
+/// Returned from a single critical section that holds the gate mutex, so
+/// only one caller can ever observe `None` and become the leader; every
+/// other concurrent caller becomes a follower and waits for the leader's
+/// result via the `watch` receiver.
+enum RefreshFlight {
+    Leader(tokio::sync::watch::Sender<Option<RefreshOutcome>>),
+    Follower(tokio::sync::watch::Receiver<Option<RefreshOutcome>>),
+}
+
+/// RAII guard around the leader's `watch::Sender`.
+///
+/// Guarantees that the gate is cleared and followers are unblocked even if
+/// the leader's future is dropped (client disconnect, panic) before
+/// `finish()` is called.  Without this guard, a cancelled leader could
+/// leave the gate set forever and every subsequent expired-token caller
+/// would deadlock waiting for a result that never arrives.
+struct LeaderGuard {
+    state: Arc<ApiState>,
+    tx: Option<tokio::sync::watch::Sender<Option<RefreshOutcome>>>,
+    completed: bool,
+}
+
+impl LeaderGuard {
+    /// Broadcast the leader's outcome to followers and clear the gate
+    /// **deterministically** (awaited inline, not via a spawned task) so
+    /// the next caller always sees a fresh `None` immediately after the
+    /// leader's response is sent.  Returns the response tuple to send.
+    async fn finish(
+        mut self,
+        outcome: RefreshOutcome,
+    ) -> (axum::http::StatusCode, Json<serde_json::Value>) {
+        // Mark completed BEFORE any await so the Drop impl is a no-op.
+        self.completed = true;
+
+        // Pre-build the response (ownership of outcome moves into the broadcast).
+        let response = match &outcome {
+            Ok(body) => (axum::http::StatusCode::OK, Json(body.clone())),
+            Err((code, msg)) => (*code, Json(serde_json::json!({ "error": msg }))),
+        };
+
+        // Broadcast outcome to followers.  If all receivers were dropped,
+        // tx.send returns an Err which we ignore — that just means no
+        // follower was waiting.
+        if let Some(tx) = self.tx.take() {
+            let _ = tx.send(Some(outcome));
+        }
+
+        // Clear the gate before returning so the next non-concurrent caller
+        // observes `None` and starts a new refresh.
+        *self.state.github_refresh_gate.lock().await = None;
+
+        response
+    }
+}
+
+impl Drop for LeaderGuard {
+    fn drop(&mut self) {
+        if self.completed {
+            return;
+        }
+
+        // Cancellation path: the leader's future was dropped before
+        // finish() was called (client disconnect, panic, etc.).
+        // Broadcast a cancellation error so followers don't wait forever,
+        // then clear the gate via a spawned task (we can't await in Drop).
+        if let Some(tx) = self.tx.take() {
+            let _ = tx.send(Some(Err((
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "Token refresh cancelled before completion".to_string(),
+            ))));
+        }
+        let gate = self.state.github_refresh_gate.clone();
+        tokio::spawn(async move {
+            *gate.lock().await = None;
+        });
+    }
+}
+
 /// POST /api/github/oauth/refresh -- manually refresh the OAuth token using refresh token.
+///
+/// Single-flight deduplication: N concurrent callers sharing an expired token
+/// result in exactly **one** outbound HTTP refresh request.  Atomic
+/// check-and-install (single critical section under the gate mutex) ensures
+/// that exactly one caller becomes the leader; the rest become followers
+/// that wait for the leader's broadcast outcome.
 pub(crate) async fn github_oauth_refresh(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
-    // Get refresh token from token manager
+    // -------------------------------------------------------------------
+    // Atomic leader/follower decision under a single critical section.
+    // No second lock-and-install step, so there is no TOCTOU window where
+    // two callers can both observe `None` and both install their own tx.
+    // -------------------------------------------------------------------
+    let flight = {
+        let mut gate = state.github_refresh_gate.lock().await;
+        if let Some(existing_tx) = gate.as_ref() {
+            RefreshFlight::Follower(existing_tx.subscribe())
+        } else {
+            let (tx, _rx) = tokio::sync::watch::channel::<Option<RefreshOutcome>>(None);
+            *gate = Some(tx.clone());
+            RefreshFlight::Leader(tx)
+        }
+    };
+
+    let tx = match flight {
+        RefreshFlight::Follower(mut rx) => {
+            // Wait for leader's broadcast.  borrow() first handles the
+            // race where the leader finished between subscribe and here.
+            loop {
+                let current = rx.borrow().clone();
+                if let Some(outcome) = current {
+                    return match outcome {
+                        Ok(body) => (axum::http::StatusCode::OK, Json(body)),
+                        Err((code, msg)) => (code, Json(serde_json::json!({ "error": msg }))),
+                    };
+                }
+                if rx.changed().await.is_err() {
+                    return (
+                        axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(serde_json::json!({
+                            "error": "Token refresh cancelled unexpectedly"
+                        })),
+                    );
+                }
+            }
+        }
+        RefreshFlight::Leader(tx) => tx,
+    };
+
+    // Install the drop guard so cancellation/panic clears the gate.
+    let guard = LeaderGuard {
+        state: state.clone(),
+        tx: Some(tx),
+        completed: false,
+    };
+
+    // -------------------------------------------------------------------
+    // Pre-flight validation. Each error path uses guard.finish() so the
+    // gate is cleared deterministically and followers see the leader's
+    // status code (not always 400).
+    // -------------------------------------------------------------------
     let refresh_token = match state
         .oauth_token_manager
         .read()
@@ -726,36 +864,35 @@ pub(crate) async fn github_oauth_refresh(State(state): State<Arc<ApiState>>) -> 
     {
         Ok(token) => token,
         Err(_) => {
-            return (
-                axum::http::StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({
-                    "error": "No refresh token available. Please re-authenticate."
-                })),
-            );
+            return guard
+                .finish(Err((
+                    axum::http::StatusCode::BAD_REQUEST,
+                    "No refresh token available. Please re-authenticate.".to_string(),
+                )))
+                .await;
         }
     };
 
-    // Get OAuth client configuration
     let client_id = match std::env::var("GITHUB_OAUTH_CLIENT_ID") {
         Ok(v) if !v.is_empty() => v,
         _ => {
-            return (
-                axum::http::StatusCode::SERVICE_UNAVAILABLE,
-                Json(serde_json::json!({
-                    "error": "GITHUB_OAUTH_CLIENT_ID not set"
-                })),
-            );
+            return guard
+                .finish(Err((
+                    axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                    "GITHUB_OAUTH_CLIENT_ID not set".to_string(),
+                )))
+                .await;
         }
     };
     let client_secret = match std::env::var("GITHUB_OAUTH_CLIENT_SECRET") {
         Ok(v) if !v.is_empty() => v,
         _ => {
-            return (
-                axum::http::StatusCode::SERVICE_UNAVAILABLE,
-                Json(serde_json::json!({
-                    "error": "GITHUB_OAUTH_CLIENT_SECRET not set"
-                })),
-            );
+            return guard
+                .finish(Err((
+                    axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                    "GITHUB_OAUTH_CLIENT_SECRET not set".to_string(),
+                )))
+                .await;
         }
     };
     let redirect_uri = std::env::var("GITHUB_OAUTH_REDIRECT_URI")
@@ -774,22 +911,28 @@ pub(crate) async fn github_oauth_refresh(State(state): State<Arc<ApiState>>) -> 
         scopes,
     };
 
-    let oauth_client = gh_oauth::GitHubOAuthClient::new(oauth_config);
+    // Allow test code to redirect the token endpoint to a mock server.
+    let oauth_client = match &state.github_token_url_override {
+        Some(url) => gh_oauth::GitHubOAuthClient::new_with_token_url(oauth_config, url.clone()),
+        None => gh_oauth::GitHubOAuthClient::new(oauth_config),
+    };
 
-    // Refresh the token
+    // -------------------------------------------------------------------
+    // The single outbound HTTP refresh call.
+    // -------------------------------------------------------------------
     let token_resp = match oauth_client.refresh_token(&refresh_token).await {
         Ok(t) => t,
         Err(e) => {
-            return (
-                axum::http::StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({
-                    "error": format!("Failed to refresh token: {}", e)
-                })),
-            );
+            return guard
+                .finish(Err((
+                    axum::http::StatusCode::BAD_REQUEST,
+                    format!("Failed to refresh token: {}", e),
+                )))
+                .await;
         }
     };
 
-    // Store new token with OAuthTokenManager
+    // Store new token with OAuthTokenManager.
     state
         .oauth_token_manager
         .write()
@@ -801,16 +944,15 @@ pub(crate) async fn github_oauth_refresh(State(state): State<Arc<ApiState>>) -> 
         )
         .await;
 
-    // Update legacy plaintext storage for backward compatibility
+    // Update legacy plaintext storage for backward compatibility.
     *state.github_oauth_token.write().await = Some(token_resp.access_token.clone());
 
-    (
-        axum::http::StatusCode::OK,
-        Json(serde_json::json!({
-            "refreshed": true,
-            "expires_in": token_resp.expires_in,
-        })),
-    )
+    let body = serde_json::json!({
+        "refreshed": true,
+        "expires_in": token_resp.expires_in,
+    });
+
+    guard.finish(Ok(body)).await
 }
 
 // ---------------------------------------------------------------------------

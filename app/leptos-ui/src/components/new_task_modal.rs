@@ -122,7 +122,7 @@ pub fn NewTaskModal(
     let step_labels = ["Basic Info", "Classification", "Context", "Review"];
 
     view! {
-        <div class="new-task-overlay" on:click=move |ev| on_close_bg(ev)>
+        <div class="new-task-overlay" on:click=on_close_bg>
         </div>
         <div class="new-task-modal wizard-modal" on:keydown=handle_keydown>
             <h2>"Create New Task"</h2>
@@ -334,7 +334,7 @@ pub fn NewTaskModal(
 
             // Navigation buttons
             <div class="modal-actions wizard-nav">
-                <button class="btn-cancel" on:click=move |ev| on_close_cancel(ev)>
+                <button class="btn-cancel" on:click=on_close_cancel>
                     "Cancel"
                 </button>
                 <div class="wizard-nav-right">

@@ -233,7 +233,7 @@ fn mock_diff_for_file(path: &str, change_type: &str) -> Vec<(String, &'static st
             ("+}".to_string(), "diff-add"),
         ],
         "modified" => {
-            let mod_name = path.split('/').last().unwrap_or("file");
+            let mod_name = path.split('/').next_back().unwrap_or("file");
             vec![
                 (
                     format!("@@ -10,6 +10,12 @@ // {}", mod_name),
@@ -367,7 +367,7 @@ fn TaskDetailInner(
 ) -> impl IntoView {
     let title = bead.title.clone();
     let description = bead.description.clone();
-    let status = bead.status.clone();
+    let status = bead.status;
     let status_display = format!("{}", bead.status);
     let s_cls = status_badge_class(&bead.status);
     let cat = category_label(&bead.tags);
@@ -544,7 +544,7 @@ fn TaskDetailInner(
     let wt_branch = branch.clone();
     let wt_path = format!(
         "/home/dev/auto-tundra-wt/{}",
-        branch.split('/').last().unwrap_or("work")
+        branch.split('/').next_back().unwrap_or("work")
     );
 
     // Pre-clone fields used across multiple move closures in tab content
@@ -570,7 +570,7 @@ fn TaskDetailInner(
                                     <button class="td-icon-btn" on:click=move |_| set_show_edit.set(true) title="Edit task">
                                         <span class="td-icon">"✎"</span>
                                     </button>
-                                    <button class="td-icon-btn td-close-btn" on:click=move |ev| close_x(ev) title="Close">
+                                    <button class="td-icon-btn td-close-btn" on:click=close_x title="Close">
                                         <span class="td-icon">"×"</span>
                                     </button>
                                 </div>
@@ -594,7 +594,7 @@ fn TaskDetailInner(
                                 <strong>"Task Appears Stuck"</strong>
                                 <p>"This task is marked as running but no active process was found."</p>
                             </div>
-                            <button class="btn btn-warning" on:click=move |ev| resume_stuck(ev)>
+                            <button class="btn btn-warning" on:click=resume_stuck>
                                 "Resume & Restart"
                             </button>
                         </div>
@@ -610,7 +610,7 @@ fn TaskDetailInner(
                                 <strong>"Merge Conflict Detected"</strong>
                                 <p>"Resolve conflicts in the worktree before continuing."</p>
                             </div>
-                            <button class="btn btn-sm btn-outline" on:click=move |ev| resume_conflict(ev)>"Resolve"</button>
+                            <button class="btn btn-sm btn-outline" on:click=resume_conflict>"Resolve"</button>
                         </div>
                     }
                 })}
@@ -624,7 +624,7 @@ fn TaskDetailInner(
                                 <strong>"Rate Limit Hit"</strong>
                                 <p>"Will auto-resume when the limit resets."</p>
                             </div>
-                            <button class="btn btn-sm btn-outline" on:click=move |ev| resume_rate(ev)>"Retry Now"</button>
+                            <button class="btn btn-sm btn-outline" on:click=resume_rate>"Retry Now"</button>
                         </div>
                     }
                 })}
@@ -773,9 +773,9 @@ fn TaskDetailInner(
                                                 }}
                                             </div>
                                             <div class="td-qa-checks-row">
-                                                {checks.iter().cloned().map(|(name, passed, _msg)| {
-                                                    let icon = if passed { "✓" } else { "✗" };
-                                                    let cls = if passed { "td-qa-check td-qa-check-pass" } else { "td-qa-check td-qa-check-fail" };
+                                                {checks.iter().map(|(name, passed, _msg)| {
+                                                    let icon = if *passed { "✓" } else { "✗" };
+                                                    let cls = if *passed { "td-qa-check td-qa-check-pass" } else { "td-qa-check td-qa-check-fail" };
                                                     view! {
                                                         <span class={cls}>{format!("{} {}", icon, name)}</span>
                                                     }
@@ -930,7 +930,7 @@ fn TaskDetailInner(
                                     <span>"QA Report"</span>
                                     <button
                                         class="btn btn-sm btn-outline"
-                                        on:click=move |ev| rerun(ev)
+                                        on:click=rerun
                                         disabled=move || qa_running.get()
                                     >
                                         {move || if qa_running.get() { "Running..." } else { "Re-run QA" }}
@@ -1110,7 +1110,7 @@ fn TaskDetailInner(
                     <div class="td-footer-left">
                         {show_delete.then(|| {
                             view! {
-                                <button class="td-footer-delete" on:click=move |ev| delete_action(ev)>
+                                <button class="td-footer-delete" on:click=delete_action>
                                     "Delete Task"
                                 </button>
                             }
@@ -1123,13 +1123,13 @@ fn TaskDetailInner(
                         </button>
                     </div>
                     <div class="td-footer-right">
-                        <button class="td-footer-close" on:click=move |ev| close_bottom(ev)>
+                        <button class="td-footer-close" on:click=close_bottom>
                             "Close"
                         </button>
                         {show_resume.then(|| {
                             let resume_footer = resume_action.clone();
                             view! {
-                                <button class="td-footer-resume" on:click=move |ev| resume_footer(ev)>
+                                <button class="td-footer-resume" on:click=resume_footer>
                                     "Resume Task"
                                 </button>
                             }
@@ -1266,7 +1266,7 @@ fn TaskDetailInner(
                     >"Cancel"</button>
                     <button
                         class="btn btn-sm btn-danger"
-                        on:click=move |ev| discard(ev)
+                        on:click=discard
                         disabled=move || discarding.get()
                     >
                         {move || if discarding.get() { "Discarding..." } else { "Confirm Discard" }}
@@ -1309,7 +1309,7 @@ pub fn TaskDetail(
     };
 
     view! {
-        <div class="task-detail-overlay" on:click=move |ev| close_bg(ev)></div>
+        <div class="task-detail-overlay" on:click=close_bg></div>
         <div class="task-detail-modal" on:keydown=handle_keydown>
             {match initial_bead {
                 None => view! {

@@ -314,9 +314,6 @@ pub fn BeadsPage() -> impl IntoView {
 
     // Fetch beads from API on mount
     {
-        let set_beads = set_beads.clone();
-        let set_error_msg = set_error_msg.clone();
-        let set_loading = set_loading.clone();
         leptos::task::spawn_local(async move {
             match crate::api::fetch_beads().await {
                 Ok(api_beads) => {
@@ -396,7 +393,6 @@ pub fn BeadsPage() -> impl IntoView {
         // Persist to API
         let api_status = api_status_from_lane(&target_lane).to_string();
         let id = bead_id.clone();
-        let set_error_msg = set_error_msg.clone();
         leptos::task::spawn_local(async move {
             if let Err(e) = crate::api::update_bead_status(&id, &api_status).await {
                 // Rollback optimistic update
@@ -412,36 +408,27 @@ pub fn BeadsPage() -> impl IntoView {
     let (auto_refresh_secs, set_auto_refresh_secs) = signal(0u32); // 0 = off
 
     // Refresh handler
-    let do_refresh = {
-        let set_beads = set_beads.clone();
-        let set_error_msg = set_error_msg.clone();
-        let set_loading = set_loading.clone();
-        move || {
-            set_loading.set(true);
-            set_error_msg.set(None);
-            let set_beads = set_beads.clone();
-            let set_error_msg = set_error_msg.clone();
-            let set_loading = set_loading.clone();
-            leptos::task::spawn_local(async move {
-                match crate::api::fetch_beads().await {
-                    Ok(api_beads) => {
-                        let ui_beads: Vec<BeadResponse> =
-                            api_beads.iter().map(api_bead_to_bead_response).collect();
-                        set_beads.set(ui_beads);
-                        set_error_msg.set(None);
-                    }
-                    Err(e) => {
-                        set_error_msg.set(Some(format!("Failed to refresh beads: {}", e)));
-                    }
+    let do_refresh = move || {
+        set_loading.set(true);
+        set_error_msg.set(None);
+        leptos::task::spawn_local(async move {
+            match crate::api::fetch_beads().await {
+                Ok(api_beads) => {
+                    let ui_beads: Vec<BeadResponse> =
+                        api_beads.iter().map(api_bead_to_bead_response).collect();
+                    set_beads.set(ui_beads);
+                    set_error_msg.set(None);
                 }
-                set_loading.set(false);
-            });
-        }
+                Err(e) => {
+                    set_error_msg.set(Some(format!("Failed to refresh beads: {}", e)));
+                }
+            }
+            set_loading.set(false);
+        });
     };
 
     // Auto-refresh interval timer
     {
-        let do_refresh_interval = do_refresh.clone();
         Effect::new(move |prev_handle: Option<Option<i32>>| {
             // Clear any previous interval
             if let Some(Some(handle)) = prev_handle {
@@ -453,9 +440,8 @@ pub fn BeadsPage() -> impl IntoView {
             if secs == 0 {
                 return None;
             }
-            let refresh = do_refresh_interval.clone();
             let cb = wasm_bindgen::closure::Closure::wrap(Box::new(move || {
-                refresh();
+                do_refresh();
             }) as Box<dyn FnMut()>);
             let handle = web_sys::window().and_then(|w| {
                 w.set_interval_with_callback_and_timeout_and_arguments_0(
@@ -469,13 +455,11 @@ pub fn BeadsPage() -> impl IntoView {
         });
     }
 
-    let do_refresh_click = do_refresh.clone();
-
     view! {
         <div class="page-header">
             <h2>{t("kanban-title")}</h2>
             <div class="page-header-actions">
-                <button class="refresh-btn" on:click=move |_| do_refresh_click()>
+                <button class="refresh-btn" on:click=move |_| do_refresh()>
                     "\u{21BB} Refresh"
                 </button>
                 <select
@@ -556,11 +540,11 @@ pub fn BeadsPage() -> impl IntoView {
         </div>
 
         <div class="kanban">
-            {lanes.into_iter().map(|(lane, label, dot_class)| {
+            {lanes.into_iter().map(|(lane, label, _dot_class)| {
                 let lane_for_render = lane.clone();
                 let lane_for_drop = lane.clone();
                 let lane_for_over = lane.clone();
-                let move_bead_drop = move_bead.clone();
+                let move_bead_drop = move_bead;
                 let col_idx = lane_index(&lane);
 
                 let is_collapsed = move || {
@@ -630,7 +614,7 @@ pub fn BeadsPage() -> impl IntoView {
                 };
 
                 let lane_for_add = lane.clone();
-                let on_add_task_click = on_add_task.clone();
+                let on_add_task_click = on_add_task;
 
                 view! {
                     <div
@@ -662,7 +646,7 @@ pub fn BeadsPage() -> impl IntoView {
                             if is_collapsed() {
                                 return Vec::<AnyView>::new();
                             }
-                            let move_bead_action = move_bead.clone();
+                            let move_bead_action = move_bead;
                             let cat_filter = filter_category.get();
                             let pri_filter = filter_priority.get();
                             let search_filter = filter_search.get().to_lowercase();
@@ -813,7 +797,7 @@ pub fn BeadsPage() -> impl IntoView {
                                         let action_str = action.clone();
                                         let bead_id_action = bead_id.clone();
                                         let bead_lane = bead.lane.clone();
-                                        let move_bead_click = move_bead_action.clone();
+                                        let move_bead_click = move_bead_action;
                                         let btn_class = match action.as_str() {
                                             "start" => "action-btn action-start",
                                             "recover" => "action-btn action-recover",
@@ -844,7 +828,7 @@ pub fn BeadsPage() -> impl IntoView {
                                     // Forward button (move to next column)
                                     let bead_id_fwd = bead_id.clone();
                                     let bead_lane_fwd = bead.lane.clone();
-                                    let move_bead_fwd = move_bead_action.clone();
+                                    let move_bead_fwd = move_bead_action;
                                     let show_forward = bead.lane != Lane::PrCreated;
                                     let forward_view = show_forward.then(|| {
                                         view! {
@@ -867,7 +851,7 @@ pub fn BeadsPage() -> impl IntoView {
                                     let on_dragstart = move |ev: DragEvent| {
                                         if let Some(dt) = ev.data_transfer() {
                                             let _ = dt.set_data("text/plain", &bead_id_drag);
-                                            let _ = dt.set_drop_effect("move");
+                                            dt.set_drop_effect("move");
                                         }
                                         set_dragging.set(Some(bead_id_drag.clone()));
                                     };
