@@ -13,6 +13,8 @@ use unic_langid::LanguageIdentifier;
 const EN_FTL: &str = include_str!("locales/en.ftl");
 #[cfg(feature = "i18n")]
 const FR_FTL: &str = include_str!("locales/fr.ftl");
+#[cfg(feature = "i18n")]
+const JA_FTL: &str = include_str!("locales/ja.ftl");
 
 /// Supported locales
 #[cfg(feature = "i18n")]
@@ -20,6 +22,7 @@ const FR_FTL: &str = include_str!("locales/fr.ftl");
 pub enum Locale {
     En,
     Fr,
+    Ja,
 }
 
 #[cfg(feature = "i18n")]
@@ -28,6 +31,7 @@ impl Locale {
         match self {
             Locale::En => "en".parse().unwrap(),
             Locale::Fr => "fr".parse().unwrap(),
+            Locale::Ja => "ja".parse().unwrap(),
         }
     }
 
@@ -35,17 +39,19 @@ impl Locale {
         match self {
             Locale::En => "English",
             Locale::Fr => "Français",
+            Locale::Ja => "日本語",
         }
     }
 
     pub fn all() -> &'static [Locale] {
-        &[Locale::En, Locale::Fr]
+        &[Locale::En, Locale::Fr, Locale::Ja]
     }
 
     fn ftl_source(&self) -> &'static str {
         match self {
             Locale::En => EN_FTL,
             Locale::Fr => FR_FTL,
+            Locale::Ja => JA_FTL,
         }
     }
 }
@@ -179,6 +185,7 @@ pub fn t_args(key: &str, args: &FluentArgs) -> String {
 pub enum Locale {
     En,
     Fr,
+    Ja,
 }
 
 #[cfg(not(feature = "i18n"))]
@@ -187,11 +194,12 @@ impl Locale {
         match self {
             Locale::En => "English",
             Locale::Fr => "Français",
+            Locale::Ja => "日本語",
         }
     }
 
     pub fn all() -> &'static [Locale] {
-        &[Locale::En, Locale::Fr]
+        &[Locale::En, Locale::Fr, Locale::Ja]
     }
 }
 
