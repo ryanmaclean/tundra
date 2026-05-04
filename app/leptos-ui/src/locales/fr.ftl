@@ -36,11 +36,11 @@ btn-add = Ajouter
 btn-remove = Retirer
 btn-upload = Téléverser
 btn-download = Télécharger
-status-loading = Chargement...
+status-loading = Chargement…
 status-error = Une erreur est survenue
 status-success = Succès
 status-empty = Aucun élément trouvé
-status-saving = Enregistrement...
+status-saving = Enregistrement…
 status-saved = Enregistré
 
 # Dashboard
@@ -48,7 +48,7 @@ dashboard-title = Tableau de bord
 dashboard-agents = Agents actifs
 dashboard-tasks = Tâches
 dashboard-beads = Perles
-dashboard-kpi = Indicateurs de performance
+dashboard-kpi = Indicateurs clés de performance
 dashboard-recent-tasks = Tâches récentes
 dashboard-active-agents = Agents actifs
 dashboard-status = État du système
@@ -136,7 +136,7 @@ context-project-index = Index du projet
 context-memory-browser = Navigateur de mémoire
 context-file-explorer = Explorateur de fichiers
 context-search = Rechercher dans le contexte
-context-add-memory = Ajouter un souvenir
+context-add-memory = Ajouter une entrée de mémoire
 
 # GitHub
 github-issues-title = Issues GitHub
@@ -224,8 +224,8 @@ onboarding-skip = Passer
 # Notifications
 notifications-title = Notifications
 notifications-empty = Aucune notification
-notifications-mark-read = Marquer comme lu
-notifications-mark-all-read = Tout marquer comme lu
+notifications-mark-read = Marquer comme lue
+notifications-mark-all-read = Tout marquer comme lues
 notifications-profile-swap = Changement de profil
 notifications-app-update = Mise à jour disponible
 
