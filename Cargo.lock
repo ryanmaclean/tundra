@@ -419,7 +419,7 @@ dependencies = [
  "futures-util",
  "libc",
  "mimalloc",
- "opentelemetry",
+ "opentelemetry 0.31.0",
  "opentelemetry-datadog",
  "opentelemetry_sdk",
  "reqwest 0.12.28",
@@ -1840,7 +1840,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc6395a22ce631960dc12755ed05da56a8f63d4697a3083c5fde467f3d7e54d3"
 dependencies = [
  "chrono",
- "opentelemetry",
+ "opentelemetry 0.21.0",
  "opentelemetry-datadog",
  "opentelemetry-http",
  "opentelemetry_sdk",
@@ -5317,6 +5317,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "opentelemetry"
+version = "0.31.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b84bcd6ae87133e903af7ef497404dda70c60d0ea14895fc8a5e6722754fc2a0"
+dependencies = [
+ "futures-core",
+ "futures-sink",
+ "js-sys",
+ "pin-project-lite",
+ "thiserror 2.0.18",
+ "tracing",
+]
+
+[[package]]
 name = "opentelemetry-datadog"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5327,7 +5341,7 @@ dependencies = [
  "indexmap 2.13.0",
  "itertools 0.11.0",
  "once_cell",
- "opentelemetry",
+ "opentelemetry 0.21.0",
  "opentelemetry-http",
  "opentelemetry-semantic-conventions",
  "opentelemetry_sdk",
@@ -5346,7 +5360,7 @@ dependencies = [
  "async-trait",
  "bytes",
  "http 0.2.12",
- "opentelemetry",
+ "opentelemetry 0.21.0",
  "reqwest 0.11.27",
 ]
 
@@ -5356,7 +5370,7 @@ version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f5774f1ef1f982ef2a447f6ee04ec383981a3ab99c8e77a1a7b30182e65bbc84"
 dependencies = [
- "opentelemetry",
+ "opentelemetry 0.21.0",
 ]
 
 [[package]]
@@ -5372,7 +5386,7 @@ dependencies = [
  "futures-util",
  "glob",
  "once_cell",
- "opentelemetry",
+ "opentelemetry 0.21.0",
  "ordered-float",
  "percent-encoding",
  "rand 0.8.5",
@@ -8758,7 +8772,7 @@ checksum = "c67ac25c5407e7b961fafc6f7e9aa5958fd297aada2d20fa2ae1737357e55596"
 dependencies = [
  "js-sys",
  "once_cell",
- "opentelemetry",
+ "opentelemetry 0.21.0",
  "opentelemetry_sdk",
  "smallvec",
  "tracing",
