@@ -231,3 +231,339 @@ impl Default for AgentSupervisor {
         Self::new()
     }
 }
+
+// ---------------------------------------------------------------------------
+// Test-only seams
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+impl AgentSupervisor {
+    /// Return the current [`AgentState`] for the given agent id, or `None` if
+    /// the agent does not exist in the map.
+    pub(crate) async fn agent_state(&self, id: Uuid) -> Option<crate::state_machine::AgentState> {
+        self.agents.lock().await.get(&id).map(|a| a.sm.state())
+    }
+
+    /// Insert a pre-built [`ManagedAgent`] directly into the supervisor map.
+    /// Only used by unit tests that need to seed the supervisor with a specific
+    /// initial state without going through the full `spawn_agent` path.
+    pub(crate) async fn insert_managed(
+        &self,
+        id: Uuid,
+        name: impl Into<String>,
+        role: at_core::types::AgentRole,
+        sm: crate::state_machine::AgentStateMachine,
+        lifecycle: Box<dyn AgentLifecycle>,
+    ) {
+        self.agents.lock().await.insert(
+            id,
+            ManagedAgent {
+                id,
+                name: name.into(),
+                role,
+                sm,
+                lifecycle,
+                last_seen: chrono::Utc::now(),
+            },
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Unit tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use at_core::types::{AgentRole, Bead};
+    use crate::lifecycle::LifecycleError;
+    use crate::state_machine::{AgentEvent, AgentState, AgentStateMachine};
+    use std::sync::{Arc, Mutex as StdMutex};
+    use uuid::Uuid;
+
+    // -----------------------------------------------------------------------
+    // MockLifecycle
+    // -----------------------------------------------------------------------
+
+    /// Records every lifecycle method call so tests can assert on the exact
+    /// sequence of interactions the supervisor performs.  Per-method return
+    /// values can be pre-loaded via the `fail_*` flags.
+    struct MockLifecycle {
+        calls: Arc<StdMutex<Vec<String>>>,
+        fail_on_start: bool,
+        fail_on_stop: bool,
+    }
+
+    impl MockLifecycle {
+        fn new() -> Self {
+            Self {
+                calls: Arc::new(StdMutex::new(Vec::new())),
+                fail_on_start: false,
+                fail_on_stop: false,
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl AgentLifecycle for MockLifecycle {
+        fn role(&self) -> AgentRole {
+            AgentRole::Crew
+        }
+
+        async fn on_start(&mut self) -> crate::lifecycle::Result<()> {
+            self.calls.lock().unwrap().push("on_start".into());
+            if self.fail_on_start {
+                Err(LifecycleError::General("injected start failure".into()))
+            } else {
+                Ok(())
+            }
+        }
+
+        async fn on_task_assigned(&mut self, _bead: &Bead) -> crate::lifecycle::Result<()> {
+            self.calls.lock().unwrap().push("on_task_assigned".into());
+            Ok(())
+        }
+
+        async fn on_task_completed(&mut self, _bead_id: Uuid) -> crate::lifecycle::Result<()> {
+            self.calls.lock().unwrap().push("on_task_completed".into());
+            Ok(())
+        }
+
+        async fn on_heartbeat(&mut self) -> crate::lifecycle::Result<()> {
+            self.calls.lock().unwrap().push("on_heartbeat".into());
+            Ok(())
+        }
+
+        async fn on_stop(&mut self) -> crate::lifecycle::Result<()> {
+            self.calls.lock().unwrap().push("on_stop".into());
+            if self.fail_on_stop {
+                Err(LifecycleError::General("injected stop failure".into()))
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Helpers
+    // -----------------------------------------------------------------------
+
+    /// Build a supervisor and seed it with a single agent whose state machine
+    /// has already been driven to `initial_state`.  Returns the supervisor, the
+    /// agent id, and a shared handle to the mock's call recorder.
+    async fn make_supervisor_with_agent(
+        initial_state: AgentState,
+        lifecycle: Box<dyn AgentLifecycle>,
+    ) -> (AgentSupervisor, Uuid) {
+        let sup = AgentSupervisor::new();
+        let id = Uuid::new_v4();
+
+        // Build a state machine at the desired initial state.
+        let sm = build_sm_at(initial_state);
+        sup.insert_managed(id, "test-agent", AgentRole::Crew, sm, lifecycle)
+            .await;
+        (sup, id)
+    }
+
+    /// Drive a fresh `AgentStateMachine` to `target` via the minimum set of
+    /// valid events.  Panics if `target` is a state this helper doesn't know
+    /// how to reach.
+    fn build_sm_at(target: AgentState) -> AgentStateMachine {
+        let mut sm = AgentStateMachine::new();
+        match target {
+            AgentState::Idle => { /* already Idle */ }
+            AgentState::Spawning => {
+                sm.transition(AgentEvent::Start).unwrap();
+            }
+            AgentState::Active => {
+                sm.transition(AgentEvent::Start).unwrap();
+                sm.transition(AgentEvent::Spawned).unwrap();
+            }
+            AgentState::Stopping => {
+                sm.transition(AgentEvent::Start).unwrap();
+                sm.transition(AgentEvent::Spawned).unwrap();
+                sm.transition(AgentEvent::Stop).unwrap();
+            }
+            AgentState::Stopped => {
+                sm.transition(AgentEvent::Start).unwrap();
+                sm.transition(AgentEvent::Spawned).unwrap();
+                sm.transition(AgentEvent::Stop).unwrap();
+                sm.transition(AgentEvent::Stop).unwrap();
+            }
+            AgentState::Failed => {
+                sm.transition(AgentEvent::Start).unwrap();
+                sm.transition(AgentEvent::Fail).unwrap();
+            }
+            AgentState::Paused => {
+                sm.transition(AgentEvent::Start).unwrap();
+                sm.transition(AgentEvent::Spawned).unwrap();
+                sm.transition(AgentEvent::Pause).unwrap();
+            }
+        }
+        sm
+    }
+
+    // -----------------------------------------------------------------------
+    // Test A: restart_failed — happy path
+    // -----------------------------------------------------------------------
+
+    /// When an agent is in the `Failed` state, `restart_failed` must:
+    ///   1. call `on_start()` on the lifecycle exactly once,
+    ///   2. drive the state machine through Failed -> Idle -> Spawning -> Active,
+    ///   3. return the agent's id in the restarted list.
+    #[tokio::test]
+    async fn restart_failed_happy_path() {
+        let mock = MockLifecycle::new();
+        let calls = mock.calls.clone();
+        let (sup, id) = make_supervisor_with_agent(AgentState::Failed, Box::new(mock)).await;
+
+        let restarted = sup.restart_failed().await.expect("restart_failed must succeed");
+
+        // The agent id is in the returned list.
+        assert_eq!(restarted, vec![id], "restarted list must contain the agent id");
+
+        // The lifecycle hook was called exactly once.
+        let recorded = calls.lock().unwrap().clone();
+        assert_eq!(
+            recorded,
+            vec!["on_start"],
+            "restart_failed must call on_start exactly once; got: {recorded:?}"
+        );
+
+        // The internal state map must reflect Active.
+        let state = sup
+            .agent_state(id)
+            .await
+            .expect("agent must still be in the map");
+        assert_eq!(
+            state,
+            AgentState::Active,
+            "agent must be Active after successful restart; got {state:?}"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Test B: restart_failed — non-Failed state returns error, no state change
+    // -----------------------------------------------------------------------
+
+    /// When an agent is `Active` (not `Failed`), `restart_failed` must skip it
+    /// without modifying the state map.  If there are no failed agents the
+    /// method returns an empty `Ok` list; calling it on an agent that is already
+    /// Active should result in zero restarts and zero lifecycle calls.
+    #[tokio::test]
+    async fn restart_failed_skips_non_failed_agents() {
+        let mock = MockLifecycle::new();
+        let calls = mock.calls.clone();
+        let (sup, id) = make_supervisor_with_agent(AgentState::Active, Box::new(mock)).await;
+
+        let restarted = sup
+            .restart_failed()
+            .await
+            .expect("restart_failed must not error when no agents are Failed");
+
+        // No agents should have been restarted.
+        assert!(
+            restarted.is_empty(),
+            "expected no restarts for an Active agent, got: {restarted:?}"
+        );
+
+        // No lifecycle methods should have been invoked.
+        let recorded = calls.lock().unwrap().clone();
+        assert!(
+            recorded.is_empty(),
+            "no lifecycle calls expected for a non-Failed agent; got: {recorded:?}"
+        );
+
+        // The state map must remain unchanged.
+        let state = sup
+            .agent_state(id)
+            .await
+            .expect("agent must still be in the map");
+        assert_eq!(
+            state,
+            AgentState::Active,
+            "agent state must remain Active; got {state:?}"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Test C: stop_agent — happy path
+    // -----------------------------------------------------------------------
+
+    /// When an agent is `Active`, `stop_agent` must:
+    ///   1. call `on_stop()` on the lifecycle exactly once,
+    ///   2. drive the state machine from Active -> Stopping -> Stopped.
+    #[tokio::test]
+    async fn stop_agent_happy_path() {
+        let mock = MockLifecycle::new();
+        let calls = mock.calls.clone();
+        let (sup, id) = make_supervisor_with_agent(AgentState::Active, Box::new(mock)).await;
+
+        sup.stop_agent(id).await.expect("stop_agent must succeed");
+
+        // The lifecycle hook was called exactly once.
+        let recorded = calls.lock().unwrap().clone();
+        assert_eq!(
+            recorded,
+            vec!["on_stop"],
+            "stop_agent must call on_stop exactly once; got: {recorded:?}"
+        );
+
+        // The internal state map must reflect Stopped.
+        let state = sup
+            .agent_state(id)
+            .await
+            .expect("agent must still be in the map after stop");
+        assert_eq!(
+            state,
+            AgentState::Stopped,
+            "agent must be Stopped after stop_agent; got {state:?}"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Test D: stop_agent — already-Stopped agent returns a StateMachine error
+    // -----------------------------------------------------------------------
+
+    /// Calling `stop_agent` on a `Stopped` agent must return a
+    /// `SupervisorError::StateMachine(StateMachineError::InvalidTransition)`
+    /// because `Stopped + Stop` is not in the transition table.
+    #[tokio::test]
+    async fn stop_agent_already_stopped_returns_error() {
+        let mock = MockLifecycle::new();
+        let calls = mock.calls.clone();
+        let (sup, id) = make_supervisor_with_agent(AgentState::Stopped, Box::new(mock)).await;
+
+        let result = sup.stop_agent(id).await;
+
+        // Must fail with a StateMachine error.
+        assert!(
+            result.is_err(),
+            "stop_agent on a Stopped agent must return an error"
+        );
+        assert!(
+            matches!(result.unwrap_err(), SupervisorError::StateMachine(_)),
+            "error must be SupervisorError::StateMachine"
+        );
+
+        // No lifecycle calls should have been made — the state machine check
+        // fires before the lifecycle hook.
+        let recorded = calls.lock().unwrap().clone();
+        assert!(
+            recorded.is_empty(),
+            "no lifecycle calls expected when state-machine rejects the transition; got: {recorded:?}"
+        );
+
+        // The state map must be unchanged.
+        let state = sup
+            .agent_state(id)
+            .await
+            .expect("agent must still be in the map");
+        assert_eq!(
+            state,
+            AgentState::Stopped,
+            "agent state must remain Stopped; got {state:?}"
+        );
+    }
+}
