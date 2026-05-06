@@ -365,4 +365,103 @@ mod tests {
         assert!(engine.delete_session(&id));
         assert!(engine.list_sessions().is_empty());
     }
+
+    // ---- New tests: stream-error path and success-path anchor ---------------
+
+    /// Test A: when the LLM provider returns an error, `send_message_with_ai`
+    /// returns an error AND the session history contains exactly the user
+    /// message that was added before the provider call — i.e. history is in a
+    /// half-written state (user committed, no assistant reply).
+    #[tokio::test]
+    async fn send_message_with_ai_provider_error_leaves_user_message_in_history() {
+        use crate::llm::{LlmError, MockProvider as LlmMockProvider};
+
+        // Queue an API-level error so complete() returns Err.
+        let failing_provider = Arc::new(
+            LlmMockProvider::new().with_error(LlmError::ApiError {
+                status: 500,
+                message: "internal server error".into(),
+            }),
+        );
+
+        let mut engine = InsightsEngine::with_provider(failing_provider);
+        let session_id = engine.create_session("Error Test", "test-model").id;
+
+        // Before the call the session is empty.
+        assert_eq!(engine.get_session(&session_id).unwrap().messages.len(), 0);
+
+        let result = engine
+            .send_message_with_ai(&session_id, "What went wrong?")
+            .await;
+
+        // (a) The call must have returned an error.
+        assert!(result.is_err(), "expected an error from the provider");
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(
+            err_msg.contains("LLM call failed"),
+            "unexpected error message: {err_msg}"
+        );
+
+        // (b) The session history is in a known half-written state:
+        //     the user message was committed BEFORE the provider call, so it
+        //     is present; the assistant reply was never written.
+        let messages = &engine.get_session(&session_id).unwrap().messages;
+        assert_eq!(
+            messages.len(),
+            1,
+            "expected exactly 1 message (user) after provider error, got {}",
+            messages.len()
+        );
+        assert_eq!(
+            messages[0].role,
+            ChatRole::User,
+            "the only message should be the user message"
+        );
+        assert_eq!(messages[0].content, "What went wrong?");
+    }
+
+    /// Test B: success path — `send_message_with_ai` returns Ok and the session
+    /// history grows by exactly 2 messages (user + assistant). This anchors the
+    /// mutation surface checked by Test A.
+    #[tokio::test]
+    async fn send_message_with_ai_success_adds_user_and_assistant_messages() {
+        use crate::llm::{LlmResponse, MockProvider as LlmMockProvider};
+
+        let success_provider = Arc::new(
+            LlmMockProvider::new().with_response(LlmResponse {
+                content: "Here is my answer.".into(),
+                model: "test-model".into(),
+                input_tokens: 20,
+                output_tokens: 8,
+                finish_reason: "end_turn".into(),
+            }),
+        );
+
+        let mut engine = InsightsEngine::with_provider(success_provider);
+        let session_id = engine.create_session("Success Test", "test-model").id;
+
+        assert_eq!(engine.get_session(&session_id).unwrap().messages.len(), 0);
+
+        let reply = engine
+            .send_message_with_ai(&session_id, "Tell me something.")
+            .await
+            .expect("send_message_with_ai should succeed");
+
+        // Return value is the assistant message.
+        assert_eq!(reply.role, ChatRole::Assistant);
+        assert_eq!(reply.content, "Here is my answer.");
+
+        // Session history must have grown by exactly 2 (user + assistant).
+        let messages = &engine.get_session(&session_id).unwrap().messages;
+        assert_eq!(
+            messages.len(),
+            2,
+            "expected 2 messages (user + assistant) after a successful call, got {}",
+            messages.len()
+        );
+        assert_eq!(messages[0].role, ChatRole::User);
+        assert_eq!(messages[0].content, "Tell me something.");
+        assert_eq!(messages[1].role, ChatRole::Assistant);
+        assert_eq!(messages[1].content, "Here is my answer.");
+    }
 }
