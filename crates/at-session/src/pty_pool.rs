@@ -247,14 +247,14 @@ pub struct PtyHandle {
 impl PtyHandle {
     /// Construct a `PtyHandle` directly from parts.
     ///
-    /// This is intentionally `pub(crate)` and exists so unit tests in sibling
-    /// modules (notably `session`) can build a `PtyHandle` around in-memory
-    /// fakes for `Child` / `MasterPty` instead of spawning a real process.
+    /// Available when compiling with `cfg(test)` (unit tests within this crate)
+    /// or when the `test-helpers` Cargo feature is enabled (allows dependent
+    /// crates such as `at-daemon` to build `PtyHandle` values around in-memory
+    /// fakes for `Child` / `MasterPty` without spawning a real process).
     ///
-    /// Production code MUST go through [`PtyPool::spawn`]; calling this from
-    /// outside the crate is impossible by design (no `pub` visibility).
-    #[cfg(test)]
-    pub(crate) fn from_parts(
+    /// Production code MUST go through [`PtyPool::spawn`].
+    #[cfg(any(test, feature = "test-helpers"))]
+    pub fn from_parts(
         id: Uuid,
         reader: flume::Receiver<Vec<u8>>,
         writer: flume::Sender<Vec<u8>>,
