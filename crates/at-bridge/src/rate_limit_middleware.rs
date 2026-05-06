@@ -145,7 +145,7 @@ where
         let mut inner = self.inner.clone();
 
         Box::pin(async move {
-            // Extract client IP from connection info or X-Forwarded-For header.
+            // Extract client IP from X-Forwarded-For (leftmost), falling back to X-Real-IP, then "unknown".
             let client_ip = req
                 .headers()
                 .get("x-forwarded-for")
@@ -156,7 +156,7 @@ where
                     req.headers()
                         .get("x-real-ip")
                         .and_then(|v| v.to_str().ok())
-                        .map(|s| s.to_string())
+                        .map(|s| s.trim().to_string())
                 })
                 .unwrap_or_else(|| "unknown".to_string());
 
@@ -316,5 +316,66 @@ mod tests {
             .unwrap();
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    /// X-Real-IP present but with whitespace padding around the IP.
+    ///
+    /// Without `.trim()` on the X-Real-IP path, `"  203.0.113.42  "` and
+    /// `"203.0.113.42"` produce different bucket keys, letting an attacker
+    /// multiply their effective rate limit by sending differently-padded values.
+    /// After the fix both strings must map to the same bucket.
+    #[tokio::test]
+    async fn x_real_ip_whitespace_is_trimmed() {
+        let limiter = Arc::new(MultiKeyRateLimiter::new(
+            RateLimitConfig::per_second(100),
+            RateLimitConfig::per_second(1), // per-user limit under test
+            RateLimitConfig::per_second(100),
+        ));
+        let app = test_router(limiter);
+
+        // Request A: padded whitespace around the IP — exhausts the bucket.
+        let req_padded = Request::builder()
+            .uri("/ping")
+            .header("x-real-ip", "  203.0.113.42  ")
+            .body(Body::empty())
+            .unwrap();
+
+        // Request B: no padding — must land in the SAME bucket as A.
+        let req_clean = Request::builder()
+            .uri("/ping")
+            .header("x-real-ip", "203.0.113.42")
+            .body(Body::empty())
+            .unwrap();
+
+        // Request C: different IP entirely — must use a separate bucket.
+        let req_other = Request::builder()
+            .uri("/ping")
+            .header("x-real-ip", "198.51.100.99")
+            .body(Body::empty())
+            .unwrap();
+
+        // A exhausts the 203.0.113.42 bucket.
+        let resp = app.clone().oneshot(req_padded).await.unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::OK,
+            "first request with padded X-Real-IP should be allowed"
+        );
+
+        // B must be in the same trimmed bucket → 429.
+        let resp = app.clone().oneshot(req_clean).await.unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::TOO_MANY_REQUESTS,
+            "whitespace-padded X-Real-IP must produce the same bucket key as the clean IP"
+        );
+
+        // C is a different IP, so it has its own fresh bucket → 200.
+        let resp = app.clone().oneshot(req_other).await.unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::OK,
+            "a different X-Real-IP must use a separate bucket and not be affected"
+        );
     }
 }
