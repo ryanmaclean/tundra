@@ -4,6 +4,11 @@ version.workspace = true
 edition.workspace = true
 publish = false
 
+[features]
+# Enables constructors/helpers intended only for test code in dependent crates.
+# Never enable in production builds.
+test-helpers = []
+
 [dependencies]
 at-core = { path = "../at-core" }
 tokio = { workspace = true }
