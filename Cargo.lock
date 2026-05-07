@@ -288,6 +288,7 @@ dependencies = [
 name = "at-agents"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "async-trait",
  "at-bridge",
  "at-core",
@@ -295,6 +296,7 @@ dependencies = [
  "at-session",
  "chrono",
  "flume",
+ "portable-pty",
  "serde",
  "serde_json",
  "tempfile",

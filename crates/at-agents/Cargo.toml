@@ -24,3 +24,6 @@ tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "time"
 tempfile = "3"
 async-trait = { workspace = true }
 flume = { workspace = true }
+portable-pty = "0.8"
+at-session = { path = "../at-session", features = ["test-helpers"] }
+anyhow = { workspace = true }
