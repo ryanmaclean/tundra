@@ -114,6 +114,15 @@ struct TokenBucket {
 }
 
 impl TokenBucket {
+    /// Override `last_refill` so tests can simulate time passing without
+    /// actually sleeping.  Only compiled in test builds.
+    #[cfg(test)]
+    fn set_last_refill(&mut self, t: Instant) {
+        self.last_refill = t;
+    }
+}
+
+impl TokenBucket {
     fn new(max_burst: f64) -> Self {
         Self {
             tokens: max_burst,
@@ -201,6 +210,25 @@ impl RateLimiter {
             None => self.config.max_burst,
         }
     }
+
+    /// Returns the raw stored token count WITHOUT applying elapsed-time refill.
+    /// Only compiled in test builds; used to assert exact post-call state.
+    #[cfg(test)]
+    fn raw_tokens(&self, key: &str) -> Option<f64> {
+        self.buckets.get(key).map(|b| b.tokens)
+    }
+
+    /// Back-date the `last_refill` timestamp for `key` by `elapsed` so that
+    /// the next `check*` call will apply the equivalent refill.  Creates a
+    /// fresh bucket if none exists yet.  Only compiled in test builds.
+    #[cfg(test)]
+    pub(crate) fn force_last_refill_offset(&self, key: &str, elapsed: Duration) {
+        let past = Instant::now() - elapsed;
+        self.buckets
+            .entry(key.to_string())
+            .or_insert_with(|| TokenBucket::new(self.config.max_burst))
+            .set_last_refill(past);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -247,5 +275,318 @@ impl MultiKeyRateLimiter {
         self.per_user.check_with_cost(user_key, cost)?;
         self.per_endpoint.check_with_cost(endpoint_key, cost)?;
         Ok(())
+    }
+
+    /// Expose inner limiters for test seams only.
+    #[cfg(test)]
+    pub(crate) fn per_user_limiter(&self) -> &RateLimiter {
+        &self.per_user
+    }
+
+    #[cfg(test)]
+    pub(crate) fn per_endpoint_limiter(&self) -> &RateLimiter {
+        &self.per_endpoint
+    }
+
+    #[cfg(test)]
+    pub(crate) fn global_limiter(&self) -> &RateLimiter {
+        &self.global
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // -----------------------------------------------------------------------
+    // Test 1: single check within capacity succeeds
+    // -----------------------------------------------------------------------
+
+    /// A fresh limiter with 10-token burst allows a cost-1 call and
+    /// decrements the bucket to exactly 9 tokens.
+    #[test]
+    fn single_check_within_capacity_succeeds() {
+        let limiter = RateLimiter::new(RateLimitConfig::per_second(10));
+
+        let result = limiter.check_with_cost("alice", 1.0);
+
+        assert!(result.is_ok(), "first call should succeed");
+        // Raw tokens must be 9 — no wall-clock elapsed because we called
+        // immediately after construction.
+        let raw = limiter.raw_tokens("alice").expect("bucket must exist");
+        assert!(
+            (raw - 9.0).abs() < 0.01,
+            "expected ~9.0 tokens remaining, got {raw}"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Test 2: exhaust capacity → next call returns Err with non-zero retry_after
+    // -----------------------------------------------------------------------
+
+    /// After draining all 10 tokens, a subsequent request must be rejected
+    /// with a `retry_after` that is strictly positive.
+    #[test]
+    fn exhaust_capacity_returns_retry_after() {
+        let limiter = RateLimiter::new(RateLimitConfig::per_second(10));
+
+        // Consume all 10 tokens in one shot.
+        assert!(
+            limiter.check_with_cost("bob", 10.0).is_ok(),
+            "draining the bucket should succeed"
+        );
+
+        // Any further cost should fail immediately.
+        let err = limiter
+            .check_with_cost("bob", 1.0)
+            .expect_err("should be rejected after exhaustion");
+
+        match err {
+            RateLimitError::Exceeded { key, retry_after } => {
+                assert_eq!(key, "bob");
+                assert!(
+                    retry_after > Duration::ZERO,
+                    "retry_after must be strictly positive, got {retry_after:?}"
+                );
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Test 3: retry_after is proportional to deficit / refill_rate
+    // -----------------------------------------------------------------------
+
+    /// When the bucket has `available` tokens and we ask for `cost > available`,
+    /// the returned `retry_after` must equal `(cost - available) / rate`.
+    /// This pins the arithmetic and guards against division-rounding anomalies.
+    #[test]
+    fn retry_after_is_proportional_to_deficit() {
+        // 4 tokens/s, burst=4 → starts full.
+        let config = RateLimitConfig {
+            tokens_per_second: 4.0,
+            max_burst: 4.0,
+            window: Duration::from_secs(1),
+        };
+        let limiter = RateLimiter::new(config);
+
+        // Consume 3 tokens, leaving 1.
+        limiter.check_with_cost("carol", 3.0).unwrap();
+
+        // Ask for cost=3 when only 1 remains → deficit = 2.
+        // Expected wait = 2 / 4 = 0.5 s.
+        let err = limiter
+            .check_with_cost("carol", 3.0)
+            .expect_err("should be rejected");
+
+        match err {
+            RateLimitError::Exceeded { retry_after, .. } => {
+                let secs = retry_after.as_secs_f64();
+                // deficit = 3 - raw_tokens_after_first_check
+                // We called check_with_cost immediately, so raw ≈ 1.0
+                // wait ≈ 2.0 / 4.0 = 0.5 s
+                assert!(
+                    (secs - 0.5).abs() < 0.05,
+                    "expected retry_after ≈ 0.5 s, got {secs:.4} s"
+                );
+                assert!(
+                    secs > 0.0,
+                    "retry_after must never be zero (overflow/rounding guard)"
+                );
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Test 4: zero-cost call succeeds without decrementing tokens
+    // -----------------------------------------------------------------------
+
+    /// `check_with_cost(0.0)` is a no-op; the bucket should retain all its
+    /// tokens.
+    #[test]
+    fn zero_cost_call_succeeds_without_decrement() {
+        let limiter = RateLimiter::new(RateLimitConfig::per_second(10));
+
+        let result = limiter.check_with_cost("dave", 0.0);
+
+        assert!(result.is_ok(), "zero-cost call must succeed");
+        let raw = limiter.raw_tokens("dave").expect("bucket must exist");
+        assert!(
+            (raw - 10.0).abs() < 0.01,
+            "tokens should be unchanged (≈10), got {raw}"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Test 5: MultiKeyRateLimiter — all tiers must pass; per-user tier rejects
+    // -----------------------------------------------------------------------
+
+    /// With per-user burst=5 and per-endpoint burst=10, five calls exhaust the
+    /// per-user bucket.  The sixth call must be rejected and the error key must
+    /// identify the per-user key ("alice"), not the endpoint key.
+    #[test]
+    fn multi_key_all_tiers_must_pass() {
+        // Global is generous so it never interferes.
+        let multi = MultiKeyRateLimiter::new(
+            RateLimitConfig::per_second(1000), // global — effectively unlimited
+            RateLimitConfig::per_second(5),    // per-user burst=5
+            RateLimitConfig::per_second(10),   // per-endpoint burst=10
+        );
+
+        // Five calls must all succeed.
+        for i in 0..5 {
+            assert!(
+                multi.check_all("alice", "/foo").is_ok(),
+                "call {i} should succeed"
+            );
+        }
+
+        // Sixth call must fail — per-user bucket exhausted.
+        let err = multi
+            .check_all("alice", "/foo")
+            .expect_err("6th call must be rejected");
+
+        match &err {
+            RateLimitError::Exceeded { key, retry_after } => {
+                assert_eq!(
+                    key, "alice",
+                    "the failing tier must be the per-user one (key='alice'), got key='{key}'"
+                );
+                assert!(
+                    *retry_after > Duration::ZERO,
+                    "retry_after must be positive"
+                );
+            }
+        }
+
+        // The per-endpoint bucket should still have 5 tokens (only 5 requests
+        // made it through to the endpoint tier).
+        let endpoint_raw = multi
+            .per_endpoint_limiter()
+            .raw_tokens("/foo")
+            .expect("endpoint bucket must exist");
+        assert!(
+            (endpoint_raw - 5.0).abs() < 0.1,
+            "per-endpoint bucket should have ~5 tokens left, got {endpoint_raw}"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Test 6: tier ordering — per-endpoint bucket is not over-decremented
+    //         when a different user exhausts the per-user tier
+    // -----------------------------------------------------------------------
+
+    /// Exhaust alice's per-user bucket (5 calls).  Then bob (fresh per-user
+    /// bucket) calls the same endpoint.  Because per-endpoint has only been
+    /// decremented 5 times (not 6), it still has 5 tokens left and bob's
+    /// call must succeed.
+    ///
+    /// This also verifies that alice's rejected 6th call did NOT decrement
+    /// the per-endpoint counter (no double-decrement on failure).
+    #[test]
+    fn multi_key_tier_order_does_not_starve_lower_tiers() {
+        let multi = MultiKeyRateLimiter::new(
+            RateLimitConfig::per_second(1000), // global — effectively unlimited
+            RateLimitConfig::per_second(5),    // per-user burst=5
+            RateLimitConfig::per_second(10),   // per-endpoint burst=10
+        );
+
+        // Five successful calls from alice (exhausts alice's per-user bucket).
+        for i in 0..5 {
+            assert!(
+                multi.check_all("alice", "/bar").is_ok(),
+                "alice call {i} should succeed"
+            );
+        }
+
+        // Alice's 6th call is rejected at the per-user tier.
+        // The per-endpoint bucket must NOT have been decremented by this call.
+        assert!(
+            multi.check_all("alice", "/bar").is_err(),
+            "alice's 6th call should be rejected"
+        );
+
+        // Per-endpoint bucket should still have 5 tokens (decremented by
+        // alice's 5 successful calls, not the rejected one).
+        let ep_after_alice_rejection = multi
+            .per_endpoint_limiter()
+            .raw_tokens("/bar")
+            .expect("endpoint bucket must exist");
+        assert!(
+            (ep_after_alice_rejection - 5.0).abs() < 0.1,
+            "per-endpoint should have ~5 tokens after alice's rejection, got {ep_after_alice_rejection}"
+        );
+
+        // Bob (fresh per-user bucket) calls the same endpoint — must succeed
+        // because per-endpoint still has tokens.
+        assert!(
+            multi.check_all("bob", "/bar").is_ok(),
+            "bob's first call must succeed (per-user fresh + per-endpoint has budget)"
+        );
+
+        // Now per-endpoint has 4 tokens left.
+        let ep_after_bob = multi
+            .per_endpoint_limiter()
+            .raw_tokens("/bar")
+            .expect("endpoint bucket must exist");
+        assert!(
+            (ep_after_bob - 4.0).abs() < 0.1,
+            "per-endpoint should have ~4 tokens after bob's call, got {ep_after_bob}"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Test 7: refill restores tokens after time passes (clock-seam test)
+    // -----------------------------------------------------------------------
+
+    /// Exhaust the bucket, then back-date `last_refill` by 1 second so the
+    /// next call sees 10 new tokens from the refill.  Assert the call succeeds.
+    #[test]
+    fn refill_restores_tokens_after_elapsed_time() {
+        let limiter = RateLimiter::new(RateLimitConfig::per_second(10));
+
+        // Drain completely.
+        limiter.check_with_cost("eve", 10.0).unwrap();
+        assert!(
+            limiter.check_with_cost("eve", 1.0).is_err(),
+            "should be exhausted"
+        );
+
+        // Simulate 1 full second of elapsed time via the test seam.
+        limiter.force_last_refill_offset("eve", Duration::from_secs(1));
+
+        // After refill, 10 new tokens are available.
+        assert!(
+            limiter.check_with_cost("eve", 10.0).is_ok(),
+            "after simulated 1-second refill, a full-bucket draw must succeed"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Test 8: boundary — exact cost equal to available tokens is accepted
+    // -----------------------------------------------------------------------
+
+    /// `tokens >= cost` (not `>`) means an exact-boundary draw must succeed.
+    /// This test pins the off-by-one boundary and would catch the mutation
+    /// `tokens > cost`.
+    #[test]
+    fn exact_boundary_cost_is_accepted() {
+        let limiter = RateLimiter::new(RateLimitConfig::per_second(10));
+
+        // A cost exactly equal to the full burst must succeed.
+        let result = limiter.check_with_cost("frank", 10.0);
+        assert!(
+            result.is_ok(),
+            "cost == max_burst must be accepted (>= boundary), got {result:?}"
+        );
+
+        // Now the bucket is empty — asking for anything more must fail.
+        assert!(
+            limiter.check_with_cost("frank", 0.001).is_err(),
+            "bucket empty: even tiny cost must be rejected"
+        );
     }
 }
