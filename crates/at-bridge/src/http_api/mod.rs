@@ -520,8 +520,8 @@ mod router {
 
 mod oauth_monitor {
     use super::state::ApiState;
-    use at_integrations::github::oauth as gh_oauth;
     use crate::oauth_token_manager::OAuthTokenManager;
+    use at_integrations::github::oauth as gh_oauth;
     use std::sync::Arc;
     use tokio::sync::RwLock;
 
@@ -578,10 +578,8 @@ mod oauth_monitor {
             _ => return Err(ConfigError::Missing("GITHUB_OAUTH_CLIENT_SECRET".into())),
         };
 
-        let redirect_uri =
-            std::env::var("GITHUB_OAUTH_REDIRECT_URI").unwrap_or_else(|_| {
-                "http://localhost:3000/api/github/oauth/callback".into()
-            });
+        let redirect_uri = std::env::var("GITHUB_OAUTH_REDIRECT_URI")
+            .unwrap_or_else(|_| "http://localhost:3000/api/github/oauth/callback".into());
 
         let scopes = std::env::var("GITHUB_OAUTH_SCOPES")
             .unwrap_or_else(|_| "repo,read:user,user:email".into())
@@ -748,10 +746,10 @@ mod oauth_monitor {
             assert_eq!(outcome, RefreshOutcome::NoEnvVar);
         }
 
-        /// Mutation check: if the `NoEnvVar` arm were changed to return
-        /// `NotDueYet`, the assertion above would fail.  This comment documents
-        /// the mutation that was manually applied, confirmed to fail, then
-        /// reverted.
+        // Mutation check: if the `NoEnvVar` arm were changed to return
+        // `NotDueYet`, the assertion above would fail.  This comment documents
+        // the mutation that was manually applied, confirmed to fail, then
+        // reverted.
 
         /// When a valid token exists (expires far in the future) the outcome must
         /// be `NotDueYet` — the refresh client is never constructed.

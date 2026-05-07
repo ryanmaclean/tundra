@@ -61,14 +61,10 @@ fn enum_to_sql<T: serde::Serialize>(val: &T) -> String {
 /// Deserialise a plain SQL string (e.g. `"backlog"`) into a serde-friendly
 /// Rust enum.  Returns `Err(CacheError::InvalidRow)` instead of panicking
 /// when the string is not a recognised variant.
-fn enum_from_sql<T: serde::de::DeserializeOwned>(
-    raw: &str,
-    column: &str,
-) -> Result<T, CacheError> {
+fn enum_from_sql<T: serde::de::DeserializeOwned>(raw: &str, column: &str) -> Result<T, CacheError> {
     let quoted = format!("\"{}\"", raw);
-    serde_json::from_str(&quoted).map_err(|e| {
-        CacheError::invalid_row(format!("{column}: unrecognised value {:?}", raw), e)
-    })
+    serde_json::from_str(&quoted)
+        .map_err(|e| CacheError::invalid_row(format!("{column}: unrecognised value {:?}", raw), e))
 }
 
 impl CacheDb {
@@ -256,10 +252,7 @@ impl CacheDb {
     ///
     /// Returns `Err(CacheError::InvalidRow)` if any stored row cannot be
     /// decoded, rather than panicking.
-    pub async fn list_beads_by_status(
-        &self,
-        status: BeadStatus,
-    ) -> Result<Vec<Bead>, CacheError> {
+    pub async fn list_beads_by_status(&self, status: BeadStatus) -> Result<Vec<Bead>, CacheError> {
         let status_str = enum_to_sql(&status);
         let outer: Result<Result<Vec<Bead>, CacheError>, tokio_rusqlite::Error> = self
             .conn
@@ -496,9 +489,7 @@ impl CacheDb {
 fn parse_datetime(s: &str, column: &str) -> Result<chrono::DateTime<Utc>, CacheError> {
     chrono::DateTime::parse_from_rfc3339(s)
         .map(|dt| dt.with_timezone(&Utc))
-        .map_err(|e| {
-            CacheError::invalid_row(format!("{column}: invalid RFC-3339 date {:?}", s), e)
-        })
+        .map_err(|e| CacheError::invalid_row(format!("{column}: invalid RFC-3339 date {:?}", s), e))
 }
 
 /// Parse a UUID string, returning `CacheError::InvalidRow` on failure.

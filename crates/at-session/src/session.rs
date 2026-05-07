@@ -106,11 +106,7 @@ impl AgentSession {
     /// crate's `[dev-dependencies]` entry for `at-session` to use this.
     /// Production code should always use [`AgentSession::spawn`].
     #[cfg(any(test, feature = "test-helpers"))]
-    pub fn from_parts(
-        agent_id: Uuid,
-        handle: PtyHandle,
-        adapter: Box<dyn CliAdapter>,
-    ) -> Self {
+    pub fn from_parts(agent_id: Uuid, handle: PtyHandle, adapter: Box<dyn CliAdapter>) -> Self {
         Self {
             agent_id,
             handle,

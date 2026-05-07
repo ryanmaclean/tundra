@@ -683,6 +683,27 @@ pub(crate) async fn simulate_planning_poker(
     }
 }
 
+/// GET /api/kanban/poker/{bead_id} -- retrieve current state of a planning poker session.
+pub(crate) async fn get_planning_poker_session(
+    State(state): State<Arc<ApiState>>,
+    Path(bead_id): Path<Uuid>,
+) -> Result<impl IntoResponse, ApiError> {
+    let sessions = state.planning_poker_sessions.read().await;
+    let Some(session) = sessions.get(&bead_id) else {
+        return Err(ApiError::NotFound(
+            "planning poker session not found".into(),
+        ));
+    };
+
+    Ok((
+        axum::http::StatusCode::OK,
+        Json(
+            serde_json::to_value(planning_poker_response(session))
+                .map_err(|e| ApiError::Internal(e.to_string()))?,
+        ),
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -728,7 +749,10 @@ mod tests {
         let deck = make_cards(&["1", "3"]);
         let idx = nearest_card_index(&deck, "2");
         // Both are distance 1; min_by with Equal ordering picks the first → index 0
-        assert_eq!(idx, 0, "expected index 0 ('1') when target is equidistant from two cards");
+        assert_eq!(
+            idx, 0,
+            "expected index 0 ('1') when target is equidistant from two cards"
+        );
     }
 
     #[test]
@@ -740,7 +764,10 @@ mod tests {
         let deck = make_cards(&["XS", "S", "M", "L", "XL"]);
         let idx = nearest_card_index(&deck, "5.0");
         // cards.len() / 2 = 5 / 2 = 2  → "M"
-        assert_eq!(idx, 2, "all-text deck should fall back to median index (cards.len()/2)");
+        assert_eq!(
+            idx, 2,
+            "all-text deck should fall back to median index (cards.len()/2)"
+        );
     }
 
     #[test]
@@ -757,7 +784,11 @@ mod tests {
         // votes: "3","3","3","5" → "3" wins with 3
         let votes = make_votes(&["3", "3", "3", "5"]);
         let result = consensus_card_from_votes(&votes);
-        assert_eq!(result, Some("3".to_string()), "majority card '3' should be returned");
+        assert_eq!(
+            result,
+            Some("3".to_string()),
+            "majority card '3' should be returned"
+        );
     }
 
     #[test]
@@ -773,7 +804,10 @@ mod tests {
         // votes: "3","5","8" → each has 1 vote → three-way tie → None
         let votes = make_votes(&["3", "5", "8"]);
         let result = consensus_card_from_votes(&votes);
-        assert_eq!(result, None, "three-way tie (one vote each) should return None");
+        assert_eq!(
+            result, None,
+            "three-way tie (one vote each) should return None"
+        );
     }
 
     // --- resolve_poker_deck ---
@@ -781,8 +815,7 @@ mod tests {
     #[test]
     fn resolve_poker_deck_default_is_fibonacci() {
         let cfg = default_poker_cfg(); // default_deck = "fibonacci"
-        let deck = resolve_poker_deck(&cfg, None, None)
-            .expect("default resolve should succeed");
+        let deck = resolve_poker_deck(&cfg, None, None).expect("default resolve should succeed");
         let expected = make_cards(&[
             "0", "1", "2", "3", "5", "8", "13", "21", "34", "55", "89", "?", "coffee",
         ]);
@@ -819,27 +852,9 @@ mod tests {
         let deck = resolve_poker_deck(&cfg, Some("powers_of_two"), None)
             .expect("known preset should succeed");
         let expected = make_cards(&["1", "2", "4", "8", "16", "32", "64", "128", "?", "coffee"]);
-        assert_eq!(deck, expected, "powers_of_two preset should return exact deck");
+        assert_eq!(
+            deck, expected,
+            "powers_of_two preset should return exact deck"
+        );
     }
-}
-
-/// GET /api/kanban/poker/{bead_id} -- retrieve current state of a planning poker session.
-pub(crate) async fn get_planning_poker_session(
-    State(state): State<Arc<ApiState>>,
-    Path(bead_id): Path<Uuid>,
-) -> Result<impl IntoResponse, ApiError> {
-    let sessions = state.planning_poker_sessions.read().await;
-    let Some(session) = sessions.get(&bead_id) else {
-        return Err(ApiError::NotFound(
-            "planning poker session not found".into(),
-        ));
-    };
-
-    Ok((
-        axum::http::StatusCode::OK,
-        Json(
-            serde_json::to_value(planning_poker_response(session))
-                .map_err(|e| ApiError::Internal(e.to_string()))?,
-        ),
-    ))
 }

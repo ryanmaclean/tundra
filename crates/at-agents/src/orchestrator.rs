@@ -908,11 +908,15 @@ mod tests {
         // Starting the background task should not panic
         Orchestrator::start_cleanup_task(Arc::clone(&orch));
 
-        // Give the task a moment to start
+        // Give the task a moment to start; then assert observable state is
+        // consistent. The cleanup loop's first immediate tick will have run.
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-
-        // Test passes if we get here without panicking
-        assert!(true);
+        let guard = orch.lock().unwrap_or_else(|e| e.into_inner());
+        assert_eq!(
+            guard.executions.len(),
+            0,
+            "cleanup task should run first tick without inserting/leaking executions"
+        );
     }
 
     #[tokio::test]
@@ -1115,7 +1119,11 @@ mod tests {
         // Confirm the execution is present before cleanup.
         {
             let guard = orch.lock().unwrap_or_else(|e| e.into_inner());
-            assert_eq!(guard.executions.len(), 1, "execution should exist before cleanup");
+            assert_eq!(
+                guard.executions.len(),
+                1,
+                "execution should exist before cleanup"
+            );
         }
 
         // --- Start the cleanup task (this is what we are testing) ---

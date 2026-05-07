@@ -2258,9 +2258,9 @@ mod grace_period_tests {
         // Registry must show Dead status.
         {
             let registry = state.terminal_registry.read().await;
-            let info = registry.get(&terminal_id).expect(
-                "terminal must remain in registry (as Dead) after PTY-exit cleanup",
-            );
+            let info = registry
+                .get(&terminal_id)
+                .expect("terminal must remain in registry (as Dead) after PTY-exit cleanup");
             assert_eq!(
                 info.status,
                 TerminalStatus::Dead,

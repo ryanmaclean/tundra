@@ -124,7 +124,10 @@ impl HeartbeatMonitor {
                         duration_since: self.staleness_threshold + Duration::from_secs(1),
                     });
                 }
-                Err(CacheError::InvalidRow { ref context, ref source }) => {
+                Err(CacheError::InvalidRow {
+                    ref context,
+                    ref source,
+                }) => {
                     // Persistent schema corruption — will not resolve on retry.
                     // Log at error level so operators know a manual fix is needed.
                     tracing::error!(

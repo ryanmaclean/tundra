@@ -157,14 +157,12 @@ impl InsightsEngine {
         //    until after the provider call succeeds so that a provider error
         //    never leaves an orphaned user message in the session history.
         let (llm_messages, model) = {
-            let session = self
-                .sessions
-                .iter()
-                .find(|s| s.id == *session_id)
-                .ok_or(IntelligenceError::NotFound {
+            let session = self.sessions.iter().find(|s| s.id == *session_id).ok_or(
+                IntelligenceError::NotFound {
                     entity: "session".into(),
                     id: *session_id,
-                })?;
+                },
+            )?;
 
             let system_prompt = "You are an expert codebase exploration assistant. \
                 Help the user understand code structure, patterns, dependencies, and \
@@ -394,12 +392,10 @@ mod tests {
         use crate::llm::{LlmError, MockProvider as LlmMockProvider};
 
         // Queue an API-level error so complete() returns Err.
-        let failing_provider = Arc::new(
-            LlmMockProvider::new().with_error(LlmError::ApiError {
-                status: 500,
-                message: "internal server error".into(),
-            }),
-        );
+        let failing_provider = Arc::new(LlmMockProvider::new().with_error(LlmError::ApiError {
+            status: 500,
+            message: "internal server error".into(),
+        }));
 
         let mut engine = InsightsEngine::with_provider(failing_provider);
         let session_id = engine.create_session("Error Test", "test-model").id;
@@ -439,15 +435,13 @@ mod tests {
     async fn send_message_with_ai_success_adds_user_and_assistant_messages() {
         use crate::llm::{LlmResponse, MockProvider as LlmMockProvider};
 
-        let success_provider = Arc::new(
-            LlmMockProvider::new().with_response(LlmResponse {
-                content: "Here is my answer.".into(),
-                model: "test-model".into(),
-                input_tokens: 20,
-                output_tokens: 8,
-                finish_reason: "end_turn".into(),
-            }),
-        );
+        let success_provider = Arc::new(LlmMockProvider::new().with_response(LlmResponse {
+            content: "Here is my answer.".into(),
+            model: "test-model".into(),
+            input_tokens: 20,
+            output_tokens: 8,
+            finish_reason: "end_turn".into(),
+        }));
 
         let mut engine = InsightsEngine::with_provider(success_provider);
         let session_id = engine.create_session("Success Test", "test-model").id;

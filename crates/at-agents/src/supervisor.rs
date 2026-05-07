@@ -276,9 +276,9 @@ impl AgentSupervisor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use at_core::types::{AgentRole, Bead};
     use crate::lifecycle::LifecycleError;
     use crate::state_machine::{AgentEvent, AgentState, AgentStateMachine};
+    use at_core::types::{AgentRole, Bead};
     use std::sync::{Arc, Mutex as StdMutex};
     use uuid::Uuid;
 
@@ -418,10 +418,17 @@ mod tests {
         let calls = mock.calls.clone();
         let (sup, id) = make_supervisor_with_agent(AgentState::Failed, Box::new(mock)).await;
 
-        let restarted = sup.restart_failed().await.expect("restart_failed must succeed");
+        let restarted = sup
+            .restart_failed()
+            .await
+            .expect("restart_failed must succeed");
 
         // The agent id is in the returned list.
-        assert_eq!(restarted, vec![id], "restarted list must contain the agent id");
+        assert_eq!(
+            restarted,
+            vec![id],
+            "restarted list must contain the agent id"
+        );
 
         // The lifecycle hook was called exactly once.
         let recorded = calls.lock().unwrap().clone();

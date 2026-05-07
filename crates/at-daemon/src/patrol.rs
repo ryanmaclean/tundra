@@ -238,7 +238,7 @@ mod tests {
             let mut state = self.0.lock().unwrap();
             state.kill_called = true;
             if state.should_fail_kill {
-                Err(io::Error::new(io::ErrorKind::Other, "mock kill failure"))
+                Err(io::Error::other("mock kill failure"))
             } else {
                 Ok(())
             }
@@ -323,10 +323,10 @@ mod tests {
             rx,
             tx,
             Arc::new(Mutex::new(
-                Box::new(child.clone()) as Box<dyn portable_pty::Child + Send + Sync>,
+                Box::new(child.clone()) as Box<dyn portable_pty::Child + Send + Sync>
             )),
             Arc::new(Mutex::new(
-                Box::new(MockMasterPty) as Box<dyn MasterPty + Send>,
+                Box::new(MockMasterPty) as Box<dyn MasterPty + Send>
             )),
         );
         (handle, child)
@@ -391,7 +391,10 @@ mod tests {
 
         let reaped = reap_orphan_ptys(&state).await;
 
-        assert_eq!(reaped, 0, "no orphans expected when both maps are consistent");
+        assert_eq!(
+            reaped, 0,
+            "no orphans expected when both maps are consistent"
+        );
         assert!(
             !mock_child.kill_was_called(),
             "kill() must not be called when the PTY is alive"
@@ -740,7 +743,10 @@ mod tests {
         let stuck = make_slung_bead(Some(Utc::now() - ChronoDuration::hours(1)));
         insert_beads(&cache, &[fresh, stuck]).await;
 
-        let report = runner.run_patrol(&cache).await.expect("patrol must succeed");
+        let report = runner
+            .run_patrol(&cache)
+            .await
+            .expect("patrol must succeed");
         assert_eq!(report.stuck_beads, 1);
     }
 }

@@ -279,6 +279,7 @@ impl MultiKeyRateLimiter {
 
     /// Expose inner limiters for test seams only.
     #[cfg(test)]
+    #[allow(dead_code)]
     pub(crate) fn per_user_limiter(&self) -> &RateLimiter {
         &self.per_user
     }
@@ -289,6 +290,7 @@ impl MultiKeyRateLimiter {
     }
 
     #[cfg(test)]
+    #[allow(dead_code)]
     pub(crate) fn global_limiter(&self) -> &RateLimiter {
         &self.global
     }

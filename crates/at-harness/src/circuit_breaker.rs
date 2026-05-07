@@ -298,7 +298,11 @@ mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    fn config_with(failure_threshold: u32, success_threshold: u32, timeout_secs: u64) -> CircuitBreakerConfig {
+    fn config_with(
+        failure_threshold: u32,
+        success_threshold: u32,
+        timeout_secs: u64,
+    ) -> CircuitBreakerConfig {
         CircuitBreakerConfig {
             failure_threshold,
             success_threshold,
@@ -346,8 +350,16 @@ mod tests {
         let result = breaker.call(ok_closure!(invocations, 42)).await;
 
         assert_eq!(result.unwrap(), 42, "expected the closure's return value");
-        assert_eq!(invocations.load(Ordering::SeqCst), 1, "closure must be invoked exactly once");
-        assert_eq!(breaker.state().await, CircuitState::Closed, "state must stay Closed after a success");
+        assert_eq!(
+            invocations.load(Ordering::SeqCst),
+            1,
+            "closure must be invoked exactly once"
+        );
+        assert_eq!(
+            breaker.state().await,
+            CircuitState::Closed,
+            "state must stay Closed after a success"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -437,7 +449,10 @@ mod tests {
         // Next call should transition to HalfOpen and invoke the closure.
         let invocations2 = Arc::new(AtomicUsize::new(0));
         let result2 = breaker.call(ok_closure!(invocations2, 99)).await;
-        assert!(result2.is_ok(), "expected Ok after Open→HalfOpen transition, got {result2:?}");
+        assert!(
+            result2.is_ok(),
+            "expected Ok after Open→HalfOpen transition, got {result2:?}"
+        );
         assert_eq!(
             invocations2.load(Ordering::SeqCst),
             1,
@@ -473,9 +488,7 @@ mod tests {
         let invocations = Arc::new(AtomicUsize::new(0));
         for i in 0..success_threshold {
             let c = Arc::clone(&invocations);
-            let result = breaker
-                .call(ok_closure!(c, i as i32))
-                .await;
+            let result = breaker.call(ok_closure!(c, i as i32)).await;
             assert!(result.is_ok(), "probe call {i} should succeed");
         }
 

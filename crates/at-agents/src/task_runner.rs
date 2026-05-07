@@ -616,11 +616,11 @@ mod pipeline_tests {
     use std::sync::{Arc, Mutex};
 
     use async_trait::async_trait;
+    use at_core::types::CliType;
     use at_core::types::{TaskCategory, TaskComplexity, TaskPhase, TaskPriority};
     use at_session::cli_adapter::CliAdapter;
     use at_session::pty_pool::{PtyHandle, PtyPool, Result as PtyResult};
     use at_session::session::AgentSession;
-    use at_core::types::CliType;
     use portable_pty::{Child, ChildKiller, ExitStatus, MasterPty, PtySize};
     use uuid::Uuid;
 
@@ -825,7 +825,9 @@ mod pipeline_tests {
     fn drain_commands(write_rx: &flume::Receiver<Vec<u8>>) -> Vec<String> {
         let mut cmds = Vec::new();
         while let Ok(bytes) = write_rx.try_recv() {
-            let s = String::from_utf8_lossy(&bytes).trim_end_matches('\n').to_string();
+            let s = String::from_utf8_lossy(&bytes)
+                .trim_end_matches('\n')
+                .to_string();
             cmds.push(s);
         }
         cmds
@@ -839,13 +841,13 @@ mod pipeline_tests {
 
     fn expected_phase_keywords() -> [&'static str; 7] {
         [
-            "Analyze",     // Discovery
-            "Gather",      // ContextGathering
+            "Analyze",       // Discovery
+            "Gather",        // ContextGathering
             "specification", // SpecCreation
-            "Plan",        // Planning
-            "Implement",   // Coding
-            "Review",      // Qa
-            "Prepare",     // Merging
+            "Plan",          // Planning
+            "Implement",     // Coding
+            "Review",        // Qa
+            "Prepare",       // Merging
         ]
     }
 
@@ -874,7 +876,11 @@ mod pipeline_tests {
         assert!(result.is_ok(), "expected Ok(()), got: {result:?}");
 
         // Final task state
-        assert_eq!(task.phase, TaskPhase::Complete, "task should end at Complete");
+        assert_eq!(
+            task.phase,
+            TaskPhase::Complete,
+            "task should end at Complete"
+        );
         assert!(task.started_at.is_some(), "started_at must be set");
         assert!(task.completed_at.is_some(), "completed_at must be set");
 
@@ -973,8 +979,15 @@ mod pipeline_tests {
         }
 
         // Task state must be Error.
-        assert_eq!(task.phase, TaskPhase::Error, "task.phase must be Error after phase failure");
-        assert!(task.error.is_some(), "task.error must be set after phase failure");
+        assert_eq!(
+            task.phase,
+            TaskPhase::Error,
+            "task.phase must be Error after phase failure"
+        );
+        assert!(
+            task.error.is_some(),
+            "task.error must be set after phase failure"
+        );
 
         // Exactly CODING_INDEX + 1 phases ran (Discovery through Coding).
         let cmds = drain_commands(&write_rx);
@@ -1026,10 +1039,7 @@ mod pipeline_tests {
         // Must return SessionError — not Stopped, not PhaseError.
         match result {
             Err(TaskRunnerError::SessionError(msg)) => {
-                assert!(
-                    !msg.is_empty(),
-                    "SessionError message should not be empty"
-                );
+                assert!(!msg.is_empty(), "SessionError message should not be empty");
             }
             other => panic!("expected SessionError when session dies mid-pipeline, got: {other:?}"),
         }

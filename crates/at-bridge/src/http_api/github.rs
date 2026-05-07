@@ -1258,8 +1258,7 @@ mod tests {
         // Signal shutdown and expect the task to exit promptly.
         shutdown_tx.send(()).expect("send shutdown signal");
 
-        let result =
-            tokio::time::timeout(Duration::from_secs(2), handle).await;
+        let result = tokio::time::timeout(Duration::from_secs(2), handle).await;
 
         assert!(
             result.is_ok(),
@@ -1290,8 +1289,7 @@ mod tests {
         // where the owning struct is torn down before an orderly shutdown.
         drop(shutdown_tx);
 
-        let result =
-            tokio::time::timeout(Duration::from_secs(2), handle).await;
+        let result = tokio::time::timeout(Duration::from_secs(2), handle).await;
 
         assert!(
             result.is_ok(),

@@ -503,9 +503,9 @@ pub(crate) async fn get_build_status(
 
 #[cfg(test)]
 mod tests {
+    use crate::event_bus::EventBus;
     use crate::http_api::api_router;
     use crate::http_api::state::ApiState;
-    use crate::event_bus::EventBus;
     use at_core::types::{Task, TaskCategory, TaskComplexity, TaskPhase, TaskPriority};
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
@@ -574,7 +574,9 @@ mod tests {
         let body_str = std::str::from_utf8(&body_bytes).unwrap();
         // The error message should mention the phase.
         assert!(
-            body_str.contains("Coding") || body_str.contains("cannot") || body_str.contains("phase"),
+            body_str.contains("Coding")
+                || body_str.contains("cannot")
+                || body_str.contains("phase"),
             "error body should describe the invalid phase, got: {body_str}"
         );
 

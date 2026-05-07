@@ -349,23 +349,14 @@ mod tests {
         let mut sm = AgentStateMachine::new();
         // Reach Active
         assert_eq!(advance(&mut sm, &[AgentEvent::Start]), AgentState::Spawning);
-        assert_eq!(
-            advance(&mut sm, &[AgentEvent::Spawned]),
-            AgentState::Active
-        );
+        assert_eq!(advance(&mut sm, &[AgentEvent::Spawned]), AgentState::Active);
         // Fail during active
         assert_eq!(advance(&mut sm, &[AgentEvent::Fail]), AgentState::Failed);
         // Recover resets to Idle
-        assert_eq!(
-            advance(&mut sm, &[AgentEvent::Recover]),
-            AgentState::Idle
-        );
+        assert_eq!(advance(&mut sm, &[AgentEvent::Recover]), AgentState::Idle);
         // Full second cycle succeeds
         assert_eq!(advance(&mut sm, &[AgentEvent::Start]), AgentState::Spawning);
-        assert_eq!(
-            advance(&mut sm, &[AgentEvent::Spawned]),
-            AgentState::Active
-        );
+        assert_eq!(advance(&mut sm, &[AgentEvent::Spawned]), AgentState::Active);
         assert_eq!(sm.state(), AgentState::Active);
     }
 
@@ -603,7 +594,10 @@ mod tests {
         let state_paths: &[(&[AgentEvent], AgentState)] = &[
             (&[], AgentState::Idle),
             (&[AgentEvent::Start], AgentState::Spawning),
-            (&[AgentEvent::Start, AgentEvent::Spawned], AgentState::Active),
+            (
+                &[AgentEvent::Start, AgentEvent::Spawned],
+                AgentState::Active,
+            ),
             (
                 &[AgentEvent::Start, AgentEvent::Spawned, AgentEvent::Pause],
                 AgentState::Paused,
@@ -670,7 +664,11 @@ mod tests {
         );
         assert_eq!(
             h[1],
-            (AgentState::Spawning, AgentEvent::Spawned, AgentState::Active)
+            (
+                AgentState::Spawning,
+                AgentEvent::Spawned,
+                AgentState::Active
+            )
         );
     }
 
@@ -690,9 +688,14 @@ mod tests {
     #[test]
     fn paused_fail_yields_failed() {
         let mut sm = AgentStateMachine::new();
-        advance(&mut sm, &[AgentEvent::Start, AgentEvent::Spawned, AgentEvent::Pause]);
+        advance(
+            &mut sm,
+            &[AgentEvent::Start, AgentEvent::Spawned, AgentEvent::Pause],
+        );
         assert_eq!(sm.state(), AgentState::Paused);
-        let next = sm.transition(AgentEvent::Fail).expect("Paused + Fail must succeed");
+        let next = sm
+            .transition(AgentEvent::Fail)
+            .expect("Paused + Fail must succeed");
         assert_eq!(next, AgentState::Failed);
         assert_eq!(sm.state(), AgentState::Failed);
     }
@@ -700,7 +703,10 @@ mod tests {
     #[test]
     fn can_transition_paused_fail_returns_true() {
         let mut sm = AgentStateMachine::new();
-        advance(&mut sm, &[AgentEvent::Start, AgentEvent::Spawned, AgentEvent::Pause]);
+        advance(
+            &mut sm,
+            &[AgentEvent::Start, AgentEvent::Spawned, AgentEvent::Pause],
+        );
         assert!(sm.can_transition(AgentEvent::Fail));
     }
 }

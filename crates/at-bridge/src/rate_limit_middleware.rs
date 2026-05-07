@@ -650,10 +650,22 @@ mod tests {
             .unwrap();
 
         let resp = app.clone().oneshot(req_padded).await.unwrap();
-        assert_eq!(resp.status(), StatusCode::OK, "padded X-Real-IP allowed first time");
+        assert_eq!(
+            resp.status(),
+            StatusCode::OK,
+            "padded X-Real-IP allowed first time"
+        );
         let resp = app.clone().oneshot(req_clean).await.unwrap();
-        assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS, "trimmed X-Real-IP shares bucket");
+        assert_eq!(
+            resp.status(),
+            StatusCode::TOO_MANY_REQUESTS,
+            "trimmed X-Real-IP shares bucket"
+        );
         let resp = app.clone().oneshot(req_other).await.unwrap();
-        assert_eq!(resp.status(), StatusCode::OK, "different X-Real-IP gets fresh bucket");
+        assert_eq!(
+            resp.status(),
+            StatusCode::OK,
+            "different X-Real-IP gets fresh bucket"
+        );
     }
 }
