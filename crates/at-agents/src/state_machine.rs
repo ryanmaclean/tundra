@@ -690,4 +690,25 @@ mod tests {
         assert_eq!(sm.history().len(), 0);
         assert_eq!(sm.state(), AgentState::Idle);
     }
+
+    // -----------------------------------------------------------------------
+    // Paused + Fail (added in Wave 7Q)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn paused_fail_yields_failed() {
+        let mut sm = AgentStateMachine::new();
+        advance(&mut sm, &[AgentEvent::Start, AgentEvent::Spawned, AgentEvent::Pause]);
+        assert_eq!(sm.state(), AgentState::Paused);
+        let next = sm.transition(AgentEvent::Fail).expect("Paused + Fail must succeed");
+        assert_eq!(next, AgentState::Failed);
+        assert_eq!(sm.state(), AgentState::Failed);
+    }
+
+    #[test]
+    fn can_transition_paused_fail_returns_true() {
+        let mut sm = AgentStateMachine::new();
+        advance(&mut sm, &[AgentEvent::Start, AgentEvent::Spawned, AgentEvent::Pause]);
+        assert!(sm.can_transition(AgentEvent::Fail));
+    }
 }
