@@ -145,7 +145,7 @@ where
         let mut inner = self.inner.clone();
 
         Box::pin(async move {
-            // Extract client IP from connection info or X-Forwarded-For header.
+            // Extract client IP from X-Forwarded-For (leftmost), falling back to X-Real-IP, then "unknown".
             let client_ip = req
                 .headers()
                 .get("x-forwarded-for")
@@ -156,7 +156,7 @@ where
                     req.headers()
                         .get("x-real-ip")
                         .and_then(|v| v.to_str().ok())
-                        .map(|s| s.to_string())
+                        .map(|s| s.trim().to_string())
                 })
                 .unwrap_or_else(|| "unknown".to_string());
 

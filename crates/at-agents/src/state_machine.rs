@@ -133,6 +133,7 @@ impl AgentStateMachine {
     /// - Active   + Fail    -> Failed
     /// - Paused   + Resume  -> Active
     /// - Paused   + Stop    -> Stopping
+    /// - Paused   + Fail    -> Failed
     /// - Stopping + Stop    -> Stopped
     /// - Stopping + Fail    -> Failed
     /// - Failed   + Recover -> Idle
@@ -146,6 +147,7 @@ impl AgentStateMachine {
             (AgentState::Active, AgentEvent::Fail) => AgentState::Failed,
             (AgentState::Paused, AgentEvent::Resume) => AgentState::Active,
             (AgentState::Paused, AgentEvent::Stop) => AgentState::Stopping,
+            (AgentState::Paused, AgentEvent::Fail) => AgentState::Failed,
             (AgentState::Stopping, AgentEvent::Stop) => AgentState::Stopped,
             (AgentState::Stopping, AgentEvent::Fail) => AgentState::Failed,
             (AgentState::Failed, AgentEvent::Recover) => AgentState::Idle,
@@ -176,6 +178,7 @@ impl AgentStateMachine {
                 | (AgentState::Active, AgentEvent::Fail)
                 | (AgentState::Paused, AgentEvent::Resume)
                 | (AgentState::Paused, AgentEvent::Stop)
+                | (AgentState::Paused, AgentEvent::Fail)
                 | (AgentState::Stopping, AgentEvent::Stop)
                 | (AgentState::Stopping, AgentEvent::Fail)
                 | (AgentState::Failed, AgentEvent::Recover)
@@ -542,23 +545,12 @@ mod tests {
         assert_eq!(sm.state(), AgentState::Paused);
     }
 
-    #[test]
-    fn paused_rejects_fail() {
-        let mut sm = AgentStateMachine::new();
-        advance(
-            &mut sm,
-            &[AgentEvent::Start, AgentEvent::Spawned, AgentEvent::Pause],
-        );
-        let err = sm.transition(AgentEvent::Fail).unwrap_err();
-        assert!(matches!(
-            err,
-            StateMachineError::InvalidTransition {
-                state: AgentState::Paused,
-                event: AgentEvent::Fail,
-            }
-        ));
-        assert_eq!(sm.state(), AgentState::Paused);
-    }
+    // Note: a previous Wave 2-1 test `paused_rejects_fail` pinned the OLD
+    // behavior where (Paused, Fail) returned InvalidTransition. Wave 7Q
+    // changed the semantics so that a paused agent can transition to Failed
+    // when its underlying process dies. The replacement coverage lives in
+    // `paused_fail_yields_failed` and `can_transition_paused_fail_returns_true`
+    // at the bottom of this module.
 
     // Spawning rejects events not in {Spawned, Fail}
     #[test]
