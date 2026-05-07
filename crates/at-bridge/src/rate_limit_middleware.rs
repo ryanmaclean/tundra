@@ -622,4 +622,38 @@ mod tests {
             "whitespace-padded XFF must produce the same bucket key as the clean IP"
         );
     }
+
+    /// X-Real-IP whitespace must also be trimmed (Wave 3C regression test).
+    #[tokio::test]
+    async fn x_real_ip_whitespace_is_trimmed() {
+        let limiter = Arc::new(MultiKeyRateLimiter::new(
+            RateLimitConfig::per_second(100),
+            RateLimitConfig::per_second(1),
+            RateLimitConfig::per_second(100),
+        ));
+        let app = test_router(limiter);
+
+        let req_padded = Request::builder()
+            .uri("/ping")
+            .header("x-real-ip", "  203.0.113.42  ")
+            .body(Body::empty())
+            .unwrap();
+        let req_clean = Request::builder()
+            .uri("/ping")
+            .header("x-real-ip", "203.0.113.42")
+            .body(Body::empty())
+            .unwrap();
+        let req_other = Request::builder()
+            .uri("/ping")
+            .header("x-real-ip", "198.51.100.99")
+            .body(Body::empty())
+            .unwrap();
+
+        let resp = app.clone().oneshot(req_padded).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK, "padded X-Real-IP allowed first time");
+        let resp = app.clone().oneshot(req_clean).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS, "trimmed X-Real-IP shares bucket");
+        let resp = app.clone().oneshot(req_other).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK, "different X-Real-IP gets fresh bucket");
+    }
 }
