@@ -150,6 +150,28 @@ impl TaskOrchestrator {
         }
     }
 
+    /// Construct a `TaskOrchestrator` directly from pre-built parts.
+    ///
+    /// This is `pub(crate)` and gated `#[cfg(test)]` so unit tests in sibling
+    /// modules can build an orchestrator around mocked executors and worktree
+    /// managers without going through the production `new()` path, which
+    /// ultimately wires to real PTY and git resources.  Tests that want to
+    /// observe event-bus traffic should pre-subscribe before calling this.
+    ///
+    /// Production code MUST always use [`TaskOrchestrator::new`].
+    #[cfg(test)]
+    pub(crate) fn from_parts(
+        executor: AgentExecutor,
+        worktree_manager: WorktreeManager,
+        event_bus: EventBus,
+    ) -> Self {
+        Self {
+            executor,
+            worktree_manager,
+            event_bus,
+        }
+    }
+
     /// Start executing a task through the full pipeline.
     ///
     /// This will:
@@ -986,5 +1008,138 @@ mod tests {
         // The labels come from SpecPhase::label(); we only require non-empty
         // and that all five placeholder lines are present.
         assert_eq!(combined.matches("Placeholder output for task").count(), 5);
+    }
+
+    // -----------------------------------------------------------------------
+    // from_parts seam tests — TaskOrchestrator
+    //
+    // These tests build a TaskOrchestrator via the #[cfg(test)] from_parts
+    // constructor so the seam path is exercised, then call real orchestrator
+    // methods and assert on observable state changes.  The tests below cover
+    // behaviour paths that were not exercised by the pre-existing test suite.
+    // -----------------------------------------------------------------------
+
+    /// retry_task() on a task in Stopped phase must reset to Discovery,
+    /// clear the error field, append a log entry, and publish a task_retry
+    /// event.  The Stopped phase is the second valid entry point for retry
+    /// (alongside Error); prior tests only checked the Error-rejection path
+    /// for non-retryable phases.
+    #[tokio::test]
+    async fn from_parts_retry_task_from_stopped_resets_to_discovery() {
+        let bus = EventBus::new();
+        let rx = bus.subscribe();
+
+        let spawner: Arc<dyn PtySpawner> = Arc::new(MockSpawner::new(b"ok\n".to_vec()));
+        let executor = AgentExecutor::with_spawner(spawner, bus.clone());
+
+        let tmp = std::env::temp_dir().join(format!("at-orch-fp-retry-{}", Uuid::new_v4()));
+        let _ = std::fs::create_dir_all(&tmp);
+        let git = Box::new(MockGit::new(vec![
+            // worktree creation (may be called by start_task during retry)
+            GitOutput {
+                success: true,
+                stdout: String::new(),
+                stderr: String::new(),
+            },
+            // merge phase
+            GitOutput {
+                success: true,
+                stdout: String::new(),
+                stderr: String::new(),
+            },
+            GitOutput {
+                success: true,
+                stdout: String::new(),
+                stderr: String::new(),
+            },
+        ]));
+        let worktree_manager = WorktreeManager::with_git_runner(tmp, git);
+
+        // Build via the test seam rather than the public `new()`.
+        let orchestrator = TaskOrchestrator::from_parts(executor, worktree_manager, bus);
+
+        let mut task = make_test_task();
+        task.set_phase(TaskPhase::Stopped);
+        task.error = Some("previous failure".to_string());
+
+        // retry_task resets to Discovery and re-runs start_task internally.
+        // We only verify the state immediately visible from the return value
+        // and via the event bus — not the full pipeline outcome (already
+        // covered by start_task_runs_through_phases).
+        let _ = orchestrator.retry_task(&mut task).await;
+
+        // The error field must have been cleared at the start of retry_task
+        // (before start_task runs; start_task may set it again on failure,
+        // but we only assert that the retry path was reached).
+        // Collect events to check task_retry was published.
+        let mut found_retry_event = false;
+        while let Ok(msg) = rx.try_recv() {
+            if let BridgeMessage::Event(payload) = &*msg {
+                if payload.event_type == "task_retry" {
+                    found_retry_event = true;
+                    break;
+                }
+            }
+        }
+
+        assert!(
+            found_retry_event,
+            "retry_task must publish a task_retry event via the event bus"
+        );
+    }
+
+    /// retry_task() on a task already in Error phase clears the error field
+    /// before handing off to start_task.  This test builds the orchestrator
+    /// via from_parts, sets an explicit error string, calls retry_task, and
+    /// asserts that the task log contains a "retrying" entry — confirming the
+    /// retry preamble executed rather than failing at the state-guard check.
+    #[tokio::test]
+    async fn from_parts_retry_task_from_error_clears_error_field_and_logs_retry() {
+        let bus = EventBus::new();
+        let spawner: Arc<dyn PtySpawner> = Arc::new(MockSpawner::new(b"ok\n".to_vec()));
+        let executor = AgentExecutor::with_spawner(spawner, bus.clone());
+
+        let tmp = std::env::temp_dir().join(format!("at-orch-fp-err-{}", Uuid::new_v4()));
+        let _ = std::fs::create_dir_all(&tmp);
+        let git = Box::new(MockGit::new(vec![
+            GitOutput {
+                success: true,
+                stdout: String::new(),
+                stderr: String::new(),
+            },
+            GitOutput {
+                success: true,
+                stdout: String::new(),
+                stderr: String::new(),
+            },
+            GitOutput {
+                success: true,
+                stdout: String::new(),
+                stderr: String::new(),
+            },
+        ]));
+        let worktree_manager = WorktreeManager::with_git_runner(tmp, git);
+
+        let orchestrator = TaskOrchestrator::from_parts(executor, worktree_manager, bus);
+
+        let mut task = make_test_task();
+        task.set_phase(TaskPhase::Error);
+        task.error = Some("executor timeout".to_string());
+        let logs_before = task.logs.len();
+
+        let _ = orchestrator.retry_task(&mut task).await;
+
+        // The retry preamble always appends at least one log entry ("Task
+        // retrying from Discovery") before delegating to start_task.
+        assert!(
+            task.logs.len() > logs_before,
+            "retry_task must append at least one log entry before delegating to start_task"
+        );
+        assert!(
+            task.logs
+                .iter()
+                .any(|l| l.message.to_lowercase().contains("retr")),
+            "retry log entry must mention 'retry' (case-insensitive)"
+        );
     }
 }

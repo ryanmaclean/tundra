@@ -187,6 +187,30 @@ impl DisconnectBuffer {
         }
     }
 
+    /// Construct a `DisconnectBuffer` directly from pre-built parts.
+    ///
+    /// This is `pub(crate)` and gated `#[cfg(test)]` so unit tests can inject
+    /// an explicit `disconnected_at` timestamp instead of capturing `Utc::now()`
+    /// inside [`DisconnectBuffer::new`].  That allows [`grace_expired`] to be
+    /// tested deterministically without sleeping or post-construction field
+    /// mutation.
+    ///
+    /// Production code MUST always use [`DisconnectBuffer::new`].
+    ///
+    /// [`grace_expired`]: DisconnectBuffer::grace_expired
+    #[cfg(test)]
+    pub(crate) fn from_parts(
+        max_bytes: usize,
+        data: VecDeque<u8>,
+        disconnected_at: DateTime<Utc>,
+    ) -> Self {
+        Self {
+            data,
+            max_bytes,
+            disconnected_at,
+        }
+    }
+
     /// Append bytes, dropping the oldest if capacity is exceeded.
     ///
     /// This is the core ring-buffer logic: if we're at capacity, remove one byte
@@ -621,5 +645,88 @@ mod tests {
     fn test_dead_status_variant() {
         let info = make_terminal(TerminalStatus::Dead);
         assert_eq!(info.status, TerminalStatus::Dead);
+    }
+
+    // -----------------------------------------------------------------------
+    // from_parts seam tests — DisconnectBuffer
+    //
+    // These tests exercise grace_expired() with deterministic timestamps.
+    // Without from_parts, the only way to control disconnected_at was to
+    // mutate the public field after calling new(), which is less expressive.
+    // Each test builds a buffer via from_parts with a carefully-chosen
+    // disconnected_at and then asserts on grace_expired() behavior.
+    // -----------------------------------------------------------------------
+
+    /// A buffer whose disconnected_at is far in the past (well beyond
+    /// WS_RECONNECT_GRACE) must report grace_expired() == true.
+    #[test]
+    fn grace_expired_returns_true_when_disconnected_long_ago() {
+        // WS_RECONNECT_GRACE is 30 seconds. Use 2 minutes to be unambiguous.
+        let disconnected_at = Utc::now() - chrono::Duration::minutes(2);
+        let buf = DisconnectBuffer::from_parts(64, VecDeque::new(), disconnected_at);
+
+        assert!(
+            buf.grace_expired(),
+            "buffer disconnected 2 minutes ago must have expired grace period"
+        );
+    }
+
+    /// A buffer whose disconnected_at is just 1 second in the past (far within
+    /// the 30-second WS_RECONNECT_GRACE) must report grace_expired() == false.
+    #[test]
+    fn grace_expired_returns_false_when_recently_disconnected() {
+        let disconnected_at = Utc::now() - chrono::Duration::seconds(1);
+        let buf = DisconnectBuffer::from_parts(64, VecDeque::new(), disconnected_at);
+
+        assert!(
+            !buf.grace_expired(),
+            "buffer disconnected 1 second ago must still be within grace period"
+        );
+    }
+
+    /// from_parts preserves pre-built data: drain_all on a buffer constructed
+    /// with pre-seeded bytes returns exactly those bytes in order.
+    #[test]
+    fn from_parts_preserves_pre_seeded_data_and_drain_returns_them_in_order() {
+        let mut data = VecDeque::new();
+        data.push_back(b'a');
+        data.push_back(b'b');
+        data.push_back(b'c');
+
+        let mut buf = DisconnectBuffer::from_parts(16, data, Utc::now());
+        let out = buf.drain_all();
+
+        assert_eq!(
+            out, b"abc",
+            "drain_all must return the pre-seeded bytes in insertion order"
+        );
+        assert!(
+            buf.data.is_empty(),
+            "data deque must be empty after drain_all"
+        );
+    }
+
+    /// After drain, the buffer constructed via from_parts still enforces max_bytes
+    /// when new bytes are pushed (i.e., the capacity constraint is live, not
+    /// merely inherited from the initialiser).
+    #[test]
+    fn from_parts_capacity_is_enforced_after_subsequent_push() {
+        let capacity = 4usize;
+        let buf_data = VecDeque::new();
+        let mut buf = DisconnectBuffer::from_parts(capacity, buf_data, Utc::now());
+
+        // Push 6 bytes into a 4-byte buffer — oldest 2 must be evicted.
+        buf.push(b"123456");
+
+        let out = buf.drain_all();
+        assert_eq!(
+            out.len(),
+            capacity,
+            "ring buffer must evict oldest bytes to honour max_bytes={capacity}"
+        );
+        assert_eq!(
+            out, b"3456",
+            "remaining bytes must be the most recently pushed ones"
+        );
     }
 }
