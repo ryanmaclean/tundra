@@ -362,6 +362,72 @@ impl CacheDb {
     // KPI
     // -----------------------------------------------------------------------
 
+    /// Insert a raw row into the `beads` table using arbitrary string values,
+    /// bypassing type validation.
+    ///
+    /// **Only available when the `test-utils` feature (or the crate's own
+    /// `#[cfg(test)]`) is active.**  Intended for injecting deliberately-corrupt
+    /// rows (bad UUIDs, unknown enum variants, invalid dates) so that callers
+    /// in other crates can exercise the `CacheError::InvalidRow` code paths
+    /// without needing access to the private `conn` field.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub async fn insert_raw_bead_for_test(
+        &self,
+        id: &str,
+        status: &str,
+        lane: &str,
+    ) -> Result<(), tokio_rusqlite::Error> {
+        let id = id.to_string();
+        let status = status.to_string();
+        let lane = lane.to_string();
+        const GOOD_DATE: &str = "2024-01-01T00:00:00+00:00";
+        self.conn
+            .call(move |conn| {
+                conn.execute(
+                    "INSERT INTO beads \
+                     (id, title, status, lane, priority, created_at, updated_at) \
+                     VALUES (?1, 'raw-test', ?2, ?3, 0, ?4, ?5)",
+                    rusqlite::params![id, status, lane, GOOD_DATE, GOOD_DATE],
+                )?;
+                Ok(())
+            })
+            .await
+    }
+
+    /// Insert a raw row into the `agents` table using arbitrary string values,
+    /// bypassing type validation.
+    ///
+    /// **Only available when the `test-utils` feature (or the crate's own
+    /// `#[cfg(test)]`) is active.**  Intended for injecting deliberately-corrupt
+    /// rows so that callers in other crates can exercise the
+    /// `CacheError::InvalidRow` code paths.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub async fn insert_raw_agent_for_test(
+        &self,
+        name: &str,
+        role: &str,
+        cli_type: &str,
+    ) -> Result<(), tokio_rusqlite::Error> {
+        let name = name.to_string();
+        let role = role.to_string();
+        let cli_type = cli_type.to_string();
+        const GOOD_DATE: &str = "2024-01-01T00:00:00+00:00";
+        let id = uuid::Uuid::new_v4().to_string();
+        self.conn
+            .call(move |conn| {
+                conn.execute(
+                    "INSERT INTO agents \
+                     (id, name, role, cli_type, model, status, rig, pid, session_id, \
+                      created_at, last_seen, metadata) \
+                     VALUES (?1, ?2, ?3, ?4, 'test-model', 'active', NULL, NULL, NULL, \
+                             ?5, ?6, NULL)",
+                    rusqlite::params![id, name, role, cli_type, GOOD_DATE, GOOD_DATE],
+                )?;
+                Ok(())
+            })
+            .await
+    }
+
     /// Compute a point-in-time KPI snapshot.
     ///
     /// **Unknown-status policy (lenient + visible):** rows whose `status`

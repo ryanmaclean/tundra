@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use at_bridge::http_api::ApiState;
-use at_core::cache::CacheDb;
+use at_core::cache::{CacheDb, CacheError};
 use at_core::types::BeadStatus;
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use serde::{Deserialize, Serialize};
@@ -65,7 +65,25 @@ impl PatrolRunner {
         let slung_beads = cache
             .list_beads_by_status(BeadStatus::Slung)
             .await
-            .map_err(|e| anyhow::anyhow!("failed to query slung beads: {}", e))?;
+            .map_err(|e| match e {
+                CacheError::InvalidRow { ref context, .. } => {
+                    // Persistent schema corruption — log at error; operator action required.
+                    tracing::error!(
+                        context = %context,
+                        "slung bead row has corrupt data (schema drift?); \
+                         patrol cannot complete stuck-bead check"
+                    );
+                    anyhow::anyhow!("slung beads contain corrupt row data — {}: {}", context, e)
+                }
+                CacheError::Db(ref db_err) => {
+                    // Transient DB error — patrol will retry on the next cycle.
+                    tracing::warn!(
+                        error = %db_err,
+                        "transient DB error querying slung beads; patrol will retry next cycle"
+                    );
+                    anyhow::anyhow!("transient DB error querying slung beads: {}", db_err)
+                }
+            })?;
 
         let mut stuck_bead_ids = Vec::new();
         for bead in &slung_beads {
@@ -351,5 +369,56 @@ mod tests {
         let report = runner.run_patrol(&cache).await.expect("patrol");
         assert_eq!(report.stale_agents, 0);
         assert_eq!(report.orphan_ptys, 0);
+    }
+
+    // ----- CacheError::InvalidRow regression tests -----
+
+    /// When `list_beads_by_status` returns `CacheError::InvalidRow` (because a
+    /// slung row has a corrupt lane value), `run_patrol` must return an `Err`
+    /// rather than panicking.  The error message must mention the corruption so
+    /// operators can identify the source.
+    #[tokio::test]
+    async fn run_patrol_returns_err_on_invalid_row_in_slung_beads() {
+        let runner = PatrolRunner::new(60);
+        let cache = CacheDb::new_in_memory().await.expect("cache");
+
+        // Insert a slung bead with a bogus lane — row_to_bead will return
+        // CacheError::InvalidRow when the patrol queries slung beads.
+        cache
+            .insert_raw_bead_for_test(
+                "550e8400-e29b-41d4-a716-446655440002",
+                "slung",
+                "GALAXY_BRAIN_LANE",
+            )
+            .await
+            .expect("raw insert");
+
+        let result = runner.run_patrol(&cache).await;
+        assert!(
+            result.is_err(),
+            "run_patrol must propagate CacheError::InvalidRow as Err"
+        );
+        let msg = result.unwrap_err().to_string();
+        // The anyhow message must mention the corrupt data context.
+        assert!(
+            msg.contains("corrupt") || msg.contains("invalid"),
+            "error message should describe the corruption, got: {msg}"
+        );
+    }
+
+    /// When the slung bead query succeeds (no corruption), `run_patrol` must
+    /// return `Ok` even if there are stuck beads mixed with fresh ones — confirming
+    /// the baseline happy-path is unaffected by the error-handling changes.
+    #[tokio::test]
+    async fn run_patrol_ok_with_valid_slung_beads_after_error_handling_change() {
+        let runner = PatrolRunner::new(60).with_slung_timeout(ChronoDuration::minutes(10));
+        let cache = CacheDb::new_in_memory().await.expect("cache");
+
+        let fresh = make_slung_bead(Some(Utc::now() - ChronoDuration::minutes(1)));
+        let stuck = make_slung_bead(Some(Utc::now() - ChronoDuration::hours(1)));
+        insert_beads(&cache, &[fresh, stuck]).await;
+
+        let report = runner.run_patrol(&cache).await.expect("patrol must succeed");
+        assert_eq!(report.stuck_beads, 1);
     }
 }
