@@ -372,13 +372,15 @@ mod tests {
 
     /// Regression test: cleanup must continue past a file it cannot delete.
     ///
-    /// We use `chattr +i` (Linux ext4) to make one expired session file immutable
-    /// so that even root cannot remove it. This ensures `list_sessions` still reads
-    /// the file (it's readable) while `delete_session` fails with EPERM.
-    /// The test is skipped at runtime if `chattr` is unavailable or the filesystem
-    /// does not support immutable flags (e.g. tmpfs).
+    /// We use `chattr +i` (Linux ext4) to make one expired session file
+    /// **immutable**, so that even root cannot remove it. The file is still
+    /// **readable** — `list_sessions` will discover it — but `delete_session`
+    /// fails with EPERM. The earlier name said "unreadable", which was a
+    /// misnomer; renamed to match the actual scenario (undeletable).
+    /// The test is skipped at runtime if `chattr` is unavailable or the
+    /// filesystem does not support immutable flags (e.g. tmpfs).
     #[tokio::test]
-    async fn cleanup_continues_past_unreadable_file() {
+    async fn cleanup_continues_past_undeletable_file() {
         let (store, dir) = temp_store();
         let ttl = Duration::days(30);
 

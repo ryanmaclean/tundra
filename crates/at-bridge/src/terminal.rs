@@ -174,6 +174,17 @@ pub struct DisconnectBuffer {
 }
 
 impl DisconnectBuffer {
+    /// Test-only snapshot of the buffered bytes without consuming the buffer.
+    ///
+    /// Prefer this over reaching into `data` directly so test assertions stay
+    /// decoupled from the underlying `VecDeque<u8>` representation.
+    #[cfg(test)]
+    pub(crate) fn snapshot(&self) -> Vec<u8> {
+        self.data.iter().copied().collect()
+    }
+}
+
+impl DisconnectBuffer {
     /// Create a new buffer with the given capacity and the current time.
     ///
     /// # Parameters

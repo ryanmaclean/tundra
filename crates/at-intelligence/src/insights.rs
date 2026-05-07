@@ -142,6 +142,12 @@ impl InsightsEngine {
         session_id: &Uuid,
         content: &str,
     ) -> Result<ChatMessage, IntelligenceError> {
+        // Capture the user-message timestamp at function entry so that the
+        // deferred commit (after a possibly-slow provider call) still reflects
+        // when the user actually sent the message — not when we got around to
+        // recording it.
+        let user_timestamp = Utc::now();
+
         let provider = self
             .provider
             .as_ref()
@@ -218,7 +224,7 @@ impl InsightsEngine {
         session_mut.messages.push(ChatMessage {
             role: ChatRole::User,
             content: content.to_string(),
-            timestamp: Utc::now(),
+            timestamp: user_timestamp,
         });
         session_mut.messages.push(assistant_msg.clone());
 

@@ -223,7 +223,10 @@ impl RateLimiter {
     /// fresh bucket if none exists yet.  Only compiled in test builds.
     #[cfg(test)]
     pub(crate) fn force_last_refill_offset(&self, key: &str, elapsed: Duration) {
-        let past = Instant::now() - elapsed;
+        // Use checked_sub so a test passing a very large `elapsed` saturates
+        // at "epoch start" rather than panicking on Instant underflow.
+        let now = Instant::now();
+        let past = now.checked_sub(elapsed).unwrap_or(now);
         self.buckets
             .entry(key.to_string())
             .or_insert_with(|| TokenBucket::new(self.config.max_burst))

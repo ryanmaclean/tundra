@@ -504,26 +504,40 @@ fn parse_json(s: &str, column: &str) -> Result<serde_json::Value, CacheError> {
         .map_err(|e| CacheError::invalid_row(format!("{column}: invalid JSON"), e))
 }
 
+/// Read a column and map any decode error to `CacheError::InvalidRow`.
+///
+/// Column-decode failures (e.g. column-type mismatch after a schema migration)
+/// are persistent and indicate row-level corruption — they should not be
+/// reported as transient `Db` errors that callers might silently retry.
+fn decode_col<T: rusqlite::types::FromSql>(
+    row: &rusqlite::Row<'_>,
+    idx: usize,
+    column: &str,
+) -> Result<T, CacheError> {
+    row.get::<_, T>(idx)
+        .map_err(|e| CacheError::invalid_row(format!("{column}: column decode failed"), e))
+}
+
 fn row_to_bead(row: &rusqlite::Row<'_>) -> Result<Bead, CacheError> {
-    let id_str: String = row.get(0).map_err(|e| CacheError::Db(e.into()))?;
-    let status_str: String = row.get(3).map_err(|e| CacheError::Db(e.into()))?;
-    let lane_str: String = row.get(4).map_err(|e| CacheError::Db(e.into()))?;
-    let agent_id_str: Option<String> = row.get(6).map_err(|e| CacheError::Db(e.into()))?;
-    let convoy_id_str: Option<String> = row.get(7).map_err(|e| CacheError::Db(e.into()))?;
-    let created_at_str: String = row.get(8).map_err(|e| CacheError::Db(e.into()))?;
-    let updated_at_str: String = row.get(9).map_err(|e| CacheError::Db(e.into()))?;
-    let hooked_at_str: Option<String> = row.get(10).map_err(|e| CacheError::Db(e.into()))?;
-    let slung_at_str: Option<String> = row.get(11).map_err(|e| CacheError::Db(e.into()))?;
-    let done_at_str: Option<String> = row.get(12).map_err(|e| CacheError::Db(e.into()))?;
-    let metadata_str: Option<String> = row.get(14).map_err(|e| CacheError::Db(e.into()))?;
+    let id_str: String = decode_col(row, 0, "beads.id")?;
+    let status_str: String = decode_col(row, 3, "beads.status")?;
+    let lane_str: String = decode_col(row, 4, "beads.lane")?;
+    let agent_id_str: Option<String> = decode_col(row, 6, "beads.agent_id")?;
+    let convoy_id_str: Option<String> = decode_col(row, 7, "beads.convoy_id")?;
+    let created_at_str: String = decode_col(row, 8, "beads.created_at")?;
+    let updated_at_str: String = decode_col(row, 9, "beads.updated_at")?;
+    let hooked_at_str: Option<String> = decode_col(row, 10, "beads.hooked_at")?;
+    let slung_at_str: Option<String> = decode_col(row, 11, "beads.slung_at")?;
+    let done_at_str: Option<String> = decode_col(row, 12, "beads.done_at")?;
+    let metadata_str: Option<String> = decode_col(row, 14, "beads.metadata")?;
 
     Ok(Bead {
         id: parse_uuid(&id_str, "beads.id")?,
-        title: row.get(1).map_err(|e| CacheError::Db(e.into()))?,
-        description: row.get(2).map_err(|e| CacheError::Db(e.into()))?,
+        title: decode_col(row, 1, "beads.title")?,
+        description: decode_col(row, 2, "beads.description")?,
         status: enum_from_sql(&status_str, "beads.status")?,
         lane: enum_from_sql(&lane_str, "beads.lane")?,
-        priority: row.get(5).map_err(|e| CacheError::Db(e.into()))?,
+        priority: decode_col(row, 5, "beads.priority")?,
         agent_id: agent_id_str
             .map(|s| parse_uuid(&s, "beads.agent_id"))
             .transpose()?,
@@ -541,7 +555,7 @@ fn row_to_bead(row: &rusqlite::Row<'_>) -> Result<Bead, CacheError> {
         done_at: done_at_str
             .map(|s| parse_datetime(&s, "beads.done_at"))
             .transpose()?,
-        git_branch: row.get(13).map_err(|e| CacheError::Db(e.into()))?,
+        git_branch: decode_col(row, 13, "beads.git_branch")?,
         metadata: metadata_str
             .map(|s| parse_json(&s, "beads.metadata"))
             .transpose()?,
@@ -549,25 +563,25 @@ fn row_to_bead(row: &rusqlite::Row<'_>) -> Result<Bead, CacheError> {
 }
 
 fn row_to_agent(row: &rusqlite::Row<'_>) -> Result<Agent, CacheError> {
-    let id_str: String = row.get(0).map_err(|e| CacheError::Db(e.into()))?;
-    let role_str: String = row.get(2).map_err(|e| CacheError::Db(e.into()))?;
-    let cli_type_str: String = row.get(3).map_err(|e| CacheError::Db(e.into()))?;
-    let status_str: String = row.get(5).map_err(|e| CacheError::Db(e.into()))?;
-    let pid_val: Option<i64> = row.get(7).map_err(|e| CacheError::Db(e.into()))?;
-    let created_at_str: String = row.get(9).map_err(|e| CacheError::Db(e.into()))?;
-    let last_seen_str: String = row.get(10).map_err(|e| CacheError::Db(e.into()))?;
-    let metadata_str: Option<String> = row.get(11).map_err(|e| CacheError::Db(e.into()))?;
+    let id_str: String = decode_col(row, 0, "agents.id")?;
+    let role_str: String = decode_col(row, 2, "agents.role")?;
+    let cli_type_str: String = decode_col(row, 3, "agents.cli_type")?;
+    let status_str: String = decode_col(row, 5, "agents.status")?;
+    let pid_val: Option<i64> = decode_col(row, 7, "agents.pid")?;
+    let created_at_str: String = decode_col(row, 9, "agents.created_at")?;
+    let last_seen_str: String = decode_col(row, 10, "agents.last_seen")?;
+    let metadata_str: Option<String> = decode_col(row, 11, "agents.metadata")?;
 
     Ok(Agent {
         id: parse_uuid(&id_str, "agents.id")?,
-        name: row.get(1).map_err(|e| CacheError::Db(e.into()))?,
+        name: decode_col(row, 1, "agents.name")?,
         role: enum_from_sql(&role_str, "agents.role")?,
         cli_type: enum_from_sql(&cli_type_str, "agents.cli_type")?,
-        model: row.get(4).map_err(|e| CacheError::Db(e.into()))?,
+        model: decode_col(row, 4, "agents.model")?,
         status: enum_from_sql(&status_str, "agents.status")?,
-        rig: row.get(6).map_err(|e| CacheError::Db(e.into()))?,
+        rig: decode_col(row, 6, "agents.rig")?,
         pid: pid_val.map(|p| p as u32),
-        session_id: row.get(8).map_err(|e| CacheError::Db(e.into()))?,
+        session_id: decode_col(row, 8, "agents.session_id")?,
         created_at: parse_datetime(&created_at_str, "agents.created_at")?,
         last_seen: parse_datetime(&last_seen_str, "agents.last_seen")?,
         metadata: metadata_str

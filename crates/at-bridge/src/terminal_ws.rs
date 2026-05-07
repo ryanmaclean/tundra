@@ -2332,7 +2332,7 @@ mod grace_period_tests {
             let buf = buffers
                 .get(&terminal_id)
                 .expect("DisconnectBuffer must exist during grace period");
-            let buffered: Vec<u8> = buf.data.iter().copied().collect();
+            let buffered: Vec<u8> = buf.snapshot();
             assert!(
                 buffered.windows(chunk.len()).any(|w| w == chunk.as_slice()),
                 "disconnect buffer must contain the output sent during grace period; \
