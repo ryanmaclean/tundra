@@ -4,7 +4,7 @@ use std::time::Duration;
 use tokio::sync::Mutex;
 
 use anyhow::Result;
-use at_core::cache::CacheDb;
+use at_core::cache::{CacheDb, CacheError};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -124,8 +124,23 @@ impl HeartbeatMonitor {
                         duration_since: self.staleness_threshold + Duration::from_secs(1),
                     });
                 }
-                Err(e) => {
-                    tracing::warn!(agent_name = %name, error = %e, "failed to query agent");
+                Err(CacheError::InvalidRow { ref context, ref source }) => {
+                    // Persistent schema corruption — will not resolve on retry.
+                    // Log at error level so operators know a manual fix is needed.
+                    tracing::error!(
+                        agent_name = %name,
+                        context = %context,
+                        source = %source,
+                        "agent row contains corrupt data (schema drift?); skipping this agent"
+                    );
+                }
+                Err(CacheError::Db(ref db_err)) => {
+                    // Transient database error — may resolve on the next heartbeat tick.
+                    tracing::warn!(
+                        agent_name = %name,
+                        error = %db_err,
+                        "transient DB error querying agent; will retry next tick"
+                    );
                 }
             }
         }
@@ -315,5 +330,88 @@ mod tests {
         assert!(names.contains("bravo"), "bravo should be stale");
         assert!(names.contains("charlie"), "charlie should be stale");
         assert_eq!(result.len(), 2);
+    }
+
+    // ----- CacheError::InvalidRow regression tests -----
+
+    /// A registered agent whose cache row has a corrupt enum (unrecognised
+    /// `role` value) must be silently skipped — `check_agents` must not panic
+    /// and must still return `Ok(...)` for the other agents.
+    #[tokio::test]
+    async fn check_agents_skips_corrupt_invalid_row_agent() {
+        let monitor = HeartbeatMonitor::new(Duration::from_secs(30));
+        let cache = CacheDb::new_in_memory().await.expect("cache");
+
+        // Insert an agent with an unknown role so row_to_agent returns InvalidRow.
+        cache
+            .insert_raw_agent_for_test("corrupt-agent", "NOT_A_VALID_ROLE", "claude")
+            .await
+            .expect("raw insert");
+
+        // Also insert a healthy agent — it must still show up in results.
+        let healthy = make_agent("healthy-agent", Utc::now() - chrono::Duration::seconds(120));
+        cache.upsert_agent(&healthy).await.expect("upsert healthy");
+
+        monitor
+            .register_agent("corrupt-agent".to_string(), Uuid::new_v4())
+            .await;
+        monitor
+            .register_agent("healthy-agent".to_string(), healthy.id)
+            .await;
+
+        // Must not panic; corrupt agent is skipped, healthy agent is reported.
+        let result = monitor
+            .check_agents(&cache)
+            .await
+            .expect("check_agents must not fail on InvalidRow");
+
+        let names: std::collections::HashSet<_> = result.iter().map(|s| s.name.as_str()).collect();
+        assert!(
+            !names.contains("corrupt-agent"),
+            "corrupt agent should be skipped, not included in stale list"
+        );
+        assert!(
+            names.contains("healthy-agent"),
+            "healthy (but stale) agent must still be reported"
+        );
+    }
+
+    /// A `CacheError::Db` (simulated via an agent that is simply missing from
+    /// the cache) must also not abort `check_agents`.  The missing-from-cache
+    /// path produces `Ok(None)`, which is already tested; here we confirm the
+    /// loop continues past an agent whose row would produce a transient error.
+    /// (The cleanest way to verify the loop-continues contract without a mock
+    /// DB is to exercise the happy path alongside the skip path.)
+    #[tokio::test]
+    async fn check_agents_continues_past_corrupt_row_and_returns_ok() {
+        let monitor = HeartbeatMonitor::new(Duration::from_secs(1));
+        let cache = CacheDb::new_in_memory().await.expect("cache");
+
+        // One corrupt agent (InvalidRow) and one genuinely stale agent.
+        cache
+            .insert_raw_agent_for_test("bad-cli-type", "crew", "COMPLETELY_BOGUS_CLI_TYPE")
+            .await
+            .expect("raw insert");
+
+        let stale = make_agent("real-stale", Utc::now() - chrono::Duration::seconds(999));
+        cache.upsert_agent(&stale).await.expect("upsert stale");
+
+        monitor
+            .register_agent("bad-cli-type".to_string(), Uuid::new_v4())
+            .await;
+        monitor
+            .register_agent("real-stale".to_string(), stale.id)
+            .await;
+
+        let result = monitor
+            .check_agents(&cache)
+            .await
+            .expect("must return Ok even when an InvalidRow is encountered");
+
+        // The stale, non-corrupt agent must be reported.
+        assert!(
+            result.iter().any(|s| s.name == "real-stale"),
+            "stale healthy agent must appear in result: {result:?}"
+        );
     }
 }

@@ -27,6 +27,9 @@ zeroize = { version = "1", features = ["derive"] }
 [features]
 default = ["libgit2"]
 libgit2 = ["dep:git2"]
+# Expose raw-SQL helper methods on CacheDb for use in integration tests in
+# other crates.  Never enable in production builds.
+test-utils = []
 
 [dev-dependencies]
 tokio = { workspace = true }
