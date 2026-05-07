@@ -152,35 +152,46 @@ impl InsightsEngine {
             })?
             .clone();
 
-        // 1. Add the user message.
-        self.add_message(session_id, ChatRole::User, content)?;
+        // 1. Build the conversation history as LlmMessages WITHOUT committing
+        //    the new user message to the session yet.  We defer the commit
+        //    until after the provider call succeeds so that a provider error
+        //    never leaves an orphaned user message in the session history.
+        let (llm_messages, model) = {
+            let session = self
+                .sessions
+                .iter()
+                .find(|s| s.id == *session_id)
+                .ok_or(IntelligenceError::NotFound {
+                    entity: "session".into(),
+                    id: *session_id,
+                })?;
 
-        // 2. Build the conversation history as LlmMessages.
-        let session = self.sessions.iter().find(|s| s.id == *session_id).ok_or(
-            IntelligenceError::NotFound {
-                entity: "session".into(),
-                id: *session_id,
-            },
-        )?;
+            let system_prompt = "You are an expert codebase exploration assistant. \
+                Help the user understand code structure, patterns, dependencies, and \
+                potential improvements. Be concise and precise.";
 
-        let system_prompt = "You are an expert codebase exploration assistant. \
-            Help the user understand code structure, patterns, dependencies, and \
-            potential improvements. Be concise and precise.";
+            let mut msgs = vec![LlmMessage::system(system_prompt)];
 
-        let mut llm_messages = vec![LlmMessage::system(system_prompt)];
+            for msg in &session.messages {
+                let role = match msg.role {
+                    ChatRole::User => LlmRole::User,
+                    ChatRole::Assistant => LlmRole::Assistant,
+                    ChatRole::System => LlmRole::System,
+                };
+                msgs.push(LlmMessage::new(role, msg.content.clone()));
+            }
 
-        for msg in &session.messages {
-            let role = match msg.role {
-                ChatRole::User => LlmRole::User,
-                ChatRole::Assistant => LlmRole::Assistant,
-                ChatRole::System => LlmRole::System,
-            };
-            llm_messages.push(LlmMessage::new(role, msg.content.clone()));
-        }
+            // Append the pending user message to the LLM payload only — not
+            // yet to session.messages.
+            msgs.push(LlmMessage::new(LlmRole::User, content));
 
-        // 3. Call the LLM.
+            (msgs, session.model.clone())
+        };
+
+        // 2. Call the LLM.  If this fails we return early and session history
+        //    remains unchanged (no half-written user message).
         let config = LlmConfig {
-            model: session.model.clone(),
+            model,
             max_tokens: 1024,
             temperature: 0.7,
             system_prompt: None,
@@ -190,7 +201,8 @@ impl InsightsEngine {
             .await
             .map_err(|e| IntelligenceError::InvalidOperation(format!("LLM call failed: {e}")))?;
 
-        // 4. Append the assistant reply.
+        // 3. Provider succeeded — now atomically commit both the user message
+        //    and the assistant reply to session history.
         let assistant_msg = ChatMessage {
             role: ChatRole::Assistant,
             content: response.content.clone(),
@@ -205,6 +217,11 @@ impl InsightsEngine {
                 entity: "session".into(),
                 id: *session_id,
             })?;
+        session_mut.messages.push(ChatMessage {
+            role: ChatRole::User,
+            content: content.to_string(),
+            timestamp: Utc::now(),
+        });
         session_mut.messages.push(assistant_msg.clone());
 
         Ok(assistant_msg)
@@ -368,12 +385,12 @@ mod tests {
 
     // ---- New tests: stream-error path and success-path anchor ---------------
 
-    /// Test A: when the LLM provider returns an error, `send_message_with_ai`
-    /// returns an error AND the session history contains exactly the user
-    /// message that was added before the provider call — i.e. history is in a
-    /// half-written state (user committed, no assistant reply).
+    /// Test A (verifies the half-write bug is FIXED): when the LLM provider
+    /// returns an error, `send_message_with_ai` returns an error AND the
+    /// session history is left completely clean — the user message is NOT
+    /// committed because the provider call was deferred until after commit.
     #[tokio::test]
-    async fn send_message_with_ai_provider_error_leaves_user_message_in_history() {
+    async fn send_message_with_ai_provider_error_does_not_commit_user_message() {
         use crate::llm::{LlmError, MockProvider as LlmMockProvider};
 
         // Queue an API-level error so complete() returns Err.
@@ -402,22 +419,17 @@ mod tests {
             "unexpected error message: {err_msg}"
         );
 
-        // (b) The session history is in a known half-written state:
-        //     the user message was committed BEFORE the provider call, so it
-        //     is present; the assistant reply was never written.
+        // (b) BUG-FIXED: previously, the user message was committed before the
+        //     provider call, leaving orphaned history on error; now the user
+        //     message is only committed after provider.complete() succeeds, so
+        //     history must be empty after a provider error.
         let messages = &engine.get_session(&session_id).unwrap().messages;
         assert_eq!(
             messages.len(),
-            1,
-            "expected exactly 1 message (user) after provider error, got {}",
+            0,
+            "expected 0 messages after provider error (user message must not be committed), got {}",
             messages.len()
         );
-        assert_eq!(
-            messages[0].role,
-            ChatRole::User,
-            "the only message should be the user message"
-        );
-        assert_eq!(messages[0].content, "What went wrong?");
     }
 
     /// Test B: success path — `send_message_with_ai` returns Ok and the session
