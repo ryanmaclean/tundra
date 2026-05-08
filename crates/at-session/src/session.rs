@@ -100,11 +100,13 @@ impl AgentSession {
     /// Build an `AgentSession` directly from a pre-constructed `PtyHandle`
     /// and adapter.
     ///
-    /// `pub(crate)` and gated `#[cfg(test)]` so unit tests in this crate can
-    /// inject fake handles/adapters without spawning a real CLI process.
+    /// Gated on `#[cfg(any(test, feature = "test-helpers"))]` so test code in
+    /// this crate or dependent crates can inject fake handles/adapters without
+    /// spawning a real CLI process.  Enable the `test-helpers` feature in a
+    /// crate's `[dev-dependencies]` entry for `at-session` to use this.
     /// Production code should always use [`AgentSession::spawn`].
-    #[cfg(test)]
-    pub(crate) fn from_parts(
+    #[cfg(any(test, feature = "test-helpers"))]
+    pub fn from_parts(
         agent_id: Uuid,
         handle: PtyHandle,
         adapter: Box<dyn CliAdapter>,
