@@ -633,7 +633,7 @@ mod oauth_monitor {
         // Step 2: acquire the read lock only to check refresh status, then drop it.
         let needs_refresh = {
             let mgr = token_manager.read().await;
-            mgr.should_refresh().await
+            mgr.should_refresh()
         };
 
         if needs_refresh {
