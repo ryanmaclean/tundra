@@ -603,3 +603,469 @@ mod tests {
         runner.reset_stuck_detector();
     }
 }
+
+// ---------------------------------------------------------------------------
+// Pipeline integration tests — require real fake PTY fakes (unix-only because
+// portable_pty::MasterPty::as_raw_fd is a unix-specific method).
+// ---------------------------------------------------------------------------
+
+#[cfg(all(test, unix))]
+mod pipeline_tests {
+    use super::*;
+
+    use std::sync::{Arc, Mutex};
+
+    use async_trait::async_trait;
+    use at_core::types::CliType;
+    use at_core::types::{TaskCategory, TaskComplexity, TaskPhase, TaskPriority};
+    use at_session::cli_adapter::CliAdapter;
+    use at_session::pty_pool::{PtyHandle, PtyPool, Result as PtyResult};
+    use at_session::session::AgentSession;
+    use portable_pty::{Child, ChildKiller, ExitStatus, MasterPty, PtySize};
+    use uuid::Uuid;
+
+    // -----------------------------------------------------------------------
+    // FakeChild — controls is_alive() behaviour across the test
+    // -----------------------------------------------------------------------
+
+    /// A fake child process whose liveness can be controlled.
+    ///
+    /// `kill_after` — if `Some(n)`, the child reports alive for the first `n`
+    /// calls to `try_wait()` and dead thereafter, simulating a mid-pipeline
+    /// process exit.  `None` means the child stays alive forever (or until
+    /// `kill()` is called).
+    #[derive(Debug, Clone)]
+    struct FakeChild {
+        alive: Arc<Mutex<bool>>,
+        kill_after: Arc<Mutex<Option<usize>>>,
+    }
+
+    impl FakeChild {
+        fn always_alive() -> Self {
+            Self {
+                alive: Arc::new(Mutex::new(true)),
+                kill_after: Arc::new(Mutex::new(None)),
+            }
+        }
+
+        fn dead_from_start() -> Self {
+            Self {
+                alive: Arc::new(Mutex::new(false)),
+                kill_after: Arc::new(Mutex::new(None)),
+            }
+        }
+
+        /// Alive for the first `n` calls to `try_wait`, dead on call `n+1`.
+        fn alive_for(n: usize) -> Self {
+            Self {
+                alive: Arc::new(Mutex::new(true)),
+                kill_after: Arc::new(Mutex::new(Some(n))),
+            }
+        }
+    }
+
+    impl ChildKiller for FakeChild {
+        fn kill(&mut self) -> std::io::Result<()> {
+            *self.alive.lock().unwrap() = false;
+            Ok(())
+        }
+
+        fn clone_killer(&self) -> Box<dyn ChildKiller + Send + Sync> {
+            Box::new(self.clone())
+        }
+    }
+
+    impl Child for FakeChild {
+        fn try_wait(&mut self) -> std::io::Result<Option<ExitStatus>> {
+            let mut alive = self.alive.lock().unwrap();
+            if !*alive {
+                return Ok(Some(ExitStatus::with_exit_code(0)));
+            }
+            let mut ka = self.kill_after.lock().unwrap();
+            if let Some(remaining) = ka.as_mut() {
+                if *remaining == 0 {
+                    *alive = false;
+                    return Ok(Some(ExitStatus::with_exit_code(0)));
+                }
+                *remaining -= 1;
+            }
+            Ok(None) // still alive
+        }
+
+        fn wait(&mut self) -> std::io::Result<ExitStatus> {
+            *self.alive.lock().unwrap() = false;
+            Ok(ExitStatus::with_exit_code(0))
+        }
+
+        fn process_id(&self) -> Option<u32> {
+            Some(0)
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // FakeMaster — no-op PTY master
+    // -----------------------------------------------------------------------
+
+    struct FakeMaster;
+
+    impl MasterPty for FakeMaster {
+        fn resize(&self, _size: PtySize) -> std::result::Result<(), anyhow::Error> {
+            Ok(())
+        }
+
+        fn get_size(&self) -> std::result::Result<PtySize, anyhow::Error> {
+            Ok(PtySize::default())
+        }
+
+        fn try_clone_reader(
+            &self,
+        ) -> std::result::Result<Box<dyn std::io::Read + Send>, anyhow::Error> {
+            Ok(Box::new(std::io::empty()))
+        }
+
+        fn take_writer(
+            &self,
+        ) -> std::result::Result<Box<dyn std::io::Write + Send>, anyhow::Error> {
+            Ok(Box::new(std::io::sink()))
+        }
+
+        fn process_group_leader(&self) -> Option<i32> {
+            None
+        }
+
+        fn as_raw_fd(&self) -> Option<portable_pty::unix::RawFd> {
+            None
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // TestAdapter — adapter with a configurable error-trigger
+    // -----------------------------------------------------------------------
+
+    /// A CLI adapter that returns `Some("error")` when the output chunk
+    /// contains the sentinel string `"PHASE_ERROR_MARKER"`, and `None`
+    /// otherwise.  This allows individual phases to signal failure by having
+    /// the test pre-load an error chunk onto the reader channel.
+    struct TestAdapter;
+
+    #[async_trait]
+    impl CliAdapter for TestAdapter {
+        fn cli_type(&self) -> CliType {
+            CliType::Claude
+        }
+
+        fn binary_name(&self) -> &str {
+            "fake-cli"
+        }
+
+        fn default_args(&self) -> Vec<String> {
+            vec![]
+        }
+
+        async fn spawn(
+            &self,
+            _pool: &PtyPool,
+            _task: &str,
+            _workdir: &str,
+        ) -> PtyResult<PtyHandle> {
+            unreachable!("TestAdapter::spawn must not be called in unit tests")
+        }
+
+        fn parse_status_output(&self, output: &str) -> Option<String> {
+            if output.contains("PHASE_ERROR_MARKER") {
+                Some("error".to_string())
+            } else {
+                None
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Helper — build an AgentSession backed by in-memory channels
+    // -----------------------------------------------------------------------
+
+    /// Returns `(session, read_tx, write_rx)`.
+    ///
+    /// - `read_tx`: push chunks here to simulate agent output.
+    /// - `write_rx`: drain here to inspect what the runner sent.
+    fn make_fake_session(
+        child: FakeChild,
+    ) -> (
+        AgentSession,
+        flume::Sender<Vec<u8>>,   // produce fake agent output
+        flume::Receiver<Vec<u8>>, // consume commands runner sent
+    ) {
+        let (read_tx, read_rx) = flume::bounded::<Vec<u8>>(256);
+        let (write_tx, write_rx) = flume::bounded::<Vec<u8>>(256);
+        let handle_id = Uuid::new_v4();
+        let handle = PtyHandle::from_parts(
+            handle_id,
+            read_rx,
+            write_tx,
+            Arc::new(Mutex::new(Box::new(child) as Box<dyn Child + Send + Sync>)),
+            Arc::new(Mutex::new(Box::new(FakeMaster) as Box<dyn MasterPty + Send>)),
+        );
+        let agent_id = Uuid::new_v4();
+        let session = AgentSession::from_parts(agent_id, handle, Box::new(TestAdapter));
+        (session, read_tx, write_rx)
+    }
+
+    fn make_test_task() -> at_core::types::Task {
+        at_core::types::Task::new(
+            "Test task",
+            Uuid::new_v4(),
+            TaskCategory::Feature,
+            TaskPriority::Medium,
+            TaskComplexity::Small,
+        )
+    }
+
+    /// Drain the write channel and collect the command strings the runner sent
+    /// (each `send_command` call appends a `\n`; we strip it for readability).
+    fn drain_commands(write_rx: &flume::Receiver<Vec<u8>>) -> Vec<String> {
+        let mut cmds = Vec::new();
+        while let Ok(bytes) = write_rx.try_recv() {
+            let s = String::from_utf8_lossy(&bytes)
+                .trim_end_matches('\n')
+                .to_string();
+            cmds.push(s);
+        }
+        cmds
+    }
+
+    // -----------------------------------------------------------------------
+    // The order of phases the runner actually executes (minus Complete, which
+    // is terminal and never calls send_command).
+    // -----------------------------------------------------------------------
+    const EXPECTED_PHASE_COUNT: usize = 7; // Discovery..Merging (Complete is terminal)
+
+    fn expected_phase_keywords() -> [&'static str; 7] {
+        [
+            "Analyze",       // Discovery
+            "Gather",        // ContextGathering
+            "specification", // SpecCreation
+            "Plan",          // Planning
+            "Implement",     // Coding
+            "Review",        // Qa
+            "Prepare",       // Merging
+        ]
+    }
+
+    // -----------------------------------------------------------------------
+    // Test 1: happy path — all phases complete, ordering verified
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn run_happy_path_completes_all_phases() {
+        let (session, read_tx, write_rx) = make_fake_session(FakeChild::always_alive());
+        let bus = EventBus::new();
+        let mut task = make_test_task();
+        let mut runner = TaskRunner::new().with_timeout(Duration::from_millis(50));
+
+        // Pre-load one neutral chunk per non-Complete phase.
+        for _ in 0..EXPECTED_PHASE_COUNT {
+            read_tx.send(b"normal agent output".to_vec()).unwrap();
+        }
+        // Drop the sender so the reader channel closes gracefully after the
+        // pre-loaded chunks are consumed.
+        drop(read_tx);
+
+        let result = runner.run(&mut task, &session, &bus).await;
+
+        // Return value
+        assert!(result.is_ok(), "expected Ok(()), got: {result:?}");
+
+        // Final task state
+        assert_eq!(
+            task.phase,
+            TaskPhase::Complete,
+            "task should end at Complete"
+        );
+        assert!(task.started_at.is_some(), "started_at must be set");
+        assert!(task.completed_at.is_some(), "completed_at must be set");
+
+        // Phase ordering — every non-Complete phase sent a prompt in order.
+        let cmds = drain_commands(&write_rx);
+        assert_eq!(
+            cmds.len(),
+            EXPECTED_PHASE_COUNT,
+            "expected {EXPECTED_PHASE_COUNT} phase prompts, got {}",
+            cmds.len()
+        );
+        let keywords = expected_phase_keywords();
+        for (i, (cmd, kw)) in cmds.iter().zip(keywords.iter()).enumerate() {
+            assert!(
+                cmd.contains(kw),
+                "phase {i} prompt should contain '{kw}', got: {cmd:?}"
+            );
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Test 2: dead session detected before the first phase — returns error
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn run_dead_session_mid_pipeline_returns_error() {
+        let (session, _read_tx, write_rx) = make_fake_session(FakeChild::dead_from_start());
+        let bus = EventBus::new();
+        let mut task = make_test_task();
+        let mut runner = TaskRunner::new().with_timeout(Duration::from_millis(50));
+
+        let result = runner.run(&mut task, &session, &bus).await;
+
+        // Must return a SessionError.
+        match result {
+            Err(TaskRunnerError::SessionError(msg)) => {
+                assert!(
+                    msg.contains("died") || msg.contains("session"),
+                    "error message should describe the dead session, got: {msg:?}"
+                );
+            }
+            other => panic!("expected SessionError, got: {other:?}"),
+        }
+
+        // Task state must be Error.
+        assert_eq!(task.phase, TaskPhase::Error, "task.phase must be Error");
+        assert!(
+            task.error.is_some(),
+            "task.error must be populated when session is dead"
+        );
+
+        // No phases ran — the writer channel must be empty.
+        let cmds = drain_commands(&write_rx);
+        assert!(
+            cmds.is_empty(),
+            "no phase should have run when session was dead on first check; got: {cmds:?}"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Test 3: a phase error bails out — remaining phases are NOT called
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn run_phase_error_bails_out() {
+        // Coding is the 5th non-Complete phase (index 4: Discovery=0,
+        // ContextGathering=1, SpecCreation=2, Planning=3, Coding=4).
+        const CODING_INDEX: usize = 4;
+
+        let (session, read_tx, write_rx) = make_fake_session(FakeChild::always_alive());
+        let bus = EventBus::new();
+        let mut task = make_test_task();
+        let mut runner = TaskRunner::new().with_timeout(Duration::from_millis(50));
+
+        // Pre-load neutral chunks for phases before Coding.
+        for _ in 0..CODING_INDEX {
+            read_tx.send(b"normal output".to_vec()).unwrap();
+        }
+        // The Coding phase gets an error-triggering chunk.
+        read_tx
+            .send(b"PHASE_ERROR_MARKER: coding failed".to_vec())
+            .unwrap();
+        drop(read_tx);
+
+        let result = runner.run(&mut task, &session, &bus).await;
+
+        // Must return PhaseError.
+        match result {
+            Err(TaskRunnerError::PhaseError(msg)) => {
+                assert!(
+                    msg.contains("Coding") || msg.contains("phase"),
+                    "error should mention Coding phase, got: {msg:?}"
+                );
+            }
+            other => panic!("expected PhaseError for Coding failure, got: {other:?}"),
+        }
+
+        // Task state must be Error.
+        assert_eq!(
+            task.phase,
+            TaskPhase::Error,
+            "task.phase must be Error after phase failure"
+        );
+        assert!(
+            task.error.is_some(),
+            "task.error must be set after phase failure"
+        );
+
+        // Exactly CODING_INDEX + 1 phases ran (Discovery through Coding).
+        let cmds = drain_commands(&write_rx);
+        let expected_ran = CODING_INDEX + 1;
+        assert_eq!(
+            cmds.len(),
+            expected_ran,
+            "expected {expected_ran} prompts (Discovery..Coding), got {}: {cmds:?}",
+            cmds.len()
+        );
+
+        // Verify Coding was the last phase called.
+        let last_cmd = cmds.last().unwrap();
+        assert!(
+            last_cmd.contains("Implement"),
+            "last prompt should be Coding ('Implement'), got: {last_cmd:?}"
+        );
+
+        // QA and later phases must NOT have been called.
+        for cmd in &cmds {
+            assert!(
+                !cmd.contains("Review"),
+                "QA phase ('Review') must not have run after Coding error, got: {cmd:?}"
+            );
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Test 4: session dies mid-pipeline — detected before the second phase
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn run_session_dies_mid_pipeline_terminates_early() {
+        // FakeChild::alive_for(1): alive for the 1st is_alive() check
+        // (Discovery's pre-check), dead for the 2nd (ContextGathering's
+        // pre-check).  This means Discovery runs to completion but
+        // ContextGathering and later phases are never entered.
+        let (session, read_tx, write_rx) = make_fake_session(FakeChild::alive_for(1));
+        let bus = EventBus::new();
+        let mut task = make_test_task();
+        let mut runner = TaskRunner::new().with_timeout(Duration::from_millis(50));
+
+        // Discovery needs one output chunk to complete.
+        read_tx.send(b"discovery output".to_vec()).unwrap();
+        drop(read_tx);
+
+        let result = runner.run(&mut task, &session, &bus).await;
+
+        // Must return SessionError — not Stopped, not PhaseError.
+        match result {
+            Err(TaskRunnerError::SessionError(msg)) => {
+                assert!(!msg.is_empty(), "SessionError message should not be empty");
+            }
+            other => panic!("expected SessionError when session dies mid-pipeline, got: {other:?}"),
+        }
+
+        // Task state must be Error.
+        assert_eq!(task.phase, TaskPhase::Error, "task.phase must be Error");
+        assert!(task.error.is_some(), "task.error must be set");
+
+        // Exactly one phase (Discovery) completed — one prompt was sent.
+        let cmds = drain_commands(&write_rx);
+        assert_eq!(
+            cmds.len(),
+            1,
+            "only Discovery should have run before session died, got: {cmds:?}"
+        );
+        assert!(
+            cmds[0].contains("Analyze"),
+            "Discovery prompt should contain 'Analyze', got: {cmds:?}"
+        );
+
+        // ContextGathering and later must NOT have been called.
+        for cmd in &cmds {
+            assert!(
+                !cmd.contains("Gather"),
+                "ContextGathering must not have run after session death, got: {cmd:?}"
+            );
+        }
+    }
+}

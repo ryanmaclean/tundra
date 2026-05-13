@@ -114,7 +114,7 @@ async fn seed_notifications(state: &ApiState, count: usize) {
     for i in 0..count {
         store.add(
             format!("Notification {}", i),
-            &format!("Message {}", i),
+            format!("Message {}", i),
             NotificationLevel::Info,
             "test",
         );

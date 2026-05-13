@@ -1226,3 +1226,79 @@ pub(crate) async fn list_releases(
         Json(serde_json::json!(releases)),
     )
 }
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+    use std::sync::Arc;
+    use std::time::Duration;
+    use tokio::sync::RwLock;
+
+    fn make_registry() -> Arc<RwLock<HashMap<u32, PrPollStatus>>> {
+        Arc::new(RwLock::new(HashMap::new()))
+    }
+
+    /// Test A: explicit shutdown signal terminates the poller task.
+    ///
+    /// Mutation-test note: removing the `shutdown_tx.send(())` call and shrinking
+    /// the timeout to 50 ms causes this test to FAIL with a timeout error,
+    /// confirming the test genuinely exercises the shutdown path.
+    #[tokio::test]
+    async fn test_pr_poller_shuts_down_on_send() {
+        let (shutdown_tx, shutdown_rx) = tokio::sync::broadcast::channel::<()>(1);
+        let registry = make_registry();
+
+        let handle = spawn_pr_poller(registry, shutdown_rx);
+
+        // Signal shutdown and expect the task to exit promptly.
+        shutdown_tx.send(()).expect("send shutdown signal");
+
+        let result = tokio::time::timeout(Duration::from_secs(2), handle).await;
+
+        assert!(
+            result.is_ok(),
+            "poller did not terminate within 2 s after explicit shutdown send"
+        );
+        assert!(
+            result.unwrap().is_ok(),
+            "poller task panicked after explicit shutdown send"
+        );
+    }
+
+    /// Test B: dropping the only shutdown sender also terminates the poller task.
+    ///
+    /// With `tokio::sync::broadcast`, dropping every `Sender` causes
+    /// `Receiver::recv()` to return `Err(RecvError::Closed)`. In the production
+    /// `select!` the arm is spelled `_ = shutdown_rx.recv()`, which matches both
+    /// `Ok` and `Err` variants, so the task breaks out of the loop correctly.
+    /// If the production code ever changes to pattern-match only `Ok(_)`, this
+    /// test will time out — revealing a real hang-on-drop bug.
+    #[tokio::test]
+    async fn test_pr_poller_shuts_down_on_sender_drop() {
+        let (shutdown_tx, shutdown_rx) = tokio::sync::broadcast::channel::<()>(1);
+        let registry = make_registry();
+
+        let handle = spawn_pr_poller(registry, shutdown_rx);
+
+        // Drop the sender without calling send() — simulates daemon restart
+        // where the owning struct is torn down before an orderly shutdown.
+        drop(shutdown_tx);
+
+        let result = tokio::time::timeout(Duration::from_secs(2), handle).await;
+
+        assert!(
+            result.is_ok(),
+            "poller did not terminate within 2 s after sender drop — \
+             the task is spinning in the sleep arm instead of exiting on RecvError::Closed"
+        );
+        assert!(
+            result.unwrap().is_ok(),
+            "poller task panicked after sender drop"
+        );
+    }
+}

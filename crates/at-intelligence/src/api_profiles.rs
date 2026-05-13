@@ -441,12 +441,14 @@ pub struct ResilientRegistry {
 /// # Examples
 ///
 /// ```rust,no_run
-/// use at_intelligence::api_profiles::{ResilientRegistry, ResilientCallError};
+/// use at_intelligence::api_profiles::{ResilientRegistry, ResilientCallError, RetryDecision};
 ///
 /// async fn handle_resilient_call(registry: &ResilientRegistry) {
 ///     let result = registry.call_with_failover(|profile| async {
-///         // Make API call
-///         Ok::<String, String>("response".to_string())
+///         // Make API call; classify errors so the wrapper knows whether to
+///         // fan out (Retry) or short-circuit (GiveUp).
+///         // Example: 401 is terminal; 429/5xx warrant trying the next provider.
+///         Ok::<String, RetryDecision<String>>("response".to_string())
 ///     }).await;
 ///
 ///     match result {
@@ -510,6 +512,27 @@ pub enum ResilientCallError {
     /// string provides error details from the failed call.
     #[error("inner error: {0}")]
     Inner(String),
+}
+
+/// Caller-supplied verdict on whether a failure should fall back to the next
+/// `ApiProfile` or short-circuit immediately.
+///
+/// Authentication-class errors (401/403) usually mean no other provider can
+/// recover — return `GiveUp` so the wrapper surfaces the error to the caller.
+/// Rate-limit and 5xx responses warrant trying the next provider — return
+/// `Retry`.
+#[derive(Debug)]
+pub enum RetryDecision<E> {
+    Retry(E),
+    GiveUp(E),
+}
+
+impl<E: std::fmt::Display> std::fmt::Display for RetryDecision<E> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RetryDecision::Retry(e) | RetryDecision::GiveUp(e) => e.fmt(f),
+        }
+    }
 }
 
 impl ResilientRegistry {
@@ -618,9 +641,12 @@ impl ResilientRegistry {
     ) -> Result<(Uuid, T), ResilientCallError>
     where
         F: FnMut(&ApiProfile) -> Fut,
-        Fut: std::future::Future<Output = Result<T, E>>,
+        Fut: std::future::Future<Output = Result<T, RetryDecision<E>>>,
         E: std::fmt::Display,
     {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+
         let profiles = self.registry.list_profiles();
         for profile in profiles {
             if !profile.enabled || !profile.has_api_key() {
@@ -641,9 +667,30 @@ impl ResilientRegistry {
                 continue;
             }
 
+            // `gave_up` lets the closure communicate a GiveUp verdict back
+            // to us after the circuit breaker has stringified the error.
+            let gave_up = Arc::new(AtomicBool::new(false));
+            let gave_up_inner = gave_up.clone();
+
             // Attempt the call through the circuit breaker.
             let profile_clone = profile.clone();
-            let result = state.breaker.call(|| make_call(&profile_clone)).await;
+            let result = state
+                .breaker
+                .call(|| {
+                    let fut = make_call(&profile_clone);
+                    let flag = gave_up_inner.clone();
+                    async move {
+                        match fut.await {
+                            Ok(v) => Ok(v),
+                            Err(RetryDecision::GiveUp(e)) => {
+                                flag.store(true, Ordering::SeqCst);
+                                Err(e)
+                            }
+                            Err(RetryDecision::Retry(e)) => Err(e),
+                        }
+                    }
+                })
+                .await;
 
             match result {
                 Ok(value) => return Ok((profile.id, value)),
@@ -663,6 +710,14 @@ impl ResilientRegistry {
                     continue;
                 }
                 Err(CircuitBreakerError::Inner(msg)) => {
+                    if gave_up.load(Ordering::SeqCst) {
+                        tracing::warn!(
+                            profile = %profile.name,
+                            error = %msg,
+                            "call failed with terminal error (GiveUp), short-circuiting"
+                        );
+                        return Err(ResilientCallError::Inner(msg));
+                    }
                     tracing::warn!(
                         profile = %profile.name,
                         error = %msg,
@@ -1050,7 +1105,7 @@ mod tests {
         let result = reg
             .call_with_failover(|profile| {
                 let name = profile.name.clone();
-                async move { Ok::<String, String>(format!("hello from {}", name)) }
+                async move { Ok::<String, RetryDecision<String>>(format!("hello from {}", name)) }
             })
             .await;
 
@@ -1075,12 +1130,17 @@ mod tests {
         let id2 = reg.add_profile(p2);
 
         // Make a call that fails for "primary" but succeeds for "secondary".
+        // TODO(retry-decision): classify per error class — "primary is down"
+        // is a synthetic transient; Retry is correct but callers should map
+        // concrete HTTP status codes (5xx→Retry, 4xx auth→GiveUp).
         let result = reg
             .call_with_failover(|profile| {
                 let name = profile.name.clone();
                 async move {
                     if name == "primary" {
-                        Err::<String, String>("primary is down".into())
+                        Err::<String, RetryDecision<String>>(RetryDecision::Retry(
+                            "primary is down".into(),
+                        ))
                     } else {
                         Ok(format!("hello from {}", name))
                     }
@@ -1105,8 +1165,12 @@ mod tests {
         p.priority = 0;
         reg.add_profile(p);
 
+        // TODO(retry-decision): classify per error class — this synthetic
+        // error is kept as Retry to preserve exhaustion semantics.
         let result = reg
-            .call_with_failover(|_profile| async { Err::<String, String>("always fail".into()) })
+            .call_with_failover(|_profile| async {
+                Err::<String, RetryDecision<String>>(RetryDecision::Retry("always fail".into()))
+            })
             .await;
 
         std::env::remove_var("CUSTOM_API_KEY");
@@ -1127,7 +1191,9 @@ mod tests {
         reg.add_profile(p);
 
         let result = reg
-            .call_with_failover(|_| async { Ok::<String, String>("should not reach".into()) })
+            .call_with_failover(|_| async {
+                Ok::<String, RetryDecision<String>>("should not reach".into())
+            })
             .await;
 
         assert!(matches!(
@@ -1156,7 +1222,7 @@ mod tests {
         let result1 = reg
             .call_with_failover(|profile| {
                 let name = profile.name.clone();
-                async move { Ok::<String, String>(name) }
+                async move { Ok::<String, RetryDecision<String>>(name) }
             })
             .await;
         assert!(result1.is_ok());
@@ -1166,7 +1232,7 @@ mod tests {
         let result2 = reg
             .call_with_failover(|profile| {
                 let name = profile.name.clone();
-                async move { Ok::<String, String>(name) }
+                async move { Ok::<String, RetryDecision<String>>(name) }
             })
             .await;
         assert!(result2.is_ok());
@@ -1205,9 +1271,13 @@ mod tests {
         let id = reg.add_profile_with_config(p, config);
 
         // Fail twice to trip the circuit breaker.
+        // TODO(retry-decision): classify per error class — synthetic failures
+        // use Retry to let the circuit breaker accumulate failure counts.
         for _ in 0..2 {
             let _ = reg
-                .call_with_failover(|_| async { Err::<String, String>("fail".into()) })
+                .call_with_failover(|_| async {
+                    Err::<String, RetryDecision<String>>(RetryDecision::Retry("fail".into()))
+                })
                 .await;
         }
 
@@ -1315,7 +1385,7 @@ mod fallback_tests {
                 let c = counters_c.clone();
                 async move {
                     c.bump(&name);
-                    Ok::<String, SimError>(format!("ok:{name}"))
+                    Ok::<String, RetryDecision<SimError>>(format!("ok:{name}"))
                 }
             })
             .await;
@@ -1346,9 +1416,10 @@ mod fallback_tests {
                 async move {
                     c.bump(&name);
                     if name == "primary" {
-                        Err(SimError::RateLimit)
+                        // RateLimit is transient — another provider may succeed.
+                        Err(RetryDecision::Retry(SimError::RateLimit))
                     } else {
-                        Ok::<String, SimError>(format!("ok:{name}"))
+                        Ok::<String, RetryDecision<SimError>>(format!("ok:{name}"))
                     }
                 }
             })
@@ -1379,9 +1450,10 @@ mod fallback_tests {
                 async move {
                     c.bump(&name);
                     if name == "primary" {
-                        Err(SimError::Server5xx)
+                        // 5xx is transient — fall through to the next provider.
+                        Err(RetryDecision::Retry(SimError::Server5xx))
                     } else {
-                        Ok::<String, SimError>("ok".into())
+                        Ok::<String, RetryDecision<SimError>>("ok".into())
                     }
                 }
             })
@@ -1393,17 +1465,67 @@ mod fallback_tests {
     }
 
     // ---------------------------------------------------------------------
-    // 4. Primary returns auth-error -> CURRENT behavior is to fan out.
-    //
-    //    Note: the closure-based `call_with_failover` cannot inspect the inner
-    //    error type — it converts every Err into `CircuitBreakerError::Inner`
-    //    and continues. There is no "don't-retry on auth" contract today.
-    //    This test pins that *current* behavior so any future divergence
-    //    (e.g. wiring an `IntelligenceError::Unauthorized` short-circuit)
-    //    surfaces as a failing test.
+    // 4a. Primary returns auth-error with GiveUp -> short-circuits immediately;
+    //     secondary is never called. This replaces the old
+    //     "fallback_primary_unauthorized_currently_fans_out" pinning test that
+    //     documented the bug where 401 fanned out to the next provider.
     // ---------------------------------------------------------------------
     #[tokio::test]
-    async fn fallback_primary_unauthorized_currently_fans_out() {
+    async fn fallback_primary_unauthorized_short_circuits() {
+        let mut reg = ResilientRegistry::new();
+        reg.add_profile(local_profile("primary", 0));
+        reg.add_profile(local_profile("secondary", 1));
+
+        let counters = Arc::new(Counters::new());
+        let counters_c = counters.clone();
+        let result = reg
+            .call_with_failover(|profile| {
+                let name = profile.name.clone();
+                let c = counters_c.clone();
+                async move {
+                    c.bump(&name);
+                    if name == "primary" {
+                        // 401 Unauthorized: no other provider has these
+                        // credentials — GiveUp so the error surfaces immediately.
+                        Err(RetryDecision::GiveUp(SimError::Unauthorized))
+                    } else {
+                        Ok::<String, RetryDecision<SimError>>("ok".into())
+                    }
+                }
+            })
+            .await;
+
+        // GiveUp short-circuits: the error is returned immediately, secondary
+        // is never tried, and the error message is the 401 text verbatim.
+        let err = result.expect_err("GiveUp should surface the error");
+        assert!(
+            matches!(err, ResilientCallError::Inner(_)),
+            "expected Inner error, got {err:?}"
+        );
+        assert_eq!(
+            err.to_string(),
+            "inner error: unauthorized 401",
+            "error message should be the 401 text"
+        );
+        assert_eq!(
+            counters.count("primary"),
+            1,
+            "primary must have been called once"
+        );
+        assert_eq!(
+            counters.count("secondary"),
+            0,
+            "secondary must NOT have been called"
+        );
+    }
+
+    // ---------------------------------------------------------------------
+    // 4b. Primary returns 429 / rate-limit with Retry -> falls through to
+    //     secondary, which succeeds. Exercises the Retry path of RetryDecision
+    //     for a concrete error class (rate-limit / 429).
+    // ---------------------------------------------------------------------
+    #[tokio::test]
+    async fn fallback_primary_rate_limited_falls_through_to_secondary() {
         let mut reg = ResilientRegistry::new();
         reg.add_profile(local_profile("primary", 0));
         let id_secondary = reg.add_profile(local_profile("secondary", 1));
@@ -1417,18 +1539,29 @@ mod fallback_tests {
                 async move {
                     c.bump(&name);
                     if name == "primary" {
-                        Err(SimError::Unauthorized)
+                        // 429 Too Many Requests: transient — fan out to the
+                        // next provider via Retry.
+                        Err(RetryDecision::Retry(SimError::RateLimit))
                     } else {
-                        Ok::<String, SimError>("ok".into())
+                        Ok::<String, RetryDecision<SimError>>("ok:secondary".into())
                     }
                 }
             })
             .await;
 
-        // Current contract: auth errors fall through to the next provider.
-        assert_eq!(result.expect("secondary handles request").0, id_secondary);
-        assert_eq!(counters.count("primary"), 1);
-        assert_eq!(counters.count("secondary"), 1);
+        let (used, value) = result.expect("secondary should succeed after primary 429");
+        assert_eq!(used, id_secondary, "secondary must be the winning provider");
+        assert_eq!(value, "ok:secondary");
+        assert_eq!(
+            counters.count("primary"),
+            1,
+            "primary tried once then fanned out"
+        );
+        assert_eq!(
+            counters.count("secondary"),
+            1,
+            "secondary must have been called"
+        );
     }
 
     // ---------------------------------------------------------------------
@@ -1449,9 +1582,11 @@ mod fallback_tests {
                 async move {
                     c.bump(&name);
                     if name == "primary" {
-                        Err(SimError::Parse)
+                        // Parse errors are transient (could be a model version
+                        // mismatch on this provider) — try the next one.
+                        Err(RetryDecision::Retry(SimError::Parse))
                     } else {
-                        Ok::<String, SimError>("ok".into())
+                        Ok::<String, RetryDecision<SimError>>("ok".into())
                     }
                 }
             })
@@ -1480,7 +1615,10 @@ mod fallback_tests {
                 let c = counters_c.clone();
                 async move {
                     c.bump(&name);
-                    Err::<String, SimError>(SimError::Server5xx)
+                    // 5xx is transient — each provider is tried in turn.
+                    Err::<String, RetryDecision<SimError>>(RetryDecision::Retry(
+                        SimError::Server5xx,
+                    ))
                 }
             })
             .await;
@@ -1509,7 +1647,7 @@ mod fallback_tests {
                 let c = counter_c.clone();
                 async move {
                     c.fetch_add(1, Ordering::SeqCst);
-                    Ok::<String, SimError>("never".into())
+                    Ok::<String, RetryDecision<SimError>>("never".into())
                 }
             })
             .await;
@@ -1532,7 +1670,10 @@ mod fallback_tests {
         reg.add_profile(local_profile("only", 0));
 
         let result = reg
-            .call_with_failover(|_profile| async { Err::<String, SimError>(SimError::Server5xx) })
+            .call_with_failover(|_profile| async {
+                // 5xx on the sole provider: exhausted with no alternative.
+                Err::<String, RetryDecision<SimError>>(RetryDecision::Retry(SimError::Server5xx))
+            })
             .await;
 
         assert!(matches!(
@@ -1560,7 +1701,7 @@ mod fallback_tests {
                 let c = counters_c.clone();
                 async move {
                     c.bump(&name);
-                    Ok::<String, SimError>(format!("ok:{name}"))
+                    Ok::<String, RetryDecision<SimError>>(format!("ok:{name}"))
                 }
             })
             .await;
@@ -1595,7 +1736,7 @@ mod fallback_tests {
                 let o = order_c.clone();
                 async move {
                     o.lock().unwrap().push(name.clone());
-                    Ok::<String, SimError>(name)
+                    Ok::<String, RetryDecision<SimError>>(name)
                 }
             })
             .await;
@@ -1631,11 +1772,13 @@ mod fallback_tests {
                     c.bump(&name);
                     o.lock().unwrap().push(name.clone());
                     if name == "tertiary" {
-                        Ok::<String, SimError>(format!("ok:{name}"))
+                        Ok::<String, RetryDecision<SimError>>(format!("ok:{name}"))
                     } else if name == "primary" {
-                        Err(SimError::RateLimit)
+                        // 429 rate-limit: transient, try the next provider.
+                        Err(RetryDecision::Retry(SimError::RateLimit))
                     } else {
-                        Err(SimError::Server5xx)
+                        // 5xx: transient, try the next provider.
+                        Err(RetryDecision::Retry(SimError::Server5xx))
                     }
                 }
             })
@@ -1656,16 +1799,16 @@ mod fallback_tests {
     }
 
     // ---------------------------------------------------------------------
-    // 12. Mixed error variants across providers all fan out the same way:
-    //     RateLimit -> Unauthorized -> Parse -> success on fourth.
+    // 12. Mixed error variants across providers: RateLimit (Retry) ->
+    //     Parse (Retry) -> success on third. Unauthorized is now GiveUp so
+    //     it is NOT in this fan-out chain — it's tested in test 4a above.
     // ---------------------------------------------------------------------
     #[tokio::test]
     async fn fallback_mixed_error_variants_all_fan_out() {
         let mut reg = ResilientRegistry::new();
         reg.add_profile(local_profile("p1", 0));
         reg.add_profile(local_profile("p2", 1));
-        reg.add_profile(local_profile("p3", 2));
-        let id_p4 = reg.add_profile(local_profile("p4", 3));
+        let id_p3 = reg.add_profile(local_profile("p3", 2));
 
         let counters = Arc::new(Counters::new());
         let counters_c = counters.clone();
@@ -1676,17 +1819,18 @@ mod fallback_tests {
                 async move {
                     c.bump(&name);
                     match name.as_str() {
-                        "p1" => Err(SimError::RateLimit),
-                        "p2" => Err(SimError::Unauthorized),
-                        "p3" => Err(SimError::Parse),
-                        _ => Ok::<String, SimError>(format!("ok:{name}")),
+                        // p1: 429 rate-limit — transient, try next.
+                        "p1" => Err(RetryDecision::Retry(SimError::RateLimit)),
+                        // p2: parse error — transient, try next.
+                        "p2" => Err(RetryDecision::Retry(SimError::Parse)),
+                        _ => Ok::<String, RetryDecision<SimError>>(format!("ok:{name}")),
                     }
                 }
             })
             .await;
 
-        assert_eq!(result.expect("p4 should win").0, id_p4);
-        for name in ["p1", "p2", "p3", "p4"] {
+        assert_eq!(result.expect("p3 should win").0, id_p3);
+        for name in ["p1", "p2", "p3"] {
             assert_eq!(
                 counters.count(name),
                 1,
@@ -1719,7 +1863,13 @@ mod fallback_tests {
         // primary failures *and* we ignore the resulting secondary outcome.
         for _ in 0..2 {
             let _ = reg
-                .call_with_failover(|_p| async { Err::<String, SimError>(SimError::Server5xx) })
+                .call_with_failover(|_p| async {
+                    // 5xx: transient — Retry lets the circuit breaker count
+                    // the failure and eventually open the circuit.
+                    Err::<String, RetryDecision<SimError>>(RetryDecision::Retry(
+                        SimError::Server5xx,
+                    ))
+                })
                 .await;
         }
 
@@ -1740,7 +1890,7 @@ mod fallback_tests {
                 let c = counters_c.clone();
                 async move {
                     c.bump(&name);
-                    Ok::<String, SimError>(format!("ok:{name}"))
+                    Ok::<String, RetryDecision<SimError>>(format!("ok:{name}"))
                 }
             })
             .await;

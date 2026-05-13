@@ -954,8 +954,56 @@ mod tests {
         // Give the task a moment to start
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
-        // Test passes if we get here without panicking
-        assert!(true);
+        // The cleanup loop's first tick fires immediately inside start_cleanup_task,
+        // consuming the tokio::time::interval startup tick before entering the real
+        // loop. After 50 ms the spawned task is live. Asserting disconnect_buffers is
+        // still empty proves two things: (a) the task started without panicking, and
+        // (b) the cleanup loop did not insert or leak data into disconnect_buffers on
+        // its first tick.
+        assert!(
+            state.disconnect_buffers.read().await.is_empty(),
+            "cleanup task should run first tick without inserting/leaking data into disconnect_buffers"
+        );
+    }
+
+    #[tokio::test]
+    async fn cleanup_task_actually_cleans_expired_disconnect_buffer() {
+        // Arrange: create state with a 1-second cleanup interval so the test
+        // does not take a full hour.
+        let state = Arc::new(create_test_state());
+        {
+            let mut config = state.retention_config.write().await;
+            config.cleanup_interval_secs = 1;
+            config.disconnect_buffer_ttl_secs = 0; // every buffer is immediately expired
+        }
+
+        // Seed one expired disconnect buffer (disconnected 10 minutes ago).
+        let terminal_id = Uuid::new_v4();
+        let mut buffer = crate::terminal::DisconnectBuffer::new(1024);
+        buffer.disconnected_at = Utc::now() - Duration::minutes(10);
+        state
+            .disconnect_buffers
+            .write()
+            .await
+            .insert(terminal_id, buffer);
+
+        // Pre-condition: the entry is present before cleanup runs.
+        assert_eq!(
+            state.disconnect_buffers.read().await.len(),
+            1,
+            "seeded buffer must be present before cleanup"
+        );
+
+        // Act: start the background task and wait for at least one cleanup tick
+        // (interval = 1 s, plus a comfortable buffer).
+        state.start_cleanup_task();
+        tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+
+        // Assert: the expired buffer must have been removed by the cleanup loop.
+        assert!(
+            state.disconnect_buffers.read().await.is_empty(),
+            "cleanup loop must remove the expired disconnect buffer after one tick"
+        );
     }
 
     #[tokio::test]

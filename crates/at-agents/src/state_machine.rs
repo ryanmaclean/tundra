@@ -133,6 +133,7 @@ impl AgentStateMachine {
     /// - Active   + Fail    -> Failed
     /// - Paused   + Resume  -> Active
     /// - Paused   + Stop    -> Stopping
+    /// - Paused   + Fail    -> Failed
     /// - Stopping + Stop    -> Stopped
     /// - Stopping + Fail    -> Failed
     /// - Failed   + Recover -> Idle
@@ -146,6 +147,7 @@ impl AgentStateMachine {
             (AgentState::Active, AgentEvent::Fail) => AgentState::Failed,
             (AgentState::Paused, AgentEvent::Resume) => AgentState::Active,
             (AgentState::Paused, AgentEvent::Stop) => AgentState::Stopping,
+            (AgentState::Paused, AgentEvent::Fail) => AgentState::Failed,
             (AgentState::Stopping, AgentEvent::Stop) => AgentState::Stopped,
             (AgentState::Stopping, AgentEvent::Fail) => AgentState::Failed,
             (AgentState::Failed, AgentEvent::Recover) => AgentState::Idle,
@@ -176,6 +178,7 @@ impl AgentStateMachine {
                 | (AgentState::Active, AgentEvent::Fail)
                 | (AgentState::Paused, AgentEvent::Resume)
                 | (AgentState::Paused, AgentEvent::Stop)
+                | (AgentState::Paused, AgentEvent::Fail)
                 | (AgentState::Stopping, AgentEvent::Stop)
                 | (AgentState::Stopping, AgentEvent::Fail)
                 | (AgentState::Failed, AgentEvent::Recover)
@@ -186,5 +189,524 @@ impl AgentStateMachine {
 impl Default for AgentStateMachine {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AgentEvent, AgentState, AgentStateMachine, StateMachineError};
+
+    // -----------------------------------------------------------------------
+    // Helper: advance the machine through a sequence of known-valid events.
+    // -----------------------------------------------------------------------
+
+    fn advance(sm: &mut AgentStateMachine, events: &[AgentEvent]) -> AgentState {
+        let mut state = sm.state();
+        for &ev in events {
+            state = sm.transition(ev).unwrap_or_else(|e| {
+                panic!("unexpected invalid transition: {e}");
+            });
+        }
+        state
+    }
+
+    // -----------------------------------------------------------------------
+    // Initial state
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn new_machine_starts_in_idle() {
+        let sm = AgentStateMachine::new();
+        assert_eq!(sm.state(), AgentState::Idle);
+    }
+
+    #[test]
+    fn default_machine_starts_in_idle() {
+        let sm = AgentStateMachine::default();
+        assert_eq!(sm.state(), AgentState::Idle);
+    }
+
+    // -----------------------------------------------------------------------
+    // Legal transitions — one test per edge in the documented graph
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn idle_start_yields_spawning() {
+        let mut sm = AgentStateMachine::new();
+        let next = sm.transition(AgentEvent::Start).unwrap();
+        assert_eq!(next, AgentState::Spawning);
+        assert_eq!(sm.state(), AgentState::Spawning);
+    }
+
+    #[test]
+    fn spawning_spawned_yields_active() {
+        let mut sm = AgentStateMachine::new();
+        advance(&mut sm, &[AgentEvent::Start]);
+        let next = sm.transition(AgentEvent::Spawned).unwrap();
+        assert_eq!(next, AgentState::Active);
+        assert_eq!(sm.state(), AgentState::Active);
+    }
+
+    #[test]
+    fn spawning_fail_yields_failed() {
+        let mut sm = AgentStateMachine::new();
+        advance(&mut sm, &[AgentEvent::Start]);
+        let next = sm.transition(AgentEvent::Fail).unwrap();
+        assert_eq!(next, AgentState::Failed);
+        assert_eq!(sm.state(), AgentState::Failed);
+    }
+
+    #[test]
+    fn active_pause_yields_paused() {
+        let mut sm = AgentStateMachine::new();
+        advance(&mut sm, &[AgentEvent::Start, AgentEvent::Spawned]);
+        let next = sm.transition(AgentEvent::Pause).unwrap();
+        assert_eq!(next, AgentState::Paused);
+        assert_eq!(sm.state(), AgentState::Paused);
+    }
+
+    #[test]
+    fn active_stop_yields_stopping() {
+        let mut sm = AgentStateMachine::new();
+        advance(&mut sm, &[AgentEvent::Start, AgentEvent::Spawned]);
+        let next = sm.transition(AgentEvent::Stop).unwrap();
+        assert_eq!(next, AgentState::Stopping);
+        assert_eq!(sm.state(), AgentState::Stopping);
+    }
+
+    #[test]
+    fn active_fail_yields_failed() {
+        let mut sm = AgentStateMachine::new();
+        advance(&mut sm, &[AgentEvent::Start, AgentEvent::Spawned]);
+        let next = sm.transition(AgentEvent::Fail).unwrap();
+        assert_eq!(next, AgentState::Failed);
+        assert_eq!(sm.state(), AgentState::Failed);
+    }
+
+    #[test]
+    fn paused_resume_yields_active() {
+        let mut sm = AgentStateMachine::new();
+        advance(
+            &mut sm,
+            &[AgentEvent::Start, AgentEvent::Spawned, AgentEvent::Pause],
+        );
+        let next = sm.transition(AgentEvent::Resume).unwrap();
+        assert_eq!(next, AgentState::Active);
+        assert_eq!(sm.state(), AgentState::Active);
+    }
+
+    #[test]
+    fn paused_stop_yields_stopping() {
+        let mut sm = AgentStateMachine::new();
+        advance(
+            &mut sm,
+            &[AgentEvent::Start, AgentEvent::Spawned, AgentEvent::Pause],
+        );
+        let next = sm.transition(AgentEvent::Stop).unwrap();
+        assert_eq!(next, AgentState::Stopping);
+        assert_eq!(sm.state(), AgentState::Stopping);
+    }
+
+    #[test]
+    fn stopping_stop_yields_stopped() {
+        let mut sm = AgentStateMachine::new();
+        advance(
+            &mut sm,
+            &[AgentEvent::Start, AgentEvent::Spawned, AgentEvent::Stop],
+        );
+        let next = sm.transition(AgentEvent::Stop).unwrap();
+        assert_eq!(next, AgentState::Stopped);
+        assert_eq!(sm.state(), AgentState::Stopped);
+    }
+
+    #[test]
+    fn stopping_fail_yields_failed() {
+        let mut sm = AgentStateMachine::new();
+        advance(
+            &mut sm,
+            &[AgentEvent::Start, AgentEvent::Spawned, AgentEvent::Stop],
+        );
+        let next = sm.transition(AgentEvent::Fail).unwrap();
+        assert_eq!(next, AgentState::Failed);
+        assert_eq!(sm.state(), AgentState::Failed);
+    }
+
+    #[test]
+    fn failed_recover_yields_idle() {
+        let mut sm = AgentStateMachine::new();
+        advance(&mut sm, &[AgentEvent::Start, AgentEvent::Fail]);
+        let next = sm.transition(AgentEvent::Recover).unwrap();
+        assert_eq!(next, AgentState::Idle);
+        assert_eq!(sm.state(), AgentState::Idle);
+    }
+
+    // -----------------------------------------------------------------------
+    // Error-recovery path — exhaustive multi-step test
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn full_recovery_cycle_active_fail_recover_then_active_again() {
+        let mut sm = AgentStateMachine::new();
+        // Reach Active
+        assert_eq!(advance(&mut sm, &[AgentEvent::Start]), AgentState::Spawning);
+        assert_eq!(advance(&mut sm, &[AgentEvent::Spawned]), AgentState::Active);
+        // Fail during active
+        assert_eq!(advance(&mut sm, &[AgentEvent::Fail]), AgentState::Failed);
+        // Recover resets to Idle
+        assert_eq!(advance(&mut sm, &[AgentEvent::Recover]), AgentState::Idle);
+        // Full second cycle succeeds
+        assert_eq!(advance(&mut sm, &[AgentEvent::Start]), AgentState::Spawning);
+        assert_eq!(advance(&mut sm, &[AgentEvent::Spawned]), AgentState::Active);
+        assert_eq!(sm.state(), AgentState::Active);
+    }
+
+    // -----------------------------------------------------------------------
+    // Illegal transitions — at least 2 per class; state must not change
+    // -----------------------------------------------------------------------
+
+    // Idle rejects everything except Start
+    #[test]
+    fn idle_rejects_spawned() {
+        let mut sm = AgentStateMachine::new();
+        let err = sm.transition(AgentEvent::Spawned).unwrap_err();
+        assert!(matches!(
+            err,
+            StateMachineError::InvalidTransition {
+                state: AgentState::Idle,
+                event: AgentEvent::Spawned,
+            }
+        ));
+        assert_eq!(sm.state(), AgentState::Idle);
+    }
+
+    #[test]
+    fn idle_rejects_pause() {
+        let mut sm = AgentStateMachine::new();
+        let err = sm.transition(AgentEvent::Pause).unwrap_err();
+        assert!(matches!(
+            err,
+            StateMachineError::InvalidTransition {
+                state: AgentState::Idle,
+                event: AgentEvent::Pause,
+            }
+        ));
+        assert_eq!(sm.state(), AgentState::Idle);
+    }
+
+    #[test]
+    fn idle_rejects_stop() {
+        let mut sm = AgentStateMachine::new();
+        let err = sm.transition(AgentEvent::Stop).unwrap_err();
+        assert!(matches!(
+            err,
+            StateMachineError::InvalidTransition {
+                state: AgentState::Idle,
+                event: AgentEvent::Stop,
+            }
+        ));
+        assert_eq!(sm.state(), AgentState::Idle);
+    }
+
+    // Active rejects events not in {Pause, Stop, Fail}
+    #[test]
+    fn active_rejects_start() {
+        let mut sm = AgentStateMachine::new();
+        advance(&mut sm, &[AgentEvent::Start, AgentEvent::Spawned]);
+        let err = sm.transition(AgentEvent::Start).unwrap_err();
+        assert!(matches!(
+            err,
+            StateMachineError::InvalidTransition {
+                state: AgentState::Active,
+                event: AgentEvent::Start,
+            }
+        ));
+        assert_eq!(sm.state(), AgentState::Active);
+    }
+
+    #[test]
+    fn active_rejects_recover() {
+        let mut sm = AgentStateMachine::new();
+        advance(&mut sm, &[AgentEvent::Start, AgentEvent::Spawned]);
+        let err = sm.transition(AgentEvent::Recover).unwrap_err();
+        assert!(matches!(
+            err,
+            StateMachineError::InvalidTransition {
+                state: AgentState::Active,
+                event: AgentEvent::Recover,
+            }
+        ));
+        assert_eq!(sm.state(), AgentState::Active);
+    }
+
+    // Stopped is a terminal state — no event is accepted
+    #[test]
+    fn stopped_rejects_start() {
+        let mut sm = AgentStateMachine::new();
+        advance(
+            &mut sm,
+            &[
+                AgentEvent::Start,
+                AgentEvent::Spawned,
+                AgentEvent::Stop,
+                AgentEvent::Stop,
+            ],
+        );
+        assert_eq!(sm.state(), AgentState::Stopped);
+        let err = sm.transition(AgentEvent::Start).unwrap_err();
+        assert!(matches!(
+            err,
+            StateMachineError::InvalidTransition {
+                state: AgentState::Stopped,
+                event: AgentEvent::Start,
+            }
+        ));
+        assert_eq!(sm.state(), AgentState::Stopped);
+    }
+
+    #[test]
+    fn stopped_rejects_recover() {
+        let mut sm = AgentStateMachine::new();
+        advance(
+            &mut sm,
+            &[
+                AgentEvent::Start,
+                AgentEvent::Spawned,
+                AgentEvent::Stop,
+                AgentEvent::Stop,
+            ],
+        );
+        let err = sm.transition(AgentEvent::Recover).unwrap_err();
+        assert!(matches!(
+            err,
+            StateMachineError::InvalidTransition {
+                state: AgentState::Stopped,
+                event: AgentEvent::Recover,
+            }
+        ));
+        assert_eq!(sm.state(), AgentState::Stopped);
+    }
+
+    // Failed rejects everything except Recover
+    #[test]
+    fn failed_rejects_start() {
+        let mut sm = AgentStateMachine::new();
+        advance(&mut sm, &[AgentEvent::Start, AgentEvent::Fail]);
+        let err = sm.transition(AgentEvent::Start).unwrap_err();
+        assert!(matches!(
+            err,
+            StateMachineError::InvalidTransition {
+                state: AgentState::Failed,
+                event: AgentEvent::Start,
+            }
+        ));
+        assert_eq!(sm.state(), AgentState::Failed);
+    }
+
+    #[test]
+    fn failed_rejects_stop() {
+        let mut sm = AgentStateMachine::new();
+        advance(&mut sm, &[AgentEvent::Start, AgentEvent::Fail]);
+        let err = sm.transition(AgentEvent::Stop).unwrap_err();
+        assert!(matches!(
+            err,
+            StateMachineError::InvalidTransition {
+                state: AgentState::Failed,
+                event: AgentEvent::Stop,
+            }
+        ));
+        assert_eq!(sm.state(), AgentState::Failed);
+    }
+
+    // Paused rejects events not in {Resume, Stop}
+    #[test]
+    fn paused_rejects_start() {
+        let mut sm = AgentStateMachine::new();
+        advance(
+            &mut sm,
+            &[AgentEvent::Start, AgentEvent::Spawned, AgentEvent::Pause],
+        );
+        let err = sm.transition(AgentEvent::Start).unwrap_err();
+        assert!(matches!(
+            err,
+            StateMachineError::InvalidTransition {
+                state: AgentState::Paused,
+                event: AgentEvent::Start,
+            }
+        ));
+        assert_eq!(sm.state(), AgentState::Paused);
+    }
+
+    // Note: a previous Wave 2-1 test `paused_rejects_fail` pinned the OLD
+    // behavior where (Paused, Fail) returned InvalidTransition. Wave 7Q
+    // changed the semantics so that a paused agent can transition to Failed
+    // when its underlying process dies. The replacement coverage lives in
+    // `paused_fail_yields_failed` and `can_transition_paused_fail_returns_true`
+    // at the bottom of this module.
+
+    // Spawning rejects events not in {Spawned, Fail}
+    #[test]
+    fn spawning_rejects_pause() {
+        let mut sm = AgentStateMachine::new();
+        advance(&mut sm, &[AgentEvent::Start]);
+        let err = sm.transition(AgentEvent::Pause).unwrap_err();
+        assert!(matches!(
+            err,
+            StateMachineError::InvalidTransition {
+                state: AgentState::Spawning,
+                event: AgentEvent::Pause,
+            }
+        ));
+        assert_eq!(sm.state(), AgentState::Spawning);
+    }
+
+    #[test]
+    fn spawning_rejects_recover() {
+        let mut sm = AgentStateMachine::new();
+        advance(&mut sm, &[AgentEvent::Start]);
+        let err = sm.transition(AgentEvent::Recover).unwrap_err();
+        assert!(matches!(
+            err,
+            StateMachineError::InvalidTransition {
+                state: AgentState::Spawning,
+                event: AgentEvent::Recover,
+            }
+        ));
+        assert_eq!(sm.state(), AgentState::Spawning);
+    }
+
+    // -----------------------------------------------------------------------
+    // can_transition must agree with transition for every (state, event) pair
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn can_transition_matches_transition_for_all_state_event_pairs() {
+        let all_events = [
+            AgentEvent::Start,
+            AgentEvent::Spawned,
+            AgentEvent::Pause,
+            AgentEvent::Resume,
+            AgentEvent::Stop,
+            AgentEvent::Fail,
+            AgentEvent::Recover,
+        ];
+
+        // Each entry: (setup path, expected resulting state)
+        let state_paths: &[(&[AgentEvent], AgentState)] = &[
+            (&[], AgentState::Idle),
+            (&[AgentEvent::Start], AgentState::Spawning),
+            (
+                &[AgentEvent::Start, AgentEvent::Spawned],
+                AgentState::Active,
+            ),
+            (
+                &[AgentEvent::Start, AgentEvent::Spawned, AgentEvent::Pause],
+                AgentState::Paused,
+            ),
+            (
+                &[AgentEvent::Start, AgentEvent::Spawned, AgentEvent::Stop],
+                AgentState::Stopping,
+            ),
+            (
+                &[
+                    AgentEvent::Start,
+                    AgentEvent::Spawned,
+                    AgentEvent::Stop,
+                    AgentEvent::Stop,
+                ],
+                AgentState::Stopped,
+            ),
+            (&[AgentEvent::Start, AgentEvent::Fail], AgentState::Failed),
+        ];
+
+        for (path, expected_state) in state_paths {
+            for &ev in &all_events {
+                // can_transition probe (read-only)
+                let mut sm_can = AgentStateMachine::new();
+                advance(&mut sm_can, path);
+                assert_eq!(
+                    sm_can.state(),
+                    *expected_state,
+                    "setup path didn't yield expected state"
+                );
+                let can = sm_can.can_transition(ev);
+
+                // transition probe (consumes state mutably)
+                let mut sm_do = AgentStateMachine::new();
+                advance(&mut sm_do, path);
+                let result = sm_do.transition(ev);
+
+                assert_eq!(
+                    can,
+                    result.is_ok(),
+                    "can_transition({ev:?}) = {can} but transition({ev:?}) returned {:?} \
+                     in state {expected_state:?}",
+                    result
+                );
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // History recording
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn history_records_each_successful_transition() {
+        let mut sm = AgentStateMachine::new();
+        sm.transition(AgentEvent::Start).unwrap();
+        sm.transition(AgentEvent::Spawned).unwrap();
+
+        let h = sm.history();
+        assert_eq!(h.len(), 2);
+        assert_eq!(
+            h[0],
+            (AgentState::Idle, AgentEvent::Start, AgentState::Spawning)
+        );
+        assert_eq!(
+            h[1],
+            (
+                AgentState::Spawning,
+                AgentEvent::Spawned,
+                AgentState::Active
+            )
+        );
+    }
+
+    #[test]
+    fn failed_transition_does_not_append_history() {
+        let mut sm = AgentStateMachine::new();
+        // Invalid event in Idle — history must stay empty
+        let _ = sm.transition(AgentEvent::Pause);
+        assert_eq!(sm.history().len(), 0);
+        assert_eq!(sm.state(), AgentState::Idle);
+    }
+
+    // -----------------------------------------------------------------------
+    // Paused + Fail (added in Wave 7Q)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn paused_fail_yields_failed() {
+        let mut sm = AgentStateMachine::new();
+        advance(
+            &mut sm,
+            &[AgentEvent::Start, AgentEvent::Spawned, AgentEvent::Pause],
+        );
+        assert_eq!(sm.state(), AgentState::Paused);
+        let next = sm
+            .transition(AgentEvent::Fail)
+            .expect("Paused + Fail must succeed");
+        assert_eq!(next, AgentState::Failed);
+        assert_eq!(sm.state(), AgentState::Failed);
+    }
+
+    #[test]
+    fn can_transition_paused_fail_returns_true() {
+        let mut sm = AgentStateMachine::new();
+        advance(
+            &mut sm,
+            &[AgentEvent::Start, AgentEvent::Spawned, AgentEvent::Pause],
+        );
+        assert!(sm.can_transition(AgentEvent::Fail));
     }
 }

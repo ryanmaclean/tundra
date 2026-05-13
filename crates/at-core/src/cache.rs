@@ -6,6 +6,44 @@ use uuid::Uuid;
 
 use crate::types::{Agent, Bead, BeadStatus, KpiSnapshot};
 
+// ---------------------------------------------------------------------------
+// Error type
+// ---------------------------------------------------------------------------
+
+/// Errors that can occur when reading from or writing to the cache database.
+#[derive(Debug, thiserror::Error)]
+pub enum CacheError {
+    /// An underlying SQLite / tokio-rusqlite operation failed.
+    #[error("database error: {0}")]
+    Db(#[from] tokio_rusqlite::Error),
+
+    /// A database row contained a value that could not be decoded into the
+    /// expected Rust type (corrupt schema, post-migration rename, etc.).
+    ///
+    /// The `context` field names the column and, where safe, echoes the bad
+    /// value so callers can log a meaningful diagnostic without panicking.
+    #[error("invalid row data — {context}: {source}")]
+    InvalidRow {
+        /// Human-readable description of what was being decoded and what went
+        /// wrong (e.g., `"beads.id: not a valid UUID"`).
+        context: String,
+        /// The underlying parse / deserialise error.
+        source: Box<dyn std::error::Error + Send + Sync + 'static>,
+    },
+}
+
+impl CacheError {
+    fn invalid_row(
+        context: impl Into<String>,
+        source: impl std::error::Error + Send + Sync + 'static,
+    ) -> Self {
+        CacheError::InvalidRow {
+            context: context.into(),
+            source: Box::new(source),
+        }
+    }
+}
+
 /// Async SQLite-backed cache for beads, agents, and events.
 pub struct CacheDb {
     conn: Connection,
@@ -20,9 +58,13 @@ fn enum_to_sql<T: serde::Serialize>(val: &T) -> String {
     s.trim_matches('"').to_string()
 }
 
-fn enum_from_sql<T: serde::de::DeserializeOwned>(raw: &str) -> T {
+/// Deserialise a plain SQL string (e.g. `"backlog"`) into a serde-friendly
+/// Rust enum.  Returns `Err(CacheError::InvalidRow)` instead of panicking
+/// when the string is not a recognised variant.
+fn enum_from_sql<T: serde::de::DeserializeOwned>(raw: &str, column: &str) -> Result<T, CacheError> {
     let quoted = format!("\"{}\"", raw);
-    serde_json::from_str(&quoted).expect("deserialize enum")
+    serde_json::from_str(&quoted)
+        .map_err(|e| CacheError::invalid_row(format!("{column}: unrecognised value {:?}", raw), e))
 }
 
 impl CacheDb {
@@ -172,9 +214,17 @@ impl CacheDb {
             .await
     }
 
-    pub async fn get_bead(&self, id: Uuid) -> Result<Option<Bead>, tokio_rusqlite::Error> {
+    /// Fetch a single bead by id.
+    ///
+    /// Returns `Err(CacheError::InvalidRow)` if the stored row contains data
+    /// that cannot be decoded (corrupt UUID, unknown status string, bad date,
+    /// etc.) rather than panicking.
+    pub async fn get_bead(&self, id: Uuid) -> Result<Option<Bead>, CacheError> {
         let id_str = id.to_string();
-        self.conn
+        // conn.call() closures must return Result<T, tokio_rusqlite::Error>.
+        // We smuggle a CacheError out as Ok(Err(e)) and flatten it after await.
+        let outer: Result<Option<Result<Bead, CacheError>>, tokio_rusqlite::Error> = self
+            .conn
             .call(move |conn| {
                 let mut stmt = conn.prepare_cached(
                     "SELECT id, title, description, status, lane, priority,
@@ -184,19 +234,28 @@ impl CacheDb {
                 )?;
                 let mut rows = stmt.query(rusqlite::params![id_str])?;
                 match rows.next()? {
-                    Some(row) => Ok(Some(row_to_bead(row)?)),
+                    Some(row) => Ok(Some(row_to_bead(row))),
                     None => Ok(None),
                 }
             })
-            .await
+            .await;
+
+        match outer {
+            Ok(Some(Ok(bead))) => Ok(Some(bead)),
+            Ok(Some(Err(e))) => Err(e),
+            Ok(None) => Ok(None),
+            Err(e) => Err(CacheError::Db(e)),
+        }
     }
 
-    pub async fn list_beads_by_status(
-        &self,
-        status: BeadStatus,
-    ) -> Result<Vec<Bead>, tokio_rusqlite::Error> {
+    /// List all beads with a given status.
+    ///
+    /// Returns `Err(CacheError::InvalidRow)` if any stored row cannot be
+    /// decoded, rather than panicking.
+    pub async fn list_beads_by_status(&self, status: BeadStatus) -> Result<Vec<Bead>, CacheError> {
         let status_str = enum_to_sql(&status);
-        self.conn
+        let outer: Result<Result<Vec<Bead>, CacheError>, tokio_rusqlite::Error> = self
+            .conn
             .call(move |conn| {
                 let mut stmt = conn.prepare_cached(
                     "SELECT id, title, description, status, lane, priority,
@@ -207,11 +266,20 @@ impl CacheDb {
                 let mut rows = stmt.query(rusqlite::params![status_str])?;
                 let mut out = Vec::new();
                 while let Some(row) = rows.next()? {
-                    out.push(row_to_bead(row)?);
+                    match row_to_bead(row) {
+                        Ok(bead) => out.push(bead),
+                        Err(e) => return Ok(Err(e)),
+                    }
                 }
-                Ok(out)
+                Ok(Ok(out))
             })
-            .await
+            .await;
+
+        match outer {
+            Ok(Ok(beads)) => Ok(beads),
+            Ok(Err(e)) => Err(e),
+            Err(e) => Err(CacheError::Db(e)),
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -253,12 +321,14 @@ impl CacheDb {
             .await
     }
 
-    pub async fn get_agent_by_name(
-        &self,
-        name: &str,
-    ) -> Result<Option<Agent>, tokio_rusqlite::Error> {
+    /// Fetch an agent by name.
+    ///
+    /// Returns `Err(CacheError::InvalidRow)` if the stored row contains data
+    /// that cannot be decoded, rather than panicking.
+    pub async fn get_agent_by_name(&self, name: &str) -> Result<Option<Agent>, CacheError> {
         let name = name.to_string();
-        self.conn
+        let outer: Result<Option<Result<Agent, CacheError>>, tokio_rusqlite::Error> = self
+            .conn
             .call(move |conn| {
                 let mut stmt = conn.prepare(
                     "SELECT id, name, role, cli_type, model, status,
@@ -267,17 +337,98 @@ impl CacheDb {
                 )?;
                 let mut rows = stmt.query(rusqlite::params![name])?;
                 match rows.next()? {
-                    Some(row) => Ok(Some(row_to_agent(row)?)),
+                    Some(row) => Ok(Some(row_to_agent(row))),
                     None => Ok(None),
                 }
             })
-            .await
+            .await;
+
+        match outer {
+            Ok(Some(Ok(agent))) => Ok(Some(agent)),
+            Ok(Some(Err(e))) => Err(e),
+            Ok(None) => Ok(None),
+            Err(e) => Err(CacheError::Db(e)),
+        }
     }
 
     // -----------------------------------------------------------------------
     // KPI
     // -----------------------------------------------------------------------
 
+    /// Insert a raw row into the `beads` table using arbitrary string values,
+    /// bypassing type validation.
+    ///
+    /// **Only available when the `test-utils` feature (or the crate's own
+    /// `#[cfg(test)]`) is active.**  Intended for injecting deliberately-corrupt
+    /// rows (bad UUIDs, unknown enum variants, invalid dates) so that callers
+    /// in other crates can exercise the `CacheError::InvalidRow` code paths
+    /// without needing access to the private `conn` field.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub async fn insert_raw_bead_for_test(
+        &self,
+        id: &str,
+        status: &str,
+        lane: &str,
+    ) -> Result<(), tokio_rusqlite::Error> {
+        let id = id.to_string();
+        let status = status.to_string();
+        let lane = lane.to_string();
+        const GOOD_DATE: &str = "2024-01-01T00:00:00+00:00";
+        self.conn
+            .call(move |conn| {
+                conn.execute(
+                    "INSERT INTO beads \
+                     (id, title, status, lane, priority, created_at, updated_at) \
+                     VALUES (?1, 'raw-test', ?2, ?3, 0, ?4, ?5)",
+                    rusqlite::params![id, status, lane, GOOD_DATE, GOOD_DATE],
+                )?;
+                Ok(())
+            })
+            .await
+    }
+
+    /// Insert a raw row into the `agents` table using arbitrary string values,
+    /// bypassing type validation.
+    ///
+    /// **Only available when the `test-utils` feature (or the crate's own
+    /// `#[cfg(test)]`) is active.**  Intended for injecting deliberately-corrupt
+    /// rows so that callers in other crates can exercise the
+    /// `CacheError::InvalidRow` code paths.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub async fn insert_raw_agent_for_test(
+        &self,
+        name: &str,
+        role: &str,
+        cli_type: &str,
+    ) -> Result<(), tokio_rusqlite::Error> {
+        let name = name.to_string();
+        let role = role.to_string();
+        let cli_type = cli_type.to_string();
+        const GOOD_DATE: &str = "2024-01-01T00:00:00+00:00";
+        let id = uuid::Uuid::new_v4().to_string();
+        self.conn
+            .call(move |conn| {
+                conn.execute(
+                    "INSERT INTO agents \
+                     (id, name, role, cli_type, model, status, rig, pid, session_id, \
+                      created_at, last_seen, metadata) \
+                     VALUES (?1, ?2, ?3, ?4, 'test-model', 'active', NULL, NULL, NULL, \
+                             ?5, ?6, NULL)",
+                    rusqlite::params![id, name, role, cli_type, GOOD_DATE, GOOD_DATE],
+                )?;
+                Ok(())
+            })
+            .await
+    }
+
+    /// Compute a point-in-time KPI snapshot.
+    ///
+    /// **Unknown-status policy (lenient + visible):** rows whose `status`
+    /// column does not map to a known `BeadStatus` variant are counted in
+    /// `total_beads` but not attributed to any named bucket, so the total
+    /// always equals the real row count.  A `tracing::warn!` is emitted for
+    /// each unknown value so operators can detect schema drift without the
+    /// daemon crashing or silently understating totals.
     pub async fn compute_kpi_snapshot(&self) -> Result<KpiSnapshot, tokio_rusqlite::Error> {
         self.conn
             .call(|conn| {
@@ -290,6 +441,18 @@ impl CacheDb {
                 })?;
                 for row in rows {
                     let (status, count) = row?;
+                    // Warn on unknown status variants so operators notice schema
+                    // drift; still include them in total_beads so the total
+                    // always equals the real row count (lenient + visible policy).
+                    let quoted = format!("\"{}\"", status);
+                    if serde_json::from_str::<BeadStatus>(&quoted).is_err() {
+                        tracing::warn!(
+                            status = %status,
+                            count = count,
+                            "compute_kpi_snapshot: unknown bead status in database; \
+                             counted in total_beads but not in any named bucket"
+                        );
+                    }
                     counts.insert(status, count);
                 }
 
@@ -321,80 +484,286 @@ impl CacheDb {
 // Row mapping helpers
 // ---------------------------------------------------------------------------
 
-fn row_to_bead(row: &rusqlite::Row<'_>) -> rusqlite::Result<Bead> {
-    let id_str: String = row.get(0)?;
-    let status_str: String = row.get(3)?;
-    let lane_str: String = row.get(4)?;
-    let agent_id_str: Option<String> = row.get(6)?;
-    let convoy_id_str: Option<String> = row.get(7)?;
-    let created_at_str: String = row.get(8)?;
-    let updated_at_str: String = row.get(9)?;
-    let hooked_at_str: Option<String> = row.get(10)?;
-    let slung_at_str: Option<String> = row.get(11)?;
-    let done_at_str: Option<String> = row.get(12)?;
-    let metadata_str: Option<String> = row.get(14)?;
+/// Parse an RFC-3339 timestamp string, returning `CacheError::InvalidRow` on
+/// failure.  The `column` argument is embedded in the error message.
+fn parse_datetime(s: &str, column: &str) -> Result<chrono::DateTime<Utc>, CacheError> {
+    chrono::DateTime::parse_from_rfc3339(s)
+        .map(|dt| dt.with_timezone(&Utc))
+        .map_err(|e| CacheError::invalid_row(format!("{column}: invalid RFC-3339 date {:?}", s), e))
+}
+
+/// Parse a UUID string, returning `CacheError::InvalidRow` on failure.
+fn parse_uuid(s: &str, column: &str) -> Result<Uuid, CacheError> {
+    Uuid::parse_str(s)
+        .map_err(|e| CacheError::invalid_row(format!("{column}: invalid UUID {:?}", s), e))
+}
+
+/// Parse a JSON value string, returning `CacheError::InvalidRow` on failure.
+fn parse_json(s: &str, column: &str) -> Result<serde_json::Value, CacheError> {
+    serde_json::from_str(s)
+        .map_err(|e| CacheError::invalid_row(format!("{column}: invalid JSON"), e))
+}
+
+/// Read a column and map any decode error to `CacheError::InvalidRow`.
+///
+/// Column-decode failures (e.g. column-type mismatch after a schema migration)
+/// are persistent and indicate row-level corruption — they should not be
+/// reported as transient `Db` errors that callers might silently retry.
+fn decode_col<T: rusqlite::types::FromSql>(
+    row: &rusqlite::Row<'_>,
+    idx: usize,
+    column: &str,
+) -> Result<T, CacheError> {
+    row.get::<_, T>(idx)
+        .map_err(|e| CacheError::invalid_row(format!("{column}: column decode failed"), e))
+}
+
+fn row_to_bead(row: &rusqlite::Row<'_>) -> Result<Bead, CacheError> {
+    let id_str: String = decode_col(row, 0, "beads.id")?;
+    let status_str: String = decode_col(row, 3, "beads.status")?;
+    let lane_str: String = decode_col(row, 4, "beads.lane")?;
+    let agent_id_str: Option<String> = decode_col(row, 6, "beads.agent_id")?;
+    let convoy_id_str: Option<String> = decode_col(row, 7, "beads.convoy_id")?;
+    let created_at_str: String = decode_col(row, 8, "beads.created_at")?;
+    let updated_at_str: String = decode_col(row, 9, "beads.updated_at")?;
+    let hooked_at_str: Option<String> = decode_col(row, 10, "beads.hooked_at")?;
+    let slung_at_str: Option<String> = decode_col(row, 11, "beads.slung_at")?;
+    let done_at_str: Option<String> = decode_col(row, 12, "beads.done_at")?;
+    let metadata_str: Option<String> = decode_col(row, 14, "beads.metadata")?;
 
     Ok(Bead {
-        id: Uuid::parse_str(&id_str).expect("valid uuid"),
-        title: row.get(1)?,
-        description: row.get(2)?,
-        status: enum_from_sql(&status_str),
-        lane: enum_from_sql(&lane_str),
-        priority: row.get(5)?,
-        agent_id: agent_id_str.map(|s| Uuid::parse_str(&s).expect("valid uuid")),
-        convoy_id: convoy_id_str.map(|s| Uuid::parse_str(&s).expect("valid uuid")),
-        created_at: chrono::DateTime::parse_from_rfc3339(&created_at_str)
-            .expect("valid date")
-            .with_timezone(&Utc),
-        updated_at: chrono::DateTime::parse_from_rfc3339(&updated_at_str)
-            .expect("valid date")
-            .with_timezone(&Utc),
-        hooked_at: hooked_at_str.map(|s| {
-            chrono::DateTime::parse_from_rfc3339(&s)
-                .expect("valid date")
-                .with_timezone(&Utc)
-        }),
-        slung_at: slung_at_str.map(|s| {
-            chrono::DateTime::parse_from_rfc3339(&s)
-                .expect("valid date")
-                .with_timezone(&Utc)
-        }),
-        done_at: done_at_str.map(|s| {
-            chrono::DateTime::parse_from_rfc3339(&s)
-                .expect("valid date")
-                .with_timezone(&Utc)
-        }),
-        git_branch: row.get(13)?,
-        metadata: metadata_str.map(|s| serde_json::from_str(&s).expect("valid json")),
+        id: parse_uuid(&id_str, "beads.id")?,
+        title: decode_col(row, 1, "beads.title")?,
+        description: decode_col(row, 2, "beads.description")?,
+        status: enum_from_sql(&status_str, "beads.status")?,
+        lane: enum_from_sql(&lane_str, "beads.lane")?,
+        priority: decode_col(row, 5, "beads.priority")?,
+        agent_id: agent_id_str
+            .map(|s| parse_uuid(&s, "beads.agent_id"))
+            .transpose()?,
+        convoy_id: convoy_id_str
+            .map(|s| parse_uuid(&s, "beads.convoy_id"))
+            .transpose()?,
+        created_at: parse_datetime(&created_at_str, "beads.created_at")?,
+        updated_at: parse_datetime(&updated_at_str, "beads.updated_at")?,
+        hooked_at: hooked_at_str
+            .map(|s| parse_datetime(&s, "beads.hooked_at"))
+            .transpose()?,
+        slung_at: slung_at_str
+            .map(|s| parse_datetime(&s, "beads.slung_at"))
+            .transpose()?,
+        done_at: done_at_str
+            .map(|s| parse_datetime(&s, "beads.done_at"))
+            .transpose()?,
+        git_branch: decode_col(row, 13, "beads.git_branch")?,
+        metadata: metadata_str
+            .map(|s| parse_json(&s, "beads.metadata"))
+            .transpose()?,
     })
 }
 
-fn row_to_agent(row: &rusqlite::Row<'_>) -> rusqlite::Result<Agent> {
-    let id_str: String = row.get(0)?;
-    let role_str: String = row.get(2)?;
-    let cli_type_str: String = row.get(3)?;
-    let status_str: String = row.get(5)?;
-    let pid_val: Option<i64> = row.get(7)?;
-    let created_at_str: String = row.get(9)?;
-    let last_seen_str: String = row.get(10)?;
-    let metadata_str: Option<String> = row.get(11)?;
+fn row_to_agent(row: &rusqlite::Row<'_>) -> Result<Agent, CacheError> {
+    let id_str: String = decode_col(row, 0, "agents.id")?;
+    let role_str: String = decode_col(row, 2, "agents.role")?;
+    let cli_type_str: String = decode_col(row, 3, "agents.cli_type")?;
+    let status_str: String = decode_col(row, 5, "agents.status")?;
+    let pid_val: Option<i64> = decode_col(row, 7, "agents.pid")?;
+    let created_at_str: String = decode_col(row, 9, "agents.created_at")?;
+    let last_seen_str: String = decode_col(row, 10, "agents.last_seen")?;
+    let metadata_str: Option<String> = decode_col(row, 11, "agents.metadata")?;
 
     Ok(Agent {
-        id: Uuid::parse_str(&id_str).expect("valid uuid"),
-        name: row.get(1)?,
-        role: enum_from_sql(&role_str),
-        cli_type: enum_from_sql(&cli_type_str),
-        model: row.get(4)?,
-        status: enum_from_sql(&status_str),
-        rig: row.get(6)?,
+        id: parse_uuid(&id_str, "agents.id")?,
+        name: decode_col(row, 1, "agents.name")?,
+        role: enum_from_sql(&role_str, "agents.role")?,
+        cli_type: enum_from_sql(&cli_type_str, "agents.cli_type")?,
+        model: decode_col(row, 4, "agents.model")?,
+        status: enum_from_sql(&status_str, "agents.status")?,
+        rig: decode_col(row, 6, "agents.rig")?,
         pid: pid_val.map(|p| p as u32),
-        session_id: row.get(8)?,
-        created_at: chrono::DateTime::parse_from_rfc3339(&created_at_str)
-            .expect("valid date")
-            .with_timezone(&Utc),
-        last_seen: chrono::DateTime::parse_from_rfc3339(&last_seen_str)
-            .expect("valid date")
-            .with_timezone(&Utc),
-        metadata: metadata_str.map(|s| serde_json::from_str(&s).expect("valid json")),
+        session_id: decode_col(row, 8, "agents.session_id")?,
+        created_at: parse_datetime(&created_at_str, "agents.created_at")?,
+        last_seen: parse_datetime(&last_seen_str, "agents.last_seen")?,
+        metadata: metadata_str
+            .map(|s| parse_json(&s, "agents.metadata"))
+            .transpose()?,
     })
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Helper: raw INSERT into beads with arbitrary strings, bypassing type
+    // validation so we can inject corrupt data.
+    async fn insert_raw_bead(
+        db: &CacheDb,
+        id: &str,
+        status: &str,
+        lane: &str,
+        created_at: &str,
+        updated_at: &str,
+    ) {
+        let id = id.to_string();
+        let status = status.to_string();
+        let lane = lane.to_string();
+        let created_at = created_at.to_string();
+        let updated_at = updated_at.to_string();
+        db.conn
+            .call(move |conn| {
+                conn.execute(
+                    "INSERT INTO beads \
+                     (id, title, status, lane, priority, created_at, updated_at) \
+                     VALUES (?1, 'test', ?2, ?3, 0, ?4, ?5)",
+                    rusqlite::params![id, status, lane, created_at, updated_at],
+                )?;
+                Ok(())
+            })
+            .await
+            .unwrap();
+    }
+
+    const GOOD_UUID: &str = "550e8400-e29b-41d4-a716-446655440000";
+    const GOOD_DATE: &str = "2024-01-01T00:00:00Z";
+    const GOOD_STATUS: &str = "backlog";
+    const GOOD_LANE: &str = "standard";
+
+    /// Test 1: a bead with an unknown status string must return
+    /// `Err(CacheError::InvalidRow)` — not panic.
+    #[tokio::test]
+    async fn cache_returns_error_on_invalid_status_enum() {
+        let db = CacheDb::new_in_memory().await.unwrap();
+        insert_raw_bead(
+            &db,
+            GOOD_UUID,
+            "totally_unknown_status",
+            GOOD_LANE,
+            GOOD_DATE,
+            GOOD_DATE,
+        )
+        .await;
+
+        let result = db.get_bead(Uuid::parse_str(GOOD_UUID).unwrap()).await;
+        assert!(
+            matches!(result, Err(CacheError::InvalidRow { .. })),
+            "expected Err(CacheError::InvalidRow), got: {:?}",
+            result
+        );
+    }
+
+    /// Test 2: a bead whose `id` column is not a valid UUID must return
+    /// `Err(CacheError::InvalidRow)` — not panic.
+    ///
+    /// We use `list_beads_by_status` (a full-scan query) because `get_bead`
+    /// takes a `Uuid` argument and constructs the lookup key itself, so it
+    /// would never find the deliberately-corrupt row.
+    #[tokio::test]
+    async fn cache_returns_error_on_invalid_uuid() {
+        let db = CacheDb::new_in_memory().await.unwrap();
+
+        // Insert via raw SQL so we can bypass the UUID type.
+        db.conn
+            .call(|conn| {
+                conn.execute(
+                    "INSERT INTO beads \
+                     (id, title, status, lane, priority, created_at, updated_at) \
+                     VALUES ('not-a-uuid', 'test', 'backlog', 'standard', 0, \
+                             '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')",
+                    [],
+                )?;
+                Ok(())
+            })
+            .await
+            .unwrap();
+
+        // list_beads_by_status scans all rows with status='backlog', hitting
+        // the bad id.
+        let result = db.list_beads_by_status(BeadStatus::Backlog).await;
+        assert!(
+            matches!(result, Err(CacheError::InvalidRow { .. })),
+            "expected Err(CacheError::InvalidRow), got: {:?}",
+            result
+        );
+    }
+
+    /// Test 3: a bead whose `created_at` column is not a valid RFC-3339 date
+    /// must return `Err(CacheError::InvalidRow)` — not panic.
+    #[tokio::test]
+    async fn cache_returns_error_on_invalid_date() {
+        let db = CacheDb::new_in_memory().await.unwrap();
+        insert_raw_bead(
+            &db,
+            GOOD_UUID,
+            GOOD_STATUS,
+            GOOD_LANE,
+            "not-a-date", // bad created_at
+            GOOD_DATE,
+        )
+        .await;
+
+        let result = db.get_bead(Uuid::parse_str(GOOD_UUID).unwrap()).await;
+        assert!(
+            matches!(result, Err(CacheError::InvalidRow { .. })),
+            "expected Err(CacheError::InvalidRow), got: {:?}",
+            result
+        );
+    }
+
+    /// Test 4: `compute_kpi_snapshot` with a mix of valid and unknown statuses
+    /// must account for every row in `total_beads` (lenient + visible policy).
+    #[tokio::test]
+    async fn compute_kpi_snapshot_handles_unknown_status_per_chosen_policy() {
+        let db = CacheDb::new_in_memory().await.unwrap();
+
+        // 2 known-status beads.
+        insert_raw_bead(
+            &db,
+            "550e8400-e29b-41d4-a716-446655440001",
+            "backlog",
+            GOOD_LANE,
+            GOOD_DATE,
+            GOOD_DATE,
+        )
+        .await;
+        insert_raw_bead(
+            &db,
+            "550e8400-e29b-41d4-a716-446655440002",
+            "done",
+            GOOD_LANE,
+            GOOD_DATE,
+            GOOD_DATE,
+        )
+        .await;
+
+        // 1 bead with an unknown/migrated status string.
+        insert_raw_bead(
+            &db,
+            "550e8400-e29b-41d4-a716-446655440003",
+            "totally_unknown_status",
+            GOOD_LANE,
+            GOOD_DATE,
+            GOOD_DATE,
+        )
+        .await;
+
+        let snapshot = db
+            .compute_kpi_snapshot()
+            .await
+            .expect("compute_kpi_snapshot must not return an error (lenient policy)");
+
+        // Lenient policy: total_beads must equal the real row count (3), even
+        // though one status is unrecognised.
+        assert_eq!(
+            snapshot.total_beads, 3,
+            "total_beads should equal real row count including unknown-status rows"
+        );
+
+        // Named buckets for known statuses are correct.
+        assert_eq!(snapshot.backlog, 1);
+        assert_eq!(snapshot.done, 1);
+    }
 }

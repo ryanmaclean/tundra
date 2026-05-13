@@ -1304,101 +1304,150 @@ async fn handle_terminal_ws(socket: WebSocket, state: Arc<ApiState>, terminal_id
     // -----------------------------------------------------------------------
     // Spawn background task to buffer PTY output during grace period.
     // -----------------------------------------------------------------------
-    // This task continues reading PTY output for WS_RECONNECT_GRACE (10 seconds)
-    // and buffers it (last 4KB) in case the client reconnects. If the grace
+    // This task continues reading PTY output for WS_RECONNECT_GRACE (30 seconds)
+    // and buffers it (last 64KB) in case the client reconnects. If the grace
     // period expires without reconnection, the PTY is killed and the terminal
     // transitions to Dead status.
+    //
+    // If the PTY process exits before the grace period ends, the task
+    // immediately cleans up the registry and disconnect buffer rather than
+    // waiting for the periodic TTL-based cleanup cycle.
     let bg_state = state.clone();
-    tokio::spawn(async move {
-        let deadline = tokio::time::Instant::now() + WS_RECONNECT_GRACE;
+    tokio::spawn(spawn_reconnect_grace_task(
+        bg_state,
+        terminal_id,
+        pty_reader_bg,
+    ));
+}
 
-        loop {
-            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
-            if remaining.is_zero() {
-                // Grace period expired.
-                break;
-            }
+/// Background task that buffers PTY output during a WebSocket reconnect grace period.
+///
+/// This task runs after a WebSocket disconnects. It reads PTY output and stores it
+/// in the disconnect buffer so that a reconnecting client can replay missed output.
+///
+/// # Termination paths
+///
+/// 1. **Grace period expired** (timeout arm): the 30-second window closed without
+///    reconnection. The PTY is killed and the terminal transitions to `Dead`.
+///
+/// 2. **PTY process exited early** (`Ok(Err(_))` arm): the PTY reader channel
+///    closed because the child process exited before the grace period ended.
+///    The terminal is immediately transitioned to `Dead` and all registry /
+///    disconnect-buffer entries are removed — without waiting for the periodic
+///    TTL-based cleanup cycle. Failing to do so would leave a zombie
+///    `TerminalStatus::Disconnected` entry and a dangling `DisconnectBuffer`
+///    until the next cleanup tick.
+///
+/// 3. **Client reconnected** (buffer consumed): a reconnecting client drained
+///    the disconnect buffer. The task returns without further action.
+async fn spawn_reconnect_grace_task(
+    state: Arc<ApiState>,
+    terminal_id: Uuid,
+    pty_reader: flume::Receiver<Vec<u8>>,
+) {
+    let deadline = tokio::time::Instant::now() + WS_RECONNECT_GRACE;
 
-            match tokio::time::timeout(remaining, pty_reader_bg.recv_async()).await {
-                Ok(Ok(data)) => {
-                    // PTY produced output — add to disconnect buffer.
-                    let mut buffers = bg_state.disconnect_buffers.write().await;
-                    match buffers.get_mut(&terminal_id) {
-                        Some(buf) => {
-                            // Buffer exists — push data (ring buffer overwrites oldest data).
-                            buf.push(&data);
-                        }
-                        None => {
-                            // Buffer was consumed by a reconnecting client — stop buffering.
-                            tracing::debug!(
-                                %terminal_id,
-                                "disconnect buffer consumed, reconnect happened"
-                            );
-                            return;
-                        }
+    loop {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if remaining.is_zero() {
+            // Grace period expired.
+            break;
+        }
+
+        match tokio::time::timeout(remaining, pty_reader.recv_async()).await {
+            Ok(Ok(data)) => {
+                // PTY produced output — add to disconnect buffer.
+                let mut buffers = state.disconnect_buffers.write().await;
+                match buffers.get_mut(&terminal_id) {
+                    Some(buf) => {
+                        // Buffer exists — push data (ring buffer overwrites oldest data).
+                        buf.push(&data);
+                    }
+                    None => {
+                        // Buffer was consumed by a reconnecting client — stop buffering.
+                        tracing::debug!(
+                            %terminal_id,
+                            "disconnect buffer consumed, reconnect happened"
+                        );
+                        return;
                     }
                 }
-                Ok(Err(_)) => {
-                    // PTY reader channel closed — child process exited during grace period.
-                    tracing::debug!(%terminal_id, "PTY closed during disconnect grace period");
-                    break;
-                }
-                Err(_) => {
-                    // Timeout — grace period expired without PTY output.
-                    break;
-                }
             }
-        }
-
-        // -----------------------------------------------------------------------
-        // Grace period expired or PTY closed. Check if still disconnected.
-        // -----------------------------------------------------------------------
-        {
-            let registry = bg_state.terminal_registry.read().await;
-            if let Some(info) = registry.get(&terminal_id) {
-                if !matches!(info.status, TerminalStatus::Disconnected { .. }) {
-                    // Terminal was reconnected or manually deleted — don't kill.
-                    return;
-                }
-            } else {
-                // Terminal was removed from registry (manually deleted).
+            Ok(Err(_)) => {
+                // PTY reader channel closed — child process exited during grace period.
+                //
+                // Do NOT fall through to the shared "grace period expired" path below.
+                // That path guards on `TerminalStatus::Disconnected` and could be
+                // skipped by a concurrent status change, leaving a zombie entry.
+                // Instead clean up immediately here.
+                tracing::debug!(%terminal_id, "PTY closed during disconnect grace period, cleaning up");
+                cleanup_disconnected_terminal(&state, terminal_id).await;
                 return;
             }
-        }
-
-        tracing::info!(
-            %terminal_id,
-            "reconnect grace period expired, killing terminal"
-        );
-
-        // -----------------------------------------------------------------------
-        // Kill the PTY process and clean up all resources.
-        // -----------------------------------------------------------------------
-        // Kill the PTY child process (sends SIGKILL).
-        {
-            let mut handles = bg_state.pty_handles.write().await;
-            if let Some(handle) = handles.remove(&terminal_id) {
-                let _ = handle.kill();
+            Err(_) => {
+                // Timeout — grace period expired without PTY output or reconnect.
+                break;
             }
         }
+    }
 
-        // Release terminal ID from pool tracking.
-        if let Some(pool) = &bg_state.pty_pool {
-            pool.release(terminal_id);
+    // -----------------------------------------------------------------------
+    // Grace period expired. Check if still disconnected before killing.
+    // -----------------------------------------------------------------------
+    {
+        let registry = state.terminal_registry.read().await;
+        if let Some(info) = registry.get(&terminal_id) {
+            if !matches!(info.status, TerminalStatus::Disconnected { .. }) {
+                // Terminal was reconnected or manually deleted — don't kill.
+                return;
+            }
+        } else {
+            // Terminal was removed from registry (manually deleted).
+            return;
         }
+    }
 
-        // Set status to Dead — subsequent reconnect attempts will receive 410 Gone.
-        {
-            let mut registry = bg_state.terminal_registry.write().await;
-            registry.update_status(&terminal_id, TerminalStatus::Dead);
-        }
+    tracing::info!(
+        %terminal_id,
+        "reconnect grace period expired, killing terminal"
+    );
 
-        // Clean up the disconnect buffer.
-        {
-            let mut buffers = bg_state.disconnect_buffers.write().await;
-            buffers.remove(&terminal_id);
+    cleanup_disconnected_terminal(&state, terminal_id).await;
+}
+
+/// Kill the PTY and remove all registry / buffer state for a disconnected terminal.
+///
+/// Called from two code paths:
+/// - After the grace period expires with no reconnection.
+/// - When the PTY reader channel closes early (child process exited).
+///
+/// Idempotent: missing entries in `pty_handles` or `disconnect_buffers` are
+/// silently ignored.
+async fn cleanup_disconnected_terminal(state: &Arc<ApiState>, terminal_id: Uuid) {
+    // Kill the PTY child process (sends SIGKILL).
+    {
+        let mut handles = state.pty_handles.write().await;
+        if let Some(handle) = handles.remove(&terminal_id) {
+            let _ = handle.kill();
         }
-    });
+    }
+
+    // Release terminal ID from pool tracking.
+    if let Some(pool) = &state.pty_pool {
+        pool.release(terminal_id);
+    }
+
+    // Set status to Dead — subsequent reconnect attempts will receive 410 Gone.
+    {
+        let mut registry = state.terminal_registry.write().await;
+        registry.update_status(&terminal_id, TerminalStatus::Dead);
+    }
+
+    // Clean up the disconnect buffer.
+    {
+        let mut buffers = state.disconnect_buffers.write().await;
+        buffers.remove(&terminal_id);
+    }
 }
 
 // Routes to add to http_api.rs api_router_with_auth:
@@ -2112,5 +2161,209 @@ mod tests {
             .unwrap();
         let terminals: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
         assert!(terminals.is_empty());
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Reconnect grace-period task unit tests
+//
+// These tests exercise `spawn_reconnect_grace_task` and `cleanup_disconnected_terminal`
+// directly, without a real WebSocket or PTY process.  A fake flume channel
+// stands in for the PTY reader so we can simulate both early PTY exit (drop the
+// sender before the grace period ends) and normal buffering (keep the sender
+// alive and push data through it).
+//
+// Time-control: `tokio::time::pause()` freezes the Tokio clock.  The tests
+// therefore do NOT rely on wall-clock sleeps; they advance time explicitly.
+// ---------------------------------------------------------------------------
+#[cfg(test)]
+mod grace_period_tests {
+    use super::*;
+    use crate::event_bus::EventBus;
+    use crate::terminal::{DisconnectBuffer, TerminalInfo, TerminalStatus, DISCONNECT_BUFFER_SIZE};
+    use uuid::Uuid;
+
+    /// Minimal `ApiState` with no PTY pool — sufficient for registry / buffer tests.
+    fn make_state() -> Arc<ApiState> {
+        Arc::new(ApiState::new(EventBus::new()))
+    }
+
+    /// Register a terminal in `Disconnected` state and insert a `DisconnectBuffer`.
+    /// Returns the terminal ID.
+    async fn setup_disconnected_terminal(state: &Arc<ApiState>) -> Uuid {
+        let id = Uuid::new_v4();
+        let info = TerminalInfo {
+            id,
+            agent_id: Uuid::nil(),
+            title: "grace-period-test".to_string(),
+            status: TerminalStatus::Disconnected {
+                since: chrono::Utc::now(),
+            },
+            cols: 80,
+            rows: 24,
+            font_size: 14,
+            font_family: "monospace".to_string(),
+            line_height: 1.0,
+            letter_spacing: 0.0,
+            profile: "bundled-card".to_string(),
+            cursor_style: "block".to_string(),
+            cursor_blink: true,
+            auto_name: None,
+            persistent: false,
+        };
+        {
+            let mut registry = state.terminal_registry.write().await;
+            registry.register(info);
+        }
+        {
+            let mut buffers = state.disconnect_buffers.write().await;
+            buffers.insert(id, DisconnectBuffer::new(DISCONNECT_BUFFER_SIZE));
+        }
+        id
+    }
+
+    // -----------------------------------------------------------------------
+    // T1: PTY exits before grace period — registry and buffer cleaned up immediately
+    //
+    // This is the regression test for the zombie-terminal leak.
+    //
+    // When the PTY reader channel closes (sender dropped) before the grace period
+    // ends, the task must:
+    //   1. Immediately call `cleanup_disconnected_terminal` — NOT wait for the
+    //      grace-period timeout.
+    //   2. Transition the terminal to `TerminalStatus::Dead`.
+    //   3. Remove the `DisconnectBuffer` entry from the registry.
+    //
+    // On origin/main (before this commit), `spawn_reconnect_grace_task` did not
+    // exist as a standalone function; the spawned future was inlined in
+    // `handle_terminal_ws`.  This test therefore fails to compile on origin/main,
+    // confirming that the early-exit cleanup path was absent.
+    // -----------------------------------------------------------------------
+    #[tokio::test]
+    async fn grace_period_task_cleans_up_when_pty_exits_early() {
+        tokio::time::pause();
+
+        let state = make_state();
+        let terminal_id = setup_disconnected_terminal(&state).await;
+
+        // Create a fake PTY channel.  Drop the sender immediately to simulate
+        // the child process having exited before the reconnect window opened.
+        let (tx, rx) = flume::bounded::<Vec<u8>>(8);
+        drop(tx); // channel closed — recv_async() will return Err immediately
+
+        // Run the grace task to completion (no real timer needed; the closed
+        // channel makes it return on the first recv_async call).
+        spawn_reconnect_grace_task(Arc::clone(&state), terminal_id, rx).await;
+
+        // Registry must show Dead status.
+        {
+            let registry = state.terminal_registry.read().await;
+            let info = registry
+                .get(&terminal_id)
+                .expect("terminal must remain in registry (as Dead) after PTY-exit cleanup");
+            assert_eq!(
+                info.status,
+                TerminalStatus::Dead,
+                "terminal must be Dead after PTY exits during grace period; got {:?}",
+                info.status,
+            );
+        }
+
+        // Disconnect buffer must have been removed.
+        {
+            let buffers = state.disconnect_buffers.read().await;
+            assert!(
+                !buffers.contains_key(&terminal_id),
+                "DisconnectBuffer must be removed after PTY exits during grace period",
+            );
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // T2: PTY stays alive — output is buffered and status stays Disconnected
+    //
+    // Sanity / regression net: when the PTY does NOT exit during the grace
+    // period, the task buffers output and keeps the terminal in Disconnected
+    // state until the full grace period elapses.
+    //
+    // We send one chunk through the fake channel, yield so the task can process
+    // it, then assert the buffer contents and Disconnected status.  Finally we
+    // drop the sender (PTY "exits") and confirm Dead + buffer removed.
+    // -----------------------------------------------------------------------
+    #[tokio::test]
+    async fn grace_period_task_buffers_normally_when_pty_stays_alive() {
+        tokio::time::pause();
+
+        let state = make_state();
+        let terminal_id = setup_disconnected_terminal(&state).await;
+
+        let (tx, rx) = flume::bounded::<Vec<u8>>(8);
+
+        // Spawn the task (don't await — it needs to run concurrently).
+        let state_clone = Arc::clone(&state);
+        let task = tokio::spawn(spawn_reconnect_grace_task(state_clone, terminal_id, rx));
+
+        // Send some PTY output while the terminal is still in the grace period.
+        let chunk = b"hello from pty\n".to_vec();
+        tx.send_async(chunk.clone())
+            .await
+            .expect("send must succeed while grace task is running");
+
+        // Yield so the task can consume the message and push it to the buffer.
+        tokio::task::yield_now().await;
+        tokio::task::yield_now().await;
+
+        // Status must still be Disconnected (grace period has not expired yet).
+        {
+            let registry = state.terminal_registry.read().await;
+            let info = registry
+                .get(&terminal_id)
+                .expect("terminal must be in registry during grace period");
+            assert!(
+                matches!(info.status, TerminalStatus::Disconnected { .. }),
+                "status must be Disconnected while grace period is active; got {:?}",
+                info.status,
+            );
+        }
+
+        // Disconnect buffer must contain the data we sent.
+        {
+            let buffers = state.disconnect_buffers.read().await;
+            let buf = buffers
+                .get(&terminal_id)
+                .expect("DisconnectBuffer must exist during grace period");
+            let buffered: Vec<u8> = buf.snapshot();
+            assert!(
+                buffered.windows(chunk.len()).any(|w| w == chunk.as_slice()),
+                "disconnect buffer must contain the output sent during grace period; \
+                 buf = {:?}",
+                String::from_utf8_lossy(&buffered),
+            );
+        }
+
+        // Drop the sender to let the task finish (PTY "exits").
+        drop(tx);
+        task.await.expect("grace task must not panic");
+
+        // After PTY exit, the terminal should be Dead and buffer gone.
+        {
+            let registry = state.terminal_registry.read().await;
+            let info = registry
+                .get(&terminal_id)
+                .expect("terminal must remain in registry as Dead");
+            assert_eq!(
+                info.status,
+                TerminalStatus::Dead,
+                "terminal must be Dead after PTY exits; got {:?}",
+                info.status,
+            );
+        }
+        {
+            let buffers = state.disconnect_buffers.read().await;
+            assert!(
+                !buffers.contains_key(&terminal_id),
+                "DisconnectBuffer must be removed after PTY exits",
+            );
+        }
     }
 }

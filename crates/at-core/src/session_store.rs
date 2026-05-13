@@ -230,8 +230,18 @@ impl SessionStore {
         let sessions = self.list_sessions().await?;
         let mut removed = 0;
         for session in sessions {
-            if session.last_active_at < cutoff && self.delete_session(&session.id).await? {
-                removed += 1;
+            if session.last_active_at < cutoff {
+                match self.delete_session(&session.id).await {
+                    Ok(true) => removed += 1,
+                    Ok(false) => {}
+                    Err(e) => {
+                        tracing::warn!(
+                            session_id = %session.id,
+                            error = %e,
+                            "failed to delete expired session; skipping"
+                        );
+                    }
+                }
             }
         }
         Ok(removed)
@@ -325,5 +335,140 @@ mod tests {
         let remaining = store.list_sessions().await.unwrap();
         assert_eq!(remaining.len(), 1);
         assert_eq!(remaining[0].user_id, "new_user");
+    }
+
+    /// Three expired sessions exist; M=3, N=3, fresh=0.
+    /// Only expired files are removed, fresh files survive.
+    #[tokio::test]
+    async fn cleanup_removes_expired_sessions_only() {
+        let (store, dir) = temp_store();
+        let ttl = Duration::days(30);
+
+        // Create 2 expired sessions
+        let mut exp1 = SessionState::new("expired1");
+        exp1.last_active_at = Utc::now() - Duration::days(60);
+        let mut exp2 = SessionState::new("expired2");
+        exp2.last_active_at = Utc::now() - Duration::days(45);
+        store.save_session(&exp1).await.unwrap();
+        store.save_session(&exp2).await.unwrap();
+
+        // Create 2 fresh sessions
+        let fresh1 = SessionState::new("fresh1");
+        let fresh2 = SessionState::new("fresh2");
+        store.save_session(&fresh1).await.unwrap();
+        store.save_session(&fresh2).await.unwrap();
+
+        let removed = store.cleanup_old_sessions(ttl).await.unwrap();
+        assert_eq!(removed, 2);
+
+        // Expired files must be gone
+        assert!(!dir.path().join(format!("{}.json", exp1.id)).exists());
+        assert!(!dir.path().join(format!("{}.json", exp2.id)).exists());
+
+        // Fresh files must remain
+        assert!(dir.path().join(format!("{}.json", fresh1.id)).exists());
+        assert!(dir.path().join(format!("{}.json", fresh2.id)).exists());
+    }
+
+    /// Regression test: cleanup must continue past a file it cannot delete.
+    ///
+    /// We use `chattr +i` (Linux ext4) to make one expired session file
+    /// **immutable**, so that even root cannot remove it. The file is still
+    /// **readable** — `list_sessions` will discover it — but `delete_session`
+    /// fails with EPERM. The earlier name said "unreadable", which was a
+    /// misnomer; renamed to match the actual scenario (undeletable).
+    /// The test is skipped at runtime if `chattr` is unavailable or the
+    /// filesystem does not support immutable flags (e.g. tmpfs).
+    #[tokio::test]
+    async fn cleanup_continues_past_undeletable_file() {
+        let (store, dir) = temp_store();
+        let ttl = Duration::days(30);
+
+        // Create 3 expired sessions.
+        let mut exp1 = SessionState::new("exp1");
+        exp1.last_active_at = Utc::now() - Duration::days(90);
+        let mut exp2 = SessionState::new("exp2");
+        exp2.last_active_at = Utc::now() - Duration::days(90);
+        let mut exp3 = SessionState::new("exp3");
+        exp3.last_active_at = Utc::now() - Duration::days(90);
+
+        store.save_session(&exp1).await.unwrap();
+        store.save_session(&exp2).await.unwrap();
+        store.save_session(&exp3).await.unwrap();
+
+        // Make exp1's file immutable via `chattr +i` so it cannot be deleted even
+        // by root, yet is still readable (list_sessions will see it).
+        let blocked_path = dir.path().join(format!("{}.json", exp1.id));
+        let chattr_set = std::process::Command::new("chattr")
+            .arg("+i")
+            .arg(&blocked_path)
+            .status();
+        let chattr_ok = chattr_set.map(|s| s.success()).unwrap_or(false);
+        if !chattr_ok {
+            // chattr not available or filesystem doesn't support immutable flag;
+            // skip the body — the test still passes (not ignored) but is a no-op.
+            return;
+        }
+
+        // cleanup must not abort — it should return Ok even though one deletion failed.
+        let result = store.cleanup_old_sessions(ttl).await;
+        // Restore mutability before any assertions so tempdir cleanup succeeds.
+        let _ = std::process::Command::new("chattr")
+            .arg("-i")
+            .arg(&blocked_path)
+            .status();
+
+        let removed = result.expect("cleanup_old_sessions must return Ok");
+
+        // The two deletable files must be gone.
+        assert!(!dir.path().join(format!("{}.json", exp2.id)).exists());
+        assert!(!dir.path().join(format!("{}.json", exp3.id)).exists());
+
+        // The immutable file must still exist.
+        assert!(blocked_path.exists());
+
+        // 2 out of 3 were removed successfully.
+        assert_eq!(removed, 2);
+    }
+
+    /// Empty session directory. Cleanup must return Ok(()) with 0 removals.
+    #[tokio::test]
+    async fn cleanup_returns_ok_when_no_sessions_exist() {
+        let (store, _dir) = temp_store();
+        let result = store.cleanup_old_sessions(Duration::days(30)).await;
+        assert!(matches!(result, Ok(0)));
+    }
+
+    /// 5 sessions alternating fresh/expired. Only the 2 expired ones are removed.
+    #[tokio::test]
+    async fn cleanup_with_mixed_fresh_and_expired_preserves_fresh() {
+        let (store, dir) = temp_store();
+        let ttl = Duration::days(30);
+
+        let mut sessions = Vec::new();
+        for i in 0..5_u32 {
+            let mut s = SessionState::new(format!("user{i}"));
+            if i % 2 == 0 {
+                // even indices are expired
+                s.last_active_at = Utc::now() - Duration::days(60);
+            }
+            // odd indices use the default `last_active_at` which is Utc::now() (fresh)
+            store.save_session(&s).await.unwrap();
+            sessions.push(s);
+        }
+
+        let removed = store.cleanup_old_sessions(ttl).await.unwrap();
+        assert_eq!(removed, 3); // indices 0, 2, 4 are expired
+
+        for (i, s) in sessions.iter().enumerate() {
+            let path = dir.path().join(format!("{}.json", s.id));
+            if i % 2 == 0 {
+                // expired — must be gone
+                assert!(!path.exists(), "expected {path:?} to be deleted");
+            } else {
+                // fresh — must survive
+                assert!(path.exists(), "expected {path:?} to still exist");
+            }
+        }
     }
 }

@@ -503,7 +503,7 @@ async fn test_list_agents_pagination() {
     // Create 10 agents
     for i in 0..10 {
         let agent = at_core::types::Agent::new(
-            &format!("agent-{}", i),
+            format!("agent-{}", i),
             at_core::types::AgentRole::Crew,
             at_core::types::CliType::Claude,
         );
