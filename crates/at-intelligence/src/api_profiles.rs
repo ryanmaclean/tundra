@@ -523,7 +523,9 @@ pub enum ResilientCallError {
 /// `Retry`.
 #[derive(Debug)]
 pub enum RetryDecision<E> {
+    /// Move to the next provider; this error is transient or provider-specific.
     Retry(E),
+    /// Abort immediately; the error is non-retryable regardless of provider.
     GiveUp(E),
 }
 

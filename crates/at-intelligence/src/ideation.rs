@@ -5,7 +5,11 @@ use uuid::Uuid;
 
 use at_core::types::{Bead, Lane};
 
-use crate::llm::{LlmConfig, LlmMessage, LlmProvider};
+use crate::api_profiles::{ProviderKind, ResilientRegistry};
+use crate::llm::{
+    AnthropicProvider, LlmConfig, LlmMessage, LlmProvider, LocalProvider, OpenAiProvider,
+    lm_error_to_retry_decision,
+};
 
 // ---------------------------------------------------------------------------
 // IdeaCategory
@@ -105,7 +109,11 @@ struct LlmIdeasResponseJson {
 
 pub struct IdeationEngine {
     ideas: Vec<Idea>,
+    /// Legacy single-provider path — kept for backward compatibility and tests.
     provider: Option<Arc<dyn LlmProvider>>,
+    /// Production resilient path — when set, `generate_ideas_with_ai` fans out
+    /// through all configured providers with automatic failover.
+    registry: Option<Arc<ResilientRegistry>>,
     default_model: String,
 }
 
@@ -114,6 +122,7 @@ impl std::fmt::Debug for IdeationEngine {
         f.debug_struct("IdeationEngine")
             .field("ideas", &self.ideas)
             .field("has_provider", &self.provider.is_some())
+            .field("has_registry", &self.registry.is_some())
             .finish()
     }
 }
@@ -123,16 +132,38 @@ impl IdeationEngine {
         Self {
             ideas: Vec::new(),
             provider: None,
+            registry: None,
             default_model: "claude-sonnet-4-20250514".into(),
         }
     }
 
     /// Create an engine **with** an LLM provider for AI-powered ideation.
+    ///
+    /// Kept for backward compatibility and tests. For production use, prefer
+    /// [`IdeationEngine::with_registry`] which provides automatic failover.
     pub fn with_provider(provider: Arc<dyn LlmProvider>, default_model: impl Into<String>) -> Self {
         Self {
             ideas: Vec::new(),
             provider: Some(provider),
+            registry: None,
             default_model: default_model.into(),
+        }
+    }
+
+    /// Create an engine backed by a [`ResilientRegistry`] for resilient,
+    /// multi-provider AI-powered ideation with automatic failover.
+    ///
+    /// When [`generate_ideas_with_ai`] is called, it fans out through all
+    /// configured profiles in priority order. Terminal errors (HTTP 401/403)
+    /// short-circuit immediately via [`RetryDecision::GiveUp`]; transient
+    /// errors (429, 5xx, network) cause automatic failover to the next
+    /// provider.
+    pub fn with_registry(registry: Arc<ResilientRegistry>) -> Self {
+        Self {
+            ideas: Vec::new(),
+            provider: None,
+            registry: Some(registry),
+            default_model: "claude-sonnet-4-20250514".into(), // overridden per-profile
         }
     }
 
@@ -191,16 +222,6 @@ impl IdeationEngine {
         category: &IdeaCategory,
         context: &str,
     ) -> Result<IdeationResult, crate::IntelligenceError> {
-        let provider = self
-            .provider
-            .as_ref()
-            .ok_or_else(|| {
-                crate::IntelligenceError::InvalidOperation(
-                    "No LLM provider configured – use IdeationEngine::with_provider()".into(),
-                )
-            })?
-            .clone();
-
         let category_label = Self::category_label(category);
 
         let system_prompt = format!(
@@ -223,16 +244,74 @@ impl IdeationEngine {
             )),
         ];
 
-        let config = LlmConfig {
-            model: self.default_model.clone(),
-            max_tokens: 1024,
-            temperature: 0.7,
-            system_prompt: None,
+        let response = if let Some(registry) = self.registry.clone() {
+            // ------------------------------------------------------------------
+            // Resilient path: fan out through all configured providers with
+            // automatic failover.  Terminal errors (401/403) short-circuit
+            // immediately via RetryDecision::GiveUp; transient errors (429,
+            // 5xx, network) cause failover to the next provider in priority
+            // order.
+            // ------------------------------------------------------------------
+            let (_, resp) = registry
+                .call_with_failover(|profile| {
+                    let api_key = std::env::var(&profile.api_key_env)
+                        .ok()
+                        .filter(|s| !s.is_empty());
+                    let provider: Arc<dyn LlmProvider> = match profile.provider {
+                        ProviderKind::Local => {
+                            Arc::new(LocalProvider::new(&profile.base_url, api_key))
+                        }
+                        ProviderKind::Anthropic => {
+                            Arc::new(AnthropicProvider::new(api_key.unwrap_or_default()))
+                        }
+                        ProviderKind::OpenAi => {
+                            Arc::new(OpenAiProvider::new(api_key.unwrap_or_default()))
+                        }
+                        // OpenRouter and Custom speak OpenAI-compatible protocol;
+                        // fall back to LocalProvider-style HTTP call for now.
+                        _ => Arc::new(LocalProvider::new(&profile.base_url, api_key)),
+                    };
+                    let call_config = LlmConfig {
+                        model: profile.default_model.clone(),
+                        max_tokens: 1024,
+                        temperature: 0.7,
+                        system_prompt: None,
+                    };
+                    let msgs = messages.clone();
+                    async move {
+                        provider
+                            .complete(&msgs, &call_config)
+                            .await
+                            .map_err(lm_error_to_retry_decision)
+                    }
+                })
+                .await
+                .map_err(|e| {
+                    crate::IntelligenceError::InvalidOperation(format!("LLM call failed: {e}"))
+                })?;
+            resp
+        } else if let Some(provider) = self.provider.clone() {
+            // ------------------------------------------------------------------
+            // Legacy single-provider path — used by tests and any caller that
+            // still passes an Arc<dyn LlmProvider> directly.
+            // ------------------------------------------------------------------
+            let config = LlmConfig {
+                model: self.default_model.clone(),
+                max_tokens: 1024,
+                temperature: 0.7,
+                system_prompt: None,
+            };
+            provider
+                .complete(&messages, &config)
+                .await
+                .map_err(|e| {
+                    crate::IntelligenceError::InvalidOperation(format!("LLM call failed: {e}"))
+                })?
+        } else {
+            return Err(crate::IntelligenceError::InvalidOperation(
+                "No LLM provider configured – use IdeationEngine::with_provider() or IdeationEngine::with_registry()".into(),
+            ));
         };
-
-        let response = provider.complete(&messages, &config).await.map_err(|e| {
-            crate::IntelligenceError::InvalidOperation(format!("LLM call failed: {e}"))
-        })?;
 
         // Try JSON parsing first, fall back to text parsing.
         let ideas = self

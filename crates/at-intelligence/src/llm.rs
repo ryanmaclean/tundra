@@ -57,6 +57,33 @@ impl From<reqwest::Error> for LlmError {
     }
 }
 
+/// Classify an [`LlmError`] for use with
+/// [`crate::api_profiles::ResilientRegistry::call_with_failover`].
+///
+/// Authentication errors (HTTP 401 / 403) are **terminal** — switching to
+/// another provider cannot fix bad credentials, so they become
+/// [`RetryDecision::GiveUp`] and the failover loop short-circuits immediately.
+///
+/// All other errors (rate limits, 5xx, network failures, timeouts) are
+/// **transient** and warrant trying the next provider via
+/// [`RetryDecision::Retry`].
+pub fn lm_error_to_retry_decision(
+    e: LlmError,
+) -> crate::api_profiles::RetryDecision<LlmError> {
+    use crate::api_profiles::RetryDecision;
+    // Use `matches!` to borrow-check safely: the temporary borrow of `e`
+    // ends before we move `e` into the GiveUp/Retry variant.
+    let is_terminal = matches!(
+        &e,
+        LlmError::ApiError { status, .. } if *status == 401 || *status == 403
+    );
+    if is_terminal {
+        RetryDecision::GiveUp(e)
+    } else {
+        RetryDecision::Retry(e)
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Core data types
 // ---------------------------------------------------------------------------
@@ -1372,5 +1399,202 @@ mod tests {
         let usage = resp.usage.unwrap();
         assert_eq!(usage.prompt_tokens, Some(42));
         assert_eq!(usage.completion_tokens, Some(10));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// lm_error_to_retry_decision tests
+//
+// Style mirrors `fallback_tests` in `api_profiles.rs`: uses Local-kind
+// profiles (has_api_key() is unconditionally true so tests are hermetic) and
+// Arc<AtomicUsize> counters to assert which providers were actually invoked.
+// ---------------------------------------------------------------------------
+#[cfg(test)]
+mod retry_decision_tests {
+    use super::*;
+    use crate::api_profiles::{ApiProfile, ProviderKind, ResilientCallError, ResilientRegistry};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    fn local_profile(name: &str, priority: u32) -> ApiProfile {
+        let mut p = ApiProfile::new(name, ProviderKind::Local);
+        p.priority = priority;
+        p
+    }
+
+    // -----------------------------------------------------------------------
+    // 401 Unauthorized → GiveUp: the second provider must never be invoked.
+    // -----------------------------------------------------------------------
+    #[tokio::test]
+    async fn lm_error_401_gives_up_and_does_not_fan_out() {
+        let mut reg = ResilientRegistry::new();
+        reg.add_profile(local_profile("primary", 0));
+        reg.add_profile(local_profile("secondary", 1));
+
+        let call_count = Arc::new(AtomicUsize::new(0));
+        let count_c = call_count.clone();
+
+        let result = reg
+            .call_with_failover(|_profile| {
+                let cnt = count_c.clone();
+                async move {
+                    cnt.fetch_add(1, Ordering::SeqCst);
+                    let err = LlmError::ApiError {
+                        status: 401,
+                        message: "Unauthorized".into(),
+                    };
+                    // 401 is terminal: GiveUp prevents fan-out to the secondary.
+                    Err::<String, _>(lm_error_to_retry_decision(err))
+                }
+            })
+            .await;
+
+        // The error surfaces as ResilientCallError::Inner (from GiveUp).
+        assert!(
+            matches!(result, Err(ResilientCallError::Inner(_))),
+            "expected Inner error from GiveUp 401, got: {:?}",
+            result
+        );
+        // Only the primary was ever called; secondary must not be invoked.
+        assert_eq!(
+            call_count.load(Ordering::SeqCst),
+            1,
+            "secondary must not be invoked when the first call returns GiveUp"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // 403 Forbidden → GiveUp: same short-circuit guarantee as 401.
+    // -----------------------------------------------------------------------
+    #[tokio::test]
+    async fn lm_error_403_gives_up_and_does_not_fan_out() {
+        let mut reg = ResilientRegistry::new();
+        reg.add_profile(local_profile("primary", 0));
+        reg.add_profile(local_profile("secondary", 1));
+
+        let call_count = Arc::new(AtomicUsize::new(0));
+        let count_c = call_count.clone();
+
+        let result = reg
+            .call_with_failover(|_profile| {
+                let cnt = count_c.clone();
+                async move {
+                    cnt.fetch_add(1, Ordering::SeqCst);
+                    let err = LlmError::ApiError {
+                        status: 403,
+                        message: "Forbidden".into(),
+                    };
+                    Err::<String, _>(lm_error_to_retry_decision(err))
+                }
+            })
+            .await;
+
+        assert!(
+            matches!(result, Err(ResilientCallError::Inner(_))),
+            "expected Inner error from GiveUp 403, got: {:?}",
+            result
+        );
+        assert_eq!(call_count.load(Ordering::SeqCst), 1);
+    }
+
+    // -----------------------------------------------------------------------
+    // 429 Too Many Requests → Retry: falls over to secondary.
+    // -----------------------------------------------------------------------
+    #[tokio::test]
+    async fn lm_error_429_retries_and_fans_out_to_secondary() {
+        let mut reg = ResilientRegistry::new();
+        reg.add_profile(local_profile("primary", 0));
+        let id_secondary = reg.add_profile(local_profile("secondary", 1));
+
+        let call_count = Arc::new(AtomicUsize::new(0));
+        let count_c = call_count.clone();
+
+        let result = reg
+            .call_with_failover(|profile| {
+                let cnt = count_c.clone();
+                let name = profile.name.clone();
+                async move {
+                    cnt.fetch_add(1, Ordering::SeqCst);
+                    if name == "primary" {
+                        let err = LlmError::RateLimited { retry_after_secs: Some(5) };
+                        Err(lm_error_to_retry_decision(err))
+                    } else {
+                        Ok::<String, _>("ok:secondary".into())
+                    }
+                }
+            })
+            .await;
+
+        let (used, value) = result.expect("secondary should succeed after primary 429");
+        assert_eq!(used, id_secondary);
+        assert_eq!(value, "ok:secondary");
+        assert_eq!(call_count.load(Ordering::SeqCst), 2);
+    }
+
+    // -----------------------------------------------------------------------
+    // 500 Internal Server Error → Retry: falls over to secondary.
+    // -----------------------------------------------------------------------
+    #[tokio::test]
+    async fn lm_error_5xx_retries_and_fans_out() {
+        let mut reg = ResilientRegistry::new();
+        reg.add_profile(local_profile("primary", 0));
+        let id_secondary = reg.add_profile(local_profile("secondary", 1));
+
+        let result = reg
+            .call_with_failover(|profile| {
+                let name = profile.name.clone();
+                async move {
+                    if name == "primary" {
+                        let err = LlmError::ApiError {
+                            status: 500,
+                            message: "Internal Server Error".into(),
+                        };
+                        Err(lm_error_to_retry_decision(err))
+                    } else {
+                        Ok::<String, _>("ok".into())
+                    }
+                }
+            })
+            .await;
+
+        assert_eq!(result.expect("secondary should succeed").0, id_secondary);
+    }
+
+    // -----------------------------------------------------------------------
+    // Unit tests for lm_error_to_retry_decision itself.
+    // -----------------------------------------------------------------------
+    #[test]
+    fn retry_decision_401_is_give_up() {
+        let e = LlmError::ApiError { status: 401, message: "Unauthorized".into() };
+        assert!(matches!(lm_error_to_retry_decision(e), crate::api_profiles::RetryDecision::GiveUp(_)));
+    }
+
+    #[test]
+    fn retry_decision_403_is_give_up() {
+        let e = LlmError::ApiError { status: 403, message: "Forbidden".into() };
+        assert!(matches!(lm_error_to_retry_decision(e), crate::api_profiles::RetryDecision::GiveUp(_)));
+    }
+
+    #[test]
+    fn retry_decision_429_is_retry() {
+        let e = LlmError::RateLimited { retry_after_secs: None };
+        assert!(matches!(lm_error_to_retry_decision(e), crate::api_profiles::RetryDecision::Retry(_)));
+    }
+
+    #[test]
+    fn retry_decision_500_is_retry() {
+        let e = LlmError::ApiError { status: 500, message: "server error".into() };
+        assert!(matches!(lm_error_to_retry_decision(e), crate::api_profiles::RetryDecision::Retry(_)));
+    }
+
+    #[test]
+    fn retry_decision_timeout_is_retry() {
+        assert!(matches!(lm_error_to_retry_decision(LlmError::Timeout), crate::api_profiles::RetryDecision::Retry(_)));
+    }
+
+    #[test]
+    fn retry_decision_http_error_is_retry() {
+        let e = LlmError::HttpError("connection refused".into());
+        assert!(matches!(lm_error_to_retry_decision(e), crate::api_profiles::RetryDecision::Retry(_)));
     }
 }
