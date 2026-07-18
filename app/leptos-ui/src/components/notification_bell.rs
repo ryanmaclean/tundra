@@ -6,6 +6,7 @@ use wasm_bindgen_futures::spawn_local;
 use crate::api;
 use crate::components::spinner::Spinner;
 use crate::events::Toast;
+use crate::i18n::{t, t_num};
 
 /// Individual toast item with auto-dismiss timer and progress tracking.
 #[component]
@@ -195,12 +196,12 @@ pub fn NotificationBell(
             {move || open.get().then(|| view! {
                 <div class="notification-panel">
                     <div class="notification-panel-header">
-                        <span class="notification-panel-title">"Notifications"</span>
+                        <span class="notification-panel-title">{t("notifications-title")}</span>
                         <button
                             class="notification-mark-all-btn"
                             on:click=mark_all_read
                         >
-                            "Mark all read"
+                            {t("notifications-mark-all-read")}
                         </button>
                     </div>
                     <div class="notification-panel-body">
@@ -210,7 +211,7 @@ pub fn NotificationBell(
                             } else {
                                 let list = notifications.get();
                                 if list.is_empty() {
-                                    view! { <div class="notification-empty">"No notifications"</div> }.into_any()
+                                    view! { <div class="notification-empty">{t("notifications-empty")}</div> }.into_any()
                                 } else {
                                     view! {
                                         <div class="notification-list">
@@ -262,7 +263,7 @@ pub fn NotificationBell(
     }
 }
 
-/// Simple time-ago formatter from an ISO timestamp string.
+/// Time-ago formatter from an ISO timestamp string, using translated FTL strings.
 fn format_time_ago(timestamp: &str) -> String {
     // Parse ISO 8601 datetime
     match chrono::DateTime::parse_from_rfc3339(timestamp) {
@@ -271,13 +272,13 @@ fn format_time_ago(timestamp: &str) -> String {
             let diff = now.signed_duration_since(dt.with_timezone(&chrono::Utc));
             let secs = diff.num_seconds();
             if secs < 60 {
-                "just now".to_string()
+                t("notification-time-just-now")
             } else if secs < 3600 {
-                format!("{}m ago", secs / 60)
+                t_num("notification-time-minutes-ago", "minutes", secs / 60)
             } else if secs < 86400 {
-                format!("{}h ago", secs / 3600)
+                t_num("notification-time-hours-ago", "hours", secs / 3600)
             } else {
-                format!("{}d ago", secs / 86400)
+                t_num("notification-time-days-ago", "days", secs / 86400)
             }
         }
         Err(_) => timestamp.to_string(),

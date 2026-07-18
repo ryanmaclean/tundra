@@ -111,17 +111,17 @@ pub fn CostsPage() -> impl IntoView {
 
         <div class="section">
             <h3>"Cost Distribution"</h3>
-            <p style="color: #8b949e; font-size: 0.85em; margin-bottom: 12px;">
+            <p style="color: var(--text-muted); font-size: 0.85em; margin-bottom: 12px;">
                 "Rates: $3.00/1M input tokens, $15.00/1M output tokens (Claude)"
             </p>
             <div style="margin-bottom: 16px;">
                 <div style="display: flex; align-items: center; margin-bottom: 8px;">
                     <span style="width: 120px; font-size: 0.85em;">"Input Cost"</span>
-                    <div style="flex: 1; background: #21262d; border-radius: 4px; height: 24px; overflow: hidden;">
+                    <div style="flex: 1; background: var(--bg-secondary); border-radius: 4px; height: 24px; overflow: hidden;">
                         <div style={move || {
                             let tc = total_cost();
                             let pct = if tc > 0.0 { input_cost() / tc * 100.0 } else { 0.0 };
-                            format!("width: {:.0}%; background: #238636; height: 100%; border-radius: 4px; min-width: 2px;", pct)
+                            format!("width: {:.0}%; background: var(--accent-green); height: 100%; border-radius: 4px; min-width: 2px;", pct)
                         }}></div>
                     </div>
                     <span style="width: 80px; text-align: right; font-size: 0.85em;">
@@ -130,11 +130,11 @@ pub fn CostsPage() -> impl IntoView {
                 </div>
                 <div style="display: flex; align-items: center;">
                     <span style="width: 120px; font-size: 0.85em;">"Output Cost"</span>
-                    <div style="flex: 1; background: #21262d; border-radius: 4px; height: 24px; overflow: hidden;">
+                    <div style="flex: 1; background: var(--bg-secondary); border-radius: 4px; height: 24px; overflow: hidden;">
                         <div style={move || {
                             let tc = total_cost();
                             let pct = if tc > 0.0 { output_cost() / tc * 100.0 } else { 0.0 };
-                            format!("width: {:.0}%; background: #da3633; height: 100%; border-radius: 4px; min-width: 2px;", pct)
+                            format!("width: {:.0}%; background: var(--accent-red); height: 100%; border-radius: 4px; min-width: 2px;", pct)
                         }}></div>
                     </div>
                     <span style="width: 80px; text-align: right; font-size: 0.85em;">
@@ -160,9 +160,9 @@ pub fn CostsPage() -> impl IntoView {
                                 view! {
                                     <div style="display: flex; align-items: center; margin-bottom: 8px;">
                                         <span style="width: 120px; font-size: 0.85em;">{p.provider.clone()}</span>
-                                        <div style="flex: 1; background: #21262d; border-radius: 4px; height: 24px; overflow: hidden;">
+                                        <div style="flex: 1; background: var(--bg-secondary); border-radius: 4px; height: 24px; overflow: hidden;">
                                             <div style={format!(
-                                                "width: {}%; background: #1f6feb; height: 100%; border-radius: 4px; min-width: 2px;",
+                                                "width: {}%; background: var(--accent-blue); height: 100%; border-radius: 4px; min-width: 2px;",
                                                 pct
                                             )}></div>
                                         </div>

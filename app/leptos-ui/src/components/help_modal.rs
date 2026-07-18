@@ -48,8 +48,8 @@ pub fn HelpModal(on_close: impl Fn(MouseEvent) + 'static + Clone) -> impl IntoVi
     view! {
         <div class="help-overlay" on:click=on_close_overlay>
         </div>
-        <div class="help-modal" on:keydown=handle_keydown>
-            <h2>"Keyboard Shortcuts"</h2>
+        <div class="help-modal" role="dialog" aria-modal="true" aria-labelledby="help-modal-heading" on:keydown=handle_keydown>
+            <h2 id="help-modal-heading">"Keyboard Shortcuts"</h2>
             {HELP_ITEMS.iter().map(|(label, key)| {
                 let label = *label;
                 let key = *key;

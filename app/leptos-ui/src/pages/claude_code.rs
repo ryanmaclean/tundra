@@ -185,9 +185,9 @@ pub fn ClaudeCodePage() -> impl IntoView {
 
             view! {
                 <div class="modal-overlay" on:click=move |_| set_selected_agent.set(None)>
-                    <div class="modal-content" style="max-width: 520px;" on:click=move |ev| ev.stop_propagation() on:keydown=handle_keydown>
+                    <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="agent-output-heading" style="max-width: 520px;" on:click=move |ev| ev.stop_propagation() on:keydown=handle_keydown>
                         <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center;">
-                            <h3 style="margin: 0;">"Agent Output"</h3>
+                            <h3 id="agent-output-heading" style="margin: 0;">"Agent Output"</h3>
                             <button
                                 class="btn btn-xs"
                                 on:click=move |_| set_selected_agent.set(None)

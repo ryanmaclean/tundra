@@ -66,6 +66,7 @@ pub fn ConvoysPage() -> impl IntoView {
                 convoys.get().into_iter().map(|c| {
                     let cid = c.id.clone();
                     let cid_click = cid.clone();
+                    let cid_keydown = cid.clone();
                     let is_expanded = current_selected.as_deref() == Some(&cid);
 
                     let status_class = match c.status.to_lowercase().as_str() {
@@ -95,6 +96,8 @@ pub fn ConvoysPage() -> impl IntoView {
                     view! {
                         <div
                             class="worktree-card"
+                            role="button"
+                            tabindex="0"
                             style="cursor: pointer;"
                             on:click=move |_| {
                                 let current = selected_id.get();
@@ -102,6 +105,16 @@ pub fn ConvoysPage() -> impl IntoView {
                                     set_selected_id.set(None);
                                 } else {
                                     set_selected_id.set(Some(cid_click.clone()));
+                                }
+                            }
+                            on:keydown=move |ev: web_sys::KeyboardEvent| {
+                                if ev.key() == "Enter" || ev.key() == " " {
+                                    let current = selected_id.get();
+                                    if current.as_deref() == Some(cid_keydown.as_str()) {
+                                        set_selected_id.set(None);
+                                    } else {
+                                        set_selected_id.set(Some(cid_keydown.clone()));
+                                    }
                                 }
                             }
                         >

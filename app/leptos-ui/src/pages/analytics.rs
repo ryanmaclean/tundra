@@ -181,7 +181,7 @@ pub fn AnalyticsPage() -> impl IntoView {
             {move || {
                 match webgpu_probe.get() {
                     None => view! {
-                        <p style="color:#8b949e;font-size:0.85em;">"No probe data yet."</p>
+                        <p style="color:var(--text-muted);font-size:0.85em;">"No probe data yet."</p>
                     }.into_any(),
                     Some(report) => {
                         if report.supported {
@@ -231,20 +231,20 @@ pub fn AnalyticsPage() -> impl IntoView {
                         // Build a unified list of (label, count, color)
                         let items: Vec<(String, i64, String)> = if phases.is_empty() {
                             vec![
-                                ("Backlog".to_string(), backlog() as i64, "#8b949e".to_string()),
-                                ("In Progress".to_string(), hooked() as i64, "#1f6feb".to_string()),
+                                ("Backlog".to_string(), backlog() as i64, "var(--text-muted)".to_string()),
+                                ("In Progress".to_string(), hooked() as i64, "var(--accent-blue)".to_string()),
                                 ("Review".to_string(), review() as i64, "#a371f7".to_string()),
-                                ("Done".to_string(), done_count() as i64, "#238636".to_string()),
-                                ("Failed".to_string(), failed() as i64, "#da3633".to_string()),
+                                ("Done".to_string(), done_count() as i64, "var(--accent-green)".to_string()),
+                                ("Failed".to_string(), failed() as i64, "var(--accent-red)".to_string()),
                             ]
                         } else {
                             phases.iter().cloned().map(|p| {
                                 let color = match p.phase.to_lowercase().as_str() {
-                                    "done" => "#238636",
-                                    "failed" => "#da3633",
-                                    "backlog" => "#8b949e",
+                                    "done" => "var(--accent-green)",
+                                    "failed" => "var(--accent-red)",
+                                    "backlog" => "var(--text-muted)",
                                     "review" | "ai review" | "human review" => "#a371f7",
-                                    _ => "#1f6feb",
+                                    _ => "var(--accent-blue)",
                                 };
                                 (p.phase, p.count, color.to_string())
                             }).collect()
@@ -255,7 +255,7 @@ pub fn AnalyticsPage() -> impl IntoView {
                             view! {
                                 <div style="display: flex; align-items: center; margin-bottom: 8px;">
                                     <span style="width: 100px; font-size: 0.85em;">{label}</span>
-                                    <div style="flex: 1; background: #21262d; border-radius: 4px; height: 24px; overflow: hidden;">
+                                    <div style="flex: 1; background: var(--bg-secondary); border-radius: 4px; height: 24px; overflow: hidden;">
                                         <div style={format!(
                                             "width: {}%; background: {}; height: 100%; border-radius: 4px; transition: width 0.3s; min-width: 2px;",
                                             pct, color
@@ -347,9 +347,9 @@ pub fn AnalyticsPage() -> impl IntoView {
             <h3>"Agent Utilization"</h3>
             <div style="display: flex; align-items: center; margin-top: 12px;">
                 <span style="width: 120px; font-size: 0.85em;">"Utilization"</span>
-                <div style="flex: 1; background: #21262d; border-radius: 4px; height: 28px; overflow: hidden;">
+                <div style="flex: 1; background: var(--bg-secondary); border-radius: 4px; height: 28px; overflow: hidden;">
                     <div style={move || format!(
-                        "width: {}%; background: #1f6feb; height: 100%; border-radius: 4px; transition: width 0.3s; min-width: 2px;",
+                        "width: {}%; background: var(--accent-blue); height: 100%; border-radius: 4px; transition: width 0.3s; min-width: 2px;",
                         utilization_pct()
                     )}></div>
                 </div>
@@ -357,7 +357,7 @@ pub fn AnalyticsPage() -> impl IntoView {
                     {move || format!("{}%", utilization_pct())}
                 </span>
             </div>
-            <div style="margin-top: 12px; color: #8b949e; font-size: 0.85em;">
+            <div style="margin-top: 12px; color: var(--text-muted); font-size: 0.85em;">
                 {move || format!("{} active out of {} total agents", active_agents(), agents.get().len())}
             </div>
         </div>

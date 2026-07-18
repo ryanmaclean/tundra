@@ -565,7 +565,7 @@ fn TaskDetailInner(
                         // ── Header ──
                         <div class="td-header">
                             <div class="td-header-top">
-                                <h2 class="td-title">{title.clone()}</h2>
+                                <h2 id="task-detail-heading" class="td-title">{title.clone()}</h2>
                                 <div class="td-header-actions">
                                     <button class="td-icon-btn" on:click=move |_| set_show_edit.set(true) title="Edit task">
                                         <span class="td-icon">"✎"</span>
@@ -882,7 +882,7 @@ fn TaskDetailInner(
                                         let icon = if is_checked { "✓" } else { "○" };
                                         let icon_cls = if is_checked { "subtask-check subtask-check-done" } else { "subtask-check" };
                                         view! {
-                                            <div
+                                            <button
                                                 class={check_class}
                                                 style="cursor: pointer;"
                                                 on:click=move |_| {
@@ -898,7 +898,7 @@ fn TaskDetailInner(
                                                 <span class={icon_cls}>{icon}</span>
                                                 <span class="subtask-number">{format!("{}.", i + 1)}</span>
                                                 <span class="subtask-name">{task_name}</span>
-                                            </div>
+                                            </button>
                                         }
                                     }).collect::<Vec<_>>()}
                                 </div>
@@ -1185,9 +1185,9 @@ fn TaskDetailInner(
         let file_types: Vec<String> = data.iter().map(|(_, ct, _)| ct.clone()).collect();
         view! {
             <div class="diff-dialog-overlay" on:click=move |_| set_show_diff.set(false)></div>
-            <div class="diff-dialog-modal" on:click=move |ev: MouseEvent| ev.stop_propagation()>
+            <div class="diff-dialog-modal" role="dialog" aria-modal="true" aria-labelledby="diff-dialog-heading" on:click=move |ev: MouseEvent| ev.stop_propagation()>
                 <div class="diff-dialog-header">
-                    <h3>"File Changes"</h3>
+                    <h3 id="diff-dialog-heading">"File Changes"</h3>
                     <button class="task-detail-close" on:click=move |_| set_show_diff.set(false)>"×"</button>
                 </div>
                 <div class="diff-dialog-body">
@@ -1248,9 +1248,9 @@ fn TaskDetailInner(
         let discard = discard_action.clone();
         view! {
             <div class="discard-dialog-overlay" on:click=move |_| set_show_discard.set(false)></div>
-            <div class="discard-dialog">
+            <div class="discard-dialog" role="dialog" aria-modal="true" aria-labelledby="discard-dialog-heading">
                 <div class="discard-dialog-header">
-                    <h3>"Discard Task"</h3>
+                    <h3 id="discard-dialog-heading">"Discard Task"</h3>
                 </div>
                 <div class="discard-dialog-body">
                     <div class="discard-warning">
@@ -1310,7 +1310,7 @@ pub fn TaskDetail(
 
     view! {
         <div class="task-detail-overlay" on:click=close_bg></div>
-        <div class="task-detail-modal" on:keydown=handle_keydown>
+        <div class="task-detail-modal" role="dialog" aria-modal="true" aria-labelledby="task-detail-heading" on:keydown=handle_keydown>
             {match initial_bead {
                 None => view! {
                     <div class="task-detail-empty">

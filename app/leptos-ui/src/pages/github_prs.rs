@@ -517,7 +517,7 @@ pub fn GithubPrsPage() -> impl IntoView {
                                         // Claude Code dropdown
                                         {move || has_dropdown().then(|| view! {
                                             <div class="claude-code-dropdown">
-                                                <div class="claude-code-dropdown-item" on:click=move |ev: web_sys::MouseEvent| {
+                                                <button class="claude-code-dropdown-item" on:click=move |ev: web_sys::MouseEvent| {
                                                     ev.stop_propagation();
                                                     set_pr_message.set(Some(format!("Checking out branch for PR #{}...", pr_number)));
                                                     set_claude_dropdown_pr.set(None);
@@ -529,8 +529,8 @@ pub fn GithubPrsPage() -> impl IntoView {
                                                     });
                                                 }>
                                                     "Checkout Branch"
-                                                </div>
-                                                <div class="claude-code-dropdown-item" on:click=move |ev: web_sys::MouseEvent| {
+                                                </button>
+                                                <button class="claude-code-dropdown-item" on:click=move |ev: web_sys::MouseEvent| {
                                                     ev.stop_propagation();
                                                     set_pr_message.set(Some(format!("Starting Claude Code review on PR #{}...", pr_number)));
                                                     set_claude_dropdown_pr.set(None);
@@ -542,8 +542,8 @@ pub fn GithubPrsPage() -> impl IntoView {
                                                     });
                                                 }>
                                                     "Review with Claude Code"
-                                                </div>
-                                                <div class="claude-code-dropdown-item" on:click=move |ev: web_sys::MouseEvent| {
+                                                </button>
+                                                <button class="claude-code-dropdown-item" on:click=move |ev: web_sys::MouseEvent| {
                                                     ev.stop_propagation();
                                                     set_pr_message.set(Some(format!("Merging PR #{}...", pr_number)));
                                                     set_claude_dropdown_pr.set(None);
@@ -555,14 +555,14 @@ pub fn GithubPrsPage() -> impl IntoView {
                                                     });
                                                 }>
                                                     "Merge PR"
-                                                </div>
-                                                <div class="claude-code-dropdown-item" on:click=move |ev: web_sys::MouseEvent| {
+                                                </button>
+                                                <button class="claude-code-dropdown-item" on:click=move |ev: web_sys::MouseEvent| {
                                                     ev.stop_propagation();
                                                     set_claude_dropdown_pr.set(None);
                                                     set_pr_message.set(Some("Open the Changelog page from the sidebar navigation".to_string()));
                                                 }>
                                                     "View Claude Code Changelog"
-                                                </div>
+                                                </button>
                                             </div>
                                         })}
                                     </div>

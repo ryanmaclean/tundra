@@ -1,5 +1,6 @@
 use leptos::prelude::*;
 
+use crate::i18n::t;
 use crate::types::AgentStatus;
 
 #[component]
@@ -22,8 +23,8 @@ pub fn AgentCard(
             </div>
             <div class="agent-role">{role}</div>
             <div class="agent-model">{model}</div>
-            <div style="margin-top: 8px; font-size: 0.8em; color: #8b949e;">
-                {format!("{} tokens | ${:.2}", tokens, cost)}
+            <div style="margin-top: 8px; font-size: 0.8em; color: var(--text-muted);">
+                {format!("{} tokens | {}{:.2}", tokens, t("currency-symbol"), cost)}
             </div>
         </div>
     }

@@ -3,6 +3,7 @@ use leptos::task::spawn_local;
 
 use crate::api::{self, ApiFileNode};
 use crate::components::spinner::Spinner;
+use crate::i18n::t;
 
 /// Count files and directories in a tree recursively.
 fn count_nodes(nodes: &[ApiFileNode]) -> (usize, usize) {
@@ -110,13 +111,13 @@ pub fn FileExplorer() -> impl IntoView {
     view! {
         <div class="file-explorer">
             <div class="file-explorer-header">
-                <h3 class="file-explorer-title">"File Explorer"</h3>
+                <h3 class="file-explorer-title">{t("context-file-explorer")}</h3>
                 <button
                     class="file-explorer-refresh-btn"
                     on:click=move |_| do_refresh()
-                    title="Refresh file tree"
+                    title={t("btn-refresh")}
                 >
-                    "Refresh"
+                    {t("btn-refresh")}
                 </button>
             </div>
 
@@ -124,7 +125,7 @@ pub fn FileExplorer() -> impl IntoView {
                 <input
                     type="text"
                     class="file-explorer-search"
-                    placeholder="Filter files..."
+                    placeholder={t("file-explorer-filter")}
                     prop:value=move || search.get()
                     on:input=move |ev| set_search.set(event_target_value(&ev))
                 />
@@ -171,7 +172,7 @@ pub fn FileExplorer() -> impl IntoView {
                             view! {
                                 <div
                                     class="file-tree-item file-tree-folder"
-                                    style=format!("padding-left: {}px", indent_px + 4)
+                                    style=format!("padding-inline-start: {}px", indent_px + 4)
                                     on:click=on_click
                                 >
                                     <span class="file-tree-toggle">{toggle_icon}</span>
@@ -198,7 +199,7 @@ pub fn FileExplorer() -> impl IntoView {
                             view! {
                                 <div
                                     class=item_class
-                                    style=format!("padding-left: {}px", indent_px + 4)
+                                    style=format!("padding-inline-start: {}px", indent_px + 4)
                                     on:click=on_click
                                 >
                                     <span class="file-tree-indent"></span>
@@ -216,12 +217,12 @@ pub fn FileExplorer() -> impl IntoView {
                 let display_path = path.clone();
                 view! {
                     <div class="file-explorer-preview" style="padding: 12px; margin: 8px; background: var(--card-bg, #161b22); border: 1px solid var(--border-color, #30363d); border-radius: 6px;">
-                        <div style="font-size: 12px; color: var(--text-muted, #8b949e); margin-bottom: 4px;">"Selected File"</div>
+                        <div style="font-size: 12px; color: var(--text-muted, #8b949e); margin-bottom: 4px;">{t("file-explorer-selected")}</div>
                         <div style="font-family: monospace; font-size: 13px; color: var(--text-primary, #e6edf3); word-break: break-all;">
                             {display_path}
                         </div>
                         <div style="font-size: 11px; color: var(--text-muted, #8b949e); margin-top: 8px;">
-                            "Open in your IDE to view contents"
+                            {t("file-explorer-open-ide")}
                         </div>
                     </div>
                 }

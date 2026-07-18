@@ -4,6 +4,7 @@ use leptos::task::spawn_local;
 use web_sys;
 
 use crate::components::focus_trap::use_focus_trap;
+use crate::i18n::t;
 use crate::state::use_app_state;
 
 #[component]
@@ -200,9 +201,9 @@ pub fn EditTaskModal(
             ev.stop_propagation();
             on_close_bg(ev);
         }></div>
-        <div class="edit-task-modal" on:click=move |ev: MouseEvent| ev.stop_propagation() on:keydown=handle_keydown>
+        <div class="edit-task-modal" role="dialog" aria-modal="true" aria-labelledby="edit-task-heading" on:click=move |ev: MouseEvent| ev.stop_propagation() on:keydown=handle_keydown>
             <div class="edit-task-header">
-                <h2>"Edit Task"</h2>
+                <h2 id="edit-task-heading">"Edit Task"</h2>
                 <p class="edit-task-subtitle">
                     "Update task details including title, description, classification, images, and settings. Changes will be saved to the spec file."
                 </p>
@@ -211,8 +212,9 @@ pub fn EditTaskModal(
             <div class="edit-task-form">
                 // Description
                 <div class="form-group">
-                    <label class="form-label">"Description"</label>
+                    <label class="form-label" attr:for="edit-description-input">"Description"</label>
                     <textarea
+                        id="edit-description-input"
                         class="form-textarea edit-task-textarea"
                         rows="6"
                         prop:value=move || description.get()
@@ -222,11 +224,12 @@ pub fn EditTaskModal(
 
                 // Task Title
                 <div class="form-group">
-                    <label class="form-label">
+                    <label class="form-label" attr:for="edit-title-input">
                         "Task Title "
                         <span class="form-hint">"(Optional)"</span>
                     </label>
                     <input
+                        id="edit-title-input"
                         type="text"
                         class="form-input"
                         prop:value=move || task_title.get()
@@ -257,8 +260,9 @@ pub fn EditTaskModal(
                     <label class="form-label">"Phase Configuration"</label>
                     <div class="phase-config-row">
                         <div class="phase-config-item">
-                            <label class="form-label-sm">"Model"</label>
+                            <label class="form-label-sm" attr:for="edit-model-select">"Model"</label>
                             <select
+                                id="edit-model-select"
                                 class="form-select"
                                 prop:value=move || model.get()
                                 on:change=move |ev| set_model.set(event_target_value(&ev))
@@ -269,8 +273,9 @@ pub fn EditTaskModal(
                             </select>
                         </div>
                         <div class="phase-config-item">
-                            <label class="form-label-sm">"Thinking Level"</label>
+                            <label class="form-label-sm" attr:for="edit-thinking-select">"Thinking Level"</label>
                             <select
+                                id="edit-thinking-select"
                                 class="form-select"
                                 prop:value=move || thinking_level.get()
                                 on:change=move |ev| set_thinking_level.set(event_target_value(&ev))
@@ -291,8 +296,9 @@ pub fn EditTaskModal(
                     </label>
                     <div class="classification-grid">
                         <div class="classification-item">
-                            <label class="form-label-sm">"Category"</label>
+                            <label class="form-label-sm" attr:for="edit-category-select">"Category"</label>
                             <select
+                                id="edit-category-select"
                                 class="form-select"
                                 prop:value=move || category.get()
                                 on:change=move |ev| set_category.set(event_target_value(&ev))
@@ -307,8 +313,9 @@ pub fn EditTaskModal(
                             </select>
                         </div>
                         <div class="classification-item">
-                            <label class="form-label-sm">"Priority"</label>
+                            <label class="form-label-sm" attr:for="edit-priority-select">"Priority"</label>
                             <select
+                                id="edit-priority-select"
                                 class="form-select"
                                 prop:value=move || priority.get()
                                 on:change=move |ev| set_priority.set(event_target_value(&ev))
@@ -320,8 +327,9 @@ pub fn EditTaskModal(
                             </select>
                         </div>
                         <div class="classification-item">
-                            <label class="form-label-sm">"Complexity"</label>
+                            <label class="form-label-sm" attr:for="edit-complexity-select">"Complexity"</label>
                             <select
+                                id="edit-complexity-select"
                                 class="form-select"
                                 prop:value=move || complexity.get()
                                 on:change=move |ev| set_complexity.set(event_target_value(&ev))
@@ -338,8 +346,9 @@ pub fn EditTaskModal(
                 <div class="form-group">
                     <div class="impact-effort-row">
                         <div class="impact-effort-item">
-                            <label class="form-label-sm">"Impact"</label>
+                            <label class="form-label-sm" attr:for="edit-impact-select">"Impact"</label>
                             <select
+                                id="edit-impact-select"
                                 class="form-select"
                                 prop:value=move || impact.get()
                                 on:change=move |ev| set_impact.set(event_target_value(&ev))
@@ -351,8 +360,9 @@ pub fn EditTaskModal(
                             </select>
                         </div>
                         <div class="impact-effort-item">
-                            <label class="form-label-sm">"Effort"</label>
+                            <label class="form-label-sm" attr:for="edit-effort-select">"Effort"</label>
                             <select
+                                id="edit-effort-select"
                                 class="form-select"
                                 prop:value=move || effort.get()
                                 on:change=move |ev| set_effort.set(event_target_value(&ev))

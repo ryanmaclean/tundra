@@ -128,11 +128,13 @@ fn NavItem(
     sidebar_collapsed: ReadSignal<bool>,
 ) -> impl IntoView {
     let key = shortcut_key(idx);
+    let is_active = move || current_tab.get() == idx;
     view! {
         <button
             class="sidebar-item"
             class:active=(move || current_tab.get() == idx)
             class:collapsed=(move || sidebar_collapsed.get())
+            aria-current=move || if is_active() { "page" } else { "" }
             on:click=move |_| set_current_tab.set(idx)
             title=move || if sidebar_collapsed.get() { label } else { "" }
         >

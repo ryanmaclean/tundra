@@ -124,8 +124,8 @@ pub fn NewTaskModal(
     view! {
         <div class="new-task-overlay" on:click=on_close_bg>
         </div>
-        <div class="new-task-modal wizard-modal" on:keydown=handle_keydown>
-            <h2>"Create New Task"</h2>
+        <div class="new-task-modal wizard-modal" role="dialog" aria-modal="true" aria-labelledby="new-task-heading" on:keydown=handle_keydown>
+            <h2 id="new-task-heading">"Create New Task"</h2>
 
             // Step indicators
             <div class="wizard-steps">
@@ -153,8 +153,9 @@ pub fn NewTaskModal(
             {move || (step.get() == 0).then(|| view! {
                 <div class="wizard-step-content">
                     <div class="form-group">
-                        <label>"Title"</label>
+                        <label attr:for="task-title-input">"Title"</label>
                         <input
+                            id="task-title-input"
                             type="text"
                             placeholder="What needs to be done?"
                             prop:value=move || title.get()
@@ -164,8 +165,9 @@ pub fn NewTaskModal(
                         />
                     </div>
                     <div class="form-group">
-                        <label>"Description"</label>
+                        <label attr:for="task-description-input">"Description"</label>
                         <textarea
+                            id="task-description-input"
                             placeholder="Add details about this task..."
                             prop:value=move || description.get()
                             on:input=move |ev| {
@@ -180,8 +182,9 @@ pub fn NewTaskModal(
             {move || (step.get() == 1).then(|| view! {
                 <div class="wizard-step-content">
                     <div class="form-group">
-                        <label>"Category"</label>
+                        <label attr:for="task-category-select">"Category"</label>
                         <select
+                            id="task-category-select"
                             prop:value=move || category.get()
                             on:change=move |ev| {
                                 set_category.set(event_target_value(&ev));
@@ -199,8 +202,9 @@ pub fn NewTaskModal(
                         </select>
                     </div>
                     <div class="form-group">
-                        <label>"Priority"</label>
+                        <label attr:for="task-priority-select">"Priority"</label>
                         <select
+                            id="task-priority-select"
                             prop:value=move || priority.get()
                             on:change=move |ev| {
                                 set_priority.set(event_target_value(&ev));
@@ -213,8 +217,9 @@ pub fn NewTaskModal(
                         </select>
                     </div>
                     <div class="form-group">
-                        <label>"Complexity"</label>
+                        <label attr:for="task-complexity-select">"Complexity"</label>
                         <select
+                            id="task-complexity-select"
                             prop:value=move || complexity.get()
                             on:change=move |ev| {
                                 set_complexity.set(event_target_value(&ev));
@@ -234,8 +239,9 @@ pub fn NewTaskModal(
             {move || (step.get() == 2).then(|| view! {
                 <div class="wizard-step-content">
                     <div class="form-group">
-                        <label>"Tags (comma separated)"</label>
+                        <label attr:for="task-tags-input">"Tags (comma separated)"</label>
                         <input
+                            id="task-tags-input"
                             type="text"
                             placeholder="e.g. api, backend, urgent..."
                             prop:value=move || tags_input.get()
@@ -245,8 +251,9 @@ pub fn NewTaskModal(
                         />
                     </div>
                     <div class="form-group">
-                        <label>"Referenced Files"</label>
+                        <label attr:for="task-files-input">"Referenced Files"</label>
                         <input
+                            id="task-files-input"
                             type="text"
                             placeholder="e.g. src/main.rs, lib/config.rs..."
                             prop:value=move || referenced_files.get()
@@ -256,8 +263,9 @@ pub fn NewTaskModal(
                         />
                     </div>
                     <div class="form-group">
-                        <label>"Optional Notes"</label>
+                        <label attr:for="task-notes-textarea">"Optional Notes"</label>
                         <textarea
+                            id="task-notes-textarea"
                             placeholder="Any additional context or notes..."
                             prop:value=move || notes.get()
                             on:input=move |ev| {

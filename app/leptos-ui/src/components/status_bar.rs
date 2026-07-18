@@ -77,12 +77,12 @@ pub fn StatusBar(#[prop(into)] on_help: Callback<()>) -> impl IntoView {
             </div>
             <div class="right">
                 <span>{move || format!("{}: {}", themed(mode.get(), Prompt::StatusUptime), uptime())}</span>
-                <span
-                    style="cursor: pointer;"
+                <button
+                    style="cursor: pointer; background: none; border: none; color: inherit; font: inherit; padding: 0;"
                     on:click=move |_| {
                         on_help.run(());
                     }
-                ><kbd>"?"</kbd>" help"</span>
+                ><kbd>"?"</kbd>" help"</button>
             </div>
         </div>
     }
