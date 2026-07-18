@@ -387,6 +387,147 @@ mod tests {
         assert!(engine.list_sessions().is_empty());
     }
 
+    // ---- Session CRUD tests -------------------------------------------------
+
+    #[test]
+    fn test_create_session_stores_title_and_model() {
+        let mut engine = InsightsEngine::new();
+        let session = engine.create_session("Analysis Chat", "claude-3-5-sonnet");
+
+        assert_eq!(session.title, "Analysis Chat");
+        assert_eq!(session.model, "claude-3-5-sonnet");
+        assert!(session.messages.is_empty());
+    }
+
+    #[test]
+    fn test_list_sessions_empty_on_new_engine() {
+        let engine = InsightsEngine::new();
+        assert!(engine.list_sessions().is_empty());
+    }
+
+    #[test]
+    fn test_list_sessions_returns_all_sessions_in_order() {
+        let mut engine = InsightsEngine::new();
+        engine.create_session("First", "m1");
+        engine.create_session("Second", "m2");
+        engine.create_session("Third", "m3");
+
+        let sessions = engine.list_sessions();
+        assert_eq!(sessions.len(), 3);
+        assert_eq!(sessions[0].title, "First");
+        assert_eq!(sessions[1].title, "Second");
+        assert_eq!(sessions[2].title, "Third");
+    }
+
+    #[test]
+    fn test_get_session_found_returns_correct_session() {
+        let mut engine = InsightsEngine::new();
+        let id = engine.create_session("My Session", "gpt-4").id;
+
+        let found = engine.get_session(&id).unwrap();
+        assert_eq!(found.title, "My Session");
+        assert_eq!(found.model, "gpt-4");
+        assert_eq!(found.id, id);
+    }
+
+    #[test]
+    fn test_get_session_not_found_returns_none() {
+        let engine = InsightsEngine::new();
+        assert!(engine.get_session(&Uuid::new_v4()).is_none());
+    }
+
+    #[test]
+    fn test_add_message_user_role_stores_content() {
+        let mut engine = InsightsEngine::new();
+        let id = engine.create_session("Chat", "model").id;
+
+        engine.add_message(&id, ChatRole::User, "Hello there").unwrap();
+
+        let session = engine.get_session(&id).unwrap();
+        assert_eq!(session.messages.len(), 1);
+        assert_eq!(session.messages[0].role, ChatRole::User);
+        assert_eq!(session.messages[0].content, "Hello there");
+    }
+
+    #[test]
+    fn test_add_message_assistant_role_stores_content() {
+        let mut engine = InsightsEngine::new();
+        let id = engine.create_session("Chat", "model").id;
+
+        engine.add_message(&id, ChatRole::Assistant, "How can I help?").unwrap();
+
+        let session = engine.get_session(&id).unwrap();
+        assert_eq!(session.messages[0].role, ChatRole::Assistant);
+    }
+
+    #[test]
+    fn test_add_message_system_role_stores_content() {
+        let mut engine = InsightsEngine::new();
+        let id = engine.create_session("Chat", "model").id;
+
+        engine.add_message(&id, ChatRole::System, "You are a helpful assistant.").unwrap();
+
+        let session = engine.get_session(&id).unwrap();
+        assert_eq!(session.messages[0].role, ChatRole::System);
+        assert_eq!(session.messages[0].content, "You are a helpful assistant.");
+    }
+
+    #[test]
+    fn test_add_message_multiple_messages_preserves_order() {
+        let mut engine = InsightsEngine::new();
+        let id = engine.create_session("Chat", "model").id;
+
+        engine.add_message(&id, ChatRole::User, "First").unwrap();
+        engine.add_message(&id, ChatRole::Assistant, "Second").unwrap();
+        engine.add_message(&id, ChatRole::User, "Third").unwrap();
+
+        let session = engine.get_session(&id).unwrap();
+        assert_eq!(session.messages.len(), 3);
+        assert_eq!(session.messages[0].content, "First");
+        assert_eq!(session.messages[1].content, "Second");
+        assert_eq!(session.messages[2].content, "Third");
+    }
+
+    #[test]
+    fn test_add_message_unknown_session_returns_not_found_error() {
+        let mut engine = InsightsEngine::new();
+        let unknown_id = Uuid::new_v4();
+
+        let err = engine.add_message(&unknown_id, ChatRole::User, "hello").unwrap_err();
+        assert!(
+            matches!(err, IntelligenceError::NotFound { entity, .. } if entity == "session")
+        );
+    }
+
+    #[test]
+    fn test_delete_session_returns_true_when_found() {
+        let mut engine = InsightsEngine::new();
+        let id = engine.create_session("Temp", "model").id;
+
+        assert!(engine.delete_session(&id));
+        assert!(engine.list_sessions().is_empty());
+        assert!(engine.get_session(&id).is_none());
+    }
+
+    #[test]
+    fn test_delete_session_returns_false_when_not_found() {
+        let mut engine = InsightsEngine::new();
+        assert!(!engine.delete_session(&Uuid::new_v4()));
+    }
+
+    #[test]
+    fn test_delete_session_only_removes_target_session() {
+        let mut engine = InsightsEngine::new();
+        let id1 = engine.create_session("Keep", "m").id;
+        let id2 = engine.create_session("Delete me", "m").id;
+
+        engine.delete_session(&id2);
+
+        assert_eq!(engine.list_sessions().len(), 1);
+        assert!(engine.get_session(&id1).is_some());
+        assert!(engine.get_session(&id2).is_none());
+    }
+
     // ---- New tests: stream-error path and success-path anchor ---------------
 
     /// Test A (verifies the half-write bug is FIXED): when the LLM provider

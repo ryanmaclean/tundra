@@ -544,4 +544,237 @@ mod tests {
         assert!(bead.description.is_some());
         assert!(engine.convert_to_task(&Uuid::new_v4()).is_none());
     }
+
+    // ---- list_ideas / get_idea tests ----------------------------------------
+
+    #[test]
+    fn test_list_ideas_empty_on_new_engine() {
+        let engine = IdeationEngine::new();
+        assert!(engine.list_ideas().is_empty());
+    }
+
+    #[test]
+    fn test_list_ideas_returns_all_stored_ideas() {
+        let mut engine = IdeationEngine::new();
+        engine.generate_ideas(&IdeaCategory::Performance, "context a");
+        engine.generate_ideas(&IdeaCategory::Security, "context b");
+
+        assert_eq!(engine.list_ideas().len(), 2);
+    }
+
+    #[test]
+    fn test_get_idea_found_returns_correct_idea() {
+        let mut engine = IdeationEngine::new();
+        let result = engine.generate_ideas(&IdeaCategory::Quality, "test coverage");
+        let id = result.ideas[0].id;
+
+        let idea = engine.get_idea(&id).unwrap();
+        assert_eq!(idea.id, id);
+        assert!(idea.title.contains("quality"));
+    }
+
+    #[test]
+    fn test_get_idea_not_found_returns_none() {
+        let engine = IdeationEngine::new();
+        assert!(engine.get_idea(&Uuid::new_v4()).is_none());
+    }
+
+    // ---- convert_to_task tests ----------------------------------------------
+
+    #[test]
+    fn test_convert_to_task_returns_bead_with_idea_title() {
+        let mut engine = IdeationEngine::new();
+        let result = engine.generate_ideas(&IdeaCategory::Documentation, "docs");
+        let id = result.ideas[0].id;
+
+        let bead = engine.convert_to_task(&id).unwrap();
+        assert_eq!(bead.title, result.ideas[0].title);
+    }
+
+    #[test]
+    fn test_convert_to_task_sets_description_from_idea() {
+        let mut engine = IdeationEngine::new();
+        let result = engine.generate_ideas(&IdeaCategory::Security, "auth context");
+        let id = result.ideas[0].id;
+
+        let bead = engine.convert_to_task(&id).unwrap();
+        assert!(bead.description.is_some());
+        let desc = bead.description.unwrap();
+        assert!(desc.contains("auth context"));
+    }
+
+    #[test]
+    fn test_convert_to_task_not_found_returns_none() {
+        let engine = IdeationEngine::new();
+        assert!(engine.convert_to_task(&Uuid::new_v4()).is_none());
+    }
+
+    // ---- parse_impact tests -------------------------------------------------
+
+    #[test]
+    fn test_parse_impact_low() {
+        assert_eq!(IdeationEngine::parse_impact("low"), ImpactLevel::Low);
+    }
+
+    #[test]
+    fn test_parse_impact_medium_explicit() {
+        assert_eq!(IdeationEngine::parse_impact("medium"), ImpactLevel::Medium);
+    }
+
+    #[test]
+    fn test_parse_impact_high() {
+        assert_eq!(IdeationEngine::parse_impact("high"), ImpactLevel::High);
+    }
+
+    #[test]
+    fn test_parse_impact_critical() {
+        assert_eq!(IdeationEngine::parse_impact("critical"), ImpactLevel::Critical);
+    }
+
+    #[test]
+    fn test_parse_impact_unknown_string_defaults_to_medium() {
+        assert_eq!(IdeationEngine::parse_impact("extreme"), ImpactLevel::Medium);
+        assert_eq!(IdeationEngine::parse_impact(""), ImpactLevel::Medium);
+        assert_eq!(IdeationEngine::parse_impact("unknown"), ImpactLevel::Medium);
+    }
+
+    #[test]
+    fn test_parse_impact_case_insensitive() {
+        assert_eq!(IdeationEngine::parse_impact("HIGH"), ImpactLevel::High);
+        assert_eq!(IdeationEngine::parse_impact("Critical"), ImpactLevel::Critical);
+        assert_eq!(IdeationEngine::parse_impact("LOW"), ImpactLevel::Low);
+    }
+
+    // ---- parse_effort tests -------------------------------------------------
+
+    #[test]
+    fn test_parse_effort_trivial() {
+        assert_eq!(IdeationEngine::parse_effort("trivial"), EffortLevel::Trivial);
+    }
+
+    #[test]
+    fn test_parse_effort_small() {
+        assert_eq!(IdeationEngine::parse_effort("small"), EffortLevel::Small);
+    }
+
+    #[test]
+    fn test_parse_effort_medium_explicit() {
+        assert_eq!(IdeationEngine::parse_effort("medium"), EffortLevel::Medium);
+    }
+
+    #[test]
+    fn test_parse_effort_large() {
+        assert_eq!(IdeationEngine::parse_effort("large"), EffortLevel::Large);
+    }
+
+    #[test]
+    fn test_parse_effort_massive() {
+        assert_eq!(IdeationEngine::parse_effort("massive"), EffortLevel::Massive);
+    }
+
+    #[test]
+    fn test_parse_effort_unknown_string_defaults_to_medium() {
+        assert_eq!(IdeationEngine::parse_effort("gigantic"), EffortLevel::Medium);
+        assert_eq!(IdeationEngine::parse_effort(""), EffortLevel::Medium);
+        assert_eq!(IdeationEngine::parse_effort("unknown"), EffortLevel::Medium);
+    }
+
+    #[test]
+    fn test_parse_effort_case_insensitive() {
+        assert_eq!(IdeationEngine::parse_effort("TRIVIAL"), EffortLevel::Trivial);
+        assert_eq!(IdeationEngine::parse_effort("Large"), EffortLevel::Large);
+        assert_eq!(IdeationEngine::parse_effort("MASSIVE"), EffortLevel::Massive);
+    }
+
+    // ---- parse_ideas_text edge cases ----------------------------------------
+
+    #[test]
+    fn test_parse_ideas_text_strips_dash_list_marker() {
+        let engine = IdeationEngine::new();
+        let text = "- Refactor the auth module";
+        let ideas = engine.parse_ideas_text(text, &IdeaCategory::CodeImprovement);
+
+        assert_eq!(ideas.len(), 1);
+        assert_eq!(ideas[0].title, "Refactor the auth module");
+    }
+
+    #[test]
+    fn test_parse_ideas_text_strips_asterisk_list_marker() {
+        let engine = IdeationEngine::new();
+        let text = "* Add unit tests";
+        let ideas = engine.parse_ideas_text(text, &IdeaCategory::Quality);
+
+        assert_eq!(ideas.len(), 1);
+        assert_eq!(ideas[0].title, "Add unit tests");
+    }
+
+    #[test]
+    fn test_parse_ideas_text_strips_numbered_list_marker() {
+        let engine = IdeationEngine::new();
+        let text = "1. Improve caching";
+        let ideas = engine.parse_ideas_text(text, &IdeaCategory::Performance);
+
+        assert_eq!(ideas.len(), 1);
+        assert_eq!(ideas[0].title, "Improve caching");
+    }
+
+    #[test]
+    fn test_parse_ideas_text_skips_empty_lines() {
+        let engine = IdeationEngine::new();
+        let text = "- First idea\n\n\n- Second idea\n";
+        let ideas = engine.parse_ideas_text(text, &IdeaCategory::Security);
+
+        assert_eq!(ideas.len(), 2);
+        assert_eq!(ideas[0].title, "First idea");
+        assert_eq!(ideas[1].title, "Second idea");
+    }
+
+    #[test]
+    fn test_parse_ideas_text_empty_input_returns_empty_vec() {
+        let engine = IdeationEngine::new();
+        let ideas = engine.parse_ideas_text("", &IdeaCategory::Documentation);
+        assert!(ideas.is_empty());
+    }
+
+    #[test]
+    fn test_parse_ideas_text_all_whitespace_returns_empty_vec() {
+        let engine = IdeationEngine::new();
+        let ideas = engine.parse_ideas_text("   \n   \n   ", &IdeaCategory::UiUx);
+        assert!(ideas.is_empty());
+    }
+
+    #[test]
+    fn test_parse_ideas_text_sets_default_impact_and_effort() {
+        let engine = IdeationEngine::new();
+        let ideas = engine.parse_ideas_text("Some idea", &IdeaCategory::Quality);
+
+        assert_eq!(ideas[0].impact, ImpactLevel::Medium);
+        assert_eq!(ideas[0].effort, EffortLevel::Medium);
+    }
+
+    #[test]
+    fn test_parse_ideas_text_sets_category_from_argument() {
+        let engine = IdeationEngine::new();
+        let ideas = engine.parse_ideas_text("Security improvement", &IdeaCategory::Security);
+
+        assert_eq!(ideas[0].category, IdeaCategory::Security);
+    }
+
+    #[test]
+    fn test_parse_ideas_text_sets_source_to_llm_analysis() {
+        let engine = IdeationEngine::new();
+        let ideas = engine.parse_ideas_text("An idea", &IdeaCategory::Performance);
+
+        assert_eq!(ideas[0].source, "llm-analysis");
+    }
+
+    #[test]
+    fn test_parse_ideas_text_plain_line_without_marker() {
+        let engine = IdeationEngine::new();
+        let text = "Improve error messages across the API";
+        let ideas = engine.parse_ideas_text(text, &IdeaCategory::Quality);
+
+        assert_eq!(ideas.len(), 1);
+        assert_eq!(ideas[0].title, "Improve error messages across the API");
+    }
 }

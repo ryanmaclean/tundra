@@ -229,3 +229,254 @@ impl Default for ChangelogEngine {
         Self::new()
     }
 }
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_section(cat: ChangeCategory, items: Vec<&str>) -> ChangelogSection {
+        ChangelogSection {
+            category: cat,
+            items: items.into_iter().map(|s| s.to_string()).collect(),
+        }
+    }
+
+    fn make_entry(version: &str, sections: Vec<ChangelogSection>) -> ChangelogEntry {
+        ChangelogEntry {
+            id: Uuid::new_v4(),
+            version: version.to_string(),
+            date: Utc::now(),
+            sections,
+        }
+    }
+
+    // --- ChangelogEngine::new ------------------------------------------------
+
+    #[test]
+    fn test_new_creates_empty_engine() {
+        let engine = ChangelogEngine::new();
+        assert!(engine.list_entries().is_empty());
+    }
+
+    // --- add_entry / list_entries / get_entry --------------------------------
+
+    #[test]
+    fn test_add_entry_stores_correct_version() {
+        let mut engine = ChangelogEngine::new();
+        let entry = make_entry("1.0.0", vec![]);
+        let id = entry.id;
+        engine.add_entry(entry);
+
+        assert_eq!(engine.list_entries().len(), 1);
+        assert_eq!(engine.list_entries()[0].version, "1.0.0");
+        assert_eq!(engine.list_entries()[0].id, id);
+    }
+
+    #[test]
+    fn test_add_entry_multiple_preserves_order() {
+        let mut engine = ChangelogEngine::new();
+        engine.add_entry(make_entry("1.0.0", vec![]));
+        engine.add_entry(make_entry("2.0.0", vec![]));
+        engine.add_entry(make_entry("3.0.0", vec![]));
+
+        let entries = engine.list_entries();
+        assert_eq!(entries.len(), 3);
+        assert_eq!(entries[0].version, "1.0.0");
+        assert_eq!(entries[1].version, "2.0.0");
+        assert_eq!(entries[2].version, "3.0.0");
+    }
+
+    #[test]
+    fn test_get_entry_returns_correct_entry() {
+        let mut engine = ChangelogEngine::new();
+        let entry = make_entry("1.2.3", vec![make_section(ChangeCategory::Added, vec!["new feature"])]);
+        let id = entry.id;
+        engine.add_entry(entry);
+
+        let found = engine.get_entry(&id).unwrap();
+        assert_eq!(found.version, "1.2.3");
+        assert_eq!(found.sections.len(), 1);
+    }
+
+    #[test]
+    fn test_get_entry_not_found_returns_none() {
+        let engine = ChangelogEngine::new();
+        assert!(engine.get_entry(&Uuid::new_v4()).is_none());
+    }
+
+    // --- generate_from_commits -----------------------------------------------
+
+    #[test]
+    fn test_generate_from_commits_feat_prefix_maps_to_added() {
+        let mut engine = ChangelogEngine::new();
+        let entry = engine.generate_from_commits("feat: add login page", "1.0.0");
+
+        assert_eq!(entry.version, "1.0.0");
+        let added = entry.sections.iter().find(|s| s.category == ChangeCategory::Added).unwrap();
+        assert!(added.items.iter().any(|i| i.contains("add login page")));
+    }
+
+    #[test]
+    fn test_generate_from_commits_fix_prefix_maps_to_fixed() {
+        let mut engine = ChangelogEngine::new();
+        let entry = engine.generate_from_commits("fix: resolve null pointer", "1.0.1");
+
+        let fixed = entry.sections.iter().find(|s| s.category == ChangeCategory::Fixed).unwrap();
+        assert!(fixed.items.iter().any(|i| i.contains("resolve null pointer")));
+    }
+
+    #[test]
+    fn test_generate_from_commits_perf_prefix_maps_to_changed() {
+        let mut engine = ChangelogEngine::new();
+        let entry = engine.generate_from_commits("perf: optimise query", "1.1.0");
+
+        let changed = entry.sections.iter().find(|s| s.category == ChangeCategory::Changed).unwrap();
+        assert!(changed.items.iter().any(|i| i.contains("optimise query")));
+    }
+
+    #[test]
+    fn test_generate_from_commits_refactor_prefix_maps_to_changed() {
+        let mut engine = ChangelogEngine::new();
+        let entry = engine.generate_from_commits("refactor: split auth module", "1.1.0");
+
+        let changed = entry.sections.iter().find(|s| s.category == ChangeCategory::Changed).unwrap();
+        assert!(changed.items.iter().any(|i| i.contains("split auth module")));
+    }
+
+    #[test]
+    fn test_generate_from_commits_docs_prefix_maps_to_changed() {
+        let mut engine = ChangelogEngine::new();
+        let entry = engine.generate_from_commits("docs: update README", "1.1.0");
+
+        let changed = entry.sections.iter().find(|s| s.category == ChangeCategory::Changed).unwrap();
+        assert!(changed.items.iter().any(|i| i.contains("update README")));
+    }
+
+    #[test]
+    fn test_generate_from_commits_security_prefix_maps_to_security() {
+        let mut engine = ChangelogEngine::new();
+        let entry = engine.generate_from_commits("security: patch XSS vulnerability", "1.0.2");
+
+        let sec = entry.sections.iter().find(|s| s.category == ChangeCategory::Security).unwrap();
+        assert!(sec.items.iter().any(|i| i.contains("patch XSS vulnerability")));
+    }
+
+    #[test]
+    fn test_generate_from_commits_unknown_prefix_falls_to_added() {
+        let mut engine = ChangelogEngine::new();
+        let entry = engine.generate_from_commits("chore: update dependencies", "1.0.0");
+
+        let added = entry.sections.iter().find(|s| s.category == ChangeCategory::Added).unwrap();
+        assert!(added.items.iter().any(|i| i.contains("chore: update dependencies")));
+    }
+
+    #[test]
+    fn test_generate_from_commits_skips_empty_lines() {
+        let mut engine = ChangelogEngine::new();
+        let commits = "feat: feature one\n\n\nfix: bug fix\n";
+        let entry = engine.generate_from_commits(commits, "1.0.0");
+
+        let total_items: usize = entry.sections.iter().map(|s| s.items.len()).sum();
+        assert_eq!(total_items, 2);
+    }
+
+    #[test]
+    fn test_generate_from_commits_stores_entry_in_engine() {
+        let mut engine = ChangelogEngine::new();
+        let entry = engine.generate_from_commits("feat: new thing", "2.0.0");
+        let id = entry.id;
+
+        assert_eq!(engine.list_entries().len(), 1);
+        assert!(engine.get_entry(&id).is_some());
+    }
+
+    #[test]
+    fn test_generate_from_commits_mixed_categories() {
+        let mut engine = ChangelogEngine::new();
+        let commits = "feat: new feature\nfix: bug fix\nsecurity: patch cve\nperf: faster load";
+        let entry = engine.generate_from_commits(commits, "1.5.0");
+
+        let cats: Vec<&ChangeCategory> = entry.sections.iter().map(|s| &s.category).collect();
+        assert!(cats.contains(&&ChangeCategory::Added));
+        assert!(cats.contains(&&ChangeCategory::Fixed));
+        assert!(cats.contains(&&ChangeCategory::Security));
+        assert!(cats.contains(&&ChangeCategory::Changed));
+    }
+
+    // --- strip_scope_colon (private, tested via generate_from_commits) -------
+
+    #[test]
+    fn test_strip_scope_colon_plain_colon_stripped() {
+        // "feat: message" -> "message" (no scope)
+        assert_eq!(strip_scope_colon(": hello world"), "hello world");
+    }
+
+    #[test]
+    fn test_strip_scope_colon_with_scope_stripped() {
+        // "(core): message" -> "message"
+        assert_eq!(strip_scope_colon("(core): add feature"), "add feature");
+    }
+
+    #[test]
+    fn test_strip_scope_colon_scope_without_colon_returns_trimmed() {
+        // "(scope) message" — no colon after closing paren
+        let result = strip_scope_colon("(scope) message");
+        assert_eq!(result, "message");
+    }
+
+    #[test]
+    fn test_generate_from_commits_feat_with_scope() {
+        let mut engine = ChangelogEngine::new();
+        let entry = engine.generate_from_commits("feat(auth): add OAuth support", "1.0.0");
+
+        let added = entry.sections.iter().find(|s| s.category == ChangeCategory::Added).unwrap();
+        assert!(added.items.iter().any(|i| i.contains("add OAuth support")));
+        // Scope should not appear in the item
+        assert!(!added.items.iter().any(|i| i.contains("(auth)")));
+    }
+
+    // --- generate_markdown ---------------------------------------------------
+
+    #[test]
+    fn test_generate_markdown_contains_header() {
+        let engine = ChangelogEngine::new();
+        let md = engine.generate_markdown();
+        assert!(md.starts_with("# Changelog"));
+    }
+
+    #[test]
+    fn test_generate_markdown_includes_version_and_category() {
+        let mut engine = ChangelogEngine::new();
+        engine.generate_from_commits("feat: initial release", "1.0.0");
+        let md = engine.generate_markdown();
+
+        assert!(md.contains("## [1.0.0]"));
+        assert!(md.contains("### Added"));
+        assert!(md.contains("- initial release"));
+    }
+
+    #[test]
+    fn test_generate_markdown_multiple_entries_ordered() {
+        let mut engine = ChangelogEngine::new();
+        engine.generate_from_commits("feat: first", "1.0.0");
+        engine.generate_from_commits("fix: second", "1.0.1");
+        let md = engine.generate_markdown();
+
+        let pos_1 = md.find("1.0.0").unwrap();
+        let pos_2 = md.find("1.0.1").unwrap();
+        // Entries appear in insertion order
+        assert!(pos_1 < pos_2);
+    }
+
+    #[test]
+    fn test_generate_markdown_security_section_heading() {
+        let mut engine = ChangelogEngine::new();
+        engine.generate_from_commits("security: patch csrf", "1.0.0");
+        let md = engine.generate_markdown();
+        assert!(md.contains("### Security"));
+    }
+}
