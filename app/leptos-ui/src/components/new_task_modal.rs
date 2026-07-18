@@ -54,8 +54,8 @@ pub fn NewTaskModal(
     };
 
     let do_submit = move || {
-        let t = title.get();
-        if t.is_empty() {
+        let task_title_val = title.get();
+        if task_title_val.is_empty() {
             return;
         }
         let d = description.get();
@@ -102,7 +102,7 @@ pub fn NewTaskModal(
 
         let new_bead = BeadResponse {
             id,
-            title: t,
+            title: task_title_val,
             status,
             lane: target_lane.clone(),
             agent_id: None,
