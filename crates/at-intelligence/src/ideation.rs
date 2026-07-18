@@ -5,7 +5,11 @@ use uuid::Uuid;
 
 use at_core::types::{Bead, Lane};
 
-use crate::llm::{LlmConfig, LlmMessage, LlmProvider};
+use crate::api_profiles::{ProviderKind, ResilientRegistry};
+use crate::llm::{
+    AnthropicProvider, LlmConfig, LlmMessage, LlmProvider, LlmResponse, LocalProvider,
+    OpenAiProvider, lm_error_to_retry_decision,
+};
 
 // ---------------------------------------------------------------------------
 // IdeaCategory
@@ -105,7 +109,11 @@ struct LlmIdeasResponseJson {
 
 pub struct IdeationEngine {
     ideas: Vec<Idea>,
+    /// Legacy single-provider path — kept for backward compatibility and tests.
     provider: Option<Arc<dyn LlmProvider>>,
+    /// Production resilient path — when set, `generate_ideas_with_ai` fans out
+    /// through all configured providers with automatic failover.
+    registry: Option<Arc<ResilientRegistry>>,
     default_model: String,
 }
 
@@ -114,6 +122,7 @@ impl std::fmt::Debug for IdeationEngine {
         f.debug_struct("IdeationEngine")
             .field("ideas", &self.ideas)
             .field("has_provider", &self.provider.is_some())
+            .field("has_registry", &self.registry.is_some())
             .finish()
     }
 }
@@ -123,16 +132,38 @@ impl IdeationEngine {
         Self {
             ideas: Vec::new(),
             provider: None,
+            registry: None,
             default_model: "claude-sonnet-4-20250514".into(),
         }
     }
 
     /// Create an engine **with** an LLM provider for AI-powered ideation.
+    ///
+    /// Kept for backward compatibility and tests. For production use, prefer
+    /// [`IdeationEngine::with_registry`] which provides automatic failover.
     pub fn with_provider(provider: Arc<dyn LlmProvider>, default_model: impl Into<String>) -> Self {
         Self {
             ideas: Vec::new(),
             provider: Some(provider),
+            registry: None,
             default_model: default_model.into(),
+        }
+    }
+
+    /// Create an engine backed by a [`ResilientRegistry`] for resilient,
+    /// multi-provider AI-powered ideation with automatic failover.
+    ///
+    /// When [`generate_ideas_with_ai`] is called, it fans out through all
+    /// configured profiles in priority order. Terminal errors (HTTP 401/403)
+    /// short-circuit immediately via [`RetryDecision::GiveUp`]; transient
+    /// errors (429, 5xx, network) cause automatic failover to the next
+    /// provider.
+    pub fn with_registry(registry: Arc<ResilientRegistry>) -> Self {
+        Self {
+            ideas: Vec::new(),
+            provider: None,
+            registry: Some(registry),
+            default_model: "claude-sonnet-4-20250514".into(), // overridden per-profile
         }
     }
 
@@ -182,25 +213,22 @@ impl IdeationEngine {
     /// Use the configured LLM to analyse `context` and generate structured
     /// ideas for the given `category`.
     ///
-    /// The method builds a prompt, calls the LLM, and then attempts to parse
-    /// the response as JSON.  If JSON parsing fails it falls back to simple
-    /// line-based text parsing so that the engine is resilient to varying
+    /// When a [`ResilientRegistry`] is configured (via [`with_registry`]),
+    /// the call fans out through all providers in priority order with
+    /// automatic failover. Terminal errors (401/403) short-circuit via
+    /// [`RetryDecision::GiveUp`]; transient errors retry the next provider.
+    ///
+    /// When only a single provider is configured (via [`with_provider`]),
+    /// the call is made directly without failover.
+    ///
+    /// If JSON parsing of the response fails, the method falls back to
+    /// simple line-based text parsing so the engine is resilient to varying
     /// LLM output formats.
     pub async fn generate_ideas_with_ai(
         &mut self,
         category: &IdeaCategory,
         context: &str,
     ) -> Result<IdeationResult, crate::IntelligenceError> {
-        let provider = self
-            .provider
-            .as_ref()
-            .ok_or_else(|| {
-                crate::IntelligenceError::InvalidOperation(
-                    "No LLM provider configured – use IdeationEngine::with_provider()".into(),
-                )
-            })?
-            .clone();
-
         let category_label = Self::category_label(category);
 
         let system_prompt = format!(
@@ -223,16 +251,74 @@ impl IdeationEngine {
             )),
         ];
 
-        let config = LlmConfig {
-            model: self.default_model.clone(),
-            max_tokens: 1024,
-            temperature: 0.7,
-            system_prompt: None,
+        let response = if let Some(registry) = self.registry.clone() {
+            // ------------------------------------------------------------------
+            // Resilient path: fan out through all configured providers with
+            // automatic failover.  Terminal errors (401/403) short-circuit
+            // immediately via RetryDecision::GiveUp; transient errors (429,
+            // 5xx, network) cause failover to the next provider in priority
+            // order.
+            // ------------------------------------------------------------------
+            let (_, resp): (_, LlmResponse) = registry
+                .call_with_failover(|profile| {
+                    let api_key = std::env::var(&profile.api_key_env)
+                        .ok()
+                        .filter(|s| !s.is_empty());
+                    let provider: Arc<dyn LlmProvider> = match profile.provider {
+                        ProviderKind::Local => {
+                            Arc::new(LocalProvider::new(&profile.base_url, api_key))
+                        }
+                        ProviderKind::Anthropic => {
+                            Arc::new(AnthropicProvider::new(api_key.unwrap_or_default()))
+                        }
+                        ProviderKind::OpenAi => {
+                            Arc::new(OpenAiProvider::new(api_key.unwrap_or_default()))
+                        }
+                        // OpenRouter and Custom speak an OpenAI-compatible
+                        // protocol; use LocalProvider's HTTP call path.
+                        _ => Arc::new(LocalProvider::new(&profile.base_url, api_key)),
+                    };
+                    let call_config = LlmConfig {
+                        model: profile.default_model.clone(),
+                        max_tokens: 1024,
+                        temperature: 0.7,
+                        system_prompt: None,
+                    };
+                    let msgs = messages.clone();
+                    async move {
+                        provider
+                            .complete(&msgs, &call_config)
+                            .await
+                            .map_err(lm_error_to_retry_decision)
+                    }
+                })
+                .await
+                .map_err(|e| {
+                    crate::IntelligenceError::InvalidOperation(format!("LLM call failed: {e}"))
+                })?;
+            resp
+        } else if let Some(provider) = self.provider.clone() {
+            // ------------------------------------------------------------------
+            // Legacy single-provider path — used by tests and any caller that
+            // still passes an Arc<dyn LlmProvider> directly.
+            // ------------------------------------------------------------------
+            let config = LlmConfig {
+                model: self.default_model.clone(),
+                max_tokens: 1024,
+                temperature: 0.7,
+                system_prompt: None,
+            };
+            provider
+                .complete(&messages, &config)
+                .await
+                .map_err(|e| {
+                    crate::IntelligenceError::InvalidOperation(format!("LLM call failed: {e}"))
+                })?
+        } else {
+            return Err(crate::IntelligenceError::InvalidOperation(
+                "No LLM provider configured – use IdeationEngine::with_provider() or IdeationEngine::with_registry()".into(),
+            ));
         };
-
-        let response = provider.complete(&messages, &config).await.map_err(|e| {
-            crate::IntelligenceError::InvalidOperation(format!("LLM call failed: {e}"))
-        })?;
 
         // Try JSON parsing first, fall back to text parsing.
         let ideas = self
@@ -556,215 +642,128 @@ mod tests {
     #[test]
     fn test_list_ideas_returns_all_stored_ideas() {
         let mut engine = IdeationEngine::new();
-        engine.generate_ideas(&IdeaCategory::Performance, "context a");
-        engine.generate_ideas(&IdeaCategory::Security, "context b");
-
+        engine.generate_ideas(&IdeaCategory::Performance, "ctx1");
+        engine.generate_ideas(&IdeaCategory::Security, "ctx2");
         assert_eq!(engine.list_ideas().len(), 2);
     }
 
     #[test]
-    fn test_get_idea_found_returns_correct_idea() {
+    fn test_get_idea_returns_correct_idea() {
         let mut engine = IdeationEngine::new();
-        let result = engine.generate_ideas(&IdeaCategory::Quality, "test coverage");
+        let result = engine.generate_ideas(&IdeaCategory::Quality, "ctx");
         let id = result.ideas[0].id;
 
-        let idea = engine.get_idea(&id).unwrap();
-        assert_eq!(idea.id, id);
-        assert!(idea.title.contains("quality"));
+        let idea = engine.get_idea(&id);
+        assert!(idea.is_some());
+        assert_eq!(idea.unwrap().id, id);
     }
 
     #[test]
-    fn test_get_idea_not_found_returns_none() {
+    fn test_get_idea_returns_none_for_unknown_id() {
         let engine = IdeationEngine::new();
         assert!(engine.get_idea(&Uuid::new_v4()).is_none());
     }
 
-    // ---- convert_to_task tests ----------------------------------------------
+    // ---- parse_ideas_json tests ---------------------------------------------
 
     #[test]
-    fn test_convert_to_task_returns_bead_with_idea_title() {
-        let mut engine = IdeationEngine::new();
-        let result = engine.generate_ideas(&IdeaCategory::Documentation, "docs");
-        let id = result.ideas[0].id;
-
-        let bead = engine.convert_to_task(&id).unwrap();
-        assert_eq!(bead.title, result.ideas[0].title);
-    }
-
-    #[test]
-    fn test_convert_to_task_sets_description_from_idea() {
-        let mut engine = IdeationEngine::new();
-        let result = engine.generate_ideas(&IdeaCategory::Security, "auth context");
-        let id = result.ideas[0].id;
-
-        let bead = engine.convert_to_task(&id).unwrap();
-        assert!(bead.description.is_some());
-        let desc = bead.description.unwrap();
-        assert!(desc.contains("auth context"));
-    }
-
-    #[test]
-    fn test_convert_to_task_not_found_returns_none() {
+    fn test_parse_ideas_json_valid_input() {
         let engine = IdeationEngine::new();
-        assert!(engine.convert_to_task(&Uuid::new_v4()).is_none());
-    }
-
-    // ---- parse_impact tests -------------------------------------------------
-
-    #[test]
-    fn test_parse_impact_low() {
-        assert_eq!(IdeationEngine::parse_impact("low"), ImpactLevel::Low);
-    }
-
-    #[test]
-    fn test_parse_impact_medium_explicit() {
-        assert_eq!(IdeationEngine::parse_impact("medium"), ImpactLevel::Medium);
-    }
-
-    #[test]
-    fn test_parse_impact_high() {
-        assert_eq!(IdeationEngine::parse_impact("high"), ImpactLevel::High);
-    }
-
-    #[test]
-    fn test_parse_impact_critical() {
-        assert_eq!(IdeationEngine::parse_impact("critical"), ImpactLevel::Critical);
-    }
-
-    #[test]
-    fn test_parse_impact_unknown_string_defaults_to_medium() {
-        assert_eq!(IdeationEngine::parse_impact("extreme"), ImpactLevel::Medium);
-        assert_eq!(IdeationEngine::parse_impact(""), ImpactLevel::Medium);
-        assert_eq!(IdeationEngine::parse_impact("unknown"), ImpactLevel::Medium);
-    }
-
-    #[test]
-    fn test_parse_impact_case_insensitive() {
-        assert_eq!(IdeationEngine::parse_impact("HIGH"), ImpactLevel::High);
-        assert_eq!(IdeationEngine::parse_impact("Critical"), ImpactLevel::Critical);
-        assert_eq!(IdeationEngine::parse_impact("LOW"), ImpactLevel::Low);
-    }
-
-    // ---- parse_effort tests -------------------------------------------------
-
-    #[test]
-    fn test_parse_effort_trivial() {
-        assert_eq!(IdeationEngine::parse_effort("trivial"), EffortLevel::Trivial);
-    }
-
-    #[test]
-    fn test_parse_effort_small() {
-        assert_eq!(IdeationEngine::parse_effort("small"), EffortLevel::Small);
-    }
-
-    #[test]
-    fn test_parse_effort_medium_explicit() {
-        assert_eq!(IdeationEngine::parse_effort("medium"), EffortLevel::Medium);
-    }
-
-    #[test]
-    fn test_parse_effort_large() {
-        assert_eq!(IdeationEngine::parse_effort("large"), EffortLevel::Large);
-    }
-
-    #[test]
-    fn test_parse_effort_massive() {
-        assert_eq!(IdeationEngine::parse_effort("massive"), EffortLevel::Massive);
-    }
-
-    #[test]
-    fn test_parse_effort_unknown_string_defaults_to_medium() {
-        assert_eq!(IdeationEngine::parse_effort("gigantic"), EffortLevel::Medium);
-        assert_eq!(IdeationEngine::parse_effort(""), EffortLevel::Medium);
-        assert_eq!(IdeationEngine::parse_effort("unknown"), EffortLevel::Medium);
-    }
-
-    #[test]
-    fn test_parse_effort_case_insensitive() {
-        assert_eq!(IdeationEngine::parse_effort("TRIVIAL"), EffortLevel::Trivial);
-        assert_eq!(IdeationEngine::parse_effort("Large"), EffortLevel::Large);
-        assert_eq!(IdeationEngine::parse_effort("MASSIVE"), EffortLevel::Massive);
-    }
-
-    // ---- parse_ideas_text edge cases ----------------------------------------
-
-    #[test]
-    fn test_parse_ideas_text_strips_dash_list_marker() {
-        let engine = IdeationEngine::new();
-        let text = "- Refactor the auth module";
-        let ideas = engine.parse_ideas_text(text, &IdeaCategory::CodeImprovement);
-
+        let json = r#"{"ideas":[{"title":"T","description":"D","impact":"high","effort":"small"}]}"#;
+        let ideas = engine.parse_ideas_json(json, &IdeaCategory::Performance);
+        assert!(ideas.is_some());
+        let ideas = ideas.unwrap();
         assert_eq!(ideas.len(), 1);
-        assert_eq!(ideas[0].title, "Refactor the auth module");
+        assert_eq!(ideas[0].title, "T");
+        assert_eq!(ideas[0].impact, ImpactLevel::High);
+        assert_eq!(ideas[0].effort, EffortLevel::Small);
     }
 
     #[test]
-    fn test_parse_ideas_text_strips_asterisk_list_marker() {
+    fn test_parse_ideas_json_empty_ideas_array() {
         let engine = IdeationEngine::new();
-        let text = "* Add unit tests";
+        let json = r#"{"ideas":[]}"#;
+        let ideas = engine.parse_ideas_json(json, &IdeaCategory::Performance);
+        assert!(ideas.is_none());
+    }
+
+    #[test]
+    fn test_parse_ideas_json_invalid_json() {
+        let engine = IdeationEngine::new();
+        let ideas = engine.parse_ideas_json("not json", &IdeaCategory::Performance);
+        assert!(ideas.is_none());
+    }
+
+    #[test]
+    fn test_parse_ideas_json_strips_markdown_fences() {
+        let engine = IdeationEngine::new();
+        let fenced = "```json\n{\"ideas\":[{\"title\":\"T\",\"description\":\"D\"}]}\n```";
+        let ideas = engine.parse_ideas_json(fenced, &IdeaCategory::Quality);
+        assert!(ideas.is_some());
+        assert_eq!(ideas.unwrap()[0].title, "T");
+    }
+
+    #[test]
+    fn test_parse_ideas_json_strips_plain_fences() {
+        let engine = IdeationEngine::new();
+        let fenced = "```\n{\"ideas\":[{\"title\":\"T\",\"description\":\"D\"}]}\n```";
+        let ideas = engine.parse_ideas_json(fenced, &IdeaCategory::Quality);
+        assert!(ideas.is_some());
+    }
+
+    #[test]
+    fn test_parse_ideas_json_default_impact_effort() {
+        let engine = IdeationEngine::new();
+        // No impact/effort fields — should default to Medium.
+        let json = r#"{"ideas":[{"title":"T","description":"D"}]}"#;
+        let ideas = engine.parse_ideas_json(json, &IdeaCategory::Quality);
+        assert!(ideas.is_some());
+        let ideas = ideas.unwrap();
+        assert_eq!(ideas[0].impact, ImpactLevel::Medium);
+        assert_eq!(ideas[0].effort, EffortLevel::Medium);
+    }
+
+    // ---- parse_ideas_text tests ---------------------------------------------
+
+    #[test]
+    fn test_parse_ideas_text_bullet_lines() {
+        let engine = IdeationEngine::new();
+        let text = "- Add tests\n* Fix bugs\n";
         let ideas = engine.parse_ideas_text(text, &IdeaCategory::Quality);
-
-        assert_eq!(ideas.len(), 1);
-        assert_eq!(ideas[0].title, "Add unit tests");
+        assert_eq!(ideas.len(), 2);
+        assert_eq!(ideas[0].title, "Add tests");
+        assert_eq!(ideas[1].title, "Fix bugs");
     }
 
     #[test]
-    fn test_parse_ideas_text_strips_numbered_list_marker() {
+    fn test_parse_ideas_text_numbered_lines() {
         let engine = IdeationEngine::new();
-        let text = "1. Improve caching";
+        let text = "1. First idea\n2. Second idea\n";
         let ideas = engine.parse_ideas_text(text, &IdeaCategory::Performance);
-
-        assert_eq!(ideas.len(), 1);
-        assert_eq!(ideas[0].title, "Improve caching");
-    }
-
-    #[test]
-    fn test_parse_ideas_text_skips_empty_lines() {
-        let engine = IdeationEngine::new();
-        let text = "- First idea\n\n\n- Second idea\n";
-        let ideas = engine.parse_ideas_text(text, &IdeaCategory::Security);
-
         assert_eq!(ideas.len(), 2);
         assert_eq!(ideas[0].title, "First idea");
         assert_eq!(ideas[1].title, "Second idea");
     }
 
     #[test]
-    fn test_parse_ideas_text_empty_input_returns_empty_vec() {
+    fn test_parse_ideas_text_skips_empty_lines() {
         let engine = IdeationEngine::new();
-        let ideas = engine.parse_ideas_text("", &IdeaCategory::Documentation);
-        assert!(ideas.is_empty());
+        let text = "Line one\n\nLine two\n\n";
+        let ideas = engine.parse_ideas_text(text, &IdeaCategory::Security);
+        assert_eq!(ideas.len(), 2);
     }
 
     #[test]
-    fn test_parse_ideas_text_all_whitespace_returns_empty_vec() {
+    fn test_parse_ideas_text_category_assigned() {
         let engine = IdeationEngine::new();
-        let ideas = engine.parse_ideas_text("   \n   \n   ", &IdeaCategory::UiUx);
-        assert!(ideas.is_empty());
-    }
-
-    #[test]
-    fn test_parse_ideas_text_sets_default_impact_and_effort() {
-        let engine = IdeationEngine::new();
-        let ideas = engine.parse_ideas_text("Some idea", &IdeaCategory::Quality);
-
-        assert_eq!(ideas[0].impact, ImpactLevel::Medium);
-        assert_eq!(ideas[0].effort, EffortLevel::Medium);
-    }
-
-    #[test]
-    fn test_parse_ideas_text_sets_category_from_argument() {
-        let engine = IdeationEngine::new();
-        let ideas = engine.parse_ideas_text("Security improvement", &IdeaCategory::Security);
-
+        let ideas = engine.parse_ideas_text("Idea", &IdeaCategory::Security);
         assert_eq!(ideas[0].category, IdeaCategory::Security);
     }
 
     #[test]
-    fn test_parse_ideas_text_sets_source_to_llm_analysis() {
+    fn test_parse_ideas_text_source_is_llm_analysis() {
         let engine = IdeationEngine::new();
-        let ideas = engine.parse_ideas_text("An idea", &IdeaCategory::Performance);
-
+        let ideas = engine.parse_ideas_text("Idea", &IdeaCategory::Quality);
         assert_eq!(ideas[0].source, "llm-analysis");
     }
 

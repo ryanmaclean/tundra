@@ -57,6 +57,33 @@ impl From<reqwest::Error> for LlmError {
     }
 }
 
+/// Classify an [`LlmError`] for use with
+/// [`crate::api_profiles::ResilientRegistry::call_with_failover`].
+///
+/// Authentication errors (HTTP 401 / 403) are **terminal** — switching to
+/// another provider cannot fix bad credentials, so they become
+/// [`RetryDecision::GiveUp`] and the failover loop short-circuits immediately.
+///
+/// All other errors (rate limits, 5xx, network failures, timeouts) are
+/// **transient** and warrant trying the next provider via
+/// [`RetryDecision::Retry`].
+pub fn lm_error_to_retry_decision(
+    e: LlmError,
+) -> crate::api_profiles::RetryDecision<LlmError> {
+    use crate::api_profiles::RetryDecision;
+    // Use `matches!` to check the condition via a shared borrow of `e`, so
+    // the borrow ends before we move `e` into the GiveUp/Retry variant.
+    let is_terminal = matches!(
+        &e,
+        LlmError::ApiError { status, .. } if *status == 401 || *status == 403
+    );
+    if is_terminal {
+        RetryDecision::GiveUp(e)
+    } else {
+        RetryDecision::Retry(e)
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Core data types
 // ---------------------------------------------------------------------------

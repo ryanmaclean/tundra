@@ -203,16 +203,16 @@ pub fn EditTaskModal(
         }></div>
         <div class="edit-task-modal" role="dialog" aria-modal="true" aria-labelledby="edit-task-heading" on:click=move |ev: MouseEvent| ev.stop_propagation() on:keydown=handle_keydown>
             <div class="edit-task-header">
-                <h2 id="edit-task-heading">"Edit Task"</h2>
+                <h2 id="edit-task-heading">{t("edit-task-title")}</h2>
                 <p class="edit-task-subtitle">
-                    "Update task details including title, description, classification, images, and settings. Changes will be saved to the spec file."
+                    {t("edit-task-subtitle")}
                 </p>
             </div>
 
             <div class="edit-task-form">
                 // Description
                 <div class="form-group">
-                    <label class="form-label" attr:for="edit-description-input">"Description"</label>
+                    <label class="form-label" attr:for="edit-description-input">{t("form-label-description")}</label>
                     <textarea
                         id="edit-description-input"
                         class="form-textarea edit-task-textarea"
@@ -225,8 +225,9 @@ pub fn EditTaskModal(
                 // Task Title
                 <div class="form-group">
                     <label class="form-label" attr:for="edit-title-input">
-                        "Task Title "
-                        <span class="form-hint">"(Optional)"</span>
+                        {t("form-label-task-title")}
+                        " "
+                        <span class="form-hint">"("{t("form-hint-optional")}")"</span>
                     </label>
                     <input
                         id="edit-title-input"
@@ -239,7 +240,7 @@ pub fn EditTaskModal(
 
                 // Agent Profile
                 <div class="form-group">
-                    <label class="form-label">"Agent Profile"</label>
+                    <label class="form-label">{t("form-label-agent-profile")}</label>
                     <div class="agent-profile-options">
                         <label class="radio-option">
                             <input
@@ -249,18 +250,18 @@ pub fn EditTaskModal(
                                 checked=move || agent_profile.get() == "auto_optimized"
                                 on:change=move |_| set_agent_profile.set("auto_optimized".to_string())
                             />
-                            <span class="radio-label">"Auto Optimized"</span>
+                            <span class="radio-label">{t("agent-profile-auto-optimized")}</span>
                         </label>
-                        <span class="form-hint edit-hint">"+ Edit to customize"</span>
+                        <span class="form-hint edit-hint">{t("form-hint-edit-customize")}</span>
                     </div>
                 </div>
 
                 // Phase Configuration
                 <div class="form-group">
-                    <label class="form-label">"Phase Configuration"</label>
+                    <label class="form-label">{t("form-label-phase-config")}</label>
                     <div class="phase-config-row">
                         <div class="phase-config-item">
-                            <label class="form-label-sm" attr:for="edit-model-select">"Model"</label>
+                            <label class="form-label-sm" attr:for="edit-model-select">{t("form-label-model")}</label>
                             <select
                                 id="edit-model-select"
                                 class="form-select"
@@ -273,16 +274,16 @@ pub fn EditTaskModal(
                             </select>
                         </div>
                         <div class="phase-config-item">
-                            <label class="form-label-sm" attr:for="edit-thinking-select">"Thinking Level"</label>
+                            <label class="form-label-sm" attr:for="edit-thinking-select">{t("form-label-thinking-level")}</label>
                             <select
                                 id="edit-thinking-select"
                                 class="form-select"
                                 prop:value=move || thinking_level.get()
                                 on:change=move |ev| set_thinking_level.set(event_target_value(&ev))
                             >
-                                <option value="low">"Low"</option>
-                                <option value="medium">"Medium"</option>
-                                <option value="high">"High"</option>
+                                <option value="low">{t("thinking-level-low")}</option>
+                                <option value="medium">{t("thinking-level-medium")}</option>
+                                <option value="high">{t("thinking-level-high")}</option>
                             </select>
                         </div>
                     </div>
@@ -291,52 +292,53 @@ pub fn EditTaskModal(
                 // Classification section
                 <div class="form-group">
                     <label class="form-label">
-                        "Classification "
-                        <span class="form-hint">"(optional)"</span>
+                        {t("form-label-classification")}
+                        " "
+                        <span class="form-hint">"("{t("form-hint-optional")}")"</span>
                     </label>
                     <div class="classification-grid">
                         <div class="classification-item">
-                            <label class="form-label-sm" attr:for="edit-category-select">"Category"</label>
+                            <label class="form-label-sm" attr:for="edit-category-select">{t("form-label-category")}</label>
                             <select
                                 id="edit-category-select"
                                 class="form-select"
                                 prop:value=move || category.get()
                                 on:change=move |ev| set_category.set(event_target_value(&ev))
                             >
-                                <option value="Feature">"Feature"</option>
-                                <option value="Bug">"Bug"</option>
-                                <option value="Refactor">"Refactor"</option>
-                                <option value="Docs">"Docs"</option>
-                                <option value="Test">"Test"</option>
-                                <option value="Security">"Security"</option>
-                                <option value="Performance">"Performance"</option>
+                                <option value="Feature">{t("tasks-category-feature")}</option>
+                                <option value="Bug">{t("category-bug")}</option>
+                                <option value="Refactor">{t("tasks-category-refactor")}</option>
+                                <option value="Docs">{t("tasks-category-docs")}</option>
+                                <option value="Test">{t("category-test")}</option>
+                                <option value="Security">{t("category-security")}</option>
+                                <option value="Performance">{t("category-performance")}</option>
                             </select>
                         </div>
                         <div class="classification-item">
-                            <label class="form-label-sm" attr:for="edit-priority-select">"Priority"</label>
+                            <label class="form-label-sm" attr:for="edit-priority-select">{t("form-label-priority")}</label>
                             <select
                                 id="edit-priority-select"
                                 class="form-select"
                                 prop:value=move || priority.get()
                                 on:change=move |ev| set_priority.set(event_target_value(&ev))
                             >
-                                <option value="Low">"Low"</option>
-                                <option value="Medium">"Medium"</option>
-                                <option value="High">"High"</option>
-                                <option value="Critical">"Critical"</option>
+                                <option value="Low">{t("tasks-priority-low")}</option>
+                                <option value="Medium">{t("tasks-priority-medium")}</option>
+                                <option value="High">{t("tasks-priority-high")}</option>
+                                <option value="Critical">{t("tasks-priority-critical")}</option>
                             </select>
                         </div>
                         <div class="classification-item">
-                            <label class="form-label-sm" attr:for="edit-complexity-select">"Complexity"</label>
+                            <label class="form-label-sm" attr:for="edit-complexity-select">{t("form-label-complexity")}</label>
                             <select
                                 id="edit-complexity-select"
                                 class="form-select"
                                 prop:value=move || complexity.get()
                                 on:change=move |ev| set_complexity.set(event_target_value(&ev))
                             >
-                                <option value="Simple">"Simple"</option>
-                                <option value="Medium">"Medium"</option>
-                                <option value="Complex">"Complex"</option>
+                                <option value="Simple">{t("complexity-simple")}</option>
+                                <option value="Medium">{t("complexity-medium")}</option>
+                                <option value="Complex">{t("complexity-complex")}</option>
                             </select>
                         </div>
                     </div>
@@ -346,50 +348,50 @@ pub fn EditTaskModal(
                 <div class="form-group">
                     <div class="impact-effort-row">
                         <div class="impact-effort-item">
-                            <label class="form-label-sm" attr:for="edit-impact-select">"Impact"</label>
+                            <label class="form-label-sm" attr:for="edit-impact-select">{t("form-label-impact")}</label>
                             <select
                                 id="edit-impact-select"
                                 class="form-select"
                                 prop:value=move || impact.get()
                                 on:change=move |ev| set_impact.set(event_target_value(&ev))
                             >
-                                <option value="">"Select Impact"</option>
-                                <option value="Low">"Low"</option>
-                                <option value="Medium">"Medium"</option>
-                                <option value="High">"High"</option>
+                                <option value="">{t("form-select-impact")}</option>
+                                <option value="Low">{t("thinking-level-low")}</option>
+                                <option value="Medium">{t("thinking-level-medium")}</option>
+                                <option value="High">{t("thinking-level-high")}</option>
                             </select>
                         </div>
                         <div class="impact-effort-item">
-                            <label class="form-label-sm" attr:for="edit-effort-select">"Effort"</label>
+                            <label class="form-label-sm" attr:for="edit-effort-select">{t("form-label-effort")}</label>
                             <select
                                 id="edit-effort-select"
                                 class="form-select"
                                 prop:value=move || effort.get()
                                 on:change=move |ev| set_effort.set(event_target_value(&ev))
                             >
-                                <option value="">"Select Effort"</option>
-                                <option value="Low">"Low"</option>
-                                <option value="Medium">"Medium"</option>
-                                <option value="High">"High"</option>
+                                <option value="">{t("form-select-effort")}</option>
+                                <option value="Low">{t("thinking-level-low")}</option>
+                                <option value="Medium">{t("thinking-level-medium")}</option>
+                                <option value="High">{t("thinking-level-high")}</option>
                             </select>
                         </div>
                     </div>
-                    <p class="form-hint">"These fields are optional but useful for filtering."</p>
+                    <p class="form-hint">{t("form-hint-optional-fields")}</p>
                 </div>
             </div>
 
             // Actions
             <div class="edit-task-actions">
-                <button class="btn btn-outline" on:click=on_close_cancel>"Cancel"</button>
+                <button class="btn btn-outline" on:click=on_close_cancel>{t("btn-cancel")}</button>
                 <button
                     class="btn btn-primary"
                     on:click=on_save
                     disabled=move || is_submitting.get()>
                     {move || {
                         if is_submitting.get() {
-                            "Saving..."
+                            t("status-saving")
                         } else {
-                            "Save Changes"
+                            t("btn-save-changes")
                         }
                     }}
                 </button>

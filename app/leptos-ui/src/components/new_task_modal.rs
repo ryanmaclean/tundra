@@ -3,6 +3,7 @@ use leptos::prelude::*;
 use web_sys;
 
 use crate::components::focus_trap::use_focus_trap;
+use crate::i18n::t;
 use crate::state::use_app_state;
 use crate::types::{BeadResponse, BeadStatus, Lane};
 

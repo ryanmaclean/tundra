@@ -173,6 +173,28 @@ pub fn t_args(key: &str, args: &FluentArgs) -> String {
     i18n.with_value(|i| i.t_args_with_locale(current, key, args))
 }
 
+/// Translate a key, substituting a single string variable `{ $var }` with `value`.
+///
+/// Use this when the FTL key contains a single placeholder, e.g.
+/// `task-assigned-to = Assigned to { $agents }`.
+#[cfg(feature = "i18n")]
+pub fn t_str(key: &str, var: &str, value: &str) -> String {
+    let mut args = FluentArgs::new();
+    args.set(var, value.to_string());
+    t_args(key, &args)
+}
+
+/// Translate a key, substituting a single integer variable `{ $var }` with `value`.
+///
+/// Use this when the FTL key contains a numeric placeholder, e.g.
+/// `notification-time-minutes-ago = { $minutes }m ago`.
+#[cfg(feature = "i18n")]
+pub fn t_num(key: &str, var: &str, value: i64) -> String {
+    let mut args = FluentArgs::new();
+    args.set(var, value as f64);
+    t_args(key, &args)
+}
+
 // Stub implementations when i18n feature is disabled
 #[cfg(not(feature = "i18n"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -203,5 +225,17 @@ pub fn provide_i18n() {
 #[cfg(not(feature = "i18n"))]
 pub fn t(key: &str) -> String {
     // Return the key as-is when i18n is disabled
+    key.to_string()
+}
+
+/// Stub for `t_str` — ignores arguments and returns the key when i18n is disabled.
+#[cfg(not(feature = "i18n"))]
+pub fn t_str(key: &str, _var: &str, _value: &str) -> String {
+    key.to_string()
+}
+
+/// Stub for `t_num` — ignores arguments and returns the key when i18n is disabled.
+#[cfg(not(feature = "i18n"))]
+pub fn t_num(key: &str, _var: &str, _value: i64) -> String {
     key.to_string()
 }
