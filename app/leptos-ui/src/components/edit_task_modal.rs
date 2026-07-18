@@ -212,7 +212,7 @@ pub fn EditTaskModal(
             <div class="edit-task-form">
                 // Description
                 <div class="form-group">
-                    <label class="form-label" attr:for="edit-description-input">{t("form-label-description")}</label>
+                    <label class="form-label">{t("form-label-description")}</label>
                     <textarea
                         id="edit-description-input"
                         class="form-textarea edit-task-textarea"
@@ -224,7 +224,7 @@ pub fn EditTaskModal(
 
                 // Task Title
                 <div class="form-group">
-                    <label class="form-label" attr:for="edit-title-input">
+                    <label class="form-label">
                         {t("form-label-task-title")}
                         " "
                         <span class="form-hint">"("{t("form-hint-optional")}")"</span>
@@ -261,7 +261,7 @@ pub fn EditTaskModal(
                     <label class="form-label">{t("form-label-phase-config")}</label>
                     <div class="phase-config-row">
                         <div class="phase-config-item">
-                            <label class="form-label-sm" attr:for="edit-model-select">{t("form-label-model")}</label>
+                            <label class="form-label-sm">{t("form-label-model")}</label>
                             <select
                                 id="edit-model-select"
                                 class="form-select"
@@ -274,7 +274,7 @@ pub fn EditTaskModal(
                             </select>
                         </div>
                         <div class="phase-config-item">
-                            <label class="form-label-sm" attr:for="edit-thinking-select">{t("form-label-thinking-level")}</label>
+                            <label class="form-label-sm">{t("form-label-thinking-level")}</label>
                             <select
                                 id="edit-thinking-select"
                                 class="form-select"
@@ -298,7 +298,7 @@ pub fn EditTaskModal(
                     </label>
                     <div class="classification-grid">
                         <div class="classification-item">
-                            <label class="form-label-sm" attr:for="edit-category-select">{t("form-label-category")}</label>
+                            <label class="form-label-sm">{t("form-label-category")}</label>
                             <select
                                 id="edit-category-select"
                                 class="form-select"
@@ -315,7 +315,7 @@ pub fn EditTaskModal(
                             </select>
                         </div>
                         <div class="classification-item">
-                            <label class="form-label-sm" attr:for="edit-priority-select">{t("form-label-priority")}</label>
+                            <label class="form-label-sm">{t("form-label-priority")}</label>
                             <select
                                 id="edit-priority-select"
                                 class="form-select"
@@ -329,7 +329,7 @@ pub fn EditTaskModal(
                             </select>
                         </div>
                         <div class="classification-item">
-                            <label class="form-label-sm" attr:for="edit-complexity-select">{t("form-label-complexity")}</label>
+                            <label class="form-label-sm">{t("form-label-complexity")}</label>
                             <select
                                 id="edit-complexity-select"
                                 class="form-select"
@@ -348,7 +348,7 @@ pub fn EditTaskModal(
                 <div class="form-group">
                     <div class="impact-effort-row">
                         <div class="impact-effort-item">
-                            <label class="form-label-sm" attr:for="edit-impact-select">{t("form-label-impact")}</label>
+                            <label class="form-label-sm">{t("form-label-impact")}</label>
                             <select
                                 id="edit-impact-select"
                                 class="form-select"
@@ -362,7 +362,7 @@ pub fn EditTaskModal(
                             </select>
                         </div>
                         <div class="impact-effort-item">
-                            <label class="form-label-sm" attr:for="edit-effort-select">{t("form-label-effort")}</label>
+                            <label class="form-label-sm">{t("form-label-effort")}</label>
                             <select
                                 id="edit-effort-select"
                                 class="form-select"

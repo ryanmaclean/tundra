@@ -6,6 +6,7 @@ use pulldown_cmark::{html, Parser};
 use web_sys;
 
 use crate::components::focus_trap::use_focus_trap;
+use crate::i18n::{t, t_str};
 use crate::state::use_app_state;
 use crate::types::{BeadResponse, BeadStatus, Lane};
 
@@ -591,11 +592,11 @@ fn TaskDetailInner(
                         <div class="task-warning stuck-warning-banner">
                             <span class="stuck-warning-icon">"!"</span>
                             <div class="stuck-warning-text">
-                                <strong>"Task Appears Stuck"</strong>
-                                <p>"This task is marked as running but no active process was found."</p>
+                                <strong>{t("task-warning-stuck-title")}</strong>
+                                <p>{t("task-warning-stuck-desc")}</p>
                             </div>
                             <button class="btn btn-warning" on:click=resume_stuck>
-                                "Resume & Restart"
+                                {t("btn-resume-restart")}
                             </button>
                         </div>
                     }
@@ -607,10 +608,10 @@ fn TaskDetailInner(
                         <div class="task-warning task-warning-merge">
                             <span class="task-warning-icon">"!"</span>
                             <div class="task-warning-body">
-                                <strong>"Merge Conflict Detected"</strong>
-                                <p>"Resolve conflicts in the worktree before continuing."</p>
+                                <strong>{t("task-warning-merge-title")}</strong>
+                                <p>{t("task-warning-merge-desc")}</p>
                             </div>
-                            <button class="btn btn-sm btn-outline" on:click=resume_conflict>"Resolve"</button>
+                            <button class="btn btn-sm btn-outline" on:click=resume_conflict>{t("btn-resolve")}</button>
                         </div>
                     }
                 })}
@@ -621,10 +622,10 @@ fn TaskDetailInner(
                         <div class="task-warning task-warning-rate-limit">
                             <span class="task-warning-icon">"!"</span>
                             <div class="task-warning-body">
-                                <strong>"Rate Limit Hit"</strong>
-                                <p>"Will auto-resume when the limit resets."</p>
+                                <strong>{t("task-warning-rate-title")}</strong>
+                                <p>{t("task-warning-rate-desc")}</p>
                             </div>
-                            <button class="btn btn-sm btn-outline" on:click=resume_rate>"Retry Now"</button>
+                            <button class="btn btn-sm btn-outline" on:click=resume_rate>{t("btn-retry-now")}</button>
                         </div>
                     }
                 })}
@@ -633,10 +634,10 @@ fn TaskDetailInner(
                     <div class="task-warning task-warning-qa-fail">
                         <span class="task-warning-icon">"!"</span>
                         <div class="task-warning-body">
-                            <strong>"QA Checks Failed"</strong>
-                            <p>"Review the Logs tab for details."</p>
+                            <strong>{t("task-warning-qa-title")}</strong>
+                            <p>{t("task-warning-qa-desc")}</p>
                         </div>
-                        <button class="btn btn-sm btn-outline" on:click=move |_| set_active_tab.set(2)>"View Logs"</button>
+                        <button class="btn btn-sm btn-outline" on:click=move |_| set_active_tab.set(2)>{t("btn-view-logs")}</button>
                     </div>
                 })}
 
@@ -653,25 +654,25 @@ fn TaskDetailInner(
                     <button
                         class=(move || if active_tab.get() == 0 { "task-tab active" } else { "task-tab" })
                         on:click=move |_| set_active_tab.set(0)
-                    >"Overview"</button>
+                    >{t("task-detail-tab-overview")}</button>
                     <button
                         class=(move || if active_tab.get() == 1 { "task-tab active" } else { "task-tab" })
                         on:click=move |_| set_active_tab.set(1)
                     >
-                        {format!("Subtasks ({})", total_subtasks)}
+                        {format!("{} ({})", t("task-detail-tab-subtasks"), total_subtasks)}
                     </button>
                     <button
                         class=(move || if active_tab.get() == 2 { "task-tab active" } else { "task-tab" })
                         on:click=move |_| set_active_tab.set(2)
-                    >"Logs"</button>
+                    >{t("task-detail-tab-logs")}</button>
                     <button
                         class=(move || if active_tab.get() == 3 { "task-tab active" } else { "task-tab" })
                         on:click=move |_| set_active_tab.set(3)
-                    >"Files"</button>
+                    >{t("task-detail-tab-files")}</button>
                     <button
                         class=(move || if active_tab.get() == 4 { "task-tab active" } else { "task-tab" })
                         on:click=move |_| set_active_tab.set(4)
-                    >"History"</button>
+                    >{t("task-detail-tab-history")}</button>
                 </div>
 
                 // ── Tab content ──
@@ -765,11 +766,11 @@ fn TaskDetailInner(
                                     view! {
                                         <div class="td-qa-summary">
                                             <div class="td-qa-summary-header">
-                                                <span class="td-qa-summary-title">"QA Status"</span>
+                                                <span class="td-qa-summary-title">{t("task-detail-qa-status")}</span>
                                                 {if all_pass {
-                                                    view! { <span class="td-qa-badge td-qa-pass">"PASSED"</span> }.into_any()
+                                                    view! { <span class="td-qa-badge td-qa-pass">{t("qa-status-passed")}</span> }.into_any()
                                                 } else {
-                                                    view! { <span class="td-qa-badge td-qa-fail">"FAILED"</span> }.into_any()
+                                                    view! { <span class="td-qa-badge td-qa-fail">{t("qa-status-failed")}</span> }.into_any()
                                                 }}
                                             </div>
                                             <div class="td-qa-checks-row">
@@ -793,7 +794,7 @@ fn TaskDetailInner(
                                         <div class="td-build-section">
                                             <div class="td-build-header">
                                                 <span class="td-build-icon">"🔨"</span>
-                                                <span class="td-build-title">"Build"</span>
+                                                <span class="td-build-title">{t("task-detail-build")}</span>
                                             </div>
                                             <div class="td-build-stats">
                                                 <div class="td-build-stat">
@@ -817,12 +818,12 @@ fn TaskDetailInner(
                                                 <span class="td-build-branch-label">"main"</span>
                                             </div>
                                             <div class="td-build-path">
-                                                <span class="td-build-path-label">"Worktree: "</span>
+                                                <span class="td-build-path-label">{t("task-detail-worktree-prefix")}" "</span>
                                                 <span class="td-build-path-value">{path_display}</span>
                                             </div>
                                             <div class="td-build-actions">
-                                                <button class="td-build-btn td-build-btn-cursor">"Open in Cursor"</button>
-                                                <button class="td-build-btn td-build-btn-ghostty">"Open in Ghostty"</button>
+                                                <button class="td-build-btn td-build-btn-cursor">{t("btn-open-cursor")}</button>
+                                                <button class="td-build-btn td-build-btn-ghostty">{t("btn-open-ghostty")}</button>
                                             </div>
                                         </div>
                                     }
@@ -830,14 +831,14 @@ fn TaskDetailInner(
 
                                 // Action buttons row
                                 <div class="td-action-row">
-                                    <button class="td-action-btn td-action-conflicts">"Check for Conflicts"</button>
+                                    <button class="td-action-btn td-action-conflicts">{t("btn-check-conflicts")}</button>
                                     {if has_pr {
                                         view! {
-                                            <button class="td-action-btn td-action-pr-created" disabled=true>"PR Created"</button>
+                                            <button class="td-action-btn td-action-pr-created" disabled=true>{t("btn-pr-created")}</button>
                                         }.into_any()
                                     } else {
                                         view! {
-                                            <button class="td-action-btn td-action-create-pr">"Create PR"</button>
+                                            <button class="td-action-btn td-action-create-pr">{t("btn-create-pr")}</button>
                                         }.into_any()
                                     }}
                                     <button class="td-action-btn td-action-screenshot" title="Take screenshot">"📸"</button>
@@ -845,10 +846,10 @@ fn TaskDetailInner(
 
                                 // Request Changes section
                                 <div class="td-request-changes">
-                                    <h4 class="td-rc-title">"Request Changes"</h4>
+                                    <h4 class="td-rc-title">{t("task-detail-request-changes")}</h4>
                                     <textarea
                                         class="td-rc-textarea"
-                                        placeholder="Describe the changes you'd like to request..."
+                                        placeholder={t("task-detail-placeholder-changes")}
                                         prop:value=move || changes_text.get()
                                         on:input=move |ev| {
                                             set_changes_text.set(event_target_value(&ev));
@@ -858,7 +859,7 @@ fn TaskDetailInner(
                                         <button
                                             class="td-rc-submit"
                                             disabled=move || changes_text.get().trim().is_empty()
-                                        >"Request Changes"</button>
+                                        >{t("btn-request-changes")}</button>
                                     </div>
                                 </div>
                             </div>
@@ -914,7 +915,7 @@ fn TaskDetailInner(
                         view! {
                             <div class="task-tab-logs">
                                 // Execution log
-                                <div class="td-log-section-title">"Execution Log"</div>
+                                <div class="td-log-section-title">{t("task-detail-tab-logs")}</div>
                                 <div class="task-detail-log">
                                     {logs.into_iter().map(|(msg, time, level_cls)| view! {
                                         <div class={format!("log-entry {}", level_cls)}>
@@ -927,13 +928,13 @@ fn TaskDetailInner(
 
                                 // QA Report
                                 <div class="td-log-section-title td-log-section-qa">
-                                    <span>"QA Report"</span>
+                                    <span>{t("tasks-detail-qa")}</span>
                                     <button
                                         class="btn btn-sm btn-outline"
                                         on:click=rerun
                                         disabled=move || qa_running.get()
                                     >
-                                        {move || if qa_running.get() { "Running..." } else { "Re-run QA" }}
+                                        {move || if qa_running.get() { t("btn-running") } else { t("btn-rerun-qa") }}
                                     </button>
                                 </div>
                                 <div class="qa-checks-list">
@@ -955,7 +956,7 @@ fn TaskDetailInner(
                                     let sugs = suggestions.clone();
                                     view! {
                                         <div class="qa-suggestions">
-                                            <h4>"Suggestions"</h4>
+                                            <h4>{t("task-detail-suggestions")}</h4>
                                             <ul>
                                                 {sugs.iter().cloned().map(|s| view! {
                                                     <li>{s}</li>
@@ -974,8 +975,8 @@ fn TaskDetailInner(
                         view! {
                             <div class="task-tab-code">
                                 <div class="code-tab-header">
-                                    <span class="code-tab-label">"Changed Files"</span>
-                                    <button class="btn btn-sm btn-outline" on:click=move |_| set_show_diff.set(true)>"View Diff"</button>
+                                    <span class="code-tab-label">{t("task-detail-changed-files")}</span>
+                                    <button class="btn btn-sm btn-outline" on:click=move |_| set_show_diff.set(true)>{t("btn-view-diff")}</button>
                                 </div>
                                 <div class="code-file-tree">
                                     {files.into_iter().map(|(path, change_type)| {
@@ -1034,7 +1035,7 @@ fn TaskDetailInner(
                                                 <div class="td-history-dot td-history-dot-assign"></div>
                                                 <div class="td-history-line"></div>
                                                 <div class="td-history-content">
-                                                    <span class="td-history-action">{format!("Assigned to {}", names)}</span>
+                                                    <span class="td-history-action">{t_str("task-assigned-to", "agents", &names)}</span>
                                                     <span class="td-history-time">"earlier"</span>
                                                 </div>
                                             </div>
@@ -1080,26 +1081,26 @@ fn TaskDetailInner(
                 // ── Sidebar ──
                 <div class="td-sidebar">
                     <div class="td-sidebar-section">
-                        <h4>"Metadata"</h4>
+                        <h4>{t("task-detail-metadata")}</h4>
                         <div class="td-meta-row">
-                            <span class="td-meta-label">"Status"</span>
+                            <span class="td-meta-label">{t("task-detail-status")}</span>
                             <span class="td-meta-value">{status_display.clone()}</span>
                         </div>
                         <div class="td-meta-row">
-                            <span class="td-meta-label">"Assignee"</span>
-                            <span class="td-meta-value">{if agents.is_empty() { "Unassigned".to_string() } else { agents.join(", ") }}</span>
+                            <span class="td-meta-label">{t("task-detail-assignee")}</span>
+                            <span class="td-meta-value">{if agents.is_empty() { t("task-detail-unassigned") } else { agents.join(", ") }}</span>
                         </div>
                         <div class="td-meta-row">
-                            <span class="td-meta-label">"Created"</span>
+                            <span class="td-meta-label">{t("task-detail-created")}</span>
                             <span class="td-meta-value">{bead_timestamp_meta1.clone()}</span>
                         </div>
                         <div class="td-meta-row">
-                            <span class="td-meta-label">"Updated"</span>
+                            <span class="td-meta-label">{t("task-detail-updated")}</span>
                             <span class="td-meta-value">{bead_timestamp_meta2.clone()}</span>
                         </div>
                         <div class="td-meta-row">
-                            <span class="td-meta-label">"Due Date"</span>
-                            <span class="td-meta-value">"None"</span>
+                            <span class="td-meta-label">{t("task-detail-due-date")}</span>
+                            <span class="td-meta-value">{t("task-detail-none")}</span>
                         </div>
                     </div>
                 </div>
@@ -1111,7 +1112,7 @@ fn TaskDetailInner(
                         {show_delete.then(|| {
                             view! {
                                 <button class="td-footer-delete" on:click=delete_action>
-                                    "Delete Task"
+                                    {t("btn-delete-task")}
                                 </button>
                             }
                         })}
@@ -1119,18 +1120,18 @@ fn TaskDetailInner(
                             class="td-footer-discard"
                             on:click=move |_| set_show_discard.set(true)
                         >
-                            "Discard"
+                            {t("btn-discard")}
                         </button>
                     </div>
                     <div class="td-footer-right">
                         <button class="td-footer-close" on:click=close_bottom>
-                            "Close"
+                            {t("btn-close")}
                         </button>
                         {show_resume.then(|| {
                             let resume_footer = resume_action.clone();
                             view! {
                                 <button class="td-footer-resume" on:click=resume_footer>
-                                    "Resume Task"
+                                    {t("btn-resume-task")}
                                 </button>
                             }
                         })}
@@ -1142,7 +1143,7 @@ fn TaskDetailInner(
                                 spawn_local(async move {
                                     match crate::api::assign_agent(&bid).await {
                                         Ok(_) => {
-                                            set_assign_msg.set(Some((true, "Agent assigned".to_string())));
+                                            set_assign_msg.set(Some((true, t("btn-assign-agent"))));
                                         }
                                         Err(e) => {
                                             set_assign_msg.set(Some((false, format!("Failed: {}", e))));
@@ -1153,7 +1154,7 @@ fn TaskDetailInner(
                             }
                             disabled=move || assigning.get()
                         >
-                            {move || if assigning.get() { "Assigning..." } else { "Assign Agent" }}
+                            {move || if assigning.get() { t("btn-assigning") } else { t("btn-assign-agent") }}
                         </button>
                     </div>
                 </div>
@@ -1187,7 +1188,7 @@ fn TaskDetailInner(
             <div class="diff-dialog-overlay" on:click=move |_| set_show_diff.set(false)></div>
             <div class="diff-dialog-modal" role="dialog" aria-modal="true" aria-labelledby="diff-dialog-heading" on:click=move |ev: MouseEvent| ev.stop_propagation()>
                 <div class="diff-dialog-header">
-                    <h3 id="diff-dialog-heading">"File Changes"</h3>
+                    <h3 id="diff-dialog-heading">{t("task-detail-file-changes")}</h3>
                     <button class="task-detail-close" on:click=move |_| set_show_diff.set(false)>"×"</button>
                 </div>
                 <div class="diff-dialog-body">
@@ -1250,26 +1251,26 @@ fn TaskDetailInner(
             <div class="discard-dialog-overlay" on:click=move |_| set_show_discard.set(false)></div>
             <div class="discard-dialog" role="dialog" aria-modal="true" aria-labelledby="discard-dialog-heading">
                 <div class="discard-dialog-header">
-                    <h3 id="discard-dialog-heading">"Discard Task"</h3>
+                    <h3 id="discard-dialog-heading">{t("task-detail-discard-title")}</h3>
                 </div>
                 <div class="discard-dialog-body">
                     <div class="discard-warning">
                         <span class="discard-warning-icon">"!"</span>
-                        <p>"This will delete the worktree and all uncommitted changes"</p>
+                        <p>{t("task-detail-discard-warning")}</p>
                     </div>
-                    <p class="discard-detail">"This action cannot be undone. Any work in progress, uncommitted code changes, and the associated git worktree will be permanently removed."</p>
+                    <p class="discard-detail">{t("task-detail-discard-detail")}</p>
                 </div>
                 <div class="discard-dialog-actions">
                     <button
                         class="btn btn-sm btn-outline"
                         on:click=move |_| set_show_discard.set(false)
-                    >"Cancel"</button>
+                    >{t("btn-cancel")}</button>
                     <button
                         class="btn btn-sm btn-danger"
                         on:click=discard
                         disabled=move || discarding.get()
                     >
-                        {move || if discarding.get() { "Discarding..." } else { "Confirm Discard" }}
+                        {move || if discarding.get() { t("btn-discarding") } else { t("btn-confirm-discard") }}
                     </button>
                 </div>
             </div>
@@ -1314,8 +1315,8 @@ pub fn TaskDetail(
             {match initial_bead {
                 None => view! {
                     <div class="task-detail-empty">
-                        <h3>"Task not found"</h3>
-                        <p>"This task may have been removed."</p>
+                        <h3>{t("task-not-found")}</h3>
+                        <p>{t("task-not-found-desc")}</p>
                     </div>
                 }.into_any(),
                 Some(bead) => view! {

@@ -120,17 +120,22 @@ pub fn NewTaskModal(
         });
     };
 
-    let step_labels = ["Basic Info", "Classification", "Context", "Review"];
+    let step_keys = [
+        "wizard-step-basic",
+        "wizard-step-classify",
+        "wizard-step-context",
+        "wizard-step-review",
+    ];
 
     view! {
         <div class="new-task-overlay" on:click=on_close_bg>
         </div>
         <div class="new-task-modal wizard-modal" role="dialog" aria-modal="true" aria-labelledby="new-task-heading" on:keydown=handle_keydown>
-            <h2 id="new-task-heading">"Create New Task"</h2>
+            <h2 id="new-task-heading">{t("new-task-title")}</h2>
 
             // Step indicators
             <div class="wizard-steps">
-                {step_labels.iter().enumerate().map(|(i, label)| {
+                {step_keys.iter().enumerate().map(|(i, key)| {
                     let idx = i as u8;
                     let cls = move || {
                         if step.get() == idx {
@@ -144,7 +149,7 @@ pub fn NewTaskModal(
                     view! {
                         <div class=cls>
                             <span class="wizard-step-number">{i + 1}</span>
-                            <span class="wizard-step-label">{*label}</span>
+                            <span class="wizard-step-label">{t(*key)}</span>
                         </div>
                     }
                 }).collect::<Vec<_>>()}
@@ -154,11 +159,11 @@ pub fn NewTaskModal(
             {move || (step.get() == 0).then(|| view! {
                 <div class="wizard-step-content">
                     <div class="form-group">
-                        <label attr:for="task-title-input">"Title"</label>
+                        <label>{t("form-label-title")}</label>
                         <input
                             id="task-title-input"
                             type="text"
-                            placeholder="What needs to be done?"
+                            placeholder={t("new-task-placeholder-title")}
                             prop:value=move || title.get()
                             on:input=move |ev| {
                                 set_title.set(event_target_value(&ev));
@@ -166,10 +171,10 @@ pub fn NewTaskModal(
                         />
                     </div>
                     <div class="form-group">
-                        <label attr:for="task-description-input">"Description"</label>
+                        <label>{t("form-label-description")}</label>
                         <textarea
                             id="task-description-input"
-                            placeholder="Add details about this task..."
+                            placeholder={t("new-task-placeholder-description")}
                             prop:value=move || description.get()
                             on:input=move |ev| {
                                 set_description.set(event_target_value(&ev));
@@ -183,7 +188,7 @@ pub fn NewTaskModal(
             {move || (step.get() == 1).then(|| view! {
                 <div class="wizard-step-content">
                     <div class="form-group">
-                        <label attr:for="task-category-select">"Category"</label>
+                        <label>{t("form-label-category")}</label>
                         <select
                             id="task-category-select"
                             prop:value=move || category.get()
@@ -191,19 +196,19 @@ pub fn NewTaskModal(
                                 set_category.set(event_target_value(&ev));
                             }
                         >
-                            <option value="Feature">"Feature"</option>
-                            <option value="Bug Fix">"Bug Fix"</option>
-                            <option value="Refactoring">"Refactoring"</option>
-                            <option value="Documentation">"Documentation"</option>
-                            <option value="Security">"Security"</option>
-                            <option value="Performance">"Performance"</option>
-                            <option value="UI/UX">"UI/UX"</option>
-                            <option value="Infrastructure">"Infrastructure"</option>
-                            <option value="Testing">"Testing"</option>
+                            <option value="Feature">{t("tasks-category-feature")}</option>
+                            <option value="Bug Fix">{t("category-bug-fix")}</option>
+                            <option value="Refactoring">{t("category-refactoring")}</option>
+                            <option value="Documentation">{t("category-documentation")}</option>
+                            <option value="Security">{t("category-security")}</option>
+                            <option value="Performance">{t("category-performance")}</option>
+                            <option value="UI/UX">{t("category-ui-ux")}</option>
+                            <option value="Infrastructure">{t("category-infrastructure")}</option>
+                            <option value="Testing">{t("category-testing")}</option>
                         </select>
                     </div>
                     <div class="form-group">
-                        <label attr:for="task-priority-select">"Priority"</label>
+                        <label>{t("form-label-priority")}</label>
                         <select
                             id="task-priority-select"
                             prop:value=move || priority.get()
@@ -211,14 +216,14 @@ pub fn NewTaskModal(
                                 set_priority.set(event_target_value(&ev));
                             }
                         >
-                            <option value="Low">"Low"</option>
-                            <option value="Medium">"Medium"</option>
-                            <option value="High">"High"</option>
-                            <option value="Urgent">"Urgent"</option>
+                            <option value="Low">{t("tasks-priority-low")}</option>
+                            <option value="Medium">{t("tasks-priority-medium")}</option>
+                            <option value="High">{t("tasks-priority-high")}</option>
+                            <option value="Urgent">{t("priority-urgent")}</option>
                         </select>
                     </div>
                     <div class="form-group">
-                        <label attr:for="task-complexity-select">"Complexity"</label>
+                        <label>{t("form-label-complexity")}</label>
                         <select
                             id="task-complexity-select"
                             prop:value=move || complexity.get()
@@ -226,11 +231,11 @@ pub fn NewTaskModal(
                                 set_complexity.set(event_target_value(&ev));
                             }
                         >
-                            <option value="Trivial">"Trivial"</option>
-                            <option value="Small">"Small"</option>
-                            <option value="Medium">"Medium"</option>
-                            <option value="Large">"Large"</option>
-                            <option value="Complex">"Complex"</option>
+                            <option value="Trivial">{t("complexity-trivial")}</option>
+                            <option value="Small">{t("complexity-small")}</option>
+                            <option value="Medium">{t("complexity-medium")}</option>
+                            <option value="Large">{t("complexity-large")}</option>
+                            <option value="Complex">{t("complexity-complex")}</option>
                         </select>
                     </div>
                 </div>
@@ -240,11 +245,11 @@ pub fn NewTaskModal(
             {move || (step.get() == 2).then(|| view! {
                 <div class="wizard-step-content">
                     <div class="form-group">
-                        <label attr:for="task-tags-input">"Tags (comma separated)"</label>
+                        <label>{t("form-label-tags")}</label>
                         <input
                             id="task-tags-input"
                             type="text"
-                            placeholder="e.g. api, backend, urgent..."
+                            placeholder={t("new-task-placeholder-tags")}
                             prop:value=move || tags_input.get()
                             on:input=move |ev| {
                                 set_tags_input.set(event_target_value(&ev));
@@ -252,11 +257,11 @@ pub fn NewTaskModal(
                         />
                     </div>
                     <div class="form-group">
-                        <label attr:for="task-files-input">"Referenced Files"</label>
+                        <label>{t("form-label-referenced-files")}</label>
                         <input
                             id="task-files-input"
                             type="text"
-                            placeholder="e.g. src/main.rs, lib/config.rs..."
+                            placeholder={t("new-task-placeholder-files")}
                             prop:value=move || referenced_files.get()
                             on:input=move |ev| {
                                 set_referenced_files.set(event_target_value(&ev));
@@ -264,10 +269,10 @@ pub fn NewTaskModal(
                         />
                     </div>
                     <div class="form-group">
-                        <label attr:for="task-notes-textarea">"Optional Notes"</label>
+                        <label>{t("form-label-optional-notes")}</label>
                         <textarea
                             id="task-notes-textarea"
-                            placeholder="Any additional context or notes..."
+                            placeholder={t("new-task-placeholder-notes")}
                             prop:value=move || notes.get()
                             on:input=move |ev| {
                                 set_notes.set(event_target_value(&ev));
@@ -282,44 +287,44 @@ pub fn NewTaskModal(
                 <div class="wizard-step-content">
                     <div class="wizard-review">
                         <div class="review-section">
-                            <h4>"Basic Info"</h4>
+                            <h4>{t("review-basic-info")}</h4>
                             <div class="review-row">
-                                <span class="review-label">"Title:"</span>
+                                <span class="review-label">{t("review-label-title")}</span>
                                 <span class="review-value">{title.get()}</span>
                             </div>
                             <div class="review-row">
-                                <span class="review-label">"Description:"</span>
+                                <span class="review-label">{t("review-label-description")}</span>
                                 <span class="review-value">{description.get()}</span>
                             </div>
                         </div>
                         <div class="review-section">
-                            <h4>"Classification"</h4>
+                            <h4>{t("review-classification")}</h4>
                             <div class="review-row">
-                                <span class="review-label">"Category:"</span>
+                                <span class="review-label">{t("review-label-category")}</span>
                                 <span class="review-value">{category.get()}</span>
                             </div>
                             <div class="review-row">
-                                <span class="review-label">"Priority:"</span>
+                                <span class="review-label">{t("review-label-priority")}</span>
                                 <span class="review-value">{priority.get()}</span>
                             </div>
                             <div class="review-row">
-                                <span class="review-label">"Complexity:"</span>
+                                <span class="review-label">{t("review-label-complexity")}</span>
                                 <span class="review-value">{complexity.get()}</span>
                             </div>
                         </div>
                         <div class="review-section">
-                            <h4>"Context"</h4>
+                            <h4>{t("review-context")}</h4>
                             <div class="review-row">
-                                <span class="review-label">"Tags:"</span>
+                                <span class="review-label">{t("review-label-tags")}</span>
                                 <span class="review-value">
                                     {move || {
-                                        let t = tags_input.get();
-                                        if t.is_empty() { "(none)".to_string() } else { t }
+                                        let val = tags_input.get();
+                                        if val.is_empty() { "(none)".to_string() } else { val }
                                     }}
                                 </span>
                             </div>
                             <div class="review-row">
-                                <span class="review-label">"Files:"</span>
+                                <span class="review-label">{t("review-label-files")}</span>
                                 <span class="review-value">
                                     {move || {
                                         let f = referenced_files.get();
@@ -328,7 +333,7 @@ pub fn NewTaskModal(
                                 </span>
                             </div>
                             <div class="review-row">
-                                <span class="review-label">"Notes:"</span>
+                                <span class="review-label">{t("review-label-notes")}</span>
                                 <span class="review-value">
                                     {move || {
                                         let n = notes.get();
@@ -344,7 +349,7 @@ pub fn NewTaskModal(
             // Navigation buttons
             <div class="modal-actions wizard-nav">
                 <button class="btn-cancel" on:click=on_close_cancel>
-                    "Cancel"
+                    {t("btn-cancel")}
                 </button>
                 <div class="wizard-nav-right">
                     {move || (step.get() > 0).then(|| view! {
@@ -352,7 +357,7 @@ pub fn NewTaskModal(
                             class="btn-back"
                             on:click=move |_| set_step.set(step.get() - 1)
                         >
-                            "Back"
+                            {t("btn-back")}
                         </button>
                     })}
                     {move || (step.get() < 3).then(|| view! {
@@ -360,7 +365,7 @@ pub fn NewTaskModal(
                             class="btn-next"
                             on:click=move |_| set_step.set(step.get() + 1)
                         >
-                            "Next"
+                            {t("btn-next")}
                         </button>
                     })}
                 </div>
@@ -378,7 +383,7 @@ pub fn NewTaskModal(
                         on_close(ev);
                     }
                 >
-                    "Create Task"
+                    {t("btn-create-task")}
                 </button>
             </div>
         </div>

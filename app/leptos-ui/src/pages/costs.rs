@@ -96,7 +96,7 @@ pub fn CostsPage() -> impl IntoView {
 
         <div class="kpi-grid" style="grid-template-columns: repeat(3, 1fr);">
             <div class="kpi-card">
-                <div class="value">{move || format!("${:.4}", total_cost())}</div>
+                <div class="value">{move || format!("{}{:.4}", t("currency-symbol"), total_cost())}</div>
                 <div class="label">{t("costs-total")}</div>
             </div>
             <div class="kpi-card">
@@ -125,7 +125,7 @@ pub fn CostsPage() -> impl IntoView {
                         }}></div>
                     </div>
                     <span style="width: 80px; text-align: right; font-size: 0.85em;">
-                        {move || format!("${:.4}", input_cost())}
+                        {move || format!("{}{:.4}", t("currency-symbol"), input_cost())}
                     </span>
                 </div>
                 <div style="display: flex; align-items: center;">
@@ -138,7 +138,7 @@ pub fn CostsPage() -> impl IntoView {
                         }}></div>
                     </div>
                     <span style="width: 80px; text-align: right; font-size: 0.85em;">
-                        {move || format!("${:.4}", output_cost())}
+                        {move || format!("{}{:.4}", t("currency-symbol"), output_cost())}
                     </span>
                 </div>
             </div>
