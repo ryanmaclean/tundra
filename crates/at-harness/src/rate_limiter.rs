@@ -129,24 +129,29 @@ impl TokenBucket {
         self.last_refill = now;
     }
 
-    /// Try to consume `cost` tokens.  Returns `Ok(())` or an error with retry
-    /// duration.
-    fn try_consume(
-        &mut self,
-        cost: f64,
-        tokens_per_second: f64,
-        max_burst: f64,
-    ) -> Result<(), Duration> {
+    /// Refill, then report whether `cost` tokens are available *without*
+    /// consuming them.  On failure returns the duration until enough tokens
+    /// will have accumulated.
+    fn peek(&mut self, cost: f64, tokens_per_second: f64, max_burst: f64) -> Result<(), Duration> {
         self.refill(tokens_per_second, max_burst);
         if self.tokens >= cost {
-            self.tokens -= cost;
             Ok(())
         } else {
-            let deficit = cost - self.tokens;
-            let wait = Duration::from_secs_f64(deficit / tokens_per_second);
-            Err(wait)
+            Err(retry_after(cost - self.tokens, tokens_per_second))
         }
     }
+}
+
+/// Convert a token deficit into a retry duration.
+///
+/// A zero (or negative / non-finite) refill rate would produce `inf`, which
+/// makes `Duration::from_secs_f64` panic.  Saturate to `Duration::MAX` instead:
+/// a bucket that never refills never admits the request.
+fn retry_after(deficit: f64, tokens_per_second: f64) -> Duration {
+    if tokens_per_second <= 0.0 || !tokens_per_second.is_finite() {
+        return Duration::MAX;
+    }
+    Duration::try_from_secs_f64(deficit / tokens_per_second).unwrap_or(Duration::MAX)
 }
 
 // ---------------------------------------------------------------------------
@@ -174,21 +179,32 @@ impl RateLimiter {
 
     /// Check whether a request with the given `cost` is allowed for `key`.
     pub fn check_with_cost(&self, key: &str, cost: f64) -> Result<(), RateLimitError> {
-        let mut bucket = self
-            .buckets
-            .entry(key.to_string())
-            .or_insert_with(|| TokenBucket::new(self.config.max_burst));
+        let mut bucket = self.bucket(key);
+        self.peek(&mut bucket, key, cost)?;
+        bucket.tokens -= cost;
+        Ok(())
+    }
 
-        match bucket.try_consume(cost, self.config.tokens_per_second, self.config.max_burst) {
-            Ok(()) => Ok(()),
-            Err(retry_after) => {
+    /// Get (creating if needed) the bucket for `key`.  The returned guard
+    /// holds the DashMap shard lock until dropped.
+    fn bucket(&self, key: &str) -> dashmap::mapref::one::RefMut<'_, String, TokenBucket> {
+        self.buckets
+            .entry(key.to_string())
+            .or_insert_with(|| TokenBucket::new(self.config.max_burst))
+    }
+
+    /// Refill `bucket` and verify `cost` tokens are available, without
+    /// spending them.
+    fn peek(&self, bucket: &mut TokenBucket, key: &str, cost: f64) -> Result<(), RateLimitError> {
+        bucket
+            .peek(cost, self.config.tokens_per_second, self.config.max_burst)
+            .map_err(|retry_after| {
                 warn!(key, ?retry_after, "rate limit exceeded");
-                Err(RateLimitError::Exceeded {
+                RateLimitError::Exceeded {
                     key: key.to_string(),
                     retry_after,
-                })
-            }
-        }
+                }
+            })
     }
 
     /// Returns the approximate number of tokens remaining for `key`.
@@ -229,11 +245,12 @@ impl MultiKeyRateLimiter {
     }
 
     /// Check all three tiers.  Returns the first error encountered.
+    ///
+    /// Tokens are only spent when **every** tier admits the request, so a
+    /// rejected request never drains a shared bucket (see
+    /// [`Self::check_tiers`]).
     pub fn check_all(&self, user_key: &str, endpoint_key: &str) -> Result<(), RateLimitError> {
-        self.global.check("global")?;
-        self.per_user.check(user_key)?;
-        self.per_endpoint.check(endpoint_key)?;
-        Ok(())
+        self.check_tiers(Some(user_key), Some(endpoint_key), 1.0)
     }
 
     /// Check all three tiers with a custom cost.
@@ -243,9 +260,111 @@ impl MultiKeyRateLimiter {
         endpoint_key: &str,
         cost: f64,
     ) -> Result<(), RateLimitError> {
-        self.global.check_with_cost("global", cost)?;
-        self.per_user.check_with_cost(user_key, cost)?;
-        self.per_endpoint.check_with_cost(endpoint_key, cost)?;
+        self.check_tiers(Some(user_key), Some(endpoint_key), cost)
+    }
+
+    /// Check-then-commit across the tiers.
+    ///
+    /// `None` for `user_key` / `endpoint_key` skips that tier (e.g. for
+    /// exempt clients); the global tier always applies.
+    ///
+    /// Tiers are checked from most to least specific (per-user, per-endpoint,
+    /// global) while holding every bucket's shard guard, and tokens are only
+    /// deducted once all tiers pass.  Guards are always acquired in the same
+    /// order, so concurrent callers cannot deadlock.
+    pub fn check_tiers(
+        &self,
+        user_key: Option<&str>,
+        endpoint_key: Option<&str>,
+        cost: f64,
+    ) -> Result<(), RateLimitError> {
+        let mut user = user_key.map(|k| (k, self.per_user.bucket(k)));
+        let mut endpoint = endpoint_key.map(|k| (k, self.per_endpoint.bucket(k)));
+        let mut global = self.global.bucket("global");
+
+        if let Some((k, b)) = user.as_mut() {
+            self.per_user.peek(b, k, cost)?;
+        }
+        if let Some((k, b)) = endpoint.as_mut() {
+            self.per_endpoint.peek(b, k, cost)?;
+        }
+        self.global.peek(&mut global, "global", cost)?;
+
+        if let Some((_, b)) = user.as_mut() {
+            b.tokens -= cost;
+        }
+        if let Some((_, b)) = endpoint.as_mut() {
+            b.tokens -= cost;
+        }
+        global.tokens -= cost;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejected_requests_do_not_drain_global_bucket() {
+        // Production-shaped config: 100 global, 20 per user, 1000 per endpoint.
+        let limiter = MultiKeyRateLimiter::new(
+            RateLimitConfig::per_minute(100),
+            RateLimitConfig::per_minute(20),
+            RateLimitConfig::per_minute(1000),
+        );
+        let mut rejected = 0;
+        for _ in 0..100 {
+            if limiter.check_all("attacker", "/api/beads").is_err() {
+                rejected += 1;
+            }
+        }
+        assert_eq!(rejected, 80);
+        // Only the 20 admitted requests spent global tokens.
+        assert!(limiter.global.remaining("global") >= 79.0);
+        assert!(limiter.check_all("innocent", "/api/beads").is_ok());
+    }
+
+    #[test]
+    fn endpoint_rejection_does_not_drain_user_bucket() {
+        let limiter = MultiKeyRateLimiter::new(
+            RateLimitConfig::per_minute(1000),
+            RateLimitConfig::per_minute(10),
+            RateLimitConfig::per_minute(2),
+        );
+        assert!(limiter.check_all("u", "/a").is_ok());
+        assert!(limiter.check_all("u", "/a").is_ok());
+        for _ in 0..20 {
+            assert!(limiter.check_all("u", "/a").is_err());
+        }
+        // 2 spent, 8 left for other endpoints.
+        for i in 0..8 {
+            assert!(limiter.check_all("u", &format!("/b{i}")).is_ok());
+        }
+        assert!(limiter.check_all("u", "/c").is_err());
+    }
+
+    #[test]
+    fn skipped_tiers_are_not_consulted() {
+        let limiter = MultiKeyRateLimiter::new(
+            RateLimitConfig::per_minute(1000),
+            RateLimitConfig::per_minute(1),
+            RateLimitConfig::per_minute(1),
+        );
+        for _ in 0..10 {
+            assert!(limiter.check_tiers(None, None, 1.0).is_ok());
+        }
+        assert!(limiter.global.remaining("global") < 991.0);
+    }
+
+    #[test]
+    fn zero_rate_config_denies_without_panicking() {
+        let limiter = RateLimiter::new(RateLimitConfig::per_minute(0));
+        match limiter.check("k") {
+            Err(RateLimitError::Exceeded { retry_after, .. }) => {
+                assert_eq!(retry_after, Duration::MAX)
+            }
+            Ok(()) => panic!("zero-capacity limiter must deny"),
+        }
     }
 }
