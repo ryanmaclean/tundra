@@ -129,8 +129,8 @@ impl ApiProfile {
 
 fn default_model_for(provider: ProviderKind) -> String {
     match provider {
-        ProviderKind::Anthropic => "claude-sonnet-4-20250514".into(),
-        ProviderKind::OpenRouter => "anthropic/claude-sonnet-4-20250514".into(),
+        ProviderKind::Anthropic => "claude-sonnet-4-6".into(),
+        ProviderKind::OpenRouter => "anthropic/claude-sonnet-4-6".into(),
         ProviderKind::OpenAi => "gpt-4o".into(),
         ProviderKind::Local => "qwen2.5-coder:14b".into(),
         ProviderKind::Custom => "default".into(),

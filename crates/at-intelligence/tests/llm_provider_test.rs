@@ -600,8 +600,14 @@ fn test_anthropic_provider_system_extraction() {
 
     let body = AnthropicProvider::build_request_body(&messages, &config);
 
-    // System messages extracted to top-level system field
-    assert_eq!(body["system"], "Be concise");
+    // System messages extracted to top-level system field as a content-block array.
+    // Short prompts (<1024 tokens) do not get cache_control injected.
+    let system_blocks = body["system"].as_array().unwrap();
+    assert_eq!(system_blocks.len(), 1);
+    assert_eq!(system_blocks[0]["type"], "text");
+    assert_eq!(system_blocks[0]["text"], "Be concise");
+    // Short prompt — no cache_control injected
+    assert!(system_blocks[0].get("cache_control").is_none());
     let msgs = body["messages"].as_array().unwrap();
     assert_eq!(msgs.len(), 3); // user, assistant, user (no system inline)
     for msg in msgs {
@@ -623,9 +629,43 @@ fn test_anthropic_provider_config_system_plus_message_system() {
     };
 
     let body = AnthropicProvider::build_request_body(&messages, &config);
-    let system = body["system"].as_str().unwrap();
-    assert!(system.contains("Base system prompt"));
-    assert!(system.contains("Additional instruction"));
+    // system is now a content-block array; short prompts have no cache_control.
+    let system_blocks = body["system"].as_array().unwrap();
+    assert_eq!(system_blocks.len(), 1);
+    let system_text = system_blocks[0]["text"].as_str().unwrap();
+    assert!(system_text.contains("Base system prompt"));
+    assert!(system_text.contains("Additional instruction"));
+}
+
+#[test]
+fn test_anthropic_provider_cache_control_injected_for_large_system_prompt() {
+    // System prompts >= 1024 tokens (~4096 chars) get cache_control: ephemeral.
+    let large_system = "x".repeat(4096);
+    let config = LlmConfig {
+        model: "claude-sonnet-4-6".to_string(),
+        max_tokens: 256,
+        temperature: 0.0,
+        system_prompt: Some(large_system),
+    };
+    let body = AnthropicProvider::build_request_body(&[], &config);
+    let system_blocks = body["system"].as_array().unwrap();
+    assert_eq!(system_blocks.len(), 1);
+    assert_eq!(system_blocks[0]["cache_control"]["type"], "ephemeral");
+}
+
+#[test]
+fn test_anthropic_provider_no_cache_control_for_small_system_prompt() {
+    // System prompts < 1024 tokens get no cache_control to avoid surcharge.
+    let config = LlmConfig {
+        model: "claude-sonnet-4-6".to_string(),
+        max_tokens: 256,
+        temperature: 0.0,
+        system_prompt: Some("Be concise".to_string()),
+    };
+    let body = AnthropicProvider::build_request_body(&[], &config);
+    let system_blocks = body["system"].as_array().unwrap();
+    assert_eq!(system_blocks.len(), 1);
+    assert!(system_blocks[0].get("cache_control").is_none());
 }
 
 #[tokio::test]

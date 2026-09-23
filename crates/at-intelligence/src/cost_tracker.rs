@@ -40,7 +40,7 @@ pub fn default_pricing_table() -> Vec<ModelPricing> {
     vec![
         // Anthropic
         ModelPricing {
-            model: "claude-opus-4-20250514".into(),
+            model: "claude-opus-4-7".into(),
             provider: "anthropic".into(),
             input_cost_per_1m: 15.0,
             output_cost_per_1m: 75.0,
@@ -48,7 +48,7 @@ pub fn default_pricing_table() -> Vec<ModelPricing> {
             context_window: 200_000,
         },
         ModelPricing {
-            model: "claude-sonnet-4-20250514".into(),
+            model: "claude-sonnet-4-6".into(),
             provider: "anthropic".into(),
             input_cost_per_1m: 3.0,
             output_cost_per_1m: 15.0,
@@ -56,7 +56,7 @@ pub fn default_pricing_table() -> Vec<ModelPricing> {
             context_window: 200_000,
         },
         ModelPricing {
-            model: "claude-haiku-4-20250514".into(),
+            model: "claude-haiku-4-5-20251001".into(),
             provider: "anthropic".into(),
             input_cost_per_1m: 0.80,
             output_cost_per_1m: 4.0,

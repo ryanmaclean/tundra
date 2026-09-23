@@ -120,7 +120,7 @@ pub struct LlmConfig {
 impl Default for LlmConfig {
     fn default() -> Self {
         Self {
-            model: "claude-sonnet-4-20250514".to_string(),
+            model: "claude-sonnet-4-6".to_string(),
             max_tokens: 1024,
             temperature: 0.7,
             system_prompt: None,
@@ -227,7 +227,24 @@ impl AnthropicProvider {
         });
 
         if let Some(system) = system_text {
-            body["system"] = serde_json::Value::String(system);
+            // Anthropic Messages API: system as content-block array.
+            // cache_control is injected only when the system text is at least
+            // 1024 tokens (~4096 chars). Shorter prompts are billed normally;
+            // injecting cache_control on them pays the 25% cache-write surcharge
+            // with zero cache-read benefit.
+            const MIN_CACHE_CHARS: usize = 4096; // ~1024 tokens at 4 chars/token
+            if system.len() >= MIN_CACHE_CHARS {
+                body["system"] = serde_json::json!([{
+                    "type": "text",
+                    "text": system,
+                    "cache_control": { "type": "ephemeral" }
+                }]);
+            } else {
+                body["system"] = serde_json::json!([{
+                    "type": "text",
+                    "text": system,
+                }]);
+            }
         }
 
         body
@@ -1001,16 +1018,35 @@ mod tests {
             model: "claude-sonnet-4-20250514".to_string(),
             max_tokens: 512,
             temperature: 0.5,
+            // Short prompt — no cache_control (below 4096-char / ~1024-token threshold).
             system_prompt: Some("You are a helpful assistant".to_string()),
         };
 
         let body = AnthropicProvider::build_request_body(&messages, &config);
 
-        assert_eq!(body["system"], "You are a helpful assistant");
+        assert_eq!(body["system"][0]["text"], "You are a helpful assistant");
+        assert_eq!(body["system"][0]["type"], "text");
+        // Short prompt: cache_control must NOT be injected to avoid cache-write surcharge.
+        assert!(body["system"][0].get("cache_control").is_none());
         let msgs = body["messages"].as_array().unwrap();
         assert_eq!(msgs.len(), 1);
         // System message should NOT appear in messages array for Anthropic.
         assert_eq!(msgs[0]["role"], "user");
+    }
+
+    #[test]
+    fn anthropic_request_body_with_large_system_prompt_gets_cache_control() {
+        // Prompts >= 4096 chars (~1024 tokens) get cache_control: ephemeral.
+        let large_system = "x".repeat(4096);
+        let config = LlmConfig {
+            model: "claude-sonnet-4-6".to_string(),
+            max_tokens: 512,
+            temperature: 0.0,
+            system_prompt: Some(large_system),
+        };
+        let body = AnthropicProvider::build_request_body(&[], &config);
+        assert_eq!(body["system"][0]["type"], "text");
+        assert_eq!(body["system"][0]["cache_control"]["type"], "ephemeral");
     }
 
     #[test]
@@ -1030,8 +1066,10 @@ mod tests {
 
         let body = AnthropicProvider::build_request_body(&messages, &config);
 
-        // System messages should be extracted to the top-level system field.
-        assert_eq!(body["system"], "Be concise");
+        // System messages should be extracted to the top-level system content-block array.
+        // Short prompt ("Be concise") — no cache_control injected.
+        assert_eq!(body["system"][0]["text"], "Be concise");
+        assert!(body["system"][0].get("cache_control").is_none());
         let msgs = body["messages"].as_array().unwrap();
         assert_eq!(msgs.len(), 3); // user, assistant, user (no system)
         assert_eq!(msgs[0]["role"], "user");
@@ -1054,10 +1092,12 @@ mod tests {
 
         let body = AnthropicProvider::build_request_body(&messages, &config);
 
-        // Both should be concatenated.
-        let system = body["system"].as_str().unwrap();
-        assert!(system.contains("Base system prompt"));
-        assert!(system.contains("Additional instruction"));
+        // Both should be concatenated in the content-block array.
+        // Combined text is short — no cache_control injected.
+        let system_text = body["system"][0]["text"].as_str().unwrap();
+        assert!(system_text.contains("Base system prompt"));
+        assert!(system_text.contains("Additional instruction"));
+        assert!(body["system"][0].get("cache_control").is_none());
     }
 
     // -- OpenAiProvider request body tests -----------------------------------

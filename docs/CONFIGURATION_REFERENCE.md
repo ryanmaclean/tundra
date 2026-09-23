@@ -50,7 +50,7 @@ export ANTHROPIC_API_KEY=sk-ant-api03-your-key-here
 - Highest quality for complex reasoning tasks
 - Supports streaming, tool use, and artifacts
 - No free tier, but cost-effective per token
-- Default model: `claude-3-5-sonnet-20241022`
+- Default model: `claude-sonnet-4-6`
 
 ### OPENROUTER_API_KEY
 
@@ -73,7 +73,7 @@ export OPENROUTER_API_KEY=sk-or-v1-your-key-here
 - Free tier: 100 requests/day
 - Access to multiple model providers (Anthropic, OpenAI, Meta, Google, etc.)
 - Best for experimentation and testing
-- Default model: `anthropic/claude-3.5-sonnet`
+- Default model: `anthropic/claude-sonnet-4-6`
 
 ### OPENAI_API_KEY
 
@@ -1173,7 +1173,7 @@ ai_terminal_naming = true
 
 [[agent_profile.phase_configs]]
 phase = "planning"
-model = "claude-3-5-sonnet-20241022"
+model = "claude-sonnet-4-6"
 thinking_level = "deep"
 
 [[agent_profile.phase_configs]]
@@ -1868,7 +1868,7 @@ Authentication failed for provider: anthropic
      -H "x-api-key: $ANTHROPIC_API_KEY" \
      -H "anthropic-version: 2023-06-01" \
      -H "content-type: application/json" \
-     -d '{"model":"claude-3-5-sonnet-20241022","max_tokens":1024,"messages":[{"role":"user","content":"Hello"}]}'
+     -d '{"model":"claude-sonnet-4-6","max_tokens":1024,"messages":[{"role":"user","content":"Hello"}]}'
    ```
 
 3. **Regenerate API key** if invalid (visit provider console)

@@ -8,9 +8,9 @@ use crate::i18n::t;
 fn models_for_provider(provider: &str) -> Vec<&'static str> {
     match provider {
         "anthropic" => vec![
-            "claude-opus-4-0-20250514",
-            "claude-sonnet-4-0-20250514",
-            "claude-3-5-haiku-20241022",
+            "claude-opus-4-7",
+            "claude-sonnet-4-6",
+            "claude-haiku-4-5-20251001",
         ],
         "openai" => vec!["gpt-4o", "gpt-4o-mini", "o3-mini"],
         "google" => vec!["gemini-2.0-flash", "gemini-2.0-pro", "gemini-1.5-pro"],

@@ -293,7 +293,7 @@ impl ModelRouter {
 
         // Fallback to the highest quality model
         let best = tiers.last().cloned().unwrap_or(ModelPricing {
-            model: "claude-sonnet-4-20250514".into(),
+            model: "claude-sonnet-4-6".into(),
             provider: "anthropic".into(),
             input_cost_per_1m: 3.0,
             output_cost_per_1m: 15.0,

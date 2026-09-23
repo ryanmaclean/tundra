@@ -123,7 +123,7 @@ impl IdeationEngine {
         Self {
             ideas: Vec::new(),
             provider: None,
-            default_model: "claude-sonnet-4-20250514".into(),
+            default_model: "claude-sonnet-4-6".into(),
         }
     }
 
