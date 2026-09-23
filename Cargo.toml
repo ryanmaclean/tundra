@@ -42,20 +42,24 @@ axum = { version = "0.8", features = ["ws"] }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["cors", "trace", "fs", "compression-gzip", "compression-br"] }
 octocrab = "0.43"
-reqwest = { version = "0.12", features = ["json"] }
+# rustls instead of native-tls (SecureTransport/OpenSSL). The other features
+# restore reqwest's defaults minus default-tls. Native roots keep OS trust-store
+# semantics. webpki-roots would be CDLA-Permissive-2.0, which the policy excludes.
+# NOTE: reqwest 0.12 uses rustls' process-default CryptoProvider if one is
+# installed, and otherwise falls back to ring.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-native-roots", "charset", "http2", "macos-system-configuration"] }
 ahash = { version = "0.8", features = ["serde"] }
 mimalloc = "0.1"
 notify = { version = "7", default-features = false, features = ["macos_fsevent"] }
 crossbeam-channel = "0.5"
-git2 = "0.20"
+# Local repo reads only (status/diff/branches/revwalk/worktrees), with no remote
+# transport, so drop the default `https`/`ssh` features. Those pull in openssl-sys
+# and libssh2-sys.
+git2 = { version = "0.20", default-features = false }
 subtle = "2"
 tauri = { version = "2", features = ["devtools"] }
 tauri-build = "2"
-datadog-tracing = "0.3"
-datadog-apm-sync = "0.8"
-tracing-datadog = "0.6"
 opentelemetry = "0.21"
-opentelemetry-datadog = "0.9"
 tracing-opentelemetry = "0.22"
 opentelemetry_sdk = { version = "0.21", features = ["rt-tokio"] }
 
