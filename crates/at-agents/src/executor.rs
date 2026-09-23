@@ -633,23 +633,38 @@ impl AgentExecutor {
     /// Execute a task using the given agent configuration and role config.
     ///
     /// This will:
-    /// 1. Apply role-specific pre-execution hooks
-    /// 2. Build CLI arguments from the AgentConfig
+    /// 1. Apply the role's pre-execution hook to the task description
+    /// 2. Build CLI arguments from the AgentConfig constrained by the role
+    ///    (see [`AgentConfig::to_cli_args_for_role`]): the role's turn limit,
+    ///    preferred model, allowed tools, and a deny-list of every tool whose
+    ///    `ToolApprovalSystem` policy is `Deny` for the role
     /// 3. Spawn the CLI process via the PTY pool
-    /// 4. Feed the task prompt (with system prompt) to stdin
+    /// 4. Feed the task prompt (with system prompt) to the agent
     /// 5. Collect output, parsing for structured events
-    /// 6. Check tool approvals for any tool_call events
+    /// 6. Check `tool_call` events against the approval system: a `Deny`
+    ///    kills the agent and fails the run (a `tool_denied` event is added);
+    ///    `RequireApproval` is logged and published as
+    ///    `task_execution_tool_approval_required` (a headless agent process
+    ///    cannot be paused for a human decision)
     /// 7. Publish progress events to the EventBus
     /// 8. Apply role-specific post-execution hooks
     /// 9. Return the execution result
+    ///
+    /// The role's policies are resolved for [`RoleConfig::agent_role`], or
+    /// `AgentRole::Crew` when the config has none.
     pub async fn execute_task_with_role(
         &self,
         task: &Task,
         agent_config: &AgentConfig,
         role_config: &dyn RoleConfig,
     ) -> Result<ExecutionResult> {
-        // Apply pre-execute hook
-        let pre_hook = role_config.pre_execute(&task.title);
+        let agent_role = role_config
+            .agent_role()
+            .unwrap_or(at_core::types::AgentRole::Crew);
+
+        // Apply pre-execute hook to the task description (title if none).
+        let hook_input = task.description.as_deref().unwrap_or(&task.title);
+        let pre_hook = role_config.pre_execute(hook_input);
         if let Some(ref preamble) = pre_hook {
             tracing::debug!(task_id = %task.id, preamble_len = preamble.len(), "applied pre-execute hook");
         }
@@ -666,7 +681,12 @@ impl AgentExecutor {
             format!("System: {}\n\n{}", system_prompt, base_prompt)
         };
 
-        let result = self.execute_task_inner(task, agent_config, &prompt).await?;
+        let denied = self.approval_system.lock().await.denied_tools(&agent_role);
+        let cli_args = agent_config.to_cli_args_for_role(role_config, &denied);
+
+        let result = self
+            .execute_task_inner(task, agent_config, cli_args, &prompt, Some(&agent_role))
+            .await?;
 
         // Apply post-execute hook
         if let Some(summary) = role_config.post_execute(&result.output) {
@@ -691,15 +711,27 @@ impl AgentExecutor {
         agent_config: &AgentConfig,
     ) -> Result<ExecutionResult> {
         let prompt = build_prompt(task);
-        self.execute_task_inner(task, agent_config, &prompt).await
+        self.execute_task_inner(
+            task,
+            agent_config,
+            agent_config.to_cli_args(),
+            &prompt,
+            None,
+        )
+        .await
     }
 
     /// Internal task execution implementation.
+    ///
+    /// With `tool_gate_role`, `tool_call` events are checked against the
+    /// approval system for that role (see [`Self::execute_task_with_role`]).
     async fn execute_task_inner(
         &self,
         task: &Task,
         agent_config: &AgentConfig,
+        mut cli_args: Vec<String>,
         prompt: &str,
+        tool_gate_role: Option<&at_core::types::AgentRole>,
     ) -> Result<ExecutionResult> {
         let start = std::time::Instant::now();
 
@@ -712,7 +744,6 @@ impl AgentExecutor {
 
         // Build CLI args. CLIs in print mode (claude -p) do not read a prompt
         // from a TTY stdin, so for those the prompt goes on the command line.
-        let mut cli_args = agent_config.to_cli_args();
         let prompt_in_args = agent_config.prompt_in_args();
         if prompt_in_args {
             cli_args.push("--".to_string());
@@ -762,6 +793,7 @@ impl AgentExecutor {
         let timeout = Duration::from_secs(agent_config.timeout_secs);
         let mut output_buf = Vec::new();
         let mut events = Vec::new();
+        let mut denied_tool: Option<String> = None;
 
         let collect_result = tokio::time::timeout(timeout, async {
             // Read output chunks until the channel closes (EOF) or the
@@ -773,6 +805,18 @@ impl AgentExecutor {
                         // Try to parse structured events from each line
                         for line in text.lines() {
                             if let Some(event) = parse_agent_event(line) {
+                                if let Some(role) = tool_gate_role {
+                                    match self.check_tool_event(&event, role, task.id).await {
+                                        ApprovalPolicy::Deny => {
+                                            denied_tool.get_or_insert_with(|| event.message.clone());
+                                        }
+                                        ApprovalPolicy::RequireApproval => self.publish_event(
+                                            task,
+                                            "task_execution_tool_approval_required",
+                                        ),
+                                        ApprovalPolicy::AutoApprove => {}
+                                    }
+                                }
                                 events.push(event);
                             }
                         }
@@ -783,6 +827,12 @@ impl AgentExecutor {
                             agent_id: task.id,
                             output: at_harness::output_guard::redact(&text),
                         });
+
+                        if let Some(tool) = &denied_tool {
+                            warn!(task_id = %task.id, %tool, "tool denied by policy; stopping agent");
+                            process.kill();
+                            break;
+                        }
                     }
                     // EOF: the PTY reader thread exits when the child does.
                     ReadOutcome::Closed => break,
@@ -798,6 +848,14 @@ impl AgentExecutor {
 
         let timed_out = collect_result.is_err();
         let aborted = process.was_aborted();
+        if let Some(tool) = &denied_tool {
+            self.publish_event(task, "task_execution_tool_denied");
+            events.push(AgentEvent {
+                event_type: "tool_denied".to_string(),
+                message: tool.clone(),
+                data: None,
+            });
+        }
 
         if timed_out {
             warn!(
@@ -807,7 +865,7 @@ impl AgentExecutor {
             );
             process.kill();
             self.publish_event(task, "task_execution_timeout");
-        } else if process.has_control() && !aborted {
+        } else if process.has_control() && !aborted && denied_tool.is_none() {
             // Output EOF can precede the child being reapable; give it a
             // moment so we report the real exit status.
             let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
@@ -854,6 +912,7 @@ impl AgentExecutor {
         // "produced output".
         let success = !timed_out
             && !aborted
+            && denied_tool.is_none()
             && match exit_code {
                 Some(code) => code == 0,
                 None => !process.has_control() && !output.is_empty(),
@@ -1197,6 +1256,7 @@ mod tests {
         exit_code: Option<i32>,
         state: Arc<ControlState>,
         cwd: std::sync::Mutex<Option<std::path::PathBuf>>,
+        args: std::sync::Mutex<Vec<String>>,
         keep: std::sync::Mutex<Vec<KeptChannels>>,
     }
 
@@ -1207,6 +1267,7 @@ mod tests {
                 exit_code,
                 state: Arc::new(ControlState::default()),
                 cwd: std::sync::Mutex::new(None),
+                args: std::sync::Mutex::new(Vec::new()),
                 keep: std::sync::Mutex::new(Vec::new()),
             }
         }
@@ -1225,11 +1286,12 @@ mod tests {
         fn spawn_in(
             &self,
             _cmd: &str,
-            _args: &[&str],
+            args: &[&str],
             _env: &[(&str, &str)],
             cwd: Option<&Path>,
         ) -> std::result::Result<SpawnedProcess, String> {
             *self.cwd.lock().unwrap() = cwd.map(Path::to_path_buf);
+            *self.args.lock().unwrap() = args.iter().map(|a| a.to_string()).collect();
             let (read_tx, read_rx) = flume::bounded(256);
             let (write_tx, write_rx) = flume::bounded::<Vec<u8>>(256);
             if !self.output.is_empty() {
@@ -1255,6 +1317,91 @@ mod tests {
                 Box::new(MockControl(Arc::clone(&self.state))),
             ))
         }
+    }
+
+    fn flag_values(args: &[String], flag: &str) -> Vec<String> {
+        args.iter()
+            .skip_while(|a| a.as_str() != flag)
+            .skip(1)
+            .take_while(|a| !a.starts_with("--"))
+            .cloned()
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn execute_task_with_role_applies_role_limits_tools_and_description() {
+        let spawner = Arc::new(ControlSpawner::new(b"ok\n", Some(0)));
+        let executor = AgentExecutor::with_spawner(spawner.clone(), EventBus::new());
+        let mut task = make_test_task();
+        task.description = Some("DESC-XYZ".to_string());
+        let role = crate::roles::DeaconAgent::new();
+
+        let result = executor
+            .execute_task_with_role(&task, &make_config(), &role)
+            .await
+            .unwrap();
+        assert!(result.success);
+
+        let args = spawner.args.lock().unwrap().clone();
+        assert_eq!(
+            flag_values(&args, "--max-turns"),
+            vec![role.max_turns().to_string()]
+        );
+        let allowed = flag_values(&args, "--allowedTools");
+        assert!(allowed.contains(&"Read".to_string()), "{args:?}");
+        assert!(
+            allowed.contains(&"Bash(git diff:*)".to_string()),
+            "{args:?}"
+        );
+        assert!(
+            !allowed.contains(&"Bash".to_string()),
+            "Deacon has no shell_execute"
+        );
+        let denied = flag_values(&args, "--disallowedTools");
+        assert!(
+            denied.contains(&"Bash(rm:*)".to_string()),
+            "file_delete is Deny: {args:?}"
+        );
+        // The pre-execute hook sees the description, not the title.
+        let prompt = args.last().unwrap();
+        assert!(prompt.contains("test coverage:\nDESC-XYZ"), "{prompt}");
+    }
+
+    #[tokio::test]
+    async fn execute_task_with_role_kills_agent_on_denied_tool_call() {
+        let spawner = Arc::new(ControlSpawner::new(
+            b"{\"event\":\"tool_call\",\"message\":\"file_delete\"}\n",
+            None,
+        ));
+        let bus = EventBus::new();
+        let rx = bus.subscribe();
+        let executor = AgentExecutor::with_spawner(spawner.clone(), bus);
+        let task = make_test_task();
+        let mut config = make_config();
+        config.timeout_secs = 30;
+
+        let result = tokio::time::timeout(
+            Duration::from_secs(5),
+            executor.execute_task_with_role(&task, &config, &crate::roles::CrewAgent::new()),
+        )
+        .await
+        .expect("a denied tool call must stop the agent, not wait for the timeout")
+        .unwrap();
+
+        assert!(!result.success);
+        assert!(spawner.state.killed.load(Ordering::SeqCst));
+        assert!(result
+            .events
+            .iter()
+            .any(|e| e.event_type == "tool_denied" && e.message == "file_delete"));
+        let published: Vec<String> = rx
+            .try_iter()
+            .filter_map(|m| match &*m {
+                BridgeMessage::Event(p) => Some(p.event_type.clone()),
+                _ => None,
+            })
+            .collect();
+        assert!(published.contains(&"task_execution_tool_denied".to_string()));
     }
 
     #[tokio::test]
@@ -1329,7 +1476,10 @@ mod tests {
         .expect("overall timeout must fire")
         .unwrap();
         assert!(!result.success);
-        assert!(state.killed.load(Ordering::SeqCst), "timed-out process must be killed");
+        assert!(
+            state.killed.load(Ordering::SeqCst),
+            "timed-out process must be killed"
+        );
         assert_eq!(state.released.load(Ordering::SeqCst), 1);
         assert!(executor.active_tasks.lock().await.is_empty());
     }
@@ -1361,7 +1511,10 @@ mod tests {
             .unwrap()
             .unwrap();
         assert!(!result.success);
-        assert!(state.killed.load(Ordering::SeqCst), "abort must kill the process");
+        assert!(
+            state.killed.load(Ordering::SeqCst),
+            "abort must kill the process"
+        );
         assert_eq!(state.released.load(Ordering::SeqCst), 1);
     }
 
@@ -1428,11 +1581,18 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
         assert_eq!(code, Some(3));
-        assert_eq!(String::from_utf8_lossy(&out).trim(), expected.to_string_lossy());
+        assert_eq!(
+            String::from_utf8_lossy(&out).trim(),
+            expected.to_string_lossy()
+        );
 
         assert_eq!(pool.active_count(), 1);
         drop(process);
-        assert_eq!(pool.active_count(), 0, "dropping the process must free its slot");
+        assert_eq!(
+            pool.active_count(),
+            0,
+            "dropping the process must free its slot"
+        );
 
         // A long-running child is killed on abort and its slot freed.
         let process = spawner.spawn("/bin/sleep", &["30"], &[]).unwrap();
