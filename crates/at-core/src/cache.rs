@@ -736,6 +736,30 @@ mod tests {
         );
     }
 
+    /// A real database-level failure (as opposed to a single undecodable
+    /// row) must propagate as `Err(CacheError::Db)` rather than being
+    /// swallowed by the skip-and-continue policy. Drop the `beads` table out
+    /// from under the connection so the underlying `SELECT` itself fails.
+    #[tokio::test]
+    async fn cache_list_beads_by_status_propagates_db_error() {
+        let db = CacheDb::new_in_memory().await.unwrap();
+
+        db.conn
+            .call(|conn| {
+                conn.execute_batch("DROP TABLE beads;")?;
+                Ok(())
+            })
+            .await
+            .unwrap();
+
+        let result = db.list_beads_by_status(BeadStatus::Backlog).await;
+        assert!(
+            matches!(result, Err(CacheError::Db(_))),
+            "expected Err(CacheError::Db) when the beads table is missing, got: {:?}",
+            result
+        );
+    }
+
     /// Test 3: a bead whose `created_at` column is not a valid RFC-3339 date
     /// must return `Err(CacheError::InvalidRow)` — not panic.
     #[tokio::test]

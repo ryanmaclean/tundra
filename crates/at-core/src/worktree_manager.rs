@@ -1028,6 +1028,47 @@ mod tests {
         assert_eq!(args(&git.commands()).last().unwrap(), "merge --abort");
     }
 
+    #[tokio::test]
+    async fn merge_to_main_conflict_falls_back_to_git_runner_when_read_adapter_errs() {
+        // When the GitReadAdapter fails to list conflict files, merge_into_checked_out
+        // must fall back to `git diff --name-only --diff-filter=U` via the GitRunner,
+        // still report the conflicting files, and still abort the merge.
+        let shared = Arc::new(MockGitRunner::new(vec![
+            out(""),       // fetch
+            out("3\n"),    // rev-list --count
+            out(""),       // status
+            out("main\n"), // rev-parse --abbrev-ref HEAD
+            fail("CONFLICT (content): Merge conflict in file1.rs\n"), // merge
+            out("file1.rs\nfile2.rs\n"), // fallback: diff --name-only --diff-filter=U
+            out(""),       // merge --abort
+        ]));
+        let manager = WorktreeManager::with_adapters(
+            "/project",
+            Box::new(SharedMockGitRunner(shared.clone())),
+            Box::new(MockReadAdapter {
+                diff_result: Err("diff_stat must not decide merges".to_string()),
+                conflict_result: Err("git_read.conflict_files failed".to_string()),
+            }),
+        );
+
+        let result = manager.merge_to_main(&test_wt()).await.unwrap();
+        assert_eq!(
+            result,
+            MergeResult::Conflict(vec!["file1.rs".to_string(), "file2.rs".to_string()])
+        );
+
+        let cmds = args(&shared.commands());
+        assert!(
+            cmds.contains(&"diff --name-only --diff-filter=U".to_string()),
+            "expected fallback to GitRunner diff command when read adapter errs: {cmds:?}"
+        );
+        assert_eq!(
+            cmds.last().unwrap(),
+            "merge --abort",
+            "merge must be aborted after conflict fallback: {cmds:?}"
+        );
+    }
+
     // -- real git ---------------------------------------------------------
 
     fn sh_git(dir: &std::path::Path, args: &[&str]) -> String {
