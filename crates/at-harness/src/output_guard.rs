@@ -1278,10 +1278,8 @@ mod tests {
             }
         }
         assert!(!files.is_empty(), "no docs found under {}", root.display());
-        // True positives already committed to the repo. They must redact, never
-        // block; listed so any *new* finding (a false positive) fails the test.
-        const KNOWN_TRUE_POSITIVES: &[(&str, &str)] =
-            &[("DATADOG_PROFILING_SETUP.md", "secret_assignment")];
+        // No allowlist: any finding in committed docs is either a leaked secret
+        // or a false positive, and both must fail the test.
         let mut hits = Vec::new();
         for path in &files {
             let text = std::fs::read_to_string(path).unwrap();
@@ -1293,11 +1291,7 @@ mod tests {
                 path.display(),
                 report.findings
             );
-            let name = path.file_name().unwrap().to_string_lossy().to_string();
             for f in report.findings {
-                if KNOWN_TRUE_POSITIVES.contains(&(name.as_str(), f.pattern_id.as_str())) {
-                    continue;
-                }
                 hits.push(format!(
                     "{}: {} {:?}",
                     path.display(),
@@ -1308,7 +1302,7 @@ mod tests {
         }
         assert!(
             hits.is_empty(),
-            "false positives in docs:\n{}",
+            "findings in docs:\n{}",
             hits.join("\n")
         );
     }
