@@ -487,6 +487,8 @@ impl TaskPhase {
                 | (TaskPhase::Fixing, TaskPhase::Qa)
                 | (TaskPhase::Fixing, TaskPhase::Coding)
                 | (TaskPhase::Merging, TaskPhase::Complete)
+                // A failed merge gate sends the task back to the fix loop.
+                | (TaskPhase::Merging, TaskPhase::Fixing)
                 // Any phase can transition to Error or Stopped
                 | (_, TaskPhase::Error)
                 | (_, TaskPhase::Stopped)
@@ -1061,6 +1063,13 @@ pub struct Task {
     /// Captured build output lines (stdout/stderr) from pipeline execution.
     #[serde(default)]
     pub build_logs: Vec<BuildLogEntry>,
+    /// Shell commands that must all exit 0 in the task worktree before the
+    /// task branch may be merged (see [`crate::merge_gate`]).
+    #[serde(default)]
+    pub acceptance_criteria: Vec<String>,
+    /// Report from the most recent merge-gate run, if any.
+    #[serde(default)]
+    pub merge_gate_report: Option<crate::merge_gate::MergeGateReport>,
 }
 
 impl Task {
@@ -1100,6 +1109,8 @@ impl Task {
             stack_position: None,
             pr_number: None,
             build_logs: Vec::new(),
+            acceptance_criteria: Vec::new(),
+            merge_gate_report: None,
         }
     }
 

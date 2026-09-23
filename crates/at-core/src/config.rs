@@ -54,6 +54,9 @@ pub struct Config {
     pub debug: DebugConfig,
     #[serde(default)]
     pub memory: MemoryConfig,
+    /// Pre-merge verification of task branches (acceptance criteria, etc.).
+    #[serde(default)]
+    pub merge_gate: crate::merge_gate::MergeGateConfig,
 }
 
 impl std::fmt::Debug for Config {
@@ -79,6 +82,7 @@ impl std::fmt::Debug for Config {
             .field("notifications", &self.notifications)
             .field("debug", &self.debug)
             .field("memory", &self.memory)
+            .field("merge_gate", &self.merge_gate)
             .finish()
     }
 }
