@@ -1,3 +1,46 @@
+## Unreleased — 2026-09-22 review wave
+
+Fixes from the 2026-09-22 multi-agent review. Unverified findings still to triage are listed in `docs/reviews/2026-09-22-unverified-findings.md`; open follow-ups are in `todo.md`.
+
+### Security and auth
+
+- Clients send the daemon API key: CLI (b434777), TUI (d905455), web UI and WebSocket (9c4da2a, 5cfa5c7), Tauri (aff0b04, a93c9e0). CLI and TUI share one discovery path: URL from `~/.auto-tundra/daemon.lock`, key from `AUTO_TUNDRA_API_KEY` or the separate `~/.auto-tundra/daemon.key` (7c1641c, 68b87ae).
+- Rate limiter keyed per client (peer address, loopback exempt) and only spends tokens when every tier admits (f318199, 7200e80).
+- One origin allowlist for CORS and WebSockets (118eb8e).
+- Task descriptions sanitized before `inner_html` (stored XSS) and a Content-Security-Policy for the Tauri webview (d3e915a, df08ca4).
+- MCP bead tools go through the REST bead services and their validation; unknown MCP sessions are rejected before a tool runs (374bd5f, e80ae05).
+- GitLab MR review fails closed on API errors (7355784).
+- `EncryptionKey` bytes are actually zeroized (59e53e3).
+
+### Runtime
+
+- Notifications recorded once per event, not once per WebSocket client (bd254ea).
+- `PtyPool` attached in the daemon by default; terminal WebSockets close on a dead client, not on a quiet PTY (477e803).
+- PTY children spawn in the requested cwd; pool slots reserved atomically (eed13f6, 1115405, fa54f6a).
+- Executor no longer spins, enforces its timeout, and kills and releases agent processes (5600fdb).
+- Claude CLI: no more `--thinking-budget`; thinking maps to `--effort` (8f84de6).
+- `TokenCache` get/put ABBA deadlock removed (759466b).
+- Profile selection: the implicit local profile no longer shadows keyed cloud providers (49dca05).
+- Settings saved atomically; settings endpoints return 409 instead of overwriting an invalid settings file (10e74bb, d34debe). The Settings page PATCHes only changed fields (3e9be51, 2c4acb5).
+- Context steering loads project rules in every phase (6ebbe79).
+- `merge_to_main` targets `main` and handles tasks with no changes (b85de91).
+- `at exec --wait` stops on the phases the server actually emits (ca6ee1b).
+
+### Integrations and UI
+
+- GitHub issue listing paginates and drops pull requests (8d16bd4).
+- TUI: UTF-8-safe, width-aware truncation; every bead/agent/convoy status mapped; new Attention kanban column; unsupported commands report `not_implemented` (9b4d481, 6b40c30, 71ddcfa, 121fc7a).
+- Web UI: WebSocket reconnect backoff grows; page intervals cleared on unmount (0d18d0b, 5db15ad).
+
+### Build and tests
+
+- Clippy clean under `-D warnings` (96b2383, 1565284).
+- License allow list tightened (50b734b).
+- OpenSSL removed: reqwest uses rustls (d624fa5).
+- Advisories updated via `cargo update` (5e02b5a).
+- at-tui e2e tests skip cleanly when no daemon is running (d1ff75f).
+- Test count: 2,944 (nextest, workspace excluding at-tauri and at-leptos-ui).
+
 ## 1.0.0 - Agent Orchestration & Comprehensive Testing
 
 ### New Features

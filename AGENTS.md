@@ -46,7 +46,7 @@ The context engine (`at-core::context_engine`) builds a `ContextGraph` from thes
 cargo test --workspace
 ```
 
-All agent-team crates have unit and integration tests. Total test count is 1,483+.
+All agent-team crates have unit and integration tests. Total test count is 2,944 (`cargo nextest run --workspace --exclude at-tauri --exclude at-leptos-ui`, 2026-09-22).
 
 ## Related files
 
