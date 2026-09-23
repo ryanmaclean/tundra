@@ -133,7 +133,7 @@ impl Config {
     /// This is the single file the daemon, desktop app and the settings API
     /// (`SettingsManager::default_path`) all read and write.
     pub fn default_path() -> PathBuf {
-        dirs::home_dir()
+        crate::paths::home_dir()
             .unwrap_or_else(|| PathBuf::from("."))
             .join(".auto-tundra")
             .join("config.toml")
@@ -1346,6 +1346,15 @@ mod daemon_key_tests {
 #[cfg(test)]
 mod patrol_config_tests {
     use super::*;
+
+    #[test]
+    fn config_default_path_is_home_auto_tundra_config_toml() {
+        let home = crate::paths::home_dir().unwrap_or_else(|| PathBuf::from("."));
+        assert_eq!(
+            Config::default_path(),
+            home.join(".auto-tundra").join("config.toml")
+        );
+    }
 
     #[test]
     fn patrol_defaults_match_gastown_deacon() {

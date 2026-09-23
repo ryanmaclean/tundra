@@ -36,7 +36,7 @@ impl SettingsManager {
 
     /// Location used by older builds for settings saved through the API.
     fn legacy_path() -> Option<PathBuf> {
-        dirs::home_dir().map(|h| h.join(".config").join("auto-tundra").join("settings.toml"))
+        crate::paths::home_dir().map(|h| h.join(".config").join("auto-tundra").join("settings.toml"))
     }
 
     /// Copy `legacy` to `target` when `target` is missing and `legacy`
@@ -204,6 +204,16 @@ impl SettingsManager {
 mod tests {
     use super::*;
     use std::fs;
+
+    #[test]
+    fn default_path_is_home_dot_config_settings_toml() {
+        let mgr = SettingsManager::default_path();
+        let home = crate::paths::home_dir().unwrap_or_else(|| PathBuf::from("."));
+        assert_eq!(
+            mgr.path(),
+            &home.join(".config").join("auto-tundra").join("settings.toml")
+        );
+    }
 
     fn tmp_settings_path() -> PathBuf {
         let dir = std::env::temp_dir().join(format!("at-settings-test-{}", uuid::Uuid::new_v4()));

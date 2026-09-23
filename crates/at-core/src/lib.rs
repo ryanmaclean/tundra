@@ -18,6 +18,7 @@ pub mod file_watcher;
 pub mod git_read_adapter;
 pub mod lockfile;
 pub mod merge_gate;
+pub mod paths;
 pub mod repo;
 pub mod rlm;
 pub mod session_store;
