@@ -595,6 +595,8 @@ mod tests {
             stack_position: None,
             pr_number: None,
             build_logs: vec![],
+            acceptance_criteria: vec![],
+            merge_gate_report: None,
         }
     }
 

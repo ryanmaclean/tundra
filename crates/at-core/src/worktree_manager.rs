@@ -7,6 +7,7 @@ use thiserror::Error;
 use tracing::{info, warn};
 
 use crate::git_read_adapter::{default_read_adapter, GitReadAdapter};
+use crate::merge_gate::{GateTarget, GitGateVcs, MergeGate, MergeGateConfig, MergeGateReport};
 use crate::repo::RepoPath;
 use crate::types::Task;
 use crate::worktree::{WorktreeError, WorktreeInfo};
@@ -85,6 +86,27 @@ pub enum MergeResult {
     NothingToMerge,
 }
 
+/// Outcome of [`WorktreeManager::merge_to_main_gated`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "outcome", rename_all = "snake_case")]
+pub enum GatedMerge {
+    /// The merge gate failed; nothing was merged.
+    Refused { report: MergeGateReport },
+    /// The gate passed and the merge was attempted with this result.
+    Attempted {
+        report: MergeGateReport,
+        result: MergeResult,
+    },
+}
+
+impl GatedMerge {
+    pub fn report(&self) -> &MergeGateReport {
+        match self {
+            GatedMerge::Refused { report } | GatedMerge::Attempted { report, .. } => report,
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // GitRunner trait (for testability)
 // ---------------------------------------------------------------------------
@@ -134,6 +156,7 @@ pub struct WorktreeManager {
     base_dir: PathBuf,
     git: Box<dyn GitRunner>,
     git_read: Box<dyn GitReadAdapter>,
+    gate_config: MergeGateConfig,
 }
 
 impl WorktreeManager {
@@ -146,6 +169,7 @@ impl WorktreeManager {
             base_dir: base_dir.into(),
             git: Box::new(RealGitRunner),
             git_read: default_read_adapter(),
+            gate_config: MergeGateConfig::default(),
         }
     }
 
@@ -157,6 +181,7 @@ impl WorktreeManager {
             base_dir: base_dir.into(),
             git,
             git_read: default_read_adapter(),
+            gate_config: MergeGateConfig::default(),
         }
     }
 
@@ -174,7 +199,53 @@ impl WorktreeManager {
             base_dir: base_dir.into(),
             git,
             git_read,
+            gate_config: MergeGateConfig::default(),
         }
+    }
+
+    /// Replace the merge-gate settings used by [`merge_to_main_gated`](Self::merge_to_main_gated).
+    pub fn with_merge_gate_config(mut self, config: MergeGateConfig) -> Self {
+        self.gate_config = config;
+        self
+    }
+
+    /// Merge-gate settings in effect.
+    pub fn merge_gate_config(&self) -> &MergeGateConfig {
+        &self.gate_config
+    }
+
+    /// Run the merge gate for `worktree`, and merge it into its base branch
+    /// only if the gate passes.
+    ///
+    /// `acceptance_criteria` are shell commands (normally
+    /// [`Task::acceptance_criteria`]) run in the worktree; see
+    /// [`crate::merge_gate`] for the full set of checks. This is the entry
+    /// point every caller that merges task work should use.
+    pub async fn merge_to_main_gated(
+        &self,
+        worktree: &WorktreeInfo,
+        acceptance_criteria: &[String],
+    ) -> Result<GatedMerge> {
+        let base_dir_str = self.base_dir.to_str().unwrap_or(".");
+        let vcs = GitGateVcs::new(self.git.as_ref());
+        let gate = MergeGate::new(&self.gate_config, &vcs);
+        let report = gate
+            .evaluate(
+                GateTarget {
+                    repo_dir: base_dir_str,
+                    worktree_dir: &worktree.path,
+                    branch: &worktree.branch,
+                    target: merge_target(worktree),
+                },
+                acceptance_criteria,
+            )
+            .await;
+
+        if !report.passed {
+            return Ok(GatedMerge::Refused { report });
+        }
+        let result = self.merge_to_main(worktree).await?;
+        Ok(GatedMerge::Attempted { report, result })
     }
 
     /// Create a worktree for a task.
@@ -294,7 +365,9 @@ impl WorktreeManager {
         Ok(removed)
     }
 
-    /// Attempt to merge a worktree branch back to its base branch (`main`).
+    /// Attempt to merge a worktree branch back to its base branch (`main`)
+    /// **without** running the merge gate. Callers merging task work should
+    /// use [`merge_to_main_gated`](Self::merge_to_main_gated).
     ///
     /// The merge flow:
     /// 1. Fetch latest (best effort)
@@ -310,11 +383,7 @@ impl WorktreeManager {
     /// 7. Restore the previously checked-out branch if step 4 switched
     pub async fn merge_to_main(&self, worktree: &WorktreeInfo) -> Result<MergeResult> {
         let base_dir_str = self.base_dir.to_str().unwrap_or(".");
-        let target = if worktree.base_branch.trim().is_empty() {
-            "main"
-        } else {
-            worktree.base_branch.as_str()
-        };
+        let target = merge_target(worktree);
 
         info!(
             branch = %worktree.branch,
@@ -529,6 +598,15 @@ impl WorktreeManager {
     /// Internal helper to compute worktree path from a sanitized name.
     fn worktree_path_for_name(&self, sanitized_name: &str) -> PathBuf {
         self.base_dir.join(".worktrees").join(sanitized_name)
+    }
+}
+
+/// Branch a worktree merges into: its recorded base, or `main`.
+fn merge_target(worktree: &WorktreeInfo) -> &str {
+    if worktree.base_branch.trim().is_empty() {
+        "main"
+    } else {
+        worktree.base_branch.as_str()
     }
 }
 
