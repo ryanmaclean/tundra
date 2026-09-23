@@ -280,6 +280,27 @@ mod tests {
         assert_eq!(meta["source"], "github");
     }
 
+    /// Binding rule: acceptance criteria gate a merge, so they must be
+    /// authored deliberately (task create/update, MCP `create_bead` /
+    /// `create_task`), never derived from free-text issue bodies. Even an
+    /// issue body that looks like a checklist must not populate
+    /// `metadata.acceptance_criteria`.
+    #[test]
+    fn test_import_issue_as_task_never_sets_acceptance_criteria() {
+        let mut issue = make_github_issue(8, "Looks like a checklist", IssueState::Open);
+        issue.body = Some(
+            "acceptance_criteria:\n- cargo test\n- test -f dist/app\n\n- [ ] cargo test\n- [ ] lint"
+                .to_string(),
+        );
+        let bead = issues::import_issue_as_task(&issue);
+
+        let meta = bead.metadata.as_ref().unwrap();
+        assert!(
+            meta.get("acceptance_criteria").is_none(),
+            "issue import must never populate acceptance_criteria: {meta:?}"
+        );
+    }
+
     #[test]
     fn test_poll_updates_filters_by_time() {
         let now = Utc::now();
