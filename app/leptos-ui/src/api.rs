@@ -535,10 +535,11 @@ pub async fn fetch_pipeline_queue_status() -> Result<ApiPipelineQueueStatus, Str
 pub async fn fetch_stacks() -> Result<Vec<ApiStack>, String> {
     match fetch_json::<Vec<ApiStack>>(&format!("{}/api/stacks", get_api_base())).await {
         Ok(stacks) => Ok(stacks),
-        Err(_) => {
-            // Return demo stacks when backend is offline
-            Ok(demo_stacks())
-        }
+        // Demo stacks only when the backend is unreachable. An HTTP error
+        // (401, 404, 500) or a parse error is a real failure and must surface
+        // instead of being masked by made-up data.
+        Err(e) if is_connection_error(&e) => Ok(demo_stacks()),
+        Err(e) => Err(e),
     }
 }
 

@@ -26,6 +26,7 @@ mod queue;
 mod routes;
 mod sessions;
 mod settings;
+mod stacks;
 pub mod state;
 mod tasks;
 #[cfg(test)]

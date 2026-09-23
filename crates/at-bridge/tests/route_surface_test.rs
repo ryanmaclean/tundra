@@ -34,6 +34,14 @@ const ROUTE_MISS: StatusCode = StatusCode::IM_A_TEAPOT;
 /// 400, which still proves the route matched.
 const PARAM_VALUE: &str = "00000000-0000-0000-0000-000000000001";
 
+/// Routes added on purpose after the snapshot was taken. The snapshot stays
+/// frozen (it proves the router split lost nothing); new endpoints are
+/// listed here so the catalog comparison still catches accidental drift.
+const ADDED_ROUTES: &[(&str, &str)] = &[
+    // Finding #34: stacked-diff listing consumed by leptos-ui and at-tui.
+    ("GET", "/api/stacks"),
+];
+
 fn fixture_routes() -> BTreeSet<(String, String)> {
     include_str!("fixtures/routes.txt")
         .lines()
@@ -190,6 +198,11 @@ async fn unknown_path_hits_the_fallback() {
 async fn catalog_lists_exactly_the_snapshot_plus_itself() {
     let catalog = fetch_catalog(&app(), CATALOG_PATH, Some(API_KEY)).await;
     let mut expected = fixture_routes();
+    expected.extend(
+        ADDED_ROUTES
+            .iter()
+            .map(|(m, p)| (m.to_string(), p.to_string())),
+    );
     expected.insert(("GET".into(), CATALOG_PATH.into()));
     expected.insert(("GET".into(), CATALOG_V1_PATH.into()));
     let listed = catalog_routes(&catalog);
