@@ -430,7 +430,7 @@ async fn exec_list_beads(state: &Arc<ApiState>, args: &serde_json::Value) -> Too
 
     let items: Vec<serde_json::Value> = beads
         .values()
-        .filter(|b| status_filter.as_ref().map_or(true, |f| &b.status == f))
+        .filter(|b| status_filter.as_ref().is_none_or(|f| &b.status == f))
         .map(|b| {
             serde_json::json!({
                 "id": b.id,

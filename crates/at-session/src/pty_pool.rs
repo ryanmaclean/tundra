@@ -66,7 +66,7 @@ use std::sync::{Arc, Mutex};
 
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use thiserror::Error;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 // ---------------------------------------------------------------------------
