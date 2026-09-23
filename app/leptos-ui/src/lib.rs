@@ -8,6 +8,7 @@ pub mod api;
 pub mod components;
 pub mod events;
 pub mod i18n;
+pub mod markdown;
 pub mod pages;
 pub mod state;
 pub mod themed;

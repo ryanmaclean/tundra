@@ -294,19 +294,31 @@ impl WorktreeManager {
         Ok(removed)
     }
 
-    /// Attempt to merge a worktree branch back to main.
+    /// Attempt to merge a worktree branch back to its base branch (`main`).
     ///
     /// The merge flow:
-    /// 1. Fetch latest main
-    /// 2. Check if there are any changes to merge
-    /// 3. Attempt the merge
-    /// 4. Detect conflicts
-    /// 5. Clean up worktree on success
+    /// 1. Fetch latest (best effort)
+    /// 2. Count commits unique to the task branch (`rev-list --count
+    ///    <base>..<branch>`); zero means [`MergeResult::NothingToMerge`], even
+    ///    if the base branch has since advanced
+    /// 3. Refuse if `base_dir` has uncommitted tracked changes (they would be
+    ///    swept into the merge commit)
+    /// 4. Check out the base branch explicitly if something else is checked
+    ///    out, so the merge never lands on an unrelated branch
+    /// 5. Merge with `--no-ff --no-commit`, then commit; detect conflicts
+    /// 6. Clean up the worktree and task branch on success
+    /// 7. Restore the previously checked-out branch if step 4 switched
     pub async fn merge_to_main(&self, worktree: &WorktreeInfo) -> Result<MergeResult> {
         let base_dir_str = self.base_dir.to_str().unwrap_or(".");
+        let target = if worktree.base_branch.trim().is_empty() {
+            "main"
+        } else {
+            worktree.base_branch.as_str()
+        };
 
         info!(
             branch = %worktree.branch,
+            target = %target,
             "attempting merge to main"
         );
 
@@ -315,37 +327,77 @@ impl WorktreeManager {
             warn!(error = %e, "git fetch failed, proceeding with local state");
         }
 
-        // 2. Check if there are changes to merge
-        let diff_stdout = match self
-            .git_read
-            .diff_stat(base_dir_str, "main", &worktree.branch)
-        {
-            Ok(stdout) => stdout,
-            Err(e) => {
-                warn!(
-                    error = %e,
-                    branch = %worktree.branch,
-                    "git read adapter failed for diff --stat; falling back to GitRunner"
-                );
-                match self
-                    .git
-                    .run_git(base_dir_str, &["diff", "--stat", "main", &worktree.branch])
-                {
-                    Ok(output) => output.stdout,
-                    Err(err) => return Err(WorktreeManagerError::GitCommand(err)),
-                }
-            }
-        };
-
-        match diff_stdout.trim() {
-            "" => {
-                info!(branch = %worktree.branch, "nothing to merge");
-                return Ok(MergeResult::NothingToMerge);
-            }
-            _ => { /* has changes, continue */ }
+        // 2. Commits on the task branch that the target does not have yet.
+        let range = format!("{target}..{}", worktree.branch);
+        let ahead = self.git_ok(base_dir_str, &["rev-list", "--count", &range])?;
+        let ahead: u64 = ahead.trim().parse().map_err(|_| {
+            WorktreeManagerError::GitCommand(format!(
+                "unexpected `git rev-list --count {range}` output: {ahead:?}"
+            ))
+        })?;
+        if ahead == 0 {
+            info!(branch = %worktree.branch, "nothing to merge");
+            return Ok(MergeResult::NothingToMerge);
         }
 
-        // 3. Attempt merge (using --no-commit first to check)
+        // 3. Refuse to merge on top of uncommitted tracked changes.
+        let dirty = self.git_ok(
+            base_dir_str,
+            &["status", "--porcelain", "--untracked-files=no"],
+        )?;
+        if !dirty.trim().is_empty() {
+            return Err(WorktreeManagerError::GitCommand(format!(
+                "refusing to merge {} into {target}: {} has uncommitted changes",
+                worktree.branch,
+                self.base_dir.display()
+            )));
+        }
+
+        // 4. Make sure the target branch is what we merge into.
+        let current = self.git_ok(base_dir_str, &["rev-parse", "--abbrev-ref", "HEAD"])?;
+        let switched = current.trim() != target;
+        if switched {
+            info!(from = %current.trim(), to = %target, "checking out merge target");
+            self.git_ok(base_dir_str, &["checkout", target])?;
+        }
+
+        let result = self.merge_into_checked_out(base_dir_str, worktree, target);
+
+        // 7. Restore whatever the developer had checked out.
+        if switched {
+            match self.git.run_git(base_dir_str, &["checkout", "-"]) {
+                Ok(o) if o.success => {}
+                Ok(o) => warn!(stderr = %o.stderr, "failed to restore previous branch"),
+                Err(e) => warn!(error = %e, "failed to restore previous branch"),
+            }
+        }
+
+        result
+    }
+
+    /// Run a git command and return stdout, turning a spawn failure or a
+    /// non-zero exit status into [`WorktreeManagerError::GitCommand`].
+    fn git_ok(&self, dir: &str, args: &[&str]) -> Result<String> {
+        match self.git.run_git(dir, args) {
+            Ok(o) if o.success => Ok(o.stdout),
+            Ok(o) => Err(WorktreeManagerError::GitCommand(format!(
+                "git {}: {}",
+                args.join(" "),
+                o.stderr.trim()
+            ))),
+            Err(e) => Err(WorktreeManagerError::GitCommand(e)),
+        }
+    }
+
+    /// Steps 5-6 of [`merge_to_main`](Self::merge_to_main): merge the task
+    /// branch into the currently checked-out `target`.
+    fn merge_into_checked_out(
+        &self,
+        base_dir_str: &str,
+        worktree: &WorktreeInfo,
+        target: &str,
+    ) -> Result<MergeResult> {
+        // 5. Attempt merge (using --no-commit first to check)
         let merge_result = self.git.run_git(
             base_dir_str,
             &["merge", "--no-ff", "--no-commit", &worktree.branch],
@@ -353,15 +405,20 @@ impl WorktreeManager {
 
         match merge_result {
             Ok(output) if output.success => {
+                if output.stdout.contains("Already up to date") {
+                    info!(branch = %worktree.branch, "nothing to merge (already up to date)");
+                    return Ok(MergeResult::NothingToMerge);
+                }
+
                 // Commit the merge
-                let commit_msg = format!("Merge branch '{}' into main", worktree.branch);
+                let commit_msg = format!("Merge branch '{}' into {target}", worktree.branch);
                 let commit_result = self
                     .git
                     .run_git(base_dir_str, &["commit", "-m", &commit_msg]);
 
                 match commit_result {
                     Ok(co) if co.success => {
-                        // 5. Clean up worktree
+                        // 6. Clean up worktree
                         let wt_path = &worktree.path;
                         if let Err(e) = self
                             .git
@@ -379,12 +436,23 @@ impl WorktreeManager {
                         info!(branch = %worktree.branch, "merge successful");
                         Ok(MergeResult::Success)
                     }
-                    Ok(co) => Err(WorktreeManagerError::GitCommand(co.stderr)),
+                    Ok(co)
+                        if co.stdout.contains("nothing to commit")
+                            || co.stderr.contains("nothing to commit") =>
+                    {
+                        info!(branch = %worktree.branch, "nothing to merge (nothing to commit)");
+                        Ok(MergeResult::NothingToMerge)
+                    }
+                    Ok(co) => {
+                        // Leave the repo clean rather than mid-merge.
+                        let _ = self.git.run_git(base_dir_str, &["merge", "--abort"]);
+                        Err(WorktreeManagerError::GitCommand(co.stderr))
+                    }
                     Err(e) => Err(WorktreeManagerError::GitCommand(e)),
                 }
             }
             Ok(output) => {
-                // 4. Detect conflicts
+                // 5b. Detect conflicts
                 let conflict_result = match self.git_read.conflict_files(base_dir_str) {
                     Ok(files) => Ok(files),
                     Err(e) => {
@@ -634,133 +702,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn merge_to_main_success() {
-        // Responses: fetch, diff (has changes), merge (success), commit (success),
-        // worktree remove, branch delete
-        let git = Box::new(MockGitRunner::new(vec![
-            GitOutput {
-                success: true,
-                stdout: String::new(),
-                stderr: String::new(),
-            }, // fetch
-            GitOutput {
-                success: true,
-                stdout: "file.rs | 5 ++---\n".to_string(),
-                stderr: String::new(),
-            }, // diff
-            GitOutput {
-                success: true,
-                stdout: String::new(),
-                stderr: String::new(),
-            }, // merge
-            GitOutput {
-                success: true,
-                stdout: String::new(),
-                stderr: String::new(),
-            }, // commit
-            GitOutput {
-                success: true,
-                stdout: String::new(),
-                stderr: String::new(),
-            }, // worktree remove
-            GitOutput {
-                success: true,
-                stdout: String::new(),
-                stderr: String::new(),
-            }, // branch delete
-        ]));
-
-        let manager = WorktreeManager::with_git_runner("/project", git);
-        let wt = WorktreeInfo {
-            path: "/project/.worktrees/test".to_string(),
-            branch: "task/test".to_string(),
-            base_branch: "main".to_string(),
-            task_name: "test".to_string(),
-            created_at: Utc::now(),
-        };
-
-        let result = manager.merge_to_main(&wt).await.unwrap();
-        assert_eq!(result, MergeResult::Success);
-    }
-
-    #[tokio::test]
-    async fn merge_to_main_nothing_to_merge() {
-        let git = Box::new(MockGitRunner::new(vec![
-            GitOutput {
-                success: true,
-                stdout: String::new(),
-                stderr: String::new(),
-            }, // fetch
-            GitOutput {
-                success: true,
-                stdout: "".to_string(), // no diff
-                stderr: String::new(),
-            },
-        ]));
-
-        let manager = WorktreeManager::with_git_runner("/project", git);
-        let wt = WorktreeInfo {
-            path: "/project/.worktrees/test".to_string(),
-            branch: "task/test".to_string(),
-            base_branch: "main".to_string(),
-            task_name: "test".to_string(),
-            created_at: Utc::now(),
-        };
-
-        let result = manager.merge_to_main(&wt).await.unwrap();
-        assert_eq!(result, MergeResult::NothingToMerge);
-    }
-
-    #[tokio::test]
-    async fn merge_to_main_conflict() {
-        let git = Box::new(MockGitRunner::new(vec![
-            GitOutput {
-                success: true,
-                stdout: String::new(),
-                stderr: String::new(),
-            }, // fetch
-            GitOutput {
-                success: true,
-                stdout: "file.rs | 5 ++---\n".to_string(),
-                stderr: String::new(),
-            }, // diff (has changes)
-            GitOutput {
-                success: false,
-                stdout: String::new(),
-                stderr: "CONFLICT (content): Merge conflict in file.rs\n".to_string(),
-            }, // merge fails
-            GitOutput {
-                success: true,
-                stdout: "file.rs\n".to_string(),
-                stderr: String::new(),
-            }, // diff --name-only
-            GitOutput {
-                success: true,
-                stdout: String::new(),
-                stderr: String::new(),
-            }, // merge --abort
-        ]));
-
-        let manager = WorktreeManager::with_git_runner("/project", git);
-        let wt = WorktreeInfo {
-            path: "/project/.worktrees/test".to_string(),
-            branch: "task/test".to_string(),
-            base_branch: "main".to_string(),
-            task_name: "test".to_string(),
-            created_at: Utc::now(),
-        };
-
-        let result = manager.merge_to_main(&wt).await.unwrap();
-        match result {
-            MergeResult::Conflict(files) => {
-                assert!(!files.is_empty());
-                assert!(files[0].contains("file.rs"));
-            }
-            other => panic!("Expected Conflict, got {other:?}"),
-        }
-    }
-
-    #[tokio::test]
     async fn repo_path_for_worktree_sets_correct_paths() {
         let manager = WorktreeManager::new("/project");
 
@@ -805,153 +746,267 @@ mod tests {
         assert!(result.is_empty());
     }
 
-    #[tokio::test]
-    async fn merge_uses_git_read_adapter_for_diff_check() {
-        let shared = Arc::new(MockGitRunner::new(vec![GitOutput {
+    fn out(stdout: &str) -> GitOutput {
+        GitOutput {
             success: true,
-            stdout: String::new(),
+            stdout: stdout.to_string(),
             stderr: String::new(),
-        }])); // fetch only
+        }
+    }
 
-        let manager = WorktreeManager::with_adapters(
-            "/project",
-            Box::new(SharedMockGitRunner(shared.clone())),
-            Box::new(MockReadAdapter {
-                diff_result: Ok(String::new()), // no changes
-                conflict_result: Ok(Vec::new()),
-            }),
-        );
+    fn fail(stderr: &str) -> GitOutput {
+        GitOutput {
+            success: false,
+            stdout: String::new(),
+            stderr: stderr.to_string(),
+        }
+    }
 
-        let wt = WorktreeInfo {
+    fn test_wt() -> WorktreeInfo {
+        WorktreeInfo {
             path: "/project/.worktrees/test".to_string(),
             branch: "task/test".to_string(),
             base_branch: "main".to_string(),
             task_name: "test".to_string(),
             created_at: Utc::now(),
-        };
-
-        let result = manager.merge_to_main(&wt).await.unwrap();
-        assert_eq!(result, MergeResult::NothingToMerge);
-
-        let commands = shared.commands();
-        // Only fetch should be executed by GitRunner (diff came from read adapter).
-        assert_eq!(commands.len(), 1);
-        assert_eq!(
-            commands[0].1,
-            vec!["fetch".to_string(), "origin".to_string()]
-        );
+        }
     }
 
-    #[tokio::test]
-    async fn merge_uses_git_read_adapter_for_conflict_detection() {
-        let shared = Arc::new(MockGitRunner::new(vec![
-            GitOutput {
-                success: true,
-                stdout: String::new(),
-                stderr: String::new(),
-            }, // fetch
-            GitOutput {
-                success: false,
-                stdout: String::new(),
-                stderr: "CONFLICT (content): Merge conflict in file.rs\n".to_string(),
-            }, // merge fails
-            GitOutput {
-                success: true,
-                stdout: String::new(),
-                stderr: String::new(),
-            }, // merge --abort
-        ]));
-
+    fn mock_manager(responses: Vec<GitOutput>) -> (WorktreeManager, Arc<MockGitRunner>) {
+        let shared = Arc::new(MockGitRunner::new(responses));
         let manager = WorktreeManager::with_adapters(
             "/project",
             Box::new(SharedMockGitRunner(shared.clone())),
             Box::new(MockReadAdapter {
-                diff_result: Ok("file.rs | 5 ++---\n".to_string()),
+                diff_result: Err("diff_stat must not decide merges".to_string()),
                 conflict_result: Ok(vec!["file.rs".to_string()]),
             }),
         );
+        (manager, shared)
+    }
 
-        let wt = WorktreeInfo {
-            path: "/project/.worktrees/test".to_string(),
-            branch: "task/test".to_string(),
-            base_branch: "main".to_string(),
-            task_name: "test".to_string(),
-            created_at: Utc::now(),
-        };
+    fn args(cmds: &[(String, Vec<String>)]) -> Vec<String> {
+        cmds.iter().map(|(_, a)| a.join(" ")).collect()
+    }
 
-        let result = manager.merge_to_main(&wt).await.unwrap();
-        assert_eq!(result, MergeResult::Conflict(vec!["file.rs".to_string()]));
+    #[tokio::test]
+    async fn merge_to_main_success_on_main() {
+        let (manager, git) = mock_manager(vec![
+            out(""),     // fetch
+            out("2\n"),  // rev-list --count main..task/test
+            out(""),     // status (clean)
+            out("main\n"), // rev-parse --abbrev-ref HEAD
+            out(""),     // merge
+            out(""),     // commit
+            out(""),     // worktree remove
+            out(""),     // branch -d
+        ]);
 
-        let commands = shared.commands();
-        assert_eq!(commands.len(), 3);
+        let result = manager.merge_to_main(&test_wt()).await.unwrap();
+        assert_eq!(result, MergeResult::Success);
         assert_eq!(
-            commands[0].1,
-            vec!["fetch".to_string(), "origin".to_string()]
-        );
-        assert_eq!(
-            commands[1].1,
+            args(&git.commands()),
             vec![
-                "merge".to_string(),
-                "--no-ff".to_string(),
-                "--no-commit".to_string(),
-                "task/test".to_string()
+                "fetch origin",
+                "rev-list --count main..task/test",
+                "status --porcelain --untracked-files=no",
+                "rev-parse --abbrev-ref HEAD",
+                "merge --no-ff --no-commit task/test",
+                "commit -m Merge branch 'task/test' into main",
+                "worktree remove --force /project/.worktrees/test",
+                "branch -d task/test",
             ]
-        );
-        assert_eq!(
-            commands[2].1,
-            vec!["merge".to_string(), "--abort".to_string()]
         );
     }
 
     #[tokio::test]
-    async fn merge_falls_back_to_git_runner_when_read_adapter_fails() {
-        let shared = Arc::new(MockGitRunner::new(vec![
-            GitOutput {
-                success: true,
-                stdout: String::new(),
-                stderr: String::new(),
-            }, // fetch
-            GitOutput {
-                success: true,
-                stdout: String::new(),
-                stderr: String::new(),
-            }, // fallback diff --stat (empty)
-        ]));
+    async fn merge_checks_out_main_and_restores_previous_branch() {
+        let (manager, git) = mock_manager(vec![
+            out(""),              // fetch
+            out("1\n"),           // rev-list
+            out(""),              // status
+            out("feature/foo\n"), // rev-parse: developer is on another branch
+            out(""),              // checkout main
+            out(""),              // merge
+            out(""),              // commit
+            out(""),              // worktree remove
+            out(""),              // branch -d
+            out(""),              // checkout -
+        ]);
 
-        let manager = WorktreeManager::with_adapters(
-            "/project",
-            Box::new(SharedMockGitRunner(shared.clone())),
-            Box::new(MockReadAdapter {
-                diff_result: Err("adapter failed".to_string()),
-                conflict_result: Ok(Vec::new()),
-            }),
+        let result = manager.merge_to_main(&test_wt()).await.unwrap();
+        assert_eq!(result, MergeResult::Success);
+        let cmds = args(&git.commands());
+        let checkout_main = cmds.iter().position(|c| c == "checkout main").unwrap();
+        let merge = cmds.iter().position(|c| c.starts_with("merge --no-ff")).unwrap();
+        assert!(checkout_main < merge, "must check out main before merging: {cmds:?}");
+        assert_eq!(cmds.last().unwrap(), "checkout -");
+    }
+
+    #[tokio::test]
+    async fn merge_fails_when_checkout_of_main_fails() {
+        let (manager, git) = mock_manager(vec![
+            out(""),
+            out("1\n"),
+            out(""),
+            out("feature/foo\n"),
+            fail("error: pathspec 'main' did not match"),
+        ]);
+
+        let err = manager.merge_to_main(&test_wt()).await.unwrap_err();
+        assert!(matches!(err, WorktreeManagerError::GitCommand(_)));
+        assert!(!args(&git.commands()).iter().any(|c| c.starts_with("merge")));
+    }
+
+    #[tokio::test]
+    async fn merge_refuses_dirty_worktree() {
+        let (manager, git) = mock_manager(vec![
+            out(""),
+            out("1\n"),
+            out(" M src/lib.rs\n"), // status: tracked change
+        ]);
+
+        let err = manager.merge_to_main(&test_wt()).await.unwrap_err();
+        assert!(err.to_string().contains("uncommitted changes"), "{err}");
+        let cmds = args(&git.commands());
+        assert!(!cmds.iter().any(|c| c.starts_with("merge") || c.starts_with("checkout")));
+    }
+
+    #[tokio::test]
+    async fn merge_to_main_nothing_to_merge_when_branch_has_no_commits() {
+        // main advanced past the task branch: the tree diff is non-empty but
+        // the branch has no commits of its own.
+        let (manager, git) = mock_manager(vec![out(""), out("0\n")]);
+
+        let result = manager.merge_to_main(&test_wt()).await.unwrap();
+        assert_eq!(result, MergeResult::NothingToMerge);
+        assert_eq!(git.commands().len(), 2, "no checkout/merge/commit attempted");
+    }
+
+    #[tokio::test]
+    async fn merge_commit_nothing_to_commit_is_nothing_to_merge() {
+        let (manager, _git) = mock_manager(vec![
+            out(""),
+            out("1\n"),
+            out(""),
+            out("main\n"),
+            out(""), // merge
+            GitOutput {
+                success: false,
+                stdout: "nothing to commit, working tree clean\n".to_string(),
+                stderr: String::new(),
+            },
+        ]);
+        let result = manager.merge_to_main(&test_wt()).await.unwrap();
+        assert_eq!(result, MergeResult::NothingToMerge);
+    }
+
+    #[tokio::test]
+    async fn merge_rev_list_failure_is_error() {
+        let (manager, _git) = mock_manager(vec![out(""), fail("fatal: bad revision")]);
+        assert!(manager.merge_to_main(&test_wt()).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn merge_to_main_conflict_uses_read_adapter_and_aborts() {
+        let (manager, git) = mock_manager(vec![
+            out(""),
+            out("3\n"),
+            out(""),
+            out("main\n"),
+            fail("CONFLICT (content): Merge conflict in file.rs\n"), // merge
+            out(""),                                                // merge --abort
+        ]);
+
+        let result = manager.merge_to_main(&test_wt()).await.unwrap();
+        assert_eq!(result, MergeResult::Conflict(vec!["file.rs".to_string()]));
+        assert_eq!(args(&git.commands()).last().unwrap(), "merge --abort");
+    }
+
+    // -- real git ---------------------------------------------------------
+
+    fn sh_git(dir: &std::path::Path, args: &[&str]) -> String {
+        let out = std::process::Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .output()
+            .expect("git");
+        assert!(
+            out.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
         );
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    }
 
-        let wt = WorktreeInfo {
-            path: "/project/.worktrees/test".to_string(),
-            branch: "task/test".to_string(),
+    fn init_repo() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path();
+        sh_git(p, &["init", "-q", "-b", "main"]);
+        sh_git(p, &["config", "user.name", "t"]);
+        sh_git(p, &["config", "user.email", "t@example.com"]);
+        sh_git(p, &["config", "commit.gpgsign", "false"]);
+        std::fs::write(p.join("f"), "base\n").unwrap();
+        sh_git(p, &["add", "f"]);
+        sh_git(p, &["commit", "-q", "-m", "base"]);
+        dir
+    }
+
+    fn real_wt(repo: &std::path::Path, name: &str) -> WorktreeInfo {
+        let wt_path = repo.join(".worktrees").join(name);
+        let branch = format!("task/{name}");
+        sh_git(
+            repo,
+            &["worktree", "add", "-q", "-b", &branch, wt_path.to_str().unwrap(), "main"],
+        );
+        WorktreeInfo {
+            path: wt_path.to_string_lossy().to_string(),
+            branch,
             base_branch: "main".to_string(),
-            task_name: "test".to_string(),
+            task_name: name.to_string(),
             created_at: Utc::now(),
-        };
+        }
+    }
 
+    #[tokio::test]
+    async fn real_git_merges_into_main_not_checked_out_branch() {
+        let repo = init_repo();
+        let p = repo.path();
+        let wt = real_wt(p, "x");
+        let wt_dir = std::path::PathBuf::from(&wt.path);
+        std::fs::write(wt_dir.join("g"), "task work\n").unwrap();
+        sh_git(&wt_dir, &["add", "g"]);
+        sh_git(&wt_dir, &["commit", "-q", "-m", "task work"]);
+
+        // Developer has an unrelated branch checked out in the project root.
+        sh_git(p, &["checkout", "-q", "-b", "feature/foo"]);
+        let foo_before = sh_git(p, &["rev-parse", "feature/foo"]);
+
+        let manager = WorktreeManager::new(p);
+        let result = manager.merge_to_main(&wt).await.unwrap();
+        assert_eq!(result, MergeResult::Success);
+
+        // Task commit landed on main; feature/foo untouched and restored.
+        let main_files = sh_git(p, &["ls-tree", "--name-only", "main"]);
+        assert!(main_files.lines().any(|l| l == "g"), "{main_files}");
+        assert_eq!(sh_git(p, &["rev-parse", "feature/foo"]), foo_before);
+        assert_eq!(sh_git(p, &["rev-parse", "--abbrev-ref", "HEAD"]), "feature/foo");
+        let msg = sh_git(p, &["log", "-1", "--format=%s", "main"]);
+        assert_eq!(msg, "Merge branch 'task/x' into main");
+    }
+
+    #[tokio::test]
+    async fn real_git_no_change_task_after_main_advanced_is_nothing_to_merge() {
+        let repo = init_repo();
+        let p = repo.path();
+        let wt = real_wt(p, "y"); // no commits on task/y
+
+        // Another task merged first: main advances.
+        std::fs::write(p.join("f"), "changed\n").unwrap();
+        sh_git(p, &["commit", "-q", "-am", "main advanced"]);
+
+        let manager = WorktreeManager::new(p);
         let result = manager.merge_to_main(&wt).await.unwrap();
         assert_eq!(result, MergeResult::NothingToMerge);
-
-        let commands = shared.commands();
-        assert_eq!(commands.len(), 2);
-        assert_eq!(
-            commands[0].1,
-            vec!["fetch".to_string(), "origin".to_string()]
-        );
-        assert_eq!(
-            commands[1].1,
-            vec![
-                "diff".to_string(),
-                "--stat".to_string(),
-                "main".to_string(),
-                "task/test".to_string()
-            ]
-        );
     }
 }

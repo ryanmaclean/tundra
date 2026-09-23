@@ -96,10 +96,17 @@ pub fn use_focus_trap() -> impl Fn(leptos::ev::KeyboardEvent) {
 fn get_focusable_elements(container: &HtmlElement) -> Vec<HtmlElement> {
     let selector = r#"a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])"#;
 
-    // Use JavaScript directly to call querySelectorAll on the container
+    // Call container.querySelectorAll(selector) via Reflect. This must not use
+    // js_sys::eval: the Tauri CSP does not allow 'unsafe-eval', and eval would
+    // throw (and the old unwrap() would panic the whole app).
     let js_container: &JsValue = container.as_ref();
-    let query_fn = js_sys::eval("(function(s) { return this.querySelectorAll(s); })").unwrap();
-    let query_fn = query_fn.dyn_ref::<js_sys::Function>().unwrap();
+    let Ok(query_fn) = js_sys::Reflect::get(js_container, &JsValue::from_str("querySelectorAll"))
+    else {
+        return Vec::new();
+    };
+    let Some(query_fn) = query_fn.dyn_ref::<js_sys::Function>() else {
+        return Vec::new();
+    };
 
     let node_list = js_sys::Reflect::apply(
         query_fn,

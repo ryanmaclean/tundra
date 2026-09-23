@@ -78,6 +78,7 @@ pub fn use_event_stream() -> (
             set_unread_count,
             mounted_clone,
             ws_handle_clone,
+            1,
         );
     });
 
@@ -109,6 +110,7 @@ fn connect_ws(
     set_unread_count: WriteSignal<u64>,
     mounted: Rc<Cell<bool>>,
     ws_handle: Rc<Cell<Option<WebSocket>>>,
+    attempt: u32,
 ) {
     // Don't connect if the component has already been unmounted.
     if !mounted.get() {
@@ -128,7 +130,7 @@ fn connect_ws(
                 set_latest_event,
                 set_toasts,
                 set_unread_count,
-                1,
+                next_attempt(attempt, false),
                 mounted,
                 ws_handle,
             );
@@ -139,10 +141,15 @@ fn connect_ws(
     // Store the WebSocket so on_cleanup can close it.
     ws_handle.set(Some(ws.clone()));
 
+    // Whether this socket ever opened; decides if the backoff resets.
+    let opened = Rc::new(Cell::new(false));
+
     // On open
     {
         let set_state = set_conn_state;
+        let opened_open = opened.clone();
         let onopen = Closure::wrap(Box::new(move |_: JsValue| {
+            opened_open.set(true);
             set_state.set(WsConnectionState::Connected);
             web_sys::console::log_1(&"[events] WebSocket connected".into());
         }) as Box<dyn FnMut(JsValue)>);
@@ -209,6 +216,7 @@ fn connect_ws(
         let set_unread = set_unread_count;
         let mounted_close = mounted.clone();
         let ws_handle_close = ws_handle.clone();
+        let opened_close = opened.clone();
         let onclose = Closure::wrap(Box::new(move |_: CloseEvent| {
             set_state.set(WsConnectionState::Disconnected);
             if mounted_close.get() {
@@ -218,7 +226,7 @@ fn connect_ws(
                     set_event,
                     set_toasts3,
                     set_unread,
-                    1,
+                    next_attempt(attempt, opened_close.get()),
                     mounted_close.clone(),
                     ws_handle_close.clone(),
                 );
@@ -247,7 +255,7 @@ fn schedule_reconnect(
         return;
     }
 
-    let delay_secs = std::cmp::min(2u32.pow(attempt.saturating_sub(1)), 16);
+    let delay_secs = reconnect_delay_secs(attempt);
     set_conn_state.set(WsConnectionState::Reconnecting);
 
     spawn_local(async move {
@@ -271,8 +279,25 @@ fn schedule_reconnect(
             set_unread_count,
             mounted,
             ws_handle,
+            attempt,
         );
     });
+}
+
+/// Reconnect attempt number after a socket closes or fails to construct.
+/// A socket that successfully opened resets the backoff to attempt 1;
+/// otherwise the attempt count grows so `reconnect_delay_secs` backs off.
+fn next_attempt(attempt: u32, opened: bool) -> u32 {
+    if opened {
+        1
+    } else {
+        attempt.saturating_add(1)
+    }
+}
+
+/// Exponential backoff: 1, 2, 4, 8, 16, 16, ... seconds.
+fn reconnect_delay_secs(attempt: u32) -> u32 {
+    2u32.saturating_pow(attempt.saturating_sub(1)).min(16)
 }
 
 /// Convert a raw JSON event into a toast notification if it's important enough.
@@ -311,5 +336,28 @@ fn event_to_toast(value: &serde_json::Value) -> Option<Toast> {
             })
         }
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod reconnect_tests {
+    use super::{next_attempt, reconnect_delay_secs};
+
+    #[test]
+    fn backoff_grows_while_failing_and_caps() {
+        let mut attempt = 1;
+        let mut delays = Vec::new();
+        for _ in 0..7 {
+            delays.push(reconnect_delay_secs(attempt));
+            attempt = next_attempt(attempt, false);
+        }
+        assert_eq!(delays, vec![1, 2, 4, 8, 16, 16, 16]);
+        // No overflow panic for huge attempt counts.
+        assert_eq!(reconnect_delay_secs(u32::MAX), 16);
+    }
+
+    #[test]
+    fn successful_open_resets_backoff() {
+        assert_eq!(next_attempt(6, true), 1);
     }
 }

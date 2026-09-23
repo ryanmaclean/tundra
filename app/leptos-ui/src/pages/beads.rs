@@ -442,16 +442,10 @@ pub fn BeadsPage() -> impl IntoView {
     // Auto-refresh interval timer
     {
         let do_refresh_interval = do_refresh.clone();
-        Effect::new(move |prev_handle: Option<Option<i32>>| {
-            // Clear any previous interval
-            if let Some(Some(handle)) = prev_handle {
-                if let Some(window) = web_sys::window() {
-                    window.clear_interval_with_handle(handle);
-                }
-            }
+        Effect::new(move |_| {
             let secs = auto_refresh_secs.get();
             if secs == 0 {
-                return None;
+                return;
             }
             let refresh = do_refresh_interval.clone();
             let cb = wasm_bindgen::closure::Closure::wrap(Box::new(move || {
@@ -465,7 +459,16 @@ pub fn BeadsPage() -> impl IntoView {
                 .ok()
             });
             cb.forget();
-            handle
+            // Clear the interval when the interval setting changes (effect
+            // re-run) AND when the page unmounts (owner disposed); otherwise
+            // it keeps polling /api/beads and writing global state forever.
+            if let Some(handle) = handle {
+                on_cleanup(move || {
+                    if let Some(window) = web_sys::window() {
+                        window.clear_interval_with_handle(handle);
+                    }
+                });
+            }
         });
     }
 

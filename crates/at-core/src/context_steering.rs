@@ -632,8 +632,12 @@ impl ContextSteerer {
             blocks.push(block);
         }
 
-        // L1: Project context (CLAUDE.md, AGENTS.md) — filtered by profile
-        if profile.min_level <= DisclosureLevel::Project {
+        // L1: Project context (CLAUDE.md, AGENTS.md). `min_level` is the
+        // lowest level a phase *must* reach, not a floor that excludes lower
+        // levels: project rules are always loaded first (budget permitting)
+        // for every phase whose ceiling reaches Project.
+        let include_project = profile.max_level >= DisclosureLevel::Project;
+        if include_project {
             for ctx in &self.project_context {
                 if ctx.level <= profile.max_level {
                     if total_tokens + ctx.estimated_tokens <= token_budget {
@@ -647,7 +651,7 @@ impl ContextSteerer {
         }
 
         // L1: Conventions (extracted from CLAUDE.md)
-        if !self.conventions.is_empty() && profile.min_level <= DisclosureLevel::Project {
+        if !self.conventions.is_empty() && include_project {
             let conv_text = self.conventions.join("\n- ");
             let conv_block = ContextBlock::new(
                 "conventions",
@@ -1166,6 +1170,67 @@ mod tests {
         let ctx = steerer.assemble("coder", "coding", Some("Fix the login bug"), 8000);
         assert!(ctx.total_tokens > 0);
         assert!(ctx.metadata.blocks_included > 0);
+    }
+
+    #[test]
+    fn project_rules_included_in_every_phase() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("CLAUDE.md"),
+            "# Rules\n- Never use GPL deps\n",
+        )
+        .unwrap();
+
+        let mut steerer = ContextSteerer::new(dir.path());
+        steerer.load_project();
+
+        for phase in [
+            "discovery",
+            "spec_creation",
+            "planning",
+            "coding",
+            "fixing",
+            "qa",
+            "merging",
+        ] {
+            let ctx = steerer.assemble("coder", phase, Some("Fix the login bug"), 8000);
+            let labels: Vec<&str> = ctx.blocks.iter().map(|b| b.label.as_str()).collect();
+            assert!(
+                labels.contains(&"CLAUDE.md"),
+                "phase {phase} missing CLAUDE.md: {labels:?}"
+            );
+            assert!(
+                labels.contains(&"conventions"),
+                "phase {phase} missing conventions: {labels:?}"
+            );
+            assert!(
+                ctx.blocks
+                    .iter()
+                    .any(|b| b.content.contains("Never use GPL deps")),
+                "phase {phase} lost the project rule: {labels:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn claude_md_present_for_coding_and_qa() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("CLAUDE.md"), "- Always run clippy\n").unwrap();
+        let mut steerer = ContextSteerer::new(dir.path());
+        steerer.load_project();
+
+        for phase in ["coding", "qa"] {
+            let ctx = steerer.assemble("coder", phase, Some("spec"), 8000);
+            assert!(
+                ctx.blocks.iter().any(|b| b.label == "CLAUDE.md"),
+                "{phase}: {:?}",
+                ctx.blocks.iter().map(|b| &b.label).collect::<Vec<_>>()
+            );
+            // Project rules come before the task spec.
+            let claude_idx = ctx.blocks.iter().position(|b| b.label == "CLAUDE.md");
+            let spec_idx = ctx.blocks.iter().position(|b| b.label == "task_spec");
+            assert!(claude_idx < spec_idx, "{phase}: rules must precede spec");
+        }
     }
 
     #[test]

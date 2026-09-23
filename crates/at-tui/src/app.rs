@@ -629,7 +629,9 @@ impl App {
                 }
             }
             KeyCode::Char('l') | KeyCode::Right => {
-                if self.current_tab == 2 && self.kanban_column < 4 {
+                if self.current_tab == 2
+                    && self.kanban_column + 1 < crate::tabs::beads::KANBAN_COLUMNS
+                {
                     self.kanban_column += 1;
                 }
                 if self.current_tab == 15 && self.context_sub_tab < 1 {
@@ -715,25 +717,22 @@ fn parse_role(s: &str) -> AgentRole {
     }
 }
 
-fn parse_agent_status(s: &str) -> AgentStatus {
-    match s.to_lowercase().as_str() {
-        "active" => AgentStatus::Active,
-        "idle" => AgentStatus::Idle,
-        "pending" => AgentStatus::Pending,
-        "stopped" => AgentStatus::Stopped,
-        _ => AgentStatus::Idle,
-    }
+/// Parse an API status string into an at-core enum via its serde
+/// representation (all these enums are `rename_all = "snake_case"`), so every
+/// current and future variant round-trips without a hand-written arm.
+fn parse_wire_enum<T: serde::de::DeserializeOwned>(s: &str) -> Option<T> {
+    serde_json::from_value(serde_json::Value::String(s.trim().to_lowercase())).ok()
 }
 
+/// Unrecognised agent statuses map to `Unknown`, never to `Idle`.
+fn parse_agent_status(s: &str) -> AgentStatus {
+    parse_wire_enum(s).unwrap_or(AgentStatus::Unknown)
+}
+
+/// Unrecognised bead statuses map to `Escalated` (needs a human) so they are
+/// surfaced in the Attention column instead of masquerading as queued work.
 fn parse_bead_status(s: &str) -> BeadStatus {
-    match s.to_lowercase().as_str() {
-        "backlog" => BeadStatus::Backlog,
-        "hooked" => BeadStatus::Hooked,
-        "slung" => BeadStatus::Slung,
-        "review" => BeadStatus::Review,
-        "done" => BeadStatus::Done,
-        _ => BeadStatus::Backlog,
-    }
+    parse_wire_enum(s).unwrap_or(BeadStatus::Escalated)
 }
 
 fn parse_lane(s: &str) -> Lane {
@@ -753,13 +752,10 @@ fn parse_cli_type(s: &str) -> CliType {
     }
 }
 
+/// Unrecognised convoy statuses map to `Aborted` so they are shown in red as
+/// needing attention rather than as a healthy `Forming` convoy.
 fn parse_convoy_status(s: &str) -> ConvoyStatus {
-    match s.to_lowercase().as_str() {
-        "active" => ConvoyStatus::Active,
-        "completed" => ConvoyStatus::Completed,
-        "forming" => ConvoyStatus::Forming,
-        _ => ConvoyStatus::Forming,
-    }
+    parse_wire_enum(s).unwrap_or(ConvoyStatus::Aborted)
 }
 
 // ---------------------------------------------------------------------------
@@ -1256,5 +1252,125 @@ fn load_config_text() -> String {
         at_core::config::Config::default()
             .to_toml()
             .unwrap_or_else(|_| "(error serializing default config)".into())
+    }
+}
+
+#[cfg(test)]
+mod status_mapping_tests {
+    use super::*;
+
+    fn wire(v: &impl serde::Serialize) -> String {
+        serde_json::to_value(v)
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_string()
+    }
+
+    /// Compile-time guard: adding a variant to at-core breaks this match,
+    /// forcing the list below (and the TUI mapping) to be revisited.
+    fn all_bead_statuses() -> Vec<BeadStatus> {
+        let all = vec![
+            BeadStatus::Backlog,
+            BeadStatus::Hooked,
+            BeadStatus::Slung,
+            BeadStatus::Review,
+            BeadStatus::Done,
+            BeadStatus::Failed,
+            BeadStatus::Escalated,
+        ];
+        for s in &all {
+            match s {
+                BeadStatus::Backlog
+                | BeadStatus::Hooked
+                | BeadStatus::Slung
+                | BeadStatus::Review
+                | BeadStatus::Done
+                | BeadStatus::Failed
+                | BeadStatus::Escalated => {}
+            }
+        }
+        all
+    }
+
+    fn all_agent_statuses() -> Vec<AgentStatus> {
+        let all = vec![
+            AgentStatus::Active,
+            AgentStatus::Idle,
+            AgentStatus::Pending,
+            AgentStatus::Unknown,
+            AgentStatus::Stopped,
+        ];
+        for s in &all {
+            match s {
+                AgentStatus::Active
+                | AgentStatus::Idle
+                | AgentStatus::Pending
+                | AgentStatus::Unknown
+                | AgentStatus::Stopped => {}
+            }
+        }
+        all
+    }
+
+    fn all_convoy_statuses() -> Vec<ConvoyStatus> {
+        let all = vec![
+            ConvoyStatus::Forming,
+            ConvoyStatus::Active,
+            ConvoyStatus::Completed,
+            ConvoyStatus::Aborted,
+        ];
+        for s in &all {
+            match s {
+                ConvoyStatus::Forming
+                | ConvoyStatus::Active
+                | ConvoyStatus::Completed
+                | ConvoyStatus::Aborted => {}
+            }
+        }
+        all
+    }
+
+    #[test]
+    fn every_bead_status_round_trips() {
+        for s in all_bead_statuses() {
+            assert_eq!(parse_bead_status(&wire(&s)), s);
+            assert_eq!(parse_bead_status(&wire(&s).to_uppercase()), s);
+        }
+        assert_eq!(parse_bead_status("failed"), BeadStatus::Failed);
+        assert_eq!(parse_bead_status("escalated"), BeadStatus::Escalated);
+    }
+
+    #[test]
+    fn every_agent_status_round_trips() {
+        for s in all_agent_statuses() {
+            assert_eq!(parse_agent_status(&wire(&s)), s);
+        }
+        assert_eq!(parse_agent_status("unknown"), AgentStatus::Unknown);
+    }
+
+    #[test]
+    fn every_convoy_status_round_trips() {
+        for s in all_convoy_statuses() {
+            assert_eq!(parse_convoy_status(&wire(&s)), s);
+        }
+        assert_eq!(parse_convoy_status("aborted"), ConvoyStatus::Aborted);
+    }
+
+    #[test]
+    fn unrecognised_statuses_do_not_look_healthy() {
+        assert_eq!(parse_bead_status("garbage"), BeadStatus::Escalated);
+        assert_eq!(parse_agent_status("garbage"), AgentStatus::Unknown);
+        assert_eq!(parse_convoy_status("garbage"), ConvoyStatus::Aborted);
+    }
+
+    #[test]
+    fn kanban_right_reaches_attention_column() {
+        let mut app = App::new(true);
+        app.current_tab = 2;
+        for _ in 0..10 {
+            app.on_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+        }
+        assert_eq!(app.kanban_column, crate::tabs::beads::KANBAN_COLUMNS - 1);
     }
 }

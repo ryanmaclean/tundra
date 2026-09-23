@@ -66,6 +66,14 @@ fn ok_output() -> GitOutput {
     }
 }
 
+fn stdout_output(stdout: &str) -> GitOutput {
+    GitOutput {
+        success: true,
+        stdout: stdout.to_string(),
+        stderr: String::new(),
+    }
+}
+
 fn make_test_task(title: &str) -> Task {
     Task::new(
         title,
@@ -205,61 +213,23 @@ async fn test_worktree_has_unique_path() {
 // ===========================================================================
 
 #[tokio::test]
-async fn test_worktree_tracks_file_changes_count() {
-    // Simulate the UI's "8 files changed" by checking git diff --stat output
-
-    let git = Box::new(MockGitRunner::new(vec![
-        ok_output(), // fetch
-        GitOutput {
-            success: true,
-            stdout: " src/main.rs  | 10 ++++------\n \
-                      src/lib.rs   |  5 +++--\n \
-                      src/util.rs  |  3 ++-\n \
-                      Cargo.toml   |  2 +-\n \
-                      README.md    |  8 ++++----\n \
-                      tests/a.rs   |  1 +\n \
-                      tests/b.rs   |  4 ++--\n \
-                      tests/c.rs   |  2 +-\n \
-                      8 files changed, 25 insertions(+), 10 deletions(-)\n"
-                .to_string(),
-            stderr: String::new(),
-        }, // diff --stat
-    ]));
-
-    let manager = WorktreeManager::with_git_runner("/project", git);
-
-    let wt = make_worktree_info("test-files", "task/test-files");
-
-    // merge_to_main calls diff --stat; if stdout is non-empty it has changes
-    // The diff output simulates "8 files changed" from the UI
-    // We verify the diff was queried with the correct branch
-    let _result = manager.merge_to_main(&wt).await;
-
-    // unsafe to access commands_ref directly but we know git is still alive
-    // Instead verify via the fact that merge proceeded (non-empty diff = has changes)
-}
-
-#[tokio::test]
 async fn test_worktree_tracks_commits_ahead() {
-    // Simulate "1 commits ahead" shown in the UI card
+    // Simulate "1 commits ahead" shown in the UI card: merge_to_main decides
+    // whether there is work via `git rev-list --count main..<branch>`.
 
     let git = Box::new(MockGitRunner::new(vec![
-        ok_output(), // fetch
-        GitOutput {
-            success: true,
-            stdout: "1 commit ahead\n".to_string(),
-            stderr: String::new(),
-        }, // rev-list or diff
+        ok_output(),            // fetch
+        stdout_output("1\n"),   // rev-list --count main..task/ahead-test
+        ok_output(),            // status --porcelain (clean)
+        stdout_output("main\n"), // rev-parse --abbrev-ref HEAD
     ]));
 
     let manager = WorktreeManager::with_git_runner("/project", git);
     let wt = make_worktree_info("ahead-test", "task/ahead-test");
 
-    // The diff output is non-empty, meaning there are changes ahead
+    // Remaining commands (merge, commit, cleanup) get default success.
     let result = manager.merge_to_main(&wt).await;
-    // With only 2 responses (fetch + diff), merge attempt will use default
-    // empty success responses for the actual merge and commit
-    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), MergeResult::Success);
 }
 
 #[tokio::test]
@@ -319,12 +289,10 @@ async fn test_merge_worktree_to_main() {
     // "Merge to main" orange button in UI
 
     let git = Box::new(MockGitRunner::new(vec![
-        ok_output(), // fetch origin
-        GitOutput {
-            success: true,
-            stdout: "file.rs | 5 ++---\n".to_string(),
-            stderr: String::new(),
-        }, // diff --stat (has changes)
+        ok_output(),              // fetch origin
+        stdout_output("1\n"),     // rev-list --count (1 commit ahead)
+        ok_output(),              // status --porcelain (clean)
+        stdout_output("main\n"),  // rev-parse --abbrev-ref HEAD
         ok_output(), // merge --no-ff --no-commit
         ok_output(), // commit
         ok_output(), // worktree remove
@@ -343,12 +311,10 @@ async fn test_merge_conflict_detection() {
     // When merge conflicts exist, UI should detect and report them
 
     let git = Box::new(MockGitRunner::new(vec![
-        ok_output(), // fetch
-        GitOutput {
-            success: true,
-            stdout: "file.rs | 5 ++---\n".to_string(),
-            stderr: String::new(),
-        }, // diff (has changes)
+        ok_output(),             // fetch
+        stdout_output("2\n"),    // rev-list --count
+        ok_output(),             // status --porcelain (clean)
+        stdout_output("main\n"), // rev-parse --abbrev-ref HEAD
         GitOutput {
             success: false,
             stdout: String::new(),
@@ -535,15 +501,12 @@ async fn test_manager_git_runner_integration() {
 
 #[tokio::test]
 async fn test_nothing_to_merge() {
-    // When a worktree has no changes, merge returns NothingToMerge
+    // When a worktree branch has no commits of its own, merge returns
+    // NothingToMerge (even if main has advanced and the trees differ).
 
     let git = Box::new(MockGitRunner::new(vec![
-        ok_output(), // fetch
-        GitOutput {
-            success: true,
-            stdout: String::new(), // empty diff = no changes
-            stderr: String::new(),
-        },
+        ok_output(),          // fetch
+        stdout_output("0\n"), // rev-list --count main..task/no-changes
     ]));
 
     let manager = WorktreeManager::with_git_runner("/project", git);

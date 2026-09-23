@@ -68,6 +68,23 @@ impl GitHubClient {
         })
     }
 
+    /// Create a new `GitHubClient` against a custom API base URI
+    /// (GitHub Enterprise, or a local mock server in tests).
+    pub fn new_with_base_uri(config: GitHubConfig, base_uri: &str) -> Result<Self> {
+        let token = config.token.ok_or(GitHubError::MissingToken)?;
+
+        let octocrab = Octocrab::builder()
+            .personal_token(token)
+            .base_uri(base_uri)?
+            .build()?;
+
+        Ok(Self {
+            octocrab,
+            owner: config.owner,
+            repo: config.repo,
+        })
+    }
+
     /// Create a new `GitHubClient` by reading `GITHUB_TOKEN`, `GITHUB_OWNER`,
     /// and `GITHUB_REPO` from the environment.
     pub fn new_from_env() -> Result<Self> {
