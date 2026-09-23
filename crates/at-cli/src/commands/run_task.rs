@@ -109,7 +109,12 @@ fn title_from_task(task: &str, role: Option<&str>) -> String {
         base.to_string()
     };
     if out.len() > 120 {
-        out.truncate(120);
+        // Cut on a char boundary: String::truncate panics mid-codepoint.
+        let mut n = 120;
+        while !out.is_char_boundary(n) {
+            n -= 1;
+        }
+        out.truncate(n);
     }
     out
 }
@@ -377,6 +382,17 @@ mod tests {
         let long = "x".repeat(200);
         let t = title_from_task(&long, None);
         assert_eq!(t.len(), 120);
+    }
+
+    #[test]
+    fn title_truncates_multibyte_without_panic() {
+        let long = "Fix 日本語のタスク".repeat(10);
+        for role in [None, Some("qa-reviewer")] {
+            let t = title_from_task(&long, role);
+            assert!(t.len() <= 120, "title too long: {} bytes", t.len());
+            assert!(t.len() > 110, "title over-truncated: {} bytes", t.len());
+            assert!(long.contains(t.trim_start_matches("[qa-reviewer] ")));
+        }
     }
 
     #[test]
