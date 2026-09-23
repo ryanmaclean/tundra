@@ -33,24 +33,55 @@ ignore = [
 # [licenses] — enforce allowed licenses, block copyleft/unknown
 # ---------------------------------------------------------------------------
 [licenses]
+# Project policy: MIT, BSD-2-Clause, BSD-3-Clause, Apache-2.0 only.
 allow = [
     "MIT",
     "Apache-2.0",
-    "Apache-2.0 WITH LLVM-exception",
     "BSD-2-Clause",
     "BSD-3-Clause",
-    "BSL-1.0",
+    # --- Permissive, transitive-only (no direct workspace dep uses these) ---
+    # ISC: ring, untrusted, rustls-webpki (unavoidable in any rustls stack),
+    #      simple_asn1 (jsonwebtoken <- octocrab), inotify/inotify-sys (notify, Linux).
     "ISC",
+    # Zlib: foldhash (hashbrown), nanorand (flume), const_format + slotmap (leptos).
     "Zlib",
+    # Unicode-3.0: icu_* / zerovec / yoke / litemap (url -> idna), unicode-ident.
     "Unicode-3.0",
-    "Unicode-DFS-2016",
-    "CDLA-Permissive-2.0",
-    "MPL-2.0",
-    "Unlicense",
-    "CC0-1.0",
-    "LGPL-2.1-or-later",       # r-efi (Windows-only, header-only, no linking risk)
 ]
 confidence-threshold = 0.8
+
+# Narrow, per-crate exceptions for licenses outside the policy. Each one is
+# pinned to the crate that needs it and documents the dependency path.
+# Revisit when the pulling dependency changes.
+exceptions = [
+    # CC0-1.0 (public-domain dedication). notify is a DIRECT dep of at-core
+    # (file watching); no MIT/Apache replacement adopted yet.
+    { crate = "notify", allow = ["CC0-1.0"] },
+    # CC0-1.0: base16 <- wasm_split_macros <- leptos 0.8 (at-leptos-ui, WASM).
+    { crate = "base16", allow = ["CC0-1.0"] },
+    # CC0-1.0, only with non-default features (`cargo deny --all-features`):
+    # hexf-parse <- naga <- wgpu <- ratatui-wgpu (at-tui `gpu` feature);
+    # tiny-keccak <- const-random <- ahash `compile-time-rng`.
+    { crate = "hexf-parse", allow = ["CC0-1.0"] },
+    { crate = "tiny-keccak", allow = ["CC0-1.0"] },
+    # BSL-1.0: xxhash-rust <- server_fn <- leptos 0.8 (at-leptos-ui, WASM).
+    { crate = "xxhash-rust", allow = ["BSL-1.0"] },
+    # Apache-2.0 WITH LLVM-exception (strictly more permissive than Apache-2.0):
+    # target-lexicon <- cfg-expr <- system-deps <- gtk-rs <- tauri (Linux only).
+    { crate = "target-lexicon", allow = ["Apache-2.0 WITH LLVM-exception"] },
+    # MPL-2.0 (file-level copyleft) -- POLICY EXCEPTION, needs owner sign-off:
+    # cssparser/cssparser-macros/dtoa-short/selectors <- kuchikiki <- tauri-utils
+    # (tauri build-time HTML/CSP processing; unavoidable while using tauri 2).
+    { crate = "cssparser", allow = ["MPL-2.0"] },
+    { crate = "cssparser-macros", allow = ["MPL-2.0"] },
+    { crate = "dtoa-short", allow = ["MPL-2.0"] },
+    { crate = "selectors", allow = ["MPL-2.0"] },
+    # MPL-2.0: option-ext <- dirs-sys 0.5 <- dirs 6 (direct dep of at-core,
+    # at-cli, at-tui). Removable by replacing `dirs` with `etcetera` or
+    # std::env::home_dir; tracked as follow-up.
+    { crate = "option-ext", allow = ["MPL-2.0"] },
+]
+
 
 # Workspace crates have no license yet — mark them private
 [licenses.private]

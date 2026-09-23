@@ -30,11 +30,7 @@ async-trait = { workspace = true }
 mimalloc = { workspace = true }
 toml = "0.8"
 tower-http = { workspace = true }
-datadog-tracing = { workspace = true }
-datadog-apm-sync = { workspace = true }
-tracing-datadog = { workspace = true }
 opentelemetry = { workspace = true }
-opentelemetry-datadog = { workspace = true }
 tracing-opentelemetry = { workspace = true }
 opentelemetry_sdk = { workspace = true }
 dotenv = "0.15"

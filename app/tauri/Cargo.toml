@@ -26,10 +26,13 @@ tracing = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 toml = "0.8"
-rodio = { version = "0.19", optional = true }
+# default-features = false: SoundEngine synthesizes effects procedurally and needs
+# no file decoders; rodio's default decoders pull MPL-2.0 symphonia.
+rodio = { version = "0.19", optional = true, default-features = false }
 
 [features]
-default = ["sounds"]
+# `sounds` is opt-in (`--features sounds`); without it SoundEngine is a no-op stub.
+default = []
 sounds = ["dep:rodio"]
 
 [build-dependencies]
