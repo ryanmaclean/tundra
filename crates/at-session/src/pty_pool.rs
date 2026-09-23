@@ -309,6 +309,42 @@ impl PtyHandle {
         Ok(())
     }
 
+    /// Kill the child process without blocking the async runtime, then reap it.
+    ///
+    /// On unix, portable-pty's `kill()` sends `SIGHUP` and then polls for up
+    /// to ~200ms (sleeping the calling thread) before escalating to `SIGKILL`.
+    /// Calling [`kill()`](PtyHandle::kill) from an async task therefore stalls
+    /// a tokio worker. This variant runs the kill, followed by a `wait()` that
+    /// reaps the child (no zombie left behind), on the blocking thread pool.
+    ///
+    /// Callers holding an async lock over a map of handles should remove the
+    /// handle from the map and release the lock *before* awaiting this.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PtyError::Internal`] if the kill fails or the blocking task
+    /// panics / is cancelled.
+    pub async fn kill_async(&self) -> Result<()> {
+        let child = Arc::clone(&self.child);
+        tokio::task::spawn_blocking(move || {
+            let mut child = child.lock().unwrap_or_else(|e| {
+                warn!("child lock was poisoned, recovering");
+                e.into_inner()
+            });
+            child
+                .kill()
+                .map_err(|e| PtyError::Internal(e.to_string()))?;
+            // After SIGKILL (or a successful SIGHUP) the child is dead or about
+            // to be; wait() returns promptly and reaps the zombie.
+            child
+                .wait()
+                .map_err(|e| PtyError::Internal(format!("wait after kill failed: {e}")))?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| PtyError::Internal(format!("kill task failed: {e}")))?
+    }
+
     /// Read all currently available output without blocking.
     ///
     /// Drains the reader channel using `try_recv()` in a loop until no more
