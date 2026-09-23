@@ -1,6 +1,7 @@
 use std::path::Path;
 
-use chrono::Utc;
+use chrono::{DateTime, Utc};
+use rusqlite::types::Type;
 use tokio_rusqlite::Connection;
 use uuid::Uuid;
 
@@ -20,9 +21,55 @@ fn enum_to_sql<T: serde::Serialize>(val: &T) -> String {
     s.trim_matches('"').to_string()
 }
 
-fn enum_from_sql<T: serde::de::DeserializeOwned>(raw: &str) -> T {
-    let quoted = format!("\"{}\"", raw);
-    serde_json::from_str(&quoted).expect("deserialize enum")
+/// Map any parse error on column `idx` into a rusqlite conversion error so a
+/// malformed row surfaces as `Err` instead of panicking inside the
+/// tokio-rusqlite worker thread (which would permanently close the connection).
+fn conversion_err<E>(idx: usize, e: E) -> rusqlite::Error
+where
+    E: std::error::Error + Send + Sync + 'static,
+{
+    rusqlite::Error::FromSqlConversionFailure(idx, Type::Text, Box::new(e))
+}
+
+fn enum_from_sql<T: serde::de::DeserializeOwned>(idx: usize, raw: &str) -> rusqlite::Result<T> {
+    serde_json::from_value(serde_json::Value::String(raw.to_string()))
+        .map_err(|e| conversion_err(idx, e))
+}
+
+fn parse_uuid(idx: usize, s: &str) -> rusqlite::Result<Uuid> {
+    Uuid::parse_str(s).map_err(|e| conversion_err(idx, e))
+}
+
+fn parse_ts(idx: usize, s: &str) -> rusqlite::Result<DateTime<Utc>> {
+    DateTime::parse_from_rfc3339(s)
+        .map(|d| d.with_timezone(&Utc))
+        .map_err(|e| conversion_err(idx, e))
+}
+
+fn parse_json(idx: usize, s: &str) -> rusqlite::Result<serde_json::Value> {
+    serde_json::from_str(s).map_err(|e| conversion_err(idx, e))
+}
+
+/// Collect rows through `map`, skipping (and logging) rows that fail to
+/// decode so one bad row cannot hide every other row from list callers.
+/// Errors from the SQLite cursor itself still propagate.
+fn collect_rows<T>(
+    mut rows: rusqlite::Rows<'_>,
+    table: &str,
+    map: fn(&rusqlite::Row<'_>) -> rusqlite::Result<T>,
+) -> rusqlite::Result<Vec<T>> {
+    let mut out = Vec::new();
+    while let Some(row) = rows.next()? {
+        match map(row) {
+            Ok(v) => out.push(v),
+            Err(e @ rusqlite::Error::FromSqlConversionFailure(..)) => {
+                let id: Option<String> = row.get(0).ok();
+                tracing::warn!(table, ?id, error = %e, "skipping undecodable cache row");
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(out)
 }
 
 impl CacheDb {
@@ -204,12 +251,8 @@ impl CacheDb {
                             hooked_at, slung_at, done_at, git_branch, metadata
                      FROM beads WHERE status = ?1 ORDER BY priority DESC",
                 )?;
-                let mut rows = stmt.query(rusqlite::params![status_str])?;
-                let mut out = Vec::new();
-                while let Some(row) = rows.next()? {
-                    out.push(row_to_bead(row)?);
-                }
-                Ok(out)
+                let rows = stmt.query(rusqlite::params![status_str])?;
+                Ok(collect_rows(rows, "beads", row_to_bead)?)
             })
             .await
     }
@@ -335,37 +378,21 @@ fn row_to_bead(row: &rusqlite::Row<'_>) -> rusqlite::Result<Bead> {
     let metadata_str: Option<String> = row.get(14)?;
 
     Ok(Bead {
-        id: Uuid::parse_str(&id_str).expect("valid uuid"),
+        id: parse_uuid(0, &id_str)?,
         title: row.get(1)?,
         description: row.get(2)?,
-        status: enum_from_sql(&status_str),
-        lane: enum_from_sql(&lane_str),
+        status: enum_from_sql(3, &status_str)?,
+        lane: enum_from_sql(4, &lane_str)?,
         priority: row.get(5)?,
-        agent_id: agent_id_str.map(|s| Uuid::parse_str(&s).expect("valid uuid")),
-        convoy_id: convoy_id_str.map(|s| Uuid::parse_str(&s).expect("valid uuid")),
-        created_at: chrono::DateTime::parse_from_rfc3339(&created_at_str)
-            .expect("valid date")
-            .with_timezone(&Utc),
-        updated_at: chrono::DateTime::parse_from_rfc3339(&updated_at_str)
-            .expect("valid date")
-            .with_timezone(&Utc),
-        hooked_at: hooked_at_str.map(|s| {
-            chrono::DateTime::parse_from_rfc3339(&s)
-                .expect("valid date")
-                .with_timezone(&Utc)
-        }),
-        slung_at: slung_at_str.map(|s| {
-            chrono::DateTime::parse_from_rfc3339(&s)
-                .expect("valid date")
-                .with_timezone(&Utc)
-        }),
-        done_at: done_at_str.map(|s| {
-            chrono::DateTime::parse_from_rfc3339(&s)
-                .expect("valid date")
-                .with_timezone(&Utc)
-        }),
+        agent_id: agent_id_str.map(|s| parse_uuid(6, &s)).transpose()?,
+        convoy_id: convoy_id_str.map(|s| parse_uuid(7, &s)).transpose()?,
+        created_at: parse_ts(8, &created_at_str)?,
+        updated_at: parse_ts(9, &updated_at_str)?,
+        hooked_at: hooked_at_str.map(|s| parse_ts(10, &s)).transpose()?,
+        slung_at: slung_at_str.map(|s| parse_ts(11, &s)).transpose()?,
+        done_at: done_at_str.map(|s| parse_ts(12, &s)).transpose()?,
         git_branch: row.get(13)?,
-        metadata: metadata_str.map(|s| serde_json::from_str(&s).expect("valid json")),
+        metadata: metadata_str.map(|s| parse_json(14, &s)).transpose()?,
     })
 }
 
@@ -380,21 +407,90 @@ fn row_to_agent(row: &rusqlite::Row<'_>) -> rusqlite::Result<Agent> {
     let metadata_str: Option<String> = row.get(11)?;
 
     Ok(Agent {
-        id: Uuid::parse_str(&id_str).expect("valid uuid"),
+        id: parse_uuid(0, &id_str)?,
         name: row.get(1)?,
-        role: enum_from_sql(&role_str),
-        cli_type: enum_from_sql(&cli_type_str),
+        role: enum_from_sql(2, &role_str)?,
+        cli_type: enum_from_sql(3, &cli_type_str)?,
         model: row.get(4)?,
-        status: enum_from_sql(&status_str),
+        status: enum_from_sql(5, &status_str)?,
         rig: row.get(6)?,
         pid: pid_val.map(|p| p as u32),
         session_id: row.get(8)?,
-        created_at: chrono::DateTime::parse_from_rfc3339(&created_at_str)
-            .expect("valid date")
-            .with_timezone(&Utc),
-        last_seen: chrono::DateTime::parse_from_rfc3339(&last_seen_str)
-            .expect("valid date")
-            .with_timezone(&Utc),
-        metadata: metadata_str.map(|s| serde_json::from_str(&s).expect("valid json")),
+        created_at: parse_ts(9, &created_at_str)?,
+        last_seen: parse_ts(10, &last_seen_str)?,
+        metadata: metadata_str.map(|s| parse_json(11, &s)).transpose()?,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::Lane;
+
+    async fn insert_raw_bead(db: &CacheDb, id: &str, status: &str, lane: &str, created: &str) {
+        let (id, status, lane, created) = (
+            id.to_string(),
+            status.to_string(),
+            lane.to_string(),
+            created.to_string(),
+        );
+        db.conn
+            .call(move |conn| {
+                conn.execute(
+                    "INSERT INTO beads (id, title, status, lane, priority, created_at, updated_at)
+                     VALUES (?1, 'raw', ?2, ?3, 0, ?4, ?4)",
+                    rusqlite::params![id, status, lane, created],
+                )?;
+                Ok(())
+            })
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn malformed_bead_row_errors_without_killing_connection() {
+        let db = CacheDb::new_in_memory().await.unwrap();
+        let now = Utc::now().to_rfc3339();
+        let bad_enum = Uuid::new_v4();
+        insert_raw_bead(&db, &bad_enum.to_string(), "from_the_future", "standard", &now).await;
+        let bad_date = Uuid::new_v4();
+        insert_raw_bead(&db, &bad_date.to_string(), "backlog", "standard", "yesterday").await;
+        insert_raw_bead(&db, "not-a-uuid", "backlog", "standard", &now).await;
+
+        let good = Bead::new("good", Lane::Standard);
+        db.upsert_bead(&good).await.unwrap();
+
+        // Single-row lookups surface a conversion error instead of panicking.
+        assert!(db.get_bead(bad_enum).await.is_err());
+        assert!(db.get_bead(bad_date).await.is_err());
+
+        // List queries skip undecodable rows and still return the good ones.
+        let backlog = db.list_beads_by_status(BeadStatus::Backlog).await.unwrap();
+        assert_eq!(backlog.len(), 1);
+        assert_eq!(backlog[0].id, good.id);
+
+        // The connection is still usable after the failures.
+        assert!(db.get_bead(good.id).await.unwrap().is_some());
+        db.compute_kpi_snapshot().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn malformed_agent_row_errors_without_killing_connection() {
+        let db = CacheDb::new_in_memory().await.unwrap();
+        let now = Utc::now().to_rfc3339();
+        db.conn
+            .call(move |conn| {
+                conn.execute(
+                    "INSERT INTO agents (id, name, role, cli_type, status, created_at, last_seen, metadata)
+                     VALUES (?1, 'ghost', 'retired_role', 'claude', 'active', ?2, ?2, '{bad json')",
+                    rusqlite::params![Uuid::new_v4().to_string(), now],
+                )?;
+                Ok(())
+            })
+            .await
+            .unwrap();
+
+        assert!(db.get_agent_by_name("ghost").await.is_err());
+        assert!(db.get_agent_by_name("nobody").await.unwrap().is_none());
+    }
 }
