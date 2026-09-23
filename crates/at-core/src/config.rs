@@ -684,6 +684,19 @@ pub struct TerminalConfig {
     pub font_size: u8,
     #[serde(default = "default_cursor_style")]
     pub cursor_style: String,
+    /// Attach a PTY pool to the daemon so `POST /api/terminals` and
+    /// `/ws/terminal/{id}` work. When `false` the terminal API returns 503.
+    #[serde(default = "default_pty_pool_enabled")]
+    pub pty_pool_enabled: bool,
+    /// Maximum number of concurrently running PTY sessions.
+    #[serde(default = "default_max_ptys")]
+    pub max_ptys: usize,
+    /// Close a terminal WebSocket only after the *client* has been silent
+    /// (no frames, including Pong replies to the server's 30 s Pings) for this
+    /// many seconds, i.e. the connection is dead. Quiet PTY output never
+    /// closes the connection. `0` disables the check.
+    #[serde(default = "default_ws_liveness_timeout_secs")]
+    pub ws_liveness_timeout_secs: u64,
 }
 
 impl Default for TerminalConfig {
@@ -692,8 +705,21 @@ impl Default for TerminalConfig {
             font_family: default_term_font_family(),
             font_size: default_term_font_size(),
             cursor_style: default_cursor_style(),
+            pty_pool_enabled: default_pty_pool_enabled(),
+            max_ptys: default_max_ptys(),
+            ws_liveness_timeout_secs: default_ws_liveness_timeout_secs(),
         }
     }
+}
+
+fn default_pty_pool_enabled() -> bool {
+    true
+}
+fn default_max_ptys() -> usize {
+    16
+}
+fn default_ws_liveness_timeout_secs() -> u64 {
+    120
 }
 
 fn default_term_font_family() -> String {

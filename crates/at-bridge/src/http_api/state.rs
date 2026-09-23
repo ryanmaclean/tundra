@@ -1,5 +1,5 @@
 use std::sync::{
-    atomic::{AtomicUsize, Ordering},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
     Arc,
 };
 use tokio::sync::{RwLock, Semaphore};
@@ -19,6 +19,7 @@ use at_intelligence::{
 use crate::event_bus::EventBus;
 use crate::notifications::NotificationStore;
 use crate::oauth_token_manager::OAuthTokenManager;
+use crate::rate_limit_middleware::RateLimitPolicy;
 use crate::terminal::TerminalRegistry;
 
 use super::types::{
@@ -102,6 +103,8 @@ pub struct ApiState {
     pub task_count: Arc<AtomicUsize>,
     pub start_time: std::time::Instant,
     pub pty_pool: Option<Arc<at_session::pty_pool::PtyPool>>,
+    /// Heartbeat / liveness timing for `/ws/terminal/{id}` connections.
+    pub terminal_ws: crate::terminal_ws::TerminalWsSettings,
     pub terminal_registry: Arc<RwLock<TerminalRegistry>>,
     /// Active PTY handles keyed by terminal ID.
     pub pty_handles: Arc<RwLock<std::collections::HashMap<Uuid, at_session::pty_pool::PtyHandle>>>,
@@ -147,12 +150,16 @@ pub struct ApiState {
     // ---- Rate limiting -------------------------------------------------------
     /// Multi-tier rate limiter (global, per-user, per-endpoint).
     pub rate_limiter: Arc<MultiKeyRateLimiter>,
+    /// Client-identity / loopback-exemption policy for the rate limiter.
+    pub rate_limit_policy: RateLimitPolicy,
     // ---- Retention configuration ------------------------------------------
     /// Memory retention policies for cleanup (TTL, max entries, cleanup intervals).
     pub retention_config: Arc<RwLock<RetentionConfig>>,
     // ---- MCP SSE sessions ------------------------------------------------
     /// Active MCP SSE sessions: session_id → SSE message sender.
     pub mcp_sessions: McpSessionStore,
+    /// Set once [`ApiState::start_notification_task`] has spawned its task.
+    notification_task_started: AtomicBool,
 }
 
 impl ApiState {
@@ -190,6 +197,7 @@ impl ApiState {
             task_count: Arc::new(AtomicUsize::new(0)),
             start_time: std::time::Instant::now(),
             pty_pool: None,
+            terminal_ws: crate::terminal_ws::TerminalWsSettings::default(),
             terminal_registry: Arc::new(RwLock::new(TerminalRegistry::new())),
             pty_handles: Arc::new(RwLock::new(std::collections::HashMap::new())),
             settings_manager: Arc::new(SettingsManager::default_path()),
@@ -228,36 +236,29 @@ impl ApiState {
             task_drafts: Arc::new(RwLock::new(std::collections::HashMap::new())),
             disconnect_buffers: Arc::new(RwLock::new(std::collections::HashMap::new())),
             // ---- Rate Limiter Configuration -------------------------------------
-            // Three-tier rate limiting protects the API from abuse and overload:
+            // Three-tier check-then-commit limiting (see rate_limit_middleware):
             //
-            // 1. Global Limit: 100 requests/minute across ALL clients
-            //    - Prevents total server overload
-            //    - First line of defense against DoS attacks
-            //    - Shared bucket for entire API
+            // 1. Global: 1200/min across ALL clients — protects the daemon.
+            // 2. Per-client: 600/min per peer IP (ConnectInfo; proxy headers
+            //    only with `rate_limit_policy.trust_proxy_headers`).
+            // 3. Per-client-per-route: 120/min per (client, method, route
+            //    template) — throttles hammering of one expensive endpoint.
             //
-            // 2. Per-User Limit: 20 requests/minute per client IP
-            //    - Prevents single client monopolization
-            //    - IP extracted from X-Forwarded-For or X-Real-IP headers
-            //    - Each IP gets independent bucket
-            //
-            // 3. Per-Endpoint Limit: 10 requests/minute per URI path
-            //    - Prevents abuse of expensive endpoints (AI, GitHub sync)
-            //    - Each endpoint (e.g., /api/tasks, /api/beads) tracked separately
-            //    - Allows high-frequency status polling on cheap endpoints
-            //
-            // To adjust limits:
-            // - Use RateLimitConfig::per_second(n), per_minute(n), or per_hour(n)
-            // - For production: increase global and per-user limits
-            // - For development: use per_second(n) for faster iteration
+            // Direct loopback peers (TUI, desktop app, CLI, MCP) skip tiers 2
+            // and 3 by default and only count toward the global tier. A single
+            // TUI refresh is ~13 requests every 5 s (~156/min), which the old
+            // 20/min shared "unknown" bucket could not absorb.
             //
             // When exceeded, middleware returns HTTP 429 with Retry-After header.
             rate_limiter: Arc::new(MultiKeyRateLimiter::new(
-                RateLimitConfig::per_minute(100), // Global tier
-                RateLimitConfig::per_minute(20),  // Per-user tier
-                RateLimitConfig::per_minute(30),  // Per-endpoint tier (TUI polls /api/bootstrap at 12/min)
+                RateLimitConfig::per_minute(1200), // Global tier
+                RateLimitConfig::per_minute(600),  // Per-client tier
+                RateLimitConfig::per_minute(120),  // Per-client-per-route tier
             )),
+            rate_limit_policy: RateLimitPolicy::default(),
             retention_config: Arc::new(RwLock::new(RetentionConfig::default())),
             mcp_sessions: super::mcp_sse::new_session_store(),
+            notification_task_started: AtomicBool::new(false),
         }
     }
 
@@ -355,6 +356,42 @@ impl ApiState {
         }
 
         removed_count
+    }
+
+    /// Start the single background task that turns event-bus messages into
+    /// entries in [`ApiState::notification_store`].
+    ///
+    /// Event-to-notification conversion must happen exactly once per event,
+    /// independent of how many WebSocket clients are connected (previously
+    /// every `/api/events/ws` connection wrote its own copy, and nothing was
+    /// recorded while no client was connected). Idempotent: repeated calls
+    /// do not spawn additional tasks. Must be called from a Tokio runtime.
+    pub fn start_notification_task(self: &Arc<Self>) {
+        if self.notification_task_started.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let event_bus = self.event_bus.clone();
+        let store = self.notification_store.clone();
+        tokio::spawn(async move {
+            loop {
+                let rx = event_bus.subscribe_filtered(|msg| {
+                    crate::notifications::notification_from_event(msg).is_some()
+                });
+                while let Ok(msg) = rx.recv_async().await {
+                    if let Some((title, message, level, source, action_url)) =
+                        crate::notifications::notification_from_event(&msg)
+                    {
+                        store
+                            .write()
+                            .await
+                            .add_with_url(title, message, level, source, action_url);
+                    }
+                }
+                // The bus drops subscribers whose channel fills up; resubscribe
+                // rather than silently stop recording notifications.
+                tracing::warn!("notification subscriber dropped by event bus, resubscribing");
+            }
+        });
     }
 
     /// Start a background cleanup task that periodically removes expired data.

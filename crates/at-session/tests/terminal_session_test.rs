@@ -375,6 +375,37 @@ fn test_failed_spawn_releases_reserved_slot() {
 }
 
 #[test]
+fn test_concurrent_spawns_respect_capacity() {
+    use std::sync::{Arc, Barrier};
+
+    let pool = Arc::new(PtyPool::new(2));
+    let barrier = Arc::new(Barrier::new(8));
+    let threads: Vec<_> = (0..8)
+        .map(|_| {
+            let pool = pool.clone();
+            let barrier = barrier.clone();
+            std::thread::spawn(move || {
+                barrier.wait();
+                pool.spawn("/bin/sh", &["-c", "sleep 2"], &[])
+            })
+        })
+        .collect();
+    let results: Vec<_> = threads.into_iter().map(|t| t.join().unwrap()).collect();
+
+    let ok: Vec<_> = results.iter().filter_map(|r| r.as_ref().ok()).collect();
+    assert_eq!(ok.len(), 2, "exactly max_ptys spawns may succeed");
+    assert_eq!(pool.active_count(), 2);
+    assert!(results
+        .iter()
+        .filter_map(|r| r.as_ref().err())
+        .all(|e| matches!(e, PtyError::AtCapacity { max: 2 })));
+    for h in ok {
+        let _ = h.kill();
+        pool.release(h.id);
+    }
+}
+
+#[test]
 fn test_exit_code_reports_real_status() {
     let pool = PtyPool::new(2);
     let handle = pool

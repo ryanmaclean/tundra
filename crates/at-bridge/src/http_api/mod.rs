@@ -176,6 +176,7 @@ mod router {
     ) -> Router {
         // Clone the rate limiter before building the router.
         let rate_limiter = state.rate_limiter.clone();
+        let rate_limit_policy = state.rate_limit_policy;
 
         Router::new()
             .route("/api/bootstrap", get(bootstrap::get_bootstrap))
@@ -481,7 +482,7 @@ mod router {
             .layer(DefaultBodyLimit::max(2 * 1024 * 1024))
             // Apply three-tier rate limiting (global, per-user, per-endpoint).
             // Returns HTTP 429 when limits exceeded. See ApiState::new() for config.
-            .layer(RateLimitLayer::new(rate_limiter))
+            .layer(RateLimitLayer::new(rate_limiter).with_policy(rate_limit_policy))
             .layer(AuthLayer::new(api_key))
             .layer(
                 CorsLayer::new()
