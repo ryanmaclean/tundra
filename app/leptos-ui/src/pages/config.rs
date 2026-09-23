@@ -52,9 +52,8 @@ fn settings_json_diff(old: &serde_json::Value, new: &serde_json::Value) -> Optio
 
 /// PATCH /api/settings with a partial config (deep-merged server-side).
 ///
-/// NOTE: `api.rs` has no public PATCH helper, so the request is built here.
-/// It sends `X-API-Key` from `window.__TUNDRA_API_KEY__` when present; once
-/// `api::new_request` exists, switch to it so auth stays in one place.
+/// The request is built with [`api::new_request`] so the daemon API key is
+/// attached in one place, like every other API call.
 async fn patch_settings(patch: &serde_json::Value) -> Result<(), String> {
     use wasm_bindgen::{JsCast, JsValue};
     use wasm_bindgen_futures::JsFuture;
@@ -64,19 +63,11 @@ async fn patch_settings(patch: &serde_json::Value) -> Result<(), String> {
     let opts = web_sys::RequestInit::new();
     opts.set_method("PATCH");
     opts.set_body(&JsValue::from_str(&body));
-    let request = web_sys::Request::new_with_str_and_init(&url, &opts)
-        .map_err(|_| "failed to build request".to_string())?;
+    let request = api::new_request(&url, &opts)?;
     let headers = request.headers();
     let _ = headers.set("Content-Type", "application/json");
     let _ = headers.set("Accept", "application/json");
     let window = web_sys::window().ok_or("no global window")?;
-    if let Some(key) = js_sys::Reflect::get(&window, &JsValue::from_str("__TUNDRA_API_KEY__"))
-        .ok()
-        .and_then(|v| v.as_string())
-        .filter(|k| !k.is_empty())
-    {
-        let _ = headers.set("X-API-Key", &key);
-    }
 
     let resp_value = JsFuture::from(window.fetch_with_request(&request))
         .await
