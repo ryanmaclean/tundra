@@ -12,6 +12,7 @@ mod agents;
 mod beads;
 mod bootstrap;
 mod catalog;
+mod gitea;
 mod github;
 mod integrations;
 mod kanban;

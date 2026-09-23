@@ -1253,3 +1253,219 @@ async fn test_security_response_headers_present() {
         "strict-origin-when-cross-origin"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Gitea routes
+// ---------------------------------------------------------------------------
+
+/// Router over a temp settings file holding `integrations`, optionally keyed.
+fn gitea_app(
+    integrations: at_core::config::IntegrationConfig,
+    api_key: Option<&str>,
+) -> axum::Router {
+    let path = std::env::temp_dir()
+        .join(format!("at-gitea-test-{}", Uuid::new_v4()))
+        .join("settings.toml");
+    let mgr = Arc::new(at_core::settings::SettingsManager::new(&path));
+    let cfg = at_core::config::Config {
+        integrations,
+        ..Default::default()
+    };
+    mgr.save(&cfg).expect("save test settings");
+    let mut state = ApiState::new(EventBus::new()).with_relaxed_rate_limits();
+    state.settings_manager = mgr;
+    router::api_router_with_auth(Arc::new(state), api_key.map(str::to_string), vec![])
+}
+
+async fn json_of(resp: axum::response::Response) -> serde_json::Value {
+    let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    serde_json::from_slice(&body).unwrap()
+}
+
+#[tokio::test]
+async fn test_catalog_lists_gitea_routes() {
+    let (app, _state) = test_app();
+    let resp = app
+        .oneshot(Request::get("/api/catalog").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let catalog = json_of(resp).await;
+    let cards: Vec<&serde_json::Value> = catalog["cards"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|c| c["domain"] == "gitea")
+        .collect();
+    let got: std::collections::BTreeSet<(String, String, String, String)> = cards
+        .iter()
+        .map(|c| {
+            let s = |k: &str| c[k].as_str().unwrap_or("").to_string();
+            (s("method"), s("path"), s("request"), s("response"))
+        })
+        .collect();
+    let want: std::collections::BTreeSet<(String, String, String, String)> = [
+        ("GET", "/api/gitea/status", "", "GiteaStatus"),
+        ("GET", "/api/gitea/repo", "", "GiteaRepo"),
+        ("GET", "/api/gitea/issues", "", "GiteaPage<GiteaIssue>"),
+        (
+            "POST",
+            "/api/gitea/issues",
+            "CreateGiteaIssueBody",
+            "GiteaIssue",
+        ),
+        (
+            "PATCH",
+            "/api/gitea/issues/{number}",
+            "UpdateGiteaIssueBody",
+            "GiteaIssue",
+        ),
+        (
+            "POST",
+            "/api/gitea/pulls",
+            "CreateGiteaPrBody",
+            "GiteaPullRequest",
+        ),
+        (
+            "GET",
+            "/api/gitea/releases/{tag}/assets",
+            "",
+            "Vec<GiteaAsset>",
+        ),
+        (
+            "POST",
+            "/api/gitea/releases/{tag}/assets",
+            "application/octet-stream",
+            "GiteaAsset",
+        ),
+    ]
+    .iter()
+    .map(|(m, p, q, r)| (m.to_string(), p.to_string(), q.to_string(), r.to_string()))
+    .collect();
+    assert_eq!(got, want);
+    let upload = cards
+        .iter()
+        .find(|c| c["method"] == "POST" && c["path"] == "/api/gitea/releases/{tag}/assets")
+        .unwrap();
+    assert_eq!(upload["body_limit"], 64 * 1024 * 1024);
+    assert!(cards.iter().all(|c| c["auth"] != "none"));
+}
+
+#[tokio::test]
+async fn test_gitea_issues_token_missing_is_503() {
+    let app = gitea_app(
+        at_core::config::IntegrationConfig {
+            gitea_token_env: "AT_TEST_GITEA_TOKEN_MISSING_503".into(),
+            gitea_owner: Some("fleet".into()),
+            gitea_repo: Some("tundra".into()),
+            ..Default::default()
+        },
+        None,
+    );
+    let resp = app
+        .oneshot(
+            Request::get("/api/gitea/issues")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let body = json_of(resp).await;
+    assert_eq!(body["code"], "gitea_token_missing");
+    assert_eq!(body["env_var"], "AT_TEST_GITEA_TOKEN_MISSING_503");
+    assert_eq!(body["retryable"], false);
+    assert_eq!(body["schema"], "gitea.error/v1");
+}
+
+#[tokio::test]
+async fn test_gitea_repo_unset_and_bad_repo_are_400() {
+    // PATH is always set in the test process, so the token lookup succeeds
+    // and the owner/repo checks run (no network: they fail first).
+    let int = at_core::config::IntegrationConfig {
+        gitea_token_env: "PATH".into(),
+        ..Default::default()
+    };
+    let resp = gitea_app(int.clone(), None)
+        .oneshot(Request::get("/api/gitea/repo").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(json_of(resp).await["code"], "gitea_repo_unset");
+
+    let resp = gitea_app(int, None)
+        .oneshot(
+            Request::get("/api/gitea/repo?owner=..&repo=x")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(json_of(resp).await["code"], "gitea_bad_repo");
+}
+
+#[tokio::test]
+async fn test_gitea_status_reports_unconfigured_without_network() {
+    let app = gitea_app(
+        at_core::config::IntegrationConfig {
+            gitea_token_env: "AT_TEST_GITEA_TOKEN_STATUS".into(),
+            gitea_owner: Some("fleet".into()),
+            ..Default::default()
+        },
+        None,
+    );
+    let resp = app
+        .oneshot(
+            Request::get("/api/gitea/status")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = json_of(resp).await;
+    assert_eq!(body["schema"], "gitea.status/v1");
+    assert_eq!(body["mode"], "unconfigured");
+    assert_eq!(body["token_present"], false);
+    assert_eq!(body["missing"], serde_json::json!(["token", "repo"]));
+    assert_eq!(body["base_url"], "http://gitea.local:3000");
+}
+
+#[tokio::test]
+async fn test_gitea_routes_require_api_key() {
+    let app = gitea_app(
+        at_core::config::IntegrationConfig::default(),
+        Some("k-gitea"),
+    );
+    for (m, p) in [
+        ("GET", "/api/gitea/status"),
+        ("GET", "/api/gitea/issues"),
+        ("POST", "/api/gitea/pulls"),
+    ] {
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(m)
+                    .uri(p)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED, "{m} {p}");
+    }
+    let resp = app
+        .oneshot(
+            Request::get("/api/gitea/status")
+                .header("x-api-key", "k-gitea")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+}
