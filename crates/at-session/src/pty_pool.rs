@@ -519,6 +519,25 @@ pub struct PtyPool {
     handles: Arc<Mutex<HashMap<Uuid, ()>>>,
 }
 
+/// A pool slot reserved during [`PtyPool::spawn_in`]; released on drop
+/// unless the spawn succeeded (`armed == false`).
+struct SlotReservation<'a> {
+    handles: &'a Mutex<HashMap<Uuid, ()>>,
+    id: Uuid,
+    armed: bool,
+}
+
+impl Drop for SlotReservation<'_> {
+    fn drop(&mut self) {
+        if self.armed {
+            self.handles
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(&self.id);
+        }
+    }
+}
+
 impl PtyPool {
     /// Create a new pool with the given maximum number of concurrent PTYs.
     ///
@@ -670,16 +689,25 @@ impl PtyPool {
             }
         }
 
-        // Capacity check
-        {
-            let handles = self.handles.lock().unwrap_or_else(|e| {
+        // Capacity check and slot reservation under ONE lock, so concurrent
+        // spawns cannot all pass the check before any of them inserts. The
+        // reservation is released on every early return below.
+        let handle_id = Uuid::new_v4();
+        let mut reservation = {
+            let mut handles = self.handles.lock().unwrap_or_else(|e| {
                 warn!("PtyPool lock was poisoned, recovering");
                 e.into_inner()
             });
             if handles.len() >= self.max_ptys {
                 return Err(PtyError::AtCapacity { max: self.max_ptys });
             }
-        }
+            handles.insert(handle_id, ());
+            SlotReservation {
+                handles: &self.handles,
+                id: handle_id,
+                armed: true,
+            }
+        };
 
         let pty_system = native_pty_system();
 
@@ -711,7 +739,6 @@ impl PtyPool {
         debug!(cmd, ?args, "spawned PTY process");
 
         let child = Arc::new(Mutex::new(child));
-        let handle_id = Uuid::new_v4();
 
         // -- stdout reader thread --
         let (read_tx, read_rx) = flume::bounded::<Vec<u8>>(256);
@@ -755,14 +782,8 @@ impl PtyPool {
             }
         });
 
-        // Track in pool
-        {
-            let mut handles = self.handles.lock().unwrap_or_else(|e| {
-                warn!("PtyPool lock was poisoned, recovering");
-                e.into_inner()
-            });
-            handles.insert(handle_id, ());
-        }
+        // Spawn succeeded: the reserved slot now belongs to the handle.
+        reservation.armed = false;
 
         Ok(PtyHandle {
             id: handle_id,
