@@ -1279,6 +1279,9 @@ pub async fn create_task(
         priority: priority.to_string(),
         complexity: complexity.to_string(),
         category: category.to_string(),
+        // No acceptance-criteria input in the wizard/onboarding flow yet;
+        // empty means the server inherits the bead's own criteria.
+        acceptance_criteria: Vec::new(),
     };
     post_json(&format!("{}/api/tasks", get_api_base()), &body).await
 }
