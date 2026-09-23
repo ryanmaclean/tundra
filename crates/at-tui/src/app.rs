@@ -1251,7 +1251,7 @@ fn demo_memory() -> Vec<MemoryEntryInfo> {
 }
 
 fn load_config_text() -> String {
-    let path = dirs::home_dir()
+    let path = at_core::paths::home_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
         .join(".auto-tundra")
         .join("config.toml");

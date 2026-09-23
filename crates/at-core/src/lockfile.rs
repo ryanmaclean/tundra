@@ -54,7 +54,7 @@ pub struct DaemonLockfile {
 pub fn data_dir() -> PathBuf {
     let home = std::env::var_os("HOME")
         .map(PathBuf::from)
-        .or_else(dirs::home_dir)
+        .or_else(crate::paths::home_dir)
         .unwrap_or_else(|| PathBuf::from("/tmp"));
     home.join(".auto-tundra")
 }
@@ -278,6 +278,17 @@ fn pid_alive(_pid: u32) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn data_dir_is_dot_auto_tundra_under_home() {
+        let dir = data_dir();
+        assert_eq!(dir.file_name().and_then(|n| n.to_str()), Some(".auto-tundra"));
+        let expected_home = std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .or_else(crate::paths::home_dir)
+            .unwrap_or_else(|| PathBuf::from("/tmp"));
+        assert_eq!(dir, expected_home.join(".auto-tundra"));
+    }
 
     #[test]
     fn current_pid_is_alive() {

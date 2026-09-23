@@ -324,7 +324,6 @@ dependencies = [
  "at-telemetry",
  "axum",
  "clap",
- "dirs",
  "mimalloc",
  "reqwest",
  "serde",
@@ -339,7 +338,6 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "crossbeam-channel",
- "dirs",
  "git2",
  "libc",
  "lru 0.18.5",
@@ -547,7 +545,6 @@ dependencies = [
  "at-telemetry",
  "chrono",
  "crossterm",
- "dirs",
  "flume",
  "ratatui",
  "ratatui-wgpu",

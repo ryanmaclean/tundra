@@ -16,7 +16,7 @@ impl SettingsManager {
     /// Create a `SettingsManager` using the default config location
     /// (`~/.config/auto-tundra/settings.toml`).
     pub fn default_path() -> Self {
-        let path = dirs::home_dir()
+        let path = crate::paths::home_dir()
             .unwrap_or_else(|| PathBuf::from("."))
             .join(".config")
             .join("auto-tundra")
@@ -153,6 +153,16 @@ impl SettingsManager {
 mod tests {
     use super::*;
     use std::fs;
+
+    #[test]
+    fn default_path_is_home_dot_config_settings_toml() {
+        let mgr = SettingsManager::default_path();
+        let home = crate::paths::home_dir().unwrap_or_else(|| PathBuf::from("."));
+        assert_eq!(
+            mgr.path(),
+            &home.join(".config").join("auto-tundra").join("settings.toml")
+        );
+    }
 
     fn tmp_settings_path() -> PathBuf {
         let dir = std::env::temp_dir().join(format!("at-settings-test-{}", uuid::Uuid::new_v4()));

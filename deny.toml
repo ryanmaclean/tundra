@@ -96,9 +96,10 @@ exceptions = [
     # builds use the OS trust store, as before. Remove if [graph] targets is
     # ever narrowed to the shipped triples. Review 2026-12-31.
     { crate = "webpki-root-certs", allow = ["CDLA-Permissive-2.0"] },
-    # MPL-2.0: option-ext <- dirs-sys 0.5 <- dirs 6 (direct dep of at-core,
-    # at-cli, at-tui). Removable by replacing `dirs` with `etcetera` or
-    # std::env::home_dir; tracked as follow-up.
+    # MPL-2.0: option-ext <- dirs-sys 0.5 <- dirs 6. No first-party crate uses
+    # `dirs` any more (at-core/at-cli/at-tui resolve paths via at_core::paths,
+    # std-only); it is now pulled only by tauri / tauri-build / tray-icon / wry
+    # (app/tauri). Remove once tauri drops `dirs` or at-tauri leaves the graph.
     { crate = "option-ext", allow = ["MPL-2.0"] },
 ]
 

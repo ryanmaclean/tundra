@@ -96,9 +96,11 @@ pub struct SessionStore {
 }
 
 impl SessionStore {
-    /// Create a store with the default directory (`~/.config/auto-tundra/sessions/`).
+    /// Create a store with the default directory: `<config_dir>/auto-tundra/sessions/`,
+    /// where `<config_dir>` is [`crate::paths::config_dir`] (`~/.config` on
+    /// Linux/BSD, `~/Library/Application Support` on macOS).
     pub fn default_path() -> Self {
-        let base = dirs::config_dir()
+        let base = crate::paths::config_dir()
             .unwrap_or_else(|| PathBuf::from(".config"))
             .join("auto-tundra")
             .join("sessions");
@@ -245,6 +247,13 @@ impl SessionStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn default_path_uses_platform_config_dir() {
+        let store = SessionStore::default_path();
+        let base = crate::paths::config_dir().unwrap_or_else(|| PathBuf::from(".config"));
+        assert_eq!(store.base_dir, base.join("auto-tundra").join("sessions"));
+    }
 
     fn temp_store() -> (SessionStore, tempfile::TempDir) {
         let dir = tempfile::tempdir().expect("create temp dir");
