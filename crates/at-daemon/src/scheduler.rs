@@ -769,16 +769,18 @@ mod tests {
 
     // ----- CacheError::InvalidRow regression tests -----
 
-    /// When `list_beads_by_status` returns `CacheError::InvalidRow` (because a
-    /// backlog row has a corrupt status string), `next_bead` must return `None`
-    /// rather than panicking — and the caller should be able to continue.
+    /// When the *only* backlog row is corrupt (unrecognised lane value),
+    /// `list_beads_by_status` skips it (skip-and-continue policy — see
+    /// `at_core::cache::CacheDb::list_beads_by_status`) and returns an empty
+    /// list, so `next_bead` must return `None` rather than panicking.
     #[tokio::test]
     async fn next_bead_returns_none_on_invalid_row_error() {
         let cache = CacheDb::new_in_memory().await.expect("cache");
         let s = TaskScheduler::new(4);
 
-        // Insert a bead with an unrecognised lane value.  list_beads_by_status
-        // will hit it and return CacheError::InvalidRow.
+        // Insert a bead with an unrecognised lane value. list_beads_by_status
+        // skips this row (it cannot decode it) rather than erroring, so with
+        // no other backlog beads present the scan comes back empty.
         cache
             .insert_raw_bead_for_test(
                 "550e8400-e29b-41d4-a716-446655440001",
@@ -788,12 +790,42 @@ mod tests {
             .await
             .expect("raw insert");
 
-        // Must not panic; returns None on any error.
+        // Must not panic; returns None when the backlog is (effectively) empty.
         let result = s.next_bead(&cache).await;
         assert!(
             result.is_none(),
-            "next_bead must return None when cache returns InvalidRow"
+            "next_bead must return None when the only backlog row is corrupt"
         );
+    }
+
+    /// One corrupt bead in the backlog must not stop scheduling: `next_bead`
+    /// must still find and return a well-formed bead sitting alongside a
+    /// corrupt one. This is the scenario `CacheDb::list_beads_by_status`'s
+    /// skip-and-continue policy exists for.
+    #[tokio::test]
+    async fn next_bead_returns_good_bead_when_another_row_is_corrupt() {
+        let cache = CacheDb::new_in_memory().await.expect("cache");
+        let s = TaskScheduler::new(4);
+
+        // Corrupt backlog row — unrecognised lane value, skipped by the cache.
+        cache
+            .insert_raw_bead_for_test(
+                "550e8400-e29b-41d4-a716-446655440099",
+                "backlog",
+                "NOT_A_REAL_LANE",
+            )
+            .await
+            .expect("raw insert corrupt bead");
+
+        // Well-formed backlog bead alongside it.
+        let good = make_bead(Lane::Standard, 5, BeadStatus::Backlog);
+        cache.upsert_bead(&good).await.expect("upsert good bead");
+
+        let result = s
+            .next_bead(&cache)
+            .await
+            .expect("next_bead must still return the good bead despite the corrupt one");
+        assert_eq!(result.id, good.id);
     }
 
     /// When `list_beads_by_status` returns `CacheError::Db` (simulated by

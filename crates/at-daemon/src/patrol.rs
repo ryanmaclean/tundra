@@ -1407,17 +1407,18 @@ mod tests {
 
     // ----- CacheError::InvalidRow regression tests -----
 
-    /// When `list_beads_by_status` returns `CacheError::InvalidRow` (because a
-    /// slung row has a corrupt lane value), `run_patrol` must return an `Err`
-    /// rather than panicking.  The error message must mention the corruption so
-    /// operators can identify the source.
+    /// `CacheDb::list_beads_by_status` follows a skip-and-continue policy: a
+    /// slung row with a corrupt lane value is skipped (logged + counted)
+    /// rather than failing the whole query, so `run_patrol` must still
+    /// return `Ok` (not propagate an error) and simply not count the corrupt
+    /// row as stuck.
     #[tokio::test]
-    async fn run_patrol_returns_err_on_invalid_row_in_slung_beads() {
+    async fn run_patrol_skips_invalid_row_in_slung_beads() {
         let runner = PatrolRunner::new(60);
         let cache = CacheDb::new_in_memory().await.expect("cache");
 
-        // Insert a slung bead with a bogus lane — row_to_bead will return
-        // CacheError::InvalidRow when the patrol queries slung beads.
+        // Insert a slung bead with a bogus lane — row_to_bead cannot decode
+        // it, so list_beads_by_status skips this row instead of erroring.
         cache
             .insert_raw_bead_for_test(
                 "550e8400-e29b-41d4-a716-446655440002",
@@ -1427,17 +1428,44 @@ mod tests {
             .await
             .expect("raw insert");
 
-        let result = runner.run_patrol(&cache).await;
-        assert!(
-            result.is_err(),
-            "run_patrol must propagate CacheError::InvalidRow as Err"
+        let report = runner
+            .run_patrol(&cache)
+            .await
+            .expect("run_patrol must not fail when a slung row is corrupt — it is skipped");
+        assert_eq!(
+            report.stuck_beads, 0,
+            "the corrupt row was skipped, not counted as stuck"
         );
-        let msg = result.unwrap_err().to_string();
-        // The anyhow message must mention the corrupt data context.
-        assert!(
-            msg.contains("corrupt") || msg.contains("invalid"),
-            "error message should describe the corruption, got: {msg}"
-        );
+    }
+
+    /// One corrupt slung row must not stop the stuck-bead check from finding
+    /// a real stuck bead sitting alongside it.
+    #[tokio::test]
+    async fn run_patrol_finds_stuck_bead_when_another_slung_row_is_corrupt() {
+        let runner = PatrolRunner::new(60);
+        let cache = CacheDb::new_in_memory().await.expect("cache");
+
+        // Corrupt slung row — unrecognised lane value, skipped by the cache.
+        cache
+            .insert_raw_bead_for_test(
+                "550e8400-e29b-41d4-a716-446655440003",
+                "slung",
+                "GALAXY_BRAIN_LANE",
+            )
+            .await
+            .expect("raw insert corrupt bead");
+
+        // Well-formed stuck bead alongside it.
+        let stuck = make_slung_bead(Some(Utc::now() - ChronoDuration::hours(1)));
+        let stuck_id = stuck.id;
+        insert_beads(&cache, &[stuck]).await;
+
+        let report = runner
+            .run_patrol(&cache)
+            .await
+            .expect("run_patrol must still succeed despite the corrupt row");
+        assert_eq!(report.stuck_beads, 1);
+        assert_eq!(report.stuck_bead_ids, vec![stuck_id]);
     }
 
     /// When the slung bead query succeeds (no corruption), `run_patrol` must
