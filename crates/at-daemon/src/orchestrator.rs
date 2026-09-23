@@ -304,10 +304,10 @@ impl TaskOrchestrator {
                     }
                     if !result.output.is_empty() {
                         // Log output in chunks if it's large
-                        let output_preview = if result.output.len() > 1000 {
+                        let output_preview = if result.output.len() > OUTPUT_PREVIEW_BYTES {
                             format!(
                                 "{}... (truncated, {} bytes total)",
-                                &result.output[..1000],
+                                preview(&result.output, OUTPUT_PREVIEW_BYTES),
                                 result.output.len()
                             )
                         } else {
@@ -651,6 +651,15 @@ fn run_spec_pipeline_for_task(task: &mut Task) {
     );
 }
 
+/// Maximum bytes of agent output copied into a task log line.
+const OUTPUT_PREVIEW_BYTES: usize = 1000;
+
+/// Longest prefix of `s` that is at most `max` bytes and ends on a UTF-8
+/// character boundary (a plain byte slice panics inside a multi-byte char).
+fn preview(s: &str, max: usize) -> &str {
+    &s[..s.floor_char_boundary(max)]
+}
+
 /// Sanitize a task title for branch/directory naming.
 fn sanitize_task_title(title: &str) -> String {
     title
@@ -898,6 +907,31 @@ mod tests {
             event_types.iter().any(|e| e == "task_complete"),
             "should have task_complete event: {event_types:?}"
         );
+    }
+
+    #[test]
+    fn preview_cuts_on_char_boundary() {
+        // 400 x U+2500 is 1200 bytes; byte 1000 falls inside a 3-byte char.
+        let s = "\u{2500}".repeat(400);
+        let p = preview(&s, OUTPUT_PREVIEW_BYTES);
+        assert!(p.len() <= OUTPUT_PREVIEW_BYTES);
+        assert_eq!(p.len(), 999);
+        assert!(s.starts_with(p));
+        assert_eq!(preview("short", OUTPUT_PREVIEW_BYTES), "short");
+    }
+
+    #[tokio::test]
+    async fn start_task_logs_multibyte_output_without_panicking() {
+        let output = format!("{}\n", "\u{2500}".repeat(400)).into_bytes();
+        let orchestrator = make_orchestrator(output, vec![]).await;
+        let mut task = make_test_task();
+
+        let result = orchestrator.start_task(&mut task).await;
+        assert!(result.is_ok(), "start_task failed: {result:?}");
+        assert!(task
+            .logs
+            .iter()
+            .any(|l| l.message.contains("(truncated, 1201 bytes total)")));
     }
 
     #[test]
