@@ -822,6 +822,19 @@ pub struct IntegrationConfig {
     /// Linear team ID to scope issues.
     #[serde(default)]
     pub linear_team_id: Option<String>,
+    /// Env var name for the Gitea token (default: `GITEA_TOKEN`). This is the
+    /// variable's *name*; the token itself is never stored in config.
+    #[serde(default = "default_gitea_env")]
+    pub gitea_token_env: String,
+    /// Gitea instance URL (default: `http://gitea.local:3000`, the fleet QNAS).
+    #[serde(default)]
+    pub gitea_url: Option<String>,
+    /// Gitea repository owner (user or org).
+    #[serde(default)]
+    pub gitea_owner: Option<String>,
+    /// Gitea repository name.
+    #[serde(default)]
+    pub gitea_repo: Option<String>,
 }
 
 impl Default for IntegrationConfig {
@@ -835,6 +848,10 @@ impl Default for IntegrationConfig {
             gitlab_url: None,
             linear_api_key_env: default_linear_env(),
             linear_team_id: None,
+            gitea_token_env: default_gitea_env(),
+            gitea_url: None,
+            gitea_owner: None,
+            gitea_repo: None,
         }
     }
 }
@@ -847,6 +864,9 @@ fn default_gitlab_env() -> String {
 }
 fn default_linear_env() -> String {
     "LINEAR_API_KEY".into()
+}
+fn default_gitea_env() -> String {
+    "GITEA_TOKEN".into()
 }
 
 // ---------------------------------------------------------------------------
@@ -1201,6 +1221,9 @@ impl CredentialProvider {
         }
         if Self::from_env("LINEAR_API_KEY").is_some() {
             providers.push("linear");
+        }
+        if Self::from_env("GITEA_TOKEN").is_some() {
+            providers.push("gitea");
         }
         providers
     }
