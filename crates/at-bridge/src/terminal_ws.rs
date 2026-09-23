@@ -141,7 +141,7 @@ use uuid::Uuid;
 use at_harness::security::{InputSanitizer, SecurityError};
 
 use crate::http_api::ApiState;
-use crate::origin_validation::{get_default_allowed_origins, validate_websocket_origin};
+use crate::origin_validation::OriginAllowlist;
 use crate::terminal::{
     DisconnectBuffer, TerminalInfo, TerminalStatus, DISCONNECT_BUFFER_SIZE, WS_RECONNECT_GRACE,
 };
@@ -985,11 +985,13 @@ pub async fn terminal_ws(
     ws: WebSocketUpgrade,
     State(state): State<Arc<ApiState>>,
     Path(id): Path<String>,
+    origins: Option<axum::Extension<OriginAllowlist>>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
     // Validate Origin header to prevent cross-site WebSocket hijacking.
-    let allowed_origins = get_default_allowed_origins();
-    if let Err(status) = validate_websocket_origin(&headers, &allowed_origins) {
+    // The allowlist (defaults + configured origins) is installed by the router.
+    let origins = origins.map(|axum::Extension(o)| o).unwrap_or_default();
+    if let Err(status) = origins.validate(&headers) {
         return (status, "origin not allowed").into_response();
     }
 

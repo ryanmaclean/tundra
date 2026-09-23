@@ -508,6 +508,21 @@ impl TaskPhase {
         ]
     }
 
+    /// `true` for phases a task never leaves on its own: `Complete`, `Error`
+    /// and `Stopped`. Clients waiting on a task (e.g. `at exec --wait`) stop
+    /// polling here.
+    pub fn is_terminal(&self) -> bool {
+        matches!(
+            self,
+            TaskPhase::Complete | TaskPhase::Error | TaskPhase::Stopped
+        )
+    }
+
+    /// `true` only for a successfully finished task (`Complete`).
+    pub fn is_success(&self) -> bool {
+        matches!(self, TaskPhase::Complete)
+    }
+
     /// Approximate progress percentage for this phase.
     pub fn progress_percent(&self) -> u8 {
         match self {

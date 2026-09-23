@@ -9,6 +9,8 @@
   "app": {
     "windows": [
       {
+        "label": "main",
+        "create": false,
         "title": "auto-tundra",
         "width": 1280,
         "height": 800,

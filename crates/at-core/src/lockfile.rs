@@ -15,6 +15,14 @@
 //! `read_valid()` checks if the PID in the lockfile is still alive via
 //! `kill(pid, 0)`. If the process is dead (crash, SIGKILL), the stale
 //! lockfile is removed automatically and the next daemon can start.
+//!
+//! ## Client discovery
+//!
+//! Every client (CLI, TUI, tests, scripts) finds the daemon the same way, via
+//! [`DaemonConnection::discover`]: the API URL comes from the lockfile and the
+//! API key from `AUTO_TUNDRA_API_KEY` or `~/.auto-tundra/daemon.key` (the file
+//! named by [`DaemonLockfile::api_key_file`]). The key is deliberately **not**
+//! stored in the lockfile, which is world-readable; the key file is `0600`.
 
 use serde::{Deserialize, Serialize};
 use std::fs::OpenOptions;
@@ -32,6 +40,23 @@ pub struct DaemonLockfile {
     /// Workspace root (enables future multi-instance keying).
     pub project_path: Option<String>,
     pub version: String,
+    /// Path of the `0600` file holding the API key clients must send as
+    /// `X-API-Key`. `None` in lockfiles written by older daemons, or when the
+    /// key comes from `AUTO_TUNDRA_API_KEY`.
+    #[serde(default)]
+    pub api_key_file: Option<String>,
+}
+
+/// Root of auto-tundra's per-user state: `$HOME/.auto-tundra`.
+///
+/// Shared by the lockfile, the daemon key file and config so that the daemon
+/// and its clients always agree on locations.
+pub fn data_dir() -> PathBuf {
+    let home = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .or_else(dirs::home_dir)
+        .unwrap_or_else(|| PathBuf::from("/tmp"));
+    home.join(".auto-tundra")
 }
 
 /// Result of trying to acquire the lockfile.
@@ -47,8 +72,7 @@ pub enum AcquireResult {
 impl DaemonLockfile {
     /// Canonical lockfile path: `~/.auto-tundra/daemon.lock`.
     pub fn path() -> PathBuf {
-        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-        PathBuf::from(home).join(".auto-tundra").join("daemon.lock")
+        data_dir().join("daemon.lock")
     }
 
     /// Try to exclusively create and write the lockfile.
@@ -164,6 +188,80 @@ impl DaemonLockfile {
     }
 }
 
+/// Fallback API URL used when no override is given and no live daemon
+/// lockfile exists.
+pub const DEFAULT_API_URL: &str = "http://127.0.0.1:9090";
+
+/// Header carrying the daemon API key. Mirrors `at_api_types::auth::API_KEY_HEADER`.
+pub const API_KEY_HEADER: &str = "x-api-key";
+
+/// Where a [`DaemonConnection`]'s URL came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DiscoverySource {
+    /// Caller passed an explicit URL (e.g. `--api-url`).
+    Override,
+    /// Read from a live `~/.auto-tundra/daemon.lock`.
+    Lockfile,
+    /// Nothing found; using [`DEFAULT_API_URL`].
+    Default,
+}
+
+/// Everything a client needs to talk to the daemon: base URL + API key.
+///
+/// This is the single discovery path for native clients. Build HTTP clients
+/// with [`DaemonConnection::auth_header`] as a default header.
+#[derive(Debug, Clone)]
+pub struct DaemonConnection {
+    /// Base URL without trailing slash, e.g. `http://127.0.0.1:53712`.
+    pub api_url: String,
+    /// Key to send as `X-API-Key`; `None` if no key could be found (the daemon
+    /// will then answer 401).
+    pub api_key: Option<String>,
+    pub source: DiscoverySource,
+}
+
+impl DaemonConnection {
+    /// Discover the daemon: `api_url_override`, else the live lockfile, else
+    /// [`DEFAULT_API_URL`]. The key is read with
+    /// [`CredentialProvider::read_daemon_api_key`](crate::config::CredentialProvider::read_daemon_api_key),
+    /// which never generates a key.
+    pub fn discover(api_url_override: Option<&str>) -> Self {
+        let (api_url, source) = match api_url_override {
+            Some(url) => (url.to_string(), DiscoverySource::Override),
+            None => match DaemonLockfile::read_valid() {
+                Some(lock) => (lock.api_url(), DiscoverySource::Lockfile),
+                None => (DEFAULT_API_URL.to_string(), DiscoverySource::Default),
+            },
+        };
+        Self::new(
+            api_url,
+            crate::config::CredentialProvider::read_daemon_api_key(),
+            source,
+        )
+    }
+
+    /// Build a connection from explicit parts (tests, embedding).
+    pub fn new(
+        api_url: impl Into<String>,
+        api_key: Option<String>,
+        source: DiscoverySource,
+    ) -> Self {
+        let api_url = api_url.into().trim_end_matches('/').to_string();
+        let api_key = api_key.filter(|k| !k.trim().is_empty());
+        Self {
+            api_url,
+            api_key,
+            source,
+        }
+    }
+
+    /// `(header-name, value)` to attach to every request, if a key is known.
+    pub fn auth_header(&self) -> Option<(&'static str, &str)> {
+        self.api_key.as_deref().map(|k| (API_KEY_HEADER, k))
+    }
+}
+
 /// Check if a process with the given PID is alive.
 #[cfg(unix)]
 fn pid_alive(pid: u32) -> bool {
@@ -202,6 +300,7 @@ mod tests {
             started_at: "2026-02-22T00:00:00Z".into(),
             project_path: Some("/tmp/test-project".into()),
             version: "0.1.0".into(),
+            api_key_file: Some("/tmp/test-project/daemon.key".into()),
         };
 
         let json = serde_json::to_string_pretty(&lock).unwrap();
@@ -222,7 +321,35 @@ mod tests {
             started_at: String::new(),
             project_path: None,
             version: String::new(),
+            api_key_file: None,
         };
         assert!(lock.is_alive());
+    }
+
+    #[test]
+    fn lockfile_without_api_key_file_still_parses() {
+        // Lockfiles written by older daemons have no api_key_file field.
+        let json = r#"{"pid":1,"api_port":2,"frontend_port":3,"host":"127.0.0.1",
+            "started_at":"","project_path":null,"version":"0.1.0"}"#;
+        let parsed: DaemonLockfile = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.api_key_file, None);
+    }
+
+    #[test]
+    fn connection_normalizes_url_and_blank_key() {
+        let c = DaemonConnection::new("http://h:1/", Some("  ".into()), DiscoverySource::Override);
+        assert_eq!(c.api_url, "http://h:1");
+        assert_eq!(c.api_key, None);
+        assert!(c.auth_header().is_none());
+
+        let c = DaemonConnection::new("http://h:1", Some("k".into()), DiscoverySource::Lockfile);
+        assert_eq!(c.auth_header(), Some(("x-api-key", "k")));
+    }
+
+    #[test]
+    fn connection_override_wins() {
+        let c = DaemonConnection::discover(Some("http://example.invalid:7/"));
+        assert_eq!(c.api_url, "http://example.invalid:7");
+        assert_eq!(c.source, DiscoverySource::Override);
     }
 }

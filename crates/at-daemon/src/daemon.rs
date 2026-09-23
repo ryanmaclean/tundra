@@ -167,7 +167,14 @@ impl Daemon {
         // Seed demo data so the UI is functional on first launch.
         self.api_state.seed_demo_data().await;
 
-        let allowed_origins = self.config.security.allowed_origins.clone();
+        // The Tauri webview serves the bundled UI from tauri://localhost
+        // (http://tauri.localhost on Windows); allow it for CORS and WS.
+        let mut allowed_origins = self.config.security.allowed_origins.clone();
+        allowed_origins.extend(
+            at_bridge::origin_validation::TAURI_WEBVIEW_ORIGINS
+                .iter()
+                .map(|o| o.to_string()),
+        );
         let api_router = at_bridge::http_api::api_router_with_auth(
             self.api_state.clone(),
             Some(api_key),

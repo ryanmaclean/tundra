@@ -5,6 +5,8 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod auth;
+
 // ── Core API response types (matching backend JSON) ──
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

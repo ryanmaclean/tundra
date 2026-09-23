@@ -28,24 +28,22 @@ fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
     let offline = args.iter().any(|a| a == "--offline");
     let headless = args.iter().any(|a| a == "--headless");
-    let api_base = args
+    // Same discovery path as the CLI: URL from --api or the daemon lockfile,
+    // API key from AUTO_TUNDRA_API_KEY or ~/.auto-tundra/daemon.key.
+    let api_override = args
         .iter()
         .position(|a| a == "--api")
         .and_then(|i| args.get(i + 1))
-        .cloned()
-        .unwrap_or_else(|| {
-            at_core::lockfile::DaemonLockfile::read_valid()
-                .map(|lock| lock.api_url())
-                .unwrap_or_else(|| {
-                    eprintln!("warning: no running daemon found, trying http://127.0.0.1:9090");
-                    "http://127.0.0.1:9090".to_string()
-                })
-        });
+        .cloned();
+    let conn = at_core::lockfile::DaemonConnection::discover(api_override.as_deref());
+    if !offline && conn.source == at_core::lockfile::DiscoverySource::Default {
+        eprintln!("warning: no running daemon found, trying {}", conn.api_url);
+    }
 
     at_telemetry::logging::init_logging("at-tui", "warn");
 
     if headless {
-        return run_headless(offline, &api_base);
+        return run_headless(offline, &conn);
     }
 
     // Set up panic hook to restore terminal on panic.
@@ -55,34 +53,34 @@ fn main() -> Result<()> {
         original_hook(panic_info);
     }));
 
-    let result = run(offline, &api_base);
+    let result = run(offline, &conn);
 
     restore_terminal()?;
     result
 }
 
 /// Spawn the background API refresh thread, returns a receiver channel.
-fn spawn_refresh(offline: bool, api_base: &str) -> Option<flume::Receiver<api_client::AppData>> {
+fn spawn_refresh(
+    offline: bool,
+    conn: &at_core::lockfile::DaemonConnection,
+) -> Option<flume::Receiver<api_client::AppData>> {
     if offline {
         return None;
     }
     let (tx, rx) = flume::unbounded::<api_client::AppData>();
-    let base = api_base.to_string();
-    std::thread::spawn(move || {
-        let client = api_client::ApiClient::new(&base);
-        loop {
-            let data = client.fetch_all();
-            if tx.send(data).is_err() {
-                break;
-            }
-            std::thread::sleep(Duration::from_secs(5));
+    let client = api_client::ApiClient::from_connection(conn);
+    std::thread::spawn(move || loop {
+        let data = client.fetch_all();
+        if tx.send(data).is_err() {
+            break;
         }
+        std::thread::sleep(Duration::from_secs(5));
     });
     Some(rx)
 }
 
 /// Run the interactive TUI with the standard crossterm backend.
-fn run(offline: bool, api_base: &str) -> Result<()> {
+fn run(offline: bool, conn: &at_core::lockfile::DaemonConnection) -> Result<()> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
@@ -90,7 +88,7 @@ fn run(offline: bool, api_base: &str) -> Result<()> {
     let mut terminal = Terminal::new(backend)?;
 
     let mut app = App::new(offline);
-    let data_rx = spawn_refresh(offline, api_base);
+    let data_rx = spawn_refresh(offline, conn);
 
     loop {
         if let Some(ref rx) = data_rx {
@@ -121,9 +119,9 @@ fn run(offline: bool, api_base: &str) -> Result<()> {
 /// No terminal rendering — pure state machine for agent automation.
 ///
 /// Usage: `echo '{"cmd":"query_state"}' | at-tui --headless`
-fn run_headless(offline: bool, api_base: &str) -> Result<()> {
+fn run_headless(offline: bool, conn: &at_core::lockfile::DaemonConnection) -> Result<()> {
     let mut app = App::new(offline);
-    let data_rx = spawn_refresh(offline, api_base);
+    let data_rx = spawn_refresh(offline, conn);
 
     // Emit initial state event
     emit_event(&serde_json::json!({

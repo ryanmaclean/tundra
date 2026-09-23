@@ -229,6 +229,7 @@ pub fn execute_command(app: &mut App, cmd: AppCommand) -> Option<String> {
                 "tab_name": tab_name,
                 "selected_index": app.selected_index,
                 "api_connected": app.api_connected,
+                "api_unauthorized": app.api_unauthorized,
                 "offline": app.offline,
                 "counts": {
                     "agents": app.agents.len(),

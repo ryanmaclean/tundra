@@ -8,8 +8,22 @@
 //! This module provides validation functions that check the Origin header against
 //! an allowlist of permitted origins. By default, only localhost variants are
 //! allowed (`http://localhost:*`, `http://127.0.0.1:*`, `http://[::1]:*`).
+//!
+//! [`OriginAllowlist`] merges those defaults with the operator-configured
+//! `security.allowed_origins`; the router installs it as a request extension so
+//! the CORS layer and every WebSocket handler enforce the *same* list.
 
 use axum::http::{HeaderMap, StatusCode};
+use std::sync::Arc;
+
+/// Origins used by the Tauri 2 webview when serving the bundled frontend:
+/// `tauri://localhost` (macOS/Linux) and `http(s)://tauri.localhost` (Windows).
+/// The embedded daemon adds these to its allowlist.
+pub const TAURI_WEBVIEW_ORIGINS: &[&str] = &[
+    "tauri://localhost",
+    "http://tauri.localhost",
+    "https://tauri.localhost",
+];
 
 /// Default allowed origins for WebSocket connections (localhost variants only).
 pub const DEFAULT_ALLOWED_ORIGINS: &[&str] = &[
@@ -63,28 +77,70 @@ pub fn validate_websocket_origin(
         .to_str()
         .map_err(|_| StatusCode::FORBIDDEN)?;
 
-    // Check if the origin matches any allowed origin
-    let is_allowed = allowed_origins.iter().any(|allowed| {
-        // Exact match
-        if origin == allowed {
-            return true;
-        }
-
-        // Prefix match with port (e.g., "http://localhost:3000" matches "http://localhost")
-        if let Some(remainder) = origin.strip_prefix(allowed.as_str()) {
-            // Check if the remainder is a port (starts with ':' followed by digits)
-            if let Some(port) = remainder.strip_prefix(':') {
-                return port.chars().all(|c| c.is_ascii_digit());
-            }
-        }
-
-        false
-    });
+    let is_allowed = allowed_origins
+        .iter()
+        .any(|allowed| origin_matches(origin, allowed));
 
     if is_allowed {
         Ok(())
     } else {
         Err(StatusCode::FORBIDDEN)
+    }
+}
+
+/// `true` when `origin` equals `allowed`, or equals `allowed` followed by
+/// `:<digits>` (any port on an allowed scheme+host).
+pub fn origin_matches(origin: &str, allowed: &str) -> bool {
+    if origin == allowed {
+        return true;
+    }
+    match origin
+        .strip_prefix(allowed)
+        .and_then(|r| r.strip_prefix(':'))
+    {
+        Some(port) => port.chars().all(|c| c.is_ascii_digit()),
+        None => false,
+    }
+}
+
+/// The effective origin allowlist: built-in localhost defaults plus any
+/// configured origins. Cheap to clone (shared `Arc`).
+#[derive(Debug, Clone)]
+pub struct OriginAllowlist(Arc<Vec<String>>);
+
+impl Default for OriginAllowlist {
+    /// Localhost defaults only.
+    fn default() -> Self {
+        Self(Arc::new(get_default_allowed_origins()))
+    }
+}
+
+impl OriginAllowlist {
+    /// Defaults plus `configured` (blank and duplicate entries dropped).
+    pub fn with_configured<S: AsRef<str>>(configured: &[S]) -> Self {
+        let mut list = get_default_allowed_origins();
+        for origin in configured {
+            let origin = origin.as_ref().trim().trim_end_matches('/');
+            if !origin.is_empty() && !list.iter().any(|o| o == origin) {
+                list.push(origin.to_string());
+            }
+        }
+        Self(Arc::new(list))
+    }
+
+    /// Whether `origin` is allowed.
+    pub fn allows(&self, origin: &str) -> bool {
+        self.0.iter().any(|allowed| origin_matches(origin, allowed))
+    }
+
+    /// Validate a WebSocket upgrade's `Origin` header against this list.
+    pub fn validate(&self, headers: &HeaderMap) -> Result<(), StatusCode> {
+        validate_websocket_origin(headers, &self.0)
+    }
+
+    /// The merged list (for diagnostics).
+    pub fn origins(&self) -> &[String] {
+        &self.0
     }
 }
 
@@ -492,5 +548,36 @@ mod tests {
         let result = validate_websocket_origin(&headers, &allowed_origins());
         assert!(result.is_err());
         assert_eq!(result.unwrap_err(), StatusCode::FORBIDDEN);
+    }
+
+    #[test]
+    fn allowlist_includes_defaults_and_configured() {
+        let list =
+            OriginAllowlist::with_configured(&["tauri://localhost", " https://ex.com/ ", ""]);
+        assert!(list.allows("http://localhost:3000"));
+        assert!(list.allows("tauri://localhost"));
+        assert!(list.allows("https://ex.com"));
+        assert!(!list.allows("https://evil.com"));
+        assert_eq!(list.origins().len(), DEFAULT_ALLOWED_ORIGINS.len() + 2);
+    }
+
+    #[test]
+    fn default_allowlist_rejects_tauri_origin() {
+        let mut headers = HeaderMap::new();
+        headers.insert("origin", "tauri://localhost".parse().unwrap());
+        assert!(OriginAllowlist::default().validate(&headers).is_err());
+
+        let with_tauri = OriginAllowlist::with_configured(TAURI_WEBVIEW_ORIGINS);
+        assert!(with_tauri.validate(&headers).is_ok());
+        headers.insert("origin", "http://tauri.localhost".parse().unwrap());
+        assert!(with_tauri.validate(&headers).is_ok());
+    }
+
+    #[test]
+    fn allowlist_rejects_localhost_prefix_lookalike() {
+        // The old CORS predicate used starts_with("http://localhost").
+        let list = OriginAllowlist::default();
+        assert!(!list.allows("http://localhost.evil.com"));
+        assert!(!list.allows("http://127.0.0.1.evil.com"));
     }
 }
