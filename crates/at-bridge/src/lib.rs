@@ -15,6 +15,7 @@
 //! - [`auth`] — API key authentication middleware
 //! - [`event_bus`] — Pub/sub event system
 
+pub mod agent_registry;
 pub mod api_error;
 pub mod auth;
 pub mod event_bus;

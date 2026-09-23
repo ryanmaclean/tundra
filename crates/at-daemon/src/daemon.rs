@@ -200,8 +200,10 @@ impl Daemon {
         Ok(port)
     }
 
-    /// Spawn patrol, heartbeat, and KPI loops as background tasks.
-    fn spawn_background_loops(&self) {
+    /// Spawn patrol, heartbeat, and KPI loops (plus the notification recorder
+    /// and live agent-registry sync) as background tasks, without binding
+    /// the API server. Stop them with [`shutdown`](Self::shutdown).
+    pub fn spawn_background_loops(&self) {
         let cache = self.cache.clone();
         let api_state = self.api_state.clone();
         let event_bus = self.event_bus.clone();
@@ -216,6 +218,9 @@ impl Daemon {
         api_state.start_cleanup_task();
         // Single event -> notification recorder (not per WebSocket client).
         api_state.start_notification_task();
+        // Apply executor agent lifecycle + heartbeats to the live registry
+        // (what the stuck-agent patrol reads).
+        api_state.start_agent_registry_task();
 
         tokio::spawn(async move {
             Self::run_loops(cache, api_state, event_bus, config, intervals, shutdown).await;
@@ -406,6 +411,9 @@ impl Daemon {
         self.api_state.start_cleanup_task();
         // Single event -> notification recorder (not per WebSocket client).
         self.api_state.start_notification_task();
+        // Apply executor agent lifecycle + heartbeats to the live registry
+        // (what the stuck-agent patrol reads).
+        self.api_state.start_agent_registry_task();
 
         // Run loops inline (blocking) for standalone mode.
         Self::run_loops(
@@ -491,6 +499,9 @@ impl Daemon {
         self.api_state.start_cleanup_task();
         // Single event -> notification recorder (not per WebSocket client).
         self.api_state.start_notification_task();
+        // Apply executor agent lifecycle + heartbeats to the live registry
+        // (what the stuck-agent patrol reads).
+        self.api_state.start_agent_registry_task();
 
         // Run loops inline (blocking) for standalone mode.
         Self::run_loops(

@@ -5,8 +5,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use at_bridge::event_bus::EventBus;
-use at_bridge::protocol::{BridgeMessage, EventPayload};
-use at_core::types::Task;
+use at_bridge::protocol::{
+    BridgeMessage, EventPayload, EVENT_AGENT_FORCE_KILL, EVENT_AGENT_HEARTBEAT,
+    EXECUTOR_AGENT_SCHEMA,
+};
+use at_core::types::{Agent, AgentRole, AgentStatus, Task};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -586,7 +589,16 @@ pub struct AgentExecutor {
     active_tasks: Arc<Mutex<HashMap<Uuid, Arc<SpawnedProcess>>>>,
     /// Tool approval system for gating tool invocations.
     approval_system: Arc<Mutex<ToolApprovalSystem>>,
+    /// Minimum spacing between `agent_heartbeat` events per execution.
+    heartbeat_interval: Duration,
 }
+
+/// Default spacing between `agent_heartbeat` events for one execution. Well
+/// under the patrol's default 30 s ping timeout.
+pub const DEFAULT_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
+
+/// Longest the read loop waits for output before re-checking liveness.
+const READ_POLL: Duration = Duration::from_secs(1);
 
 impl AgentExecutor {
     /// Create a new executor with a real PtyPool.
@@ -598,6 +610,7 @@ impl AgentExecutor {
             approval_system: Arc::new(Mutex::new(
                 ToolApprovalSystem::new().with_default_audit_log(),
             )),
+            heartbeat_interval: DEFAULT_HEARTBEAT_INTERVAL,
         }
     }
 
@@ -608,6 +621,7 @@ impl AgentExecutor {
             event_bus,
             active_tasks: Arc::new(Mutex::new(HashMap::new())),
             approval_system: Arc::new(Mutex::new(ToolApprovalSystem::new())),
+            heartbeat_interval: DEFAULT_HEARTBEAT_INTERVAL,
         }
     }
 
@@ -622,7 +636,16 @@ impl AgentExecutor {
             event_bus,
             active_tasks: Arc::new(Mutex::new(HashMap::new())),
             approval_system: Arc::new(Mutex::new(approval_system)),
+            heartbeat_interval: DEFAULT_HEARTBEAT_INTERVAL,
         }
+    }
+
+    /// Set the minimum spacing between `agent_heartbeat` events published for
+    /// each execution (default [`DEFAULT_HEARTBEAT_INTERVAL`]). Keep it well
+    /// below the patrol's `ping_timeout_secs`.
+    pub fn with_heartbeat_interval(mut self, interval: Duration) -> Self {
+        self.heartbeat_interval = interval;
+        self
     }
 
     /// Get a reference to the approval system.
@@ -781,6 +804,17 @@ impl AgentExecutor {
             active_tasks: Arc::clone(&self.active_tasks),
         };
 
+        // Register this process as a live agent and listen for the patrol
+        // force-killing it (subscribe first so no kill can be missed).
+        let agent = execution_agent(task, agent_config, process.id);
+        let agent_id = agent.id;
+        let force_kill_rx = self.event_bus.subscribe_filtered(move |msg| {
+            matches!(msg, BridgeMessage::Event(p)
+                if p.event_type == EVENT_AGENT_FORCE_KILL && p.agent_id == Some(agent_id))
+        });
+        let mut liveness =
+            AgentLiveness::register(self.event_bus.clone(), agent, task, self.heartbeat_interval);
+
         // Publish start event
         self.publish_event(task, "task_execution_start");
 
@@ -795,12 +829,27 @@ impl AgentExecutor {
         let mut events = Vec::new();
         let mut denied_tool: Option<String> = None;
 
+        let read_poll = READ_POLL.min(self.heartbeat_interval.max(Duration::from_millis(10)));
+        let mut force_killed = false;
         let collect_result = tokio::time::timeout(timeout, async {
             // Read output chunks until the channel closes (EOF) or the
-            // process is no longer alive.
+            // process is no longer alive. Every read that finds the process
+            // alive (output or an idle poll) is a heartbeat: CLIs in print
+            // mode stay silent until they finish, and hung-but-alive
+            // processes are bounded by `timeout_secs`, not the patrol.
             loop {
-                match process.read_next(Duration::from_secs(1)).await {
+                let outcome = tokio::select! {
+                    outcome = process.read_next(read_poll) => outcome,
+                    Ok(_) = force_kill_rx.recv_async() => {
+                        warn!(task_id = %task.id, %agent_id, "patrol force-killed agent; aborting");
+                        force_killed = true;
+                        process.abort();
+                        break;
+                    }
+                };
+                match outcome {
                     ReadOutcome::Chunk(chunk) => {
+                        liveness.beat();
                         let text = String::from_utf8_lossy(&chunk);
                         // Try to parse structured events from each line
                         for line in text.lines() {
@@ -840,6 +889,7 @@ impl AgentExecutor {
                         if !process.is_alive() {
                             break;
                         }
+                        liveness.beat();
                     }
                 }
             }
@@ -917,6 +967,15 @@ impl AgentExecutor {
                 Some(code) => code == 0,
                 None => !process.has_control() && !output.is_empty(),
             };
+
+        // Exit event: the agent is no longer live.
+        liveness.exit(serde_json::json!({
+            "success": success,
+            "exit_code": exit_code,
+            "timed_out": timed_out,
+            "aborted": aborted,
+            "force_killed": force_killed,
+        }));
 
         // Publish completion event
         self.publish_event(
@@ -1025,6 +1084,91 @@ impl AgentExecutor {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/// The live-registry [`Agent`] for one execution: one agent per spawned
+/// process. `session_id` is the process id, which makes it visible to the
+/// stuck-agent patrol; `metadata` links it back to the task.
+fn execution_agent(task: &Task, config: &AgentConfig, process_id: Uuid) -> Agent {
+    let mut agent = Agent::new(
+        format!("{}:{}", config.binary_name(), task.id),
+        AgentRole::Crew,
+        config.cli_type.clone(),
+    );
+    agent.model = Some(config.model.clone());
+    agent.status = AgentStatus::Active;
+    agent.session_id = Some(process_id.to_string());
+    agent.metadata = Some(serde_json::json!({
+        "schema": EXECUTOR_AGENT_SCHEMA,
+        "task_id": task.id,
+        "bead_id": task.bead_id,
+        "process_id": process_id,
+    }));
+    agent
+}
+
+/// Reports one execution's agent to the live registry over the event bus:
+/// `AgentCreated` on spawn, throttled `agent_heartbeat` events while the
+/// process is observed alive, and `AgentUpdated` (status `Stopped`) on exit.
+/// Dropping it without [`exit`](Self::exit) (cancellation, early `?`) still
+/// reports the exit.
+struct AgentLiveness {
+    bus: EventBus,
+    agent: Agent,
+    bead_id: Uuid,
+    interval: Duration,
+    last_beat: std::time::Instant,
+    exited: bool,
+}
+
+impl AgentLiveness {
+    fn register(bus: EventBus, agent: Agent, task: &Task, interval: Duration) -> Self {
+        bus.publish(BridgeMessage::AgentCreated(agent.clone()));
+        Self {
+            bus,
+            agent,
+            bead_id: task.bead_id,
+            interval,
+            last_beat: std::time::Instant::now(),
+            exited: false,
+        }
+    }
+
+    /// Publish a heartbeat unless one went out less than `interval` ago.
+    fn beat(&mut self) {
+        if self.exited || self.last_beat.elapsed() < self.interval {
+            return;
+        }
+        self.last_beat = std::time::Instant::now();
+        self.bus.publish(BridgeMessage::Event(EventPayload {
+            event_type: EVENT_AGENT_HEARTBEAT.to_string(),
+            agent_id: Some(self.agent.id),
+            bead_id: Some(self.bead_id),
+            message: format!("agent '{}' alive", self.agent.name),
+            timestamp: Utc::now(),
+        }));
+    }
+
+    /// Mark the agent `Stopped` and publish it with `exit` in its metadata.
+    fn exit(&mut self, exit: serde_json::Value) {
+        if self.exited {
+            return;
+        }
+        self.exited = true;
+        self.agent.status = AgentStatus::Stopped;
+        self.agent.last_seen = Utc::now();
+        if let Some(serde_json::Value::Object(meta)) = self.agent.metadata.as_mut() {
+            meta.insert("exit".into(), exit);
+        }
+        self.bus
+            .publish(BridgeMessage::AgentUpdated(self.agent.clone()));
+    }
+}
+
+impl Drop for AgentLiveness {
+    fn drop(&mut self) {
+        self.exit(serde_json::json!({ "success": false, "cancelled": true }));
+    }
+}
 
 /// Build the prompt string to feed to the agent CLI.
 fn build_prompt(task: &Task) -> String {
@@ -1888,5 +2032,198 @@ text in between
         let result = executor.execute_task(&task, &config).await.unwrap();
         assert_eq!(result.tool_errors.len(), 1);
         assert_eq!(result.tool_errors[0].tool_name, "Bash");
+    }
+
+    // -- Live-registry liveness (AgentCreated / agent_heartbeat / exit) --
+
+    fn drain(rx: &flume::Receiver<Arc<BridgeMessage>>) -> Vec<Arc<BridgeMessage>> {
+        rx.try_iter().collect()
+    }
+
+    fn created(msgs: &[Arc<BridgeMessage>]) -> Vec<Agent> {
+        msgs.iter()
+            .filter_map(|m| match &**m {
+                BridgeMessage::AgentCreated(a) => Some(a.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn updated(msgs: &[Arc<BridgeMessage>]) -> Vec<Agent> {
+        msgs.iter()
+            .filter_map(|m| match &**m {
+                BridgeMessage::AgentUpdated(a) => Some(a.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn heartbeats(msgs: &[Arc<BridgeMessage>]) -> Vec<EventPayload> {
+        msgs.iter()
+            .filter_map(|m| match &**m {
+                BridgeMessage::Event(p) if p.event_type == EVENT_AGENT_HEARTBEAT => {
+                    Some(p.clone())
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn execution_registers_live_agent_and_reports_exit() {
+        let spawner = Arc::new(ControlSpawner::new(b"all good\n", Some(0)));
+        let bus = EventBus::new();
+        let rx = bus.subscribe();
+        let executor = AgentExecutor::with_spawner(spawner, bus);
+        let task = make_test_task();
+        let mut config = make_config();
+        config.timeout_secs = 5;
+
+        let result = executor.execute_task(&task, &config).await.unwrap();
+        let msgs = drain(&rx);
+
+        let reg = created(&msgs);
+        assert_eq!(reg.len(), 1, "one agent per spawned process");
+        let agent = &reg[0];
+        assert_eq!(agent.status, AgentStatus::Active);
+        assert!(agent.session_id.is_some(), "session id makes it patrol-visible");
+        let meta = agent.metadata.as_ref().unwrap();
+        assert_eq!(meta["schema"], EXECUTOR_AGENT_SCHEMA);
+        assert_eq!(meta["task_id"], serde_json::json!(task.id));
+
+        let upd = updated(&msgs);
+        assert_eq!(upd.len(), 1, "exactly one exit update");
+        let exit = &upd[0];
+        assert_eq!(exit.id, agent.id);
+        assert_eq!(exit.status, AgentStatus::Stopped);
+        assert!(exit.last_seen >= agent.last_seen);
+        let exit_meta = &exit.metadata.as_ref().unwrap()["exit"];
+        assert_eq!(exit_meta["success"], serde_json::json!(result.success));
+        assert_eq!(exit_meta["exit_code"], 0);
+        assert_eq!(exit_meta["force_killed"], false);
+    }
+
+    #[tokio::test]
+    async fn silent_live_process_heartbeats_on_idle_reads() {
+        // A CLI in print mode prints nothing until it finishes; the executor
+        // must still heartbeat while it observes the process alive.
+        let spawner = Arc::new(ControlSpawner::new(b"", None));
+        let bus = EventBus::new();
+        let rx = bus.subscribe();
+        let executor = AgentExecutor::with_spawner(spawner, bus)
+            .with_heartbeat_interval(Duration::from_millis(50));
+        let task = make_test_task();
+        let mut config = make_config();
+        config.timeout_secs = 1;
+
+        let _ = executor.execute_task(&task, &config).await.unwrap();
+        let msgs = drain(&rx);
+        let agent_id = created(&msgs)[0].id;
+        let beats = heartbeats(&msgs);
+        assert!(
+            beats.len() >= 5,
+            "expected ~20 heartbeats over 1s of silence, got {}",
+            beats.len()
+        );
+        assert!(beats.iter().all(|b| b.agent_id == Some(agent_id)));
+        assert!(beats.windows(2).all(|w| w[0].timestamp <= w[1].timestamp));
+        let exit = &updated(&msgs)[0];
+        assert_eq!(exit.metadata.as_ref().unwrap()["exit"]["timed_out"], true);
+    }
+
+    #[tokio::test]
+    async fn heartbeats_are_throttled_to_the_interval() {
+        let spawner = Arc::new(ControlSpawner::new(b"", None));
+        let bus = EventBus::new();
+        let rx = bus.subscribe();
+        let executor = AgentExecutor::with_spawner(spawner, bus)
+            .with_heartbeat_interval(Duration::from_secs(60));
+        let task = make_test_task();
+        let mut config = make_config();
+        config.timeout_secs = 1;
+
+        let _ = executor.execute_task(&task, &config).await.unwrap();
+        let msgs = drain(&rx);
+        assert!(heartbeats(&msgs).is_empty(), "no beat before the interval");
+        assert_eq!(created(&msgs).len(), 1);
+        assert_eq!(updated(&msgs).len(), 1);
+    }
+
+    #[tokio::test]
+    async fn patrol_force_kill_event_aborts_the_execution() {
+        let spawner = Arc::new(ControlSpawner::new(b"", None));
+        let state = Arc::clone(&spawner.state);
+        let bus = EventBus::new();
+        let rx = bus.subscribe();
+        let executor = Arc::new(AgentExecutor::with_spawner(spawner, bus.clone()));
+        let task = make_test_task();
+        let mut config = make_config();
+        config.timeout_secs = 60;
+
+        let run = {
+            let executor = Arc::clone(&executor);
+            let task = task.clone();
+            tokio::spawn(async move { executor.execute_task(&task, &config).await })
+        };
+
+        let agent_id = loop {
+            let msg = tokio::time::timeout(Duration::from_secs(5), rx.recv_async())
+                .await
+                .expect("agent registration")
+                .unwrap();
+            if let BridgeMessage::AgentCreated(a) = &*msg {
+                break a.id;
+            }
+        };
+        // A kill for some other agent must be ignored.
+        let kill = |id| {
+            BridgeMessage::Event(EventPayload {
+                event_type: EVENT_AGENT_FORCE_KILL.into(),
+                agent_id: Some(id),
+                bead_id: None,
+                message: "stuck".into(),
+                timestamp: Utc::now(),
+            })
+        };
+        bus.publish(kill(Uuid::new_v4()));
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(!run.is_finished());
+        bus.publish(kill(agent_id));
+
+        let result = tokio::time::timeout(Duration::from_secs(5), run)
+            .await
+            .expect("force-kill must end the execution promptly")
+            .unwrap()
+            .unwrap();
+        assert!(!result.success);
+        assert!(state.killed.load(Ordering::SeqCst), "process must be killed");
+        let msgs = drain(&rx);
+        let exit = updated(&msgs).pop().expect("exit update");
+        assert_eq!(exit.id, agent_id);
+        assert_eq!(exit.metadata.as_ref().unwrap()["exit"]["force_killed"], true);
+    }
+
+    #[tokio::test]
+    async fn cancelled_execution_still_reports_exit() {
+        let spawner = Arc::new(ControlSpawner::new(b"", None));
+        let bus = EventBus::new();
+        let rx = bus.subscribe();
+        let executor = AgentExecutor::with_spawner(spawner, bus);
+        let task = make_test_task();
+        let mut config = make_config();
+        config.timeout_secs = 60;
+
+        // Dropping the future mid-run is a cancellation.
+        let _ = tokio::time::timeout(
+            Duration::from_millis(200),
+            executor.execute_task(&task, &config),
+        )
+        .await;
+        let msgs = drain(&rx);
+        let agent_id = created(&msgs)[0].id;
+        let exit = updated(&msgs).pop().expect("exit update on cancellation");
+        assert_eq!(exit.id, agent_id);
+        assert_eq!(exit.status, AgentStatus::Stopped);
+        assert_eq!(exit.metadata.as_ref().unwrap()["exit"]["cancelled"], true);
     }
 }

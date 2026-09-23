@@ -507,11 +507,14 @@ impl Default for DaemonConfig {
 /// `ping_timeout_secs` fails a health check; after `consecutive_failures`
 /// failed checks in a row it is force-killed, and its slot is held for
 /// `kill_cooldown_secs` before it may be reused. Defaults follow gastown's
-/// deacon (30 s / 3 / 5 min); detection itself is off by default.
+/// deacon (30 s / 3 / 5 min). On by default: `at-agents` executors register
+/// one agent per spawned CLI process and heartbeat `last_seen` (every 5 s
+/// while the process is observed alive) through the event bus into the live
+/// registry, so only agents whose executor stopped reporting are killed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PatrolConfig {
-    /// Master switch for stuck-agent detection and force-kill. Off by default;
-    /// enable once executors heartbeat `Agent.last_seen` in the live registry.
+    /// Master switch for stuck-agent detection and force-kill. On by default
+    /// (executors heartbeat `Agent.last_seen`); set `false` to disable.
     #[serde(default = "default_patrol_enabled")]
     pub enabled: bool,
     /// Seconds of heartbeat silence after which a health check fails.
@@ -537,7 +540,7 @@ impl Default for PatrolConfig {
 }
 
 fn default_patrol_enabled() -> bool {
-    false
+    true
 }
 fn default_patrol_ping_timeout_secs() -> u64 {
     30
@@ -1324,7 +1327,7 @@ mod patrol_config_tests {
     #[test]
     fn patrol_defaults_match_gastown_deacon() {
         let p = Config::default().daemon.patrol;
-        assert!(!p.enabled, "off until executors heartbeat last_seen");
+        assert!(p.enabled, "on: executors heartbeat last_seen");
         assert_eq!(p.ping_timeout_secs, 30);
         assert_eq!(p.consecutive_failures, 3);
         assert_eq!(p.kill_cooldown_secs, 300);
@@ -1336,9 +1339,9 @@ mod patrol_config_tests {
         assert_eq!(cfg.daemon.patrol, PatrolConfig::default());
 
         let cfg: Config =
-            toml::from_str("[daemon.patrol]\nenabled = true\nconsecutive_failures = 5\n")
+            toml::from_str("[daemon.patrol]\nenabled = false\nconsecutive_failures = 5\n")
                 .expect("parse");
-        assert!(cfg.daemon.patrol.enabled);
+        assert!(!cfg.daemon.patrol.enabled, "explicit opt-out is honoured");
         assert_eq!(cfg.daemon.patrol.consecutive_failures, 5);
         assert_eq!(cfg.daemon.patrol.ping_timeout_secs, 30);
         assert_eq!(cfg.daemon.port, 9876);

@@ -211,8 +211,8 @@ pub async fn reap_orphan_ptys(state: &Arc<ApiState>) -> usize {
 // ---------------------------------------------------------------------------
 
 /// `EventPayload.event_type` published when patrol force-kills a stuck agent.
-/// Whoever owns the agent's process (executor / pipeline) should abort its task.
-pub const EVENT_AGENT_FORCE_KILL: &str = "agent_force_kill";
+/// The `at-agents` executor that owns the agent's process aborts it on receipt.
+pub const EVENT_AGENT_FORCE_KILL: &str = at_bridge::protocol::EVENT_AGENT_FORCE_KILL;
 /// `EventPayload.event_type` published once per force-kill for operators
 /// (gastown: "notify mayor").
 pub const EVENT_AGENT_STUCK_ESCALATION: &str = "agent_stuck_escalation";

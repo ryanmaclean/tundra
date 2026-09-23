@@ -1,6 +1,22 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+/// `EventPayload.event_type` an executor publishes while it observes its
+/// agent process alive (on output and on idle reads, throttled). The live
+/// agent registry advances `Agent.last_seen` to the event's `timestamp` for
+/// `EventPayload.agent_id`; see [`crate::agent_registry`].
+pub const EVENT_AGENT_HEARTBEAT: &str = "agent_heartbeat";
+
+/// `EventPayload.event_type` published when the daemon patrol force-kills a
+/// stuck agent. The executor that owns `EventPayload.agent_id` aborts its
+/// process on receipt.
+pub const EVENT_AGENT_FORCE_KILL: &str = "agent_force_kill";
+
+/// Value of `Agent.metadata["schema"]` for agents registered by an executor
+/// (one agent per spawned CLI process). Versioned: consumers match on the
+/// `.v1` suffix.
+pub const EXECUTOR_AGENT_SCHEMA: &str = "at.executor_agent.v1";
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload")]
 #[serde(rename_all = "snake_case")]
