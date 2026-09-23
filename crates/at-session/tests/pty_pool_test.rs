@@ -187,6 +187,8 @@ async fn kill_async_does_not_block_runtime_and_reaps_child() {
     );
     assert!(!handle.is_alive(), "child still alive after kill_async");
     assert!(handle.exit_code().is_some(), "child not reaped after kill_async");
+}
+
 // ---------------------------------------------------------------------------
 // Drop semantics: a dropped PtyHandle kills its child and frees its slot.
 // ---------------------------------------------------------------------------

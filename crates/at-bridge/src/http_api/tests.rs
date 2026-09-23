@@ -1468,6 +1468,8 @@ async fn test_gitea_routes_require_api_key() {
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
+}
+
 // -----------------------------------------------------------------------
 // Acceptance criteria authoring and the execute pipeline's merge gate
 // -----------------------------------------------------------------------
