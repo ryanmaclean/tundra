@@ -198,16 +198,32 @@ impl ModelRouter {
         let latency_ms = start.elapsed().as_millis() as u64;
 
         // Calculate actual cost
-        let cost = self
+        // Price by the routed model; fall back to the name the provider
+        // returned (often a dated snapshot, resolved by prefix).
+        let cost = match self
             .cost_tracker
-            .calculate_cost_with_cache(
-                &response.model,
+            .try_calculate_cost_with_cache(
+                &decision.model,
                 response.input_tokens,
                 response.output_tokens,
                 response.cache_creation_input_tokens,
                 response.cache_read_input_tokens,
             )
-            .await;
+            .await
+        {
+            Some(cost) => cost,
+            None => {
+                self.cost_tracker
+                    .calculate_cost_with_cache(
+                        &response.model,
+                        response.input_tokens,
+                        response.output_tokens,
+                        response.cache_creation_input_tokens,
+                        response.cache_read_input_tokens,
+                    )
+                    .await
+            }
+        };
 
         // Record in cost tracker (input includes prompt-cache writes/reads)
         let record = crate::cost_tracker::RequestRecord {
@@ -253,7 +269,7 @@ impl ModelRouter {
 
     async fn route_fixed(&self, model: &str) -> RouteDecision {
         let tiers = self.model_tiers.read().await;
-        let pricing = tiers.iter().find(|p| p.model == model);
+        let pricing = crate::cost_tracker::resolve_pricing(tiers.iter(), model);
 
         RouteDecision {
             model: model.to_string(),
@@ -603,5 +619,28 @@ mod tests {
         let cost = router.cost_tracker.total_cost().await;
         // 10 uncached @ $3/M + 1M cache reads @ $0.30/M
         assert!((cost - (0.30 + 10.0 * 3.0 / 1_000_000.0)).abs() < 1e-9, "got {cost}");
+    }
+
+    #[tokio::test]
+    async fn execute_prices_by_routed_model_not_response_name() {
+        let router = make_router(RoutingStrategy::Fixed {
+            model: "gpt-4o".into(),
+        });
+        // Provider answers with an unpriced alias; routed model is priced.
+        let provider = MockProvider::new().with_response(LlmResponse {
+            content: "ok".into(),
+            model: "some-provider-internal-name".into(),
+            input_tokens: 1_000_000,
+            output_tokens: 0,
+            finish_reason: "stop".into(),
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+        });
+        router
+            .execute(&provider, &[LlmMessage::user("q")], &LlmConfig::default(), None)
+            .await
+            .unwrap();
+        let cost = router.cost_tracker.total_cost().await;
+        assert!((cost - 2.5).abs() < 1e-9, "got {cost}");
     }
 }
