@@ -12,6 +12,7 @@ mod agents;
 mod beads;
 mod bootstrap;
 mod catalog;
+mod gate_flow;
 mod gitea;
 mod github;
 mod integrations;

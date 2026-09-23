@@ -149,6 +149,15 @@ impl GitRunner for MockGit {
         }
         let mut responses = self.responses.lock().unwrap();
         if responses.is_empty() {
+            // `rev-list --count` must print a number; "0" = nothing to merge.
+            // (An unparsable count is a merge error, which fails the task.)
+            if args.first() == Some(&"rev-list") {
+                return Ok(GitOutput {
+                    success: true,
+                    stdout: "0\n".to_string(),
+                    stderr: String::new(),
+                });
+            }
             Ok(MockGit::success_output())
         } else {
             Ok(responses.pop_front().unwrap())

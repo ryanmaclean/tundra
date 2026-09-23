@@ -102,6 +102,11 @@ pub struct ApiCatalogRoute {
     /// global 2 MiB default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub body_limit: Option<usize>,
+    /// Versioned JSON Schema ids the route's bodies conform to (e.g.
+    /// `at.merge_gate.report/v1`). Each resolves unauthenticated at
+    /// `GET /api/v1/schemas/{id}` (see [`crate::schemas`]).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub schemas: Vec<String>,
 }
 
 /// Derive the stable card id for a route: lower-case method and path with
@@ -163,10 +168,12 @@ mod tests {
             request: None,
             response: None,
             body_limit: None,
+            schemas: Vec::new(),
         };
         let v = serde_json::to_value(&card).unwrap();
         assert!(v.get("request").is_none());
         assert!(v.get("body_limit").is_none());
+        assert!(v.get("schemas").is_none());
         let back: ApiCatalogRoute = serde_json::from_value(v).unwrap();
         assert_eq!(back, card);
     }

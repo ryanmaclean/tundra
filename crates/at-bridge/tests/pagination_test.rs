@@ -79,6 +79,7 @@ async fn seed_tasks(state: &ApiState, count: usize) -> Vec<Uuid> {
             build_logs: vec![],
             acceptance_criteria: vec![],
             merge_gate_report: None,
+            merged_at: None,
         };
         tasks.insert(task_id, task);
         ids.push(task_id);
@@ -116,7 +117,7 @@ async fn seed_notifications(state: &ApiState, count: usize) {
     for i in 0..count {
         store.add(
             format!("Notification {}", i),
-            &format!("Message {}", i),
+            format!("Message {}", i),
             NotificationLevel::Info,
             "test",
         );

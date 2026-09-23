@@ -1468,4 +1468,344 @@ async fn test_gitea_routes_require_api_key() {
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
+// -----------------------------------------------------------------------
+// Acceptance criteria authoring and the execute pipeline's merge gate
+// -----------------------------------------------------------------------
+
+async fn send_json(
+    app: &axum::Router,
+    method: &str,
+    uri: &str,
+    body: Option<serde_json::Value>,
+) -> (StatusCode, serde_json::Value) {
+    let mut b = Request::builder().method(method).uri(uri);
+    let body = match body {
+        Some(v) => {
+            b = b.header("content-type", "application/json");
+            Body::from(v.to_string())
+        }
+        None => Body::empty(),
+    };
+    let resp = app.clone().oneshot(b.body(body).unwrap()).await.unwrap();
+    let status = resp.status();
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let json = serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null);
+    (status, json)
+}
+
+fn task_body(bead_id: Uuid, criteria: Option<serde_json::Value>) -> serde_json::Value {
+    let mut v = serde_json::json!({
+        "title": "Gate me",
+        "bead_id": bead_id,
+        "category": "feature",
+        "priority": "medium",
+        "complexity": "small",
+    });
+    if let Some(c) = criteria {
+        v["acceptance_criteria"] = c;
+    }
+    v
+}
+
+async fn wait_terminal(state: &Arc<ApiState>, id: Uuid) -> Task {
+    for _ in 0..500 {
+        if let Some(t) = state.tasks.read().await.get(&id) {
+            if t.phase.is_terminal() {
+                return t.clone();
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    panic!(
+        "task never reached a terminal phase: {:?}",
+        state.tasks.read().await.get(&id).map(|t| t.phase.clone())
+    );
+}
+
+#[tokio::test]
+async fn create_task_with_acceptance_criteria_round_trips() {
+    let (app, _state) = test_app();
+    let (code, created) = send_json(
+        &app,
+        "POST",
+        "/api/tasks",
+        Some(task_body(
+            Uuid::new_v4(),
+            Some(serde_json::json!(["cargo test", "test -f ok"])),
+        )),
+    )
+    .await;
+    assert_eq!(code, StatusCode::CREATED, "{created}");
+    let id = created["id"].as_str().unwrap();
+    let (code, got) = send_json(&app, "GET", &format!("/api/tasks/{id}"), None).await;
+    assert_eq!(code, StatusCode::OK);
+    assert_eq!(
+        got["acceptance_criteria"],
+        serde_json::json!(["cargo test", "test -f ok"])
+    );
+}
+
+#[tokio::test]
+async fn create_task_inherits_bead_acceptance_criteria() {
+    let (app, _state) = test_app();
+    let (code, bead) = send_json(
+        &app,
+        "POST",
+        "/api/beads",
+        Some(serde_json::json!({"title": "b", "acceptance_criteria": ["make check"]})),
+    )
+    .await;
+    assert_eq!(code, StatusCode::CREATED, "{bead}");
+    let bead_id: Uuid = bead["id"].as_str().unwrap().parse().unwrap();
+
+    let (_, inherited) =
+        send_json(&app, "POST", "/api/tasks", Some(task_body(bead_id, None))).await;
+    assert_eq!(inherited["acceptance_criteria"], serde_json::json!(["make check"]));
+
+    // An explicit list (even empty) wins over the bead's.
+    let (_, explicit) = send_json(
+        &app,
+        "POST",
+        "/api/tasks",
+        Some(task_body(bead_id, Some(serde_json::json!([])))),
+    )
+    .await;
+    assert_eq!(explicit["acceptance_criteria"], serde_json::json!([]));
+
+    // ?bead_id= filters the list.
+    let (_, listed) = send_json(&app, "GET", &format!("/api/tasks?bead_id={bead_id}"), None).await;
+    assert_eq!(listed.as_array().unwrap().len(), 2);
+    let (_, none) = send_json(
+        &app,
+        "GET",
+        &format!("/api/tasks?bead_id={}", Uuid::new_v4()),
+        None,
+    )
+    .await;
+    assert!(none.as_array().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn invalid_acceptance_criteria_are_rejected_with_400() {
+    let (app, state) = test_app();
+    let (code, body) = send_json(
+        &app,
+        "POST",
+        "/api/tasks",
+        Some(task_body(
+            Uuid::new_v4(),
+            Some(serde_json::json!(["ok", "ok", "x".repeat(1025)])),
+        )),
+    )
+    .await;
+    assert_eq!(code, StatusCode::BAD_REQUEST);
+    assert!(
+        body["error"]
+            .as_str()
+            .unwrap()
+            .contains("acceptance_criteria[2]: exceeds 1024 bytes"),
+        "{body}"
+    );
+    let (code, _) = send_json(
+        &app,
+        "POST",
+        "/api/tasks",
+        Some(task_body(Uuid::new_v4(), Some(serde_json::json!(["a\nb"])))),
+    )
+    .await;
+    assert_eq!(code, StatusCode::BAD_REQUEST);
+    assert!(state.tasks.read().await.is_empty());
+
+    let (code, _) = send_json(
+        &app,
+        "POST",
+        "/api/beads",
+        Some(serde_json::json!({"title": "b", "acceptance_criteria": [""]})),
+    )
+    .await;
+    assert_eq!(code, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn put_acceptance_criteria_replaces_clears_and_keeps() {
+    let (app, _state) = test_app();
+    let (_, created) = send_json(
+        &app,
+        "POST",
+        "/api/tasks",
+        Some(task_body(Uuid::new_v4(), Some(serde_json::json!(["true"])))),
+    )
+    .await;
+    let uri = format!("/api/tasks/{}", created["id"].as_str().unwrap());
+
+    let (code, t) = send_json(&app, "PUT", &uri, Some(serde_json::json!({"title": "renamed"}))).await;
+    assert_eq!(code, StatusCode::OK);
+    assert_eq!(t["acceptance_criteria"], serde_json::json!(["true"]), "omitted = unchanged");
+
+    let (_, t) = send_json(
+        &app,
+        "PUT",
+        &uri,
+        Some(serde_json::json!({"acceptance_criteria": ["a", "b"]})),
+    )
+    .await;
+    assert_eq!(t["acceptance_criteria"], serde_json::json!(["a", "b"]));
+
+    let (_, t) = send_json(&app, "PUT", &uri, Some(serde_json::json!({"acceptance_criteria": []}))).await;
+    assert_eq!(t["acceptance_criteria"], serde_json::json!([]), "[] clears");
+
+    let (code, _) = send_json(
+        &app,
+        "PUT",
+        &uri,
+        Some(serde_json::json!({"acceptance_criteria": ["bad\u{0}"]})),
+    )
+    .await;
+    assert_eq!(code, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn put_acceptance_criteria_is_locked_while_pipeline_runs() {
+    let (app, state) = test_app();
+    for phase in [
+        TaskPhase::Coding,
+        TaskPhase::Qa,
+        TaskPhase::Fixing,
+        TaskPhase::Merging,
+    ] {
+        let mut task = Task::new(
+            "locked",
+            Uuid::new_v4(),
+            TaskCategory::Feature,
+            TaskPriority::Medium,
+            TaskComplexity::Small,
+        );
+        task.acceptance_criteria = vec!["true".into()];
+        task.phase = phase.clone();
+        let id = task.id;
+        state.tasks.write().await.insert(id, task);
+
+        let (code, body) = send_json(
+            &app,
+            "PUT",
+            &format!("/api/tasks/{id}"),
+            Some(serde_json::json!({"acceptance_criteria": []})),
+        )
+        .await;
+        assert_eq!(code, StatusCode::CONFLICT, "{phase:?}");
+        assert_eq!(body["error"], "acceptance_criteria_locked");
+        assert_eq!(body["phase"], serde_json::json!(phase));
+        assert_eq!(
+            state.tasks.read().await[&id].acceptance_criteria,
+            vec!["true".to_string()]
+        );
+
+        // Other fields are still editable.
+        let (code, _) = send_json(
+            &app,
+            "PUT",
+            &format!("/api/tasks/{id}"),
+            Some(serde_json::json!({"title": "still editable"})),
+        )
+        .await;
+        assert_eq!(code, StatusCode::OK);
+    }
+}
+
+fn planning_task(criteria: &[&str]) -> Task {
+    let mut task = Task::new(
+        "Pipeline gate",
+        Uuid::new_v4(),
+        TaskCategory::Feature,
+        TaskPriority::Medium,
+        TaskComplexity::Small,
+    );
+    task.set_phase(TaskPhase::Planning);
+    task.acceptance_criteria = criteria.iter().map(|s| s.to_string()).collect();
+    task
+}
+
+#[tokio::test]
+async fn execute_without_repo_root_or_criteria_skips_gate_and_completes() {
+    let (app, state) = test_app();
+    let task = planning_task(&[]);
+    let id = task.id;
+    state.tasks.write().await.insert(id, task);
+
+    let (code, body) = send_json(&app, "POST", &format!("/api/tasks/{id}/execute"), None).await;
+    assert_eq!(code, StatusCode::ACCEPTED);
+    assert_eq!(body["merge"], "skipped_no_worktree");
+    assert_eq!(body["merge_mode"], "verify");
+    assert_eq!(body["acceptance_criteria_count"], 0);
+    assert!(!body["warnings"].as_array().unwrap().is_empty());
+
+    let done = wait_terminal(&state, id).await;
+    assert_eq!(done.phase, TaskPhase::Complete, "not stuck in Merging/Qa");
+    assert!(done.completed_at.is_some());
+    assert!(done
+        .build_logs
+        .iter()
+        .any(|l| l.line == "merge skipped: no worktree"));
+}
+
+#[tokio::test]
+async fn execute_with_criteria_but_no_worktree_fails_closed() {
+    let (app, state) = test_app();
+    let task = planning_task(&["true"]);
+    let id = task.id;
+    state.tasks.write().await.insert(id, task);
+
+    let (code, body) = send_json(
+        &app,
+        "POST",
+        &format!("/api/tasks/{id}/execute"),
+        Some(serde_json::json!({"merge_mode": "auto"})),
+    )
+    .await;
+    assert_eq!(code, StatusCode::ACCEPTED);
+    assert_eq!(body["merge"], "blocked_no_worktree");
+    assert_eq!(body["merge_mode"], "auto");
+    assert_eq!(body["acceptance_criteria_count"], 1);
+    assert_eq!(
+        body["acceptance_criteria_sha256"].as_str().unwrap().len(),
+        64
+    );
+
+    let done = wait_terminal(&state, id).await;
+    assert_eq!(done.phase, TaskPhase::Error);
+    assert!(done.error.as_deref().unwrap().contains("no worktree bound"));
+    assert!(done.completed_at.is_none());
+}
+
+#[tokio::test]
+async fn merge_gate_endpoints_report_unverified_and_missing_worktree() {
+    let (app, state) = test_app();
+    let task = planning_task(&["true"]);
+    let id = task.id;
+    state.tasks.write().await.insert(id, task);
+
+    let (code, body) = send_json(&app, "GET", &format!("/api/tasks/{id}/merge-gate"), None).await;
+    assert_eq!(code, StatusCode::NOT_FOUND);
+    assert_eq!(body["error"], "no merge gate run");
+    assert_eq!(body["state"], "unverified");
+    assert!(body["links"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|l| l["rel"] == "schema"));
+
+    let (code, body) = send_json(&app, "POST", &format!("/api/tasks/{id}/merge"), None).await;
+    assert_eq!(code, StatusCode::NOT_FOUND);
+    assert_eq!(body["error"], "no worktree bound to task");
+
+    let (code, _) = send_json(
+        &app,
+        "GET",
+        &format!("/api/tasks/{}/merge-gate", Uuid::new_v4()),
+        None,
+    )
+    .await;
+    assert_eq!(code, StatusCode::NOT_FOUND);
 }

@@ -1,5 +1,4 @@
 use at_core::worktree::WorktreeInfo;
-use at_core::worktree_manager::{GatedMerge, MergeResult, WorktreeManager};
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
@@ -11,6 +10,7 @@ use serde_json::json;
 use std::sync::Arc;
 use tracing::warn;
 
+use super::gate_flow;
 use super::state::ApiState;
 use super::types::{ResolveConflictRequest, WorktreeQuery};
 
@@ -30,7 +30,7 @@ pub(crate) struct WorktreeEntry {
 }
 
 /// Generates a stable, filesystem-safe identifier for a worktree.
-fn stable_worktree_id(path: &str, branch: &str) -> String {
+pub(crate) fn stable_worktree_id(path: &str, branch: &str) -> String {
     let raw = if branch.is_empty() {
         format!("path:{path}")
     } else {
@@ -118,13 +118,13 @@ pub(crate) async fn list_worktrees(Query(params): Query<WorktreeQuery>) -> impl 
 
 /// A worktree from `git worktree list --porcelain`.
 #[derive(Debug, Clone)]
-struct ListedWorktree {
-    path: String,
-    branch: String,
+pub(crate) struct ListedWorktree {
+    pub(crate) path: String,
+    pub(crate) branch: String,
 }
 
 /// Parse `git worktree list --porcelain`. The first entry is the main worktree.
-fn parse_worktree_porcelain(stdout: &str) -> Vec<ListedWorktree> {
+pub(crate) fn parse_worktree_porcelain(stdout: &str) -> Vec<ListedWorktree> {
     let mut out = Vec::new();
     let mut path: Option<String> = None;
     let mut branch = String::new();
@@ -238,7 +238,8 @@ async fn run_git(dir: &str, args: &[&str]) -> Result<String, ApiError> {
 }
 
 /// POST /api/worktrees/{id}/merge -- run the merge gate, then merge the
-/// worktree branch into `main` via [`WorktreeManager::merge_to_main_gated`].
+/// worktree branch into `main` via
+/// [`at_core::worktree_manager::WorktreeManager::merge_to_main_gated`].
 ///
 /// **Response:** always carries `gate` (an `at.merge_gate.report/v1`
 /// [`at_core::merge_gate::MergeGateReport`]) once the worktree is found.
@@ -294,9 +295,16 @@ pub(crate) async fn merge_worktree_in(
         created_at: chrono::Utc::now(),
     };
     let gate_config = state.settings_manager.load_or_default().merge_gate;
-    let manager = WorktreeManager::new(&main_wt.path).with_merge_gate_config(gate_config);
-
-    let outcome = match manager.merge_to_main_gated(&info, &criteria).await {
+    let outcome = match gate_flow::run_gate(
+        &state.merge_lock,
+        std::path::Path::new(&main_wt.path),
+        gate_config,
+        &info,
+        &criteria,
+        true,
+    )
+    .await
+    {
         Ok(o) => o,
         Err(e) => {
             warn!(error = %e, branch = %wt.branch, "merge failed");
@@ -307,51 +315,8 @@ pub(crate) async fn merge_worktree_in(
         }
     };
 
-    if let Some(task_id) = task_id {
-        let mut tasks = state.tasks.write().await;
-        if let Some(t) = tasks.get_mut(&task_id) {
-            t.merge_gate_report = Some(outcome.report().clone());
-            t.updated_at = chrono::Utc::now();
-        }
-    }
-
-    let (code, status, files, error) = match &outcome {
-        GatedMerge::Refused { report } => (
-            StatusCode::CONFLICT,
-            "gate_failed",
-            Vec::new(),
-            Some(report.summary()),
-        ),
-        GatedMerge::Attempted { result, .. } => match result {
-            MergeResult::Success => (StatusCode::OK, "success", Vec::new(), None),
-            MergeResult::NothingToMerge => (StatusCode::OK, "nothing_to_merge", Vec::new(), None),
-            MergeResult::Conflict(files) => (StatusCode::OK, "conflict", files.clone(), None),
-        },
-    };
-
-    if status != "nothing_to_merge" {
-        state
-            .event_bus
-            .publish(crate::protocol::BridgeMessage::MergeResult {
-                worktree_id: id.to_string(),
-                branch: wt.branch.clone(),
-                status: status.to_string(),
-                conflict_files: files.clone(),
-            });
-    }
-
-    let mut body = json!({
-        "status": status,
-        "branch": wt.branch,
-        "gate": outcome.report(),
-    });
-    if status == "conflict" {
-        body["files"] = json!(files);
-    }
-    if let Some(error) = error {
-        body["error"] = json!(error);
-    }
-    (code, Json(body))
+    gate_flow::record_gate_outcome(&state.tasks, &state.event_bus, task_id, id, &outcome).await;
+    outcome.response()
 }
 
 /// GET /api/worktrees/{id}/merge-preview -- dry-run merge preview.

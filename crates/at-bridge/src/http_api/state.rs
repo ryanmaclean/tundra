@@ -162,6 +162,18 @@ pub struct ApiState {
     // ---- MCP SSE sessions ------------------------------------------------
     /// Active MCP SSE sessions: session_id → SSE message sender.
     pub mcp_sessions: McpSessionStore,
+    // ---- Merge gate ------------------------------------------------------
+    /// Main checkout that task worktrees are created in and merged into.
+    /// `None` (the default, and in tests) means the execute pipeline cannot
+    /// create worktrees, so it skips the merge gate for tasks without
+    /// acceptance criteria and fails tasks that have some. The daemon sets it
+    /// from `[general] workspace_root` (or its cwd when that is a git repo).
+    pub repo_root: Option<std::path::PathBuf>,
+    /// Serializes every merge-gate run and merge against the main checkout
+    /// (pipeline, `POST /api/tasks/{id}/merge`, `POST /api/worktrees/{id}/merge`)
+    /// and task worktree creation, so concurrent git writes never race on
+    /// `index.lock` and no two gates run `sh -c` in one worktree at once.
+    pub merge_lock: Arc<tokio::sync::Mutex<()>>,
     /// Set once [`ApiState::start_notification_task`] has spawned its task.
     notification_task_started: AtomicBool,
     /// Set once [`ApiState::start_agent_registry_task`] has spawned its task.
@@ -300,6 +312,8 @@ impl ApiState {
             rate_limit_policy: RateLimitPolicy::default(),
             retention_config: Arc::new(RwLock::new(RetentionConfig::default())),
             mcp_sessions: super::mcp_sse::new_session_store(),
+            repo_root: None,
+            merge_lock: Arc::new(tokio::sync::Mutex::new(())),
             notification_task_started: AtomicBool::new(false),
             agent_registry_task_started: AtomicBool::new(false),
         }
@@ -639,6 +653,7 @@ mod tests {
             build_logs: vec![],
             acceptance_criteria: vec![],
             merge_gate_report: None,
+            merged_at: None,
         }
     }
 
@@ -1012,7 +1027,7 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
         // Test passes if we get here without panicking
-        assert!(true);
+        let _ = ();
     }
 
     #[tokio::test]

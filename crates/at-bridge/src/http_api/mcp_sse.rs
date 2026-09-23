@@ -289,6 +289,7 @@ fn all_tool_definitions() -> Vec<McpTool> {
     tools.push(list_beads_tool());
     tools.push(get_kpi_tool());
     tools.push(create_bead_tool());
+    tools.push(create_task_tool());
     tools.push(update_bead_status_tool());
     tools
 }
@@ -328,7 +329,10 @@ async fn handle_tools_call(state: &Arc<ApiState>, request: &JsonRpcRequest) -> J
         "list_beads" => Some(exec_list_beads(state, &tool_request.arguments).await),
         "get_kpi" => Some(exec_get_kpi(state).await),
         "create_bead" => Some(exec_create_bead(state, &tool_request.arguments).await),
-        "update_bead_status" => Some(exec_update_bead_status(state, &tool_request.arguments).await),
+        "create_task" => Some(exec_create_task(state, &tool_request.arguments).await),
+        "update_bead_status" => {
+            Some(exec_update_bead_status(state, &tool_request.arguments).await)
+        }
         _ => {
             // Fall back to built-in tools (run_task, list_agents, manage_beads, etc.)
             let ctx = at_harness::builtin_tools::BuiltinToolContext {
@@ -406,7 +410,7 @@ fn get_kpi_tool() -> McpTool {
 fn create_bead_tool() -> McpTool {
     McpTool {
         name: "create_bead".to_string(),
-        description: "Create a new bead (work item) in the backlog.".to_string(),
+        description: "Create a new bead (work item) in the backlog. Optional acceptance_criteria are shell commands that must all exit 0 in the task worktree before its branch may merge; tasks created for the bead inherit them.".to_string(),
         input_schema: serde_json::json!({
             "type": "object",
             "properties": {
@@ -422,9 +426,79 @@ fn create_bead_tool() -> McpTool {
                     "type": "string",
                     "enum": ["experimental", "standard", "critical"],
                     "description": "Work lane (default: standard)"
+                },
+                "acceptance_criteria": {
+                    "type": "array",
+                    "maxItems": at_core::merge_gate::MAX_CRITERIA,
+                    "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": at_core::merge_gate::MAX_CRITERION_BYTES,
+                        "pattern": "^[^\\n\\r\\u0000]+$"
+                    },
+                    "description": "One single-line shell command per entry, run with `sh -c` in the task worktree by the merge gate (at.merge_gate.report/v1)"
                 }
             },
             "required": ["title"]
+        }),
+        annotations: Some(ToolAnnotations {
+            read_only_hint: Some(false),
+            destructive_hint: Some(false),
+            idempotent_hint: Some(false),
+            open_world_hint: Some(false),
+        }),
+    }
+}
+
+/// A new Task under an existing bead, with its own acceptance criteria. Kept
+/// separate from `create_bead` rather than overloading it: this tool's
+/// response shape (a `Task`) does not depend on its input the way a merged
+/// tool's would, which keeps schema-matched composition simple for a cold
+/// agent.
+fn create_task_tool() -> McpTool {
+    McpTool {
+        name: "create_task".to_string(),
+        description: "Create a Task under an existing bead. Optional acceptance_criteria are shell commands that must all exit 0 in the task worktree before its branch may merge (merge gate report: at.merge_gate.report/v1); omitted, the task inherits the bead's own acceptance_criteria if it has any.".to_string(),
+        input_schema: serde_json::json!({
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string",
+                    "description": "Title of the task"
+                },
+                "bead_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "description": "UUID of the parent bead this task belongs to"
+                },
+                "acceptance_criteria": {
+                    "type": "array",
+                    "maxItems": at_core::merge_gate::MAX_CRITERIA,
+                    "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": at_core::merge_gate::MAX_CRITERION_BYTES,
+                        "pattern": "^[^\\n\\r\\u0000]+$"
+                    },
+                    "description": "One single-line shell command per entry, run with `sh -c` in the task worktree by the merge gate"
+                },
+                "category": {
+                    "type": "string",
+                    "enum": ["feature", "bug_fix", "refactoring", "documentation", "security", "performance", "ui_ux", "infrastructure"],
+                    "description": "Task category (default: feature)"
+                },
+                "priority": {
+                    "type": "string",
+                    "enum": ["low", "medium", "high", "urgent"],
+                    "description": "Task priority (default: medium)"
+                },
+                "complexity": {
+                    "type": "string",
+                    "enum": ["trivial", "small", "medium", "large", "complex"],
+                    "description": "Estimated complexity (default: medium)"
+                }
+            },
+            "required": ["title", "bead_id"]
         }),
         annotations: Some(ToolAnnotations {
             read_only_hint: Some(false),
@@ -523,11 +597,97 @@ async fn exec_create_bead(state: &Arc<ApiState>, args: &serde_json::Value) -> To
         Some(_) => return ToolCallResult::error("description must be a string"),
     };
 
+    let acceptance_criteria = match args.get("acceptance_criteria") {
+        None | Some(serde_json::Value::Null) => None,
+        Some(v) => match serde_json::from_value::<Vec<String>>(v.clone()) {
+            Ok(c) => Some(c),
+            Err(_) => return ToolCallResult::error("acceptance_criteria must be an array of strings"),
+        },
+    };
+
     // Same validation, insertion and BeadCreated publish as POST /api/beads.
-    match super::beads::create_bead_checked(state, title, description, lane, None).await {
+    match super::beads::create_bead_checked(
+        state,
+        title,
+        description,
+        lane,
+        None,
+        acceptance_criteria,
+    )
+    .await
+    {
         Ok(bead) => match serde_json::to_string(&bead) {
             Ok(j) => ToolCallResult::text(j),
             Err(e) => ToolCallResult::error(format!("Failed to serialize bead: {e}")),
+        },
+        Err(e) => ToolCallResult::error(e.to_string()),
+    }
+}
+
+async fn exec_create_task(state: &Arc<ApiState>, args: &serde_json::Value) -> ToolCallResult {
+    let title = match args.get("title").and_then(|v| v.as_str()) {
+        Some(t) => t.to_string(),
+        None => return ToolCallResult::error("missing required parameter: title"),
+    };
+
+    let bead_id_str = match args.get("bead_id").and_then(|v| v.as_str()) {
+        Some(s) => s,
+        None => return ToolCallResult::error("missing required parameter: bead_id"),
+    };
+    let bead_id: Uuid = match bead_id_str.parse() {
+        Ok(u) => u,
+        Err(_) => return ToolCallResult::error(format!("invalid UUID: {bead_id_str}")),
+    };
+
+    let acceptance_criteria = match args.get("acceptance_criteria") {
+        None | Some(serde_json::Value::Null) => None,
+        Some(v) => match serde_json::from_value::<Vec<String>>(v.clone()) {
+            Ok(c) => Some(c),
+            Err(_) => return ToolCallResult::error("acceptance_criteria must be an array of strings"),
+        },
+    };
+
+    let category = match args.get("category") {
+        None | Some(serde_json::Value::Null) => at_core::types::TaskCategory::Feature,
+        Some(v) => match serde_json::from_value(v.clone()) {
+            Ok(c) => c,
+            Err(_) => return ToolCallResult::error(format!("invalid category: {v}")),
+        },
+    };
+    let priority = match args.get("priority") {
+        None | Some(serde_json::Value::Null) => at_core::types::TaskPriority::Medium,
+        Some(v) => match serde_json::from_value(v.clone()) {
+            Ok(p) => p,
+            Err(_) => return ToolCallResult::error(format!("invalid priority: {v}")),
+        },
+    };
+    let complexity = match args.get("complexity") {
+        None | Some(serde_json::Value::Null) => at_core::types::TaskComplexity::Medium,
+        Some(v) => match serde_json::from_value(v.clone()) {
+            Ok(c) => c,
+            Err(_) => return ToolCallResult::error(format!("invalid complexity: {v}")),
+        },
+    };
+
+    let req = super::types::CreateTaskRequest {
+        title,
+        bead_id,
+        category,
+        priority,
+        complexity,
+        description: None,
+        impact: None,
+        agent_profile: None,
+        phase_configs: None,
+        source: None,
+        acceptance_criteria,
+    };
+
+    // Same validation, criteria inheritance and insertion as POST /api/tasks.
+    match super::tasks::create_task_checked(state, req).await {
+        Ok(task) => match serde_json::to_string(&task) {
+            Ok(j) => ToolCallResult::text(j),
+            Err(e) => ToolCallResult::error(format!("Failed to serialize task: {e}")),
         },
         Err(e) => ToolCallResult::error(e.to_string()),
     }
@@ -630,6 +790,7 @@ mod tests {
         assert!(tool_names.contains(&"list_beads".to_string()));
         assert!(tool_names.contains(&"get_kpi".to_string()));
         assert!(tool_names.contains(&"create_bead".to_string()));
+        assert!(tool_names.contains(&"create_task".to_string()));
         assert!(tool_names.contains(&"update_bead_status".to_string()));
     }
 
@@ -781,6 +942,118 @@ mod tests {
         assert!(result.is_error, "non-string description must be rejected");
 
         assert!(state.beads.read().await.is_empty());
+    }
+
+    #[test]
+    fn create_bead_schema_declares_acceptance_criteria() {
+        let tool = create_bead_tool();
+        let prop = &tool.input_schema["properties"]["acceptance_criteria"];
+        assert_eq!(prop["type"], "array");
+        assert_eq!(prop["maxItems"], 32);
+        assert_eq!(prop["items"]["maxLength"], 1024);
+    }
+
+    #[tokio::test]
+    async fn exec_create_bead_stores_acceptance_criteria_in_metadata() {
+        let state = make_state();
+        let result = exec_create_bead(
+            &state,
+            &serde_json::json!({ "title": "gated", "acceptance_criteria": ["cargo test", "test -f ok"] }),
+        )
+        .await;
+        assert!(!result.is_error, "{:?}", result.text_content());
+        let bead: serde_json::Value =
+            serde_json::from_str(result.text_content().unwrap()).unwrap();
+        assert_eq!(
+            bead["metadata"]["acceptance_criteria"],
+            serde_json::json!(["cargo test", "test -f ok"])
+        );
+    }
+
+    #[tokio::test]
+    async fn exec_create_bead_rejects_invalid_acceptance_criteria() {
+        let state = make_state();
+        for bad in [
+            serde_json::json!([""]),
+            serde_json::json!(["true\nfalse"]),
+            serde_json::json!(["x".repeat(1025)]),
+            serde_json::json!([1, 2]),
+            serde_json::json!("true"),
+        ] {
+            let result = exec_create_bead(
+                &state,
+                &serde_json::json!({ "title": "t", "acceptance_criteria": bad }),
+            )
+            .await;
+            assert!(result.is_error, "{bad} must be rejected");
+        }
+        assert!(state.beads.read().await.is_empty());
+    }
+
+    #[test]
+    fn create_task_schema_declares_acceptance_criteria_and_required() {
+        let tool = create_task_tool();
+        assert_eq!(tool.input_schema["required"], serde_json::json!(["title", "bead_id"]));
+        let prop = &tool.input_schema["properties"]["acceptance_criteria"];
+        assert_eq!(prop["type"], "array");
+        assert_eq!(prop["maxItems"], 32);
+    }
+
+    #[tokio::test]
+    async fn exec_create_task_persists_criteria_and_defaults() {
+        let state = make_state();
+        let bead_id = Uuid::new_v4();
+        let result = exec_create_task(
+            &state,
+            &serde_json::json!({
+                "title": "gated task",
+                "bead_id": bead_id,
+                "acceptance_criteria": ["cargo test", "true"],
+            }),
+        )
+        .await;
+        assert!(!result.is_error, "{:?}", result.text_content());
+        let task: serde_json::Value =
+            serde_json::from_str(result.text_content().unwrap()).unwrap();
+        assert_eq!(task["bead_id"], serde_json::json!(bead_id));
+        assert_eq!(
+            task["acceptance_criteria"],
+            serde_json::json!(["cargo test", "true"])
+        );
+        assert_eq!(task["category"], "feature");
+        assert_eq!(task["priority"], "medium");
+        assert_eq!(task["complexity"], "medium");
+        assert_eq!(state.tasks.read().await.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn exec_create_task_rejects_invalid_criteria_with_index() {
+        let state = make_state();
+        let result = exec_create_task(
+            &state,
+            &serde_json::json!({
+                "title": "bad",
+                "bead_id": Uuid::new_v4(),
+                "acceptance_criteria": ["ok", ""],
+            }),
+        )
+        .await;
+        assert!(result.is_error);
+        let msg = result.text_content().unwrap_or_default();
+        assert!(msg.contains("acceptance_criteria[1]"), "{msg}");
+        assert!(state.tasks.read().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn exec_create_task_rejects_unparsable_bead_id() {
+        let state = make_state();
+        let result = exec_create_task(
+            &state,
+            &serde_json::json!({ "title": "t", "bead_id": "not-a-uuid" }),
+        )
+        .await;
+        assert!(result.is_error);
+        assert!(state.tasks.read().await.is_empty());
     }
 
     #[tokio::test]

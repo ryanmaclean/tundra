@@ -115,6 +115,7 @@ pub(crate) async fn create_bead(
         req.description,
         req.lane.unwrap_or(Lane::Standard),
         req.tags,
+        req.acceptance_criteria,
     )
     .await?;
 
@@ -185,22 +186,38 @@ pub(crate) async fn update_bead_status(
 /// Runs the same input sanitization as every other text field, inserts the
 /// bead and publishes [`BridgeMessage::BeadCreated`](crate::protocol::BridgeMessage)
 /// so WebSocket clients and the notification recorder see it.
+///
+/// `acceptance_criteria` (validated with
+/// [`at_core::merge_gate::validate_criteria`]) is stored as
+/// `metadata.acceptance_criteria` next to `metadata.tags`; tasks created for
+/// the bead without their own criteria inherit it.
 pub(crate) async fn create_bead_checked(
     state: &ApiState,
     title: String,
     description: Option<String>,
     lane: Lane,
     tags: Option<Vec<String>>,
+    acceptance_criteria: Option<Vec<String>>,
 ) -> Result<Bead, ApiError> {
     validate_text_field(&title).map_err(|e| ApiError::BadRequest(e.to_string()))?;
     if let Some(ref description) = description {
         validate_text_field(description).map_err(|e| ApiError::BadRequest(e.to_string()))?;
     }
+    if let Some(ref criteria) = acceptance_criteria {
+        at_core::merge_gate::validate_criteria(criteria).map_err(ApiError::BadRequest)?;
+    }
 
     let mut bead = Bead::new(title, lane);
     bead.description = description;
+    let mut metadata = serde_json::Map::new();
     if let Some(tags) = tags {
-        bead.metadata = Some(serde_json::json!({ "tags": tags }));
+        metadata.insert("tags".into(), serde_json::json!(tags));
+    }
+    if let Some(criteria) = acceptance_criteria.filter(|c| !c.is_empty()) {
+        metadata.insert("acceptance_criteria".into(), serde_json::json!(criteria));
+    }
+    if !metadata.is_empty() {
+        bead.metadata = Some(serde_json::Value::Object(metadata));
     }
 
     state.beads.write().await.insert(bead.id, bead.clone());

@@ -226,26 +226,41 @@ impl WorktreeManager {
         worktree: &WorktreeInfo,
         acceptance_criteria: &[String],
     ) -> Result<GatedMerge> {
-        let base_dir_str = self.base_dir.to_str().unwrap_or(".");
-        let vcs = GitGateVcs::new(self.git.as_ref());
-        let gate = MergeGate::new(&self.gate_config, &vcs);
-        let report = gate
-            .evaluate(
-                GateTarget {
-                    repo_dir: base_dir_str,
-                    worktree_dir: &worktree.path,
-                    branch: &worktree.branch,
-                    target: merge_target(worktree),
-                },
-                acceptance_criteria,
-            )
-            .await;
-
+        let report = self.verify_gate(worktree, acceptance_criteria).await;
         if !report.passed {
             return Ok(GatedMerge::Refused { report });
         }
         let result = self.merge_to_main(worktree).await?;
         Ok(GatedMerge::Attempted { report, result })
+    }
+
+    /// Run the merge gate for `worktree` without merging anything
+    /// ("verify" mode). Same checks and report as
+    /// [`merge_to_main_gated`](Self::merge_to_main_gated).
+    pub async fn verify_gate(
+        &self,
+        worktree: &WorktreeInfo,
+        acceptance_criteria: &[String],
+    ) -> MergeGateReport {
+        let base_dir_str = self.base_dir.to_str().unwrap_or(".");
+        let vcs = GitGateVcs::new(self.git.as_ref());
+        let gate = MergeGate::new(&self.gate_config, &vcs);
+        gate.evaluate(
+            GateTarget {
+                repo_dir: base_dir_str,
+                worktree_dir: &worktree.path,
+                branch: &worktree.branch,
+                target: merge_target(worktree),
+            },
+            acceptance_criteria,
+        )
+        .await
+    }
+
+    /// Commit currently checked out in `worktree` (`git rev-parse HEAD`).
+    pub fn worktree_head(&self, worktree: &WorktreeInfo) -> Result<String> {
+        self.git_ok(&worktree.path, &["rev-parse", "HEAD"])
+            .map(|s| s.trim().to_string())
     }
 
     /// Create a worktree for a task.
