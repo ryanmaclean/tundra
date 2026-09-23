@@ -111,6 +111,8 @@ mod router {
 
     use crate::auth::AuthLayer;
     use crate::intelligence_api;
+    use crate::origin_validation::OriginAllowlist;
+    use axum::Extension;
     use crate::rate_limit_middleware::RateLimitLayer;
     use crate::terminal_ws;
     use at_telemetry::middleware::metrics_middleware;
@@ -176,6 +178,10 @@ mod router {
     ) -> Router {
         // Clone the rate limiter before building the router.
         let rate_limiter = state.rate_limiter.clone();
+        // One allowlist (defaults + configured) shared by CORS and every
+        // WebSocket handler, so configuring an origin works everywhere.
+        let origins = OriginAllowlist::with_configured(&allowed_origins);
+        let cors_origins = origins.clone();
 
         Router::new()
             .route("/api/bootstrap", get(bootstrap::get_bootstrap))
@@ -474,6 +480,7 @@ mod router {
             .route("/ws", get(websocket::ws_handler))
             .route("/api/events/ws", get(websocket::events_ws_handler))
             .merge(intelligence_api::intelligence_router())
+            .layer(Extension(origins))
             .layer(CompressionLayer::new())
             .layer(axum_middleware::from_fn(metrics_middleware))
             .layer(axum_middleware::from_fn(request_id_middleware))
@@ -488,18 +495,10 @@ mod router {
                     .allow_origin(tower_http::cors::AllowOrigin::predicate(
                         move |origin: &axum::http::HeaderValue,
                               _request_parts: &axum::http::request::Parts| {
-                            if let Ok(origin_str) = origin.to_str() {
-                                if origin_str.starts_with("http://localhost")
-                                    || origin_str.starts_with("http://127.0.0.1")
-                                    || origin_str.starts_with("https://localhost")
-                                    || origin_str.starts_with("https://127.0.0.1")
-                                {
-                                    return true;
-                                }
-                                allowed_origins.iter().any(|allowed| origin_str == allowed)
-                            } else {
-                                false
-                            }
+                            origin
+                                .to_str()
+                                .map(|o| cors_origins.allows(o))
+                                .unwrap_or(false)
                         },
                     ))
                     .allow_methods([
@@ -513,6 +512,9 @@ mod router {
                     .allow_headers([
                         axum::http::header::CONTENT_TYPE,
                         axum::http::header::AUTHORIZATION,
+                        axum::http::HeaderName::from_static(
+                            at_api_types::auth::API_KEY_HEADER,
+                        ),
                     ])
                     .allow_credentials(true),
             )
