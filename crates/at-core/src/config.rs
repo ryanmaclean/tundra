@@ -477,6 +477,9 @@ pub struct DaemonConfig {
     pub host: String,
     #[serde(default)]
     pub tls: bool,
+    /// Stuck-agent patrol thresholds (`[daemon.patrol]`).
+    #[serde(default)]
+    pub patrol: PatrolConfig,
 }
 
 impl Default for DaemonConfig {
@@ -485,8 +488,57 @@ impl Default for DaemonConfig {
             port: default_daemon_port(),
             host: default_daemon_host(),
             tls: false,
+            patrol: PatrolConfig::default(),
         }
     }
+}
+
+/// Stuck-session detection policy for the daemon patrol (`[daemon.patrol]`).
+///
+/// An agent with a live session whose `last_seen` heartbeat is older than
+/// `ping_timeout_secs` fails a health check; after `consecutive_failures`
+/// failed checks in a row it is force-killed, and its slot is held for
+/// `kill_cooldown_secs` before it may be reused. Defaults follow gastown's
+/// deacon (30 s / 3 / 5 min); detection itself is off by default.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PatrolConfig {
+    /// Master switch for stuck-agent detection and force-kill. Off by default;
+    /// enable once executors heartbeat `Agent.last_seen` in the live registry.
+    #[serde(default = "default_patrol_enabled")]
+    pub enabled: bool,
+    /// Seconds of heartbeat silence after which a health check fails.
+    #[serde(default = "default_patrol_ping_timeout_secs")]
+    pub ping_timeout_secs: u64,
+    /// Consecutive failed health checks before an agent is force-killed.
+    #[serde(default = "default_patrol_consecutive_failures")]
+    pub consecutive_failures: u32,
+    /// Seconds after a force-kill before the agent slot may be reused.
+    #[serde(default = "default_patrol_kill_cooldown_secs")]
+    pub kill_cooldown_secs: u64,
+}
+
+impl Default for PatrolConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_patrol_enabled(),
+            ping_timeout_secs: default_patrol_ping_timeout_secs(),
+            consecutive_failures: default_patrol_consecutive_failures(),
+            kill_cooldown_secs: default_patrol_kill_cooldown_secs(),
+        }
+    }
+}
+
+fn default_patrol_enabled() -> bool {
+    false
+}
+fn default_patrol_ping_timeout_secs() -> u64 {
+    30
+}
+fn default_patrol_consecutive_failures() -> u32 {
+    3
+}
+fn default_patrol_kill_cooldown_secs() -> u64 {
+    300
 }
 
 fn default_daemon_port() -> u16 {
@@ -1254,5 +1306,33 @@ mod daemon_key_tests {
         let key = ensure_key_file(&path);
         assert!(!key.trim().is_empty());
         assert_eq!(read_key_file(&path).as_deref(), Some(key.as_str()));
+    }
+}
+
+#[cfg(test)]
+mod patrol_config_tests {
+    use super::*;
+
+    #[test]
+    fn patrol_defaults_match_gastown_deacon() {
+        let p = Config::default().daemon.patrol;
+        assert!(!p.enabled, "off until executors heartbeat last_seen");
+        assert_eq!(p.ping_timeout_secs, 30);
+        assert_eq!(p.consecutive_failures, 3);
+        assert_eq!(p.kill_cooldown_secs, 300);
+    }
+
+    #[test]
+    fn patrol_section_is_optional_and_partially_overridable() {
+        let cfg: Config = toml::from_str("[daemon]\nport = 1234\n").expect("parse");
+        assert_eq!(cfg.daemon.patrol, PatrolConfig::default());
+
+        let cfg: Config =
+            toml::from_str("[daemon.patrol]\nenabled = true\nconsecutive_failures = 5\n")
+                .expect("parse");
+        assert!(cfg.daemon.patrol.enabled);
+        assert_eq!(cfg.daemon.patrol.consecutive_failures, 5);
+        assert_eq!(cfg.daemon.patrol.ping_timeout_secs, 30);
+        assert_eq!(cfg.daemon.port, 9876);
     }
 }
