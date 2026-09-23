@@ -30,7 +30,7 @@ Last updated: 2026-02-24
 
 ## Terminal + agent orchestration track
 
-- [ ] Evaluate `claude-sdk-rs` integration into terminal agent sessions (session lifecycle, streaming, cancellation, retry semantics).
+- [x] N/A — claude-sdk-rs evaluation superseded by cc-sdk/rig-core decisions (see library research notes).
 - [ ] Decide on Zellij integration strategy for terminal tabs/panes vs current PTY pool design.
 - [ ] Evaluate embedding Nushell as optional shell backend for task terminals.
 - [ ] Formalize multi-agent queueing/backpressure model for shared local LLM + skills execution.
