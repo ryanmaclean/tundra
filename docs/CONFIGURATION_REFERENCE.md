@@ -913,9 +913,25 @@ event, and one `agent_stuck_escalation` event. The slot is then held for
 `kill_cooldown_secs`. When the cooldown ends, the daemon publishes
 `agent_slot_released`.
 
+**Heartbeat source.** Each `at-agents` executor run registers one agent per
+spawned CLI process on the event bus, and the daemon applies it to the live
+registry (`GET /api/agents`):
+
+| Bus message | When | Registry effect |
+|-------------|------|-----------------|
+| `AgentCreated` | process spawned | agent inserted, `status = Active`, `session_id` = process id, `metadata.schema = "at.executor_agent.v1"`, `metadata.task_id` / `bead_id` |
+| `Event` `agent_heartbeat` | a read finds the process alive (output or an idle poll), at most every 5 s | `last_seen` advanced to the event `timestamp` (ignored once `Stopped`) |
+| `AgentUpdated` | process exited, timed out, was aborted, or the run was cancelled | `status = Stopped`, `metadata.exit = {success, exit_code, timed_out, aborted, force_killed}` |
+
+The heartbeat reports that the executor sees the process alive, not that the
+process is printing: `claude --print` stays silent until it finishes. A CLI
+that hangs while alive is bounded by the agent profile's `timeout_secs`. The
+patrol catches executors that stop reporting. On `agent_force_kill`, the
+executor that owns the agent kills the process.
+
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `enabled` | bool | `false` | Turn on stuck-agent detection and force-kill. Leave off until executors heartbeat `Agent.last_seen`, or live agents are marked `Stopped` after ~90-120 s |
+| `enabled` | bool | `true` | Stuck-agent detection and force-kill. Set `false` to disable |
 | `ping_timeout_secs` | u64 | `30` | Seconds of heartbeat silence before a health check fails |
 | `consecutive_failures` | u32 | `3` | Failed checks in a row before force-kill (minimum 1) |
 | `kill_cooldown_secs` | u64 | `300` | Seconds after a force-kill before the agent slot may be reused |
@@ -923,7 +939,7 @@ event, and one `agent_stuck_escalation` event. The slot is then held for
 **Example:**
 ```toml
 [daemon.patrol]
-enabled = true
+enabled = true   # default; set false to opt out
 ping_timeout_secs = 30
 consecutive_failures = 3
 kill_cooldown_secs = 300

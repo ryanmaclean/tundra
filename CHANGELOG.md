@@ -25,6 +25,7 @@ Fixes from the 2026-09-22 multi-agent review. Unverified findings still to triag
 - Context steering loads project rules in every phase (6ebbe79).
 - `merge_to_main` targets `main` and handles tasks with no changes (b85de91).
 - `at exec --wait` stops on the phases the server actually emits (ca6ee1b).
+- Every `AgentExecutor` run now registers a live agent per spawned CLI process and heartbeats `Agent.last_seen` on the event bus (`AgentCreated` → throttled `agent_heartbeat` → `AgentUpdated(Stopped)` on exit/timeout/abort/cancel); the daemon's `agent_registry` applies these to `ApiState.agents`. `[daemon.patrol]` stuck-agent detection is now **enabled by default**, proven by a daemon test that a heartbeating-but-silent executor survives patrol while a non-heartbeating agent is force-killed.
 
 ### Integrations and UI
 
