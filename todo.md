@@ -13,11 +13,11 @@ Last updated: 2026-02-24
 - [x] Expose context-cache stats in CLI doctor output and `/api/context`.
 - [x] Add repeatable perf probe script: `/Users/studio/rust-harness/scripts/perf_probe.sh`.
 - [x] Parallelize `at-tui` refresh fan-out (`fetch_all`) to remove sequential endpoint waits.
-- [ ] Add `/api/bootstrap` endpoint to replace multi-endpoint TUI refresh with one snapshot request.
-- [ ] Convert `ApiState` ID-addressed collections from `Vec<T>` to `HashMap<Uuid, T>` for O(1) lookup/update paths.
-- [ ] Replace full-list mutation broadcasts (`BridgeMessage::BeadList(beads.clone())`) with incremental events (`BeadUpdated/BeadCreated`).
-- [ ] Replace queue-like `Vec::remove(0)` with `VecDeque::pop_front()` in bridge/tui/daemon/intelligence/core queue structures.
-- [ ] Consolidate KPI snapshot SQL from multiple COUNT queries into one grouped aggregate query.
+- [x] Add `/api/bootstrap` endpoint to replace multi-endpoint TUI refresh with one snapshot request.
+- [x] Convert `ApiState` ID-addressed collections from `Vec<T>` to `HashMap<Uuid, T>` for O(1) lookup/update paths.
+- [x] Replace full-list mutation broadcasts (`BridgeMessage::BeadList(beads.clone())`) with incremental events (`BeadUpdated/BeadCreated`).
+- [x] Replace queue-like `Vec::remove(0)` with `VecDeque::pop_front()` in bridge/tui/daemon/intelligence/core queue structures.
+- [x] N/A — KPI is in-memory, no SQL exists (removed SQL consolidation item)
 - [ ] Move blocking session-store FS hot paths to async-safe flow (`spawn_blocking` or DB-backed index/cache).
 
 ## Cache and data-structure track

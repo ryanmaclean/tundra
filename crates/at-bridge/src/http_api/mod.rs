@@ -10,6 +10,7 @@
 
 mod agents;
 mod beads;
+mod bootstrap;
 mod github;
 mod integrations;
 mod kanban;
@@ -176,6 +177,7 @@ mod router {
         let rate_limiter = state.rate_limiter.clone();
 
         Router::new()
+            .route("/api/bootstrap", get(bootstrap::get_bootstrap))
             .route("/api/status", get(misc::get_status))
             .route("/api/beads", get(beads::list_beads))
             .route("/api/beads", post(beads::create_bead))

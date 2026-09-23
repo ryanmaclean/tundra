@@ -128,15 +128,15 @@ pub struct ApiState {
     pub oauth_pending_states: Arc<RwLock<std::collections::HashMap<String, String>>>,
     pub oauth_token_manager: Arc<RwLock<OAuthTokenManager>>,
     // ---- Projects --------------------------------------------------------
-    pub projects: Arc<RwLock<Vec<Project>>>,
+    pub projects: Arc<RwLock<std::collections::HashMap<Uuid, Project>>>,
     // ---- PR polling -------------------------------------------------------
     pub pr_poll_registry: Arc<RwLock<std::collections::HashMap<u32, PrPollStatus>>>,
     // ---- GitHub releases --------------------------------------------------
     pub releases: Arc<RwLock<Vec<GitHubRelease>>>,
     // ---- Task archival ----------------------------------------------------
-    pub archived_tasks: Arc<RwLock<Vec<Uuid>>>,
+    pub archived_tasks: Arc<RwLock<std::collections::HashSet<Uuid>>>,
     // ---- Attachments ------------------------------------------------------
-    pub attachments: Arc<RwLock<Vec<Attachment>>>,
+    pub attachments: Arc<RwLock<std::collections::HashMap<Uuid, Attachment>>>,
     // ---- Task drafts ------------------------------------------------------
     pub task_drafts: Arc<RwLock<std::collections::HashMap<Uuid, TaskDraft>>>,
     // ---- Disconnect buffers for terminal WS reconnection ------------------
@@ -204,17 +204,22 @@ impl ApiState {
             oauth_token_manager: Arc::new(RwLock::new(OAuthTokenManager::new())),
             pr_poll_registry: Arc::new(RwLock::new(std::collections::HashMap::new())),
             releases: Arc::new(RwLock::new(Vec::new())),
-            archived_tasks: Arc::new(RwLock::new(Vec::new())),
-            projects: Arc::new(RwLock::new(vec![Project {
-                id: Uuid::new_v4(),
-                name: "auto-tundra".to_string(),
-                path: std::env::current_dir()
-                    .map(|p| p.display().to_string())
-                    .unwrap_or_else(|_| ".".to_string()),
-                created_at: chrono::Utc::now().to_rfc3339(),
-                is_active: true,
-            }])),
-            attachments: Arc::new(RwLock::new(Vec::new())),
+            archived_tasks: Arc::new(RwLock::new(std::collections::HashSet::new())),
+            projects: Arc::new(RwLock::new({
+                let p = Project {
+                    id: Uuid::new_v4(),
+                    name: "auto-tundra".to_string(),
+                    path: std::env::current_dir()
+                        .map(|p| p.display().to_string())
+                        .unwrap_or_else(|_| ".".to_string()),
+                    created_at: chrono::Utc::now().to_rfc3339(),
+                    is_active: true,
+                };
+                let mut m = std::collections::HashMap::new();
+                m.insert(p.id, p);
+                m
+            })),
+            attachments: Arc::new(RwLock::new(std::collections::HashMap::new())),
             task_drafts: Arc::new(RwLock::new(std::collections::HashMap::new())),
             disconnect_buffers: Arc::new(RwLock::new(std::collections::HashMap::new())),
             // ---- Rate Limiter Configuration -------------------------------------
@@ -244,7 +249,7 @@ impl ApiState {
             rate_limiter: Arc::new(MultiKeyRateLimiter::new(
                 RateLimitConfig::per_minute(100), // Global tier
                 RateLimitConfig::per_minute(20),  // Per-user tier
-                RateLimitConfig::per_minute(10),  // Per-endpoint tier
+                RateLimitConfig::per_minute(30),  // Per-endpoint tier (TUI polls /api/bootstrap at 12/min)
             )),
             retention_config: Arc::new(RwLock::new(RetentionConfig::default())),
         }
@@ -564,7 +569,7 @@ mod tests {
         state.task_count.store(1, Ordering::Relaxed);
 
         // Archive the task
-        state.archived_tasks.write().await.push(task_id);
+        state.archived_tasks.write().await.insert(task_id);
 
         // Cleanup with TTL of 7 days (604800 seconds)
         let removed = state.cleanup_archived_tasks(7 * 24 * 60 * 60).await;
@@ -588,7 +593,7 @@ mod tests {
         state.task_count.store(1, Ordering::Relaxed);
 
         // Archive the task
-        state.archived_tasks.write().await.push(task_id);
+        state.archived_tasks.write().await.insert(task_id);
 
         // Cleanup with TTL of 7 days (task is only 5 days old)
         let removed = state.cleanup_archived_tasks(7 * 24 * 60 * 60).await;
@@ -630,7 +635,7 @@ mod tests {
         // Add task to tasks HashMap and archive it
         state.tasks.write().await.insert(task_id, task);
         state.task_count.store(1, Ordering::Relaxed);
-        state.archived_tasks.write().await.push(task_id);
+        state.archived_tasks.write().await.insert(task_id);
 
         // Cleanup with TTL of 7 days
         let removed = state.cleanup_archived_tasks(7 * 24 * 60 * 60).await;
@@ -656,17 +661,17 @@ mod tests {
         // Old archived task 1
         let task1 = create_test_task(old_archived_id1, Some(old_completed_at));
         state.tasks.write().await.insert(old_archived_id1, task1);
-        state.archived_tasks.write().await.push(old_archived_id1);
+        state.archived_tasks.write().await.insert(old_archived_id1);
 
         // Old archived task 2
         let task2 = create_test_task(old_archived_id2, Some(old_completed_at));
         state.tasks.write().await.insert(old_archived_id2, task2);
-        state.archived_tasks.write().await.push(old_archived_id2);
+        state.archived_tasks.write().await.insert(old_archived_id2);
 
         // Recent archived task
         let task3 = create_test_task(recent_archived_id, Some(recent_completed_at));
         state.tasks.write().await.insert(recent_archived_id, task3);
-        state.archived_tasks.write().await.push(recent_archived_id);
+        state.archived_tasks.write().await.insert(recent_archived_id);
 
         // Non-archived task
         let task4 = create_test_task(non_archived_id, Some(old_completed_at));
@@ -713,7 +718,7 @@ mod tests {
         // Add task to tasks HashMap and archive it
         state.tasks.write().await.insert(task_id, task);
         state.task_count.store(1, Ordering::Relaxed);
-        state.archived_tasks.write().await.push(task_id);
+        state.archived_tasks.write().await.insert(task_id);
 
         // Cleanup with TTL of 0 seconds (should remove all archived tasks with completed_at)
         let removed = state.cleanup_archived_tasks(0).await;
@@ -933,7 +938,7 @@ mod tests {
         let task_id = Uuid::new_v4();
         let old_task = create_test_task(task_id, Some(Utc::now() - Duration::days(10)));
         state.tasks.write().await.insert(task_id, old_task);
-        state.archived_tasks.write().await.push(task_id);
+        state.archived_tasks.write().await.insert(task_id);
         state.task_count.store(1, Ordering::Relaxed);
 
         // Create old disconnect buffer
@@ -984,7 +989,7 @@ mod tests {
         let task_id = Uuid::new_v4();
         let recent_task = create_test_task(task_id, Some(Utc::now() - Duration::days(5)));
         state.tasks.write().await.insert(task_id, recent_task);
-        state.archived_tasks.write().await.push(task_id);
+        state.archived_tasks.write().await.insert(task_id);
         state.task_count.store(1, Ordering::Relaxed);
 
         // Create recent disconnect buffer (3 minutes old, should be kept)
@@ -1031,7 +1036,7 @@ mod tests {
             let task_id = Uuid::new_v4();
             let old_task = create_test_task(task_id, Some(Utc::now() - Duration::days(10)));
             state.tasks.write().await.insert(task_id, old_task);
-            state.archived_tasks.write().await.push(task_id);
+            state.archived_tasks.write().await.insert(task_id);
             state
                 .task_count
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -1086,7 +1091,7 @@ mod tests {
         let task_id = Uuid::new_v4();
         let old_task = create_test_task(task_id, Some(Utc::now() - Duration::days(10)));
         state.tasks.write().await.insert(task_id, old_task);
-        state.archived_tasks.write().await.push(task_id);
+        state.archived_tasks.write().await.insert(task_id);
         state.task_count.store(1, Ordering::Relaxed);
 
         // Start the background cleanup task

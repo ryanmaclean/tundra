@@ -61,6 +61,14 @@ pub enum BridgeMessage {
     BeadCreated(at_core::types::Bead),
     /// Bead updated event.
     BeadUpdated(at_core::types::Bead),
+    /// Bead deleted event — carries the UUID of the removed bead.
+    BeadDeleted(Uuid),
+    /// Agent registered / spawned event.
+    AgentCreated(at_core::types::Agent),
+    /// Agent state changed (status, last_seen, etc.).
+    AgentUpdated(at_core::types::Agent),
+    /// Agent removed event — carries the UUID of the removed agent.
+    AgentDeleted(Uuid),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

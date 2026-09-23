@@ -122,22 +122,47 @@ impl ApiClient {
         self.get("/api/memory")
     }
 
+    pub fn fetch_bootstrap(&self) -> Result<ApiBootstrap, String> {
+        self.get("/api/bootstrap")
+    }
+
     /// Fetch all data in one go. Individual failures are logged but don't
     /// block the rest — each endpoint returns its fallback default.
+    ///
+    /// Fast path: tries `GET /api/bootstrap` first. On success, beads/agents/kpi
+    /// are taken from the single response and the remaining endpoints are still
+    /// fetched in parallel (they cover different data: sessions, GitHub, etc.).
+    /// On failure (old server, network error) falls back to the full parallel fan-out.
     pub fn fetch_all(&self) -> AppData {
         let profile = std::env::var_os("AT_TUI_PROFILE").is_some();
         let started = Instant::now();
 
+        // Try the one-shot bootstrap first. If it works, skip those 3 thread spawns.
+        let bootstrap = timed_fetch(profile, "bootstrap", || self.fetch_bootstrap().ok());
+
         let data = std::thread::scope(|scope| {
-            let agents = scope.spawn(|| {
-                timed_fetch(profile, "agents", || {
-                    self.fetch_agents().unwrap_or_default()
-                })
-            });
-            let beads = scope
-                .spawn(|| timed_fetch(profile, "beads", || self.fetch_beads().unwrap_or_default()));
-            let kpi = scope
-                .spawn(|| timed_fetch(profile, "kpi", || self.fetch_kpi().unwrap_or_default()));
+            let agents = match &bootstrap {
+                Some(b) => b.agents.clone(),
+                None => scope
+                    .spawn(|| timed_fetch(profile, "agents", || self.fetch_agents().unwrap_or_default()))
+                    .join()
+                    .unwrap_or_default(),
+            };
+            let beads = match &bootstrap {
+                Some(b) => b.beads.clone(),
+                None => scope
+                    .spawn(|| timed_fetch(profile, "beads", || self.fetch_beads().unwrap_or_default()))
+                    .join()
+                    .unwrap_or_default(),
+            };
+            let kpi = match &bootstrap {
+                Some(b) => b.kpi.clone(),
+                None => scope
+                    .spawn(|| timed_fetch(profile, "kpi", || self.fetch_kpi().unwrap_or_default()))
+                    .join()
+                    .unwrap_or_default(),
+            };
+
             let sessions = scope.spawn(|| {
                 timed_fetch(profile, "sessions", || {
                     self.fetch_sessions().unwrap_or_default()
@@ -194,9 +219,9 @@ impl ApiClient {
             });
 
             AppData {
-                agents: agents.join().unwrap_or_default(),
-                beads: beads.join().unwrap_or_default(),
-                kpi: kpi.join().unwrap_or_default(),
+                agents,
+                beads,
+                kpi,
                 sessions: sessions.join().unwrap_or_default(),
                 convoys: convoys.join().unwrap_or_default(),
                 costs: costs.join().unwrap_or_default(),

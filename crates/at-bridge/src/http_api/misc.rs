@@ -296,9 +296,7 @@ pub(crate) async fn archive_task(
     Path(id): Path<Uuid>,
 ) -> impl IntoResponse {
     let mut archived = state.archived_tasks.write().await;
-    if !archived.contains(&id) {
-        archived.push(id);
-    }
+    archived.insert(id);
     (
         axum::http::StatusCode::OK,
         Json(serde_json::json!({"archived": id})),
@@ -311,7 +309,7 @@ pub(crate) async fn unarchive_task(
     Path(id): Path<Uuid>,
 ) -> impl IntoResponse {
     let mut archived = state.archived_tasks.write().await;
-    archived.retain(|&aid| aid != id);
+    archived.remove(&id);
     (
         axum::http::StatusCode::OK,
         Json(serde_json::json!({"unarchived": id})),
@@ -390,7 +388,7 @@ pub(crate) async fn list_attachments(
     let offset = params.offset.unwrap_or(0);
 
     let filtered: Vec<Attachment> = attachments
-        .iter()
+        .values()
         .filter(|a| a.task_id == task_id)
         .skip(offset)
         .take(limit)
@@ -423,7 +421,7 @@ pub(crate) async fn add_attachment(
         uploaded_at: chrono::Utc::now().to_rfc3339(),
     };
     let mut attachments = state.attachments.write().await;
-    attachments.push(attachment.clone());
+    attachments.insert(attachment.id, attachment.clone());
     (
         axum::http::StatusCode::CREATED,
         Json(serde_json::json!(attachment)),
@@ -436,9 +434,7 @@ pub(crate) async fn delete_attachment(
     Path((_task_id, attachment_id)): Path<(Uuid, Uuid)>,
 ) -> impl IntoResponse {
     let mut attachments = state.attachments.write().await;
-    let before = attachments.len();
-    attachments.retain(|a| a.id != attachment_id);
-    if attachments.len() < before {
+    if attachments.remove(&attachment_id).is_some() {
         (
             axum::http::StatusCode::OK,
             Json(serde_json::json!({"deleted": attachment_id})),

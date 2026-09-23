@@ -319,6 +319,26 @@ pub struct ApiChangelogEntry {
     pub sections: Vec<ApiChangelogSection>,
 }
 
+// ── Bootstrap snapshot ──
+
+/// Single-request startup snapshot returned by `GET /api/bootstrap`.
+///
+/// Contains the collections the TUI needs for initial render. Fields use
+/// `#[serde(default)]` so new server fields don't break old TUI clients.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ApiBootstrap {
+    #[serde(default)]
+    pub beads: Vec<ApiBead>,
+    #[serde(default)]
+    pub agents: Vec<ApiAgent>,
+    #[serde(default)]
+    pub kpi: ApiKpi,
+    #[serde(default)]
+    pub server_version: String,
+    #[serde(default)]
+    pub uptime_seconds: u64,
+}
+
 // ── API request types ──
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

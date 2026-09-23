@@ -285,6 +285,34 @@ pub fn notification_from_event(
             "system".to_string(),
             Some(format!("/beads/{}", bead.id)),
         )),
+        BridgeMessage::BeadDeleted(id) => Some((
+            "Bead Deleted".to_string(),
+            format!("Deleted bead: {}", id),
+            NotificationLevel::Warning,
+            "system".to_string(),
+            None,
+        )),
+        BridgeMessage::AgentCreated(agent) => Some((
+            "Agent Registered".to_string(),
+            format!("Agent {} is now available", agent.name),
+            NotificationLevel::Info,
+            "system".to_string(),
+            None,
+        )),
+        BridgeMessage::AgentUpdated(agent) => Some((
+            "Agent Updated".to_string(),
+            format!("Agent {} status changed to {:?}", agent.name, agent.status),
+            NotificationLevel::Info,
+            format!("agent:{}", agent.id),
+            None,
+        )),
+        BridgeMessage::AgentDeleted(id) => Some((
+            "Agent Removed".to_string(),
+            format!("Agent {} was removed", id),
+            NotificationLevel::Warning,
+            "system".to_string(),
+            None,
+        )),
         _ => None,
     }
 }

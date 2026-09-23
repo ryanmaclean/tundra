@@ -134,7 +134,7 @@ async fn seed_projects(state: &ApiState, count: usize) -> Vec<Uuid> {
             created_at: chrono::Utc::now().to_rfc3339(),
             is_active: true,
         };
-        projects.push(project);
+        projects.insert(project_id, project);
         ids.push(project_id);
     }
     ids

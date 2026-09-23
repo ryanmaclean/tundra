@@ -33,7 +33,7 @@ pub(crate) async fn list_projects(
     let projects = state.projects.read().await;
     let limit = params.limit.unwrap_or(50);
     let offset = params.offset.unwrap_or(0);
-    Json(projects.iter().skip(offset).take(limit).cloned().collect())
+    Json(projects.values().skip(offset).take(limit).cloned().collect())
 }
 
 /// POST /api/projects -- create a new project.
@@ -49,7 +49,7 @@ pub(crate) async fn create_project(
         is_active: false,
     };
     let mut projects = state.projects.write().await;
-    projects.push(project.clone());
+    projects.insert(project.id, project.clone());
     (axum::http::StatusCode::CREATED, Json(project))
 }
 
@@ -60,7 +60,7 @@ pub(crate) async fn update_project(
     Json(req): Json<UpdateProjectRequest>,
 ) -> impl IntoResponse {
     let mut projects = state.projects.write().await;
-    let Some(project) = projects.iter_mut().find(|p| p.id == id) else {
+    let Some(project) = projects.get_mut(&id) else {
         return (
             axum::http::StatusCode::NOT_FOUND,
             Json(serde_json::json!({"error": "project not found"})),
@@ -90,16 +90,14 @@ pub(crate) async fn delete_project(
             Json(serde_json::json!({"error": "cannot delete last project"})),
         );
     }
-    let before = projects.len();
-    projects.retain(|p| p.id != id);
-    if projects.len() == before {
+    if projects.remove(&id).is_none() {
         return (
             axum::http::StatusCode::NOT_FOUND,
             Json(serde_json::json!({"error": "project not found"})),
         );
     }
-    if !projects.iter().any(|p| p.is_active) {
-        if let Some(first) = projects.first_mut() {
+    if !projects.values().any(|p| p.is_active) {
+        if let Some(first) = projects.values_mut().next() {
             first.is_active = true;
         }
     }
@@ -115,16 +113,14 @@ pub(crate) async fn activate_project(
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
     let mut projects = state.projects.write().await;
-    let exists = projects.iter().any(|p| p.id == id);
-    if !exists {
+    if !projects.contains_key(&id) {
         return Err(ApiError::NotFound("project not found".into()));
     }
-    for p in projects.iter_mut() {
+    for p in projects.values_mut() {
         p.is_active = p.id == id;
     }
     let activated = projects
-        .iter()
-        .find(|p| p.id == id)
+        .get(&id)
         .cloned()
         .ok_or_else(|| ApiError::NotFound("project not found".into()))?;
     Ok((

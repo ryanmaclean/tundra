@@ -245,12 +245,11 @@ pub(crate) async fn delete_bead(
         return Err(ApiError::NotFound("bead not found".into()));
     }
 
-    // Publish updated bead list event
+    // Publish granular delete event so clients can remove the single entry
+    // without receiving the entire collection.
     state
         .event_bus
-        .publish(crate::protocol::BridgeMessage::BeadList(
-            beads.values().cloned().collect(),
-        ));
+        .publish(crate::protocol::BridgeMessage::BeadDeleted(id));
 
     Ok((
         axum::http::StatusCode::OK,
