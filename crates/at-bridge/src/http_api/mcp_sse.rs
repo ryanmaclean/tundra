@@ -456,7 +456,8 @@ async fn exec_list_beads(state: &Arc<ApiState>, args: &serde_json::Value) -> Too
 }
 
 async fn exec_get_kpi(state: &Arc<ApiState>) -> ToolCallResult {
-    let kpi: KpiSnapshot = state.kpi.read().await.clone();
+    // Live counts, same as GET /api/kpi (the cached `state.kpi` can lag).
+    let kpi: KpiSnapshot = state.compute_kpi().await;
     match serde_json::to_string(&kpi) {
         Ok(s) => ToolCallResult::text(s),
         Err(e) => ToolCallResult::error(format!("Failed to serialize KPI: {e}")),
@@ -598,6 +599,21 @@ mod tests {
         let text = result.text_content().unwrap();
         let v: serde_json::Value = serde_json::from_str(text).unwrap();
         assert!(v.get("total_beads").is_some());
+    }
+
+    #[tokio::test]
+    async fn exec_get_kpi_counts_live_beads_not_cached_snapshot() {
+        let state = make_state();
+        let args = serde_json::json!({ "title": "Live bead", "lane": "standard" });
+        assert!(!exec_create_bead(&state, &args).await.is_error);
+        // A stale cached snapshot (e.g. written from an empty CacheDb) must
+        // not mask the live beads.
+        state.kpi.write().await.total_beads = 0;
+
+        let result = exec_get_kpi(&state).await;
+        let v: serde_json::Value = serde_json::from_str(result.text_content().unwrap()).unwrap();
+        assert_eq!(v["total_beads"], 1);
+        assert_eq!(v["backlog"], 1);
     }
 
     #[tokio::test]

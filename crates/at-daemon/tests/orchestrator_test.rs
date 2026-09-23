@@ -89,12 +89,15 @@ impl PtySpawner for FailingSpawner {
 /// Mock GitRunner with configurable responses.
 struct MockGit {
     responses: Mutex<VecDeque<GitOutput>>,
+    /// stdout for `git rev-list --count` (the merge's "commits ahead" probe).
+    rev_list_count: String,
 }
 
 impl MockGit {
     fn new(responses: Vec<GitOutput>) -> Self {
         Self {
             responses: Mutex::new(VecDeque::from(responses)),
+            rev_list_count: "0\n".to_string(),
         }
     }
 
@@ -106,7 +109,8 @@ impl MockGit {
         }
     }
 
-    /// Git responses for a happy-path run: worktree create + merge (fetch + empty diff).
+    /// Git responses for a happy-path run: worktree create, clean gate, and a
+    /// merge with nothing ahead (`rev-list --count` answers "0").
     fn happy_path_responses() -> Vec<GitOutput> {
         vec![
             Self::success_output(), // worktree add
@@ -135,7 +139,14 @@ impl MockGit {
 }
 
 impl GitRunner for MockGit {
-    fn run_git(&self, _dir: &str, _args: &[&str]) -> Result<GitOutput, String> {
+    fn run_git(&self, _dir: &str, args: &[&str]) -> Result<GitOutput, String> {
+        if args.starts_with(&["rev-list", "--count"]) {
+            return Ok(GitOutput {
+                success: true,
+                stdout: self.rev_list_count.clone(),
+                stderr: String::new(),
+            });
+        }
         let mut responses = self.responses.lock().unwrap();
         if responses.is_empty() {
             Ok(MockGit::success_output())
@@ -911,4 +922,128 @@ async fn test_scheduler_assign_bead_sets_hooked_fields() {
     assert_eq!(updated.status, BeadStatus::Hooked);
     assert_eq!(updated.agent_id, Some(agent_id));
     assert!(updated.hooked_at.is_some());
+}
+
+// ===========================================================================
+// Failure gating (finding #31): no merge / Complete after a failed step
+// ===========================================================================
+
+fn qa_report(task: &Task, status: QaStatus) -> QaReport {
+    let mut report = QaReport::new(task.id, status.clone());
+    if status == QaStatus::Failed {
+        report.issues.push(QaIssue {
+            id: Uuid::new_v4(),
+            severity: QaSeverity::Critical,
+            description: "tests fail".to_string(),
+            file: None,
+            line: None,
+        });
+    }
+    report
+}
+
+#[tokio::test]
+async fn test_qa_failure_never_merges_and_errors_after_fix_iterations() {
+    let (orchestrator, rx) =
+        make_orchestrator_with_bus(b"output\n".to_vec(), MockGit::happy_path_responses()).await;
+    let orchestrator = orchestrator
+        .with_max_gate_fix_iterations(2)
+        .with_qa_checker(|t| qa_report(t, QaStatus::Failed));
+    let mut task = make_test_task();
+
+    let err = orchestrator.start_task(&mut task).await.unwrap_err();
+    match err {
+        OrchestratorError::QaFailed(report) => assert_eq!(report.status, QaStatus::Failed),
+        other => panic!("expected QaFailed, got {other:?}"),
+    }
+    assert_eq!(task.phase, TaskPhase::Error);
+    assert!(task.completed_at.is_none());
+    assert!(task.error.as_deref().unwrap().contains("after 2 fix iteration"));
+
+    let events = collect_events(&rx);
+    assert_eq!(
+        events.iter().filter(|e| *e == "phase_start:Fixing").count(),
+        2,
+        "{events:?}"
+    );
+    assert!(
+        !events
+            .iter()
+            .any(|e| e == "phase_start:Merging" || e == "task_complete"),
+        "failed QA must not reach Merging: {events:?}"
+    );
+}
+
+#[tokio::test]
+async fn test_qa_failure_loops_through_fixing_until_qa_passes() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let checks = Arc::new(AtomicUsize::new(0));
+    let counter = checks.clone();
+    let (orchestrator, rx) =
+        make_orchestrator_with_bus(b"output\n".to_vec(), MockGit::happy_path_responses()).await;
+    let orchestrator = orchestrator.with_qa_checker(move |t| {
+        if counter.fetch_add(1, Ordering::SeqCst) == 0 {
+            qa_report(t, QaStatus::Failed)
+        } else {
+            qa_report(t, QaStatus::Passed)
+        }
+    });
+    let mut task = make_test_task();
+
+    orchestrator.start_task(&mut task).await.expect("completes");
+    assert_eq!(task.phase, TaskPhase::Complete);
+    assert_eq!(checks.load(Ordering::SeqCst), 2, "QA re-checked after Fixing");
+    assert_eq!(task.qa_report.as_ref().unwrap().status, QaStatus::Passed);
+
+    let events = collect_events(&rx);
+    let fixing = events.iter().position(|e| e == "phase_start:Fixing").unwrap();
+    let merging = events.iter().position(|e| e == "phase_start:Merging").unwrap();
+    assert!(fixing < merging, "{events:?}");
+}
+
+#[tokio::test]
+async fn test_unsuccessful_agent_phase_stops_pipeline() {
+    // No output and no exit status: the executor reports success = false.
+    let (orchestrator, rx) =
+        make_orchestrator_with_bus(Vec::new(), MockGit::happy_path_responses()).await;
+    let mut task = make_test_task();
+
+    let err = orchestrator.start_task(&mut task).await.unwrap_err();
+    assert!(
+        matches!(err, OrchestratorError::PhaseFailed(TaskPhase::Discovery)),
+        "{err:?}"
+    );
+    assert_eq!(task.phase, TaskPhase::Error);
+    assert_eq!(task.error.as_deref(), Some("Phase Discovery did not succeed"));
+    assert!(task.completed_at.is_none());
+
+    let events = collect_events(&rx);
+    assert!(events.iter().any(|e| e == "task_error"), "{events:?}");
+    assert!(
+        !events
+            .iter()
+            .any(|e| e == "phase_start:Coding" || e == "task_complete"),
+        "{events:?}"
+    );
+}
+
+#[tokio::test]
+async fn test_merge_error_sets_error_instead_of_complete() {
+    let bus = EventBus::new();
+    let spawner: Arc<dyn PtySpawner> = Arc::new(MockSpawner::new(b"output\n".to_vec()));
+    let executor = AgentExecutor::with_spawner(spawner, bus.clone());
+    let tmp = std::env::temp_dir().join(format!("at-orch-merr-{}", Uuid::new_v4()));
+    let _ = std::fs::create_dir_all(&tmp);
+    let mut git = MockGit::new(MockGit::happy_path_responses());
+    git.rev_list_count = "not a number".to_string();
+    let worktree_manager = WorktreeManager::with_git_runner(tmp, Box::new(git));
+    let orchestrator = TaskOrchestrator::new(executor, worktree_manager, bus);
+    let mut task = make_test_task();
+
+    let err = orchestrator.start_task(&mut task).await.unwrap_err();
+    assert!(matches!(err, OrchestratorError::Worktree(_)), "{err:?}");
+    assert_eq!(task.phase, TaskPhase::Error);
+    assert!(task.error.as_deref().unwrap().starts_with("Merge failed"));
+    assert!(task.completed_at.is_none());
 }
