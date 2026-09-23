@@ -206,12 +206,20 @@ mod tests {
     use std::fs;
 
     #[test]
-    fn default_path_is_home_dot_config_settings_toml() {
+    fn default_path_is_the_canonical_config_toml() {
+        // `default_path()` now resolves to the canonical, shared location
+        // (migrating the legacy file into it once if needed), not the old
+        // `~/.config/auto-tundra/settings.toml` location directly.
         let mgr = SettingsManager::default_path();
+        assert_eq!(mgr.path(), &Config::default_path());
+    }
+
+    #[test]
+    fn legacy_path_is_home_dot_config_settings_toml() {
         let home = crate::paths::home_dir().unwrap_or_else(|| PathBuf::from("."));
         assert_eq!(
-            mgr.path(),
-            &home.join(".config").join("auto-tundra").join("settings.toml")
+            SettingsManager::legacy_path(),
+            Some(home.join(".config").join("auto-tundra").join("settings.toml"))
         );
     }
 
