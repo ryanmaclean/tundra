@@ -8,7 +8,8 @@ use uuid::Uuid;
 
 use at_agents::executor::AgentExecutor;
 use at_agents::profiles::AgentConfig;
-use at_core::worktree_manager::{MergeResult, WorktreeManager};
+use at_core::merge_gate::MergeGateReport;
+use at_core::worktree_manager::{GatedMerge, MergeResult, WorktreeManager};
 use at_intelligence::runner::{QaRunner, SpecRunner};
 use at_intelligence::spec::{PhaseMetrics, PhaseResult, PhaseStatus, SpecPhase};
 
@@ -103,6 +104,12 @@ pub enum OrchestratorError {
     /// The contained vector lists the file paths that have merge conflicts.
     #[error("merge conflict in files: {0:?}")]
     MergeConflict(Vec<String>),
+
+    /// The merge gate kept refusing the task branch after the allowed number
+    /// of fix iterations. The task is left in [`TaskPhase::Error`] with the
+    /// report stored in `task.merge_gate_report`.
+    #[error("{}", .0.summary())]
+    MergeGateFailed(Box<MergeGateReport>),
 }
 
 /// A specialized [`Result`](std::result::Result) type for orchestrator operations.
@@ -134,7 +141,11 @@ pub struct TaskOrchestrator {
     executor: AgentExecutor,
     worktree_manager: WorktreeManager,
     event_bus: EventBus,
+    max_gate_fix_iterations: usize,
 }
+
+/// Fix iterations allowed after a merge-gate failure before the task errors.
+pub const DEFAULT_MAX_GATE_FIX_ITERATIONS: usize = 3;
 
 impl TaskOrchestrator {
     /// Create a new orchestrator from its component parts.
@@ -147,7 +158,15 @@ impl TaskOrchestrator {
             executor,
             worktree_manager,
             event_bus,
+            max_gate_fix_iterations: DEFAULT_MAX_GATE_FIX_ITERATIONS,
         }
+    }
+
+    /// Set how many Fixing -> Qa -> Merging iterations a task gets after the
+    /// merge gate refuses it (0 = fail immediately).
+    pub fn with_max_gate_fix_iterations(mut self, n: usize) -> Self {
+        self.max_gate_fix_iterations = n;
+        self
     }
 
     /// Start executing a task through the full pipeline.
@@ -208,39 +227,9 @@ impl TaskOrchestrator {
             );
             self.publish_event(task, &format!("phase_start:{phase:?}"));
 
-            // Handle merging phase specially
+            // Handle merging phase specially: gate, then merge.
             if *phase == TaskPhase::Merging {
-                if let Some(ref branch) = task.git_branch {
-                    let wt_info = at_core::worktree::WorktreeInfo {
-                        path: task.worktree_path.clone().unwrap_or_default(),
-                        branch: branch.clone(),
-                        base_branch: "main".to_string(),
-                        task_name: sanitize_task_title(&task.title),
-                        created_at: Utc::now(),
-                    };
-
-                    match self.worktree_manager.merge_to_main(&wt_info).await {
-                        Ok(MergeResult::Success) => {
-                            task.log(TaskLogType::Success, "Merge to main successful");
-                            self.publish_event(task, "merge_success");
-                        }
-                        Ok(MergeResult::NothingToMerge) => {
-                            task.log(TaskLogType::Info, "No changes to merge");
-                        }
-                        Ok(MergeResult::Conflict(files)) => {
-                            let msg = format!("Merge conflicts in: {}", files.join(", "));
-                            task.log(TaskLogType::Error, &msg);
-                            task.set_phase(TaskPhase::Error);
-                            task.error = Some(msg);
-                            self.publish_event(task, "merge_conflict");
-                            return Err(OrchestratorError::MergeConflict(files));
-                        }
-                        Err(e) => {
-                            warn!(task_id = %task.id, error = %e, "merge failed");
-                            task.log(TaskLogType::Error, format!("Merge failed: {e}"));
-                        }
-                    }
-                }
+                self.run_merge_phase(task).await?;
 
                 task.log(TaskLogType::PhaseEnd, format!("Completed phase: {phase:?}"));
                 self.publish_event(task, &format!("phase_end:{phase:?}"));
@@ -378,6 +367,149 @@ impl TaskOrchestrator {
         }
 
         info!(task_id = %task.id, "orchestrator finished task");
+        Ok(())
+    }
+
+    /// Merging phase: run the merge gate and merge only if it passes.
+    ///
+    /// A refused gate sends the task back through Fixing -> Qa -> Merging (up
+    /// to `max_gate_fix_iterations` times) instead of merging. When the
+    /// iterations are exhausted the task moves to Error and
+    /// [`OrchestratorError::MergeGateFailed`] is returned.
+    async fn run_merge_phase(&self, task: &mut Task) -> Result<()> {
+        let Some(branch) = task.git_branch.clone() else {
+            return Ok(());
+        };
+        let wt_info = at_core::worktree::WorktreeInfo {
+            path: task.worktree_path.clone().unwrap_or_default(),
+            branch,
+            base_branch: "main".to_string(),
+            task_name: sanitize_task_title(&task.title),
+            created_at: Utc::now(),
+        };
+
+        let mut fix_iterations = 0usize;
+        loop {
+            let criteria = task.acceptance_criteria.clone();
+            match self
+                .worktree_manager
+                .merge_to_main_gated(&wt_info, &criteria)
+                .await
+            {
+                Ok(GatedMerge::Refused { report }) => {
+                    let summary = report.summary();
+                    task.merge_gate_report = Some(report.clone());
+                    task.log(TaskLogType::Error, &summary);
+                    self.publish_event(task, "merge_gate_failed");
+
+                    if fix_iterations >= self.max_gate_fix_iterations {
+                        let msg = format!("{summary} (after {fix_iterations} fix iteration(s))");
+                        task.set_phase(TaskPhase::Error);
+                        task.error = Some(msg);
+                        self.publish_event(task, "task_error");
+                        return Err(OrchestratorError::MergeGateFailed(Box::new(report)));
+                    }
+                    fix_iterations += 1;
+                    self.run_gate_fix_iteration(task, &report, fix_iterations)
+                        .await?;
+                }
+                Ok(GatedMerge::Attempted { report, result }) => {
+                    task.log(TaskLogType::Info, report.summary());
+                    task.merge_gate_report = Some(report);
+                    match result {
+                        MergeResult::Success => {
+                            task.log(TaskLogType::Success, "Merge to main successful");
+                            self.publish_event(task, "merge_success");
+                        }
+                        MergeResult::NothingToMerge => {
+                            task.log(TaskLogType::Info, "No changes to merge");
+                        }
+                        MergeResult::Conflict(files) => {
+                            let msg = format!("Merge conflicts in: {}", files.join(", "));
+                            task.log(TaskLogType::Error, &msg);
+                            task.set_phase(TaskPhase::Error);
+                            task.error = Some(msg);
+                            self.publish_event(task, "merge_conflict");
+                            return Err(OrchestratorError::MergeConflict(files));
+                        }
+                    }
+                    return Ok(());
+                }
+                Err(e) => {
+                    warn!(task_id = %task.id, error = %e, "merge failed");
+                    task.log(TaskLogType::Error, format!("Merge failed: {e}"));
+                    return Ok(());
+                }
+            }
+        }
+    }
+
+    /// One Merging -> Fixing -> Qa -> Merging detour after a refused gate.
+    async fn run_gate_fix_iteration(
+        &self,
+        task: &mut Task,
+        report: &MergeGateReport,
+        iteration: usize,
+    ) -> Result<()> {
+        task.set_phase(TaskPhase::Fixing);
+        task.log(
+            TaskLogType::PhaseStart,
+            format!(
+                "Starting phase: Fixing (merge gate iteration {iteration}/{})",
+                self.max_gate_fix_iterations
+            ),
+        );
+        self.publish_event(task, "phase_start:Fixing");
+
+        let mut prompt = self.build_prompt_for_phase(task, TaskPhase::Fixing);
+        prompt.push_str(&format!(
+            "\n\nThe merge gate refused this branch: {}",
+            report.summary()
+        ));
+        for block in &report.blocked_by {
+            prompt.push_str(&format!("\n- {}", block.describe()));
+        }
+        if let Some(failed) = report.results.iter().find(|r| !r.success()) {
+            prompt.push_str(&format!(
+                "\nFailing acceptance criterion: `{}`\nstdout (tail):\n{}\nstderr (tail):\n{}",
+                failed.cmd, failed.stdout_tail, failed.stderr_tail
+            ));
+        }
+        prompt.push_str("\nFix the problem and commit the changes on the task branch.");
+
+        let mut exec_task = task.clone();
+        exec_task.description = Some(prompt);
+        let config =
+            AgentConfig::default_for_phase(at_core::types::CliType::Claude, TaskPhase::Fixing);
+        match self.executor.execute_task(&exec_task, &config).await {
+            Ok(result) => {
+                task.log(
+                    TaskLogType::Info,
+                    format!(
+                        "Fix agent finished (success={}, {}ms)",
+                        result.success, result.duration_ms
+                    ),
+                );
+            }
+            Err(e) => {
+                error!(task_id = %task.id, error = %e, "merge gate fix iteration failed");
+                task.set_phase(TaskPhase::Error);
+                task.error = Some(e.to_string());
+                task.log(TaskLogType::Error, format!("Phase Fixing failed: {e}"));
+                self.publish_event(task, "task_error");
+                return Err(OrchestratorError::Executor(e));
+            }
+        }
+        task.log(TaskLogType::PhaseEnd, "Completed phase: Fixing");
+        self.publish_event(task, "phase_end:Fixing");
+
+        task.set_phase(TaskPhase::Qa);
+        task.log(TaskLogType::Info, "Re-verifying via merge gate");
+        self.publish_event(task, "phase_start:Qa");
+
+        task.set_phase(TaskPhase::Merging);
+        task.log(TaskLogType::PhaseStart, "Starting phase: Merging (retry)");
+        self.publish_event(task, "phase_start:Merging");
         Ok(())
     }
 
