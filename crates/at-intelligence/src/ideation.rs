@@ -186,11 +186,26 @@ impl IdeationEngine {
     /// the response as JSON.  If JSON parsing fails it falls back to simple
     /// line-based text parsing so that the engine is resilient to varying
     /// LLM output formats.
+    ///
+    /// Callers that share the engine behind a lock should use the three
+    /// phases instead ([`Self::prepare_ai_request`], [`AiIdeationRequest::run`],
+    /// [`Self::store_ideas`]) so no lock is held across the LLM call.
     pub async fn generate_ideas_with_ai(
         &mut self,
         category: &IdeaCategory,
         context: &str,
     ) -> Result<IdeationResult, crate::IntelligenceError> {
+        let ideas = self.prepare_ai_request(category, context)?.run().await?;
+        Ok(self.store_ideas(category, ideas))
+    }
+
+    /// Phase 1 of AI ideation: build the prompt and capture the provider.
+    /// Needs only `&self`, and the returned request borrows nothing.
+    pub fn prepare_ai_request(
+        &self,
+        category: &IdeaCategory,
+        context: &str,
+    ) -> Result<AiIdeationRequest, crate::IntelligenceError> {
         let provider = self
             .provider
             .as_ref()
@@ -230,25 +245,22 @@ impl IdeationEngine {
             system_prompt: None,
         };
 
-        let response = provider.complete(&messages, &config).await.map_err(|e| {
-            crate::IntelligenceError::InvalidOperation(format!("LLM call failed: {e}"))
-        })?;
-
-        // Try JSON parsing first, fall back to text parsing.
-        let ideas = self
-            .parse_ideas_json(&response.content, category)
-            .unwrap_or_else(|| self.parse_ideas_text(&response.content, category));
-
-        // Store the generated ideas.
-        for idea in &ideas {
-            self.ideas.push(idea.clone());
-        }
-
-        Ok(IdeationResult {
-            ideas,
-            analysis_type: category_label.to_string(),
-            generated_at: Utc::now(),
+        Ok(AiIdeationRequest {
+            provider,
+            messages,
+            config,
+            category: category.clone(),
         })
+    }
+
+    /// Phase 3 of AI ideation: record `ideas` and wrap them in a result.
+    pub fn store_ideas(&mut self, category: &IdeaCategory, ideas: Vec<Idea>) -> IdeationResult {
+        self.ideas.extend(ideas.iter().cloned());
+        IdeationResult {
+            ideas,
+            analysis_type: Self::category_label(category).to_string(),
+            generated_at: Utc::now(),
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -288,7 +300,7 @@ impl IdeationEngine {
     }
 
     /// Attempt to parse the LLM response as our expected JSON schema.
-    fn parse_ideas_json(&self, text: &str, category: &IdeaCategory) -> Option<Vec<Idea>> {
+    fn parse_ideas_json(text: &str, category: &IdeaCategory) -> Option<Vec<Idea>> {
         // Strip markdown code fences if the LLM wrapped output in them.
         let cleaned = text
             .trim()
@@ -321,7 +333,7 @@ impl IdeationEngine {
     }
 
     /// Fallback: treat each non-empty line as an idea title.
-    fn parse_ideas_text(&self, text: &str, category: &IdeaCategory) -> Vec<Idea> {
+    fn parse_ideas_text(text: &str, category: &IdeaCategory) -> Vec<Idea> {
         text.lines()
             .map(|l| l.trim())
             .filter(|l| !l.is_empty())
@@ -363,6 +375,33 @@ impl IdeationEngine {
             "massive" => EffortLevel::Massive,
             _ => EffortLevel::Medium,
         }
+    }
+}
+
+/// A prepared AI ideation call (phase 2). Owns everything it needs, so it
+/// can run with no lock on the [`IdeationEngine`] held.
+pub struct AiIdeationRequest {
+    provider: Arc<dyn LlmProvider>,
+    messages: Vec<LlmMessage>,
+    config: LlmConfig,
+    category: IdeaCategory,
+}
+
+impl AiIdeationRequest {
+    /// Call the LLM and parse its answer (JSON first, then line-based text).
+    pub async fn run(self) -> Result<Vec<Idea>, crate::IntelligenceError> {
+        let response = self
+            .provider
+            .complete(&self.messages, &self.config)
+            .await
+            .map_err(|e| {
+                crate::IntelligenceError::InvalidOperation(format!("LLM call failed: {e}"))
+            })?;
+        Ok(
+            IdeationEngine::parse_ideas_json(&response.content, &self.category).unwrap_or_else(
+                || IdeationEngine::parse_ideas_text(&response.content, &self.category),
+            ),
+        )
     }
 }
 
