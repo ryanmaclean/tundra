@@ -639,6 +639,37 @@ impl PtyPool {
     /// # }
     /// ```
     pub fn spawn(&self, cmd: &str, args: &[&str], env: &[(&str, &str)]) -> Result<PtyHandle> {
+        self.spawn_in(cmd, args, env, None)
+    }
+
+    /// Spawn a process in a new PTY with an explicit working directory.
+    ///
+    /// Identical to [`PtyPool::spawn`], but the child starts in `cwd` when it
+    /// is `Some`. Without a cwd, portable-pty starts children in `$HOME`,
+    /// and setting a `PWD` env var does **not** change the real working
+    /// directory.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PtyError::SpawnFailed`] if `cwd` is not an existing
+    /// directory, because portable-pty would otherwise silently fall back to
+    /// `$HOME`.
+    pub fn spawn_in(
+        &self,
+        cmd: &str,
+        args: &[&str],
+        env: &[(&str, &str)],
+        cwd: Option<&std::path::Path>,
+    ) -> Result<PtyHandle> {
+        if let Some(dir) = cwd {
+            if !dir.is_dir() {
+                return Err(PtyError::SpawnFailed(format!(
+                    "working directory does not exist or is not a directory: {}",
+                    dir.display()
+                )));
+            }
+        }
+
         // Capacity check
         {
             let handles = self.handles.lock().unwrap_or_else(|e| {
@@ -667,6 +698,9 @@ impl PtyPool {
         }
         for (k, v) in env {
             command.env(*k, *v);
+        }
+        if let Some(dir) = cwd {
+            command.cwd(dir);
         }
 
         let child = pair

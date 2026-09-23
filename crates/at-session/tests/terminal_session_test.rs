@@ -319,21 +319,38 @@ fn test_pool_kill_nonexistent_returns_error() {
 fn test_terminal_spawns_in_worktree_dir() {
     let pool = PtyPool::new(4);
 
-    // Spawn a shell that prints its working directory.
-    // We pass a PWD env var to simulate worktree directory.
+    let dir = std::env::temp_dir().join(format!("at-pty-cwd-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let expected = dir.canonicalize().unwrap();
+
     let handle = pool
-        .spawn("/bin/sh", &["-c", "echo CWD_IS=$(pwd)"], &[("PWD", "/tmp")])
+        .spawn_in("/bin/sh", &["-c", "echo CWD_IS=$(pwd -P)"], &[], Some(&dir))
         .expect("failed to spawn");
 
-    std::thread::sleep(Duration::from_millis(500));
+    let mut text = String::new();
+    let deadline = std::time::Instant::now() + Duration::from_secs(3);
+    while std::time::Instant::now() < deadline && !text.contains('\n') {
+        std::thread::sleep(Duration::from_millis(50));
+        text.push_str(&String::from_utf8_lossy(&handle.try_read_all()));
+    }
 
-    let output = handle.try_read_all();
-    let text = String::from_utf8_lossy(&output);
+    assert!(
+        text.contains(&format!("CWD_IS={}", expected.display())),
+        "child must run in the requested cwd {expected:?}, got: {text:?}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
 
-    // The shell should report some directory. The PWD env is set, but the
-    // actual cwd depends on the spawn implementation. We verify the env
-    // var was at least passed.
-    assert!(!text.is_empty(), "expected some output from pwd command");
+#[test]
+fn test_spawn_in_missing_dir_is_an_error() {
+    let pool = PtyPool::new(4);
+    let missing = std::env::temp_dir().join(format!("at-pty-missing-{}", uuid::Uuid::new_v4()));
+    let result = pool.spawn_in("/bin/sh", &["-c", "true"], &[], Some(&missing));
+    assert!(
+        result.is_err(),
+        "missing cwd must not silently fall back to $HOME"
+    );
+    assert_eq!(pool.active_count(), 0, "failed spawn must not take a slot");
 }
 
 #[test]

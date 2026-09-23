@@ -250,6 +250,21 @@ pub trait PtySpawner: Send + Sync {
         args: &[&str],
         env: &[(&str, &str)],
     ) -> std::result::Result<SpawnedProcess, String>;
+
+    /// Spawn a process with an explicit working directory.
+    ///
+    /// The default implementation ignores `cwd` and delegates to
+    /// [`PtySpawner::spawn`] (fine for mocks); real spawners must override it.
+    fn spawn_in(
+        &self,
+        cmd: &str,
+        args: &[&str],
+        env: &[(&str, &str)],
+        cwd: Option<&std::path::Path>,
+    ) -> std::result::Result<SpawnedProcess, String> {
+        let _ = cwd;
+        self.spawn(cmd, args, env)
+    }
 }
 
 /// A handle to a spawned process, abstracting over PtyHandle.
@@ -343,7 +358,20 @@ impl PtySpawner for PtyPoolSpawner {
         args: &[&str],
         env: &[(&str, &str)],
     ) -> std::result::Result<SpawnedProcess, String> {
-        let handle = self.pool.spawn(cmd, args, env).map_err(|e| e.to_string())?;
+        self.spawn_in(cmd, args, env, None)
+    }
+
+    fn spawn_in(
+        &self,
+        cmd: &str,
+        args: &[&str],
+        env: &[(&str, &str)],
+        cwd: Option<&std::path::Path>,
+    ) -> std::result::Result<SpawnedProcess, String> {
+        let handle = self
+            .pool
+            .spawn_in(cmd, args, env, cwd)
+            .map_err(|e| e.to_string())?;
 
         Ok(SpawnedProcess::new(
             handle.id,
@@ -503,10 +531,12 @@ impl AgentExecutor {
             .map(|(k, v)| (k.as_str(), v.as_str()))
             .collect();
 
-        // Spawn the process
+        // Spawn the process in the task's worktree (if any). Without an
+        // explicit cwd the PTY child would start in $HOME.
+        let cwd = task.worktree_path.as_deref().map(std::path::Path::new);
         let process = self
             .spawner
-            .spawn(agent_config.binary_name(), &args_refs, &env_refs)
+            .spawn_in(agent_config.binary_name(), &args_refs, &env_refs, cwd)
             .map_err(ExecutorError::PtyPool)?;
 
         let process = Arc::new(process);
@@ -928,6 +958,77 @@ mod tests {
         assert_eq!(result.task_id, task.id);
         assert!(result.output.contains("Hello from agent"));
         assert!(result.success);
+    }
+
+    /// Records the cwd passed to `spawn_in`, then behaves like MockSpawner.
+    struct CwdRecordingSpawner {
+        inner: MockSpawner,
+        cwd: std::sync::Mutex<Option<Option<std::path::PathBuf>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl PtySpawner for CwdRecordingSpawner {
+        fn spawn(
+            &self,
+            cmd: &str,
+            args: &[&str],
+            env: &[(&str, &str)],
+        ) -> std::result::Result<SpawnedProcess, String> {
+            self.inner.spawn(cmd, args, env)
+        }
+
+        fn spawn_in(
+            &self,
+            cmd: &str,
+            args: &[&str],
+            env: &[(&str, &str)],
+            cwd: Option<&std::path::Path>,
+        ) -> std::result::Result<SpawnedProcess, String> {
+            *self.cwd.lock().unwrap() = Some(cwd.map(|p| p.to_path_buf()));
+            self.inner.spawn(cmd, args, env)
+        }
+    }
+
+    #[tokio::test]
+    async fn execute_task_spawns_in_task_worktree() {
+        let spawner = Arc::new(CwdRecordingSpawner {
+            inner: MockSpawner::new(vec![b"ok\n".to_vec()], false),
+            cwd: std::sync::Mutex::new(None),
+        });
+        let executor = AgentExecutor::with_spawner(spawner.clone(), EventBus::new());
+        let mut task = make_test_task();
+        task.worktree_path = Some("/repo/worktrees/task-42".to_string());
+        let mut config = make_config();
+        config.timeout_secs = 2;
+
+        executor.execute_task(&task, &config).await.unwrap();
+        assert_eq!(
+            *spawner.cwd.lock().unwrap(),
+            Some(Some(std::path::PathBuf::from("/repo/worktrees/task-42"))),
+            "agent must be spawned in the task worktree, not $HOME"
+        );
+    }
+
+    #[test]
+    fn pty_pool_spawner_honours_cwd() {
+        let dir = std::env::temp_dir().join(format!("at-exec-cwd-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let expected = dir.canonicalize().unwrap();
+        let spawner = PtyPoolSpawner::new(Arc::new(at_session::pty_pool::PtyPool::new(2)));
+        let proc = spawner
+            .spawn_in("/bin/sh", &["-c", "echo CWD_IS=$(pwd -P)"], &[], Some(&dir))
+            .unwrap();
+        let mut text = String::new();
+        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        while std::time::Instant::now() < deadline && !text.contains('\n') {
+            std::thread::sleep(Duration::from_millis(50));
+            text.push_str(&String::from_utf8_lossy(&proc.try_read_all()));
+        }
+        assert!(
+            text.contains(&format!("CWD_IS={}", expected.display())),
+            "got {text:?}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[tokio::test]
