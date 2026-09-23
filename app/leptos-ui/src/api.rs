@@ -12,17 +12,22 @@ pub use at_api_types::{
     SendInsightsMessageWithModelRequest, UpdateStatusRequest,
 };
 
+use at_api_types::auth::{
+    API_KEY_HEADER, WINDOW_API_KEY_GLOBAL, WINDOW_API_PORT_GLOBAL, WS_API_KEY_QUERY_PARAM,
+};
+
 /// Default API base when not running in Tauri (standalone web dev).
 // Use IPv4 loopback by default to avoid localhost IPv6 resolution mismatches in browsers.
 const DEFAULT_API_BASE: &str = "http://127.0.0.1:9090";
 
-/// Get the API base URL at runtime. In Tauri, reads `window.__TUNDRA_API_PORT__` (injected by
-/// the desktop app). In standalone web mode, uses DEFAULT_API_BASE. Allows dynamic ports — no
-/// hardcoding — so the embedded daemon can bind to port 0 and the frontend discovers it.
+/// Get the API base URL at runtime. Reads `window.__TUNDRA_API_PORT__`, injected by the daemon's
+/// frontend server into index.html and by the desktop app's webview initialization script (which
+/// re-runs on every reload). Without it (standalone web dev) uses DEFAULT_API_BASE. Allows dynamic
+/// ports — no hardcoding — so the daemon can bind to port 0 and the frontend discovers it.
 /// Returns the API base URL. Public for use by terminal_view, terminals, etc.
 pub fn get_api_base() -> String {
     if let Some(window) = web_sys::window() {
-        let port_js = js_sys::Reflect::get(&window, &JsValue::from_str("__TUNDRA_API_PORT__"));
+        let port_js = js_sys::Reflect::get(&window, &JsValue::from_str(WINDOW_API_PORT_GLOBAL));
         if let Ok(port_val) = port_js {
             if let Some(p) = port_val.as_f64() {
                 let port = p as u16;
@@ -31,6 +36,52 @@ pub fn get_api_base() -> String {
         }
     }
     DEFAULT_API_BASE.to_string()
+}
+
+/// The daemon API key handed to the page as `window.__TUNDRA_API_KEY__` (see
+/// `at_api_types::auth`). Kept in page memory only; never persisted.
+pub fn get_api_key() -> Option<String> {
+    let window = web_sys::window()?;
+    js_sys::Reflect::get(&window, &JsValue::from_str(WINDOW_API_KEY_GLOBAL))
+        .ok()?
+        .as_string()
+        .filter(|k| !k.is_empty())
+}
+
+/// Create a fetch `Request` that carries the daemon API key.
+///
+/// Every HTTP call to the daemon must go through this so it authenticates;
+/// the daemon rejects requests without `X-API-Key` with 401.
+pub fn new_request(url: &str, opts: &RequestInit) -> Result<Request, String> {
+    let request = Request::new_with_str_and_init(url, opts).map_err(js_err)?;
+    if let Some(key) = get_api_key() {
+        request
+            .headers()
+            .set(API_KEY_HEADER, &key)
+            .map_err(js_err)?;
+    }
+    Ok(request)
+}
+
+/// Build a WebSocket URL for `path` on the daemon, authenticated with the
+/// `api_key` query parameter (browsers cannot set headers on WS upgrades).
+pub fn ws_url(path: &str) -> String {
+    let key = get_api_key().map(|k| String::from(js_sys::encode_uri_component(&k)));
+    ws_url_for(&get_api_base(), path, key.as_deref())
+}
+
+/// Pure part of [`ws_url`]: `encoded_key` must already be URI-component encoded.
+pub fn ws_url_for(http_base: &str, path: &str, encoded_key: Option<&str>) -> String {
+    let ws_base = http_base
+        .replacen("http://", "ws://", 1)
+        .replacen("https://", "wss://", 1);
+    match encoded_key {
+        Some(key) => {
+            let sep = if path.contains('?') { '&' } else { '?' };
+            format!("{ws_base}{path}{sep}{WS_API_KEY_QUERY_PARAM}={key}")
+        }
+        None => format!("{ws_base}{path}"),
+    }
 }
 
 /// Best-effort detection for backend connectivity failures.
@@ -70,7 +121,7 @@ async fn fetch_json<T: for<'de> Deserialize<'de>>(url: &str) -> Result<T, String
     let opts = RequestInit::new();
     opts.set_method("GET");
 
-    let request = Request::new_with_str_and_init(url, &opts).map_err(js_err)?;
+    let request = new_request(url, &opts)?;
     request
         .headers()
         .set("Accept", "application/json")
@@ -102,7 +153,7 @@ async fn post_json<T: Serialize, R: for<'de> Deserialize<'de>>(
     opts.set_method("POST");
     opts.set_body(&JsValue::from_str(&body_str));
 
-    let request = Request::new_with_str_and_init(url, &opts).map_err(js_err)?;
+    let request = new_request(url, &opts)?;
     request
         .headers()
         .set("Content-Type", "application/json")
@@ -156,7 +207,7 @@ async fn put_json<T: Serialize, R: for<'de> Deserialize<'de>>(
     opts.set_method("PUT");
     opts.set_body(&JsValue::from_str(&body_str));
 
-    let request = Request::new_with_str_and_init(url, &opts).map_err(js_err)?;
+    let request = new_request(url, &opts)?;
     request
         .headers()
         .set("Content-Type", "application/json")
@@ -704,7 +755,7 @@ async fn delete_request(url: &str) -> Result<(), String> {
     let opts = RequestInit::new();
     opts.set_method("DELETE");
 
-    let request = Request::new_with_str_and_init(url, &opts).map_err(js_err)?;
+    let request = new_request(url, &opts)?;
     request
         .headers()
         .set("Accept", "application/json")
@@ -727,7 +778,7 @@ async fn post_empty<R: for<'de> Deserialize<'de>>(url: &str) -> Result<R, String
     let opts = RequestInit::new();
     opts.set_method("POST");
 
-    let request = Request::new_with_str_and_init(url, &opts).map_err(js_err)?;
+    let request = new_request(url, &opts)?;
     request
         .headers()
         .set("Accept", "application/json")
@@ -1451,13 +1502,9 @@ pub async fn send_insights_message_with_model(
     }
 }
 
-/// Return the WebSocket URL for event streaming.
+/// Return the (authenticated) WebSocket URL for event streaming.
 pub fn events_ws_url() -> String {
-    let base = get_api_base();
-    let ws_base = base
-        .replace("http://", "ws://")
-        .replace("https://", "wss://");
-    format!("{ws_base}/api/events/ws")
+    ws_url("/api/events/ws")
 }
 
 // ── Project API types ──
@@ -1597,3 +1644,21 @@ pub async fn fetch_cli_available() -> Result<ApiCliAvailable, String> {
 }
 
 // (Stacked Diffs API types and functions are defined above near line 186)
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod auth_url_tests {
+    use super::ws_url_for;
+
+    #[test]
+    fn ws_url_for_appends_api_key_query_param() {
+        assert_eq!(
+            ws_url_for("http://127.0.0.1:4000", "/api/events/ws", Some("k%2B1")),
+            "ws://127.0.0.1:4000/api/events/ws?api_key=k%2B1"
+        );
+        assert_eq!(
+            ws_url_for("https://h:1", "/ws/terminal/x?y=1", Some("k")),
+            "wss://h:1/ws/terminal/x?y=1&api_key=k"
+        );
+        assert_eq!(ws_url_for("http://h:2", "/ws", None), "ws://h:2/ws");
+    }
+}

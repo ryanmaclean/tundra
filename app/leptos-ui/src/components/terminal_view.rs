@@ -6,7 +6,7 @@ use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
-use web_sys::{HtmlElement, MessageEvent, Request, RequestInit, Response, WebSocket};
+use web_sys::{HtmlElement, MessageEvent, RequestInit, Response, WebSocket};
 
 #[wasm_bindgen]
 extern "C" {
@@ -102,11 +102,10 @@ async fn api_patch_terminal_settings(
     opts.set_body(&body);
 
     let api_base = api::get_api_base();
-    let request = Request::new_with_str_and_init(
+    let request = crate::api::new_request(
         &format!("{api_base}/api/terminals/{terminal_id}/settings"),
         &opts,
-    )
-    .map_err(|e| format!("{e:?}"))?;
+    )?;
     request
         .headers()
         .set("Content-Type", "application/json")
@@ -287,11 +286,7 @@ pub fn TerminalView(
             *on_resize_ref.borrow_mut() = Some(on_resize);
 
             // Connect websocket.
-            let base = api::get_api_base();
-            let ws_base = base
-                .replace("http://", "ws://")
-                .replace("https://", "wss://");
-            let ws_url = format!("{ws_base}/ws/terminal/{terminal_id_ws}");
+            let ws_url = api::ws_url(&format!("/ws/terminal/{terminal_id_ws}"));
             let ws = match WebSocket::new(&ws_url) {
                 Ok(ws) => ws,
                 Err(e) => {
