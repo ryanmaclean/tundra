@@ -44,8 +44,11 @@
 //! 1. Terminal status transitions to `Active`
 //! 2. Any buffered output from a previous disconnection is replayed
 //! 3. Three concurrent tasks are spawned:
-//!    - **Reader**: Reads PTY output and sends to WebSocket (5-minute idle timeout)
-//!    - **Writer**: Reads WebSocket messages and writes to PTY stdin (5-minute idle timeout)
+//!    - **Reader**: Reads PTY output and sends to WebSocket (no timeout: a quiet
+//!      shell is not a dead connection)
+//!    - **Writer**: Reads WebSocket messages and writes to PTY stdin. Closes the
+//!      connection when the client sends nothing at all — not even a Pong — for
+//!      the liveness timeout
 //!    - **Heartbeat**: Sends Ping frames every 30 seconds to detect half-open connections
 //!
 //! ### Disconnection & Reconnection Grace Period
@@ -53,7 +56,7 @@
 //! When the WebSocket disconnects (network failure, tab close, etc.):
 //! 1. Terminal status transitions to `Disconnected` with timestamp
 //! 2. PTY process continues running in the background
-//! 3. Output is buffered (last 4KB) for **10 seconds** ([`WS_RECONNECT_GRACE`])
+//! 3. Output is buffered (last 4KB) for **30 seconds** ([`WS_RECONNECT_GRACE`])
 //! 4. If client reconnects within grace period:
 //!    - Buffered output is replayed to restore terminal state
 //!    - Session resumes transparently
@@ -67,9 +70,12 @@
 //!
 //! ## Timeouts
 //!
-//! - **Idle Timeout**: 5 minutes (WS_IDLE_TIMEOUT) — WebSocket closes if no data flows in either direction
-//! - **Heartbeat Interval**: 30 seconds (WS_HEARTBEAT_INTERVAL) — Ping frames detect half-open connections
-//! - **Reconnect Grace**: 10 seconds ([`WS_RECONNECT_GRACE`]) — Buffer output after disconnect
+//! - **Liveness Timeout**: 120 seconds by default ([`TerminalWsSettings::liveness_timeout`],
+//!   config `terminal.ws_liveness_timeout_secs`) — the WebSocket closes only when the
+//!   client has sent no frame (including Pong replies to heartbeats) for this long.
+//!   PTY output silence never closes the connection.
+//! - **Heartbeat Interval**: 30 seconds ([`TerminalWsSettings::heartbeat_interval`]) — Ping frames detect half-open connections
+//! - **Reconnect Grace**: 30 seconds ([`WS_RECONNECT_GRACE`]) — Buffer output after disconnect
 //!
 //! # REST API Endpoints
 //!
@@ -140,19 +146,53 @@ use crate::terminal::{
     DisconnectBuffer, TerminalInfo, TerminalStatus, DISCONNECT_BUFFER_SIZE, WS_RECONNECT_GRACE,
 };
 
-/// Idle timeout for terminal WebSocket connections (5 minutes).
-///
-/// If no data is sent or received on the WebSocket for this duration,
-/// the connection is automatically closed. This prevents resource leaks
-/// from abandoned connections.
-const WS_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
-
-/// Heartbeat interval for terminal WebSocket connections (30 seconds).
+/// Default heartbeat interval for terminal WebSocket connections (30 seconds).
 ///
 /// Ping frames are sent at this interval to detect half-open TCP connections
 /// where the client has disconnected without sending a proper Close frame.
-/// Pong responses are handled automatically by the WebSocket library.
-const WS_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
+pub const WS_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
+
+/// Default liveness timeout for terminal WebSocket connections (120 seconds).
+///
+/// A healthy client answers every heartbeat Ping with a Pong, so four missed
+/// heartbeats in a row means the connection is dead.
+pub const WS_LIVENESS_TIMEOUT: Duration = Duration::from_secs(120);
+
+/// Timing knobs for terminal WebSocket connections (see [`ApiState::terminal_ws`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TerminalWsSettings {
+    /// How often the server sends Ping frames.
+    pub heartbeat_interval: Duration,
+    /// Close the connection when the client sends no frame at all (data,
+    /// Pong, ...) for this long. `None` disables the check. This measures
+    /// *client* liveness only; a quiet PTY never closes the connection.
+    pub liveness_timeout: Option<Duration>,
+}
+
+impl Default for TerminalWsSettings {
+    fn default() -> Self {
+        Self {
+            heartbeat_interval: WS_HEARTBEAT_INTERVAL,
+            liveness_timeout: Some(WS_LIVENESS_TIMEOUT),
+        }
+    }
+}
+
+impl TerminalWsSettings {
+    /// Build settings from `terminal.ws_liveness_timeout_secs` (`0` = off).
+    ///
+    /// The liveness timeout is clamped to at least two heartbeat intervals so
+    /// a single delayed Pong cannot close a healthy connection.
+    pub fn from_liveness_secs(secs: u64) -> Self {
+        let heartbeat_interval = WS_HEARTBEAT_INTERVAL;
+        let liveness_timeout =
+            (secs > 0).then(|| Duration::from_secs(secs).max(heartbeat_interval * 2));
+        Self {
+            heartbeat_interval,
+            liveness_timeout,
+        }
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Request / Response types
@@ -998,8 +1038,9 @@ pub async fn terminal_ws(
 /// ## 1. Reader Task (PTY → WebSocket)
 ///
 /// Reads output from the PTY's stdout/stderr channel and forwards it to the WebSocket
-/// as text messages. Applies a 5-minute idle timeout — if the PTY produces no output
-/// for 5 minutes, the WebSocket connection is closed to free resources.
+/// as text messages. There is deliberately no timeout here: an idle prompt,
+/// `sleep 600` or a quiet build must not close the connection (and, after the
+/// reconnect grace period, kill the shell).
 ///
 /// ## 2. Writer Task (WebSocket → PTY)
 ///
@@ -1007,7 +1048,8 @@ pub async fn terminal_ws(
 /// - JSON-formatted [`WsIncoming`] commands for typed operations (input, resize)
 /// - Plain text messages treated as raw PTY input
 ///
-/// Also applies a 5-minute idle timeout on the receive side.
+/// Closes the connection when the client sends no frame at all (including
+/// Pong replies to heartbeat Pings) for [`TerminalWsSettings::liveness_timeout`].
 ///
 /// ## 3. Heartbeat Task
 ///
@@ -1030,12 +1072,12 @@ pub async fn terminal_ws(
 /// 1. Abort all spawned tasks to release PTY reader resources
 /// 2. Transition terminal status to `Disconnected` with timestamp
 /// 3. Create disconnect buffer (4KB ring buffer for PTY output)
-/// 4. Spawn background task to buffer output for 10 seconds
+/// 4. Spawn background task to buffer output for 30 seconds
 /// 5. If no reconnection occurs, kill PTY and mark terminal `Dead`
 ///
 /// # Grace Period Details
 ///
-/// The 10-second grace period ([`WS_RECONNECT_GRACE`]) allows clients to:
+/// The 30-second grace period ([`WS_RECONNECT_GRACE`]) allows clients to:
 /// - Recover from transient network failures
 /// - Reload the page without losing session
 /// - Switch tabs without session termination
@@ -1098,48 +1140,38 @@ async fn handle_terminal_ws(socket: WebSocket, state: Arc<ApiState>, terminal_id
         }
     };
 
+    let ws_settings = state.terminal_ws;
+
     // -----------------------------------------------------------------------
-    // Task 1: PTY stdout -> WebSocket (with 5-minute idle timeout)
+    // Task 1: PTY stdout -> WebSocket
     // -----------------------------------------------------------------------
-    // Forwards PTY output to the WebSocket client. If no output is produced
-    // for WS_IDLE_TIMEOUT (5 minutes), the connection is closed to prevent
-    // resource leaks from idle terminals.
+    // Forwards PTY output to the WebSocket client. No timeout: PTY silence is
+    // not a dead connection. Dead clients are detected by the writer task's
+    // liveness check and by failed heartbeat sends.
     let ws_sender_reader = ws_sender.clone();
     let reader_task_handle = tokio::spawn(async move {
-        loop {
-            match tokio::time::timeout(WS_IDLE_TIMEOUT, pty_reader.recv_async()).await {
-                Ok(Ok(data)) => {
-                    // Convert raw bytes to UTF-8 (with lossy conversion for invalid sequences).
-                    let text = String::from_utf8_lossy(&data).into_owned();
-                    if ws_sender_reader
-                        .lock()
-                        .await
-                        .send(Message::Text(text.into()))
-                        .await
-                        .is_err()
-                    {
-                        // WebSocket send failed — client disconnected.
-                        break;
-                    }
-                }
-                Ok(Err(_)) => {
-                    // PTY reader channel closed — child process exited.
-                    tracing::debug!("PTY reader closed");
-                    break;
-                }
-                Err(_) => {
-                    // Idle timeout expired — no output for 5 minutes.
-                    tracing::info!("terminal WebSocket idle timeout (5min), closing");
-                    break;
-                }
+        while let Ok(data) = pty_reader.recv_async().await {
+            // Convert raw bytes to UTF-8 (with lossy conversion for invalid sequences).
+            let text = String::from_utf8_lossy(&data).into_owned();
+            if ws_sender_reader
+                .lock()
+                .await
+                .send(Message::Text(text.into()))
+                .await
+                .is_err()
+            {
+                // WebSocket send failed — client disconnected.
+                return;
             }
         }
+        // PTY reader channel closed — child process exited.
+        tracing::debug!("PTY reader closed");
     });
 
     let reader_abort = reader_task_handle.abort_handle();
 
     // -----------------------------------------------------------------------
-    // Task 2: WebSocket -> PTY stdin (with 5-minute idle timeout)
+    // Task 2: WebSocket -> PTY stdin (with client liveness timeout)
     // -----------------------------------------------------------------------
     // Receives messages from the WebSocket client and forwards them to the PTY.
     // Supports both structured JSON commands (WsIncoming) and plain text input.
@@ -1147,7 +1179,13 @@ async fn handle_terminal_ws(socket: WebSocket, state: Arc<ApiState>, terminal_id
     let writer_terminal_id = terminal_id;
     let writer_task_handle = tokio::spawn(async move {
         loop {
-            match tokio::time::timeout(WS_IDLE_TIMEOUT, ws_receiver.next()).await {
+            // Any inbound frame — including the Pong a live client sends for
+            // every heartbeat Ping — resets the liveness timer.
+            let next = match ws_settings.liveness_timeout {
+                Some(limit) => tokio::time::timeout(limit, ws_receiver.next()).await,
+                None => Ok(ws_receiver.next().await),
+            };
+            match next {
                 Ok(Some(Ok(msg))) => {
                     match msg {
                         Message::Text(text) => {
@@ -1203,7 +1241,8 @@ async fn handle_terminal_ws(socket: WebSocket, state: Arc<ApiState>, terminal_id
                         }
                         Message::Close(_) => break,
                         _ => {
-                            // Ignore other message types (Ping, Pong — handled automatically).
+                            // Ping/Pong need no handling here; receiving them
+                            // already reset the liveness timer above.
                         }
                     }
                 }
@@ -1212,8 +1251,12 @@ async fn handle_terminal_ws(socket: WebSocket, state: Arc<ApiState>, terminal_id
                     break;
                 }
                 Err(_) => {
-                    // Idle timeout expired — no messages received for 5 minutes.
-                    tracing::info!("terminal WebSocket idle timeout (5min), closing");
+                    // No frame at all (not even a Pong) — the client is gone.
+                    tracing::info!(
+                        %writer_terminal_id,
+                        timeout = ?ws_settings.liveness_timeout,
+                        "terminal WebSocket client unresponsive to heartbeats, closing"
+                    );
                     break;
                 }
             }
@@ -1230,7 +1273,7 @@ async fn handle_terminal_ws(socket: WebSocket, state: Arc<ApiState>, terminal_id
     // Pong responses are handled automatically by axum/tungstenite.
     let ws_sender_heartbeat = ws_sender.clone();
     let heartbeat_task_handle = tokio::spawn(async move {
-        let mut interval = tokio::time::interval(WS_HEARTBEAT_INTERVAL);
+        let mut interval = tokio::time::interval(ws_settings.heartbeat_interval);
         loop {
             interval.tick().await;
             if ws_sender_heartbeat
@@ -1304,7 +1347,7 @@ async fn handle_terminal_ws(socket: WebSocket, state: Arc<ApiState>, terminal_id
     // -----------------------------------------------------------------------
     // Spawn background task to buffer PTY output during grace period.
     // -----------------------------------------------------------------------
-    // This task continues reading PTY output for WS_RECONNECT_GRACE (10 seconds)
+    // This task continues reading PTY output for WS_RECONNECT_GRACE (30 seconds)
     // and buffers it (last 4KB) in case the client reconnects. If the grace
     // period expires without reconnection, the PTY is killed and the terminal
     // transitions to Dead status.

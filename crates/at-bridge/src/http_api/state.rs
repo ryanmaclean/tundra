@@ -103,6 +103,8 @@ pub struct ApiState {
     pub task_count: Arc<AtomicUsize>,
     pub start_time: std::time::Instant,
     pub pty_pool: Option<Arc<at_session::pty_pool::PtyPool>>,
+    /// Heartbeat / liveness timing for `/ws/terminal/{id}` connections.
+    pub terminal_ws: crate::terminal_ws::TerminalWsSettings,
     pub terminal_registry: Arc<RwLock<TerminalRegistry>>,
     /// Active PTY handles keyed by terminal ID.
     pub pty_handles: Arc<RwLock<std::collections::HashMap<Uuid, at_session::pty_pool::PtyHandle>>>,
@@ -195,6 +197,7 @@ impl ApiState {
             task_count: Arc::new(AtomicUsize::new(0)),
             start_time: std::time::Instant::now(),
             pty_pool: None,
+            terminal_ws: crate::terminal_ws::TerminalWsSettings::default(),
             terminal_registry: Arc::new(RwLock::new(TerminalRegistry::new())),
             pty_handles: Arc::new(RwLock::new(std::collections::HashMap::new())),
             settings_manager: Arc::new(SettingsManager::default_path()),

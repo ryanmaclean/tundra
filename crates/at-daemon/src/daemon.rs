@@ -61,7 +61,7 @@ impl Daemon {
             ..DaemonIntervals::default()
         };
         let event_bus = EventBus::new();
-        let api_state = Arc::new(ApiState::new(event_bus.clone()));
+        let api_state = Arc::new(Self::build_api_state(&config, event_bus.clone()));
         Self {
             config,
             cache,
@@ -70,6 +70,27 @@ impl Daemon {
             event_bus,
             api_state,
         }
+    }
+
+    /// Build the shared API state from config.
+    ///
+    /// Attaches a PTY pool (unless `terminal.pty_pool_enabled = false`) so the
+    /// terminal REST and WebSocket API is usable; without it
+    /// `POST /api/terminals` always answers 503.
+    fn build_api_state(config: &Config, event_bus: EventBus) -> ApiState {
+        let term = &config.terminal;
+        let mut state = if term.pty_pool_enabled {
+            let max = term.max_ptys.max(1);
+            info!(max_ptys = max, "terminal PTY pool enabled");
+            ApiState::with_pty_pool(event_bus, Arc::new(at_session::pty_pool::PtyPool::new(max)))
+        } else {
+            info!("terminal PTY pool disabled by config (terminal.pty_pool_enabled = false)");
+            ApiState::new(event_bus)
+        };
+        state.terminal_ws = at_bridge::terminal_ws::TerminalWsSettings::from_liveness_secs(
+            term.ws_liveness_timeout_secs,
+        );
+        state
     }
 
     /// Create a new daemon, opening (or creating) the cache database from config.
