@@ -15,6 +15,7 @@ pub mod claude_runtime;
 pub mod claude_session;
 pub mod executor;
 pub mod lifecycle;
+pub mod managed_executor;
 pub mod orchestrator;
 pub mod profiles;
 pub mod prompts;
