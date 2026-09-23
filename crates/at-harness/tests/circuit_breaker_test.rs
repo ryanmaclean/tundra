@@ -151,3 +151,85 @@ async fn timeout_counts_as_failure() {
     assert!(matches!(result, Err(CircuitBreakerError::Timeout(_))));
     assert_eq!(cb.state().await, CircuitState::Open);
 }
+
+/// Finding #9: HalfOpen must admit at most `half_open_max_calls` concurrent
+/// probes; extra callers are rejected with `Open` instead of hammering a
+/// still-failing downstream.
+#[tokio::test]
+async fn half_open_limits_concurrent_probes() {
+    let cb = CircuitBreaker::new(fast_config());
+    assert_eq!(cb.half_open_max_calls(), 1);
+
+    for _ in 0..3 {
+        let _ = cb.call(|| async { Err::<i32, _>("fail") }).await;
+    }
+    assert_eq!(cb.state().await, CircuitState::Open);
+    tokio::time::sleep(Duration::from_millis(150)).await;
+
+    // First probe: held open until we release it.
+    let (release_tx, release_rx) = tokio::sync::oneshot::channel::<()>();
+    let probe_cb = cb.clone();
+    let probe = tokio::spawn(async move {
+        probe_cb
+            .call(|| async move {
+                let _ = release_rx.await;
+                Ok::<_, String>(1)
+            })
+            .await
+    });
+
+    // Wait until the probe has been admitted.
+    for _ in 0..100 {
+        if cb.half_open_in_flight() == 1 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    assert_eq!(cb.state().await, CircuitState::HalfOpen);
+    assert_eq!(cb.half_open_in_flight(), 1);
+
+    // Concurrent callers while the probe is in flight are rejected.
+    for _ in 0..5 {
+        let res = cb.call(|| async { Ok::<_, String>(2) }).await;
+        assert!(matches!(res, Err(CircuitBreakerError::Open)));
+    }
+
+    release_tx.send(()).unwrap();
+    assert_eq!(probe.await.unwrap().unwrap(), 1);
+    assert_eq!(cb.half_open_in_flight(), 0);
+
+    // Slot freed: next sequential probe is admitted and closes the circuit.
+    assert_eq!(cb.call(|| async { Ok::<_, String>(3) }).await.unwrap(), 3);
+    assert_eq!(cb.state().await, CircuitState::Closed);
+}
+
+/// A cancelled (dropped) probe future must release its half-open slot.
+#[tokio::test]
+async fn half_open_slot_released_on_cancel() {
+    let cb = CircuitBreaker::new(fast_config()).with_half_open_max_calls(2);
+    assert_eq!(cb.half_open_max_calls(), 2);
+
+    for _ in 0..3 {
+        let _ = cb.call(|| async { Err::<i32, _>("fail") }).await;
+    }
+    tokio::time::sleep(Duration::from_millis(150)).await;
+
+    let hang_cb = cb.clone();
+    let hung = tokio::spawn(async move {
+        hang_cb
+            .call(std::future::pending::<Result<i32, String>>)
+            .await
+    });
+    for _ in 0..100 {
+        if cb.half_open_in_flight() == 1 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    assert_eq!(cb.half_open_in_flight(), 1);
+
+    hung.abort();
+    let _ = hung.await;
+    assert_eq!(cb.half_open_in_flight(), 0);
+    assert_eq!(cb.state().await, CircuitState::HalfOpen);
+}

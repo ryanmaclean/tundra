@@ -1,4 +1,5 @@
 use std::future::Future;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
@@ -126,6 +127,19 @@ struct InnerState {
     last_failure_time: Option<Instant>,
 }
 
+/// Default number of concurrent probe calls admitted while **HalfOpen**.
+pub const DEFAULT_HALF_OPEN_MAX_CALLS: u32 = 1;
+
+/// RAII slot for one in-flight half-open probe. Releases the slot on drop so
+/// that cancelled (dropped) futures and panics cannot leak capacity.
+struct ProbeSlot(Arc<AtomicU32>);
+
+impl Drop for ProbeSlot {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // CircuitBreaker
 // ---------------------------------------------------------------------------
@@ -134,6 +148,11 @@ struct InnerState {
 pub struct CircuitBreaker {
     config: CircuitBreakerConfig,
     inner: Arc<Mutex<InnerState>>,
+    /// Probe calls currently executing that were admitted while HalfOpen.
+    /// Incremented only while holding `inner`; decremented by [`ProbeSlot`].
+    half_open_in_flight: Arc<AtomicU32>,
+    /// Maximum concurrent probe calls admitted while HalfOpen (>= 1).
+    half_open_max_calls: u32,
 }
 
 impl CircuitBreaker {
@@ -146,7 +165,27 @@ impl CircuitBreaker {
                 success_count: 0,
                 last_failure_time: None,
             })),
+            half_open_in_flight: Arc::new(AtomicU32::new(0)),
+            half_open_max_calls: DEFAULT_HALF_OPEN_MAX_CALLS,
         }
+    }
+
+    /// Set how many probe calls may run concurrently while **HalfOpen**
+    /// (default [`DEFAULT_HALF_OPEN_MAX_CALLS`]). Extra callers are rejected
+    /// with [`CircuitBreakerError::Open`]. Values below 1 are clamped to 1.
+    pub fn with_half_open_max_calls(mut self, max: u32) -> Self {
+        self.half_open_max_calls = max.max(1);
+        self
+    }
+
+    /// Maximum concurrent probe calls admitted while **HalfOpen**.
+    pub fn half_open_max_calls(&self) -> u32 {
+        self.half_open_max_calls
+    }
+
+    /// Number of half-open probe calls currently in flight.
+    pub fn half_open_in_flight(&self) -> u32 {
+        self.half_open_in_flight.load(Ordering::Acquire)
     }
 
     /// Returns the current state of the circuit breaker.
@@ -171,7 +210,9 @@ impl CircuitBreaker {
     ///
     /// If the circuit is **Open** and the timeout has not elapsed the call is
     /// rejected immediately.  If the timeout *has* elapsed the circuit moves
-    /// to **HalfOpen** and the call is allowed through.
+    /// to **HalfOpen**.  While **HalfOpen**, at most `half_open_max_calls`
+    /// probe calls run concurrently; further callers get
+    /// [`CircuitBreakerError::Open`] until a probe finishes.
     pub async fn call<F, Fut, T, E>(&self, f: F) -> Result<T, CircuitBreakerError>
     where
         F: FnOnce() -> Fut,
@@ -179,7 +220,9 @@ impl CircuitBreaker {
         E: std::fmt::Display,
     {
         // --- pre-flight check ---
-        {
+        // Held until the end of this function (after the outcome is recorded)
+        // so a new probe cannot slip in before this probe's result lands.
+        let _probe_slot = {
             let mut guard = self.inner.lock().await;
             match guard.state {
                 CircuitState::Open => {
@@ -196,9 +239,20 @@ impl CircuitBreaker {
                         return Err(CircuitBreakerError::Open);
                     }
                 }
-                CircuitState::Closed | CircuitState::HalfOpen => { /* allow */ }
+                CircuitState::Closed | CircuitState::HalfOpen => {}
             }
-        }
+            if guard.state == CircuitState::HalfOpen {
+                // Increments only happen under `inner`, so check-then-add
+                // cannot over-admit.
+                if self.half_open_in_flight.load(Ordering::Acquire) >= self.half_open_max_calls {
+                    return Err(CircuitBreakerError::Open);
+                }
+                self.half_open_in_flight.fetch_add(1, Ordering::AcqRel);
+                Some(ProbeSlot(Arc::clone(&self.half_open_in_flight)))
+            } else {
+                None
+            }
+        };
 
         // --- execute with timeout ---
         let result = tokio::time::timeout(self.config.call_timeout, f()).await;
