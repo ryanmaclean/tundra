@@ -22,6 +22,7 @@ pub mod repo;
 pub mod rlm;
 pub mod session_store;
 pub mod settings;
+pub mod tls;
 pub mod types;
 pub mod worktree;
 pub mod worktree_manager;

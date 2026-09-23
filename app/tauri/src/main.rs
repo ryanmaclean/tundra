@@ -16,6 +16,8 @@ use at_tauri::state::AppState;
 use tracing::info;
 
 fn main() {
+    // Before any TLS client is built: aws-lc-rs provider, X25519MLKEM768 first.
+    at_core::tls::install_default_crypto_provider();
     at_telemetry::logging::init_logging("auto-tundra", "info");
     info!("auto-tundra desktop app starting");
 

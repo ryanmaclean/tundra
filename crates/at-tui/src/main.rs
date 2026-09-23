@@ -24,6 +24,8 @@ use ratatui::Terminal;
 use crate::app::App;
 
 fn main() -> Result<()> {
+    // Before any TLS client is built: aws-lc-rs provider, X25519MLKEM768 first.
+    at_core::tls::install_default_crypto_provider();
     // Parse CLI args (simple, no clap dependency).
     let args: Vec<String> = std::env::args().collect();
     let offline = args.iter().any(|a| a == "--offline");

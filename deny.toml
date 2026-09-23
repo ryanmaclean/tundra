@@ -21,8 +21,15 @@ yanked = "warn"
 unmaintained = "workspace"          # warn only for direct deps
 unsound = "all"                     # deny unsound for all deps
 ignore = [
-    # lru 0.12 unsound issue — pinned by ratatui 0.29; upgrade when ratatui bumps
-    "RUSTSEC-2026-0002",
+    # lru 0.12 unsound issues. at-core's own lru is 0.18 (fixed); the remaining
+    # lru 0.12.5 comes only via ratatui 0.29 -> at-tui (and tachyonfx 0.11 ->
+    # ratatui 0.29). Fixed upstream in ratatui 0.30 (ratatui-core -> lru 0.18)
+    # + tachyonfx 0.25, which is an at-tui API port, not a lockfile bump.
+    # ratatui's layout cache keys are plain data with no panicking Drop, so the
+    # pop() panic-safety bug (0253) is not reachable from our code.
+    # Review by 2026-12-31 or when at-tui moves to ratatui 0.30.
+    "RUSTSEC-2026-0002",  # IterMut aliasing (lru 0.12.5 <- ratatui 0.29)
+    "RUSTSEC-2026-0253",  # LruCache::pop panic safety (lru 0.12.5 <- ratatui 0.29)
     # dotenv is used for local/dev bootstrap in at-daemon.
     "RUSTSEC-2021-0141",
     # glib advisory appears through tauri Linux dependency graph in CI.
@@ -40,8 +47,13 @@ allow = [
     "BSD-2-Clause",
     "BSD-3-Clause",
     # --- Permissive, transitive-only (no direct workspace dep uses these) ---
-    # ISC: ring, untrusted, rustls-webpki (unavoidable in any rustls stack),
+    # ISC: required by the TLS crypto providers themselves and effectively
+    #      tolerated before this entry was documented:
+    #      aws-lc-rs / aws-lc-sys (rustls default provider since reqwest 0.13;
+    #      "ISC AND (Apache-2.0 OR ISC)"), ring ("Apache-2.0 AND ISC"; direct dep
+    #      of at-core and at-bridge), untrusted, rustls-webpki (any rustls stack),
     #      simple_asn1 (jsonwebtoken <- octocrab), inotify/inotify-sys (notify, Linux).
+    #      ISC is MIT-equivalent (permissive, no copyleft).
     "ISC",
     # Zlib: foldhash (hashbrown), nanorand (flume), const_format + slotmap (leptos).
     "Zlib",
@@ -76,6 +88,14 @@ exceptions = [
     { crate = "cssparser-macros", allow = ["MPL-2.0"] },
     { crate = "dtoa-short", allow = ["MPL-2.0"] },
     { crate = "selectors", allow = ["MPL-2.0"] },
+    # CDLA-Permissive-2.0: webpki-root-certs <- rustls-platform-verifier 0.6 <-
+    # reqwest 0.13 `rustls` feature. rustls-platform-verifier only depends on
+    # it under cfg(target_arch = "wasm32") and reqwest only pulls the verifier
+    # on non-wasm32-unknown targets, so it is compiled only for wasm32-wasi,
+    # which we do not build (cargo-deny's graph has targets = [] = all). Native
+    # builds use the OS trust store, as before. Remove if [graph] targets is
+    # ever narrowed to the shipped triples. Review 2026-12-31.
+    { crate = "webpki-root-certs", allow = ["CDLA-Permissive-2.0"] },
     # MPL-2.0: option-ext <- dirs-sys 0.5 <- dirs 6 (direct dep of at-core,
     # at-cli, at-tui). Removable by replacing `dirs` with `etcetera` or
     # std::env::home_dir; tracked as follow-up.
