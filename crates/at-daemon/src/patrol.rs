@@ -7,7 +7,7 @@ use at_bridge::http_api::ApiState;
 use at_bridge::protocol::{BridgeMessage, EventPayload};
 use at_core::cache::CacheDb;
 use at_core::config::PatrolConfig;
-use at_core::types::{Agent, AgentStatus, BeadStatus};
+use at_core::types::{Agent, AgentStatus, Bead, BeadStatus};
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
@@ -73,21 +73,7 @@ impl PatrolRunner {
             .await
             .map_err(|e| anyhow::anyhow!("failed to query slung beads: {}", e))?;
 
-        let mut stuck_bead_ids = Vec::new();
-        for bead in &slung_beads {
-            if let Some(slung_at) = bead.slung_at {
-                let elapsed = now.signed_duration_since(slung_at);
-                if elapsed > self.slung_timeout {
-                    stuck_bead_ids.push(bead.id);
-                    info!(
-                        bead_id = %bead.id,
-                        slung_at = %slung_at,
-                        elapsed_mins = elapsed.num_minutes(),
-                        "stuck bead detected"
-                    );
-                }
-            }
-        }
+        let stuck_bead_ids = self.stuck_bead_ids(&slung_beads, now);
 
         // Stale agent detection is handled by HeartbeatMonitor; patrol
         // reports a zero count here since we cannot enumerate all agents
@@ -107,6 +93,57 @@ impl PatrolRunner {
 
         debug!(stuck_beads = report.stuck_beads, "patrol sweep completed");
 
+        Ok(report)
+    }
+}
+
+impl PatrolRunner {
+    /// IDs of beads that have sat in `Slung` longer than the timeout.
+    pub fn stuck_bead_ids<'a>(
+        &self,
+        beads: impl IntoIterator<Item = &'a Bead>,
+        now: DateTime<Utc>,
+    ) -> Vec<Uuid> {
+        let mut ids = Vec::new();
+        for bead in beads {
+            if bead.status != BeadStatus::Slung {
+                continue;
+            }
+            if let Some(slung_at) = bead.slung_at {
+                let elapsed = now.signed_duration_since(slung_at);
+                if elapsed > self.slung_timeout {
+                    ids.push(bead.id);
+                    info!(
+                        bead_id = %bead.id,
+                        slung_at = %slung_at,
+                        elapsed_mins = elapsed.num_minutes(),
+                        "stuck bead detected"
+                    );
+                }
+            }
+        }
+        ids
+    }
+
+    /// Patrol sweep over both `CacheDb` and the live in-memory beads in
+    /// [`ApiState`]. The HTTP/MCP API keeps beads in `ApiState` only, so a
+    /// cache-only sweep misses every bead created through the API.
+    pub async fn run_patrol_live(
+        &self,
+        cache: &CacheDb,
+        api_state: &ApiState,
+    ) -> Result<PatrolReport> {
+        let mut report = self.run_patrol(cache).await?;
+        let live = {
+            let beads = api_state.beads.read().await;
+            self.stuck_bead_ids(beads.values(), report.timestamp)
+        };
+        for id in live {
+            if !report.stuck_bead_ids.contains(&id) {
+                report.stuck_bead_ids.push(id);
+            }
+        }
+        report.stuck_beads = report.stuck_bead_ids.len();
         Ok(report)
     }
 }
