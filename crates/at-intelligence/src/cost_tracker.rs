@@ -27,11 +27,36 @@ pub struct ModelPricing {
     pub context_window: u64,
 }
 
+/// Prompt-cache write price as a multiple of the base input price
+/// (Anthropic 5-minute ephemeral cache writes are billed at 1.25x).
+pub const CACHE_WRITE_INPUT_MULTIPLIER: f64 = 1.25;
+
+/// Prompt-cache read price as a multiple of the base input price
+/// (Anthropic cache hits are billed at 0.1x).
+pub const CACHE_READ_INPUT_MULTIPLIER: f64 = 0.1;
+
 impl ModelPricing {
     /// Calculate cost for a request with the given token counts.
     pub fn calculate_cost(&self, input_tokens: u64, output_tokens: u64) -> f64 {
         (input_tokens as f64 / 1_000_000.0) * self.input_cost_per_1m
             + (output_tokens as f64 / 1_000_000.0) * self.output_cost_per_1m
+    }
+
+    /// Calculate cost including prompt-cache tokens. `input_tokens` is the
+    /// uncached remainder; cache writes and reads are billed at
+    /// [`CACHE_WRITE_INPUT_MULTIPLIER`] and [`CACHE_READ_INPUT_MULTIPLIER`]
+    /// times the base input rate.
+    pub fn calculate_cost_with_cache(
+        &self,
+        input_tokens: u64,
+        output_tokens: u64,
+        cache_creation_input_tokens: u64,
+        cache_read_input_tokens: u64,
+    ) -> f64 {
+        let per_input = self.input_cost_per_1m / 1_000_000.0;
+        self.calculate_cost(input_tokens, output_tokens)
+            + cache_creation_input_tokens as f64 * per_input * CACHE_WRITE_INPUT_MULTIPLIER
+            + cache_read_input_tokens as f64 * per_input * CACHE_READ_INPUT_MULTIPLIER
     }
 }
 
@@ -347,6 +372,27 @@ impl CostTracker {
     pub async fn calculate_cost(&self, model: &str, input_tokens: u64, output_tokens: u64) -> f64 {
         match self.pricing.read().await.get(model) {
             Some(p) => p.calculate_cost(input_tokens, output_tokens),
+            None => 0.0,
+        }
+    }
+
+    /// Calculate cost for a request including prompt-cache writes and reads
+    /// (returns 0.0 if model not in pricing table).
+    pub async fn calculate_cost_with_cache(
+        &self,
+        model: &str,
+        input_tokens: u64,
+        output_tokens: u64,
+        cache_creation_input_tokens: u64,
+        cache_read_input_tokens: u64,
+    ) -> f64 {
+        match self.pricing.read().await.get(model) {
+            Some(p) => p.calculate_cost_with_cache(
+                input_tokens,
+                output_tokens,
+                cache_creation_input_tokens,
+                cache_read_input_tokens,
+            ),
             None => 0.0,
         }
     }
@@ -982,5 +1028,22 @@ mod tests {
         // Cost should be only from 2 records (the last 2)
         let total_cost = tracker.total_cost().await;
         assert!((total_cost - 0.02).abs() < 0.001);
+    }
+
+    #[tokio::test]
+    async fn cost_includes_prompt_cache_tokens() {
+        let tracker = CostTracker::default();
+        // Sonnet 4.6: $3/M input. 1M cache writes at 1.25x = $3.75,
+        // 1M cache reads at 0.1x = $0.30.
+        let plain = tracker.calculate_cost("claude-sonnet-4-6", 0, 0).await;
+        assert_eq!(plain, 0.0);
+        let cached = tracker
+            .calculate_cost_with_cache("claude-sonnet-4-6", 0, 0, 1_000_000, 1_000_000)
+            .await;
+        assert!((cached - 4.05).abs() < 1e-9, "got {cached}");
+        let full = tracker
+            .calculate_cost_with_cache("claude-sonnet-4-6", 1_000_000, 1_000_000, 0, 0)
+            .await;
+        assert!((full - 18.0).abs() < 1e-9, "got {full}");
     }
 }

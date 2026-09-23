@@ -200,18 +200,20 @@ impl ModelRouter {
         // Calculate actual cost
         let cost = self
             .cost_tracker
-            .calculate_cost(
+            .calculate_cost_with_cache(
                 &response.model,
                 response.input_tokens,
                 response.output_tokens,
+                response.cache_creation_input_tokens,
+                response.cache_read_input_tokens,
             )
             .await;
 
-        // Record in cost tracker
+        // Record in cost tracker (input includes prompt-cache writes/reads)
         let record = crate::cost_tracker::RequestRecord {
             model: response.model.clone(),
             provider: decision.provider.clone(),
-            input_tokens: response.input_tokens,
+            input_tokens: response.total_input_tokens(),
             output_tokens: response.output_tokens,
             cost_usd: cost,
             latency_ms,
@@ -225,7 +227,7 @@ impl ModelRouter {
         // Consume budget
         if let Some(key) = budget_key {
             self.cost_tracker
-                .consume_budget(key, response.input_tokens + response.output_tokens, cost)
+                .consume_budget(key, response.total_tokens(), cost)
                 .await;
         }
 
@@ -577,5 +579,29 @@ mod tests {
         for w in levels.windows(2) {
             assert!(w[0].min_quality() < w[1].min_quality());
         }
+    }
+
+    #[tokio::test]
+    async fn execute_records_prompt_cache_tokens() {
+        let router = make_router(RoutingStrategy::Fixed {
+            model: "claude-sonnet-4-6".into(),
+        });
+        let provider = MockProvider::new().with_response(LlmResponse {
+            content: "ok".into(),
+            model: "claude-sonnet-4-6".into(),
+            input_tokens: 10,
+            output_tokens: 0,
+            finish_reason: "end_turn".into(),
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 1_000_000,
+        });
+        router
+            .execute(&provider, &[LlmMessage::user("q")], &LlmConfig::default(), None)
+            .await
+            .unwrap();
+        assert_eq!(router.cost_tracker.total_tokens().await, 1_000_010);
+        let cost = router.cost_tracker.total_cost().await;
+        // 10 uncached @ $3/M + 1M cache reads @ $0.30/M
+        assert!((cost - (0.30 + 10.0 * 3.0 / 1_000_000.0)).abs() < 1e-9, "got {cost}");
     }
 }

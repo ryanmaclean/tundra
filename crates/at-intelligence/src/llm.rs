@@ -133,9 +133,31 @@ impl Default for LlmConfig {
 pub struct LlmResponse {
     pub content: String,
     pub model: String,
+    /// Uncached input tokens. For Anthropic this excludes prompt-cache
+    /// writes and reads, which are reported in the two fields below.
     pub input_tokens: u64,
     pub output_tokens: u64,
     pub finish_reason: String,
+    /// Input tokens written to the prompt cache (Anthropic
+    /// `usage.cache_creation_input_tokens`; billed at a premium).
+    #[serde(default)]
+    pub cache_creation_input_tokens: u64,
+    /// Input tokens served from the prompt cache (Anthropic
+    /// `usage.cache_read_input_tokens`; billed at a discount).
+    #[serde(default)]
+    pub cache_read_input_tokens: u64,
+}
+
+impl LlmResponse {
+    /// All input tokens the model processed: uncached + cache writes + cache reads.
+    pub fn total_input_tokens(&self) -> u64 {
+        self.input_tokens + self.cache_creation_input_tokens + self.cache_read_input_tokens
+    }
+
+    /// All tokens for this call (total input + output).
+    pub fn total_tokens(&self) -> u64 {
+        self.total_input_tokens() + self.output_tokens
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -300,6 +322,10 @@ struct AnthropicContentBlock {
 struct AnthropicUsage {
     input_tokens: u64,
     output_tokens: u64,
+    #[serde(default)]
+    cache_creation_input_tokens: u64,
+    #[serde(default)]
+    cache_read_input_tokens: u64,
 }
 
 #[async_trait]
@@ -360,6 +386,8 @@ impl LlmProvider for AnthropicProvider {
             model: api_resp.model,
             input_tokens: api_resp.usage.input_tokens,
             output_tokens: api_resp.usage.output_tokens,
+            cache_creation_input_tokens: api_resp.usage.cache_creation_input_tokens,
+            cache_read_input_tokens: api_resp.usage.cache_read_input_tokens,
             finish_reason: api_resp.stop_reason.unwrap_or_else(|| "unknown".into()),
         })
     }
@@ -518,6 +546,8 @@ impl LlmProvider for OpenAiProvider {
             model: api_resp.model,
             input_tokens: api_resp.usage.prompt_tokens,
             output_tokens: api_resp.usage.completion_tokens,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
             finish_reason: choice
                 .finish_reason
                 .clone()
@@ -730,6 +760,8 @@ impl LlmProvider for LocalProvider {
             model: api_resp.model.unwrap_or_else(|| config.model.clone()),
             input_tokens: usage.and_then(|u| u.prompt_tokens).unwrap_or(0),
             output_tokens: usage.and_then(|u| u.completion_tokens).unwrap_or(0),
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
             finish_reason: choice
                 .finish_reason
                 .clone()
@@ -795,6 +827,8 @@ impl MockProvider {
             model: model.to_string(),
             input_tokens: 10,
             output_tokens: 5,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
             finish_reason: "end_turn".to_string(),
         }
     }
@@ -844,9 +878,14 @@ impl LlmProvider for MockProvider {
 /// Simple tracker for cumulative LLM usage across multiple requests.
 #[derive(Debug, Clone, Default)]
 pub struct LlmUsageTracker {
+    /// All input tokens processed, including prompt-cache writes and reads.
     pub total_input_tokens: u64,
     pub total_output_tokens: u64,
     pub total_requests: u64,
+    /// Portion of `total_input_tokens` written to the prompt cache.
+    pub total_cache_creation_input_tokens: u64,
+    /// Portion of `total_input_tokens` read from the prompt cache.
+    pub total_cache_read_input_tokens: u64,
 }
 
 impl LlmUsageTracker {
@@ -857,9 +896,11 @@ impl LlmUsageTracker {
 
     /// Record usage from an [`LlmResponse`].
     pub fn record(&mut self, response: &LlmResponse) {
-        self.total_input_tokens += response.input_tokens;
+        self.total_input_tokens += response.total_input_tokens();
         self.total_output_tokens += response.output_tokens;
         self.total_requests += 1;
+        self.total_cache_creation_input_tokens += response.cache_creation_input_tokens;
+        self.total_cache_read_input_tokens += response.cache_read_input_tokens;
     }
 
     /// Total tokens (input + output) across all tracked requests.
@@ -907,6 +948,8 @@ mod tests {
             model: "custom-model".to_string(),
             input_tokens: 42,
             output_tokens: 99,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
             finish_reason: "stop".to_string(),
         };
         let provider = MockProvider::new().with_response(custom);
@@ -1003,6 +1046,8 @@ mod tests {
             model: "claude-3".to_string(),
             input_tokens: 100,
             output_tokens: 50,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
             finish_reason: "end_turn".to_string(),
         };
         let json = serde_json::to_string(&resp).unwrap();
@@ -1325,6 +1370,8 @@ mod tests {
             model: "test".to_string(),
             input_tokens: 100,
             output_tokens: 50,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
             finish_reason: "end_turn".to_string(),
         };
 
@@ -1340,6 +1387,8 @@ mod tests {
             model: "test".to_string(),
             input_tokens: 200,
             output_tokens: 75,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
             finish_reason: "end_turn".to_string(),
         };
         tracker.record(&resp2);
@@ -1495,5 +1544,86 @@ mod tests {
         .expect("request must not hang past the client timeout");
         assert!(matches!(res, Err(LlmError::Timeout)), "got {res:?}");
         server.abort();
+    }
+
+    // -- Prompt-cache usage accounting (finding #15) -------------------------
+
+    /// Serve exactly one HTTP request with a fixed JSON body.
+    async fn one_shot_json_server(body: &'static str) -> String {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let (mut sock, _) = listener.accept().await.unwrap();
+            let mut buf = Vec::new();
+            let mut chunk = [0u8; 4096];
+            loop {
+                let n = sock.read(&mut chunk).await.unwrap();
+                if n == 0 {
+                    break;
+                }
+                buf.extend_from_slice(&chunk[..n]);
+                let text = String::from_utf8_lossy(&buf);
+                if let Some(idx) = text.find("\r\n\r\n") {
+                    let len = text[..idx]
+                        .lines()
+                        .find_map(|l| {
+                            let (k, v) = l.split_once(':')?;
+                            k.eq_ignore_ascii_case("content-length")
+                                .then(|| v.trim().parse::<usize>().ok())
+                                .flatten()
+                        })
+                        .unwrap_or(0);
+                    if buf.len() >= idx + 4 + len {
+                        break;
+                    }
+                }
+            }
+            let resp = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            sock.write_all(resp.as_bytes()).await.unwrap();
+            sock.shutdown().await.ok();
+        });
+        format!("http://{addr}")
+    }
+
+    #[tokio::test]
+    async fn anthropic_parses_prompt_cache_usage() {
+        let url = one_shot_json_server(
+            r#"{"content":[{"type":"text","text":"ok"}],"model":"claude-sonnet-4-6",
+                "stop_reason":"end_turn",
+                "usage":{"input_tokens":12,"output_tokens":7,
+                         "cache_creation_input_tokens":3000,"cache_read_input_tokens":500}}"#,
+        )
+        .await;
+        let provider = AnthropicProvider::new("k").with_base_url(url);
+        let resp = provider
+            .complete(&[LlmMessage::user("hi")], &default_config())
+            .await
+            .unwrap();
+        assert_eq!(resp.input_tokens, 12);
+        assert_eq!(resp.cache_creation_input_tokens, 3000);
+        assert_eq!(resp.cache_read_input_tokens, 500);
+        assert_eq!(resp.total_input_tokens(), 3512);
+        assert_eq!(resp.total_tokens(), 3519);
+
+        let mut tracker = LlmUsageTracker::new();
+        tracker.record(&resp);
+        assert_eq!(tracker.total_input_tokens, 3512);
+        assert_eq!(tracker.total_cache_creation_input_tokens, 3000);
+        assert_eq!(tracker.total_cache_read_input_tokens, 500);
+        assert_eq!(tracker.total_tokens(), 3519);
+    }
+
+    #[test]
+    fn llm_response_without_cache_fields_deserializes() {
+        let json = r#"{"content":"a","model":"m","input_tokens":1,"output_tokens":2,"finish_reason":"stop"}"#;
+        let resp: LlmResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(resp.cache_creation_input_tokens, 0);
+        assert_eq!(resp.cache_read_input_tokens, 0);
+        assert_eq!(resp.total_input_tokens(), 1);
     }
 }
