@@ -22,6 +22,24 @@ pub enum MemoryCategory {
 }
 
 // ---------------------------------------------------------------------------
+// MemoryTier
+// ---------------------------------------------------------------------------
+
+/// Tiered context injection — L0 is the briefest (topic label), L2 is full content.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum MemoryTier {
+    L0,
+    L1,
+    #[default]
+    L2,
+}
+
+fn default_stability() -> f64 {
+    // Half-life ~7 days: R = e^(-7/10) ≈ 50% retention after one week with no recalls.
+    10.0
+}
+
+// ---------------------------------------------------------------------------
 // MemoryEntry
 // ---------------------------------------------------------------------------
 
@@ -36,6 +54,19 @@ pub struct MemoryEntry {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub related: Vec<Uuid>,
+    /// Tier determines how this entry is included in context windows.
+    #[serde(default)]
+    pub tier: MemoryTier,
+    /// ~100-token abstract summary for L0 context injection (set by caller).
+    #[serde(default)]
+    pub l0_summary: Option<String>,
+    /// ~500-token structured overview for L1 context injection (set by caller).
+    #[serde(default)]
+    pub l1_summary: Option<String>,
+    /// Ebbinghaus stability factor. Higher = slower forgetting. Starts at 2.0.
+    /// Increased on each recall/boost (spaced repetition).
+    #[serde(default = "default_stability")]
+    pub stability: f64,
 }
 
 impl MemoryEntry {
@@ -56,6 +87,10 @@ impl MemoryEntry {
             created_at: now,
             updated_at: now,
             related: Vec::new(),
+            tier: MemoryTier::default(),
+            l0_summary: None,
+            l1_summary: None,
+            stability: default_stability(),
         }
     }
 }
@@ -565,16 +600,28 @@ impl GraphMemory {
 
     // -- Decay --
 
-    /// Apply confidence decay to all entries based on age.
-    /// Entries with confidence below `min_confidence` are removed.
+    /// Apply confidence decay to all entries using the Ebbinghaus forgetting curve.
+    ///
+    /// Uses `updated_at` as the delta reference (not `created_at`) so the decay
+    /// is always incremental — repeated calls each apply one time-slice of decay
+    /// rather than compounding the full age. `updated_at` is advanced to `now`
+    /// after each entry is processed, resetting the clock for the next call.
+    ///
+    /// Entries with confidence strictly below `min_confidence` are removed.
     pub fn apply_decay(&mut self, min_confidence: f32) {
         let now = Utc::now();
         for entry in &mut self.entries {
-            let age_days = (now - entry.updated_at).num_days().max(0) as f64;
-            let decay_factor = (1.0 - self.decay_rate).powf(age_days);
-            entry.confidence = (entry.confidence as f64 * decay_factor) as f32;
+            // Ebbinghaus: R = e^(-Δt/S) where Δt = days since last decay call.
+            // Using updated_at (not created_at) prevents exponent compounding across
+            // repeated calls (the bug: using created_at causes exponents to sum as
+            // 1+2+3+…+N = N(N+1)/2 instead of N, collapsing confidence super-exponentially).
+            let delta_days = (now - entry.updated_at).num_seconds() as f64 / 86_400.0;
+            let new_conf = (entry.confidence as f64 * (-delta_days / entry.stability).exp()) as f32;
+            entry.confidence = new_conf;
+            entry.updated_at = now; // advance reference point for next decay call
         }
-        // Collect IDs to remove before mutating
+        // Remove entries strictly below the floor (strict < avoids spurious removal
+        // of entries sitting exactly at min_confidence which is a valid retained value).
         let to_remove: Vec<Uuid> = self
             .entries
             .iter()
@@ -590,8 +637,74 @@ impl GraphMemory {
     pub fn boost_confidence(&mut self, id: &Uuid, amount: f32) {
         if let Some(entry) = self.get_entry_mut(id) {
             entry.confidence = (entry.confidence + amount).min(1.0);
+            entry.stability = (entry.stability * 1.25_f64).min(30.0);
             entry.updated_at = Utc::now();
         }
+    }
+
+    /// Assemble entries for context injection respecting a token budget.
+    /// Order: L0 summaries first (cheapest), then L1 overviews, then full L2.
+    /// Entries sorted by confidence (descending) within each tier.
+    /// Token budget is approximate — estimates 4 chars per token.
+    pub fn assemble_for_context(&self, max_tokens: u32) -> Vec<&MemoryEntry> {
+        let budget = (max_tokens as usize) * 4; // chars approx
+        let mut result = Vec::new();
+        let mut used = 0usize;
+
+        let mut entries: Vec<&MemoryEntry> = self.entries.iter().collect();
+        entries.sort_by(|a, b| {
+            b.confidence
+                .partial_cmp(&a.confidence)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        let mut included: std::collections::HashSet<Uuid> = std::collections::HashSet::new();
+
+        // L0 pass: explicit MemoryTier::L0 entries only (~100 tokens each)
+        for entry in &entries {
+            if entry.tier != MemoryTier::L0 {
+                continue;
+            }
+            let text = entry.l0_summary.as_deref().unwrap_or(&entry.value);
+            let cost = text.len().min(400);
+            if used + cost <= budget {
+                result.push(*entry);
+                included.insert(entry.id);
+                used += cost;
+            }
+        }
+
+        // L1 pass: MemoryTier::L1 entries, or any entry with a l1_summary set
+        for entry in &entries {
+            if included.contains(&entry.id) {
+                continue;
+            }
+            if entry.tier != MemoryTier::L1 && entry.l1_summary.is_none() {
+                continue;
+            }
+            let text = entry.l1_summary.as_deref().unwrap_or(&entry.value);
+            let cost = text.len().min(2000);
+            if used + cost <= budget {
+                result.push(*entry);
+                included.insert(entry.id);
+                used += cost;
+            }
+        }
+
+        // L2 pass: remaining entries, full content
+        for entry in &entries {
+            if included.contains(&entry.id) {
+                continue;
+            }
+            let cost = entry.value.len();
+            if used + cost <= budget {
+                result.push(*entry);
+                included.insert(entry.id);
+                used += cost;
+            }
+        }
+
+        result
     }
 
     // -- Search --
@@ -855,13 +968,16 @@ mod graph_tests {
     fn graph_confidence_decay() {
         let mut g = GraphMemory::new();
         let mut e = make_entry("old_api", "deprecated endpoint", MemoryCategory::ApiRoute);
-        // Simulate an old entry
-        e.updated_at = Utc::now() - chrono::Duration::days(100);
+        // Simulate an old entry — set updated_at (the Ebbinghaus delta reference)
+        let old_time = Utc::now() - chrono::Duration::days(100);
+        e.created_at = old_time;
+        e.updated_at = old_time;
         e.confidence = 0.5;
+        // stability=10.0 default; after 100 days: R = 0.5 * e^(-100/10) = 0.5 * e^-10 ≈ 0.0000227
         g.add_entry(e);
 
         g.apply_decay(0.1);
-        // After 100 days at 2% decay, 0.5 * 0.98^100 ≈ 0.066 — should be removed
+        // 0.0000227 < 0.1 min_confidence — entry should be removed
         assert_eq!(g.entry_count(), 0);
     }
 
@@ -949,5 +1065,127 @@ mod graph_tests {
     fn graph_load_nonexistent_returns_empty() {
         let g = GraphMemory::load_from_file("/nonexistent/path/memory.json").unwrap();
         assert_eq!(g.entry_count(), 0);
+    }
+
+    // -------------------------------------------------------------------------
+    // Wave-3 tests: assemble_for_context, decay, boost stability
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn assemble_respects_tier_order() {
+        let mut g = GraphMemory::new();
+        // L0 entry (topic label)
+        let mut e0 = make_entry("key0", "value0", MemoryCategory::Pattern);
+        e0.tier = MemoryTier::L0;
+        e0.l0_summary = Some("short summary".into());
+        e0.confidence = 0.9;
+        let id0 = e0.id;
+        // L2 entry (default, highest confidence — should NOT come before L0)
+        let mut e2 = make_entry("key2", &"v".repeat(200), MemoryCategory::Pattern);
+        e2.tier = MemoryTier::L2;
+        e2.confidence = 1.0; // highest confidence but wrong tier
+        // L1 entry
+        let mut e1 = make_entry("key1", "value1", MemoryCategory::Pattern);
+        e1.tier = MemoryTier::L1;
+        e1.l1_summary = Some("medium summary".into());
+        e1.confidence = 0.7;
+        let id1 = e1.id;
+        g.add_entry(e0);
+        g.add_entry(e1);
+        g.add_entry(e2);
+
+        let result = g.assemble_for_context(500);
+        // L0 entry must appear before L1 even though L2 has higher confidence
+        let first_ids: Vec<uuid::Uuid> = result.iter().map(|e| e.id).collect();
+        assert!(first_ids.contains(&id0), "L0 entry missing");
+        // L0 must precede L1 in result
+        let pos0 = first_ids.iter().position(|&id| id == id0).unwrap();
+        let pos1 = first_ids.iter().position(|&id| id == id1);
+        if let Some(pos1) = pos1 {
+            assert!(pos0 < pos1, "L0 should come before L1");
+        }
+    }
+
+    #[test]
+    fn assemble_respects_token_budget() {
+        let mut g = GraphMemory::new();
+        // 10 entries, each 80 chars long.
+        // Budget = 50 tokens = 200 chars.
+        // Entries are L2 (default tier) so the L2 pass applies.
+        // With strict `used + cost <= budget` (200 chars), exactly 2 entries
+        // should fit (2 * 80 = 160 <= 200; 3 * 80 = 240 > 200).
+        for i in 0..10 {
+            let mut e = make_entry(
+                &format!("key{i}"),
+                &"x".repeat(80),
+                MemoryCategory::Pattern,
+            );
+            e.confidence = 0.8;
+            g.add_entry(e);
+        }
+        let result = g.assemble_for_context(50); // 50 tokens = 200 chars
+        // At least 1 entry must have been admitted (budget is not zero).
+        assert!(!result.is_empty(), "assemble returned nothing — budget too tight");
+        // Total chars must not exceed the 200-char budget.
+        let total_chars: usize = result.iter().map(|e| e.value.len()).sum();
+        assert!(
+            total_chars <= 200,
+            "token budget exceeded: {total_chars} chars (budget 200)"
+        );
+        // Not all 10 entries should fit — enforcement must have cut off some.
+        assert!(
+            result.len() < 10,
+            "all 10 entries fit in 200 chars but each is 80 chars — enforcement missed"
+        );
+    }
+
+    #[test]
+    fn decay_does_not_compound_across_repeated_calls() {
+        let mut g = GraphMemory::new();
+        let mut e = make_entry("k", "v", MemoryCategory::Pattern);
+        e.confidence = 1.0;
+        // Set updated_at to 1 day ago so first call decays by ~1 day
+        e.updated_at = chrono::Utc::now() - chrono::Duration::days(1);
+        let id = e.id;
+        g.add_entry(e);
+
+        // Apply decay twice — second call delta should be ~0 (updated_at was just set)
+        g.apply_decay(0.0);
+        let conf_after_first = g.get_entry(&id).map(|e| e.confidence).unwrap_or(0.0);
+
+        g.apply_decay(0.0);
+        let conf_after_second = g.get_entry(&id).map(|e| e.confidence).unwrap_or(0.0);
+
+        // Second call should barely change confidence (delta ≈ 0 seconds)
+        let diff = (conf_after_first - conf_after_second).abs();
+        assert!(
+            diff < 0.01,
+            "Second decay should not compound: conf went {conf_after_first:.4} → {conf_after_second:.4}"
+        );
+    }
+
+    #[test]
+    fn boost_increases_stability() {
+        let mut g = GraphMemory::new();
+        let mut e = make_entry("k", "v", MemoryCategory::Pattern);
+        e.confidence = 0.5;
+        let initial_stability = e.stability; // 10.0 default
+        let id = e.id;
+        g.add_entry(e);
+
+        g.boost_confidence(&id, 0.2);
+        let after = g.get_entry(&id).unwrap();
+        assert!(
+            after.stability > initial_stability,
+            "stability should increase on boost: {} → {}",
+            initial_stability,
+            after.stability
+        );
+        assert!(
+            (after.stability - initial_stability * 1.25).abs() < 0.001,
+            "stability should grow by 1.25x: expected {}, got {}",
+            initial_stability * 1.25,
+            after.stability
+        );
     }
 }
