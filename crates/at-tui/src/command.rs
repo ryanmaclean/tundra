@@ -186,7 +186,7 @@ pub fn execute_command(app: &mut App, cmd: AppCommand) -> Option<String> {
             None
         }
         AppCommand::Right => {
-            if app.current_tab == 2 && app.kanban_column < 4 {
+            if app.current_tab == 2 && app.kanban_column + 1 < crate::tabs::beads::KANBAN_COLUMNS {
                 app.kanban_column += 1;
             }
             None
