@@ -94,7 +94,10 @@ pub fn origin_matches(origin: &str, allowed: &str) -> bool {
     if origin == allowed {
         return true;
     }
-    match origin.strip_prefix(allowed).and_then(|r| r.strip_prefix(':')) {
+    match origin
+        .strip_prefix(allowed)
+        .and_then(|r| r.strip_prefix(':'))
+    {
         Some(port) => port.chars().all(|c| c.is_ascii_digit()),
         None => false,
     }
@@ -549,7 +552,8 @@ mod tests {
 
     #[test]
     fn allowlist_includes_defaults_and_configured() {
-        let list = OriginAllowlist::with_configured(&["tauri://localhost", " https://ex.com/ ", ""]);
+        let list =
+            OriginAllowlist::with_configured(&["tauri://localhost", " https://ex.com/ ", ""]);
         assert!(list.allows("http://localhost:3000"));
         assert!(list.allows("tauri://localhost"));
         assert!(list.allows("https://ex.com"));

@@ -179,7 +179,9 @@ mod tests {
     #[test]
     fn init_script_carries_port_key_and_flags() {
         let s = build_init_script(51234, "key-1", false, 28);
-        assert!(s.starts_with("window.__TUNDRA_API_PORT__=51234;window.__TUNDRA_API_KEY__=\"key-1\";"));
+        assert!(
+            s.starts_with("window.__TUNDRA_API_PORT__=51234;window.__TUNDRA_API_KEY__=\"key-1\";")
+        );
         assert!(s.contains("window.__TUNDRA_NATIVE_SHELL__ = false;"));
         assert!(s.contains("'--titlebar-inset', '28px'"));
         assert!(s.contains("dataset.nativeShell = \"0\";"));

@@ -69,14 +69,12 @@ fn spawn_refresh(
     }
     let (tx, rx) = flume::unbounded::<api_client::AppData>();
     let client = api_client::ApiClient::from_connection(conn);
-    std::thread::spawn(move || {
-        loop {
-            let data = client.fetch_all();
-            if tx.send(data).is_err() {
-                break;
-            }
-            std::thread::sleep(Duration::from_secs(5));
+    std::thread::spawn(move || loop {
+        let data = client.fetch_all();
+        if tx.send(data).is_err() {
+            break;
         }
+        std::thread::sleep(Duration::from_secs(5));
     });
     Some(rx)
 }

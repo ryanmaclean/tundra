@@ -266,18 +266,12 @@ impl ApiClient {
                     .unwrap_or_default(),
             };
 
-            let sessions = scope.spawn(|| {
-                timed_fetch(profile, "sessions", || {
-                    tally.record(self.fetch_sessions())
-                })
-            });
-            let convoys = scope.spawn(|| {
-                timed_fetch(profile, "convoys", || {
-                    tally.record(self.fetch_convoys())
-                })
-            });
-            let costs = scope
-                .spawn(|| timed_fetch(profile, "costs", || tally.record(self.fetch_costs())));
+            let sessions = scope
+                .spawn(|| timed_fetch(profile, "sessions", || tally.record(self.fetch_sessions())));
+            let convoys = scope
+                .spawn(|| timed_fetch(profile, "convoys", || tally.record(self.fetch_convoys())));
+            let costs =
+                scope.spawn(|| timed_fetch(profile, "costs", || tally.record(self.fetch_costs())));
             let mcp_servers = scope.spawn(|| {
                 timed_fetch(profile, "mcp_servers", || {
                     tally.record(self.fetch_mcp_servers())
@@ -298,28 +292,19 @@ impl ApiClient {
                     tally.record(self.fetch_github_prs())
                 })
             });
-            let roadmap_items = scope.spawn(|| {
-                timed_fetch(profile, "roadmap", || {
-                    tally.record(self.fetch_roadmap())
-                })
-            });
-            let ideas = scope
-                .spawn(|| timed_fetch(profile, "ideas", || tally.record(self.fetch_ideas())));
-            let stacks = scope.spawn(|| {
-                timed_fetch(profile, "stacks", || {
-                    tally.record(self.fetch_stacks())
-                })
-            });
+            let roadmap_items = scope
+                .spawn(|| timed_fetch(profile, "roadmap", || tally.record(self.fetch_roadmap())));
+            let ideas =
+                scope.spawn(|| timed_fetch(profile, "ideas", || tally.record(self.fetch_ideas())));
+            let stacks = scope
+                .spawn(|| timed_fetch(profile, "stacks", || tally.record(self.fetch_stacks())));
             let changelog = scope.spawn(|| {
                 timed_fetch(profile, "changelog", || {
                     tally.record(self.fetch_changelog())
                 })
             });
-            let memory = scope.spawn(|| {
-                timed_fetch(profile, "memory", || {
-                    tally.record(self.fetch_memory())
-                })
-            });
+            let memory = scope
+                .spawn(|| timed_fetch(profile, "memory", || tally.record(self.fetch_memory())));
 
             AppData {
                 agents,
@@ -433,7 +418,9 @@ mod auth_tests {
         let ok = ApiClient::with_api_key(&base, Some("tui-key".into()));
         assert!(ok.fetch_agents().is_ok());
 
-        let err = ApiClient::with_api_key(&base, None).fetch_agents().unwrap_err();
+        let err = ApiClient::with_api_key(&base, None)
+            .fetch_agents()
+            .unwrap_err();
         assert!(is_unauthorized_error(&err), "{err}");
     }
 

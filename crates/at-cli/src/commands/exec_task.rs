@@ -254,7 +254,11 @@ mod tests {
                 let calls = calls.clone();
                 async move {
                     let n = calls.fetch_add(1, Ordering::SeqCst);
-                    let phase = if n < busy_polls { "coding" } else { final_phase };
+                    let phase = if n < busy_polls {
+                        "coding"
+                    } else {
+                        final_phase
+                    };
                     Json(json!({"id": id, "phase": phase}))
                 }
             }),
@@ -277,7 +281,10 @@ mod tests {
                 .unwrap();
             assert_eq!(out["terminal_phase"], phase);
             assert_eq!(out["success"], success);
-            assert!(started.elapsed() < Duration::from_secs(5), "{phase} waited too long");
+            assert!(
+                started.elapsed() < Duration::from_secs(5),
+                "{phase} waited too long"
+            );
         }
     }
 

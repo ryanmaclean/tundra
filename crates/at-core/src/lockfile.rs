@@ -242,7 +242,11 @@ impl DaemonConnection {
     }
 
     /// Build a connection from explicit parts (tests, embedding).
-    pub fn new(api_url: impl Into<String>, api_key: Option<String>, source: DiscoverySource) -> Self {
+    pub fn new(
+        api_url: impl Into<String>,
+        api_key: Option<String>,
+        source: DiscoverySource,
+    ) -> Self {
         let api_url = api_url.into().trim_end_matches('/').to_string();
         let api_key = api_key.filter(|k| !k.trim().is_empty());
         Self {

@@ -152,26 +152,34 @@ async fn cors_rejects_localhost_prefix_lookalike_origin() {
         .send()
         .await
         .unwrap();
-    assert!(resp
-        .headers()
-        .get("access-control-allow-origin")
-        .is_none());
+    assert!(resp.headers().get("access-control-allow-origin").is_none());
 }
 
 #[tokio::test]
 async fn events_ws_requires_key_and_accepts_query_param() {
     let base = start(vec![], false).await;
     assert_eq!(
-        ws_connect(&ws_url(&base, "/api/events/ws", None), "http://localhost:5173").await,
+        ws_connect(
+            &ws_url(&base, "/api/events/ws", None),
+            "http://localhost:5173"
+        )
+        .await,
         Err(401)
     );
     assert_eq!(
-        ws_connect(&ws_url(&base, "/api/events/ws", Some("wrong")), "http://localhost:5173")
-            .await,
+        ws_connect(
+            &ws_url(&base, "/api/events/ws", Some("wrong")),
+            "http://localhost:5173"
+        )
+        .await,
         Err(401)
     );
     assert_eq!(
-        ws_connect(&ws_url(&base, "/api/events/ws", Some(KEY)), "http://localhost:5173").await,
+        ws_connect(
+            &ws_url(&base, "/api/events/ws", Some(KEY)),
+            "http://localhost:5173"
+        )
+        .await,
         Ok(())
     );
     assert_eq!(
@@ -184,14 +192,25 @@ async fn events_ws_requires_key_and_accepts_query_param() {
 async fn tauri_origin_needs_to_be_configured_and_then_works() {
     let base = start(vec![], false).await;
     assert_eq!(
-        ws_connect(&ws_url(&base, "/api/events/ws", Some(KEY)), "tauri://localhost").await,
+        ws_connect(
+            &ws_url(&base, "/api/events/ws", Some(KEY)),
+            "tauri://localhost"
+        )
+        .await,
         Err(403)
     );
 
-    let tauri: Vec<String> = TAURI_WEBVIEW_ORIGINS.iter().map(|s| s.to_string()).collect();
+    let tauri: Vec<String> = TAURI_WEBVIEW_ORIGINS
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
     let base = start(tauri, false).await;
     assert_eq!(
-        ws_connect(&ws_url(&base, "/api/events/ws", Some(KEY)), "tauri://localhost").await,
+        ws_connect(
+            &ws_url(&base, "/api/events/ws", Some(KEY)),
+            "tauri://localhost"
+        )
+        .await,
         Ok(())
     );
     assert_eq!(
@@ -219,7 +238,11 @@ async fn terminal_ws_honours_configured_origin_and_query_key() {
         Err(401)
     );
     assert_eq!(
-        ws_connect(&ws_url(&base, &path, Some(KEY)), "https://evil.example.test").await,
+        ws_connect(
+            &ws_url(&base, &path, Some(KEY)),
+            "https://evil.example.test"
+        )
+        .await,
         Err(403)
     );
     assert_eq!(

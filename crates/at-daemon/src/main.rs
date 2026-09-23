@@ -363,7 +363,9 @@ fn may_receive_api_key(peer: std::net::IpAddr, host_header: Option<&str>) -> boo
     };
     // Strip the port: "[::1]:8080" -> "[::1]", "localhost:80" -> "localhost".
     let name = if host.starts_with('[') {
-        host.split_once(']').map(|(h, _)| &host[..h.len() + 1]).unwrap_or(host)
+        host.split_once(']')
+            .map(|(h, _)| &host[..h.len() + 1])
+            .unwrap_or(host)
     } else {
         host.rsplit_once(':').map(|(h, _)| h).unwrap_or(host)
     };

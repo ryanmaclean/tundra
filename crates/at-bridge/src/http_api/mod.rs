@@ -112,11 +112,11 @@ mod router {
     use crate::auth::AuthLayer;
     use crate::intelligence_api;
     use crate::origin_validation::OriginAllowlist;
-    use axum::Extension;
     use crate::rate_limit_middleware::RateLimitLayer;
     use crate::terminal_ws;
     use at_telemetry::middleware::metrics_middleware;
     use at_telemetry::tracing_setup::request_id_middleware;
+    use axum::Extension;
 
     /// Build the full API router with all REST and WebSocket routes.
     ///
@@ -512,9 +512,7 @@ mod router {
                     .allow_headers([
                         axum::http::header::CONTENT_TYPE,
                         axum::http::header::AUTHORIZATION,
-                        axum::http::HeaderName::from_static(
-                            at_api_types::auth::API_KEY_HEADER,
-                        ),
+                        axum::http::HeaderName::from_static(at_api_types::auth::API_KEY_HEADER),
                     ])
                     .allow_credentials(true),
             )

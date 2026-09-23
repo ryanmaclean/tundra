@@ -323,10 +323,7 @@ async fn main() -> anyhow::Result<()> {
     // daemon lockfile, API key from AUTO_TUNDRA_API_KEY or daemon.key.
     let conn = at_core::lockfile::DaemonConnection::discover(cli.api_url.as_deref());
     if conn.source == at_core::lockfile::DiscoverySource::Default {
-        eprintln!(
-            "warning: no running daemon found, trying {}",
-            conn.api_url
-        );
+        eprintln!("warning: no running daemon found, trying {}", conn.api_url);
     }
     if conn.api_key.is_none() {
         eprintln!(

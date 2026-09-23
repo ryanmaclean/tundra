@@ -255,7 +255,10 @@ mod tests {
     #[tokio::test]
     async fn ws_upgrade_accepts_query_key() {
         let app = test_router(Some("secret123".into()));
-        let resp = app.oneshot(ws_upgrade("/ping?api_key=secret123")).await.unwrap();
+        let resp = app
+            .oneshot(ws_upgrade("/ping?api_key=secret123"))
+            .await
+            .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
     }
 
