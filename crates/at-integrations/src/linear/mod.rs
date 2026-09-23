@@ -40,6 +40,11 @@ pub enum LinearError {
     #[error("serialization error: {0}")]
     Serde(#[from] serde_json::Error),
 
+    /// Outbound content was refused by the output guard (prompt-injection
+    /// payload). The string names the detectors that fired.
+    #[error("outbound content blocked: {0}")]
+    OutputBlocked(String),
+
     /// An HTTP-level error occurred.
     ///
     /// This includes network failures, connection errors, DNS resolution
@@ -169,7 +174,9 @@ impl LinearClient {
     ) -> Result<serde_json::Value> {
         let mut payload = serde_json::json!({ "query": query });
         if let Some(vars) = variables {
-            payload["variables"] = serde_json::Value::Object(vars);
+            let mut vars = serde_json::Value::Object(vars);
+            crate::outbound::screen_json(&mut vars).map_err(LinearError::OutputBlocked)?;
+            payload["variables"] = vars;
         }
 
         let client = reqwest::Client::new();

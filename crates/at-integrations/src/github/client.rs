@@ -39,6 +39,11 @@ pub enum GitHubError {
     /// request bodies.
     #[error("serialization error: {0}")]
     Serde(#[from] serde_json::Error),
+
+    /// Outbound content was refused by the output guard (prompt-injection
+    /// payload). The string names the detectors that fired.
+    #[error("outbound content blocked: {0}")]
+    OutputBlocked(String),
 }
 
 /// Result type alias for GitHub operations.
