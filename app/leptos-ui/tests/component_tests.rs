@@ -274,7 +274,7 @@ mod settings_deserialization {
         assert_eq!(restored.display.theme, "dark");
         assert_eq!(restored.agents.max_concurrent, 5);
         assert_eq!(restored.terminal.font_family, "JetBrains Mono");
-        assert_eq!(restored.security.sandbox, true);
+        assert!(restored.security.sandbox);
         assert_eq!(
             restored.integrations.github_owner,
             Some("owner".to_string())
@@ -286,9 +286,9 @@ mod settings_deserialization {
         assert_eq!(restored.paths.python_path, "/usr/bin/python3");
         assert_eq!(restored.api_profiles.profiles.len(), 1);
         assert_eq!(restored.updates.version, "0.1.0");
-        assert_eq!(restored.notifications.on_task_complete, true);
-        assert_eq!(restored.debug.anonymous_error_reporting, false);
-        assert_eq!(restored.memory.enable_memory, true);
+        assert!(restored.notifications.on_task_complete);
+        assert!(!restored.debug.anonymous_error_reporting);
+        assert!(restored.memory.enable_memory);
     }
 
     #[wasm_bindgen_test]
@@ -454,7 +454,7 @@ mod additional_api_types {
         }"#;
         let notif: ApiNotification = serde_json::from_str(json).expect("ApiNotification failed");
         assert_eq!(notif.title, "Task completed");
-        assert_eq!(notif.read, false);
+        assert!(!notif.read);
         assert_eq!(notif.action_url, Some("/beads/xyz".to_string()));
     }
 
@@ -684,7 +684,7 @@ mod serialization_edge_cases {
         let json = r#"{"id": "n1", "title": "T", "message": "M", "level": "info", "source": "s", "created_at": "", "read": true}"#;
         let notif: ApiNotification = serde_json::from_str(json).expect("Missing action_url failed");
         assert_eq!(notif.action_url, None);
-        assert_eq!(notif.read, true);
+        assert!(notif.read);
     }
 
     #[wasm_bindgen_test]

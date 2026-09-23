@@ -30,6 +30,24 @@ use super::types::{
 use at_integrations::types::GitHubRelease;
 
 // ---------------------------------------------------------------------------
+// Type aliases
+// ---------------------------------------------------------------------------
+
+/// The payload broadcast by the single-flight gate when a GitHub token
+/// refresh completes: `Ok(json_body)` on success, `Err(message)` on failure.
+/// Outcome of a single OAuth refresh attempt that the leader broadcasts to
+/// followers via the gate's `watch` channel.  `None` = still in-flight.
+/// `Ok(body)` = success, response body that the leader will return.
+/// `Err((status, msg))` = failure, with the `StatusCode` that the leader will
+/// return so followers report the same status (not always 400).
+pub type RefreshOutcome = Result<serde_json::Value, (axum::http::StatusCode, String)>;
+
+/// Shared gate that serialises concurrent GitHub OAuth token refreshes into a
+/// single outbound HTTP request.  `None` = no refresh in-flight.
+pub type GitHubRefreshGate =
+    Arc<tokio::sync::Mutex<Option<tokio::sync::watch::Sender<Option<RefreshOutcome>>>>>;
+
+// ---------------------------------------------------------------------------
 // Default configuration functions
 // ---------------------------------------------------------------------------
 
@@ -132,6 +150,18 @@ pub struct ApiState {
     /// Pending OAuth state parameters for CSRF protection.
     pub oauth_pending_states: Arc<RwLock<std::collections::HashMap<String, String>>>,
     pub oauth_token_manager: Arc<RwLock<OAuthTokenManager>>,
+    /// Single-flight gate for GitHub OAuth token refresh.
+    ///
+    /// Holds a `watch::Sender` while a refresh is in-flight so that N
+    /// concurrent callers share a single outbound HTTP request:
+    /// - First caller finds `None`, installs the sender, does the HTTP call.
+    /// - Subsequent callers find `Some(tx)`, subscribe to its receiver, and
+    ///   wait for the in-flight result without issuing their own requests.
+    /// - `None` in the watch channel = still in-flight; `Some(...)` = done.
+    pub github_refresh_gate: GitHubRefreshGate,
+    /// Override for the GitHub token endpoint URL (default: GitHub production).
+    /// Setting this is only useful in tests; production code leaves it `None`.
+    pub github_token_url_override: Option<String>,
     // ---- Projects --------------------------------------------------------
     pub projects: Arc<RwLock<std::collections::HashMap<Uuid, Project>>>,
     // ---- PR polling -------------------------------------------------------
@@ -268,6 +298,8 @@ impl ApiState {
             github_oauth_user: Arc::new(RwLock::new(None)),
             oauth_pending_states: Arc::new(RwLock::new(std::collections::HashMap::new())),
             oauth_token_manager: Arc::new(RwLock::new(OAuthTokenManager::new())),
+            github_refresh_gate: Arc::new(tokio::sync::Mutex::new(None)) as GitHubRefreshGate,
+            github_token_url_override: None,
             pr_poll_registry: Arc::new(RwLock::new(std::collections::HashMap::new())),
             releases: Arc::new(RwLock::new(Vec::new())),
             archived_tasks: Arc::new(RwLock::new(std::collections::HashSet::new())),
@@ -317,6 +349,15 @@ impl ApiState {
             notification_task_started: AtomicBool::new(false),
             agent_registry_task_started: AtomicBool::new(false),
         }
+    }
+
+    /// Override the GitHub token endpoint URL.
+    ///
+    /// Used in integration tests to redirect refresh calls to a local mock
+    /// server.  Has no effect on production deployments where this is `None`.
+    pub fn with_github_token_url(mut self, url: impl Into<String>) -> Self {
+        self.github_token_url_override = Some(url.into());
+        self
     }
 
     /// Return a copy with relaxed rate limits suitable for integration tests.
@@ -1026,8 +1067,56 @@ mod tests {
         // Give the task a moment to start
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
-        // Test passes if we get here without panicking
-        let _ = ();
+        // The cleanup loop's first tick fires immediately inside start_cleanup_task,
+        // consuming the tokio::time::interval startup tick before entering the real
+        // loop. After 50 ms the spawned task is live. Asserting disconnect_buffers is
+        // still empty proves two things: (a) the task started without panicking, and
+        // (b) the cleanup loop did not insert or leak data into disconnect_buffers on
+        // its first tick.
+        assert!(
+            state.disconnect_buffers.read().await.is_empty(),
+            "cleanup task should run first tick without inserting/leaking data into disconnect_buffers"
+        );
+    }
+
+    #[tokio::test]
+    async fn cleanup_task_actually_cleans_expired_disconnect_buffer() {
+        // Arrange: create state with a 1-second cleanup interval so the test
+        // does not take a full hour.
+        let state = Arc::new(create_test_state());
+        {
+            let mut config = state.retention_config.write().await;
+            config.cleanup_interval_secs = 1;
+            config.disconnect_buffer_ttl_secs = 0; // every buffer is immediately expired
+        }
+
+        // Seed one expired disconnect buffer (disconnected 10 minutes ago).
+        let terminal_id = Uuid::new_v4();
+        let mut buffer = crate::terminal::DisconnectBuffer::new(1024);
+        buffer.disconnected_at = Utc::now() - Duration::minutes(10);
+        state
+            .disconnect_buffers
+            .write()
+            .await
+            .insert(terminal_id, buffer);
+
+        // Pre-condition: the entry is present before cleanup runs.
+        assert_eq!(
+            state.disconnect_buffers.read().await.len(),
+            1,
+            "seeded buffer must be present before cleanup"
+        );
+
+        // Act: start the background task and wait for at least one cleanup tick
+        // (interval = 1 s, plus a comfortable buffer).
+        state.start_cleanup_task();
+        tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+
+        // Assert: the expired buffer must have been removed by the cleanup loop.
+        assert!(
+            state.disconnect_buffers.read().await.is_empty(),
+            "cleanup loop must remove the expired disconnect buffer after one tick"
+        );
     }
 
     #[tokio::test]

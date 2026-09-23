@@ -25,7 +25,10 @@ flume = { workspace = true }
 rig-core = { version = "0.38.1", default-features = false, features = ["rustls"] }
 
 [dev-dependencies]
-tokio = { workspace = true }
+tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "time", "macros", "sync", "process", "signal", "fs", "test-util"] }
 tempfile = "3"
 async-trait = { workspace = true }
 flume = { workspace = true }
+portable-pty = "0.8"
+at-session = { path = "../at-session", features = ["test-helpers"] }
+anyhow = { workspace = true }

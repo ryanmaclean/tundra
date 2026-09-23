@@ -95,7 +95,7 @@ pub fn EditTaskModal(
     };
 
     let bid = bead_id.clone();
-    let on_save = move |ev: MouseEvent| {
+    let on_save = move |_ev: MouseEvent| {
         // Prevent double-submit
         if is_submitting.get() {
             return;
@@ -370,7 +370,7 @@ pub fn EditTaskModal(
 
             // Actions
             <div class="edit-task-actions">
-                <button class="btn btn-outline" on:click=move |ev| on_close_cancel(ev)>"Cancel"</button>
+                <button class="btn btn-outline" on:click=on_close_cancel>"Cancel"</button>
                 <button
                     class="btn btn-primary"
                     on:click=on_save

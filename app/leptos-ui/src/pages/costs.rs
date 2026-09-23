@@ -155,7 +155,7 @@ pub fn CostsPage() -> impl IntoView {
                     <div class="section">
                         <h3>"Cost by Provider (DuckDB)"</h3>
                         <div style="margin-top: 12px;">
-                            {providers.iter().cloned().map(|p| {
+                            {providers.iter().map(|p| {
                                 let pct = (p.total_cost / max_cost * 100.0) as u64;
                                 view! {
                                     <div style="display: flex; align-items: center; margin-bottom: 8px;">

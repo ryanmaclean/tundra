@@ -1,0 +1,12 @@
+schema = "ryanlab.project.v1"
+name = "tundra"
+status = "reference"
+role = "Broad orchestration and telemetry testbed"
+
+canonical_for = ["orchestration-reference-patterns", "telemetry-reference-patterns"]
+integrates_with = ["bop", "moth", "vibecode-webgui"]
+do_not_implement = ["lower-bound-runtime"]
+
+registry = "ryanmaclean/skills:docs/PROJECTS.md"
+glossary = "ryanmaclean/skills:docs/GLOSSARY.md"
+benchmark_schema = "ryanmaclean/skills:schemas/bench.v1.schema.json"

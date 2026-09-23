@@ -288,7 +288,7 @@ pub fn WorktreesPage() -> impl IntoView {
                 let id_merge = id.clone();
                 let id_done = id.clone();
                 let id_checkbox = id.clone();
-                let delete_done = delete_worktree.clone();
+                let delete_done = delete_worktree;
                 let status_class = match wt.inner.status.as_str() {
                     "active" => "glyph-active",
                     "stale" => "glyph-stopped",

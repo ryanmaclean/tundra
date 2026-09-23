@@ -130,7 +130,7 @@ pub fn TaskWizard(on_close: impl Fn(MouseEvent) + Clone + 'static) -> impl IntoV
         });
 
         // POST to API: create bead then create task
-        let set_beads = set_beads.clone();
+        let set_beads = set_beads;
         leptos::task::spawn_local(async move {
             let desc_opt = if d.is_empty() { None } else { Some(d.as_str()) };
             match crate::api::create_bead(&t, desc_opt, Some("standard")).await {
@@ -186,7 +186,7 @@ pub fn TaskWizard(on_close: impl Fn(MouseEvent) + Clone + 'static) -> impl IntoV
     };
 
     view! {
-        <div class="new-task-overlay" on:click=move |ev| on_close_bg(ev)>
+        <div class="new-task-overlay" on:click=on_close_bg>
         </div>
         <div class="new-task-modal wizard-modal" on:keydown=handle_keydown>
             <h2>"Create New Task"</h2>
@@ -455,7 +455,7 @@ pub fn TaskWizard(on_close: impl Fn(MouseEvent) + Clone + 'static) -> impl IntoV
 
             // Navigation buttons
             <div class="modal-actions wizard-nav">
-                <button class="btn-cancel" on:click=move |ev| on_close_cancel(ev)>
+                <button class="btn-cancel" on:click=on_close_cancel>
                     "Cancel"
                 </button>
                 <div class="wizard-nav-right">

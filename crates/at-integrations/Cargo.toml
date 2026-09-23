@@ -31,3 +31,5 @@ tokio = { workspace = true }
 # integration tests under tests/, without ever enabling the feature for a
 # normal build or for downstream consumers of this crate.
 at-integrations = { path = ".", features = ["stub"] }
+wiremock = "0.6"
+serde_json = { workspace = true }

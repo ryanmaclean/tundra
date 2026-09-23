@@ -66,9 +66,8 @@ pub fn AnalyticsPage() -> impl IntoView {
                 Ok(data) => set_kpi.set(Some(data)),
                 Err(e) => set_error_msg.set(Some(format!("Failed to fetch KPI: {e}"))),
             }
-            match api::fetch_agents().await {
-                Ok(data) => set_agents.set(data),
-                Err(_) => {}
+            if let Ok(data) = api::fetch_agents().await {
+                set_agents.set(data)
             }
             set_loading.set(false);
         });

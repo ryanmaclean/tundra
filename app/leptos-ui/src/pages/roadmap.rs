@@ -396,7 +396,7 @@ pub fn RoadmapPage() -> impl IntoView {
                                     let on_dragstart = move |ev: DragEvent| {
                                         if let Some(dt) = ev.data_transfer() {
                                             let _ = dt.set_data("text/plain", &fid_drag);
-                                            let _ = dt.set_drop_effect("move");
+                                            dt.set_drop_effect("move");
                                         }
                                         set_dragging_id.set(Some(fid_drag.clone()));
                                     };

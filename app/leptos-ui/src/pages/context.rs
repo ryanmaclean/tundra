@@ -57,7 +57,7 @@ fn memory_category_icon_svg(category: &str) -> &'static str {
 
 #[component]
 pub fn ContextPage() -> impl IntoView {
-    let app_state = use_app_state();
+    let _app_state = use_app_state();
     // Tab state: 0 = Project Index, 1 = Memories
     let (active_tab, set_active_tab) = signal(0u8);
 
@@ -154,9 +154,8 @@ pub fn ContextPage() -> impl IntoView {
                     set_new_category.set(String::new());
                     set_new_content.set(String::new());
                     set_show_add_form.set(false);
-                    match api::fetch_memory().await {
-                        Ok(data) => set_entries.set(data),
-                        Err(_) => {}
+                    if let Ok(data) = api::fetch_memory().await {
+                        set_entries.set(data)
                     }
                 }
                 Err(e) => {

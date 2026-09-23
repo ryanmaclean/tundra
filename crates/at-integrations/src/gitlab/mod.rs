@@ -140,13 +140,44 @@ impl GitLabClient {
     /// mode" from the shape of `token`. Use [`GitLabClient::stub`] in tests
     /// when you want canned data instead.
     pub fn new_with_url(base_url: &str, token: &str) -> Result<Self> {
+        Self::new_with_url_and_timeout(base_url, token, None)
+    }
+
+    /// Create a client for a custom GitLab instance with an optional request
+    /// timeout.
+    ///
+    /// When `timeout` is `None`, this uses [`crate::http::client`] — the
+    /// crate-wide bounded client (30s request / 10s connect timeout) — same
+    /// as [`GitLabClient::new_with_url`]. A bare `reqwest::Client::new()` has
+    /// no timeout at all, so a stalled upstream would hang the request
+    /// handler indefinitely. When `Some(duration)`, that duration overrides
+    /// the default request timeout (connect timeout and user-agent stay the
+    /// same) so slow servers surface as a `GitLabError::Http` carrying a
+    /// reqwest timeout.
+    ///
+    /// This constructor is additive: existing call sites of `new` and
+    /// `new_with_url` continue to compile unchanged and exhibit identical
+    /// behavior.
+    pub fn new_with_url_and_timeout(
+        base_url: &str,
+        token: &str,
+        timeout: Option<std::time::Duration>,
+    ) -> Result<Self> {
         if token.is_empty() {
             return Err(GitLabError::MissingToken);
         }
+        let client = match timeout {
+            Some(t) => reqwest::Client::builder()
+                .timeout(t)
+                .connect_timeout(crate::http::CONNECT_TIMEOUT)
+                .user_agent("auto-tundra/1.0")
+                .build()?,
+            None => crate::http::client(),
+        };
         Ok(Self {
             base_url: base_url.trim_end_matches('/').to_string(),
             token: token.to_string(),
-            client: crate::http::client(),
+            client,
             stub: false,
         })
     }

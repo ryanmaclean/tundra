@@ -9,7 +9,7 @@ use crate::poker_audio;
 
 #[component]
 pub fn IdeationPage() -> impl IntoView {
-    let app_state = use_app_state();
+    let _app_state = use_app_state();
     let (ideas, set_ideas) = signal(Vec::<api::ApiIdea>::new());
     let (loading, set_loading) = signal(true);
     let (error_msg, set_error_msg) = signal(Option::<String>::None);

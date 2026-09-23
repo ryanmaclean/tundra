@@ -52,7 +52,7 @@ fn flatten_tree(
     let mut result = Vec::new();
 
     // Sort: directories first, then files, alphabetically
-    let mut sorted: Vec<_> = nodes.iter().cloned().collect();
+    let mut sorted: Vec<_> = nodes.to_vec();
     sorted.sort_by(|a, b| b.is_dir.cmp(&a.is_dir).then_with(|| a.name.cmp(&b.name)));
 
     let lower_filter = filter.to_lowercase();
@@ -62,7 +62,7 @@ fn flatten_tree(
             continue;
         }
         result.push((depth, node.clone()));
-        if node.is_dir && (expanded.iter().any(|d| *d == node.path) || !filter.is_empty()) {
+        if node.is_dir && (expanded.contains(&node.path) || !filter.is_empty()) {
             let children = flatten_tree(&node.children, depth + 1, expanded, filter);
             result.extend(children);
         }
@@ -154,7 +154,7 @@ pub fn FileExplorer() -> impl IntoView {
                             let path_toggle = path.clone();
                             let path_check = path.clone();
 
-                            let is_expanded = exp.iter().any(|d| *d == path_check);
+                            let is_expanded = exp.contains(&path_check);
                             let toggle_icon = if is_expanded { "\u{25BC}" } else { "\u{25B6}" };
 
                             let on_click = move |_| {

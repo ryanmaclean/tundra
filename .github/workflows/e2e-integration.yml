@@ -1,3 +1,22 @@
+# Nightly + post-merge E2E gate.
+#
+# This workflow is the e2e safety net for `main`. It runs:
+#   - on a nightly schedule (07:00 UTC),
+#   - on every push to `main` (so a freshly-merged regression surfaces in minutes,
+#     not 24 hours later),
+#   - on manual dispatch (with a runner-type choice).
+#
+# It is intentionally NOT wired into PR CI (`.github/workflows/ci.yml`) today
+# because the Ollama install + model pull (`qwen2.5:1.5b`) is slow and would
+# noticeably regress PR turnaround. PR CI excludes these tests via
+# `-E 'not (package(at-tui) and test(/^e2e_/))'` in `ci.yml`'s test job.
+#
+# To promote this to a PR gate later:
+#   1. Move the `cargo test -p at-tui --test e2e_test` invocation (and its
+#      Ollama / daemon setup) into the test job of `.github/workflows/ci.yml`.
+#   2. Remove the `-E 'not (package(at-tui) and test(/^e2e_/))'` filter in
+#      `ci.yml` so the e2e tests are no longer excluded from the default run.
+#   3. Decide whether to keep this workflow as a redundant nightly or delete it.
 name: E2E Integration
 
 on:
@@ -13,6 +32,8 @@ on:
         default: github-hosted
   schedule:
     - cron: "0 7 * * *"
+  push:
+    branches: [main]
 
 env:
   CARGO_TERM_COLOR: always
@@ -22,7 +43,9 @@ env:
 jobs:
   e2e-github-hosted:
     name: E2E (GitHub-hosted)
-    if: github.event_name == 'schedule' || github.event.inputs.runner == 'github-hosted'
+    # Run on schedule, on push to main, and on manual dispatch when the
+    # github-hosted runner is selected.
+    if: github.event_name == 'schedule' || github.event_name == 'push' || github.event.inputs.runner == 'github-hosted'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -97,6 +120,14 @@ jobs:
       - name: Run at-tui E2E tests
         run: cargo test -p at-tui --test e2e_test -- --nocapture
 
+      - name: Step summary
+        if: always()
+        run: |
+          echo "## E2E run" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Status: ${{ job.status }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Trigger: ${{ github.event_name }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- SHA: ${{ github.sha }}" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Upload E2E logs
         if: always()
         uses: actions/upload-artifact@v4
@@ -157,6 +188,14 @@ jobs:
 
       - name: Run at-tui E2E tests
         run: cargo test -p at-tui --test e2e_test -- --nocapture
+
+      - name: Step summary
+        if: always()
+        run: |
+          echo "## E2E run" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Status: ${{ job.status }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Trigger: ${{ github.event_name }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- SHA: ${{ github.sha }}" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload E2E logs
         if: always()

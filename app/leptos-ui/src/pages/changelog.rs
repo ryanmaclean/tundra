@@ -25,7 +25,7 @@ fn changelog_source_icon_svg(kind: &str) -> &'static str {
 
 #[component]
 pub fn ChangelogPage() -> impl IntoView {
-    let app_state = use_app_state();
+    let _app_state = use_app_state();
     let (entries, set_entries) = signal(Vec::<api::ApiChangelogEntry>::new());
     let (loading, set_loading) = signal(true);
     let (error_msg, set_error_msg) = signal(Option::<String>::None);
