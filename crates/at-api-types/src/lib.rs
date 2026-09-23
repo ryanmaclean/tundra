@@ -6,6 +6,7 @@
 use serde::{Deserialize, Serialize};
 
 pub mod auth;
+pub mod catalog;
 
 // ── Core API response types (matching backend JSON) ──
 

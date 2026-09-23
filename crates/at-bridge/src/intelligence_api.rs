@@ -1,13 +1,14 @@
 //! Intelligence API endpoints.
 //!
 //! Exposes the `at-intelligence` engines (Insights, Ideation, Roadmap,
-//! Changelog, Memory) over HTTP/JSON using Axum.
+//! Changelog, Memory) over HTTP/JSON using Axum. Routes are registered in
+//! `http_api::routes` (insights, ideation, roadmap, memory, changelog and
+//! context domains).
 
 use axum::{
     extract::{Path, Query, State},
     response::IntoResponse,
-    routing::{get, patch, post},
-    Json, Router,
+    Json,
 };
 use chrono::Datelike;
 use serde::Deserialize;
@@ -208,57 +209,6 @@ pub struct GenerateChangelogRequest {
 }
 
 // ---------------------------------------------------------------------------
-// Router
-// ---------------------------------------------------------------------------
-
-/// Build the intelligence sub-router.
-///
-/// All routes are mounted under `/api/` — the caller is responsible for
-/// nesting or merging this into the top-level router.
-pub fn intelligence_router() -> Router<Arc<ApiState>> {
-    Router::new()
-        // Insights
-        .route("/api/insights/sessions", get(list_sessions))
-        .route("/api/insights/sessions", post(create_session))
-        .route(
-            "/api/insights/sessions/{id}",
-            axum::routing::delete(delete_session),
-        )
-        .route(
-            "/api/insights/sessions/{id}/messages",
-            get(get_session_messages).post(add_message),
-        )
-        // Ideation
-        .route("/api/ideation/ideas", get(list_ideas))
-        .route("/api/ideation/generate", post(generate_ideas))
-        .route("/api/ideation/ideas/{id}/convert", post(convert_idea))
-        // Roadmap
-        .route("/api/roadmap", get(list_roadmaps))
-        .route("/api/roadmap", post(create_roadmap))
-        .route("/api/roadmap/generate", post(generate_roadmap))
-        .route("/api/roadmap/features", post(add_feature_to_latest))
-        .route("/api/roadmap/{id}/features", post(add_feature))
-        .route(
-            "/api/roadmap/{id}/features/{fid}",
-            patch(update_feature_status),
-        )
-        .route(
-            "/api/roadmap/features/{fid}/status",
-            axum::routing::put(update_feature_status_by_id),
-        )
-        // Memory
-        .route("/api/memory", get(list_memory))
-        .route("/api/memory", post(add_memory))
-        .route("/api/memory/search", get(search_memory))
-        .route("/api/memory/{id}", axum::routing::delete(delete_memory))
-        // Changelog
-        .route("/api/changelog", get(get_changelog))
-        .route("/api/changelog/generate", post(generate_changelog))
-        // Context
-        .route("/api/context", get(get_context))
-}
-
-// ---------------------------------------------------------------------------
 // Insights handlers
 // ---------------------------------------------------------------------------
 
@@ -281,7 +231,7 @@ pub fn intelligence_router() -> Router<Arc<ApiState>> {
 ///   }
 /// ]
 /// ```
-async fn list_sessions(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
+pub(crate) async fn list_sessions(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     let engine = state.insights_engine.read().await;
     let sessions = engine.list_sessions().to_vec();
     Json(serde_json::json!(sessions))
@@ -314,7 +264,7 @@ async fn list_sessions(State(state): State<Arc<ApiState>>) -> impl IntoResponse 
 ///   "messages": []
 /// }
 /// ```
-async fn create_session(
+pub(crate) async fn create_session(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<CreateSessionRequest>,
 ) -> impl IntoResponse {
@@ -345,7 +295,7 @@ async fn create_session(
 ///   "error": "session not found"
 /// }
 /// ```
-async fn delete_session(
+pub(crate) async fn delete_session(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
 ) -> impl IntoResponse {
@@ -391,7 +341,7 @@ async fn delete_session(
 ///   "error": "session not found"
 /// }
 /// ```
-async fn get_session_messages(
+pub(crate) async fn get_session_messages(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
 ) -> impl IntoResponse {
@@ -437,7 +387,7 @@ async fn get_session_messages(
 ///   "error": "session not found"
 /// }
 /// ```
-async fn add_message(
+pub(crate) async fn add_message(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
     Json(req): Json<AddMessageRequest>,
@@ -480,7 +430,7 @@ async fn add_message(
 ///   }
 /// ]
 /// ```
-async fn list_ideas(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
+pub(crate) async fn list_ideas(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     let engine = state.ideation_engine.read().await;
     let ideas = engine.list_ideas().to_vec();
     Json(serde_json::json!(ideas))
@@ -521,7 +471,7 @@ async fn list_ideas(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
 ///   ]
 /// }
 /// ```
-async fn generate_ideas(
+pub(crate) async fn generate_ideas(
     State(state): State<Arc<ApiState>>,
     body: Option<Json<GenerateIdeasRequest>>,
 ) -> impl IntoResponse {
@@ -575,7 +525,7 @@ async fn generate_ideas(
 ///   "error": "idea not found"
 /// }
 /// ```
-async fn convert_idea(
+pub(crate) async fn convert_idea(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
 ) -> impl IntoResponse {
@@ -682,7 +632,7 @@ fn effort_to_focus_card(effort: &EffortLevel) -> &'static str {
 ///   }
 /// ]
 /// ```
-async fn list_roadmaps(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
+pub(crate) async fn list_roadmaps(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     let engine = state.roadmap_engine.read().await;
     let roadmaps = engine.list_roadmaps().to_vec();
     Json(serde_json::json!(roadmaps))
@@ -713,7 +663,7 @@ async fn list_roadmaps(State(state): State<Arc<ApiState>>) -> impl IntoResponse 
 ///   "features": []
 /// }
 /// ```
-async fn create_roadmap(
+pub(crate) async fn create_roadmap(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<CreateRoadmapRequest>,
 ) -> impl IntoResponse {
@@ -761,7 +711,7 @@ async fn create_roadmap(
 ///   ]
 /// }
 /// ```
-async fn generate_roadmap(
+pub(crate) async fn generate_roadmap(
     State(state): State<Arc<ApiState>>,
     body: Option<Json<GenerateRoadmapRequest>>,
 ) -> impl IntoResponse {
@@ -806,7 +756,7 @@ async fn generate_roadmap(
 ///   "created_at": "2026-02-27T10:00:00Z"
 /// }
 /// ```
-async fn add_feature(
+pub(crate) async fn add_feature(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
     Json(req): Json<AddFeatureRequest>,
@@ -854,7 +804,7 @@ async fn add_feature(
 ///   "created_at": "2026-02-27T10:00:00Z"
 /// }
 /// ```
-async fn add_feature_to_latest(
+pub(crate) async fn add_feature_to_latest(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<AddFeatureToLatestRequest>,
 ) -> impl IntoResponse {
@@ -912,7 +862,7 @@ async fn add_feature_to_latest(
 ///   "updated": true
 /// }
 /// ```
-async fn update_feature_status(
+pub(crate) async fn update_feature_status(
     State(state): State<Arc<ApiState>>,
     Path((id, fid)): Path<(Uuid, Uuid)>,
     Json(req): Json<UpdateFeatureStatusRequest>,
@@ -959,7 +909,7 @@ async fn update_feature_status(
 ///   "error": "feature not found in any roadmap"
 /// }
 /// ```
-async fn update_feature_status_by_id(
+pub(crate) async fn update_feature_status_by_id(
     State(state): State<Arc<ApiState>>,
     Path(fid): Path<Uuid>,
     Json(req): Json<UpdateFeatureStatusRequest>,
@@ -1017,7 +967,7 @@ async fn update_feature_status_by_id(
 ///   }
 /// ]
 /// ```
-async fn list_memory(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
+pub(crate) async fn list_memory(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     let store = state.memory_store.read().await;
     // search("") matches every entry because every string contains "".
     let entries: Vec<_> = store.search("").into_iter().cloned().collect();
@@ -1050,7 +1000,7 @@ async fn list_memory(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
 ///   "id": "550e8400-e29b-41d4-a716-446655440000"
 /// }
 /// ```
-async fn add_memory(
+pub(crate) async fn add_memory(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<AddMemoryRequest>,
 ) -> impl IntoResponse {
@@ -1093,7 +1043,7 @@ async fn add_memory(
 ///   }
 /// ]
 /// ```
-async fn search_memory(
+pub(crate) async fn search_memory(
     State(state): State<Arc<ApiState>>,
     Query(q): Query<MemorySearchQuery>,
 ) -> impl IntoResponse {
@@ -1121,7 +1071,7 @@ async fn search_memory(
 ///   "error": "memory entry not found"
 /// }
 /// ```
-async fn delete_memory(
+pub(crate) async fn delete_memory(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
 ) -> impl IntoResponse {
@@ -1199,7 +1149,7 @@ pub struct ChangelogQuery {
 ///   "entries": [...]
 /// }
 /// ```
-async fn get_changelog(
+pub(crate) async fn get_changelog(
     State(state): State<Arc<ApiState>>,
     Query(query): Query<ChangelogQuery>,
 ) -> impl IntoResponse {
@@ -1301,7 +1251,7 @@ async fn get_changelog(
 ///   ]
 /// }
 /// ```
-async fn generate_changelog(
+pub(crate) async fn generate_changelog(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<GenerateChangelogRequest>,
 ) -> impl IntoResponse {
@@ -1366,7 +1316,7 @@ fn default_budget() -> usize {
 ///   "skill_definitions": ["git", "npm", "cargo"]
 /// }
 /// ```
-async fn get_context(Query(query): Query<ContextQuery>) -> impl IntoResponse {
+pub(crate) async fn get_context(Query(query): Query<ContextQuery>) -> impl IntoResponse {
     let project_root = query
         .path
         .map(std::path::PathBuf::from)
