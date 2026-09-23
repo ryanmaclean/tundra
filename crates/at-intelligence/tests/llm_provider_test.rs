@@ -203,6 +203,8 @@ fn test_llm_response_fields() {
         model: "claude-sonnet-4-20250514".to_string(),
         input_tokens: 150,
         output_tokens: 42,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
         finish_reason: "end_turn".to_string(),
     };
     assert_eq!(resp.content, "Hello, world!");
@@ -219,6 +221,8 @@ fn test_llm_response_serialization() {
         model: "gpt-4".to_string(),
         input_tokens: 100,
         output_tokens: 50,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
         finish_reason: "stop".to_string(),
     };
     let json = serde_json::to_string(&resp).unwrap();
@@ -237,6 +241,8 @@ fn test_llm_response_with_zero_tokens() {
         model: "test".to_string(),
         input_tokens: 0,
         output_tokens: 0,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
         finish_reason: "length".to_string(),
     };
     assert_eq!(resp.input_tokens, 0);
@@ -367,6 +373,8 @@ async fn test_mock_provider_returns_queued_response() {
         model: "custom-model".to_string(),
         input_tokens: 42,
         output_tokens: 99,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
         finish_reason: "stop".to_string(),
     };
     let provider = MockProvider::new().with_response(custom_response);
@@ -425,6 +433,8 @@ async fn test_mock_provider_multiple_calls() {
         model: "model-1".to_string(),
         input_tokens: 10,
         output_tokens: 5,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
         finish_reason: "end_turn".to_string(),
     };
     let resp2 = LlmResponse {
@@ -432,6 +442,8 @@ async fn test_mock_provider_multiple_calls() {
         model: "model-2".to_string(),
         input_tokens: 20,
         output_tokens: 15,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
         finish_reason: "stop".to_string(),
     };
     let provider = MockProvider::new()
@@ -518,6 +530,8 @@ async fn test_mock_provider_mixed_responses_and_errors() {
         model: "m".to_string(),
         input_tokens: 1,
         output_tokens: 1,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
         finish_reason: "stop".to_string(),
     };
     let provider = MockProvider::new()
@@ -878,6 +892,8 @@ fn test_usage_tracker_record() {
         model: "test".to_string(),
         input_tokens: 100,
         output_tokens: 50,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
         finish_reason: "end_turn".to_string(),
     };
 
@@ -898,6 +914,8 @@ fn test_usage_tracker_multiple_records() {
             model: "m".to_string(),
             input_tokens: i * 10,
             output_tokens: i * 5,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
             finish_reason: "stop".to_string(),
         };
         tracker.record(&resp);

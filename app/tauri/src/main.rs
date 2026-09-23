@@ -147,10 +147,14 @@ fn env_flag(name: &str) -> bool {
 
 fn load_config() -> Config {
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-    let data_dir = std::path::Path::new(&home).join(".auto-tundra");
-    std::fs::create_dir_all(&data_dir).ok();
-
-    let config_path = data_dir.join("config.toml");
+    // Same canonical file the daemon and the settings API use; going through
+    // SettingsManager also migrates a legacy ~/.config/auto-tundra/settings.toml.
+    let config_path = at_core::settings::SettingsManager::default_path()
+        .path()
+        .clone();
+    if let Some(dir) = config_path.parent() {
+        std::fs::create_dir_all(dir).ok();
+    }
     let mut config = if config_path.exists() {
         match std::fs::read_to_string(&config_path) {
             Ok(content) => toml::from_str(&content).unwrap_or_else(|e| {

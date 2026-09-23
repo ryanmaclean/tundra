@@ -172,3 +172,34 @@ Six port branches merged with `--no-ff`: housekeeping (37843d1), scheduler (217b
 ## Thanks to all contributors
 
 @ryanlmacLean
+## Unverified-findings sweep (2026-09-23)
+
+Merged reviewed branches from the 2026-09-22 unverified-findings list (see `docs/reviews/2026-09-22-unverified-findings.md`) after per-branch approval. Fixed:
+
+- #3 — WebSocket reconnect backoff never grows: every close retries after 1s, forever
+- #4 — Timer closures outlive their pages: beads auto-refresh keeps polling and writing global state after navigating away
+- #9 — New public rig-core `shell_exec` tool runs arbitrary `sh -c` with no gate, is unused, and pulls rig-core into daemon/tauri
+- #10 — at-api-types defines ApiStack but the bridge has no /api/stacks route; UI silently shows demo stacks
+- #12 — MCP SSE sessions are force-closed after exactly 1 hour, and abandoned sessions stay in memory for that hour
+- #13 — MCP transport: tools run before the session is checked, and the shipped Claude Code config cannot authenticate
+- #14 — MCP SSE tools/call skips bead lifecycle checks, input sanitization and event publishing that the REST API enforces
+- #15 — Projects changed from Vec to HashMap, so list order and pagination are no longer stable and deleting the active project activates an arbitrary one
+- #16 — Vec to HashMap conversion makes project and attachment listing and pagination order random
+- #17 — Worktree merge and resolve endpoints ignore git exit codes and report success; delete matches by substring and runs `git worktree remove --force`
+- #18 — POST /api/ideation/generate holds the ideation_engine write lock across the LLM network call
+- #19 — GET /api/changelog?source=tasks mutates state: every call appends a duplicate entry and returns ever-growing markdown
+- #20 — Blocking flume::Sender::send on the bounded (256) PTY stdin channel inside an async task can wedge a tokio worker and the terminal
+- #30 — Orchestrator slices agent output at byte 1000 and panics on multi-byte UTF-8
+- #31 — Circuit breaker HalfOpen state admits unlimited concurrent calls
+- #32 — RateLimitConfig with a zero rate panics on the first rejected check (Duration::from_secs_f64(inf))
+- #33 — No HTTP timeouts on any GitHub, GitLab or Linear client, so a stalled upstream hangs request handlers indefinitely
+- #35 — Linear list_issues is hard-capped at 50 with no pagination, so bridge offset/limit can't reach past item 50
+- #36 — Linear sync push overwrites remote issue titles with their own IDs and descriptions with a fixed string
+- #37 — Cost lookup needs an exact model-name match and silently returns $0; the renamed pricing rows also keep the old, wrong prices
+- #38 — Ideation's text fallback turns truncated or non-JSON LLM output into junk ideas like "{" and "\"ideas\": ["
+- #39 — The cloud provider HTTP clients have no timeout, so a stalled Anthropic or OpenAI connection hangs the caller forever
+- #48 — Uncommitted bootstrap change runs fetches one after another instead of in parallel
+
+Skipped (blocked, worktrees left in place for inspection — see report): findings surfaced on `unv/at-bridge` (worktree delete `force=false` default not wired to the only caller; `terminal_conns` leak on direct terminal delete) and `unv/at-tui` (bootstrap-success path still fires the 3 fallback fetches unconditionally, defeating the fast path).
+
+Verification after merge: `cargo check --workspace --exclude at-tauri --exclude at-leptos-ui` clean; `cargo clippy --workspace --exclude at-tauri --exclude at-leptos-ui -- -D warnings` clean; `cargo nextest run --workspace --exclude at-tauri --exclude at-leptos-ui` — 3096 passed, 0 failed, 0 skipped; `cargo deny check` — advisories ok, bans ok, licenses ok, sources ok; `cargo check -p at-leptos-ui --target wasm32-unknown-unknown` clean.

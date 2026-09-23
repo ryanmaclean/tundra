@@ -1,7 +1,16 @@
+use std::time::Duration;
+
 use octocrab::Octocrab;
 use thiserror::Error;
 
 use crate::types::GitHubConfig;
+
+/// Read timeout applied to every GitHub API request. Without this, `octocrab`
+/// 0.54 (and reqwest generally) has no default timeout at all, so a stalled
+/// GitHub API can hang a request handler indefinitely.
+const READ_TIMEOUT: Duration = Duration::from_secs(30);
+/// Connect timeout applied to every GitHub API request.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Errors that can occur when interacting with the GitHub API.
 ///
@@ -64,7 +73,11 @@ impl GitHubClient {
     pub fn new(config: GitHubConfig) -> Result<Self> {
         let token = config.token.ok_or(GitHubError::MissingToken)?;
 
-        let octocrab = Octocrab::builder().personal_token(token).build()?;
+        let octocrab = Octocrab::builder()
+            .personal_token(token)
+            .set_connect_timeout(Some(CONNECT_TIMEOUT))
+            .set_read_timeout(Some(READ_TIMEOUT))
+            .build()?;
 
         Ok(Self {
             octocrab,
@@ -80,6 +93,8 @@ impl GitHubClient {
 
         let octocrab = Octocrab::builder()
             .personal_token(token)
+            .set_connect_timeout(Some(CONNECT_TIMEOUT))
+            .set_read_timeout(Some(READ_TIMEOUT))
             .base_uri(base_uri)?
             .build()?;
 

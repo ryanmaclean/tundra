@@ -80,6 +80,19 @@ pub type Result<T> = std::result::Result<T, TaskRunnerError>;
 // TaskRunner
 // ---------------------------------------------------------------------------
 
+/// Line an agent prints on its own to mark the end of a phase. Every phase
+/// prompt asks for it.
+pub const PHASE_COMPLETE_SENTINEL: &str = "[PHASE COMPLETE]";
+
+/// Default quiet interval after which a phase's output counts as finished.
+pub const DEFAULT_PHASE_IDLE: Duration = Duration::from_secs(15);
+
+/// Whether `output` contains [`PHASE_COMPLETE_SENTINEL`] on a line by itself
+/// (so the echoed prompt, which mentions it mid-sentence, does not count).
+fn has_phase_sentinel(output: &str) -> bool {
+    output.lines().any(|l| l.trim() == PHASE_COMPLETE_SENTINEL)
+}
+
 /// Orchestrates a full task pipeline through the defined phases.
 ///
 /// The runner drives a `Task` through Discovery -> ContextGathering ->
@@ -91,8 +104,13 @@ pub type Result<T> = std::result::Result<T, TaskRunnerError>;
 /// progressive context assembly and `PromptRegistry` for role-specific
 /// templates, replacing hardcoded prompts with steered context.
 pub struct TaskRunner {
-    /// Timeout for reading agent output at each phase.
+    /// Upper bound on how long each phase may take. A phase that produces no
+    /// output at all within it fails with [`TaskRunnerError::PhaseError`].
     pub phase_timeout: Duration,
+    /// Once output has started, a phase ends after this long without new
+    /// output (unless the sentinel, a status line or process exit ends it
+    /// first).
+    pub phase_idle: Duration,
     /// Optional context steerer for progressive context assembly.
     context_steerer: Option<ContextSteerer>,
     /// Optional prompt registry for role-specific templates.
@@ -109,6 +127,7 @@ impl Default for TaskRunner {
     fn default() -> Self {
         Self {
             phase_timeout: Duration::from_secs(300),
+            phase_idle: DEFAULT_PHASE_IDLE,
             context_steerer: None,
             prompt_registry: None,
             stuck_detector: None,
@@ -136,6 +155,7 @@ impl TaskRunner {
 
         Self {
             phase_timeout: Duration::from_secs(300),
+            phase_idle: DEFAULT_PHASE_IDLE,
             context_steerer: Some(steerer),
             prompt_registry: Some(registry),
             stuck_detector: Some(stuck),
@@ -153,6 +173,12 @@ impl TaskRunner {
     /// Set the per-phase timeout for reading agent output.
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
         self.phase_timeout = timeout;
+        self
+    }
+
+    /// Set the quiet interval that ends a phase once output has started.
+    pub fn with_idle_timeout(mut self, idle: Duration) -> Self {
+        self.phase_idle = idle;
         self
     }
 
@@ -252,8 +278,8 @@ impl TaskRunner {
             .send_command(&prompt)
             .map_err(|e| TaskRunnerError::SessionError(e.to_string()))?;
 
-        // Read agent output with timeout
-        let output = session.read_output_timeout(self.phase_timeout).await;
+        // Collect the agent's output for this phase.
+        let output = self.collect_phase_output(session).await;
 
         let output_text = match output {
             Some(bytes) => {
@@ -277,9 +303,12 @@ impl TaskRunner {
                 text
             }
             None => {
-                warn!(task_id = %task.id, phase = ?phase, "phase timed out waiting for agent output");
-                task.log(TaskLogType::Info, "Phase timed out, continuing");
-                String::new()
+                let msg = format!(
+                    "phase {phase:?} produced no agent output within {:?}",
+                    self.phase_timeout
+                );
+                warn!(task_id = %task.id, phase = ?phase, "{msg}");
+                return Err(TaskRunnerError::PhaseError(msg));
             }
         };
 
@@ -307,8 +336,44 @@ impl TaskRunner {
         Ok(())
     }
 
+    /// Collect a phase's output: accumulate chunks until the agent prints
+    /// [`PHASE_COMPLETE_SENTINEL`] or a status line the session's adapter
+    /// recognises, goes quiet for [`Self::phase_idle`], or exits, all capped
+    /// at [`Self::phase_timeout`].
+    ///
+    /// Returns `None` if nothing arrived at all.
+    async fn collect_phase_output(&self, session: &AgentSession) -> Option<Vec<u8>> {
+        let deadline = Instant::now() + self.phase_timeout;
+        let mut buf: Vec<u8> = Vec::new();
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                break;
+            }
+            let wait = if buf.is_empty() {
+                remaining
+            } else {
+                remaining.min(self.phase_idle)
+            };
+            // None: quiet for `wait`, or the process's output closed.
+            let Some(chunk) = session.read_output_timeout(wait).await else {
+                break;
+            };
+            buf.extend_from_slice(&chunk);
+            let text = String::from_utf8_lossy(&buf);
+            if has_phase_sentinel(&text) || session.parse_status(&text).is_some() {
+                break;
+            }
+        }
+        (!buf.is_empty()).then_some(buf)
+    }
+
     /// Build a prompt using context steering and prompt templates when available,
     /// falling back to hardcoded prompts otherwise.
+    ///
+    /// The phase's own instruction is always included, so each phase gets a
+    /// different prompt even when the role template is the same, and the
+    /// prompt ends by asking for [`PHASE_COMPLETE_SENTINEL`].
     fn build_steered_prompt(&self, task: &Task, phase: &TaskPhase) -> String {
         let phase_name = phase_to_steering_name(phase);
         let title = &task.title;
@@ -324,14 +389,21 @@ impl TaskRunner {
             );
             let context_xml = context.render_xml();
 
-            let role_prompt = registry
-                .get(&self.agent_role)
-                .map(|tpl| tpl.render_task(title, desc, ""))
-                .unwrap_or_else(|| self.fallback_prompt(task, phase));
-
-            format!("{}\n\n{}", context_xml, role_prompt)
+            let phase_prompt = self.fallback_prompt(task, phase);
+            let body = match registry.get(&self.agent_role) {
+                Some(tpl) => format!(
+                    "{}\n\n## Current phase: {phase:?}\n{phase_prompt}",
+                    tpl.render_task(title, desc, "")
+                ),
+                None => phase_prompt,
+            };
+            format!("{context_xml}\n\n{body}\n\n{}", sentinel_instruction())
         } else {
-            self.fallback_prompt(task, phase)
+            format!(
+                "{}\n\n{}",
+                self.fallback_prompt(task, phase),
+                sentinel_instruction()
+            )
         }
     }
 
@@ -412,6 +484,11 @@ impl TaskRunner {
         task.log(TaskLogType::Error, message.to_string());
         self.publish_event(bus, task, "task_error");
     }
+}
+
+/// The instruction appended to every phase prompt.
+fn sentinel_instruction() -> String {
+    format!("When this phase is finished, print {PHASE_COMPLETE_SENTINEL} on a line by itself.")
 }
 
 /// Map TaskPhase to context steering phase names.
@@ -591,6 +668,93 @@ mod tests {
         assert_eq!(
             phase_to_steering_name(&TaskPhase::SpecCreation),
             "spec_creation"
+        );
+    }
+
+    /// A session over a real PTY running `sh -c script` with echo off, so
+    /// only what the script prints counts as agent output.
+    async fn sh_session(pool: &at_session::pty_pool::PtyPool, script: &str) -> AgentSession {
+        let script = format!("stty -echo; {script}");
+        let handle = pool.spawn("sh", &["-c", &script], &[]).unwrap();
+        // Let `stty -echo` take effect before the runner writes a prompt.
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        AgentSession::from_handle(Uuid::new_v4(), handle, &CliType::Claude)
+    }
+
+    #[tokio::test]
+    async fn silent_agent_fails_the_phase_instead_of_completing() {
+        let pool = at_session::pty_pool::PtyPool::new(2);
+        let session = sh_session(&pool, "sleep 30").await;
+        let bus = EventBus::new();
+        let mut task = make_test_task();
+        let mut runner = TaskRunner::new().with_timeout(Duration::from_millis(300));
+
+        let err = runner.run(&mut task, &session, &bus).await.unwrap_err();
+        assert!(
+            matches!(err, TaskRunnerError::PhaseError(ref m) if m.contains("Discovery")),
+            "{err}"
+        );
+        assert_eq!(task.phase, TaskPhase::Error);
+        assert!(task.completed_at.is_none());
+        let _ = session.kill();
+    }
+
+    #[tokio::test]
+    async fn phase_output_accumulates_until_sentinel() {
+        let pool = at_session::pty_pool::PtyPool::new(2);
+        let session = sh_session(
+            &pool,
+            "printf 'part one\\n'; sleep 0.4; printf 'part two\\n[PHASE COMPLETE]\\n'; sleep 30",
+        )
+        .await;
+        let runner = TaskRunner::new()
+            .with_timeout(Duration::from_secs(10))
+            .with_idle_timeout(Duration::from_secs(5));
+
+        let start = Instant::now();
+        let out = runner.collect_phase_output(&session).await.unwrap();
+        let text = String::from_utf8_lossy(&out);
+        assert!(
+            text.contains("part one") && text.contains("part two"),
+            "{text}"
+        );
+        assert!(
+            start.elapsed() < Duration::from_secs(4),
+            "sentinel should end the phase"
+        );
+        let _ = session.kill();
+    }
+
+    #[tokio::test]
+    async fn phase_output_ends_after_idle_interval() {
+        let pool = at_session::pty_pool::PtyPool::new(2);
+        let session = sh_session(&pool, "printf 'working\\n'; sleep 30").await;
+        let runner = TaskRunner::new()
+            .with_timeout(Duration::from_secs(10))
+            .with_idle_timeout(Duration::from_millis(300));
+
+        let start = Instant::now();
+        let out = runner.collect_phase_output(&session).await.unwrap();
+        assert!(String::from_utf8_lossy(&out).contains("working"));
+        assert!(start.elapsed() < Duration::from_secs(4));
+        let _ = session.kill();
+    }
+
+    #[test]
+    fn steered_prompts_differ_per_phase() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("CLAUDE.md"), "# Rules\n").unwrap();
+        let runner = TaskRunner::with_project(dir.path());
+        let task = make_test_task();
+        let discovery = runner.build_steered_prompt(&task, &TaskPhase::Discovery);
+        let qa = runner.build_steered_prompt(&task, &TaskPhase::Qa);
+        assert_ne!(discovery, qa);
+        assert!(discovery.contains("Analyze this task"), "{discovery}");
+        assert!(qa.contains("Review the implementation"), "{qa}");
+        assert!(qa.contains(PHASE_COMPLETE_SENTINEL));
+        assert!(
+            !has_phase_sentinel(&qa),
+            "the prompt itself must not look finished"
         );
     }
 

@@ -56,7 +56,7 @@ async fn main() -> Result<()> {
     std::fs::create_dir_all(&data_dir).ok();
 
     // Load config (or use defaults), expanding ~ in cache path
-    let mut config = load_config(&home).unwrap_or_else(|e| {
+    let mut config = load_config().unwrap_or_else(|e| {
         tracing::warn!(error = %e, "failed to load config, using defaults");
         Config::default()
     });
@@ -214,10 +214,13 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-fn load_config(home: &str) -> Result<Config> {
-    let path = std::path::Path::new(home)
-        .join(".auto-tundra")
-        .join("config.toml");
+/// Load the canonical config file shared with the settings API
+/// (`~/.auto-tundra/config.toml`). Going through `SettingsManager` also
+/// migrates a legacy `~/.config/auto-tundra/settings.toml` before the read.
+fn load_config() -> Result<Config> {
+    let path = at_core::settings::SettingsManager::default_path()
+        .path()
+        .clone();
     if path.exists() {
         let content = std::fs::read_to_string(&path)
             .with_context(|| format!("failed to read {}", path.display()))?;
