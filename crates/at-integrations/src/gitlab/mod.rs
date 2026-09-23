@@ -39,6 +39,11 @@ pub enum GitLabError {
     #[error("serialization error: {0}")]
     Serde(#[from] serde_json::Error),
 
+    /// Outbound content was refused by the output guard (prompt-injection
+    /// payload). The string names the detectors that fired.
+    #[error("outbound content blocked: {0}")]
+    OutputBlocked(String),
+
     /// An HTTP-level error occurred.
     ///
     /// This includes network failures, connection errors, DNS resolution
@@ -159,12 +164,14 @@ impl GitLabClient {
     }
 
     async fn api_post(&self, path: &str, body: &serde_json::Value) -> Result<reqwest::Response> {
+        let mut body = body.clone();
+        crate::outbound::screen_json(&mut body).map_err(GitLabError::OutputBlocked)?;
         let url = format!("{}/api/v4{}", self.base_url, path);
         let resp = self
             .client
             .post(&url)
             .header("PRIVATE-TOKEN", &self.token)
-            .json(body)
+            .json(&body)
             .send()
             .await?;
 

@@ -143,6 +143,10 @@ pub async fn create_issue(
 
     let mut builder = issue_handler.create(title);
 
+    let body = body
+        .map(crate::outbound::screen_text)
+        .transpose()
+        .map_err(super::client::GitHubError::OutputBlocked)?;
     if let Some(b) = body {
         builder = builder.body(b);
     }
@@ -165,6 +169,10 @@ pub async fn update_issue(
     state: Option<IssueState>,
     labels: Option<Vec<String>>,
 ) -> Result<GitHubIssue> {
+    let body = body
+        .map(crate::outbound::screen_text)
+        .transpose()
+        .map_err(super::client::GitHubError::OutputBlocked)?;
     let issue_handler = client.octocrab.issues(&client.owner, &client.repo);
 
     let mut builder = issue_handler.update(number);
@@ -173,7 +181,7 @@ pub async fn update_issue(
         builder = builder.title(t);
     }
 
-    if let Some(b) = body {
+    if let Some(b) = &body {
         builder = builder.body(b);
     }
 

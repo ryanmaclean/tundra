@@ -256,6 +256,7 @@ dependencies = [
  "async-trait",
  "at-bridge",
  "at-core",
+ "at-harness",
  "at-intelligence",
  "at-session",
  "chrono",
@@ -402,8 +403,10 @@ dependencies = [
  "at-core",
  "chrono",
  "dashmap",
+ "regex",
  "serde",
  "serde_json",
+ "sha2",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -415,6 +418,7 @@ name = "at-integrations"
 version = "0.1.0"
 dependencies = [
  "at-core",
+ "at-harness",
  "chrono",
  "octocrab",
  "reqwest 0.12.28",

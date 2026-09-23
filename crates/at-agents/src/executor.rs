@@ -595,7 +595,9 @@ impl AgentExecutor {
             spawner: Arc::new(PtyPoolSpawner::new(pty_pool)),
             event_bus,
             active_tasks: Arc::new(Mutex::new(HashMap::new())),
-            approval_system: Arc::new(Mutex::new(ToolApprovalSystem::new())),
+            approval_system: Arc::new(Mutex::new(
+                ToolApprovalSystem::new().with_default_audit_log(),
+            )),
         }
     }
 
@@ -779,7 +781,7 @@ impl AgentExecutor {
                         // Publish incremental output
                         self.event_bus.publish(BridgeMessage::AgentOutput {
                             agent_id: task.id,
-                            output: text.to_string(),
+                            output: at_harness::output_guard::redact(&text),
                         });
                     }
                     // EOF: the PTY reader thread exits when the child does.
@@ -834,6 +836,7 @@ impl AgentExecutor {
 
         let duration_ms = start.elapsed().as_millis() as u64;
         let output = String::from_utf8_lossy(&output_buf).to_string();
+        let output = crate::output_hook::redact_task_output(&self.event_bus, task, output);
 
         // Parse tool_use_errors from the accumulated output
         let tool_errors = parse_tool_use_errors(&output);

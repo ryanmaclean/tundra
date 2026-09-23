@@ -1,6 +1,9 @@
 use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::Arc;
 
 use at_core::types::AgentRole;
+use at_harness::audit_chain::{AuditChain, AuditError};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -84,6 +87,11 @@ pub enum ApprovalError {
     /// The contained string identifies the denied tool name.
     #[error("tool denied by policy: {0}")]
     Denied(String),
+
+    /// The decision could not be written to the audit chain, so it was not
+    /// applied (approvals fail closed when auditing is enabled).
+    #[error("approval audit log write failed: {0}")]
+    Audit(String),
 }
 
 /// Result type for approval operations.
@@ -102,6 +110,11 @@ pub type Result<T> = std::result::Result<T, ApprovalError>;
 /// The approval system sits between the agent executor and the tools layer.
 /// Before a tool is invoked, the executor calls `check_approval` to determine
 /// whether the tool is auto-approved, requires human approval, or is denied.
+///
+/// When an audit chain is attached ([`Self::with_audit_log`]), every policy
+/// check, request, approval and denial is appended to a hash-chained JSONL
+/// log (see [`at_harness::audit_chain`]). Approve/deny fail closed: if the
+/// entry cannot be written the decision is not applied.
 pub struct ToolApprovalSystem {
     /// Per-tool default policies.
     policies: HashMap<String, ApprovalPolicy>,
@@ -109,6 +122,8 @@ pub struct ToolApprovalSystem {
     role_overrides: Vec<(String, AgentRole, ApprovalPolicy)>,
     /// Outstanding and resolved approval requests.
     approvals: Vec<PendingApproval>,
+    /// Tamper-evident record of every decision, if enabled.
+    audit: Option<Arc<AuditChain>>,
 }
 
 impl ToolApprovalSystem {
@@ -142,6 +157,7 @@ impl ToolApprovalSystem {
             policies,
             role_overrides: Vec::new(),
             approvals: Vec::new(),
+            audit: None,
         }
     }
 
@@ -151,6 +167,56 @@ impl ToolApprovalSystem {
             policies: HashMap::new(),
             role_overrides: Vec::new(),
             approvals: Vec::new(),
+            audit: None,
+        }
+    }
+
+    /// Default audit log location: `~/.auto-tundra/audit/approvals.jsonl`.
+    pub fn default_audit_log_path() -> PathBuf {
+        at_core::lockfile::data_dir()
+            .join("audit")
+            .join("approvals.jsonl")
+    }
+
+    /// Record every decision into `chain`.
+    pub fn with_audit_chain(mut self, chain: Arc<AuditChain>) -> Self {
+        self.audit = Some(chain);
+        self
+    }
+
+    /// Record every decision into the JSONL chain at `path` (created if missing).
+    pub fn with_audit_log(self, path: impl Into<PathBuf>) -> std::result::Result<Self, AuditError> {
+        Ok(self.with_audit_chain(Arc::new(AuditChain::open(path)?)))
+    }
+
+    /// Record into [`Self::default_audit_log_path`]; logs and continues
+    /// without auditing if the file cannot be opened.
+    pub fn with_default_audit_log(self) -> Self {
+        let path = Self::default_audit_log_path();
+        match AuditChain::open(&path) {
+            Ok(chain) => self.with_audit_chain(Arc::new(chain)),
+            Err(e) => {
+                tracing::error!(path = %path.display(), error = %e, "approval audit log disabled");
+                self
+            }
+        }
+    }
+
+    /// The attached audit chain, if any.
+    pub fn audit_chain(&self) -> Option<&Arc<AuditChain>> {
+        self.audit.as_ref()
+    }
+
+    /// Append to the audit chain (no-op when auditing is off).
+    fn audit(
+        &self,
+        kind: &str,
+        actor: Option<String>,
+        payload: serde_json::Value,
+    ) -> std::result::Result<(), AuditError> {
+        match &self.audit {
+            Some(chain) => chain.append(kind, actor.as_deref(), payload).map(|_| ()),
+            None => Ok(()),
         }
     }
 
@@ -180,22 +246,43 @@ impl ToolApprovalSystem {
     /// 2. Default tool policy (if set)
     /// 3. RequireApproval (if unknown tool)
     pub fn check_approval(&self, tool_name: &str, agent_role: &AgentRole) -> ApprovalPolicy {
+        let (policy, source) = self.resolve_policy(tool_name, agent_role);
+        if let Err(e) = self.audit(
+            "approval.policy_checked",
+            None,
+            serde_json::json!({
+                "tool": tool_name,
+                "role": agent_role,
+                "policy": policy,
+                "source": source,
+            }),
+        ) {
+            tracing::error!(tool = %tool_name, error = %e, "failed to audit approval policy check");
+        }
+        policy
+    }
+
+    fn resolve_policy(
+        &self,
+        tool_name: &str,
+        agent_role: &AgentRole,
+    ) -> (ApprovalPolicy, &'static str) {
         // Check role-specific override first
         if let Some((_, _, policy)) = self
             .role_overrides
             .iter()
             .find(|(t, r, _)| t == tool_name && r == agent_role)
         {
-            return *policy;
+            return (*policy, "role_override");
         }
 
         // Fall back to default policy
         if let Some(policy) = self.policies.get(tool_name) {
-            return *policy;
+            return (*policy, "tool_policy");
         }
 
         // Unknown tools require approval by default
-        ApprovalPolicy::RequireApproval
+        (ApprovalPolicy::RequireApproval, "unknown_tool_default")
     }
 
     /// Create a pending approval request for a tool invocation.
@@ -214,41 +301,67 @@ impl ToolApprovalSystem {
             status: ApprovalStatus::Pending,
             resolved_at: None,
         };
+        // Tool arguments can carry secrets; the audit log gets a redacted copy.
+        let mut arguments = approval.arguments.clone();
+        at_harness::output_guard::guard_json(&mut arguments);
+        if let Err(e) = self.audit(
+            "approval.requested",
+            Some(format!("agent:{}", approval.agent_id)),
+            serde_json::json!({
+                "approval_id": approval.id,
+                "tool": approval.tool_name,
+                "arguments": arguments,
+            }),
+        ) {
+            tracing::error!(approval_id = %approval.id, error = %e, "failed to audit approval request");
+        }
         self.approvals.push(approval);
         self.approvals.last().unwrap()
     }
 
     /// Approve a pending request by its ID.
     pub fn approve(&mut self, approval_id: Uuid) -> Result<()> {
-        let approval = self
-            .approvals
-            .iter_mut()
-            .find(|a| a.id == approval_id)
-            .ok_or(ApprovalError::NotFound(approval_id))?;
-
-        if approval.status != ApprovalStatus::Pending {
-            return Err(ApprovalError::AlreadyResolved(approval_id));
-        }
-
-        approval.status = ApprovalStatus::Approved;
-        approval.resolved_at = Some(Utc::now());
-        Ok(())
+        self.resolve(approval_id, ApprovalStatus::Approved)
     }
 
     /// Deny a pending request by its ID.
     pub fn deny(&mut self, approval_id: Uuid) -> Result<()> {
-        let approval = self
-            .approvals
-            .iter_mut()
-            .find(|a| a.id == approval_id)
-            .ok_or(ApprovalError::NotFound(approval_id))?;
+        self.resolve(approval_id, ApprovalStatus::Denied)
+    }
 
-        if approval.status != ApprovalStatus::Pending {
+    /// Resolve a pending request, auditing before the state changes.
+    fn resolve(&mut self, approval_id: Uuid, status: ApprovalStatus) -> Result<()> {
+        let idx = self
+            .approvals
+            .iter()
+            .position(|a| a.id == approval_id)
+            .ok_or(ApprovalError::NotFound(approval_id))?;
+        if self.approvals[idx].status != ApprovalStatus::Pending {
             return Err(ApprovalError::AlreadyResolved(approval_id));
         }
 
-        approval.status = ApprovalStatus::Denied;
-        approval.resolved_at = Some(Utc::now());
+        let resolved_at = Utc::now();
+        let approval = &self.approvals[idx];
+        let kind = match status {
+            ApprovalStatus::Approved => "approval.approved",
+            _ => "approval.denied",
+        };
+        self.audit(
+            kind,
+            None,
+            serde_json::json!({
+                "approval_id": approval.id,
+                "agent_id": approval.agent_id,
+                "tool": approval.tool_name,
+                "requested_at": approval.requested_at,
+                "resolved_at": resolved_at,
+            }),
+        )
+        .map_err(|e| ApprovalError::Audit(e.to_string()))?;
+
+        let approval = &mut self.approvals[idx];
+        approval.status = status;
+        approval.resolved_at = Some(resolved_at);
         Ok(())
     }
 
@@ -465,6 +578,75 @@ mod tests {
         assert_eq!(
             system.check_approval("file_read", &AgentRole::Crew),
             ApprovalPolicy::Deny
+        );
+    }
+
+    #[test]
+    fn decisions_are_recorded_in_a_verifiable_audit_chain() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("audit").join("approvals.jsonl");
+        let mut system = ToolApprovalSystem::new().with_audit_log(&path).unwrap();
+        let agent_id = Uuid::new_v4();
+
+        assert_eq!(
+            system.check_approval("git_push", &AgentRole::Crew),
+            ApprovalPolicy::RequireApproval
+        );
+        let secret = format!("ghp_{}", "Q7vL4nR8sT1yU6hD0jF5cGaB3xK9mW2pZe8Y");
+        let a = system
+            .request_approval(agent_id, "git_push", serde_json::json!({"token": secret}))
+            .id;
+        let b = system
+            .request_approval(agent_id, "shell_execute", serde_json::json!({}))
+            .id;
+        system.approve(a).unwrap();
+        system.deny(b).unwrap();
+        assert!(system.approve(a).is_err()); // not a decision, not recorded
+
+        let report = system.audit_chain().unwrap().verify().unwrap();
+        assert_eq!(report.entries, 5);
+        let log = std::fs::read_to_string(&path).unwrap();
+        let kinds: Vec<String> = log
+            .lines()
+            .map(|l| {
+                serde_json::from_str::<serde_json::Value>(l).unwrap()["kind"]
+                    .as_str()
+                    .unwrap()
+                    .to_string()
+            })
+            .collect();
+        assert_eq!(
+            kinds,
+            [
+                "approval.policy_checked",
+                "approval.requested",
+                "approval.requested",
+                "approval.approved",
+                "approval.denied"
+            ]
+        );
+        assert!(
+            !log.contains(&secret),
+            "arguments must be redacted in the audit log"
+        );
+        assert!(log.contains("\"source\":\"tool_policy\""));
+    }
+
+    #[test]
+    fn approve_fails_closed_when_audit_write_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("approvals.jsonl");
+        let mut system = ToolApprovalSystem::new().with_audit_log(&path).unwrap();
+        let id = system
+            .request_approval(Uuid::new_v4(), "git_push", serde_json::json!({}))
+            .id;
+        // Replace the log file with a directory so the next append fails.
+        std::fs::remove_file(&path).unwrap();
+        std::fs::create_dir(&path).unwrap();
+        assert!(matches!(system.approve(id), Err(ApprovalError::Audit(_))));
+        assert_eq!(
+            system.get_approval(id).unwrap().status,
+            ApprovalStatus::Pending
         );
     }
 

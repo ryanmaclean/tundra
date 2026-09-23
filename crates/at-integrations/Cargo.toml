@@ -6,6 +6,7 @@ publish = false
 
 [dependencies]
 at-core = { path = "../at-core" }
+at-harness = { path = "../at-harness" }
 reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
