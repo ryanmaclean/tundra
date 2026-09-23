@@ -285,6 +285,28 @@ impl ToolApprovalSystem {
         (ApprovalPolicy::RequireApproval, "unknown_tool_default")
     }
 
+    /// Tools whose resolved policy for `agent_role` is [`ApprovalPolicy::Deny`]
+    /// (tool defaults plus that role's overrides), sorted by name.
+    ///
+    /// Used to translate the policy table into CLI deny-lists before an agent
+    /// process is spawned. Does not write to the audit chain.
+    pub fn denied_tools(&self, agent_role: &AgentRole) -> Vec<String> {
+        let mut names: Vec<&str> = self.policies.keys().map(String::as_str).collect();
+        names.extend(
+            self.role_overrides
+                .iter()
+                .filter(|(_, r, _)| r == agent_role)
+                .map(|(t, _, _)| t.as_str()),
+        );
+        names.sort_unstable();
+        names.dedup();
+        names
+            .into_iter()
+            .filter(|t| self.resolve_policy(t, agent_role).0 == ApprovalPolicy::Deny)
+            .map(str::to_string)
+            .collect()
+    }
+
     /// Create a pending approval request for a tool invocation.
     pub fn request_approval(
         &mut self,

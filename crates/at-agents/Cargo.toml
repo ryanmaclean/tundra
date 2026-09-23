@@ -22,7 +22,7 @@ flume = { workspace = true }
 # `rustls` = reqwest/rustls: the same aws-lc-rs + platform-verifier stack as the
 # workspace reqwest (post-quantum kx), no ring. Without it rig's own HTTP client
 # only had TLS by accident of feature unification.
-rig-core = { version = "0.38.1", default-features = false, features = ["derive", "rustls"] }
+rig-core = { version = "0.38.1", default-features = false, features = ["rustls"] }
 
 [dev-dependencies]
 tokio = { workspace = true }
