@@ -7,15 +7,20 @@
 //! method is not rejected with 405) and that every one sits behind the API key
 //! auth layer. It also checks that `GET /api/catalog` lists exactly the routes
 //! the router serves: every catalogued route is served, and on every
-//! catalogued path each uncatalogued method is rejected with 405.
+//! catalogued path each uncatalogued method is rejected with 405. The two
+//! catalog routes are the only unauthenticated ones: they answer without a
+//! key, are rate limited, and report `auth: none`.
 
 use std::collections::BTreeSet;
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 use at_api_types::catalog::{ApiCatalog, RouteAuth, CATALOG_PATH, CATALOG_V1_PATH};
 use at_bridge::event_bus::EventBus;
 use at_bridge::http_api::{api_router_with_auth, ApiState};
+use at_harness::rate_limiter::{MultiKeyRateLimiter, RateLimitConfig};
 use axum::body::Body;
+use axum::extract::ConnectInfo;
 use axum::http::{Method, Request, StatusCode};
 use axum::Router;
 use tower::ServiceExt;
@@ -270,7 +275,12 @@ async fn catalog_matches_bop_catalog_v1_shape() {
             card.title
         );
         assert!(!card.domain.is_empty());
-        assert_eq!(card.auth, RouteAuth::ApiKey);
+        let expected_auth = if card.path == CATALOG_PATH || card.path == CATALOG_V1_PATH {
+            RouteAuth::None
+        } else {
+            RouteAuth::ApiKey
+        };
+        assert_eq!(card.auth, expected_auth, "{}", card.title);
     }
     let sorted = {
         let mut v = catalog.cards.clone();
@@ -306,15 +316,108 @@ async fn catalog_v1_alias_serves_the_same_catalog() {
 }
 
 #[tokio::test]
-async fn catalog_requires_the_api_key_and_reports_dev_mode() {
+async fn catalog_is_served_without_the_api_key_and_reports_dev_mode() {
+    let app = app();
     for path in [CATALOG_PATH, CATALOG_V1_PATH] {
-        let status = app()
-            .oneshot(request("GET", path, None))
-            .await
-            .unwrap()
-            .status();
-        assert_eq!(status, StatusCode::UNAUTHORIZED, "{path}");
+        let catalog = fetch_catalog(&app, path, None).await;
+        // Unauthenticated callers still learn that the rest needs a key.
+        assert!(catalog.auth.enforced, "{path}");
+        let own: Vec<_> = catalog
+            .cards
+            .iter()
+            .filter(|c| c.path == CATALOG_PATH || c.path == CATALOG_V1_PATH)
+            .collect();
+        assert_eq!(own.len(), 2, "{path}");
+        assert!(own.iter().all(|c| c.auth == RouteAuth::None), "{path}");
+        assert!(
+            catalog
+                .cards
+                .iter()
+                .filter(|c| c.path != CATALOG_PATH && c.path != CATALOG_V1_PATH)
+                .all(|c| c.auth == RouteAuth::ApiKey),
+            "{path}"
+        );
     }
+    // Raw JSON spells the unauthenticated value `none`.
+    let raw = app
+        .oneshot(request("GET", CATALOG_PATH, None))
+        .await
+        .unwrap();
+    let body = axum::body::to_bytes(raw.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    for card in json["cards"].as_array().unwrap() {
+        let path = card["path"].as_str().unwrap();
+        let want = if path == CATALOG_PATH || path == CATALOG_V1_PATH {
+            "none"
+        } else {
+            "api_key"
+        };
+        assert_eq!(card["auth"], want, "{path}");
+    }
+
     let dev = fetch_catalog(&app_with_key(None), CATALOG_PATH, None).await;
     assert!(!dev.auth.enforced);
+}
+
+/// App with a per-endpoint limit of 2 requests/minute (global and per-client
+/// tiers left generous) so the third catalog request is throttled.
+fn tightly_limited_app() -> Router {
+    let mut state = ApiState::new(EventBus::new());
+    state.rate_limiter = Arc::new(MultiKeyRateLimiter::new(
+        RateLimitConfig::per_second(10_000),
+        RateLimitConfig::per_second(10_000),
+        RateLimitConfig::per_minute(2),
+    ));
+    api_router_with_auth(Arc::new(state), Some(API_KEY.to_string()), vec![])
+}
+
+fn from_peer(mut req: Request<Body>, peer: &str) -> Request<Body> {
+    let addr: SocketAddr = peer.parse().unwrap();
+    req.extensions_mut().insert(ConnectInfo(addr));
+    req
+}
+
+#[tokio::test]
+async fn unauthenticated_catalog_is_rate_limited() {
+    let app = tightly_limited_app();
+    let mut statuses = Vec::new();
+    for _ in 0..3 {
+        let req = from_peer(request("GET", CATALOG_PATH, None), "203.0.113.7:4000");
+        statuses.push(app.clone().oneshot(req).await.unwrap().status());
+    }
+    assert_eq!(
+        statuses,
+        [
+            StatusCode::OK,
+            StatusCode::OK,
+            StatusCode::TOO_MANY_REQUESTS
+        ]
+    );
+}
+
+#[tokio::test]
+async fn unauthenticated_catalog_exempts_loopback_like_the_rest() {
+    let app = tightly_limited_app();
+    for _ in 0..5 {
+        let req = from_peer(request("GET", CATALOG_PATH, None), "127.0.0.1:4000");
+        assert_eq!(
+            app.clone().oneshot(req).await.unwrap().status(),
+            StatusCode::OK
+        );
+    }
+}
+
+#[tokio::test]
+async fn unmatched_path_still_requires_the_api_key() {
+    // No custom fallback: `merge` must keep the auth-layered default one.
+    let state = Arc::new(ApiState::new(EventBus::new()).with_relaxed_rate_limits());
+    let app = api_router_with_auth(state, Some(API_KEY.to_string()), vec![]);
+    let status = app
+        .oneshot(request("GET", "/api/definitely-not-a-route", None))
+        .await
+        .unwrap()
+        .status();
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
 }

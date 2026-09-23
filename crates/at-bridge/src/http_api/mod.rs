@@ -120,8 +120,9 @@ mod router {
     /// Build the full API router with all REST and WebSocket routes.
     ///
     /// When `api_key` is `Some`, the [`AuthLayer`] middleware will require
-    /// every request to carry a valid key. When `None`, all requests pass
-    /// through (development mode).
+    /// every request to carry a valid key, except the unauthenticated
+    /// (rate-limited) route catalog. When `None`, all requests pass through
+    /// (development mode).
     pub fn api_router(state: Arc<ApiState>) -> Router {
         api_router_with_auth(state, None, vec![])
     }
@@ -185,7 +186,26 @@ mod router {
 
         // Every route lives in a per-domain sub-router (see `routes.rs`);
         // mounting them also yields the catalog served at /api/catalog.
-        let (app, catalog) = catalog::mount_all(routes::all(), api_key.is_some());
+        let catalog::Mounted {
+            public,
+            protected,
+            catalog,
+        } = catalog::mount_all(routes::all(), api_key.is_some());
+
+        // Three-tier rate limiting (global, per-client, per-endpoint; loopback
+        // peers skip the per-client tiers). Returns HTTP 429 when exceeded.
+        // Both halves share one limiter, so the global tier covers them all.
+        // See ApiState::new() for config.
+        let rate_limit = RateLimitLayer::new(rate_limiter).with_policy(rate_limit_policy);
+        // Authenticated routes: auth runs first, then the rate limiter.
+        let protected = protected
+            .layer(rate_limit.clone())
+            .layer(AuthLayer::new(api_key));
+        // Unauthenticated routes (the catalog): rate limited only.
+        let public = public.layer(rate_limit);
+        // `merge` keeps `protected`'s (auth-layered) fallback, so unmatched
+        // paths still require the key.
+        let app = public.merge(protected);
 
         app.layer(Extension(Arc::new(catalog)))
             .layer(Extension(origins))
@@ -194,10 +214,6 @@ mod router {
             .layer(axum_middleware::from_fn(request_id_middleware))
             .layer(axum_middleware::from_fn(isolation_headers_middleware))
             .layer(DefaultBodyLimit::max(2 * 1024 * 1024))
-            // Apply three-tier rate limiting (global, per-user, per-endpoint).
-            // Returns HTTP 429 when limits exceeded. See ApiState::new() for config.
-            .layer(RateLimitLayer::new(rate_limiter).with_policy(rate_limit_policy))
-            .layer(AuthLayer::new(api_key))
             .layer(
                 CorsLayer::new()
                     .allow_origin(tower_http::cors::AllowOrigin::predicate(

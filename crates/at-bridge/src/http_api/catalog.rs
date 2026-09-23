@@ -117,6 +117,9 @@ impl RouteSpec {
 pub(crate) struct Domain {
     name: &'static str,
     prefix: &'static str,
+    /// Auth every route in this domain requires. [`RouteAuth::None`] domains
+    /// are mounted outside the auth layer (see [`mount_all`]).
+    auth: RouteAuth,
     router: ApiRouter,
     specs: Vec<RouteSpec>,
 }
@@ -128,9 +131,17 @@ impl Domain {
         Self {
             name,
             prefix,
+            auth: RouteAuth::ApiKey,
             router: Router::new(),
             specs: Vec::new(),
         }
+    }
+
+    /// Serve this domain without the API key. Its routes are still rate
+    /// limited; reserve this for cold-discovery endpoints (the catalog).
+    pub(crate) fn unauthenticated(mut self) -> Self {
+        self.auth = RouteAuth::None;
+        self
     }
 
     /// Register `handler` for `spec` and record the spec for the catalog.
@@ -164,7 +175,7 @@ impl Domain {
                     description: spec.description.to_string(),
                     domain: self.name.to_string(),
                     method: method.to_string(),
-                    auth: RouteAuth::ApiKey,
+                    auth: self.auth,
                     request: spec.request.map(str::to_string),
                     response: spec.response.map(str::to_string),
                     body_limit: spec.body_limit,
@@ -185,17 +196,35 @@ impl Domain {
     }
 }
 
-/// Mount every domain onto a fresh router and build the matching catalog.
-///
-/// Every route passes the same top-level middleware stack (auth, rate limit,
-/// CORS), so every card is [`RouteAuth::ApiKey`]; `auth_enforced` records
-/// whether a key is actually configured.
-pub(crate) fn mount_all(domains: Vec<Domain>, auth_enforced: bool) -> (ApiRouter, ApiCatalog) {
-    let mut app = Router::new();
+/// Routers returned by [`mount_all`], split by the auth their routes need.
+pub(crate) struct Mounted {
+    /// [`RouteAuth::None`] domains: the caller adds rate limiting only.
+    pub(crate) public: ApiRouter,
+    /// [`RouteAuth::ApiKey`] domains: the caller adds rate limiting and auth.
+    pub(crate) protected: ApiRouter,
+    pub(crate) catalog: ApiCatalog,
+}
+
+/// Mount every domain onto one of two fresh routers, by the domain's auth,
+/// and build the matching catalog. Each card's `auth` is its domain's auth;
+/// `auth_enforced` records whether a key is actually configured.
+pub(crate) fn mount_all(domains: Vec<Domain>, auth_enforced: bool) -> Mounted {
+    let mut public = Router::new();
+    let mut protected = Router::new();
     let mut cards = Vec::new();
     for domain in domains {
-        let (next, domain_cards) = domain.mount(app);
-        app = next;
+        let domain_cards = match domain.auth {
+            RouteAuth::None => {
+                let (next, c) = domain.mount(public);
+                public = next;
+                c
+            }
+            RouteAuth::ApiKey => {
+                let (next, c) = domain.mount(protected);
+                protected = next;
+                c
+            }
+        };
         cards.extend(domain_cards);
     }
     cards.sort_by(|a, b| (&a.path, &a.method).cmp(&(&b.path, &b.method)));
@@ -218,7 +247,11 @@ pub(crate) fn mount_all(domains: Vec<Domain>, auth_enforced: bool) -> (ApiRouter
         },
         cards,
     };
-    (app, catalog)
+    Mounted {
+        public,
+        protected,
+        catalog,
+    }
 }
 
 /// GET /api/catalog, GET /api/v1/catalog -- the route catalog.

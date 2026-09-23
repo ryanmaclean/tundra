@@ -16,10 +16,10 @@ The crate is built around five core components:
 
 ## Route Discovery: `GET /api/catalog`
 
-An agent can discover the whole HTTP API in one call:
+An agent can discover the whole HTTP API in one call, without a key:
 
 ```sh
-curl -s -H "X-API-Key: $AUTO_TUNDRA_API_KEY" http://localhost:$PORT/api/catalog \
+curl -s http://localhost:$PORT/api/catalog \
   | jq '.cards[] | {method, path, description, request, response}'
 ```
 
@@ -52,8 +52,11 @@ card adds the HTTP fields:
 
 - `cards` is sorted by `path`, then `method`; one card per `(method, path)`.
 - `id` is derived from method + path (kebab-case) and is stable.
-- `auth` is `api_key` for every route today (the auth layer wraps the whole
-  router); `auth.enforced` is `false` only in development mode (no key).
+- `auth` is `none` for `GET /api/catalog` and `GET /api/v1/catalog`, which are
+  mounted outside the auth layer so a cold agent can discover the API before
+  it has a key; they still pass the shared rate limiter (loopback peers skip
+  the per-client tiers, as everywhere). Every other route is `api_key`.
+  `auth.enforced` is `false` only in development mode (no key).
 - `request` / `response` / `body_limit` are omitted when unknown / default.
 - Breaking shape changes bump `schema_version` and add `/api/v2/catalog`.
 
@@ -71,18 +74,21 @@ card adds the HTTP fields:
 
 Routes are added only through `Domain::route(RouteSpec, handler)`, which
 registers the handler and records its catalog entry in the same call, so the
-router and the catalog cannot drift. The shared middleware stack (CORS/origin
-allowlist -> auth -> rate limit -> body limit -> security headers -> request id
--> metrics -> compression, outermost first) is applied once in
-`api_router_with_auth`. axum 0.8 flattens nested routes, so `MatchedPath`
+router and the catalog cannot drift. `api_router_with_auth` mounts
+authenticated domains on one router (auth -> rate limit) and
+`Domain::unauthenticated()` domains (only `catalog`) on another (rate limit
+only), merges them, then applies the shared stack once (CORS/origin allowlist
+-> body limit -> security headers -> request id -> metrics -> compression,
+outermost first). axum 0.8 flattens nested routes, so `MatchedPath`
 (used for per-endpoint rate-limit buckets) is still the full template, e.g.
 `/api/beads/{id}/status`.
 
 `tests/route_surface_test.rs` pins the surface: `tests/fixtures/routes.txt` is
 the 134 `(method, path)` pairs of the pre-nesting router; the test asserts each
 is still served and requires the key, that the catalog lists exactly those
-plus the two catalog routes, and that no uncatalogued method is served on a
-catalogued path.
+plus the two catalog routes, that no uncatalogued method is served on a
+catalogued path, and that the catalog answers without a key (`auth: none`)
+but is rate limited.
 
 ## Security
 

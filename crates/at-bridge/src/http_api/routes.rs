@@ -52,9 +52,11 @@ pub(crate) fn all() -> Vec<Domain> {
     ]
 }
 
-/// `/api/catalog`, `/api/v1/catalog` -- route discovery.
+/// `/api/catalog`, `/api/v1/catalog` -- route discovery. Served without the
+/// API key (rate limited only) so a cold agent can discover the API first.
 pub(crate) fn catalog_router() -> Domain {
     Domain::new("catalog", "/api")
+        .unauthenticated()
         .route(
             R::get(
                 "/catalog",
