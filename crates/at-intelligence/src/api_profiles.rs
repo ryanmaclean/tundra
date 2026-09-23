@@ -359,6 +359,7 @@ impl ProviderState {
             success_threshold: 2,
             timeout: Duration::from_secs(60),
             call_timeout: Duration::from_secs(30),
+            half_open_max_calls: 1,
         });
 
         let rpm_limiter = profile
@@ -1051,6 +1052,7 @@ mod tests {
             success_threshold: 1,
             timeout: Duration::from_secs(30),
             call_timeout: Duration::from_secs(10),
+            half_open_max_calls: 1,
         };
         let _state = ProviderState::with_breaker_config(profile, config);
         // Just verify it doesn't panic.
@@ -1090,6 +1092,7 @@ mod tests {
             success_threshold: 3,
             timeout: Duration::from_secs(120),
             call_timeout: Duration::from_secs(60),
+            half_open_max_calls: 1,
         };
         let id = reg.add_profile_with_config(profile, config);
         assert!(reg.get_state(&id).is_some());
@@ -1258,6 +1261,7 @@ mod tests {
             success_threshold: 1,
             timeout: Duration::from_secs(60),
             call_timeout: Duration::from_secs(30),
+            half_open_max_calls: 1,
         };
         let id = reg.add_profile_with_config(p, config);
 
