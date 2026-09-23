@@ -5,6 +5,7 @@
 //! - "Total Worktrees" counter, "Select", "Refresh" actions
 //! - "Merge to main", "Delete", "Copy Path", "Done" per-worktree actions
 
+use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::Duration;
@@ -24,14 +25,14 @@ use uuid::Uuid;
 
 /// A mock git runner that records commands and returns canned responses.
 struct MockGitRunner {
-    responses: Mutex<Vec<GitOutput>>,
+    responses: Mutex<VecDeque<GitOutput>>,
     commands: Mutex<Vec<(String, Vec<String>)>>,
 }
 
 impl MockGitRunner {
     fn new(responses: Vec<GitOutput>) -> Self {
         Self {
-            responses: Mutex::new(responses),
+            responses: Mutex::new(VecDeque::from(responses)),
             commands: Mutex::new(Vec::new()),
         }
     }
@@ -52,7 +53,7 @@ impl GitRunner for MockGitRunner {
                 stderr: String::new(),
             })
         } else {
-            Ok(responses.remove(0))
+            Ok(responses.pop_front().unwrap())
         }
     }
 }

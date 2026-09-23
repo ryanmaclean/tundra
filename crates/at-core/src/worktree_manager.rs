@@ -487,13 +487,14 @@ mod tests {
     use super::*;
     use crate::git_read_adapter::GitReadError;
     use crate::types::*;
+    use std::collections::VecDeque;
     use std::sync::{Arc, Mutex};
     use uuid::Uuid;
 
     /// A mock git runner that records commands and returns canned responses.
     struct MockGitRunner {
         /// Canned responses: for each call in order, return this.
-        responses: Mutex<Vec<GitOutput>>,
+        responses: Mutex<VecDeque<GitOutput>>,
         /// Record of all commands that were run.
         commands: Mutex<Vec<(String, Vec<String>)>>,
     }
@@ -501,7 +502,7 @@ mod tests {
     impl MockGitRunner {
         fn new(responses: Vec<GitOutput>) -> Self {
             Self {
-                responses: Mutex::new(responses),
+                responses: Mutex::new(VecDeque::from(responses)),
                 commands: Mutex::new(Vec::new()),
             }
         }
@@ -574,7 +575,7 @@ mod tests {
                     stderr: String::new(),
                 })
             } else {
-                Ok(responses.remove(0))
+                Ok(responses.pop_front().unwrap())
             }
         }
     }

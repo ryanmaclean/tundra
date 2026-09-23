@@ -6,6 +6,7 @@
 //! recovery, stuck task detection, retry/escalation, scheduler ordering, and
 //! daemon start/shutdown/heartbeat/patrol/KPI.
 
+use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
@@ -87,13 +88,13 @@ impl PtySpawner for FailingSpawner {
 
 /// Mock GitRunner with configurable responses.
 struct MockGit {
-    responses: Mutex<Vec<GitOutput>>,
+    responses: Mutex<VecDeque<GitOutput>>,
 }
 
 impl MockGit {
     fn new(responses: Vec<GitOutput>) -> Self {
         Self {
-            responses: Mutex::new(responses),
+            responses: Mutex::new(VecDeque::from(responses)),
         }
     }
 
@@ -139,7 +140,7 @@ impl GitRunner for MockGit {
         if responses.is_empty() {
             Ok(MockGit::success_output())
         } else {
-            Ok(responses.remove(0))
+            Ok(responses.pop_front().unwrap())
         }
     }
 }

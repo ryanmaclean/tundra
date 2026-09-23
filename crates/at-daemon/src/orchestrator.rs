@@ -544,6 +544,7 @@ mod tests {
     use at_agents::executor::{PtySpawner, SpawnedProcess};
     use at_core::types::*;
     use at_core::worktree_manager::{GitOutput, GitRunner};
+    use std::collections::VecDeque;
     use std::sync::{Arc, Mutex};
 
     // -- Mock PtySpawner --
@@ -592,13 +593,13 @@ mod tests {
 
     // -- Mock GitRunner --
     struct MockGit {
-        responses: Mutex<Vec<GitOutput>>,
+        responses: Mutex<VecDeque<GitOutput>>,
     }
 
     impl MockGit {
         fn new(responses: Vec<GitOutput>) -> Self {
             Self {
-                responses: Mutex::new(responses),
+                responses: Mutex::new(VecDeque::from(responses)),
             }
         }
     }
@@ -613,7 +614,7 @@ mod tests {
                     stderr: String::new(),
                 })
             } else {
-                Ok(responses.remove(0))
+                Ok(responses.pop_front().unwrap())
             }
         }
     }
