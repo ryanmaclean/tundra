@@ -183,6 +183,13 @@ pub trait LlmProvider: Send + Sync {
         messages: &[LlmMessage],
         config: &LlmConfig,
     ) -> Result<Pin<Box<dyn Stream<Item = Result<String, LlmError>> + Send>>, LlmError>;
+
+    /// Vendor this provider talks to, matching `ModelPricing::provider`
+    /// (e.g. `"anthropic"`, `"openai"`). Model routing uses it to pick only
+    /// models this provider can serve. `None` means "unknown / any".
+    fn provider_name(&self) -> Option<&str> {
+        None
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -273,9 +280,12 @@ impl AnthropicProvider {
         let mut body = serde_json::json!({
             "model": config.model,
             "max_tokens": config.max_tokens,
-            "temperature": config.temperature,
             "messages": api_messages,
         });
+        // Opus 4.7+ and other newer models reject sampling parameters with a 400.
+        if !anthropic_rejects_sampling_params(&config.model) {
+            body["temperature"] = serde_json::json!(config.temperature);
+        }
 
         if let Some(system) = system_text {
             // Anthropic Messages API: system as content-block array.
@@ -299,6 +309,40 @@ impl AnthropicProvider {
         }
 
         body
+    }
+}
+
+/// Whether an Anthropic model rejects `temperature`/`top_p`/`top_k`
+/// (HTTP 400). True for Claude Opus 4.7 and later Opus models, Sonnet 5 and
+/// later, and the Fable / Mythos families.
+pub fn anthropic_rejects_sampling_params(model: &str) -> bool {
+    // Tolerate platform prefixes such as `anthropic.claude-...`.
+    let id = model.rsplit_once('.').map_or(model, |(_, rest)| rest);
+    let Some(rest) = id.strip_prefix("claude-") else {
+        return false;
+    };
+    if rest.starts_with("fable") || rest.starts_with("mythos") {
+        return true;
+    }
+    let (family, version) = match rest.split_once('-') {
+        Some(parts) => parts,
+        None => return false,
+    };
+    let mut parts = version.split(['-', '@']);
+    let major: u32 = match parts.next().and_then(|m| m.parse().ok()) {
+        Some(m) => m,
+        None => return false,
+    };
+    // A second short numeric segment is the minor version; an 8-digit one is a date.
+    let minor: u32 = parts
+        .next()
+        .filter(|m| m.len() <= 2)
+        .and_then(|m| m.parse().ok())
+        .unwrap_or(0);
+    match family {
+        "opus" => major > 4 || (major == 4 && minor >= 7),
+        "sonnet" => major >= 5,
+        _ => false,
     }
 }
 
@@ -400,6 +444,10 @@ impl LlmProvider for AnthropicProvider {
         Err(LlmError::Unsupported(
             "streaming not yet implemented for AnthropicProvider".into(),
         ))
+    }
+
+    fn provider_name(&self) -> Option<&str> {
+        Some("anthropic")
     }
 }
 
@@ -563,6 +611,10 @@ impl LlmProvider for OpenAiProvider {
         Err(LlmError::Unsupported(
             "streaming not yet implemented for OpenAiProvider".into(),
         ))
+    }
+
+    fn provider_name(&self) -> Option<&str> {
+        Some("openai")
     }
 }
 
@@ -777,6 +829,10 @@ impl LlmProvider for LocalProvider {
         Err(LlmError::Unsupported(
             "streaming not yet implemented for LocalProvider".into(),
         ))
+    }
+
+    fn provider_name(&self) -> Option<&str> {
+        Some("local")
     }
 }
 
@@ -1625,5 +1681,58 @@ mod tests {
         assert_eq!(resp.cache_creation_input_tokens, 0);
         assert_eq!(resp.cache_read_input_tokens, 0);
         assert_eq!(resp.total_input_tokens(), 1);
+    }
+
+    // -- Sampling parameters on newer Anthropic models (finding #17) ---------
+
+    #[test]
+    fn sampling_param_rejection_by_model() {
+        for m in [
+            "claude-opus-4-7",
+            "claude-opus-4-8",
+            "claude-opus-5",
+            "claude-opus-5-5",
+            "claude-sonnet-5",
+            "claude-fable-5-1",
+            "claude-mythos-5-1",
+            "anthropic.claude-opus-4-7",
+        ] {
+            assert!(anthropic_rejects_sampling_params(m), "{m} should reject");
+        }
+        for m in [
+            "claude-sonnet-4-6",
+            "claude-haiku-4-5-20251001",
+            "claude-opus-4-6",
+            "claude-opus-4-20250514",
+            "claude-opus-4-0-20250514",
+            "claude-3-opus-20240229",
+            "gpt-4o",
+        ] {
+            assert!(!anthropic_rejects_sampling_params(m), "{m} should accept");
+        }
+    }
+
+    #[test]
+    fn anthropic_body_omits_temperature_for_opus_4_7() {
+        let config = LlmConfig {
+            model: "claude-opus-4-7".into(),
+            ..default_config()
+        };
+        let body = AnthropicProvider::build_request_body(&[LlmMessage::user("hi")], &config);
+        assert!(body.get("temperature").is_none(), "{body}");
+
+        let config = LlmConfig {
+            model: "claude-sonnet-4-6".into(),
+            ..default_config()
+        };
+        let body = AnthropicProvider::build_request_body(&[LlmMessage::user("hi")], &config);
+        assert!(body.get("temperature").is_some());
+    }
+
+    #[test]
+    fn cloud_providers_report_vendor() {
+        assert_eq!(AnthropicProvider::new("k").provider_name(), Some("anthropic"));
+        assert_eq!(OpenAiProvider::new("k").provider_name(), Some("openai"));
+        assert_eq!(MockProvider::new().provider_name(), None);
     }
 }
