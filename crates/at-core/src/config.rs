@@ -128,7 +128,11 @@ impl Config {
         Ok(())
     }
 
-    fn default_path() -> PathBuf {
+    /// Canonical on-disk config location (`~/.auto-tundra/config.toml`).
+    ///
+    /// This is the single file the daemon, desktop app and the settings API
+    /// (`SettingsManager::default_path`) all read and write.
+    pub fn default_path() -> PathBuf {
         dirs::home_dir()
             .unwrap_or_else(|| PathBuf::from("."))
             .join(".auto-tundra")
