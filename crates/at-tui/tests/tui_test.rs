@@ -159,16 +159,19 @@ fn test_kanban_navigation() {
     app.on_key(key(KeyCode::Char('l')));
     app.on_key(key(KeyCode::Char('l')));
     app.on_key(key(KeyCode::Char('l')));
-    assert_eq!(app.kanban_column, 4);
-
-    // Cannot go past 4
     app.on_key(key(KeyCode::Char('l')));
-    assert_eq!(app.kanban_column, 4);
+    // Column 5 is the Attention (Failed/Escalated) column.
+    assert_eq!(app.kanban_column, 5);
+
+    // Cannot go past the last column
+    app.on_key(key(KeyCode::Char('l')));
+    assert_eq!(app.kanban_column, 5);
 
     app.on_key(key(KeyCode::Char('h')));
-    assert_eq!(app.kanban_column, 3);
+    assert_eq!(app.kanban_column, 4);
 
     // Back to 0
+    app.on_key(key(KeyCode::Char('h')));
     app.on_key(key(KeyCode::Char('h')));
     app.on_key(key(KeyCode::Char('h')));
     app.on_key(key(KeyCode::Char('h')));
