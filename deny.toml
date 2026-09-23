@@ -47,8 +47,13 @@ allow = [
     "BSD-2-Clause",
     "BSD-3-Clause",
     # --- Permissive, transitive-only (no direct workspace dep uses these) ---
-    # ISC: ring, untrusted, rustls-webpki (unavoidable in any rustls stack),
+    # ISC: required by the TLS crypto providers themselves and effectively
+    #      tolerated before this entry was documented:
+    #      aws-lc-rs / aws-lc-sys (rustls default provider since reqwest 0.13;
+    #      "ISC AND (Apache-2.0 OR ISC)"), ring ("Apache-2.0 AND ISC"; direct dep
+    #      of at-core and at-bridge), untrusted, rustls-webpki (any rustls stack),
     #      simple_asn1 (jsonwebtoken <- octocrab), inotify/inotify-sys (notify, Linux).
+    #      ISC is MIT-equivalent (permissive, no copyleft).
     "ISC",
     # Zlib: foldhash (hashbrown), nanorand (flume), const_format + slotmap (leptos).
     "Zlib",
@@ -83,6 +88,14 @@ exceptions = [
     { crate = "cssparser-macros", allow = ["MPL-2.0"] },
     { crate = "dtoa-short", allow = ["MPL-2.0"] },
     { crate = "selectors", allow = ["MPL-2.0"] },
+    # CDLA-Permissive-2.0: webpki-root-certs <- rustls-platform-verifier 0.6 <-
+    # reqwest 0.13 `rustls` feature. rustls-platform-verifier only depends on
+    # it under cfg(target_arch = "wasm32") and reqwest only pulls the verifier
+    # on non-wasm32-unknown targets, so it is compiled only for wasm32-wasi,
+    # which we do not build (cargo-deny's graph has targets = [] = all). Native
+    # builds use the OS trust store, as before. Remove if [graph] targets is
+    # ever narrowed to the shipped triples. Review 2026-12-31.
+    { crate = "webpki-root-certs", allow = ["CDLA-Permissive-2.0"] },
     # MPL-2.0: option-ext <- dirs-sys 0.5 <- dirs 6 (direct dep of at-core,
     # at-cli, at-tui). Removable by replacing `dirs` with `etcetera` or
     # std::env::home_dir; tracked as follow-up.

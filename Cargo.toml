@@ -41,13 +41,22 @@ crossterm = "0.28"
 axum = { version = "0.8", features = ["ws"] }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["cors", "trace", "fs", "compression-gzip", "compression-br"] }
-octocrab = "0.43"
-# rustls instead of native-tls (SecureTransport/OpenSSL). The other features
-# restore reqwest's defaults minus default-tls. Native roots keep OS trust-store
-# semantics. webpki-roots would be CDLA-Permissive-2.0, which the policy excludes.
-# NOTE: reqwest 0.12 uses rustls' process-default CryptoProvider if one is
-# installed, and otherwise falls back to ring.
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-native-roots", "charset", "http2", "macos-system-configuration"] }
+octocrab = { version = "0.54", default-features = false, features = ["follow-redirect", "retry", "rustls", "timeout", "tracing", "default-client", "rustls-aws-lc-rs", "jwt-aws-lc-rs"] }
+# rustls instead of native-tls (SecureTransport/OpenSSL). reqwest 0.13's
+# `rustls` feature uses the aws-lc-rs provider and rustls-platform-verifier
+# (OS trust store, same semantics as the old native-roots feature), so no
+# webpki-roots (CDLA-Permissive-2.0, excluded by policy). `system-proxy`
+# replaces 0.12's `macos-system-configuration`. `query`/`form` became opt-in in
+# 0.13; only at-bridge's tests enable `query`.
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "charset", "http2", "system-proxy"] }
+# Post-quantum key exchange for outbound TLS (LLM APIs carry source and keys
+# over the public internet). `prefer-post-quantum` puts X25519MLKEM768 first in
+# the aws-lc-rs provider's kx_groups; it is feature-unified into the rustls
+# that reqwest and hyper-rustls use. ring is still compiled in (at-core and
+# at-bridge use it directly for digests/HMAC, jsonwebtoken needs it), so rustls
+# cannot pick a provider on its own: every binary calls
+# `at_core::tls::install_default_crypto_provider()` first thing in main.
+rustls = { version = "0.23.27", default-features = false, features = ["aws_lc_rs", "prefer-post-quantum", "std", "tls12", "logging"] }
 ahash = { version = "0.8", features = ["serde"] }
 mimalloc = "0.1"
 notify = { version = "7", default-features = false, features = ["macos_fsevent"] }

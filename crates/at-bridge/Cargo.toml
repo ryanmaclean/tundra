@@ -38,7 +38,8 @@ libgit2 = ["at-core/libgit2"]
 
 [dev-dependencies]
 tokio = { workspace = true }
-reqwest = { workspace = true }
+# `query` is opt-in since reqwest 0.13 (task_api_test uses RequestBuilder::query).
+reqwest = { workspace = true, features = ["query"] }
 tokio-tungstenite = "0.28"
 futures-util = "0.3"
 chrono = { workspace = true }

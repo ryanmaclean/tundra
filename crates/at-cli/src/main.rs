@@ -318,6 +318,8 @@ enum AgentCommands {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // Before any TLS client is built: aws-lc-rs provider, X25519MLKEM768 first.
+    at_core::tls::install_default_crypto_provider();
     let cli = Cli::parse();
     // One discovery path shared with the TUI: URL from --api-url or the
     // daemon lockfile, API key from AUTO_TUNDRA_API_KEY or daemon.key.
