@@ -608,6 +608,15 @@ pub async fn delete_terminal(
         buffers.remove(&terminal_id);
     }
 
+    // Drop the connection-tracking entry too, or it leaks forever: nothing
+    // else removes `terminal_conns[terminal_id]` once the terminal itself is
+    // gone (the reconnect-grace task only reaps it after its own timeout, and
+    // that task never runs for a terminal deleted outright via this route).
+    {
+        let mut conns = state.terminal_conns.lock().await;
+        conns.remove(&terminal_id);
+    }
+
     (
         axum::http::StatusCode::OK,
         Json(serde_json::json!({"status": "deleted", "id": id})),

@@ -414,6 +414,7 @@ fn TaskDetailInner(
     // Discard dialog state
     let (show_discard, set_show_discard) = signal(false);
     let (discarding, set_discarding) = signal(false);
+    let (discard_error, set_discard_error) = signal(Option::<String>::None);
 
     // QA state
     let (qa_running, set_qa_running) = signal(false);
@@ -465,13 +466,25 @@ fn TaskDetailInner(
         move |_ev: MouseEvent| {
             let id = id_discard.clone();
             set_discarding.set(true);
+            set_discard_error.set(None);
             spawn_local(async move {
-                let _ = crate::api::delete_worktree(&id).await;
-                set_beads.update(|v| {
-                    v.retain(|b| b.id != id);
-                });
-                set_discarding.set(false);
-                set_show_discard.set(false);
+                // "Confirm Discard" in the dialog below IS the explicit
+                // confirmation for discarding uncommitted changes, so force
+                // the delete rather than letting the backend's default
+                // `force=false` 409 on a dirty worktree silently no-op here.
+                match crate::api::delete_worktree(&id, true).await {
+                    Ok(_) => {
+                        set_beads.update(|v| {
+                            v.retain(|b| b.id != id);
+                        });
+                        set_discarding.set(false);
+                        set_show_discard.set(false);
+                    }
+                    Err(e) => {
+                        set_discarding.set(false);
+                        set_discard_error.set(Some(format!("Failed to discard: {e}")));
+                    }
+                }
             });
         }
     };
@@ -1245,6 +1258,9 @@ fn TaskDetailInner(
                         <p>"This will delete the worktree and all uncommitted changes"</p>
                     </div>
                     <p class="discard-detail">"This action cannot be undone. Any work in progress, uncommitted code changes, and the associated git worktree will be permanently removed."</p>
+                    {move || discard_error.get().map(|msg| view! {
+                        <p class="discard-detail discard-error">{msg}</p>
+                    })}
                 </div>
                 <div class="discard-dialog-actions">
                     <button
