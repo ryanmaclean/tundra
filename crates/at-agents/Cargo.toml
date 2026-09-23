@@ -18,7 +18,10 @@ chrono = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 flume = { workspace = true }
-rig-core = { version = "0.38.1", default-features = false, features = ["derive"] }
+# `rustls` = reqwest/rustls: the same aws-lc-rs + platform-verifier stack as the
+# workspace reqwest (post-quantum kx), no ring. Without it rig's own HTTP client
+# only had TLS by accident of feature unification.
+rig-core = { version = "0.38.1", default-features = false, features = ["derive", "rustls"] }
 
 [dev-dependencies]
 tokio = { workspace = true }
