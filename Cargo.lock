@@ -420,6 +420,7 @@ version = "0.1.0"
 dependencies = [
  "at-core",
  "at-harness",
+ "at-integrations",
  "chrono",
  "octocrab",
  "reqwest",
