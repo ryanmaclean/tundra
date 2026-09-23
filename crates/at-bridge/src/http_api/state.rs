@@ -5,6 +5,8 @@ use std::sync::{
 use tokio::sync::{RwLock, Semaphore};
 use uuid::Uuid;
 
+use super::mcp_sse::McpSessionStore;
+
 use at_core::session_store::SessionStore;
 use at_core::settings::SettingsManager;
 use at_core::types::{Agent, Bead, BeadStatus, CliType, KpiSnapshot, RetentionConfig};
@@ -148,6 +150,9 @@ pub struct ApiState {
     // ---- Retention configuration ------------------------------------------
     /// Memory retention policies for cleanup (TTL, max entries, cleanup intervals).
     pub retention_config: Arc<RwLock<RetentionConfig>>,
+    // ---- MCP SSE sessions ------------------------------------------------
+    /// Active MCP SSE sessions: session_id → SSE message sender.
+    pub mcp_sessions: McpSessionStore,
 }
 
 impl ApiState {
@@ -252,6 +257,7 @@ impl ApiState {
                 RateLimitConfig::per_minute(30),  // Per-endpoint tier (TUI polls /api/bootstrap at 12/min)
             )),
             retention_config: Arc::new(RwLock::new(RetentionConfig::default())),
+            mcp_sessions: super::mcp_sse::new_session_store(),
         }
     }
 

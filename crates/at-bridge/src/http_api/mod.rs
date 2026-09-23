@@ -15,6 +15,7 @@ mod github;
 mod integrations;
 mod kanban;
 mod mcp;
+pub(crate) mod mcp_sse;
 mod metrics;
 mod misc;
 mod notifications;
@@ -308,9 +309,12 @@ mod router {
                 "/api/kanban/poker/{bead_id}",
                 get(kanban::get_planning_poker_session),
             )
-            // MCP servers
+            // MCP servers (existing REST endpoints)
             .route("/api/mcp/servers", get(mcp::list_mcp_servers))
             .route("/api/mcp/tools/call", post(mcp::call_mcp_tool))
+            // MCP HTTP+SSE transport (Claude Code connects here)
+            .route("/mcp/sse", get(mcp_sse::handle_sse))
+            .route("/mcp/messages", post(mcp_sse::handle_message))
             // Worktrees
             .route("/api/worktrees", get(worktrees::list_worktrees))
             .route(
