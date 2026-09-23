@@ -394,9 +394,14 @@ pub(crate) async fn list_attachments(
     let limit = params.limit.unwrap_or(50);
     let offset = params.offset.unwrap_or(0);
 
-    let filtered: Vec<Attachment> = attachments
+    // Oldest first, so offset/limit pages are stable across calls.
+    let mut matching: Vec<&Attachment> = attachments
         .values()
         .filter(|a| a.task_id == task_id)
+        .collect();
+    matching.sort_by_key(|a| super::projects::creation_key(&a.uploaded_at, a.id));
+    let filtered: Vec<Attachment> = matching
+        .into_iter()
         .skip(offset)
         .take(limit)
         .cloned()
