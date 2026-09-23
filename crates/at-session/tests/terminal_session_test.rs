@@ -318,22 +318,79 @@ fn test_pool_kill_nonexistent_returns_error() {
 #[test]
 fn test_terminal_spawns_in_worktree_dir() {
     let pool = PtyPool::new(4);
+    let dir = std::env::temp_dir().join(format!("at-session-cwd-{}", Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).expect("create temp dir");
+    // Canonicalize: on macOS the temp dir lives under /var, a symlink to /private/var.
+    let expected = dir.canonicalize().expect("canonicalize");
 
-    // Spawn a shell that prints its working directory.
-    // We pass a PWD env var to simulate worktree directory.
     let handle = pool
-        .spawn("/bin/sh", &["-c", "echo CWD_IS=$(pwd)"], &[("PWD", "/tmp")])
+        .spawn_in("/bin/pwd", &["-P"], &[], Some(&dir))
         .expect("failed to spawn");
 
-    std::thread::sleep(Duration::from_millis(500));
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    let mut text = String::new();
+    while std::time::Instant::now() < deadline {
+        text.push_str(&String::from_utf8_lossy(&handle.try_read_all()));
+        if text.contains('\n') {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
 
-    let output = handle.try_read_all();
-    let text = String::from_utf8_lossy(&output);
+    assert_eq!(
+        text.trim(),
+        expected.to_string_lossy(),
+        "child must run in the requested cwd, not $HOME"
+    );
+    pool.release(handle.id);
+    let _ = std::fs::remove_dir_all(&dir);
+}
 
-    // The shell should report some directory. The PWD env is set, but the
-    // actual cwd depends on the spawn implementation. We verify the env
-    // var was at least passed.
-    assert!(!text.is_empty(), "expected some output from pwd command");
+#[test]
+fn test_spawn_in_missing_dir_fails_instead_of_falling_back_to_home() {
+    let pool = PtyPool::new(4);
+    let err = pool
+        .spawn_in(
+            "/bin/pwd",
+            &[],
+            &[],
+            Some(std::path::Path::new("/definitely/not/a/real/dir")),
+        )
+        .expect_err("spawn in a missing dir must fail");
+    assert!(
+        matches!(err, PtyError::SpawnFailed(_)),
+        "unexpected error: {err:?}"
+    );
+    assert_eq!(pool.active_count(), 0, "failed spawn must not leak a slot");
+}
+
+#[test]
+fn test_failed_spawn_releases_reserved_slot() {
+    let pool = PtyPool::new(1);
+    assert!(pool.spawn("/no/such/binary-xyz", &[], &[]).is_err());
+    assert_eq!(pool.active_count(), 0);
+    let h = pool.spawn("/bin/cat", &[], &[]).expect("slot must be free");
+    h.kill().ok();
+    pool.release(h.id);
+}
+
+#[test]
+fn test_exit_code_reports_real_status() {
+    let pool = PtyPool::new(2);
+    let handle = pool
+        .spawn("/bin/sh", &["-c", "exit 3"], &[])
+        .expect("spawn");
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    let mut code = None;
+    while std::time::Instant::now() < deadline {
+        code = handle.exit_code();
+        if code.is_some() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert_eq!(code, Some(3));
+    pool.release(handle.id);
 }
 
 #[test]
