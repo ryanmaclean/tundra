@@ -186,6 +186,8 @@ impl Daemon {
 
         // Spawn background cleanup task for memory retention
         api_state.start_cleanup_task();
+        // Single event -> notification recorder (not per WebSocket client).
+        api_state.start_notification_task();
 
         tokio::spawn(async move {
             Self::run_loops(cache, api_state, event_bus, config, intervals, shutdown).await;
@@ -382,6 +384,8 @@ impl Daemon {
 
         // Spawn background cleanup task for memory retention
         self.api_state.start_cleanup_task();
+        // Single event -> notification recorder (not per WebSocket client).
+        self.api_state.start_notification_task();
 
         // Run loops inline (blocking) for standalone mode.
         Self::run_loops(
@@ -465,6 +469,8 @@ impl Daemon {
 
         // Spawn background cleanup task for memory retention
         self.api_state.start_cleanup_task();
+        // Single event -> notification recorder (not per WebSocket client).
+        self.api_state.start_notification_task();
 
         // Run loops inline (blocking) for standalone mode.
         Self::run_loops(

@@ -1,5 +1,5 @@
 use std::sync::{
-    atomic::{AtomicUsize, Ordering},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
     Arc,
 };
 use tokio::sync::{RwLock, Semaphore};
@@ -156,6 +156,8 @@ pub struct ApiState {
     // ---- MCP SSE sessions ------------------------------------------------
     /// Active MCP SSE sessions: session_id → SSE message sender.
     pub mcp_sessions: McpSessionStore,
+    /// Set once [`ApiState::start_notification_task`] has spawned its task.
+    notification_task_started: AtomicBool,
 }
 
 impl ApiState {
@@ -253,6 +255,7 @@ impl ApiState {
             rate_limit_policy: RateLimitPolicy::default(),
             retention_config: Arc::new(RwLock::new(RetentionConfig::default())),
             mcp_sessions: super::mcp_sse::new_session_store(),
+            notification_task_started: AtomicBool::new(false),
         }
     }
 
@@ -350,6 +353,42 @@ impl ApiState {
         }
 
         removed_count
+    }
+
+    /// Start the single background task that turns event-bus messages into
+    /// entries in [`ApiState::notification_store`].
+    ///
+    /// Event-to-notification conversion must happen exactly once per event,
+    /// independent of how many WebSocket clients are connected (previously
+    /// every `/api/events/ws` connection wrote its own copy, and nothing was
+    /// recorded while no client was connected). Idempotent: repeated calls
+    /// do not spawn additional tasks. Must be called from a Tokio runtime.
+    pub fn start_notification_task(self: &Arc<Self>) {
+        if self.notification_task_started.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let event_bus = self.event_bus.clone();
+        let store = self.notification_store.clone();
+        tokio::spawn(async move {
+            loop {
+                let rx = event_bus.subscribe_filtered(|msg| {
+                    crate::notifications::notification_from_event(msg).is_some()
+                });
+                while let Ok(msg) = rx.recv_async().await {
+                    if let Some((title, message, level, source, action_url)) =
+                        crate::notifications::notification_from_event(&msg)
+                    {
+                        store
+                            .write()
+                            .await
+                            .add_with_url(title, message, level, source, action_url);
+                    }
+                }
+                // The bus drops subscribers whose channel fills up; resubscribe
+                // rather than silently stop recording notifications.
+                tracing::warn!("notification subscriber dropped by event bus, resubscribing");
+            }
+        });
     }
 
     /// Start a background cleanup task that periodically removes expired data.
