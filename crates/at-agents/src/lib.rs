@@ -17,6 +17,7 @@ pub mod executor;
 pub mod lifecycle;
 pub mod managed_executor;
 pub mod orchestrator;
+pub mod output_hook;
 pub mod profiles;
 pub mod prompts;
 pub mod registry;

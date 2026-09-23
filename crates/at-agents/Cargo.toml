@@ -8,6 +8,7 @@ publish = false
 at-core = { path = "../at-core" }
 at-session = { path = "../at-session" }
 at-bridge = { path = "../at-bridge" }
+at-harness = { path = "../at-harness" }
 at-intelligence = { path = "../at-intelligence" }
 tokio = { workspace = true }
 async-trait = { workspace = true }

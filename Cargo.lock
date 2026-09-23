@@ -256,6 +256,7 @@ dependencies = [
  "async-trait",
  "at-bridge",
  "at-core",
+ "at-harness",
  "at-intelligence",
  "at-session",
  "chrono",
