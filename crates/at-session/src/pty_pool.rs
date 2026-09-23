@@ -62,11 +62,12 @@
 
 use std::collections::HashMap;
 use std::io::{Read as IoRead, Write as IoWrite};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use thiserror::Error;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 // ---------------------------------------------------------------------------
@@ -263,6 +264,22 @@ impl PtyHandle {
             Ok(Some(_status)) => false,
             Ok(None) => true,
             Err(_) => false,
+        }
+    }
+
+    /// Non-blocking check of the child's exit code.
+    ///
+    /// Returns `Some(code)` once the child has exited (a child terminated by a
+    /// signal reports a non-zero code), or `None` while it is still running or
+    /// if the status could not be read.
+    pub fn exit_code(&self) -> Option<i32> {
+        let mut child = self.child.lock().unwrap_or_else(|e| {
+            warn!("child lock was poisoned, recovering");
+            e.into_inner()
+        });
+        match child.try_wait() {
+            Ok(Some(status)) => Some(i32::try_from(status.exit_code()).unwrap_or(i32::MAX)),
+            _ => None,
         }
     }
 
@@ -639,16 +656,50 @@ impl PtyPool {
     /// # }
     /// ```
     pub fn spawn(&self, cmd: &str, args: &[&str], env: &[(&str, &str)]) -> Result<PtyHandle> {
-        // Capacity check
+        self.spawn_in(cmd, args, env, None)
+    }
+
+    /// Like [`spawn()`](PtyPool::spawn), but runs the child in `cwd`.
+    ///
+    /// When `cwd` is `Some`, the directory must exist: portable-pty silently
+    /// falls back to `$HOME` for a missing directory, so this returns
+    /// [`PtyError::SpawnFailed`] instead of starting the child in the wrong
+    /// place. `PWD` is also set to `cwd` so shells report it consistently.
+    /// When `cwd` is `None`, the child starts in `$HOME` (portable-pty default).
+    pub fn spawn_in(
+        &self,
+        cmd: &str,
+        args: &[&str],
+        env: &[(&str, &str)],
+        cwd: Option<&Path>,
+    ) -> Result<PtyHandle> {
+        if let Some(dir) = cwd {
+            if !dir.is_dir() {
+                return Err(PtyError::SpawnFailed(format!(
+                    "working directory does not exist or is not a directory: {}",
+                    dir.display()
+                )));
+            }
+        }
+
+        // Capacity check + slot reservation under a single lock so concurrent
+        // spawns cannot all pass the check before any of them inserts.
+        let handle_id = Uuid::new_v4();
         {
-            let handles = self.handles.lock().unwrap_or_else(|e| {
+            let mut handles = self.handles.lock().unwrap_or_else(|e| {
                 warn!("PtyPool lock was poisoned, recovering");
                 e.into_inner()
             });
             if handles.len() >= self.max_ptys {
                 return Err(PtyError::AtCapacity { max: self.max_ptys });
             }
+            handles.insert(handle_id, ());
         }
+        let mut reservation = SlotReservation {
+            handles: &self.handles,
+            id: handle_id,
+            armed: true,
+        };
 
         let pty_system = native_pty_system();
 
@@ -665,7 +716,15 @@ impl PtyPool {
         for arg in args {
             command.arg(*arg);
         }
+        if let Some(dir) = cwd {
+            command.cwd(dir);
+            command.env("PWD", dir.as_os_str());
+        }
         for (k, v) in env {
+            // An explicit cwd wins over a caller-supplied PWD.
+            if cwd.is_some() && *k == "PWD" {
+                continue;
+            }
             command.env(*k, *v);
         }
 
@@ -674,17 +733,21 @@ impl PtyPool {
             .spawn_command(command)
             .map_err(|e| PtyError::SpawnFailed(e.to_string()))?;
 
-        debug!(cmd, ?args, "spawned PTY process");
+        debug!(cmd, ?args, ?cwd, "spawned PTY process");
 
         let child = Arc::new(Mutex::new(child));
-        let handle_id = Uuid::new_v4();
+        // If wiring up I/O fails below, don't leave the child running unowned.
+        let kill_child = |e: anyhow::Error| {
+            let _ = child.lock().unwrap_or_else(|p| p.into_inner()).kill();
+            PtyError::SpawnFailed(e.to_string())
+        };
 
         // -- stdout reader thread --
         let (read_tx, read_rx) = flume::bounded::<Vec<u8>>(256);
         let mut reader = pair
             .master
             .try_clone_reader()
-            .map_err(|e| PtyError::SpawnFailed(e.to_string()))?;
+            .map_err(kill_child)?;
         let reader_thread = std::thread::spawn(move || {
             let mut buf = [0u8; 4096];
             loop {
@@ -711,7 +774,7 @@ impl PtyPool {
         let mut writer = pair
             .master
             .take_writer()
-            .map_err(|e| PtyError::SpawnFailed(e.to_string()))?;
+            .map_err(kill_child)?;
         let writer_thread = std::thread::spawn(move || {
             while let Ok(data) = write_rx.recv() {
                 if writer.write_all(&data).is_err() {
@@ -721,14 +784,8 @@ impl PtyPool {
             }
         });
 
-        // Track in pool
-        {
-            let mut handles = self.handles.lock().unwrap_or_else(|e| {
-                warn!("PtyPool lock was poisoned, recovering");
-                e.into_inner()
-            });
-            handles.insert(handle_id, ());
-        }
+        // The slot was reserved up front; keep it now that spawn succeeded.
+        reservation.armed = false;
 
         Ok(PtyHandle {
             id: handle_id,
@@ -824,6 +881,24 @@ impl PtyPool {
         });
         handles.remove(&handle_id);
         debug!(%handle_id, "released PTY handle from pool");
+    }
+}
+
+/// Releases a reserved pool slot if `spawn_in` fails after reserving it.
+struct SlotReservation<'a> {
+    handles: &'a Mutex<HashMap<Uuid, ()>>,
+    id: Uuid,
+    armed: bool,
+}
+
+impl Drop for SlotReservation<'_> {
+    fn drop(&mut self) {
+        if self.armed {
+            self.handles
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(&self.id);
+        }
     }
 }
 

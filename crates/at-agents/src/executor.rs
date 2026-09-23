@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -9,7 +11,7 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::sync::Mutex;
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::approval::{ApprovalPolicy, ToolApprovalSystem};
@@ -250,18 +252,75 @@ pub trait PtySpawner: Send + Sync {
         args: &[&str],
         env: &[(&str, &str)],
     ) -> std::result::Result<SpawnedProcess, String>;
+
+    /// Spawn a process in the given working directory.
+    ///
+    /// The default implementation ignores `cwd` and delegates to
+    /// [`spawn`](PtySpawner::spawn); spawners that run real processes
+    /// (e.g. [`PtyPoolSpawner`]) override it and must fail rather than start
+    /// the process somewhere else when `cwd` does not exist.
+    fn spawn_in(
+        &self,
+        cmd: &str,
+        args: &[&str],
+        env: &[(&str, &str)],
+        cwd: Option<&Path>,
+    ) -> std::result::Result<SpawnedProcess, String> {
+        if let Some(dir) = cwd {
+            tracing::debug!(cwd = %dir.display(), "spawner does not support cwd; ignoring");
+        }
+        self.spawn(cmd, args, env)
+    }
+}
+
+/// Lifecycle control over the real OS process behind a [`SpawnedProcess`].
+///
+/// Mock spawners can omit this; real spawners provide it so the executor can
+/// read the true exit status, kill timed-out or aborted processes, and free
+/// pool resources.
+pub trait ProcessControl: Send + Sync {
+    /// Whether the child is still running (non-blocking).
+    fn is_alive(&self) -> bool;
+    /// The child's exit code once it has exited (non-blocking).
+    fn exit_code(&self) -> Option<i32>;
+    /// Terminate the child. Must be safe to call on an exited child.
+    fn kill(&self);
+    /// Release resources held for the child (e.g. its PTY pool slot).
+    /// Called exactly once, after the child has exited or been killed.
+    fn release(&self);
+}
+
+/// Outcome of a single read from a [`SpawnedProcess`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReadOutcome {
+    /// A chunk of output arrived.
+    Chunk(Vec<u8>),
+    /// No output arrived within the timeout; the process may still be running.
+    Timeout,
+    /// The output channel is closed (EOF): no more output will ever arrive.
+    Closed,
 }
 
 /// A handle to a spawned process, abstracting over PtyHandle.
+///
+/// Dropping the last reference kills the child if it is still running and
+/// releases its resources (see [`ProcessControl`]).
 pub struct SpawnedProcess {
     pub id: Uuid,
     pub reader: flume::Receiver<Vec<u8>>,
     pub writer: flume::Sender<Vec<u8>>,
     alive: Arc<std::sync::Mutex<bool>>,
+    aborted: AtomicBool,
+    cleaned_up: AtomicBool,
+    control: Option<Box<dyn ProcessControl>>,
 }
 
 impl SpawnedProcess {
     /// Create a new SpawnedProcess with the given channels.
+    ///
+    /// Without a [`ProcessControl`] the executor cannot observe the real exit
+    /// status; use [`with_control`](SpawnedProcess::with_control) for real
+    /// processes.
     pub fn new(
         id: Uuid,
         reader: flume::Receiver<Vec<u8>>,
@@ -273,15 +332,50 @@ impl SpawnedProcess {
             reader,
             writer,
             alive: Arc::new(std::sync::Mutex::new(alive)),
+            aborted: AtomicBool::new(false),
+            cleaned_up: AtomicBool::new(false),
+            control: None,
         }
     }
 
-    /// Check if the process is still alive.
-    pub fn is_alive(&self) -> bool {
+    /// Create a SpawnedProcess backed by a real process via `control`.
+    pub fn with_control(
+        id: Uuid,
+        reader: flume::Receiver<Vec<u8>>,
+        writer: flume::Sender<Vec<u8>>,
+        control: Box<dyn ProcessControl>,
+    ) -> Self {
+        let mut p = Self::new(id, reader, writer, true);
+        p.control = Some(control);
+        p
+    }
+
+    /// Whether this process reports its real lifecycle via [`ProcessControl`].
+    pub fn has_control(&self) -> bool {
+        self.control.is_some()
+    }
+
+    fn alive_flag(&self) -> bool {
         *self.alive.lock().unwrap_or_else(|e| {
             warn!("executor lock was poisoned, recovering");
             e.into_inner()
         })
+    }
+
+    /// Check if the process is still alive.
+    pub fn is_alive(&self) -> bool {
+        self.alive_flag() && self.control.as_ref().is_none_or(|c| c.is_alive())
+    }
+
+    /// The real exit code, if the process has exited and a
+    /// [`ProcessControl`] is attached.
+    pub fn exit_code(&self) -> Option<i32> {
+        self.control.as_ref().and_then(|c| c.exit_code())
+    }
+
+    /// Whether [`abort`](SpawnedProcess::abort) was called.
+    pub fn was_aborted(&self) -> bool {
+        self.aborted.load(Ordering::SeqCst)
     }
 
     /// Mark the process as dead (for testing).
@@ -290,6 +384,36 @@ impl SpawnedProcess {
             warn!("executor lock was poisoned, recovering");
             e.into_inner()
         }) = false;
+    }
+
+    /// Kill the underlying process if it is still running.
+    pub fn kill(&self) {
+        if let Some(c) = &self.control {
+            if c.is_alive() {
+                c.kill();
+            }
+        }
+    }
+
+    /// Abort: mark dead and kill the underlying process.
+    pub fn abort(&self) {
+        self.aborted.store(true, Ordering::SeqCst);
+        self.set_dead();
+        self.kill();
+    }
+
+    /// Kill the process if still running and release its resources.
+    /// Idempotent.
+    pub fn cleanup(&self) {
+        if self.cleaned_up.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        if let Some(c) = &self.control {
+            if c.is_alive() {
+                c.kill();
+            }
+            c.release();
+        }
     }
 
     /// Send a line to the process stdin.
@@ -301,13 +425,25 @@ impl SpawnedProcess {
             .map_err(|e| format!("writer closed: {e}"))
     }
 
-    /// Read with a timeout, returning None on timeout.
+    /// Read with a timeout, returning None on timeout *or* closed channel.
+    ///
+    /// Prefer [`read_next`](SpawnedProcess::read_next), which distinguishes
+    /// the two: a closed channel returns immediately, so looping on `None`
+    /// busy-spins once the process has exited.
     pub async fn read_timeout(&self, timeout: Duration) -> Option<Vec<u8>> {
-        let rx = self.reader.clone();
-        tokio::time::timeout(timeout, async move { rx.recv_async().await.ok() })
-            .await
-            .ok()
-            .flatten()
+        match self.read_next(timeout).await {
+            ReadOutcome::Chunk(c) => Some(c),
+            ReadOutcome::Timeout | ReadOutcome::Closed => None,
+        }
+    }
+
+    /// Read the next chunk, distinguishing timeout from EOF.
+    pub async fn read_next(&self, timeout: Duration) -> ReadOutcome {
+        match tokio::time::timeout(timeout, self.reader.recv_async()).await {
+            Ok(Ok(chunk)) => ReadOutcome::Chunk(chunk),
+            Ok(Err(_)) => ReadOutcome::Closed,
+            Err(_) => ReadOutcome::Timeout,
+        }
     }
 
     /// Drain all currently available output.
@@ -317,6 +453,12 @@ impl SpawnedProcess {
             buf.extend_from_slice(&chunk);
         }
         buf
+    }
+}
+
+impl Drop for SpawnedProcess {
+    fn drop(&mut self) {
+        self.cleanup();
     }
 }
 
@@ -335,6 +477,32 @@ impl PtyPoolSpawner {
     }
 }
 
+/// [`ProcessControl`] over a real PTY child; releases its pool slot.
+struct PtyControl {
+    pool: Arc<at_session::pty_pool::PtyPool>,
+    handle: at_session::pty_pool::PtyHandle,
+}
+
+impl ProcessControl for PtyControl {
+    fn is_alive(&self) -> bool {
+        self.handle.is_alive()
+    }
+
+    fn exit_code(&self) -> Option<i32> {
+        self.handle.exit_code()
+    }
+
+    fn kill(&self) {
+        if let Err(e) = self.handle.kill() {
+            warn!(pty_id = %self.handle.id, error = %e, "failed to kill agent process");
+        }
+    }
+
+    fn release(&self) {
+        self.pool.release(self.handle.id);
+    }
+}
+
 #[async_trait::async_trait]
 impl PtySpawner for PtyPoolSpawner {
     fn spawn(
@@ -343,14 +511,62 @@ impl PtySpawner for PtyPoolSpawner {
         args: &[&str],
         env: &[(&str, &str)],
     ) -> std::result::Result<SpawnedProcess, String> {
-        let handle = self.pool.spawn(cmd, args, env).map_err(|e| e.to_string())?;
+        self.spawn_in(cmd, args, env, None)
+    }
 
-        Ok(SpawnedProcess::new(
-            handle.id,
-            handle.reader,
-            handle.writer,
-            true,
+    fn spawn_in(
+        &self,
+        cmd: &str,
+        args: &[&str],
+        env: &[(&str, &str)],
+        cwd: Option<&Path>,
+    ) -> std::result::Result<SpawnedProcess, String> {
+        let handle = self
+            .pool
+            .spawn_in(cmd, args, env, cwd)
+            .map_err(|e| e.to_string())?;
+        let (id, reader, writer) = (handle.id, handle.reader.clone(), handle.writer.clone());
+
+        Ok(SpawnedProcess::with_control(
+            id,
+            reader,
+            writer,
+            Box::new(PtyControl {
+                pool: Arc::clone(&self.pool),
+                handle,
+            }),
         ))
+    }
+}
+
+/// Ensures an execution's process is killed, its resources released, and
+/// its `active_tasks` entry removed on every exit path, including early
+/// `?` returns and cancellation of the executing future.
+struct ActiveTaskGuard {
+    task_id: Uuid,
+    process: Arc<SpawnedProcess>,
+    active_tasks: Arc<Mutex<HashMap<Uuid, Arc<SpawnedProcess>>>>,
+}
+
+impl Drop for ActiveTaskGuard {
+    fn drop(&mut self) {
+        self.process.cleanup();
+        let task_id = self.task_id;
+        let process = Arc::clone(&self.process);
+        let remove = move |active: &mut HashMap<Uuid, Arc<SpawnedProcess>>| {
+            if active
+                .get(&task_id)
+                .is_some_and(|p| Arc::ptr_eq(p, &process))
+            {
+                active.remove(&task_id);
+            }
+        };
+        if let Ok(mut active) = self.active_tasks.try_lock() {
+            remove(&mut active);
+        } else if let Ok(rt) = tokio::runtime::Handle::try_current() {
+            let active_tasks = Arc::clone(&self.active_tasks);
+            rt.spawn(async move { remove(&mut *active_tasks.lock().await) });
+        }
     }
 }
 
@@ -492,8 +708,14 @@ impl AgentExecutor {
             "executing task"
         );
 
-        // Build CLI args
-        let cli_args = agent_config.to_cli_args();
+        // Build CLI args. CLIs in print mode (claude -p) do not read a prompt
+        // from a TTY stdin, so for those the prompt goes on the command line.
+        let mut cli_args = agent_config.to_cli_args();
+        let prompt_in_args = agent_config.prompt_in_args();
+        if prompt_in_args {
+            cli_args.push("--".to_string());
+            cli_args.push(prompt.to_string());
+        }
         let args_refs: Vec<&str> = cli_args.iter().map(|s| s.as_str()).collect();
 
         // Build env vars
@@ -503,25 +725,36 @@ impl AgentExecutor {
             .map(|(k, v)| (k.as_str(), v.as_str()))
             .collect();
 
+        // Run the agent inside the task's worktree when it has one.
+        let cwd = task.worktree_path.as_deref().map(Path::new);
+
         // Spawn the process
         let process = self
             .spawner
-            .spawn(agent_config.binary_name(), &args_refs, &env_refs)
+            .spawn_in(agent_config.binary_name(), &args_refs, &env_refs, cwd)
             .map_err(ExecutorError::PtyPool)?;
 
         let process = Arc::new(process);
 
-        // Track as active
+        // Track as active; the guard kills/releases the process and removes
+        // the entry on every exit path (including `?` and cancellation).
         {
             let mut active = self.active_tasks.lock().await;
             active.insert(task.id, Arc::clone(&process));
         }
+        let _guard = ActiveTaskGuard {
+            task_id: task.id,
+            process: Arc::clone(&process),
+            active_tasks: Arc::clone(&self.active_tasks),
+        };
 
         // Publish start event
         self.publish_event(task, "task_execution_start");
 
         // Send the prompt to stdin
-        process.send_line(prompt).map_err(ExecutorError::Internal)?;
+        if !prompt_in_args {
+            process.send_line(prompt).map_err(ExecutorError::Internal)?;
+        }
 
         // Collect output with timeout
         let timeout = Duration::from_secs(agent_config.timeout_secs);
@@ -529,10 +762,11 @@ impl AgentExecutor {
         let mut events = Vec::new();
 
         let collect_result = tokio::time::timeout(timeout, async {
-            // Read output chunks until the process finishes or channel closes
+            // Read output chunks until the channel closes (EOF) or the
+            // process is no longer alive.
             loop {
-                match process.read_timeout(Duration::from_secs(5)).await {
-                    Some(chunk) => {
+                match process.read_next(Duration::from_secs(1)).await {
+                    ReadOutcome::Chunk(chunk) => {
                         let text = String::from_utf8_lossy(&chunk);
                         // Try to parse structured events from each line
                         for line in text.lines() {
@@ -548,8 +782,9 @@ impl AgentExecutor {
                             output: text.to_string(),
                         });
                     }
-                    None => {
-                        // Timeout on read - check if process is still alive
+                    // EOF: the PTY reader thread exits when the child does.
+                    ReadOutcome::Closed => break,
+                    ReadOutcome::Timeout => {
                         if !process.is_alive() {
                             break;
                         }
@@ -558,6 +793,26 @@ impl AgentExecutor {
             }
         })
         .await;
+
+        let timed_out = collect_result.is_err();
+        let aborted = process.was_aborted();
+
+        if timed_out {
+            warn!(
+                task_id = %task.id,
+                timeout_secs = agent_config.timeout_secs,
+                "task execution timed out; killing agent process"
+            );
+            process.kill();
+            self.publish_event(task, "task_execution_timeout");
+        } else if process.has_control() && !aborted {
+            // Output EOF can precede the child being reapable; give it a
+            // moment so we report the real exit status.
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+            while process.exit_code().is_none() && tokio::time::Instant::now() < deadline {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        }
 
         // Drain any remaining buffered output
         let remaining = process.try_read_all();
@@ -571,11 +826,11 @@ impl AgentExecutor {
             output_buf.extend_from_slice(&remaining);
         }
 
-        // Remove from active tasks
-        {
-            let mut active = self.active_tasks.lock().await;
-            active.remove(&task.id);
-        }
+        let exit_code = process.exit_code();
+
+        // Kill (if still running), release the pool slot, and remove from
+        // active tasks.
+        drop(_guard);
 
         let duration_ms = start.elapsed().as_millis() as u64;
         let output = String::from_utf8_lossy(&output_buf).to_string();
@@ -591,17 +846,15 @@ impl AgentExecutor {
             );
         }
 
-        let timed_out = collect_result.is_err();
-        if timed_out {
-            warn!(
-                task_id = %task.id,
-                timeout_secs = agent_config.timeout_secs,
-                "task execution timed out"
-            );
-            self.publish_event(task, "task_execution_timeout");
-        }
-
-        let success = !timed_out && !output.is_empty();
+        // Success comes from the real exit status. Only spawners that cannot
+        // report one (no ProcessControl, e.g. test mocks) fall back to
+        // "produced output".
+        let success = !timed_out
+            && !aborted
+            && match exit_code {
+                Some(code) => code == 0,
+                None => !process.has_control() && !output.is_empty(),
+            };
 
         // Publish completion event
         self.publish_event(
@@ -616,6 +869,9 @@ impl AgentExecutor {
         info!(
             task_id = %task.id,
             success,
+            ?exit_code,
+            timed_out,
+            aborted,
             duration_ms,
             events_count = events.len(),
             tool_errors = tool_errors.len(),
@@ -629,7 +885,7 @@ impl AgentExecutor {
             events,
             tool_errors,
             duration_ms,
-            exit_code: if success { Some(0) } else { None },
+            exit_code,
         })
     }
 
@@ -680,7 +936,9 @@ impl AgentExecutor {
         let mut active = self.active_tasks.lock().await;
         if let Some(process) = active.remove(&task_id) {
             info!(%task_id, "aborting task execution");
-            process.set_dead();
+            // Kill the real process; the executing future observes the abort,
+            // reports failure, and releases the pool slot.
+            process.abort();
             Ok(())
         } else {
             warn!(%task_id, "task not found in active tasks");
@@ -895,6 +1153,292 @@ mod tests {
                 self.starts_alive,
             ))
         }
+    }
+
+    // -- Mock with a real-process-like lifecycle (ProcessControl) --
+
+    #[derive(Default)]
+    struct ControlState {
+        alive: AtomicBool,
+        exit_code: std::sync::Mutex<Option<i32>>,
+        killed: AtomicBool,
+        released: std::sync::atomic::AtomicUsize,
+    }
+
+    struct MockControl(Arc<ControlState>);
+
+    impl ProcessControl for MockControl {
+        fn is_alive(&self) -> bool {
+            self.0.alive.load(Ordering::SeqCst)
+        }
+        fn exit_code(&self) -> Option<i32> {
+            *self.0.exit_code.lock().unwrap()
+        }
+        fn kill(&self) {
+            self.0.killed.store(true, Ordering::SeqCst);
+            self.0.alive.store(false, Ordering::SeqCst);
+            *self.0.exit_code.lock().unwrap() = Some(137);
+        }
+        fn release(&self) {
+            self.0.released.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    type KeptChannels = (flume::Sender<Vec<u8>>, flume::Receiver<Vec<u8>>);
+
+    /// Spawner whose process exits with `exit_code` after emitting `output`
+    /// (reader closed), or, when `exit_code` is None, keeps running with the
+    /// reader open until killed.
+    struct ControlSpawner {
+        output: Vec<u8>,
+        exit_code: Option<i32>,
+        state: Arc<ControlState>,
+        cwd: std::sync::Mutex<Option<std::path::PathBuf>>,
+        keep: std::sync::Mutex<Vec<KeptChannels>>,
+    }
+
+    impl ControlSpawner {
+        fn new(output: &[u8], exit_code: Option<i32>) -> Self {
+            Self {
+                output: output.to_vec(),
+                exit_code,
+                state: Arc::new(ControlState::default()),
+                cwd: std::sync::Mutex::new(None),
+                keep: std::sync::Mutex::new(Vec::new()),
+            }
+        }
+    }
+
+    impl PtySpawner for ControlSpawner {
+        fn spawn(
+            &self,
+            cmd: &str,
+            args: &[&str],
+            env: &[(&str, &str)],
+        ) -> std::result::Result<SpawnedProcess, String> {
+            self.spawn_in(cmd, args, env, None)
+        }
+
+        fn spawn_in(
+            &self,
+            _cmd: &str,
+            _args: &[&str],
+            _env: &[(&str, &str)],
+            cwd: Option<&Path>,
+        ) -> std::result::Result<SpawnedProcess, String> {
+            *self.cwd.lock().unwrap() = cwd.map(Path::to_path_buf);
+            let (read_tx, read_rx) = flume::bounded(256);
+            let (write_tx, write_rx) = flume::bounded::<Vec<u8>>(256);
+            if !self.output.is_empty() {
+                read_tx.send(self.output.clone()).unwrap();
+            }
+            match self.exit_code {
+                Some(code) => {
+                    *self.state.exit_code.lock().unwrap() = Some(code);
+                    self.state.alive.store(false, Ordering::SeqCst);
+                    drop(read_tx);
+                    self.keep.lock().unwrap().push((write_tx.clone(), write_rx));
+                }
+                None => {
+                    self.state.alive.store(true, Ordering::SeqCst);
+                    // Keep the reader open: a hung process that prints nothing.
+                    self.keep.lock().unwrap().push((read_tx, write_rx));
+                }
+            }
+            Ok(SpawnedProcess::with_control(
+                Uuid::new_v4(),
+                read_rx,
+                write_tx,
+                Box::new(MockControl(Arc::clone(&self.state))),
+            ))
+        }
+    }
+
+    #[tokio::test]
+    async fn execute_task_returns_when_reader_closes_even_if_reported_alive() {
+        // Regression: a closed reader made read_timeout return None instantly,
+        // the loop saw is_alive()==true, and spun forever at 100% CPU.
+        let spawner = Arc::new(MockSpawner::new(vec![b"done\n".to_vec()], true));
+        let executor = AgentExecutor::with_spawner(spawner, EventBus::new());
+        let task = make_test_task();
+        let mut config = make_config();
+        config.timeout_secs = 600;
+
+        let result = tokio::time::timeout(
+            Duration::from_secs(5),
+            executor.execute_task(&task, &config),
+        )
+        .await
+        .expect("execute_task must return once the output channel closes")
+        .unwrap();
+        assert!(result.output.contains("done"));
+    }
+
+    #[tokio::test]
+    async fn execute_task_nonzero_exit_is_failure_with_real_exit_code() {
+        let spawner = Arc::new(ControlSpawner::new(
+            b"error: unknown option '--thinking-budget'\n",
+            Some(1),
+        ));
+        let state = Arc::clone(&spawner.state);
+        let executor = AgentExecutor::with_spawner(spawner, EventBus::new());
+        let task = make_test_task();
+        let mut config = make_config();
+        config.timeout_secs = 5;
+
+        let result = executor.execute_task(&task, &config).await.unwrap();
+        assert!(!result.success, "non-empty output must not imply success");
+        assert_eq!(result.exit_code, Some(1));
+        assert_eq!(state.released.load(Ordering::SeqCst), 1);
+        assert!(executor.active_tasks.lock().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn execute_task_zero_exit_is_success_and_releases_slot() {
+        let spawner = Arc::new(ControlSpawner::new(b"all good\n", Some(0)));
+        let state = Arc::clone(&spawner.state);
+        let executor = AgentExecutor::with_spawner(spawner, EventBus::new());
+        let task = make_test_task();
+        let mut config = make_config();
+        config.timeout_secs = 5;
+
+        let result = executor.execute_task(&task, &config).await.unwrap();
+        assert!(result.success);
+        assert_eq!(result.exit_code, Some(0));
+        assert!(!state.killed.load(Ordering::SeqCst));
+        assert_eq!(state.released.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn execute_task_timeout_fires_and_kills_process() {
+        let spawner = Arc::new(ControlSpawner::new(b"", None));
+        let state = Arc::clone(&spawner.state);
+        let executor = AgentExecutor::with_spawner(spawner, EventBus::new());
+        let task = make_test_task();
+        let mut config = make_config();
+        config.timeout_secs = 1;
+
+        let result = tokio::time::timeout(
+            Duration::from_secs(10),
+            executor.execute_task(&task, &config),
+        )
+        .await
+        .expect("overall timeout must fire")
+        .unwrap();
+        assert!(!result.success);
+        assert!(state.killed.load(Ordering::SeqCst), "timed-out process must be killed");
+        assert_eq!(state.released.load(Ordering::SeqCst), 1);
+        assert!(executor.active_tasks.lock().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn abort_task_kills_running_process() {
+        let spawner = Arc::new(ControlSpawner::new(b"", None));
+        let state = Arc::clone(&spawner.state);
+        let executor = Arc::new(AgentExecutor::with_spawner(spawner, EventBus::new()));
+        let task = make_test_task();
+        let task_id = task.id;
+        let mut config = make_config();
+        config.timeout_secs = 60;
+
+        let exec = Arc::clone(&executor);
+        let run = tokio::spawn(async move { exec.execute_task(&task, &config).await });
+
+        for _ in 0..100 {
+            if executor.active_tasks.lock().await.contains_key(&task_id) {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        executor.abort_task(task_id).await.unwrap();
+
+        let result = tokio::time::timeout(Duration::from_secs(10), run)
+            .await
+            .expect("aborted execution must finish")
+            .unwrap()
+            .unwrap();
+        assert!(!result.success);
+        assert!(state.killed.load(Ordering::SeqCst), "abort must kill the process");
+        assert_eq!(state.released.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn cancelled_execution_still_kills_and_releases() {
+        let spawner = Arc::new(ControlSpawner::new(b"", None));
+        let state = Arc::clone(&spawner.state);
+        let executor = AgentExecutor::with_spawner(spawner, EventBus::new());
+        let task = make_test_task();
+        let mut config = make_config();
+        config.timeout_secs = 60;
+
+        // Drop the future mid-execution (e.g. an outer timeout).
+        let _ = tokio::time::timeout(
+            Duration::from_millis(200),
+            executor.execute_task(&task, &config),
+        )
+        .await;
+        assert!(state.killed.load(Ordering::SeqCst));
+        assert_eq!(state.released.load(Ordering::SeqCst), 1);
+        assert!(executor.active_tasks.lock().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn execute_task_runs_in_task_worktree() {
+        let spawner = Arc::new(ControlSpawner::new(b"ok\n", Some(0)));
+        let executor = AgentExecutor::with_spawner(Arc::clone(&spawner) as _, EventBus::new());
+        let mut task = make_test_task();
+        task.worktree_path = Some("/tmp/some-worktree".to_string());
+        let config = make_config();
+
+        executor.execute_task(&task, &config).await.unwrap();
+        assert_eq!(
+            spawner.cwd.lock().unwrap().as_deref(),
+            Some(Path::new("/tmp/some-worktree"))
+        );
+    }
+
+    #[tokio::test]
+    async fn pty_pool_spawner_reports_exit_code_cwd_and_frees_slot() {
+        let pool = Arc::new(at_session::pty_pool::PtyPool::new(1));
+        let spawner = PtyPoolSpawner::new(Arc::clone(&pool));
+        let dir = std::env::temp_dir().join(format!("at-agents-cwd-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let expected = dir.canonicalize().unwrap();
+
+        let process = spawner
+            .spawn_in("/bin/sh", &["-c", "pwd -P; exit 3"], &[], Some(&dir))
+            .unwrap();
+        let mut out = Vec::new();
+        loop {
+            match process.read_next(Duration::from_secs(5)).await {
+                ReadOutcome::Chunk(c) => out.extend_from_slice(&c),
+                ReadOutcome::Closed => break,
+                ReadOutcome::Timeout => panic!("real PTY reader never closed"),
+            }
+        }
+        let mut code = None;
+        for _ in 0..100 {
+            code = process.exit_code();
+            if code.is_some() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert_eq!(code, Some(3));
+        assert_eq!(String::from_utf8_lossy(&out).trim(), expected.to_string_lossy());
+
+        assert_eq!(pool.active_count(), 1);
+        drop(process);
+        assert_eq!(pool.active_count(), 0, "dropping the process must free its slot");
+
+        // A long-running child is killed on abort and its slot freed.
+        let process = spawner.spawn("/bin/sleep", &["30"], &[]).unwrap();
+        assert!(process.is_alive());
+        process.abort();
+        assert!(!process.is_alive());
+        drop(process);
+        assert_eq!(pool.active_count(), 0);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     fn make_test_task() -> Task {

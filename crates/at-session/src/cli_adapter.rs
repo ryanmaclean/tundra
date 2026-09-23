@@ -57,6 +57,8 @@
 //! # }
 //! ```
 
+use std::path::Path;
+
 use async_trait::async_trait;
 use at_core::types::CliType;
 
@@ -110,7 +112,7 @@ pub trait CliAdapter: Send + Sync {
     ///
     /// - `pool`: The PTY pool to spawn in
     /// - `task`: The task description/prompt to pass to the CLI
-    /// - `workdir`: The working directory where the CLI should execute
+    /// - `workdir`: The working directory where the CLI should execute (must exist)
     ///
     /// # Returns
     ///
@@ -120,7 +122,8 @@ pub trait CliAdapter: Send + Sync {
     ///
     /// Returns an error if:
     /// - The pool is at capacity ([`PtyError::AtCapacity`])
-    /// - The binary is not found or fails to spawn ([`PtyError::SpawnFailed`])
+    /// - The binary is not found or fails to spawn, or `workdir` does not
+    ///   exist ([`PtyError::SpawnFailed`])
     ///
     /// [`PtyError::AtCapacity`]: crate::pty_pool::PtyError::AtCapacity
     /// [`PtyError::SpawnFailed`]: crate::pty_pool::PtyError::SpawnFailed
@@ -158,7 +161,7 @@ pub trait CliAdapter: Send + Sync {
 /// - Binary: `claude`
 /// - Default flags: `--dangerously-skip-permissions` (skips interactive approval)
 /// - Prompt flag: `-p` followed by the task description
-/// - Working directory: Set via `PWD` environment variable
+/// - Working directory: the child process is started in `workdir`
 ///
 /// ## Status Parsing
 ///
@@ -192,8 +195,7 @@ impl CliAdapter for ClaudeAdapter {
         let mut args: Vec<&str> = args_owned.iter().map(|s| s.as_str()).collect();
         args.push("-p");
         args.push(task);
-        let env = [("PWD", workdir)];
-        pool.spawn(self.binary_name(), &args, &env)
+        pool.spawn_in(self.binary_name(), &args, &[], Some(Path::new(workdir)))
     }
 
     fn parse_status_output(&self, output: &str) -> Option<String> {
@@ -218,7 +220,7 @@ impl CliAdapter for ClaudeAdapter {
 /// - Binary: `codex`
 /// - Default flags: `--approval-mode full-auto -q` (non-interactive, quiet)
 /// - Task argument: Passed directly without a flag
-/// - Working directory: Set via `PWD` environment variable
+/// - Working directory: the child process is started in `workdir`
 ///
 /// ## Status Parsing
 ///
@@ -251,8 +253,7 @@ impl CliAdapter for CodexAdapter {
         let args_owned = self.default_args();
         let mut args: Vec<&str> = args_owned.iter().map(|s| s.as_str()).collect();
         args.push(task);
-        let env = [("PWD", workdir)];
-        pool.spawn(self.binary_name(), &args, &env)
+        pool.spawn_in(self.binary_name(), &args, &[], Some(Path::new(workdir)))
     }
 
     fn parse_status_output(&self, output: &str) -> Option<String> {
@@ -276,7 +277,7 @@ impl CliAdapter for CodexAdapter {
 /// - Binary: `gemini`
 /// - Default flags: None
 /// - Prompt flag: `-p` followed by the task description
-/// - Working directory: Set via `PWD` environment variable
+/// - Working directory: the child process is started in `workdir`
 ///
 /// ## Status Parsing
 ///
@@ -307,8 +308,7 @@ impl CliAdapter for GeminiAdapter {
 
     async fn spawn(&self, pool: &PtyPool, task: &str, workdir: &str) -> Result<PtyHandle> {
         let args: Vec<&str> = vec!["-p", task];
-        let env = [("PWD", workdir)];
-        pool.spawn(self.binary_name(), &args, &env)
+        pool.spawn_in(self.binary_name(), &args, &[], Some(Path::new(workdir)))
     }
 
     fn parse_status_output(&self, output: &str) -> Option<String> {
@@ -332,7 +332,7 @@ impl CliAdapter for GeminiAdapter {
 /// - Binary: `opencode`
 /// - Default flags: None
 /// - Task argument: Passed directly without a flag
-/// - Working directory: Set via `PWD` environment variable
+/// - Working directory: the child process is started in `workdir`
 ///
 /// ## Status Parsing
 ///
@@ -363,8 +363,7 @@ impl CliAdapter for OpenCodeAdapter {
 
     async fn spawn(&self, pool: &PtyPool, task: &str, workdir: &str) -> Result<PtyHandle> {
         let args: Vec<&str> = vec![task];
-        let env = [("PWD", workdir)];
-        pool.spawn(self.binary_name(), &args, &env)
+        pool.spawn_in(self.binary_name(), &args, &[], Some(Path::new(workdir)))
     }
 
     fn parse_status_output(&self, output: &str) -> Option<String> {

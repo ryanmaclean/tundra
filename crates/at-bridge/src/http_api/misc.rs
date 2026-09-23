@@ -166,7 +166,14 @@ pub(crate) async fn toggle_direct_mode(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<DirectModeRequest>,
 ) -> impl IntoResponse {
-    let mut current = state.settings_manager.load_or_default();
+    // Never merge into defaults when the file on disk is invalid: saving
+    // would overwrite the user's settings.
+    let mut current = match state.settings_manager.load_for_update() {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            return super::settings::settings_error_response(&e, state.settings_manager.path())
+        }
+    };
     let mut current_val = match serde_json::to_value(&current) {
         Ok(v) => v,
         Err(e) => {

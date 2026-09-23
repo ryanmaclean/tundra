@@ -115,22 +115,27 @@ impl TokenCache {
     }
 
     /// Look up a cached response for the given messages and config.
+    ///
+    /// Lock discipline: at most one of `hash_cache`, `prefix_cache` and
+    /// `stats` is held at any time, so `get` and `put` cannot deadlock.
     pub async fn get(&self, messages: &[LlmMessage], config: &LlmConfig) -> Option<LlmResponse> {
-        let mut stats = self.stats.write().await;
-        stats.total_lookups += 1;
+        enum Outcome {
+            HashHit(LlmResponse),
+            PrefixHit(LlmResponse),
+            Miss,
+        }
 
         let prompt_hash = compute_prompt_hash(messages, config);
+        let ttl = Duration::from_secs(self.config.ttl_secs);
+        let mut outcome = Outcome::Miss;
 
         // Try hash cache first (exact match)
         if self.config.enable_hash_cache {
             let mut cache = self.hash_cache.write().await;
             if let Some(entry) = cache.get_mut(&prompt_hash) {
-                if entry.created_at.elapsed() < Duration::from_secs(self.config.ttl_secs) {
+                if entry.created_at.elapsed() < ttl {
                     entry.hit_count += 1;
-                    stats.hash_hits += 1;
-                    stats.tokens_saved +=
-                        entry.response.input_tokens + entry.response.output_tokens;
-                    return Some(entry.response.clone());
+                    outcome = Outcome::HashHit(entry.response.clone());
                 } else {
                     // Expired — remove it
                     cache.remove(&prompt_hash);
@@ -139,28 +144,39 @@ impl TokenCache {
         }
 
         // Try prefix cache (system prompt match)
-        if self.config.enable_prefix_cache {
+        if matches!(outcome, Outcome::Miss) && self.config.enable_prefix_cache {
             if let Some(system_hash) = compute_system_prefix_hash(messages, config) {
                 let cache = self.prefix_cache.read().await;
                 if let Some(entries) = cache.get(&system_hash) {
                     let user_hash = compute_user_content_hash(messages);
-                    for entry in entries {
-                        if entry.prompt_hash == user_hash
-                            && entry.created_at.elapsed()
-                                < Duration::from_secs(self.config.ttl_secs)
-                        {
-                            stats.prefix_hits += 1;
-                            stats.tokens_saved +=
-                                entry.response.input_tokens + entry.response.output_tokens;
-                            return Some(entry.response.clone());
-                        }
+                    if let Some(entry) = entries
+                        .iter()
+                        .find(|e| e.prompt_hash == user_hash && e.created_at.elapsed() < ttl)
+                    {
+                        outcome = Outcome::PrefixHit(entry.response.clone());
                     }
                 }
             }
         }
 
-        stats.misses += 1;
-        None
+        let mut stats = self.stats.write().await;
+        stats.total_lookups += 1;
+        match outcome {
+            Outcome::HashHit(response) => {
+                stats.hash_hits += 1;
+                stats.tokens_saved += response.input_tokens + response.output_tokens;
+                Some(response)
+            }
+            Outcome::PrefixHit(response) => {
+                stats.prefix_hits += 1;
+                stats.tokens_saved += response.input_tokens + response.output_tokens;
+                Some(response)
+            }
+            Outcome::Miss => {
+                stats.misses += 1;
+                None
+            }
+        }
     }
 
     /// Store a response in the cache.
@@ -174,13 +190,17 @@ impl TokenCache {
             prompt_hash,
         };
 
-        // Store in hash cache
+        // Store in hash cache. Stats are updated only after the hash_cache
+        // guard is dropped (see lock discipline on `get`).
+        let mut evicted = 0u64;
+        let mut hash_len = None;
         if self.config.enable_hash_cache {
             let mut cache = self.hash_cache.write().await;
             if cache.len() >= self.config.max_entries {
-                self.evict_hash_cache(&mut cache).await;
+                evicted = self.evict_hash_cache(&mut cache);
             }
             cache.insert(prompt_hash, entry.clone());
+            hash_len = Some(cache.len());
         }
 
         // Store in prefix cache
@@ -202,8 +222,13 @@ impl TokenCache {
             }
         }
 
+        let hash_len = match hash_len {
+            Some(len) => len,
+            None => self.hash_cache.read().await.len(),
+        };
         let mut stats = self.stats.write().await;
-        stats.total_entries = self.hash_cache.read().await.len();
+        stats.evictions += evicted;
+        stats.total_entries = hash_len;
     }
 
     /// Record estimated cost savings from a cache hit.
@@ -225,13 +250,16 @@ impl TokenCache {
         self.prefix_cache.write().await.clear();
     }
 
-    /// Evict the least-recently-used entries from hash cache.
-    async fn evict_hash_cache(&self, cache: &mut AHashMap<u64, CacheEntry>) {
+    /// Evict expired, then least-hit, entries from the hash cache.
+    ///
+    /// Synchronous and lock-free by design: the caller holds the
+    /// `hash_cache` guard, so this must not touch `stats`. Returns the number
+    /// of entries removed.
+    fn evict_hash_cache(&self, cache: &mut AHashMap<u64, CacheEntry>) -> u64 {
         // Remove expired entries first
         let ttl = Duration::from_secs(self.config.ttl_secs);
         let before = cache.len();
         cache.retain(|_, entry| entry.created_at.elapsed() < ttl);
-        let expired = before - cache.len();
 
         // If still over capacity, remove least-hit entries
         if cache.len() >= self.config.max_entries {
@@ -247,8 +275,7 @@ impl TokenCache {
             }
         }
 
-        let mut stats = self.stats.write().await;
-        stats.evictions += expired as u64 + (before - cache.len()) as u64;
+        (before - cache.len()) as u64
     }
 }
 
@@ -567,5 +594,67 @@ mod tests {
             compute_prompt_hash(&m1, &config),
             compute_prompt_hash(&m2, &config)
         );
+    }
+
+    // -- Concurrency --
+
+    /// Regression: get() held `stats` while taking `hash_cache`, and an
+    /// evicting put() held `hash_cache` while taking `stats` (ABBA deadlock).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn concurrent_get_put_on_full_cache_does_not_deadlock() {
+        let cache = TokenCache::new(TokenCacheConfig {
+            max_entries: 4,
+            ..TokenCacheConfig::default()
+        });
+        let config = test_config();
+
+        let mut tasks = Vec::new();
+        for worker in 0..8 {
+            let cache = cache.clone();
+            let config = config.clone();
+            tasks.push(tokio::spawn(async move {
+                for i in 0..500 {
+                    let msgs = vec![LlmMessage::user(format!("w{worker}-{}", i % 16))];
+                    if worker % 2 == 0 {
+                        cache.put(&msgs, &config, &test_response()).await;
+                    } else {
+                        let _ = cache.get(&msgs, &config).await;
+                    }
+                }
+            }));
+        }
+
+        let all = futures_join_all(tasks);
+        tokio::time::timeout(Duration::from_secs(20), all)
+            .await
+            .expect("TokenCache deadlocked under concurrent get/put with eviction");
+
+        let stats = cache.stats().await;
+        assert!(stats.total_entries <= 4);
+        assert!(stats.evictions > 0);
+    }
+
+    async fn futures_join_all(tasks: Vec<tokio::task::JoinHandle<()>>) {
+        for t in tasks {
+            t.await.expect("worker panicked");
+        }
+    }
+
+    #[tokio::test]
+    async fn eviction_count_matches_removed_entries() {
+        let cache = TokenCache::new(TokenCacheConfig {
+            max_entries: 4,
+            enable_prefix_cache: false,
+            ..TokenCacheConfig::default()
+        });
+        let config = test_config();
+        for i in 0..5 {
+            let msgs = vec![LlmMessage::user(format!("m{i}"))];
+            cache.put(&msgs, &config, &test_response()).await;
+        }
+        // 5th put evicts down to max_entries/2 = 2, then inserts: 3 entries.
+        let stats = cache.stats().await;
+        assert_eq!(stats.total_entries, 3);
+        assert_eq!(stats.evictions, 2);
     }
 }
