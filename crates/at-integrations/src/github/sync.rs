@@ -71,10 +71,10 @@ impl IssueSyncEngine {
 
     /// Check for new/updated issues since `since`.
     pub async fn poll_updates(&self, since: DateTime<Utc>) -> Result<Vec<GitHubIssue>> {
-        // Fetch all open issues and filter by updated_at >= since.
-        let all_issues = issues::list_issues(&self.client, None, None, None, None).await?;
-
-        let updated: Vec<GitHubIssue> = all_issues
+        // Server-side `since` + sort=updated, paginated; the client-side
+        // filter guards against servers that ignore `since`.
+        let updated = issues::list_issues_updated_since(&self.client, None, since)
+            .await?
             .into_iter()
             .filter(|issue| issue.updated_at >= since)
             .collect();
