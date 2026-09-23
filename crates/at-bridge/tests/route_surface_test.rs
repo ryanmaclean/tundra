@@ -8,8 +8,10 @@
 //! auth layer. It also checks that `GET /api/catalog` lists exactly the routes
 //! the router serves: every catalogued route is served, and on every
 //! catalogued path each uncatalogued method is rejected with 405. The two
-//! catalog routes are the only unauthenticated ones: they answer without a
-//! key, are rate limited, and report `auth: none`.
+//! catalog routes and the JSON Schema routes are the only unauthenticated
+//! ones: they answer without a key, are rate limited, and report
+//! `auth: none`. Routes added after the snapshot are listed in
+//! [`ADDED_SINCE_SNAPSHOT`] (the fixture itself stays frozen).
 
 use std::collections::BTreeSet;
 use std::net::SocketAddr;
@@ -33,6 +35,19 @@ const ROUTE_MISS: StatusCode = StatusCode::IM_A_TEAPOT;
 /// `Path<Uuid>` / `Path<String>` extractors; numeric params reject it with
 /// 400, which still proves the route matched.
 const PARAM_VALUE: &str = "00000000-0000-0000-0000-000000000001";
+
+/// Routes added after the `routes.txt` snapshot was taken.
+const ADDED_SINCE_SNAPSHOT: &[(&str, &str)] = &[
+    ("GET", "/api/tasks/{id}/merge-gate"),
+    ("POST", "/api/tasks/{id}/merge"),
+    ("GET", "/api/v1/schemas"),
+    ("GET", "/api/v1/schemas/{*id}"),
+];
+
+/// Paths served without the API key (cold discovery).
+fn is_public(path: &str) -> bool {
+    path == CATALOG_PATH || path == CATALOG_V1_PATH || path.starts_with("/api/v1/schemas")
+}
 
 fn fixture_routes() -> BTreeSet<(String, String)> {
     include_str!("fixtures/routes.txt")
@@ -80,7 +95,9 @@ fn catalog_routes(catalog: &ApiCatalog) -> BTreeSet<(String, String)> {
 fn concrete(path: &str) -> String {
     path.split('/')
         .map(|seg| {
-            if seg.starts_with('{') && seg.ends_with('}') {
+            if seg == "{*id}" {
+                "at.merge_gate.report/v1"
+            } else if seg.starts_with('{') && seg.ends_with('}') {
                 PARAM_VALUE
             } else {
                 seg
@@ -192,6 +209,9 @@ async fn catalog_lists_exactly_the_snapshot_plus_itself() {
     let mut expected = fixture_routes();
     expected.insert(("GET".into(), CATALOG_PATH.into()));
     expected.insert(("GET".into(), CATALOG_V1_PATH.into()));
+    for (m, p) in ADDED_SINCE_SNAPSHOT {
+        expected.insert((m.to_string(), p.to_string()));
+    }
     let listed = catalog_routes(&catalog);
     assert_eq!(listed.len(), catalog.cards.len(), "no duplicate cards");
     let missing: Vec<_> = expected.difference(&listed).collect();
@@ -275,7 +295,7 @@ async fn catalog_matches_bop_catalog_v1_shape() {
             card.title
         );
         assert!(!card.domain.is_empty());
-        let expected_auth = if card.path == CATALOG_PATH || card.path == CATALOG_V1_PATH {
+        let expected_auth = if is_public(&card.path) {
             RouteAuth::None
         } else {
             RouteAuth::ApiKey
@@ -333,7 +353,7 @@ async fn catalog_is_served_without_the_api_key_and_reports_dev_mode() {
             catalog
                 .cards
                 .iter()
-                .filter(|c| c.path != CATALOG_PATH && c.path != CATALOG_V1_PATH)
+                .filter(|c| !is_public(&c.path))
                 .all(|c| c.auth == RouteAuth::ApiKey),
             "{path}"
         );
@@ -349,7 +369,7 @@ async fn catalog_is_served_without_the_api_key_and_reports_dev_mode() {
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     for card in json["cards"].as_array().unwrap() {
         let path = card["path"].as_str().unwrap();
-        let want = if path == CATALOG_PATH || path == CATALOG_V1_PATH {
+        let want = if is_public(path) {
             "none"
         } else {
             "api_key"
@@ -420,4 +440,84 @@ async fn unmatched_path_still_requires_the_api_key() {
         .unwrap()
         .status();
     assert_eq!(status, StatusCode::UNAUTHORIZED);
+}
+
+// ---------------------------------------------------------------------------
+// JSON Schemas referenced by catalog cards
+// ---------------------------------------------------------------------------
+
+async fn get_raw(app: &Router, uri: &str, api_key: Option<&str>) -> (StatusCode, Vec<u8>) {
+    let mut b = Request::builder().method("GET").uri(uri);
+    if let Some(k) = api_key {
+        b = b.header("x-api-key", k);
+    }
+    let resp = app.clone().oneshot(b.body(Body::empty()).unwrap()).await.unwrap();
+    let status = resp.status();
+    let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap()
+        .to_vec();
+    (status, body)
+}
+
+#[tokio::test]
+async fn every_catalogued_schema_resolves_without_a_key() {
+    let app = app();
+    let catalog = fetch_catalog(&app, CATALOG_PATH, None).await;
+    let ids: BTreeSet<String> = catalog
+        .cards
+        .iter()
+        .flat_map(|c| c.schemas.iter().cloned())
+        .collect();
+    assert!(
+        ids.contains(at_api_types::merge_gate::MERGE_GATE_SCHEMA_ID),
+        "merge routes reference the gate report schema: {ids:?}"
+    );
+    for id in &ids {
+        let (status, body) =
+            get_raw(&app, &at_api_types::schemas::path_for(id), None).await;
+        assert_eq!(status, StatusCode::OK, "{id}");
+        let doc: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(doc["$id"], id.as_str(), "{id}");
+    }
+
+    let (status, body) = get_raw(&app, "/api/v1/schemas", None).await;
+    assert_eq!(status, StatusCode::OK);
+    let listing: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let listed: BTreeSet<String> = listing["schemas"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s["id"].as_str().unwrap().to_string())
+        .collect();
+    assert!(ids.is_subset(&listed), "{ids:?} vs {listed:?}");
+
+    let (status, _) = get_raw(&app, "/api/v1/schemas/nope/v9", None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn merge_routes_carry_types_and_schema_ids() {
+    let catalog = fetch_catalog(&app(), CATALOG_PATH, Some(API_KEY)).await;
+    let card = |id: &str| {
+        catalog
+            .cards
+            .iter()
+            .find(|c| c.id == id)
+            .unwrap_or_else(|| panic!("no card {id}"))
+            .clone()
+    };
+    let gate = card("get-api-tasks-id-merge-gate");
+    assert_eq!(gate.schemas, vec!["at.merge_gate.report/v1".to_string()]);
+    let merge = card("post-api-tasks-id-merge");
+    assert_eq!(merge.response.as_deref(), Some("ApiMergeResponse"));
+    assert_eq!(merge.schemas, vec!["at.merge_gate.report/v1".to_string()]);
+    let wt = card("post-api-worktrees-id-merge");
+    assert_eq!(wt.response.as_deref(), Some("ApiMergeResponse"));
+    let exec = card("post-api-tasks-id-execute");
+    assert_eq!(exec.response.as_deref(), Some("ExecuteTaskResponse"));
+    assert!(card("post-api-tasks").description.contains("acceptance_criteria"));
+    assert!(card("put-api-tasks-id").description.contains("acceptance_criteria"));
+    let schema_route = card("get-api-v1-schemas-id");
+    assert_eq!(schema_route.auth, RouteAuth::None);
 }
