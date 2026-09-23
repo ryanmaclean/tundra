@@ -455,10 +455,30 @@ impl<'a> MergeGate<'a> {
 // Command runner
 // ---------------------------------------------------------------------------
 
+/// Environment variables passed through to `sh -c <criterion>`. Everything
+/// else -- API keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, ...), tokens and
+/// any other secret the daemon process holds -- is cleared, because
+/// `stdout_tail`/`stderr_tail` are broadcast over the WebSocket, stored on
+/// the task, and can end up in a PR body.
+const CRITERION_ENV_ALLOWLIST: &[&str] = &[
+    "PATH",
+    "HOME",
+    "USER",
+    "LANG",
+    "LC_ALL",
+    "TMPDIR",
+    "CARGO_HOME",
+    "RUSTUP_HOME",
+    "SHELL",
+];
+
 /// Run one acceptance criterion as `sh -c <cmd>` in `dir`.
 ///
 /// On timeout the whole process group is killed (so `sh -c 'sleep 999 & wait'`
-/// cannot outlive the gate) and whatever output was produced is kept.
+/// cannot outlive the gate) and whatever output was produced is kept. The
+/// child's environment is cleared to [`CRITERION_ENV_ALLOWLIST`] so secrets
+/// held by the daemon process (API keys, tokens) can never appear in the
+/// command's output.
 pub async fn run_criterion(
     cmd: &str,
     dir: &Path,
@@ -471,6 +491,12 @@ pub async fn run_criterion(
         .arg("-c")
         .arg(cmd)
         .current_dir(dir)
+        .env_clear()
+        .envs(
+            CRITERION_ENV_ALLOWLIST
+                .iter()
+                .filter_map(|k| std::env::var(k).ok().map(|v| (k.to_string(), v))),
+        )
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -730,5 +756,41 @@ mod tests {
         .await;
         assert_eq!(r.exit_code, None);
         assert!(r.stderr_tail.contains("failed to spawn"));
+    }
+
+    /// Secrets held by the daemon process must never leak into acceptance
+    /// criteria output: it is broadcast over the WebSocket, stored on the
+    /// task and can land in a PR body.
+    #[tokio::test]
+    async fn run_criterion_does_not_leak_env_secrets() {
+        // SAFETY: single-threaded within this test's tokio runtime; no other
+        // test reads this variable.
+        unsafe {
+            std::env::set_var("ANTHROPIC_API_KEY", "sk-super-secret-value");
+        }
+        let dir = std::env::temp_dir();
+        let r = run_criterion(
+            "echo \"key=[$ANTHROPIC_API_KEY]\"",
+            &dir,
+            Duration::from_secs(10),
+            1024,
+        )
+        .await;
+        unsafe {
+            std::env::remove_var("ANTHROPIC_API_KEY");
+        }
+        assert_eq!(r.exit_code, Some(0));
+        assert_eq!(r.stdout_tail, "key=[]\n");
+        assert!(!r.stdout_tail.contains("sk-super-secret-value"));
+    }
+
+    #[tokio::test]
+    async fn run_criterion_keeps_allowlisted_path() {
+        let dir = std::env::temp_dir();
+        // `sh` itself must still be resolvable via PATH after env_clear.
+        let r = run_criterion("echo -n \"$PATH\" | wc -c", &dir, Duration::from_secs(10), 64)
+            .await;
+        assert_eq!(r.exit_code, Some(0));
+        assert_ne!(r.stdout_tail.trim(), "0", "PATH must survive env_clear");
     }
 }
