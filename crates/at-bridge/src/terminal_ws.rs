@@ -143,7 +143,8 @@ use at_harness::security::{InputSanitizer, SecurityError};
 use crate::http_api::ApiState;
 use crate::origin_validation::OriginAllowlist;
 use crate::terminal::{
-    DisconnectBuffer, TerminalInfo, TerminalStatus, DISCONNECT_BUFFER_SIZE, WS_RECONNECT_GRACE,
+    DisconnectBuffer, PtyChunk, TerminalConn, TerminalInfo, TerminalStatus,
+    DISCONNECT_BUFFER_SIZE, OUTPUT_FANOUT_CAPACITY, WS_RECONNECT_GRACE,
 };
 
 /// Default heartbeat interval for terminal WebSocket connections (30 seconds).
@@ -167,6 +168,9 @@ pub struct TerminalWsSettings {
     /// Pong, ...) for this long. `None` disables the check. This measures
     /// *client* liveness only; a quiet PTY never closes the connection.
     pub liveness_timeout: Option<Duration>,
+    /// How long a terminal with no connected client keeps its PTY alive
+    /// (buffering output) before it is killed.
+    pub reconnect_grace: Duration,
 }
 
 impl Default for TerminalWsSettings {
@@ -174,6 +178,7 @@ impl Default for TerminalWsSettings {
         Self {
             heartbeat_interval: WS_HEARTBEAT_INTERVAL,
             liveness_timeout: Some(WS_LIVENESS_TIMEOUT),
+            reconnect_grace: WS_RECONNECT_GRACE,
         }
     }
 }
@@ -190,6 +195,7 @@ impl TerminalWsSettings {
         Self {
             heartbeat_interval,
             liveness_timeout,
+            reconnect_grace: WS_RECONNECT_GRACE,
         }
     }
 }
@@ -599,6 +605,15 @@ pub async fn delete_terminal(
     {
         let mut buffers = state.disconnect_buffers.write().await;
         buffers.remove(&terminal_id);
+    }
+
+    // Drop the connection-tracking entry too, or it leaks forever: nothing
+    // else removes `terminal_conns[terminal_id]` once the terminal itself is
+    // gone (the reconnect-grace task only reaps it after its own timeout, and
+    // that task never runs for a terminal deleted outright via this route).
+    {
+        let mut conns = state.terminal_conns.lock().await;
+        conns.remove(&terminal_id);
     }
 
     (
@@ -1023,6 +1038,62 @@ pub async fn terminal_ws(
         .into_response()
 }
 
+/// Forward client input to the PTY stdin channel.
+///
+/// The channel is bounded; when the foreground process stops reading stdin it
+/// fills up. `send_async` parks this task instead of the tokio worker thread,
+/// so the runtime keeps serving other connections and the connection task
+/// stays abortable (Close, liveness timeout, heartbeat failure still work).
+async fn forward_input(tx: &flume::Sender<Vec<u8>>, bytes: Vec<u8>, terminal_id: Uuid) {
+    if tx.send_async(bytes).await.is_err() {
+        tracing::debug!(%terminal_id, "PTY writer closed, dropping input");
+    }
+}
+
+/// Subscribe to a terminal's PTY output fan-out, starting the hub task that
+/// owns the PTY reader if none is running. `None` when the PTY is gone.
+///
+/// Call with `conns` locked so hub creation cannot race.
+async fn subscribe_output(
+    state: &ApiState,
+    conns: &mut std::collections::HashMap<Uuid, TerminalConn>,
+    terminal_id: Uuid,
+) -> Option<tokio::sync::broadcast::Receiver<PtyChunk>> {
+    let conn = conns.entry(terminal_id).or_default();
+    if let Some(tx) = conn.output.as_ref().and_then(|w| w.upgrade()) {
+        return Some(tx.subscribe());
+    }
+    let reader = {
+        let handles = state.pty_handles.read().await;
+        handles.get(&terminal_id)?.reader.clone()
+    };
+    let (tx, rx) = tokio::sync::broadcast::channel::<PtyChunk>(OUTPUT_FANOUT_CAPACITY);
+    conn.output = Some(tx.downgrade());
+    // The hub holds the only strong sender: when the PTY closes the hub
+    // exits and every subscriber sees `Closed`.
+    tokio::spawn(async move {
+        while let Ok(chunk) = reader.recv_async().await {
+            // No subscribers is fine: output with no viewer is dropped.
+            let _ = tx.send(PtyChunk::from(chunk));
+        }
+        tracing::debug!(%terminal_id, "PTY reader closed, output hub exiting");
+    });
+    Some(rx)
+}
+
+/// Receive the next chunk, skipping over any the receiver lagged past.
+async fn recv_chunk(rx: &mut tokio::sync::broadcast::Receiver<PtyChunk>) -> Option<PtyChunk> {
+    loop {
+        match rx.recv().await {
+            Ok(chunk) => return Some(chunk),
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                tracing::warn!(skipped = n, "terminal output subscriber lagged");
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Closed) => return None,
+        }
+    }
+}
+
 /// Internal handler for managing WebSocket connection lifecycle.
 ///
 /// This function implements the core WebSocket protocol logic, including:
@@ -1034,12 +1105,12 @@ pub async fn terminal_ws(
 ///
 /// # Architecture
 ///
-/// The handler spawns three concurrent tasks:
+/// ## 1. Output (PTY → WebSocket)
 ///
-/// ## 1. Reader Task (PTY → WebSocket)
-///
-/// Reads output from the PTY's stdout/stderr channel and forwards it to the WebSocket
-/// as text messages. There is deliberately no timeout here: an idle prompt,
+/// PTY output is read by one hub task per terminal and fanned out through a
+/// broadcast channel ([`TerminalConn::output`]), so concurrent connections
+/// (two viewers, or a remount overlapping the old socket) each see the full
+/// stream. There is deliberately no timeout here: an idle prompt,
 /// `sleep 600` or a quiet build must not close the connection (and, after the
 /// reconnect grace period, kill the shell).
 ///
@@ -1060,62 +1131,57 @@ pub async fn terminal_ws(
 ///
 /// # Reconnection Logic
 ///
-/// When this handler is invoked:
-/// 1. Check for existing disconnect buffer (indicates reconnection)
-/// 2. If buffer exists, replay all buffered output to restore terminal state
-/// 3. Transition terminal status from `Disconnected` → `Active`
-///
-/// This allows clients to seamlessly resume sessions after brief network interruptions.
+/// On connect the terminal's connection count and generation are bumped, any
+/// disconnect buffer is replayed, and the status becomes `Active`.
 ///
 /// # Disconnection Handling
 ///
-/// When any task exits (idle timeout, client disconnect, heartbeat failure):
-/// 1. Abort all spawned tasks to release PTY reader resources
-/// 2. Transition terminal status to `Disconnected` with timestamp
-/// 3. Create disconnect buffer (4KB ring buffer for PTY output)
-/// 4. Spawn background task to buffer output for 30 seconds
-/// 5. If no reconnection occurs, kill PTY and mark terminal `Dead`
-///
-/// # Grace Period Details
-///
-/// The 30-second grace period ([`WS_RECONNECT_GRACE`]) allows clients to:
-/// - Recover from transient network failures
-/// - Reload the page without losing session
-/// - Switch tabs without session termination
-///
-/// During this period, PTY output is buffered (last 4KB) and replayed on reconnection.
-/// If the grace period expires, the PTY process is killed and subsequent reconnection
-/// attempts receive 410 Gone.
+/// When the connection ends, the connection count drops. Only when it reaches
+/// zero does the terminal enter `Disconnected` and a grace task start
+/// buffering output (last 64 KiB). The grace task kills the PTY after
+/// [`TerminalWsSettings::reconnect_grace`] only if no connection arrived in
+/// the meantime (generation unchanged, count still zero).
 async fn handle_terminal_ws(socket: WebSocket, state: Arc<ApiState>, terminal_id: Uuid) {
     use futures_util::{SinkExt, StreamExt};
 
     let (ws_sender, mut ws_receiver) = socket.split();
 
-    // Wrap ws_sender in Arc<Mutex> so both the reader task (PTY -> WS)
-    // and the heartbeat task (Ping frames) can send through it.
+    // Wrap ws_sender in Arc<Mutex> so the output loop (PTY -> WS) and the
+    // heartbeat task (Ping frames) can both send through it.
     let ws_sender = Arc::new(tokio::sync::Mutex::new(ws_sender));
 
     // -----------------------------------------------------------------------
-    // Replay buffered output if reconnecting to a Disconnected terminal.
+    // Attach: count the connection, subscribe to output, take the replay.
     // -----------------------------------------------------------------------
-    {
+    let (my_generation, mut output_rx, replay) = {
+        let mut conns = state.terminal_conns.lock().await;
+        // Subscribe and take the disconnect buffer together, so output lands
+        // either in the replay or in our subscription.
         let mut buffers = state.disconnect_buffers.write().await;
-        if let Some(mut buf) = buffers.remove(&terminal_id) {
-            let buffered = buf.drain_all();
-            if !buffered.is_empty() {
-                let text = String::from_utf8_lossy(&buffered).into_owned();
-                tracing::info!(
-                    %terminal_id,
-                    bytes = buffered.len(),
-                    "replaying disconnect buffer on reconnect"
-                );
-                let _ = ws_sender
-                    .lock()
-                    .await
-                    .send(Message::Text(text.into()))
-                    .await;
-            }
-        }
+        let Some(rx) = subscribe_output(&state, &mut conns, terminal_id).await else {
+            return; // PTY gone
+        };
+        let replay = buffers.remove(&terminal_id).map(|mut b| b.drain_all());
+        drop(buffers);
+        let conn = conns.entry(terminal_id).or_default();
+        conn.active += 1;
+        conn.generation += 1;
+        (conn.generation, rx, replay)
+    };
+
+    // Replay buffered output if reconnecting to a Disconnected terminal.
+    if let Some(buffered) = replay.filter(|b| !b.is_empty()) {
+        let text = String::from_utf8_lossy(&buffered).into_owned();
+        tracing::info!(
+            %terminal_id,
+            bytes = buffered.len(),
+            "replaying disconnect buffer on reconnect"
+        );
+        let _ = ws_sender
+            .lock()
+            .await
+            .send(Message::Text(text.into()))
+            .await;
     }
 
     // Mark the terminal as Active (covers both fresh and reconnect cases).
@@ -1124,36 +1190,28 @@ async fn handle_terminal_ws(socket: WebSocket, state: Arc<ApiState>, terminal_id
         registry.update_status(&terminal_id, TerminalStatus::Active);
     }
 
-    // Clone the reader channel from the PTY handle.
-    let pty_reader = {
-        let handles = state.pty_handles.read().await;
-        match handles.get(&terminal_id) {
-            Some(handle) => handle.reader.clone(),
-            None => return,
-        }
-    };
-
     let pty_writer = {
         let handles = state.pty_handles.read().await;
-        match handles.get(&terminal_id) {
-            Some(handle) => handle.writer.clone(),
-            None => return,
-        }
+        handles.get(&terminal_id).map(|h| h.writer.clone())
+    };
+    let Some(pty_writer) = pty_writer else {
+        detach(&state, terminal_id, my_generation, output_rx).await;
+        return;
     };
 
     let ws_settings = state.terminal_ws;
 
     // -----------------------------------------------------------------------
-    // Task 1: PTY stdout -> WebSocket
+    // Output: PTY stdout -> WebSocket
     // -----------------------------------------------------------------------
-    // Forwards PTY output to the WebSocket client. No timeout: PTY silence is
-    // not a dead connection. Dead clients are detected by the writer task's
-    // liveness check and by failed heartbeat sends.
+    // Runs inline (not spawned) so `output_rx` is still ours after the
+    // connection ends and can be handed to the grace task without a gap.
+    // No timeout: PTY silence is not a dead connection.
     let ws_sender_reader = ws_sender.clone();
-    let reader_task_handle = tokio::spawn(async move {
-        while let Ok(data) = pty_reader.recv_async().await {
+    let output_loop = async {
+        while let Some(chunk) = recv_chunk(&mut output_rx).await {
             // Convert raw bytes to UTF-8 (with lossy conversion for invalid sequences).
-            let text = String::from_utf8_lossy(&data).into_owned();
+            let text = String::from_utf8_lossy(&chunk).into_owned();
             if ws_sender_reader
                 .lock()
                 .await
@@ -1165,11 +1223,9 @@ async fn handle_terminal_ws(socket: WebSocket, state: Arc<ApiState>, terminal_id
                 return;
             }
         }
-        // PTY reader channel closed — child process exited.
-        tracing::debug!("PTY reader closed");
-    });
-
-    let reader_abort = reader_task_handle.abort_handle();
+        // PTY output closed — child process exited.
+        tracing::debug!(%terminal_id, "PTY output closed");
+    };
 
     // -----------------------------------------------------------------------
     // Task 2: WebSocket -> PTY stdin (with client liveness timeout)
@@ -1195,7 +1251,8 @@ async fn handle_terminal_ws(socket: WebSocket, state: Arc<ApiState>, terminal_id
                                 match cmd {
                                     WsIncoming::Input { data } => {
                                         // Write raw input to PTY stdin.
-                                        let _ = pty_writer.send(data.into_bytes());
+                                        forward_input(&pty_writer, data.into_bytes(), writer_terminal_id)
+                                            .await;
                                     }
                                     WsIncoming::Resize { cols, rows } => {
                                         tracing::debug!(
@@ -1233,12 +1290,17 @@ async fn handle_terminal_ws(socket: WebSocket, state: Arc<ApiState>, terminal_id
                             } else {
                                 // Not JSON — treat as plain text input.
                                 // This allows simple clients to send keystrokes without JSON wrapping.
-                                let _ = pty_writer.send(text.as_bytes().to_vec());
+                                forward_input(
+                                    &pty_writer,
+                                    text.as_bytes().to_vec(),
+                                    writer_terminal_id,
+                                )
+                                .await;
                             }
                         }
                         Message::Binary(data) => {
                             // Binary data forwarded directly to PTY stdin.
-                            let _ = pty_writer.send(data.to_vec());
+                            forward_input(&pty_writer, data.to_vec(), writer_terminal_id).await;
                         }
                         Message::Close(_) => break,
                         _ => {
@@ -1294,86 +1356,85 @@ async fn handle_terminal_ws(socket: WebSocket, state: Arc<ApiState>, terminal_id
     let heartbeat_abort = heartbeat_task_handle.abort_handle();
 
     // -----------------------------------------------------------------------
-    // Wait for any task to complete — then the connection is done.
+    // Wait for any of them to finish — then the connection is done.
     // -----------------------------------------------------------------------
     tokio::select! {
-        _ = reader_task_handle => {},
+        _ = output_loop => {},
         _ = writer_task_handle => {},
         _ = heartbeat_task_handle => {},
     }
-
-    // Abort all spawned tasks to release resources immediately.
-    // CRITICAL: The reader_task must drop its Receiver clone before the
-    // background buffer task can successfully read from the channel.
-    // Without this, the buffer task would hang waiting for the reader_task
-    // to release the channel.
-    reader_abort.abort();
     writer_abort.abort();
     heartbeat_abort.abort();
 
-    // Yield to the runtime to ensure aborts are processed and task state is dropped.
-    tokio::task::yield_now().await;
+    detach(&state, terminal_id, my_generation, output_rx).await;
+}
 
-    // -----------------------------------------------------------------------
-    // WS connection ended — enter Disconnected state and start buffering.
-    // -----------------------------------------------------------------------
-    tracing::info!(%terminal_id, "WebSocket disconnected, entering grace period");
+/// Connection teardown. Drops the connection count; when no connection is
+/// left, enter `Disconnected` and start the reconnect-grace task, which keeps
+/// buffering output from `output_rx` and kills the PTY if nobody reconnects.
+async fn detach(
+    state: &Arc<ApiState>,
+    terminal_id: Uuid,
+    my_generation: u64,
+    output_rx: tokio::sync::broadcast::Receiver<PtyChunk>,
+) {
+    let generation = {
+        let mut conns = state.terminal_conns.lock().await;
+        let Some(conn) = conns.get_mut(&terminal_id) else {
+            return;
+        };
+        conn.active = conn.active.saturating_sub(1);
+        if conn.active > 0 {
+            tracing::info!(
+                %terminal_id,
+                my_generation,
+                remaining = conn.active,
+                "WebSocket closed; other connections still attached"
+            );
+            return;
+        }
+        let generation = conn.generation;
 
-    // Set status to Disconnected.
-    {
-        let mut registry = state.terminal_registry.write().await;
-        registry.update_status(
+        // Last connection gone. Still under the conns lock, so a concurrent
+        // connect cannot interleave with these two writes.
+        tracing::info!(%terminal_id, "WebSocket disconnected, entering grace period");
+        state.terminal_registry.write().await.update_status(
             &terminal_id,
             TerminalStatus::Disconnected {
                 since: chrono::Utc::now(),
             },
         );
-    }
-
-    // Create a disconnect buffer.
-    {
-        let mut buffers = state.disconnect_buffers.write().await;
-        buffers.insert(terminal_id, DisconnectBuffer::new(DISCONNECT_BUFFER_SIZE));
-    }
-
-    // Clone the PTY reader again for the background buffer task.
-    let pty_reader_bg = {
-        let handles = state.pty_handles.read().await;
-        match handles.get(&terminal_id) {
-            Some(handle) => handle.reader.clone(),
-            None => return, // PTY already gone
-        }
+        state
+            .disconnect_buffers
+            .write()
+            .await
+            .insert(terminal_id, DisconnectBuffer::new(DISCONNECT_BUFFER_SIZE));
+        generation
     };
 
     // -----------------------------------------------------------------------
-    // Spawn background task to buffer PTY output during grace period.
+    // Grace task: buffer PTY output until a client reconnects, or kill the
+    // PTY when the grace period expires with nobody attached.
     // -----------------------------------------------------------------------
-    // This task continues reading PTY output for WS_RECONNECT_GRACE (30 seconds)
-    // and buffers it (last 4KB) in case the client reconnects. If the grace
-    // period expires without reconnection, the PTY is killed and the terminal
-    // transitions to Dead status.
+    let grace = state.terminal_ws.reconnect_grace;
     let bg_state = state.clone();
+    let mut output_rx = output_rx;
     tokio::spawn(async move {
-        let deadline = tokio::time::Instant::now() + WS_RECONNECT_GRACE;
+        let deadline = tokio::time::Instant::now() + grace;
 
         loop {
             let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
             if remaining.is_zero() {
-                // Grace period expired.
                 break;
             }
-
-            match tokio::time::timeout(remaining, pty_reader_bg.recv_async()).await {
-                Ok(Ok(data)) => {
-                    // PTY produced output — add to disconnect buffer.
+            match tokio::time::timeout(remaining, recv_chunk(&mut output_rx)).await {
+                Ok(Some(data)) => {
                     let mut buffers = bg_state.disconnect_buffers.write().await;
                     match buffers.get_mut(&terminal_id) {
-                        Some(buf) => {
-                            // Buffer exists — push data (ring buffer overwrites oldest data).
-                            buf.push(&data);
-                        }
+                        // Ring buffer: overwrites the oldest data.
+                        Some(buf) => buf.push(&data),
                         None => {
-                            // Buffer was consumed by a reconnecting client — stop buffering.
+                            // Consumed by a reconnecting client.
                             tracing::debug!(
                                 %terminal_id,
                                 "disconnect buffer consumed, reconnect happened"
@@ -1382,38 +1443,38 @@ async fn handle_terminal_ws(socket: WebSocket, state: Arc<ApiState>, terminal_id
                         }
                     }
                 }
-                Ok(Err(_)) => {
-                    // PTY reader channel closed — child process exited during grace period.
+                Ok(None) => {
                     tracing::debug!(%terminal_id, "PTY closed during disconnect grace period");
                     break;
                 }
-                Err(_) => {
-                    // Timeout — grace period expired without PTY output.
-                    break;
-                }
+                // Grace period expired.
+                Err(_) => break,
             }
         }
+        drop(output_rx);
 
-        // -----------------------------------------------------------------------
-        // Grace period expired or PTY closed. Check if still disconnected.
-        // -----------------------------------------------------------------------
-        {
-            let registry = bg_state.terminal_registry.read().await;
-            if let Some(info) = registry.get(&terminal_id) {
-                if !matches!(info.status, TerminalStatus::Disconnected { .. }) {
-                    // Terminal was reconnected or manually deleted — don't kill.
-                    return;
-                }
-            } else {
-                // Terminal was removed from registry (manually deleted).
-                return;
-            }
-        }
-
-        tracing::info!(
-            %terminal_id,
-            "reconnect grace period expired, killing terminal"
+        // Kill only if nobody attached since this grace period began. The
+        // conns lock is held through the kill so no connect can slip in.
+        let mut conns = bg_state.terminal_conns.lock().await;
+        let untouched = conns
+            .get(&terminal_id)
+            .is_some_and(|c| c.active == 0 && c.generation == generation);
+        let still_disconnected = matches!(
+            bg_state
+                .terminal_registry
+                .read()
+                .await
+                .get(&terminal_id)
+                .map(|i| &i.status),
+            Some(TerminalStatus::Disconnected { .. })
         );
+        if !untouched || !still_disconnected {
+            // Reconnected (maybe disconnected again: that grace task owns it
+            // now) or manually deleted.
+            return;
+        }
+
+        tracing::info!(%terminal_id, "reconnect grace period expired, killing terminal");
 
         // -----------------------------------------------------------------------
         // Kill the PTY process and clean up all resources.
@@ -1424,23 +1485,18 @@ async fn handle_terminal_ws(socket: WebSocket, state: Arc<ApiState>, terminal_id
         if let Some(handle) = removed {
             let _ = handle.kill_async().await;
         }
-
         // Release terminal ID from pool tracking.
         if let Some(pool) = &bg_state.pty_pool {
             pool.release(terminal_id);
         }
-
-        // Set status to Dead — subsequent reconnect attempts will receive 410 Gone.
-        {
-            let mut registry = bg_state.terminal_registry.write().await;
-            registry.update_status(&terminal_id, TerminalStatus::Dead);
-        }
-
-        // Clean up the disconnect buffer.
-        {
-            let mut buffers = bg_state.disconnect_buffers.write().await;
-            buffers.remove(&terminal_id);
-        }
+        // Set status to Dead — subsequent reconnect attempts get 410 Gone.
+        bg_state
+            .terminal_registry
+            .write()
+            .await
+            .update_status(&terminal_id, TerminalStatus::Dead);
+        bg_state.disconnect_buffers.write().await.remove(&terminal_id);
+        conns.remove(&terminal_id);
     });
 }
 
@@ -1465,6 +1521,32 @@ mod tests {
         let event_bus = crate::event_bus::EventBus::new();
         let pool = Arc::new(at_session::pty_pool::PtyPool::new(4));
         Arc::new(ApiState::with_pty_pool(event_bus, pool))
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn forward_input_yields_when_pty_stdin_is_full() {
+        // A full stdin channel (foreground process not reading) must not
+        // block the runtime thread: on a current-thread runtime a blocking
+        // send would hang this test forever.
+        let (tx, rx) = flume::bounded::<Vec<u8>>(1);
+        tx.send(b"fill".to_vec()).unwrap();
+
+        let tid = Uuid::new_v4();
+        let pending = tokio::spawn({
+            let tx = tx.clone();
+            async move { forward_input(&tx, b"next".to_vec(), tid).await }
+        });
+        tokio::task::yield_now().await;
+        assert!(!pending.is_finished(), "send waits for room");
+
+        // Still abortable while parked on the full channel.
+        pending.abort();
+        assert!(pending.await.unwrap_err().is_cancelled());
+
+        // And delivers once there is room.
+        assert_eq!(rx.recv().unwrap(), b"fill");
+        forward_input(&tx, b"ok".to_vec(), tid).await;
+        assert_eq!(rx.recv().unwrap(), b"ok");
     }
 
     fn test_app(state: Arc<ApiState>) -> axum::Router {

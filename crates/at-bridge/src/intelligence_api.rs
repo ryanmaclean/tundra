@@ -500,6 +500,7 @@ pub(crate) async fn generate_ideas(
         }
         Err(_) => engine.generate_ideas(&category, &context),
     };
+    drop(engine);
     (
         axum::http::StatusCode::CREATED,
         Json(serde_json::json!(result)),
@@ -1170,10 +1171,12 @@ pub(crate) async fn get_changelog(
     // D2: Support source=tasks to generate from task history
     if query.source.as_deref() == Some("tasks") {
         let tasks = state.tasks.read().await;
-        let completed_tasks: Vec<_> = tasks
+        let mut completed_tasks: Vec<_> = tasks
             .values()
             .filter(|t| t.phase == at_core::types::TaskPhase::Complete)
             .collect();
+        // Stable output: tasks is a HashMap.
+        completed_tasks.sort_by_key(|t| (t.created_at, t.id));
 
         if completed_tasks.is_empty() {
             return (
@@ -1184,8 +1187,9 @@ pub(crate) async fn get_changelog(
             );
         }
 
-        // Generate changelog entries from completed tasks
-        let mut engine = state.changelog_engine.write().await;
+        // Build a changelog entry from completed tasks. This is a GET: the
+        // entry is rendered for the caller and NOT stored in the engine
+        // (persisting is POST /api/changelog/generate's job).
         let mut commits = String::new();
         for task in &completed_tasks {
             let category = match task.category {
@@ -1207,9 +1211,12 @@ pub(crate) async fn get_changelog(
             chrono::Utc::now().month(),
             chrono::Utc::now().day()
         );
-        let entry = engine.generate_from_commits(&commits, &version);
-        let markdown = engine.generate_markdown();
-        drop(engine);
+        drop(tasks);
+        let entry = at_intelligence::changelog::ChangelogEngine::build_entry(&commits, &version);
+        let markdown =
+            at_intelligence::changelog::ChangelogEngine::render_entries(std::slice::from_ref(
+                &entry,
+            ));
 
         (
             axum::http::StatusCode::OK,
@@ -1380,6 +1387,134 @@ pub(crate) async fn get_context(Query(query): Query<ContextQuery>) -> impl IntoR
 mod tests {
     use super::*;
     use at_intelligence::{changelog::ChangelogEngine, roadmap::RoadmapEngine};
+
+    /// LLM provider that parks inside `complete` until released.
+    struct GatedProvider {
+        entered: tokio::sync::Notify,
+        release: tokio::sync::Notify,
+    }
+
+    #[async_trait::async_trait]
+    impl at_intelligence::llm::LlmProvider for GatedProvider {
+        async fn complete(
+            &self,
+            _messages: &[at_intelligence::llm::LlmMessage],
+            config: &at_intelligence::llm::LlmConfig,
+        ) -> Result<at_intelligence::llm::LlmResponse, at_intelligence::llm::LlmError> {
+            self.entered.notify_one();
+            self.release.notified().await;
+            Ok(at_intelligence::llm::LlmResponse {
+                content: r#"{"ideas":[{"title":"Gated idea","description":"d","impact":"high","effort":"small"}]}"#.into(),
+                model: config.model.clone(),
+                input_tokens: 1,
+                output_tokens: 1,
+                cache_creation_input_tokens: 0,
+                cache_read_input_tokens: 0,
+                finish_reason: "end_turn".into(),
+            })
+        }
+
+        async fn stream(
+            &self,
+            _messages: &[at_intelligence::llm::LlmMessage],
+            _config: &at_intelligence::llm::LlmConfig,
+        ) -> Result<
+            std::pin::Pin<
+                Box<
+                    dyn futures_util::Stream<Item = Result<String, at_intelligence::llm::LlmError>>
+                        + Send,
+                >,
+            >,
+            at_intelligence::llm::LlmError,
+        > {
+            Err(at_intelligence::llm::LlmError::Unsupported("gated".into()))
+        }
+    }
+
+    #[tokio::test]
+    async fn get_changelog_from_tasks_is_read_only() {
+        use at_core::types::{Task, TaskCategory, TaskComplexity, TaskPhase, TaskPriority};
+
+        let state = Arc::new(ApiState::new(crate::event_bus::EventBus::new()));
+        {
+            let mut task = Task::new(
+                "ship it",
+                Uuid::new_v4(),
+                TaskCategory::Feature,
+                TaskPriority::Medium,
+                TaskComplexity::Small,
+            );
+            task.phase = TaskPhase::Complete;
+            state.tasks.write().await.insert(task.id, task);
+        }
+
+        let mut bodies = Vec::new();
+        for _ in 0..3 {
+            let resp = get_changelog(
+                State(state.clone()),
+                Query(ChangelogQuery {
+                    source: Some("tasks".into()),
+                }),
+            )
+            .await
+            .into_response();
+            assert_eq!(resp.status(), axum::http::StatusCode::OK);
+            let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            bodies.push(v["markdown"].as_str().unwrap().to_string());
+        }
+
+        // Every call renders exactly one entry, and nothing accumulates.
+        for md in &bodies {
+            assert_eq!(md.matches("## [").count(), 1, "{md}");
+            assert!(md.contains("- ship it"), "{md}");
+        }
+        assert!(
+            state.changelog_engine.read().await.list_entries().is_empty(),
+            "GET must not store changelog entries"
+        );
+    }
+
+    #[tokio::test]
+    async fn generate_ideas_does_not_hold_engine_lock_during_llm_call() {
+        use at_intelligence::ideation::IdeationEngine;
+
+        let provider = Arc::new(GatedProvider {
+            entered: tokio::sync::Notify::new(),
+            release: tokio::sync::Notify::new(),
+        });
+        let mut state = ApiState::new(crate::event_bus::EventBus::new());
+        state.ideation_engine = Arc::new(tokio::sync::RwLock::new(
+            IdeationEngine::with_provider(provider.clone(), "mock"),
+        ));
+        let state = Arc::new(state);
+
+        let handler = tokio::spawn(generate_ideas(
+            State(state.clone()),
+            Some(Json(GenerateIdeasRequest {
+                category: IdeaCategory::Performance,
+                context: "ctx".into(),
+            })),
+        ));
+
+        provider.entered.notified().await;
+        // The LLM call is in flight: readers (GET /api/ideation/ideas) and
+        // other writers must not be blocked behind it.
+        assert!(
+            state.ideation_engine.try_read().is_ok(),
+            "ideation engine read lock must be free during the LLM call"
+        );
+        assert!(state.ideation_engine.try_write().is_ok());
+
+        provider.release.notify_one();
+        let resp = handler.await.unwrap().into_response();
+        assert_eq!(resp.status(), axum::http::StatusCode::CREATED);
+        let engine = state.ideation_engine.read().await;
+        assert_eq!(engine.list_ideas().len(), 1);
+        assert_eq!(engine.list_ideas()[0].title, "Gated idea");
+    }
 
     #[test]
     fn test_roadmap_generate_from_codebase() {

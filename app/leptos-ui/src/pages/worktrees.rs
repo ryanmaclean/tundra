@@ -190,19 +190,27 @@ pub fn WorktreesPage() -> impl IntoView {
 
     do_refresh();
 
-    let delete_worktree = move |id: String| {
+    // Forced deletes discard uncommitted changes, so this always runs behind
+    // an explicit `window.confirm` in the "Done" button handler below; `force`
+    // is threaded through rather than hardcoded so a declined confirm (or a
+    // future non-destructive delete path) can still call this with `false`
+    // and have the backend's 409 surfaced instead of silently failing.
+    let delete_worktree = move |id: String, force: bool| {
         spawn_local(async move {
-            match api::delete_worktree(&id).await {
+            match api::delete_worktree(&id, force).await {
                 Ok(_) => match api::fetch_worktrees().await {
                     Ok(data) => {
                         let display: Vec<WorktreeDisplay> =
                             data.into_iter().map(WorktreeDisplay::from_api).collect();
                         set_worktrees.set(display);
+                        set_status_msg.set(None);
                     }
                     Err(_) => {}
                 },
                 Err(e) => {
                     web_sys::console::error_1(&format!("Failed to delete worktree: {e}").into());
+                    set_status_msg.set(None);
+                    set_error_msg.set(Some(format!("Failed to delete worktree: {e}")));
                 }
             }
         });
@@ -393,9 +401,20 @@ pub fn WorktreesPage() -> impl IntoView {
                             }>"Copy Path"</button>
                             <button class="wt-btn wt-btn-done" on:click=move |_| {
                                 let done_id = id_done.clone();
+                                let confirmed = web_sys::window()
+                                    .and_then(|w| {
+                                        w.confirm_with_message(
+                                            "Delete this worktree? Uncommitted changes will be discarded.",
+                                        )
+                                        .ok()
+                                    })
+                                    .unwrap_or(false);
+                                if !confirmed {
+                                    return;
+                                }
                                 set_status_msg.set(Some(format!("Marking worktree {} as done and cleaning up...", done_id)));
                                 let delete_fn = delete_done.clone();
-                                delete_fn(done_id);
+                                delete_fn(done_id, true);
                             }>"Done"</button>
                         </div>
                         <div class="worktree-path-hint">{wt_path}</div>

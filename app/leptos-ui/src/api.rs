@@ -535,10 +535,11 @@ pub async fn fetch_pipeline_queue_status() -> Result<ApiPipelineQueueStatus, Str
 pub async fn fetch_stacks() -> Result<Vec<ApiStack>, String> {
     match fetch_json::<Vec<ApiStack>>(&format!("{}/api/stacks", get_api_base())).await {
         Ok(stacks) => Ok(stacks),
-        Err(_) => {
-            // Return demo stacks when backend is offline
-            Ok(demo_stacks())
-        }
+        // Demo stacks only when the backend is unreachable. An HTTP error
+        // (401, 404, 500) or a parse error is a real failure and must surface
+        // instead of being masked by made-up data.
+        Err(e) if is_connection_error(&e) => Ok(demo_stacks()),
+        Err(e) => Err(e),
     }
 }
 
@@ -768,10 +769,26 @@ async fn delete_request(url: &str) -> Result<(), String> {
 
     let resp: Response = resp_value.dyn_into().map_err(js_err)?;
     if resp.ok() {
-        Ok(())
-    } else {
-        Err(format!("DELETE failed with status {}", resp.status()))
+        return Ok(());
     }
+    let status = resp.status();
+    // Surface the server's JSON error body (e.g. `{"error": ..., "hint": ...}`
+    // from DELETE /api/worktrees/{id}) instead of swallowing it behind a bare
+    // status code.
+    if let Ok(json_promise) = resp.json() {
+        if let Ok(json) = JsFuture::from(json_promise).await {
+            if let Ok(value) = serde_wasm_bindgen::from_value::<serde_json::Value>(json) {
+                let error = value.get("error").and_then(|v| v.as_str());
+                let hint = value.get("hint").and_then(|v| v.as_str());
+                return Err(match (error, hint) {
+                    (Some(error), Some(hint)) => format!("HTTP {status}: {error} ({hint})"),
+                    (Some(error), None) => format!("HTTP {status}: {error}"),
+                    _ => format!("DELETE failed with status {status}"),
+                });
+            }
+        }
+    }
+    Err(format!("DELETE failed with status {status}"))
 }
 
 async fn post_empty<R: for<'de> Deserialize<'de>>(url: &str) -> Result<R, String> {
@@ -864,8 +881,23 @@ pub async fn fetch_worktrees() -> Result<Vec<ApiWorktree>, String> {
     fetch_json(&format!("{}/api/worktrees", get_api_base())).await
 }
 
-pub async fn delete_worktree(id: &str) -> Result<(), String> {
-    delete_request(&format!("{}/api/worktrees/{id}", get_api_base())).await
+/// Delete a worktree via `DELETE /api/worktrees/{id}[?force=true]`.
+///
+/// The backend defaults to `force=false`: a worktree with uncommitted
+/// changes is kept and the call answers 409 with a git error message. The
+/// UI's delete flow (`WorktreesPage`) confirms with the user via a native
+/// `window.confirm` dialog before calling this with `force: true`, since a
+/// forced delete discards uncommitted changes; a non-forced call (or a
+/// declined confirm) leaves the 409 to be surfaced to the user rather than
+/// silently dropped.
+pub async fn delete_worktree(id: &str, force: bool) -> Result<(), String> {
+    let base = format!("{}/api/worktrees/{id}", get_api_base());
+    let url = if force {
+        format!("{base}?force=true")
+    } else {
+        base
+    };
+    delete_request(&url).await
 }
 
 pub async fn fetch_costs() -> Result<ApiCosts, String> {

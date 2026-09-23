@@ -14,7 +14,8 @@ use crate::terminal_ws;
 use super::catalog::{get_catalog, Domain, RouteSpec as R, SMALL_BODY};
 use super::{
     agents, beads, bootstrap, github, integrations, kanban, mcp, mcp_sse, metrics, misc,
-    notifications, pipeline, projects, queue, sessions, settings, tasks, websocket, worktrees,
+    notifications, pipeline, projects, queue, sessions, settings, stacks, tasks, websocket,
+    worktrees,
 };
 
 /// Every domain, in mount order.
@@ -25,6 +26,7 @@ pub(crate) fn all() -> Vec<Domain> {
         beads_router(),
         agents_router(),
         tasks_router(),
+        stacks_router(),
         pipeline_router(),
         terminals_router(),
         settings_router(),
@@ -627,6 +629,14 @@ pub(crate) fn sessions_router() -> Domain {
             R::get("/ui/list", "List saved UI sessions (paginated)"),
             sessions::list_ui_sessions,
         )
+}
+
+/// `/api/stacks` -- stacked-diff view of tasks (`parent_task_id` chains).
+pub(crate) fn stacks_router() -> Domain {
+    Domain::new("stacks", "/api/stacks").route(
+        R::get("/", "List task stacks (root task plus descendants)").res("Vec<ApiStack>"),
+        stacks::list_stacks,
+    )
 }
 
 /// `/api/projects` -- multi-project management.
