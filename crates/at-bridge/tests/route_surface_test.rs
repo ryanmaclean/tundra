@@ -133,8 +133,8 @@ fn fixture_is_well_formed() {
     let routes = fixture_routes();
     assert_eq!(
         routes.len(),
-        134,
-        "snapshot of main has 134 (method, path) pairs"
+        142,
+        "snapshot of main has 134 (method, path) pairs, plus 8 /api/gitea routes"
     );
     for (m, p) in &routes {
         assert!(

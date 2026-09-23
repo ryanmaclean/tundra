@@ -40,6 +40,14 @@ GET /api/github/sync/status
 GET /api/gitlab/issues
 GET /api/gitlab/merge-requests
 POST /api/gitlab/merge-requests/{iid}/review
+GET /api/gitea/status
+GET /api/gitea/repo
+GET /api/gitea/issues
+POST /api/gitea/issues
+PATCH /api/gitea/issues/{number}
+POST /api/gitea/pulls
+GET /api/gitea/releases/{tag}/assets
+POST /api/gitea/releases/{tag}/assets
 POST /api/ideation/generate
 GET /api/ideation/ideas
 POST /api/ideation/ideas/{id}/convert
