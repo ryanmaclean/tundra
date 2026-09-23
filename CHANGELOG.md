@@ -41,6 +41,18 @@ Fixes from the 2026-09-22 multi-agent review. Unverified findings still to triag
 - at-tui e2e tests skip cleanly when no daemon is running (d1ff75f).
 - Test count: 2,944 (nextest, workspace excluding at-tauri and at-leptos-ui).
 
+### Ports (2026-09-23)
+
+Six port branches merged with `--no-ff`: housekeeping (37843d1), scheduler (217b938), merge-gate (65c3ea5), output-security (e0f85b3), api-surface (6258eb0), deps-major (ff79818).
+
+- API surface: routes nested into per-domain sub-routers with a route catalog at `GET /api/catalog` and `GET /api/v1/catalog` (269a1bb, 0e1364e, d104284, 7fa3940). The catalog is served without the API key but rate limited (loopback exempt) and reports `auth: none` for itself; every other route still requires the key (fae6cfe). Unused `command_registry` and `commands` modules removed (2c636fc).
+- Merge gate in front of `WorktreeManager::merge_to_main`: acceptance criteria produce a `MergeGateReport`, and the worktree merge endpoint returns 409 with the report when the gate refuses (6d3cee2, b429685). The orchestrator gates the Merging phase and sends gate failures to the fix loop (39be659).
+- Scheduler ranks backlog beads by a priority score (780f0db). Patrol detects and force-kills stuck agents via `[daemon.patrol]`, disabled by default (9da5e86, d3fd0ba, a291334, f7cdfdc).
+- Output guard (credential redaction, prompt-injection blocking) and a hash-chained audit log for approval decisions (b27c3ca, 1c10f7d). Outbound PR, MR, issue and Linear payloads are screened, and notifications are redacted before they are recorded (32c938b, 6e168b1). The docs scan runs with no allowlist (1111a98).
+- Dependencies: reqwest 0.13 on rustls with aws-lc-rs and post-quantum key exchange (06769d5, a0d6ca0); git2 0.21, octocrab 0.54, tauri 2.11; RustSec advisories cleared (c42bafa). `cargo deny` passes. The lru 0.12.5 that ratatui 0.29 pulls in stays ignored: RUSTSEC-2026-0002 was already ignored, RUSTSEC-2026-0253 is new.
+- Datadog API key removed from the profiling docs and scripts (6662e99).
+- Test count after the ports: 3,024 (nextest, workspace excluding at-tauri and at-leptos-ui).
+
 ## 1.0.0 - Agent Orchestration & Comprehensive Testing
 
 ### New Features
