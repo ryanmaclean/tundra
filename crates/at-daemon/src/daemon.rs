@@ -90,7 +90,27 @@ impl Daemon {
         state.terminal_ws = at_bridge::terminal_ws::TerminalWsSettings::from_liveness_secs(
             term.ws_liveness_timeout_secs,
         );
+        state.repo_root = Self::resolve_repo_root(config);
+        match &state.repo_root {
+            Some(root) => info!(repo_root = %root.display(), "merge gate: task worktrees enabled"),
+            None => warn!(
+                "merge gate: no git repo_root ([general] workspace_root unset and cwd is not a git repo); \
+                 tasks with acceptance criteria will fail instead of merging"
+            ),
+        }
         state
+    }
+
+    /// Main checkout the execute pipeline creates task worktrees in and
+    /// merges into: `[general] workspace_root` when set, otherwise the cwd
+    /// when it is the top of a git repository.
+    fn resolve_repo_root(config: &Config) -> Option<std::path::PathBuf> {
+        if let Some(root) = config.general.workspace_root.as_deref() {
+            let root = std::path::PathBuf::from(shellexpand_home(root));
+            return Some(root);
+        }
+        let cwd = std::env::current_dir().ok()?;
+        cwd.join(".git").exists().then_some(cwd)
     }
 
     /// Create a new daemon, opening (or creating) the cache database from config.
@@ -534,5 +554,13 @@ impl Daemon {
         api_handle.abort();
         info!("daemon stopped");
         Ok(())
+    }
+}
+
+/// Expand a leading `~/` to `$HOME`.
+fn shellexpand_home(path: &str) -> String {
+    match (path.strip_prefix("~/"), std::env::var("HOME")) {
+        (Some(rest), Ok(home)) => format!("{home}/{rest}"),
+        _ => path.to_string(),
     }
 }

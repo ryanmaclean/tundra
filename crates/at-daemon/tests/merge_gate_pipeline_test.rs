@@ -203,3 +203,100 @@ async fn gate_that_never_passes_errors_without_merging() {
     // Nothing reached main.
     assert_eq!(sh_git(&repo.0, &["rev-parse", "main"]), main_before);
 }
+
+#[tokio::test]
+async fn config_max_fix_iterations_is_honoured_without_override() {
+    use at_core::merge_gate::MergeGateConfig;
+    let repo = init_repo();
+    let spawner = Arc::new(FixerSpawner::new(false));
+    let bus = EventBus::new();
+    let executor = AgentExecutor::with_spawner(spawner.clone(), bus.clone());
+    let wm = WorktreeManager::new(&repo.0).with_merge_gate_config(MergeGateConfig {
+        max_fix_iterations: 1,
+        ..MergeGateConfig::default()
+    });
+    // No with_max_gate_fix_iterations(): the config value applies.
+    let orch = TaskOrchestrator::new(executor, wm, bus);
+    let mut task = task_with_criteria(&["exit 1"]);
+
+    let err = orch.start_task(&mut task).await.unwrap_err();
+    assert!(matches!(err, OrchestratorError::MergeGateFailed(_)), "{err:?}");
+    assert_eq!(*spawner.fix_prompts.lock().unwrap(), 1);
+    assert!(task
+        .error
+        .as_deref()
+        .unwrap()
+        .contains("after 1 fix iteration"));
+}
+
+#[tokio::test]
+async fn criteria_without_worktree_fail_closed() {
+    // Not a git repo: worktree creation fails, so no branch is bound.
+    let dir = std::env::temp_dir().join(format!("at-daemon-nogit-{}", Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let _cleanup = Repo(dir.clone());
+    let spawner = Arc::new(FixerSpawner::new(false));
+    let (orch, rx) = orchestrator(&dir, spawner, 3);
+    let mut task = task_with_criteria(&["true"]);
+
+    let err = orch.start_task(&mut task).await.unwrap_err();
+
+    assert!(matches!(err, OrchestratorError::InvalidState(_)), "{err:?}");
+    assert_eq!(task.phase, TaskPhase::Error);
+    assert!(task.error.as_deref().unwrap().contains("no worktree"));
+    let ev = events(&rx);
+    assert!(!ev.iter().any(|e| e == "task_complete"), "{ev:?}");
+}
+
+#[tokio::test]
+async fn no_criteria_and_no_worktree_still_completes() {
+    let dir = std::env::temp_dir().join(format!("at-daemon-nogit-{}", Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let _cleanup = Repo(dir.clone());
+    let (orch, _rx) = orchestrator(&dir, Arc::new(FixerSpawner::new(false)), 3);
+    let mut task = task_with_criteria(&[]);
+    orch.start_task(&mut task).await.expect("completes");
+    assert_eq!(task.phase, TaskPhase::Complete);
+}
+
+/// Git stand-in whose `rev-list` fails, so the gate passes (clean, no
+/// criteria) but the merge itself errors.
+struct RevListFails;
+
+impl at_core::worktree_manager::GitRunner for RevListFails {
+    fn run_git(
+        &self,
+        _dir: &str,
+        args: &[&str],
+    ) -> Result<at_core::worktree_manager::GitOutput, String> {
+        let fail = args.first() == Some(&"rev-list");
+        Ok(at_core::worktree_manager::GitOutput {
+            success: !fail,
+            stdout: if args.first() == Some(&"rev-parse") {
+                "0123456789abcdef\n".into()
+            } else {
+                String::new()
+            },
+            stderr: if fail { "boom".into() } else { String::new() },
+        })
+    }
+}
+
+#[tokio::test]
+async fn merge_error_ends_in_error_not_ok() {
+    let dir = std::env::temp_dir().join(format!("at-daemon-mergeerr-{}", Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let _cleanup = Repo(dir.clone());
+    let bus = EventBus::new();
+    let executor = AgentExecutor::with_spawner(Arc::new(FixerSpawner::new(false)), bus.clone());
+    let wm = WorktreeManager::with_git_runner(&dir, Box::new(RevListFails));
+    let orch = TaskOrchestrator::new(executor, wm, bus);
+    let mut task = task_with_criteria(&[]);
+
+    let err = orch.start_task(&mut task).await.unwrap_err();
+
+    assert!(matches!(err, OrchestratorError::Worktree(_)), "{err:?}");
+    assert_eq!(task.phase, TaskPhase::Error);
+    assert!(task.error.as_deref().unwrap().contains("Merge failed"));
+    assert!(task.completed_at.is_none());
+}

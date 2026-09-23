@@ -144,26 +144,32 @@ pub struct TaskOrchestrator {
     max_gate_fix_iterations: usize,
 }
 
-/// Fix iterations allowed after a merge-gate failure before the task errors.
-pub const DEFAULT_MAX_GATE_FIX_ITERATIONS: usize = 3;
+/// Fix iterations allowed after a merge-gate failure before the task errors,
+/// when `[merge_gate] max_fix_iterations` is not set.
+pub const DEFAULT_MAX_GATE_FIX_ITERATIONS: usize =
+    at_core::merge_gate::DEFAULT_MAX_FIX_ITERATIONS;
 
 impl TaskOrchestrator {
     /// Create a new orchestrator from its component parts.
+    ///
+    /// The merge-gate fix budget comes from the worktree manager's
+    /// [`MergeGateConfig::max_fix_iterations`](at_core::merge_gate::MergeGateConfig).
     pub fn new(
         executor: AgentExecutor,
         worktree_manager: WorktreeManager,
         event_bus: EventBus,
     ) -> Self {
+        let max_gate_fix_iterations = worktree_manager.merge_gate_config().max_fix_iterations;
         Self {
             executor,
             worktree_manager,
             event_bus,
-            max_gate_fix_iterations: DEFAULT_MAX_GATE_FIX_ITERATIONS,
+            max_gate_fix_iterations,
         }
     }
 
-    /// Set how many Fixing -> Qa -> Merging iterations a task gets after the
-    /// merge gate refuses it (0 = fail immediately).
+    /// Override how many Fixing -> Qa -> Merging iterations a task gets after
+    /// the merge gate refuses it (0 = fail immediately).
     pub fn with_max_gate_fix_iterations(mut self, n: usize) -> Self {
         self.max_gate_fix_iterations = n;
         self
@@ -376,9 +382,22 @@ impl TaskOrchestrator {
     /// to `max_gate_fix_iterations` times) instead of merging. When the
     /// iterations are exhausted the task moves to Error and
     /// [`OrchestratorError::MergeGateFailed`] is returned.
+    ///
+    /// Fails closed: a task with acceptance criteria but no worktree branch,
+    /// or a merge that errors, ends in Error rather than silently completing.
     async fn run_merge_phase(&self, task: &mut Task) -> Result<()> {
         let Some(branch) = task.git_branch.clone() else {
-            return Ok(());
+            if task.acceptance_criteria.is_empty() {
+                task.log(TaskLogType::Info, "Merge skipped: no worktree");
+                return Ok(());
+            }
+            let msg = "acceptance criteria set but no worktree bound".to_string();
+            error!(task_id = %task.id, "{msg}");
+            task.set_phase(TaskPhase::Error);
+            task.error = Some(msg.clone());
+            task.log(TaskLogType::Error, &msg);
+            self.publish_event(task, "task_error");
+            return Err(OrchestratorError::InvalidState(msg));
         };
         let wt_info = at_core::worktree::WorktreeInfo {
             path: task.worktree_path.clone().unwrap_or_default(),
@@ -436,9 +455,13 @@ impl TaskOrchestrator {
                     return Ok(());
                 }
                 Err(e) => {
-                    warn!(task_id = %task.id, error = %e, "merge failed");
-                    task.log(TaskLogType::Error, format!("Merge failed: {e}"));
-                    return Ok(());
+                    error!(task_id = %task.id, error = %e, "merge failed");
+                    let msg = format!("Merge failed: {e}");
+                    task.log(TaskLogType::Error, &msg);
+                    task.set_phase(TaskPhase::Error);
+                    task.error = Some(msg);
+                    self.publish_event(task, "task_error");
+                    return Err(OrchestratorError::Worktree(e));
                 }
             }
         }
@@ -462,20 +485,8 @@ impl TaskOrchestrator {
         self.publish_event(task, "phase_start:Fixing");
 
         let mut prompt = self.build_prompt_for_phase(task, TaskPhase::Fixing);
-        prompt.push_str(&format!(
-            "\n\nThe merge gate refused this branch: {}",
-            report.summary()
-        ));
-        for block in &report.blocked_by {
-            prompt.push_str(&format!("\n- {}", block.describe()));
-        }
-        if let Some(failed) = report.results.iter().find(|r| !r.success()) {
-            prompt.push_str(&format!(
-                "\nFailing acceptance criterion: `{}`\nstdout (tail):\n{}\nstderr (tail):\n{}",
-                failed.cmd, failed.stdout_tail, failed.stderr_tail
-            ));
-        }
-        prompt.push_str("\nFix the problem and commit the changes on the task branch.");
+        prompt.push_str("\n\n");
+        prompt.push_str(&report.fix_prompt());
 
         let mut exec_task = task.clone();
         exec_task.description = Some(prompt);
@@ -737,12 +748,20 @@ mod tests {
     }
 
     impl GitRunner for MockGit {
-        fn run_git(&self, _dir: &str, _args: &[&str]) -> std::result::Result<GitOutput, String> {
+        fn run_git(&self, _dir: &str, args: &[&str]) -> std::result::Result<GitOutput, String> {
             let mut responses = self.responses.lock().unwrap();
             if responses.is_empty() {
+                // `rev-list --count` must print a number; "0" = nothing to
+                // merge (an unparsable count is a merge error, which now
+                // fails the task instead of being swallowed).
+                let stdout = if args.first() == Some(&"rev-list") {
+                    "0\n".to_string()
+                } else {
+                    String::new()
+                };
                 Ok(GitOutput {
                     success: true,
-                    stdout: String::new(),
+                    stdout,
                     stderr: String::new(),
                 })
             } else {
