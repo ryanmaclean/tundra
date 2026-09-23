@@ -99,6 +99,40 @@ struct LlmIdeasResponseJson {
     ideas: Vec<LlmIdeaJson>,
 }
 
+/// Output budget for an ideation call. Several paragraph-long ideas in JSON
+/// routinely exceed 1024 tokens, which truncated the JSON mid-object.
+pub const IDEATION_MAX_TOKENS: u32 = 4096;
+
+/// Whether a provider `finish_reason` means the output hit the token limit
+/// (Anthropic `max_tokens`, OpenAI-compatible `length`).
+fn is_truncated(finish_reason: &str) -> bool {
+    matches!(finish_reason, "max_tokens" | "length")
+}
+
+/// Strip surrounding markdown code fences from LLM output.
+fn strip_code_fences(text: &str) -> &str {
+    let trimmed = text.trim();
+    let cleaned = trimmed
+        .strip_prefix("```json")
+        .or_else(|| trimmed.strip_prefix("```"))
+        .unwrap_or(trimmed);
+    cleaned.strip_suffix("```").unwrap_or(cleaned).trim()
+}
+
+/// Whether the output is (an attempt at) JSON, in which case line-based
+/// fallback parsing would only produce junk ideas like `{`.
+fn looks_like_json(text: &str) -> bool {
+    let t = strip_code_fences(text);
+    t.starts_with('{') || t.starts_with('[') || t.contains("\"ideas\"")
+}
+
+/// A line made only of JSON punctuation (`{`, `],`, `"ideas": [` ...).
+fn is_json_syntax_line(line: &str) -> bool {
+    let t = line.trim();
+    t.chars().all(|c| "{}[],:".contains(c) || c.is_whitespace())
+        || (t.starts_with('"') && t.contains("\":"))
+}
+
 // ---------------------------------------------------------------------------
 // IdeationEngine
 // ---------------------------------------------------------------------------
@@ -245,7 +279,7 @@ impl IdeationEngine {
 
         let config = LlmConfig {
             model: self.default_model.clone(),
-            max_tokens: 1024,
+            max_tokens: IDEATION_MAX_TOKENS,
             temperature: 0.7,
             system_prompt: None,
         };
@@ -302,20 +336,29 @@ impl IdeationEngine {
     /// Attempt to parse the LLM response as our expected JSON schema.
     fn parse_ideas_json(text: &str, category: &IdeaCategory) -> Option<Vec<Idea>> {
         // Strip markdown code fences if the LLM wrapped output in them.
-        let cleaned = text
-            .trim()
-            .strip_prefix("```json")
-            .or_else(|| text.trim().strip_prefix("```"))
-            .unwrap_or(text.trim());
-        let cleaned = cleaned.strip_suffix("```").unwrap_or(cleaned).trim();
+        let cleaned = strip_code_fences(text);
 
-        let parsed: LlmIdeasResponseJson = serde_json::from_str(cleaned).ok()?;
-        if parsed.ideas.is_empty() {
+        // Accept `{"ideas": [...]}` or a bare `[...]`, tolerating any prose
+        // before or after the JSON value.
+        let slice = |open: char, close: char| -> Option<&str> {
+            let start = cleaned.find(open)?;
+            let end = cleaned.rfind(close)?;
+            (end > start).then(|| &cleaned[start..=end])
+        };
+        let raw_ideas: Vec<LlmIdeaJson> = serde_json::from_str::<LlmIdeasResponseJson>(cleaned)
+            .map(|p| p.ideas)
+            .ok()
+            .or_else(|| {
+                serde_json::from_str::<LlmIdeasResponseJson>(slice('{', '}')?)
+                    .map(|p| p.ideas)
+                    .ok()
+            })
+            .or_else(|| serde_json::from_str::<Vec<LlmIdeaJson>>(slice('[', ']')?).ok())?;
+        if raw_ideas.is_empty() {
             return None;
         }
 
-        let ideas = parsed
-            .ideas
+        let ideas = raw_ideas
             .into_iter()
             .map(|raw| Idea {
                 id: Uuid::new_v4(),
@@ -336,7 +379,7 @@ impl IdeationEngine {
     fn parse_ideas_text(text: &str, category: &IdeaCategory) -> Vec<Idea> {
         text.lines()
             .map(|l| l.trim())
-            .filter(|l| !l.is_empty())
+            .filter(|l| !l.is_empty() && !l.starts_with("```") && !is_json_syntax_line(l))
             .map(|line| {
                 // Strip leading list markers like "- ", "* ", "1. ", etc.
                 let cleaned = line
@@ -404,18 +447,51 @@ impl std::fmt::Debug for AiIdeationRequest {
 impl AiIdeationRequest {
     /// Call the LLM and parse its output into ideas. Ideas are **not** stored;
     /// pass the result to [`IdeationEngine::store_ideas`].
-    pub async fn run(self) -> Result<IdeationResult, crate::IntelligenceError> {
-        let response = self
-            .provider
-            .complete(&self.messages, &self.config)
-            .await
-            .map_err(|e| {
-                crate::IntelligenceError::InvalidOperation(format!("LLM call failed: {e}"))
-            })?;
+    ///
+    /// If the output hits the token limit it is retried once with double the
+    /// budget; output that is still truncated, or JSON that cannot be parsed,
+    /// is an error rather than a source of junk ideas.
+    pub async fn run(mut self) -> Result<IdeationResult, crate::IntelligenceError> {
+        let provider = self.provider.clone();
+        let messages = std::mem::take(&mut self.messages);
+        let call = |config: LlmConfig| {
+            let provider = provider.clone();
+            let messages = &messages;
+            async move {
+                provider.complete(messages, &config).await.map_err(|e| {
+                    crate::IntelligenceError::InvalidOperation(format!("LLM call failed: {e}"))
+                })
+            }
+        };
 
-        // Try JSON parsing first, fall back to text parsing.
-        let ideas = IdeationEngine::parse_ideas_json(&response.content, &self.category)
-            .unwrap_or_else(|| IdeationEngine::parse_ideas_text(&response.content, &self.category));
+        let mut response = call(self.config.clone()).await?;
+        if is_truncated(&response.finish_reason) {
+            self.config.max_tokens = self.config.max_tokens.saturating_mul(2);
+            response = call(self.config.clone()).await?;
+            if is_truncated(&response.finish_reason) {
+                return Err(crate::IntelligenceError::InvalidOperation(format!(
+                    "ideation output truncated at max_tokens={}",
+                    self.config.max_tokens
+                )));
+            }
+        }
+
+        // Try JSON parsing first; fall back to line parsing only for output
+        // that is not JSON at all.
+        let ideas = match IdeationEngine::parse_ideas_json(&response.content, &self.category) {
+            Some(ideas) => ideas,
+            None if looks_like_json(&response.content) => {
+                return Err(crate::IntelligenceError::InvalidOperation(
+                    "LLM returned malformed ideation JSON".into(),
+                ));
+            }
+            None => IdeationEngine::parse_ideas_text(&response.content, &self.category),
+        };
+        if ideas.is_empty() {
+            return Err(crate::IntelligenceError::InvalidOperation(
+                "LLM response contained no ideas".into(),
+            ));
+        }
 
         Ok(IdeationResult {
             ideas,
@@ -670,5 +746,92 @@ mod tests {
         assert!(engine.read().await.list_ideas().is_empty());
         engine.write().await.store_ideas(&result);
         assert_eq!(engine.read().await.list_ideas().len(), 1);
+    }
+
+    // ---- Truncation / malformed JSON (finding #18) ----------------------------
+
+    fn llm_resp(content: &str, finish_reason: &str) -> LlmResponse {
+        LlmResponse {
+            content: content.into(),
+            model: "m".into(),
+            input_tokens: 1,
+            output_tokens: 1,
+            finish_reason: finish_reason.into(),
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+        }
+    }
+
+    const TRUNCATED: &str = "{\"ideas\": [\n  {\"title\": \"Add indexes\",\n   \"description\": \"Adding";
+
+    #[tokio::test]
+    async fn truncated_output_is_retried_with_larger_budget() {
+        let mock = Arc::new(
+            crate::llm::MockProvider::new()
+                .with_response(llm_resp(TRUNCATED, "max_tokens"))
+                .with_response(llm_resp(
+                    r#"{"ideas":[{"title":"Add indexes","description":"d"}]}"#,
+                    "end_turn",
+                )),
+        );
+        let mut engine = IdeationEngine::with_provider(mock.clone(), "m");
+        let result = engine
+            .generate_ideas_with_ai(&IdeaCategory::Performance, "ctx")
+            .await
+            .unwrap();
+        assert_eq!(result.ideas.len(), 1);
+        assert_eq!(result.ideas[0].title, "Add indexes");
+        let calls = mock.captured_requests();
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[0].1.max_tokens, IDEATION_MAX_TOKENS);
+        assert_eq!(calls[1].1.max_tokens, IDEATION_MAX_TOKENS * 2);
+    }
+
+    #[tokio::test]
+    async fn persistently_truncated_output_is_an_error_not_junk() {
+        let mock = Arc::new(
+            crate::llm::MockProvider::new()
+                .with_response(llm_resp(TRUNCATED, "max_tokens"))
+                .with_response(llm_resp(TRUNCATED, "length")),
+        );
+        let mut engine = IdeationEngine::with_provider(mock, "m");
+        let err = engine
+            .generate_ideas_with_ai(&IdeaCategory::Performance, "ctx")
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("truncated"), "{err}");
+        assert!(engine.list_ideas().is_empty());
+    }
+
+    #[tokio::test]
+    async fn malformed_json_does_not_become_ideas() {
+        let mock = Arc::new(MockProvider::new(TRUNCATED)); // end_turn but broken JSON
+        let mut engine = IdeationEngine::with_provider(mock, "m");
+        let res = engine
+            .generate_ideas_with_ai(&IdeaCategory::Quality, "ctx")
+            .await;
+        assert!(res.is_err());
+        assert!(engine.list_ideas().is_empty());
+    }
+
+    #[tokio::test]
+    async fn json_with_preamble_or_bare_array_is_parsed() {
+        let preamble = "Here are my ideas:\n{\"ideas\":[{\"title\":\"A\",\"description\":\"a\"}]}\nHope this helps.";
+        let mut engine = IdeationEngine::with_provider(Arc::new(MockProvider::new(preamble)), "m");
+        let r = engine
+            .generate_ideas_with_ai(&IdeaCategory::Quality, "ctx")
+            .await
+            .unwrap();
+        assert_eq!(r.ideas.len(), 1);
+        assert_eq!(r.ideas[0].title, "A");
+
+        let bare = r#"[{"title":"B","description":"b","impact":"high"}]"#;
+        let mut engine = IdeationEngine::with_provider(Arc::new(MockProvider::new(bare)), "m");
+        let r = engine
+            .generate_ideas_with_ai(&IdeaCategory::Quality, "ctx")
+            .await
+            .unwrap();
+        assert_eq!(r.ideas.len(), 1);
+        assert_eq!(r.ideas[0].impact, ImpactLevel::High);
     }
 }
