@@ -638,8 +638,13 @@ mod tests {
     fn test_notification_cleanup_with_zero_ttl() {
         let mut store = NotificationStore::new(100);
 
-        // Create a notification just now
-        store.add("New notification", "msg", NotificationLevel::Info, "system");
+        // Create a notification and backdate it 1 second to ensure it is
+        // reliably older than the cutoff when TTL=0 (cutoff = Utc::now()).
+        // Using Utc::now() without backdating can race at nanosecond precision.
+        let id = store.add("New notification", "msg", NotificationLevel::Info, "system");
+        if let Some(n) = store.notifications.iter_mut().find(|n| n.id == id) {
+            n.created_at = Utc::now() - chrono::Duration::seconds(1);
+        }
         assert_eq!(store.total_count(), 1);
 
         // Cleanup with TTL of 0 seconds (should remove all notifications)

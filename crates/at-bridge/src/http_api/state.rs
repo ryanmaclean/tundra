@@ -861,9 +861,12 @@ mod tests {
         let state = create_test_state();
         let terminal_id = Uuid::new_v4();
 
-        // Create a buffer that was disconnected exactly 5 minutes ago
+        // Create a buffer that was disconnected 5 minutes and 1 second ago to
+        // reliably land before the cutoff. Using exactly 5 minutes can race at
+        // nanosecond precision when both Utc::now() calls happen in the same
+        // clock tick (disconnected_at == cutoff → strict-less-than is false).
         let mut buffer = crate::terminal::DisconnectBuffer::new(1024);
-        buffer.disconnected_at = Utc::now() - Duration::minutes(5);
+        buffer.disconnected_at = Utc::now() - Duration::minutes(5) - Duration::seconds(1);
 
         // Add buffer to disconnect_buffers HashMap
         state
@@ -872,8 +875,7 @@ mod tests {
             .await
             .insert(terminal_id, buffer);
 
-        // Cleanup with TTL of 5 minutes (buffer is exactly at the boundary)
-        // The buffer should be removed because disconnected_at < cutoff
+        // Cleanup with TTL of 5 minutes (buffer is past the boundary, should be removed)
         let removed = state.cleanup_disconnect_buffers(5 * 60).await;
 
         assert_eq!(removed, 1);
