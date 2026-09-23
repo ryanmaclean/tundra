@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use anyhow::Context;
+use at_core::types::TaskPhase;
 use serde_json::json;
 
 use super::{api_client, friendly_error};
@@ -60,14 +61,15 @@ async fn wait_for_task_terminal_state(
             ));
         }
 
-        let phase = json_body["phase"]
-            .as_str()
-            .unwrap_or_default()
-            .to_ascii_lowercase();
-        if matches!(phase.as_str(), "done" | "failed") {
+        // Deserialize into the server's own enum so wire-name drift is caught
+        // here rather than silently polling until the deadline.
+        let phase = serde_json::from_value::<TaskPhase>(json_body["phase"].clone()).ok();
+        if let Some(phase) = phase.filter(TaskPhase::is_terminal) {
+            let wire = serde_json::to_value(&phase)?;
             return Ok(json!({
                 "task": json_body,
-                "terminal_phase": phase,
+                "terminal_phase": wire,
+                "success": phase.is_success(),
             }));
         }
 
@@ -80,6 +82,12 @@ async fn wait_for_task_terminal_state(
 
         tokio::time::sleep(poll).await;
     }
+}
+
+/// Terminal phases that fail `--strict`: anything but a successful
+/// `complete` once we actually waited ("not_waited" is not a failure).
+fn strict_failure(terminal_phase: &str) -> bool {
+    matches!(terminal_phase, "error" | "stopped" | "timeout")
 }
 
 pub async fn run(api_url: &str, opts: ExecOptions) -> anyhow::Result<()> {
@@ -134,7 +142,7 @@ pub async fn run(api_url: &str, opts: ExecOptions) -> anyhow::Result<()> {
         .as_str()
         .unwrap_or("not_waited");
 
-    if opts.strict && matches!(terminal_phase, "failed" | "timeout") {
+    if opts.strict && strict_failure(terminal_phase) {
         return Err(anyhow::anyhow!(
             "exec finished in terminal phase '{}' (strict mode)",
             terminal_phase
@@ -201,7 +209,7 @@ mod tests {
                 get(|AxPath(_id): AxPath<String>| async move {
                     (
                         StatusCode::OK,
-                        Json(json!({"id":"task-exec-1","phase":"done"})),
+                        Json(json!({"id":"task-exec-1","phase":"complete"})),
                     )
                 }),
             );
@@ -232,5 +240,62 @@ mod tests {
         };
 
         run(&format!("http://{addr}"), opts).await.unwrap();
+    }
+
+    /// Mock `GET /api/tasks/{id}` that reports `coding` for the first
+    /// `busy_polls` calls and then `final_phase` — the real server's wire names.
+    async fn start_phase_server(final_phase: &'static str, busy_polls: usize) -> String {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+        let calls = Arc::new(AtomicUsize::new(0));
+        let app = Router::new().route(
+            "/api/tasks/{id}",
+            get(move |AxPath(id): AxPath<String>| {
+                let calls = calls.clone();
+                async move {
+                    let n = calls.fetch_add(1, Ordering::SeqCst);
+                    let phase = if n < busy_polls { "coding" } else { final_phase };
+                    Json(json!({"id": id, "phase": phase}))
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        format!("http://{addr}")
+    }
+
+    #[tokio::test]
+    async fn wait_stops_on_real_terminal_phases() {
+        for (phase, success) in [("complete", true), ("error", false), ("stopped", false)] {
+            let base = start_phase_server(phase, 2).await;
+            let started = std::time::Instant::now();
+            let out = wait_for_task_terminal_state(&base, "t1", 10, 100)
+                .await
+                .unwrap();
+            assert_eq!(out["terminal_phase"], phase);
+            assert_eq!(out["success"], success);
+            assert!(started.elapsed() < Duration::from_secs(5), "{phase} waited too long");
+        }
+    }
+
+    #[tokio::test]
+    async fn wait_times_out_on_non_terminal_phase() {
+        let base = start_phase_server("coding", usize::MAX).await;
+        let out = wait_for_task_terminal_state(&base, "t1", 1, 100)
+            .await
+            .unwrap();
+        assert_eq!(out["terminal_phase"], "timeout");
+    }
+
+    #[test]
+    fn strict_mode_only_fails_unsuccessful_phases() {
+        assert!(!strict_failure("complete"));
+        assert!(!strict_failure("not_waited"));
+        assert!(strict_failure("error"));
+        assert!(strict_failure("stopped"));
+        assert!(strict_failure("timeout"));
     }
 }
