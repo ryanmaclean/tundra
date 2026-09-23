@@ -156,7 +156,12 @@ impl Daemon {
         let port = listener.local_addr()?.port();
 
         tokio::spawn(async move {
-            if let Err(e) = axum::serve(listener, api_router).await {
+            if let Err(e) = axum::serve(
+                listener,
+                api_router.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .await
+            {
                 error!(error = %e, "API server error");
             }
         });
@@ -364,7 +369,12 @@ impl Daemon {
         );
         let bind_addr = listener.local_addr()?;
         let api_handle = tokio::spawn(async move {
-            if let Err(e) = axum::serve(listener, api_router).await {
+            if let Err(e) = axum::serve(
+                listener,
+                api_router.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .await
+            {
                 error!(error = %e, "API server error");
             }
         });
@@ -442,7 +452,12 @@ impl Daemon {
         );
         let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
         let api_handle = tokio::spawn(async move {
-            if let Err(e) = axum::serve(listener, api_router).await {
+            if let Err(e) = axum::serve(
+                listener,
+                api_router.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .await
+            {
                 error!(error = %e, "API server error");
             }
         });

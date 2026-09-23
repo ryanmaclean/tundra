@@ -19,6 +19,7 @@ use at_intelligence::{
 use crate::event_bus::EventBus;
 use crate::notifications::NotificationStore;
 use crate::oauth_token_manager::OAuthTokenManager;
+use crate::rate_limit_middleware::RateLimitPolicy;
 use crate::terminal::TerminalRegistry;
 
 use super::types::{
@@ -147,6 +148,8 @@ pub struct ApiState {
     // ---- Rate limiting -------------------------------------------------------
     /// Multi-tier rate limiter (global, per-user, per-endpoint).
     pub rate_limiter: Arc<MultiKeyRateLimiter>,
+    /// Client-identity / loopback-exemption policy for the rate limiter.
+    pub rate_limit_policy: RateLimitPolicy,
     // ---- Retention configuration ------------------------------------------
     /// Memory retention policies for cleanup (TTL, max entries, cleanup intervals).
     pub retention_config: Arc<RwLock<RetentionConfig>>,
@@ -228,34 +231,26 @@ impl ApiState {
             task_drafts: Arc::new(RwLock::new(std::collections::HashMap::new())),
             disconnect_buffers: Arc::new(RwLock::new(std::collections::HashMap::new())),
             // ---- Rate Limiter Configuration -------------------------------------
-            // Three-tier rate limiting protects the API from abuse and overload:
+            // Three-tier check-then-commit limiting (see rate_limit_middleware):
             //
-            // 1. Global Limit: 100 requests/minute across ALL clients
-            //    - Prevents total server overload
-            //    - First line of defense against DoS attacks
-            //    - Shared bucket for entire API
+            // 1. Global: 1200/min across ALL clients — protects the daemon.
+            // 2. Per-client: 600/min per peer IP (ConnectInfo; proxy headers
+            //    only with `rate_limit_policy.trust_proxy_headers`).
+            // 3. Per-client-per-route: 120/min per (client, method, route
+            //    template) — throttles hammering of one expensive endpoint.
             //
-            // 2. Per-User Limit: 20 requests/minute per client IP
-            //    - Prevents single client monopolization
-            //    - IP extracted from X-Forwarded-For or X-Real-IP headers
-            //    - Each IP gets independent bucket
-            //
-            // 3. Per-Endpoint Limit: 10 requests/minute per URI path
-            //    - Prevents abuse of expensive endpoints (AI, GitHub sync)
-            //    - Each endpoint (e.g., /api/tasks, /api/beads) tracked separately
-            //    - Allows high-frequency status polling on cheap endpoints
-            //
-            // To adjust limits:
-            // - Use RateLimitConfig::per_second(n), per_minute(n), or per_hour(n)
-            // - For production: increase global and per-user limits
-            // - For development: use per_second(n) for faster iteration
+            // Direct loopback peers (TUI, desktop app, CLI, MCP) skip tiers 2
+            // and 3 by default and only count toward the global tier. A single
+            // TUI refresh is ~13 requests every 5 s (~156/min), which the old
+            // 20/min shared "unknown" bucket could not absorb.
             //
             // When exceeded, middleware returns HTTP 429 with Retry-After header.
             rate_limiter: Arc::new(MultiKeyRateLimiter::new(
-                RateLimitConfig::per_minute(100), // Global tier
-                RateLimitConfig::per_minute(20),  // Per-user tier
-                RateLimitConfig::per_minute(30),  // Per-endpoint tier (TUI polls /api/bootstrap at 12/min)
+                RateLimitConfig::per_minute(1200), // Global tier
+                RateLimitConfig::per_minute(600),  // Per-client tier
+                RateLimitConfig::per_minute(120),  // Per-client-per-route tier
             )),
+            rate_limit_policy: RateLimitPolicy::default(),
             retention_config: Arc::new(RwLock::new(RetentionConfig::default())),
             mcp_sessions: super::mcp_sse::new_session_store(),
         }
