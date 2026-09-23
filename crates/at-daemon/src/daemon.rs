@@ -14,7 +14,7 @@ use at_harness::shutdown::ShutdownSignal;
 
 use crate::heartbeat::HeartbeatMonitor;
 use crate::kpi::KpiCollector;
-use crate::patrol::{reap_orphan_ptys, PatrolRunner};
+use crate::patrol::{reap_orphan_ptys, PatrolRunner, StuckMonitor, StuckPolicy, SystemClock};
 use crate::scheduler::TaskScheduler;
 
 /// Configuration for daemon loop intervals.
@@ -236,6 +236,14 @@ impl Daemon {
             config.agents.heartbeat_interval_secs * 2,
         ));
         let kpi_collector = KpiCollector::new();
+        // Stuck-session detection runs on the heartbeat tick against the live
+        // agent registry (`[daemon.patrol]`).
+        let mut stuck_monitor = config.daemon.patrol.enabled.then(|| {
+            StuckMonitor::new(
+                StuckPolicy::from(&config.daemon.patrol),
+                Arc::new(SystemClock),
+            )
+        });
         let _scheduler = TaskScheduler::new(config.agents.max_concurrent);
 
         let mut patrol_interval = tokio::time::interval(Duration::from_secs(intervals.patrol_secs));
@@ -300,6 +308,18 @@ impl Daemon {
                         }
                         Err(e) => {
                             error!(error = %e, "heartbeat check failed");
+                        }
+                    }
+                    if let Some(monitor) = stuck_monitor.as_mut() {
+                        let sweep = monitor.sweep(&api_state.agents, &event_bus).await;
+                        if !sweep.killed.is_empty() || !sweep.missed.is_empty() {
+                            warn!(
+                                checked = sweep.checked,
+                                missed = sweep.missed.len(),
+                                killed = sweep.killed.len(),
+                                cooling_down = sweep.cooling_down.len(),
+                                "stuck-agent sweep"
+                            );
                         }
                     }
                 }
