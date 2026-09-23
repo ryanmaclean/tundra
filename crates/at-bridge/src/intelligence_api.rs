@@ -481,20 +481,23 @@ pub(crate) async fn generate_ideas(
     };
     // Try AI-powered ideation first; fall back to deterministic generation
     // when no LLM provider is configured (e.g. in tests or offline mode).
-    // The engine lock is never held across the LLM call: build the request
-    // under a read lock, call the model unlocked, store under a write lock.
+    // The request is prepared under a short read lock and the LLM call runs
+    // with no engine lock held, so a slow provider cannot block other readers.
     let prepared = state
         .ideation_engine
         .read()
         .await
         .prepare_ai_request(&category, &context);
-    let ai_ideas = match prepared {
+    let ai_result = match prepared {
         Ok(request) => request.run().await,
         Err(e) => Err(e),
     };
     let mut engine = state.ideation_engine.write().await;
-    let result = match ai_ideas {
-        Ok(ideas) => engine.store_ideas(&category, ideas),
+    let result = match ai_result {
+        Ok(result) => {
+            engine.store_ideas(&result);
+            result
+        }
         Err(_) => engine.generate_ideas(&category, &context),
     };
     drop(engine);

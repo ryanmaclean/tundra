@@ -262,7 +262,7 @@ impl Daemon {
             tokio::select! {
                 _ = patrol_interval.tick() => {
                     let reaped = reap_orphan_ptys(&api_state).await;
-                    match patrol_runner.run_patrol(&cache).await {
+                    match patrol_runner.run_patrol_live(&cache, &api_state).await {
                         Ok(mut report) => {
                             report.orphan_ptys = reaped;
                             info!(
@@ -324,37 +324,9 @@ impl Daemon {
                     }
                 }
                 _ = kpi_interval.tick() => {
-                    match kpi_collector.collect_snapshot(&cache).await {
-                        Ok(snapshot) => {
-                            info!(
-                                total = snapshot.total_beads,
-                                backlog = snapshot.backlog,
-                                active_agents = snapshot.active_agents,
-                                "kpi snapshot collected"
-                            );
-                            {
-                                let mut kpi = api_state.kpi.write().await;
-                                *kpi = snapshot.clone();
-                            }
-                            event_bus.publish(
-                                at_bridge::protocol::BridgeMessage::KpiUpdate(
-                                    at_bridge::protocol::KpiPayload {
-                                        total_beads: snapshot.total_beads,
-                                        backlog: snapshot.backlog,
-                                        hooked: snapshot.hooked,
-                                        slung: snapshot.slung,
-                                        review: snapshot.review,
-                                        done: snapshot.done,
-                                        failed: snapshot.failed,
-                                        active_agents: snapshot.active_agents,
-                                    },
-                                ),
-                            );
-                        }
-                        Err(e) => {
-                            error!(error = %e, "kpi snapshot failed");
-                        }
-                    }
+                    // Live counts from ApiState: the API never writes beads
+                    // or agents to CacheDb, so a cache snapshot is all zeros.
+                    kpi_collector.refresh_live(&api_state, &event_bus).await;
                 }
                 _ = shutdown_rx.recv() => {
                     info!("shutdown signal received, stopping background loops");

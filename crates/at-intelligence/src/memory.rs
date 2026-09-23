@@ -63,10 +63,17 @@ pub struct MemoryEntry {
     /// ~500-token structured overview for L1 context injection (set by caller).
     #[serde(default)]
     pub l1_summary: Option<String>,
-    /// Ebbinghaus stability factor. Higher = slower forgetting. Starts at 2.0.
-    /// Increased on each recall/boost (spaced repetition).
+    /// Ebbinghaus stability factor. Higher = slower forgetting. Starts at
+    /// 10.0 (`default_stability`) and grows 1.25x (capped at 30.0) on each
+    /// recall/boost (spaced repetition). `GraphMemory::apply_decay` scales it
+    /// by the graph's `decay_rate`.
     #[serde(default = "default_stability")]
     pub stability: f64,
+    /// Reference time for the next decay step: when decay was last applied
+    /// (or the entry was last boosted). `None` means "use `updated_at`".
+    /// Kept separate so `updated_at` keeps meaning "last modified".
+    #[serde(default)]
+    pub last_decayed_at: Option<DateTime<Utc>>,
 }
 
 impl MemoryEntry {
@@ -91,6 +98,7 @@ impl MemoryEntry {
             l0_summary: None,
             l1_summary: None,
             stability: default_stability(),
+            last_decayed_at: None,
         }
     }
 }
@@ -600,25 +608,48 @@ impl GraphMemory {
 
     // -- Decay --
 
-    /// Apply confidence decay to all entries using the Ebbinghaus forgetting curve.
+    /// Multiplier applied to each entry's `stability` so that `decay_rate`
+    /// is honoured: an entry at the default stability loses `decay_rate` of
+    /// its confidence per day, i.e. `R = (1 - decay_rate)^days`
+    /// (effective stability `-1 / ln(1 - decay_rate)`, ~49.5 days for 0.02).
+    /// Boosted entries (higher stability) decay proportionally slower.
+    fn stability_scale(&self) -> f64 {
+        let rate = self.decay_rate;
+        if rate <= 0.0 || rate.is_nan() {
+            f64::INFINITY // no decay
+        } else if rate >= 1.0 {
+            0.0 // instant forget
+        } else {
+            (-1.0 / (1.0 - rate).ln()) / default_stability()
+        }
+    }
+
+    /// Apply confidence decay to all entries using the Ebbinghaus forgetting
+    /// curve `R = e^(-Δt / S_eff)`, where `S_eff = stability * stability_scale()`
+    /// is derived from the graph's `decay_rate`.
     ///
-    /// Uses `updated_at` as the delta reference (not `created_at`) so the decay
-    /// is always incremental — repeated calls each apply one time-slice of decay
-    /// rather than compounding the full age. `updated_at` is advanced to `now`
-    /// after each entry is processed, resetting the clock for the next call.
+    /// Δt is measured from `last_decayed_at` (falling back to `updated_at`),
+    /// so repeated calls each apply one time-slice of decay rather than
+    /// compounding the full age. `last_decayed_at` is advanced to `now`;
+    /// `updated_at` is left untouched so it still means "last modified".
     ///
     /// Entries with confidence strictly below `min_confidence` are removed.
     pub fn apply_decay(&mut self, min_confidence: f32) {
         let now = Utc::now();
+        let scale = self.stability_scale();
         for entry in &mut self.entries {
-            // Ebbinghaus: R = e^(-Δt/S) where Δt = days since last decay call.
-            // Using updated_at (not created_at) prevents exponent compounding across
-            // repeated calls (the bug: using created_at causes exponents to sum as
-            // 1+2+3+…+N = N(N+1)/2 instead of N, collapsing confidence super-exponentially).
-            let delta_days = (now - entry.updated_at).num_seconds() as f64 / 86_400.0;
-            let new_conf = (entry.confidence as f64 * (-delta_days / entry.stability).exp()) as f32;
-            entry.confidence = new_conf;
-            entry.updated_at = now; // advance reference point for next decay call
+            let since = entry.last_decayed_at.unwrap_or(entry.updated_at);
+            let delta_days = ((now - since).num_seconds() as f64 / 86_400.0).max(0.0);
+            let effective_stability = entry.stability * scale;
+            let retention = if delta_days == 0.0 {
+                1.0
+            } else if effective_stability == 0.0 {
+                0.0
+            } else {
+                (-delta_days / effective_stability).exp()
+            };
+            entry.confidence = (entry.confidence as f64 * retention) as f32;
+            entry.last_decayed_at = Some(now); // advance reference point for next call
         }
         // Remove entries strictly below the floor (strict < avoids spurious removal
         // of entries sitting exactly at min_confidence which is a valid retained value).
@@ -638,7 +669,9 @@ impl GraphMemory {
         if let Some(entry) = self.get_entry_mut(id) {
             entry.confidence = (entry.confidence + amount).min(1.0);
             entry.stability = (entry.stability * 1.25_f64).min(30.0);
-            entry.updated_at = Utc::now();
+            let now = Utc::now();
+            entry.updated_at = now;
+            entry.last_decayed_at = Some(now); // a recall restarts the forgetting clock
         }
     }
 
@@ -973,11 +1006,11 @@ mod graph_tests {
         e.created_at = old_time;
         e.updated_at = old_time;
         e.confidence = 0.5;
-        // stability=10.0 default; after 100 days: R = 0.5 * e^(-100/10) = 0.5 * e^-10 ≈ 0.0000227
+        // decay_rate 0.02/day: after 100 days R = 0.5 * 0.98^100 ≈ 0.066
         g.add_entry(e);
 
         g.apply_decay(0.1);
-        // 0.0000227 < 0.1 min_confidence — entry should be removed
+        // 0.066 < 0.1 min_confidence — entry should be removed
         assert_eq!(g.entry_count(), 0);
     }
 
@@ -1187,5 +1220,66 @@ mod graph_tests {
             initial_stability * 1.25,
             after.stability
         );
+    }
+
+    // -- decay_rate / updated_at semantics (finding #20) --
+
+    #[test]
+    fn decay_honours_decay_rate() {
+        let mut g = GraphMemory::new(); // decay_rate 0.02
+        let mut e = make_entry("k", "v", MemoryCategory::Pattern);
+        e.confidence = 1.0;
+        e.updated_at = Utc::now() - chrono::Duration::days(7);
+        let id = e.id;
+        g.add_entry(e);
+        g.apply_decay(0.0);
+        let conf = g.get_entry(&id).unwrap().confidence as f64;
+        let expected = 0.98_f64.powi(7); // ~0.868
+        assert!((conf - expected).abs() < 0.01, "conf {conf} vs {expected}");
+
+        // Faster configured rate forgets faster.
+        let mut fast = GraphMemory::new();
+        fast.decay_rate = 0.5;
+        let mut e = make_entry("k", "v", MemoryCategory::Pattern);
+        e.confidence = 1.0;
+        e.updated_at = Utc::now() - chrono::Duration::days(1);
+        let id = e.id;
+        fast.add_entry(e);
+        fast.apply_decay(0.0);
+        let conf = fast.get_entry(&id).unwrap().confidence as f64;
+        assert!((conf - 0.5).abs() < 0.01, "conf {conf}");
+
+        // Zero rate disables decay.
+        let mut none = GraphMemory::new();
+        none.decay_rate = 0.0;
+        let mut e = make_entry("k", "v", MemoryCategory::Pattern);
+        e.updated_at = Utc::now() - chrono::Duration::days(365);
+        let id = e.id;
+        none.add_entry(e);
+        none.apply_decay(0.0);
+        assert_eq!(none.get_entry(&id).unwrap().confidence, 1.0);
+    }
+
+    #[test]
+    fn decay_does_not_touch_updated_at() {
+        let mut g = GraphMemory::new();
+        let mut e = make_entry("k", "v", MemoryCategory::Pattern);
+        let modified = Utc::now() - chrono::Duration::days(3);
+        e.updated_at = modified;
+        let id = e.id;
+        g.add_entry(e);
+        g.apply_decay(0.0);
+        let after = g.get_entry(&id).unwrap();
+        assert_eq!(after.updated_at, modified);
+        assert!(after.last_decayed_at.is_some());
+    }
+
+    #[test]
+    fn entry_without_last_decayed_at_deserializes() {
+        let e = make_entry("k", "v", MemoryCategory::Pattern);
+        let mut json = serde_json::to_value(&e).unwrap();
+        json.as_object_mut().unwrap().remove("last_decayed_at");
+        let back: MemoryEntry = serde_json::from_value(json).unwrap();
+        assert!(back.last_decayed_at.is_none());
     }
 }

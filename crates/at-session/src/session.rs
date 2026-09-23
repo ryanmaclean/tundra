@@ -45,6 +45,19 @@ impl AgentSession {
         })
     }
 
+    /// Wrap an already-spawned PTY handle, interpreting its output with the
+    /// adapter for `cli_type`.
+    ///
+    /// Useful when the process was started by other means (a custom command
+    /// line, or a stand-in process in tests).
+    pub fn from_handle(agent_id: Uuid, handle: PtyHandle, cli_type: &CliType) -> Self {
+        Self {
+            agent_id,
+            handle,
+            adapter: adapter_for(cli_type),
+        }
+    }
+
     /// Send a command string to the agent process (appends newline).
     pub fn send_command(&self, cmd: &str) -> Result<()> {
         debug!(%self.agent_id, cmd, "sending command to agent");

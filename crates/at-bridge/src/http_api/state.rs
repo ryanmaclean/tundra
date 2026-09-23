@@ -166,6 +166,41 @@ pub struct ApiState {
     notification_task_started: AtomicBool,
 }
 
+/// Fold bead statuses into a [`KpiSnapshot`] in one pass.
+///
+/// Takes already-borrowed collections so callers that hold write locks (e.g.
+/// [`ApiState::seed_demo_data`]) can use it without re-locking.
+pub(crate) fn kpi_snapshot_of<'a>(
+    beads: impl IntoIterator<Item = &'a Bead>,
+    active_agents: usize,
+) -> KpiSnapshot {
+    let mut snap = KpiSnapshot {
+        total_beads: 0,
+        backlog: 0,
+        hooked: 0,
+        slung: 0,
+        review: 0,
+        done: 0,
+        failed: 0,
+        escalated: 0,
+        active_agents: active_agents as u64,
+        timestamp: chrono::Utc::now(),
+    };
+    for bead in beads {
+        snap.total_beads += 1;
+        match bead.status {
+            BeadStatus::Backlog => snap.backlog += 1,
+            BeadStatus::Hooked => snap.hooked += 1,
+            BeadStatus::Slung => snap.slung += 1,
+            BeadStatus::Review => snap.review += 1,
+            BeadStatus::Done => snap.done += 1,
+            BeadStatus::Failed => snap.failed += 1,
+            BeadStatus::Escalated => snap.escalated += 1,
+        }
+    }
+    snap
+}
+
 impl ApiState {
     /// Create a new `ApiState` with empty collections and a fresh event bus.
     pub fn new(event_bus: EventBus) -> Self {
@@ -471,6 +506,17 @@ impl ApiState {
         });
     }
 
+    /// Compute a KPI snapshot from the live in-memory beads and agents.
+    ///
+    /// This is the source of truth for `GET /api/kpi`, the MCP `get_kpi`
+    /// tool and the daemon's periodic `KpiUpdate` broadcast. The bridge keeps
+    /// beads and agents in memory, not in `CacheDb`.
+    pub async fn compute_kpi(&self) -> KpiSnapshot {
+        let beads = self.beads.read().await;
+        let agents = self.agents.read().await;
+        kpi_snapshot_of(beads.values(), agents.len())
+    }
+
     /// Seed lightweight demo data for local development/web UI previews.
     ///
     /// No-op when beads are already present.
@@ -517,39 +563,7 @@ impl ApiState {
             agents.insert(agent2.id, agent2);
         }
 
-        let snapshot = KpiSnapshot {
-            total_beads: beads.len() as u64,
-            backlog: beads
-                .values()
-                .filter(|b| b.status == BeadStatus::Backlog)
-                .count() as u64,
-            hooked: beads
-                .values()
-                .filter(|b| b.status == BeadStatus::Hooked)
-                .count() as u64,
-            slung: beads
-                .values()
-                .filter(|b| b.status == BeadStatus::Slung)
-                .count() as u64,
-            review: beads
-                .values()
-                .filter(|b| b.status == BeadStatus::Review)
-                .count() as u64,
-            done: beads
-                .values()
-                .filter(|b| b.status == BeadStatus::Done)
-                .count() as u64,
-            failed: beads
-                .values()
-                .filter(|b| b.status == BeadStatus::Failed)
-                .count() as u64,
-            escalated: beads
-                .values()
-                .filter(|b| b.status == BeadStatus::Escalated)
-                .count() as u64,
-            active_agents: agents.len() as u64,
-            timestamp: chrono::Utc::now(),
-        };
+        let snapshot = kpi_snapshot_of(beads.values(), agents.len());
         *self.kpi.write().await = snapshot;
 
         // Initialize atomic counters to reflect seeded demo data

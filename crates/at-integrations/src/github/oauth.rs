@@ -103,10 +103,9 @@ pub struct GitHubOAuthClient {
 impl GitHubOAuthClient {
     /// Create a new OAuth client from the given configuration.
     pub fn new(config: GitHubOAuthConfig) -> Self {
-        let http = Client::builder()
-            .user_agent("auto-tundra/1.0")
-            .build()
-            .expect("failed to build reqwest client");
+        // Shared builder: sets connect/request timeouts so a stalled GitHub
+        // OAuth endpoint can't hang the code-exchange handler indefinitely.
+        let http = crate::http::client();
 
         Self { config, http }
     }

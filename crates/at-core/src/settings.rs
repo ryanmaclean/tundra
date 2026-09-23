@@ -13,15 +13,63 @@ impl SettingsManager {
         Self { path: path.into() }
     }
 
-    /// Create a `SettingsManager` using the default config location
-    /// (`~/.config/auto-tundra/settings.toml`).
+    /// Create a `SettingsManager` using the canonical config location
+    /// ([`Config::default_path`], `~/.auto-tundra/config.toml`), the same
+    /// file the daemon reads at startup.
+    ///
+    /// If that file does not exist yet but the legacy settings file
+    /// (`~/.config/auto-tundra/settings.toml`) does, the legacy file is
+    /// copied over once so settings saved by older builds are not lost.
     pub fn default_path() -> Self {
-        let path = dirs::home_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join(".config")
-            .join("auto-tundra")
-            .join("settings.toml");
+        let path = Self::canonical_path();
+        if let Some(legacy) = Self::legacy_path() {
+            Self::migrate_legacy(&legacy, &path);
+        }
         Self { path }
+    }
+
+    /// The file [`default_path`](Self::default_path) manages, without the
+    /// legacy-migration side effect.
+    fn canonical_path() -> PathBuf {
+        Config::default_path()
+    }
+
+    /// Location used by older builds for settings saved through the API.
+    fn legacy_path() -> Option<PathBuf> {
+        dirs::home_dir().map(|h| h.join(".config").join("auto-tundra").join("settings.toml"))
+    }
+
+    /// Copy `legacy` to `target` when `target` is missing and `legacy`
+    /// exists. Returns `true` if a migration happened. Failures are logged
+    /// and never fatal: the caller then simply sees no file at `target`.
+    fn migrate_legacy(legacy: &Path, target: &Path) -> bool {
+        if target.exists() || !legacy.is_file() {
+            return false;
+        }
+        let result = target
+            .parent()
+            .map_or(Ok(()), std::fs::create_dir_all)
+            .and_then(|()| std::fs::copy(legacy, target).map(|_| ()));
+        match result {
+            Ok(()) => {
+                tracing::warn!(
+                    from = %legacy.display(),
+                    to = %target.display(),
+                    "migrated legacy settings file to canonical config path; \
+                     the legacy file is no longer read"
+                );
+                true
+            }
+            Err(e) => {
+                tracing::warn!(
+                    from = %legacy.display(),
+                    to = %target.display(),
+                    error = %e,
+                    "failed to migrate legacy settings file"
+                );
+                false
+            }
+        }
     }
 
     /// Load config from the TOML file on disk.
@@ -157,6 +205,43 @@ mod tests {
     fn tmp_settings_path() -> PathBuf {
         let dir = std::env::temp_dir().join(format!("at-settings-test-{}", uuid::Uuid::new_v4()));
         dir.join("settings.toml")
+    }
+
+    #[test]
+    fn default_path_is_the_daemon_config_file() {
+        // The settings API and the daemon must share one file.
+        // (`canonical_path` avoids touching the real home directory in tests.)
+        assert_eq!(SettingsManager::canonical_path(), Config::default_path());
+        assert!(Config::default_path().ends_with(".auto-tundra/config.toml"));
+    }
+
+    #[test]
+    fn legacy_settings_are_migrated_once() {
+        let legacy = tmp_settings_path();
+        let target = tmp_settings_path().with_file_name("config.toml");
+        fs::create_dir_all(legacy.parent().unwrap()).unwrap();
+        fs::write(&legacy, "[general]\nproject_name = \"legacy\"\n").unwrap();
+
+        assert!(SettingsManager::migrate_legacy(&legacy, &target));
+        let cfg = SettingsManager::new(&target).load().unwrap();
+        assert_eq!(cfg.general.project_name, "legacy");
+
+        // An existing canonical file is never overwritten.
+        fs::write(&legacy, "[general]\nproject_name = \"newer-legacy\"\n").unwrap();
+        assert!(!SettingsManager::migrate_legacy(&legacy, &target));
+        let cfg = SettingsManager::new(&target).load().unwrap();
+        assert_eq!(cfg.general.project_name, "legacy");
+
+        let _ = fs::remove_dir_all(legacy.parent().unwrap());
+        let _ = fs::remove_dir_all(target.parent().unwrap());
+    }
+
+    #[test]
+    fn migrate_legacy_is_noop_without_legacy_file() {
+        let legacy = tmp_settings_path();
+        let target = tmp_settings_path();
+        assert!(!SettingsManager::migrate_legacy(&legacy, &target));
+        assert!(!target.exists());
     }
 
     #[test]

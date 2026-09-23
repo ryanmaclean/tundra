@@ -13,6 +13,7 @@
 
 pub mod github;
 pub mod gitlab;
+pub mod http;
 pub mod linear;
 pub mod outbound;
 pub mod types;

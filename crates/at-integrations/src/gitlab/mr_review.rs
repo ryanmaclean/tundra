@@ -345,7 +345,7 @@ impl MrReviewEngine {
         mr_iid: u32,
     ) -> Result<MrReviewResult, GitLabError> {
         match &self.client {
-            Some(client) if !client.is_stub_token() => {
+            Some(client) if !client.is_stub() => {
                 let findings = self.review_real(client, project_id, mr_iid).await?;
                 Ok(self.build_result(findings, MrReviewStatus::Reviewed))
             }

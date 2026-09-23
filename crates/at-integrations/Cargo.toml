@@ -18,5 +18,16 @@ uuid = { workspace = true }
 octocrab = { workspace = true }
 urlencoding = "2"
 
+[features]
+# Enables explicit stub constructors (GitLabClient::stub, LinearClient::stub)
+# that return canned data without ever calling a real API. Never enabled in
+# production builds; only turned on for this crate's own tests below.
+stub = []
+
 [dev-dependencies]
 tokio = { workspace = true }
+# Depending on ourselves with the `stub` feature enabled is the standard way
+# to make #[cfg(feature = "stub")] items visible to the separate-crate
+# integration tests under tests/, without ever enabling the feature for a
+# normal build or for downstream consumers of this crate.
+at-integrations = { path = ".", features = ["stub"] }

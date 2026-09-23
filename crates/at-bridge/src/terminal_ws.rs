@@ -589,12 +589,11 @@ pub async fn delete_terminal(
         }
     }
 
-    // Kill and remove the PTY handle.
-    {
-        let mut handles = state.pty_handles.write().await;
-        if let Some(handle) = handles.remove(&terminal_id) {
-            let _ = handle.kill();
-        }
+    // Remove the PTY handle, then kill it after the write lock is released so
+    // the (up to ~200ms) SIGHUP grace period never blocks other terminals.
+    let removed = state.pty_handles.write().await.remove(&terminal_id);
+    if let Some(handle) = removed {
+        let _ = handle.kill_async().await;
     }
 
     // Release from pool tracking.
@@ -1477,12 +1476,14 @@ async fn detach(
 
         tracing::info!(%terminal_id, "reconnect grace period expired, killing terminal");
 
-        // Kill the PTY child process (sends SIGKILL).
-        {
-            let mut handles = bg_state.pty_handles.write().await;
-            if let Some(handle) = handles.remove(&terminal_id) {
-                let _ = handle.kill();
-            }
+        // -----------------------------------------------------------------------
+        // Kill the PTY process and clean up all resources.
+        // -----------------------------------------------------------------------
+        // Kill the PTY child process (SIGHUP, then SIGKILL after a grace
+        // period). Remove it under the lock, kill after the lock is dropped.
+        let removed = bg_state.pty_handles.write().await.remove(&terminal_id);
+        if let Some(handle) = removed {
+            let _ = handle.kill_async().await;
         }
         // Release terminal ID from pool tracking.
         if let Some(pool) = &bg_state.pty_pool {
