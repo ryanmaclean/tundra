@@ -124,6 +124,17 @@ pub async fn handle_message(
     let session_id = q.session_id;
     debug!(session_id = %session_id, method = %request.method, "MCP message received");
 
+    // Resolve the session BEFORE dispatching: tools such as create_bead have
+    // side effects, and a caller told "404 session not found" must be able to
+    // assume nothing happened.
+    let sender = {
+        let sessions = state.mcp_sessions.read().await;
+        sessions.get(&session_id).cloned()
+    };
+    if sender.is_none() {
+        return session_not_found(session_id);
+    }
+
     let response = dispatch_request(&state, &request).await;
 
     // Notifications (no id) have no response.
@@ -143,12 +154,6 @@ pub async fn handle_message(
         }
     };
 
-    // Look up the SSE sender for this session.
-    let sender = {
-        let sessions = state.mcp_sessions.read().await;
-        sessions.get(&session_id).cloned()
-    };
-
     match sender {
         Some(tx) => {
             if tx.send(serialized).await.is_err() {
@@ -159,15 +164,17 @@ pub async fn handle_message(
             }
             axum::http::StatusCode::ACCEPTED.into_response()
         }
-        None => {
-            warn!(session_id = %session_id, "MCP session not found");
-            (
-                axum::http::StatusCode::NOT_FOUND,
-                Json(serde_json::json!({ "error": "session not found" })),
-            )
-                .into_response()
-        }
+        None => session_not_found(session_id),
     }
+}
+
+fn session_not_found(session_id: Uuid) -> axum::response::Response {
+    warn!(session_id = %session_id, "MCP session not found");
+    (
+        axum::http::StatusCode::NOT_FOUND,
+        Json(serde_json::json!({ "error": "session not found" })),
+    )
+        .into_response()
 }
 
 // ---------------------------------------------------------------------------
@@ -706,6 +713,34 @@ mod tests {
         assert!(result.is_error, "non-string description must be rejected");
 
         assert!(state.beads.read().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn unknown_session_is_rejected_before_tool_runs() {
+        let state = make_state();
+        let request = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: Some(serde_json::json!(1)),
+            method: "tools/call".to_string(),
+            params: Some(serde_json::json!({
+                "name": "create_bead",
+                "arguments": { "title": "should not exist" }
+            })),
+        };
+        let resp = handle_message(
+            State(state.clone()),
+            Query(SessionQuery {
+                session_id: Uuid::new_v4(),
+            }),
+            Json(request),
+        )
+        .await
+        .into_response();
+        assert_eq!(resp.status(), axum::http::StatusCode::NOT_FOUND);
+        assert!(
+            state.beads.read().await.is_empty(),
+            "tool side effects must not run for an unknown session"
+        );
     }
 
     #[tokio::test]
