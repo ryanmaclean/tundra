@@ -140,3 +140,142 @@ fn resize_pty_succeeds() {
 
     handle.kill().expect("kill failed");
 }
+
+// ---------------------------------------------------------------------------
+// Drop semantics: a dropped PtyHandle kills its child and frees its slot.
+// ---------------------------------------------------------------------------
+
+/// `kill -0` succeeds while `pid` exists (including as an unreaped zombie).
+fn pid_exists(pid: u32) -> bool {
+    std::process::Command::new("kill")
+        .args(["-0", &pid.to_string()])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+/// Poll until `pid` is gone (killed and reaped) or `timeout` elapses.
+fn wait_pid_gone(pid: u32, timeout: Duration) -> bool {
+    let deadline = std::time::Instant::now() + timeout;
+    while std::time::Instant::now() < deadline {
+        if !pid_exists(pid) {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    !pid_exists(pid)
+}
+
+#[test]
+fn drop_kills_live_child_and_frees_slot() {
+    let pool = PtyPool::new(1);
+    let handle = pool.spawn("/bin/cat", &[], &[]).expect("spawn cat");
+    let pid = handle.process_id().expect("child pid");
+    let reader = handle.reader.clone();
+    assert!(handle.is_alive());
+    assert!(pid_exists(pid));
+    assert_eq!(pool.active_count(), 1);
+
+    drop(handle);
+
+    assert_eq!(pool.active_count(), 0, "drop must free the pool slot");
+    assert!(
+        wait_pid_gone(pid, Duration::from_secs(5)),
+        "child {pid} still exists after handle drop"
+    );
+    // Child is dead, so the reader thread hits EOF/EIO and closes the channel.
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        match reader.recv_timeout(Duration::from_millis(100)) {
+            Err(flume::RecvTimeoutError::Disconnected) => break,
+            _ if std::time::Instant::now() >= deadline => {
+                panic!("reader channel still open after drop")
+            }
+            _ => {}
+        }
+    }
+    // Capacity is usable again.
+    let _h = pool
+        .spawn("/bin/cat", &[], &[])
+        .expect("respawn after drop");
+}
+
+#[test]
+fn drop_escalates_when_child_ignores_sighup() {
+    let pool = PtyPool::new(1);
+    // `exec` keeps the pid stable; the trap is inherited as SIG_IGN by sleep.
+    let handle = pool
+        .spawn("/bin/sh", &["-c", "trap '' HUP; exec sleep 30"], &[])
+        .expect("spawn sh");
+    let pid = handle.process_id().expect("child pid");
+    std::thread::sleep(Duration::from_millis(200));
+    assert!(handle.is_alive());
+
+    drop(handle);
+
+    assert_eq!(pool.active_count(), 0);
+    assert!(
+        wait_pid_gone(pid, Duration::from_secs(5)),
+        "SIGHUP-ignoring child {pid} survived handle drop"
+    );
+}
+
+#[test]
+fn drop_after_explicit_cleanup_is_idempotent() {
+    // Mirrors the agent executor guard: kill + release, then the handle drops.
+    let pool = PtyPool::new(1);
+    let h1 = pool.spawn("/bin/cat", &[], &[]).expect("spawn 1");
+    let h1_pid = h1.process_id().expect("pid 1");
+    let h1_id = h1.id;
+    h1.kill().expect("kill 1");
+    pool.release(h1.id);
+    assert_eq!(pool.active_count(), 0);
+
+    // The freed slot is taken by a new handle before h1 is dropped.
+    let h2 = pool.spawn("/bin/cat", &[], &[]).expect("spawn 2");
+    assert_eq!(pool.active_count(), 1);
+
+    drop(h1);
+
+    assert_eq!(
+        pool.active_count(),
+        1,
+        "dropping h1 must not free h2's slot"
+    );
+    assert!(h2.is_alive(), "dropping h1 must not affect h2");
+    assert!(wait_pid_gone(h1_pid, Duration::from_secs(5)));
+    // h1's id stays freed (Drop did not re-register or double-free it).
+    assert!(matches!(
+        pool.kill(h1_id),
+        Err(PtyError::HandleNotFound(id)) if id == h1_id
+    ));
+}
+
+#[test]
+fn drop_of_exited_child_frees_slot() {
+    let pool = PtyPool::new(1);
+    let handle = pool.spawn("/bin/echo", &["bye"], &[]).expect("spawn echo");
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while handle.is_alive() && std::time::Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert_eq!(handle.exit_code(), Some(0));
+    assert_eq!(pool.active_count(), 1, "exited child still holds its slot");
+
+    drop(handle);
+    assert_eq!(pool.active_count(), 0);
+}
+
+#[test]
+fn drop_after_pool_dropped_still_kills_child() {
+    let pool = PtyPool::new(1);
+    let handle = pool.spawn("/bin/cat", &[], &[]).expect("spawn cat");
+    let pid = handle.process_id().expect("pid");
+    drop(pool);
+
+    drop(handle); // must not panic with the pool gone
+
+    assert!(wait_pid_gone(pid, Duration::from_secs(5)));
+}

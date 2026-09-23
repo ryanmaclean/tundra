@@ -19,14 +19,16 @@
 //! 2. **I/O**: Use `handle.send()` to write stdin, `handle.reader.recv()` to
 //!    read stdout/stderr (merged in PTY mode).
 //! 3. **Cleanup**: Call [`PtyHandle::kill()`] to terminate the process, then
-//!    [`PtyPool::release()`] to free the slot in the pool.
+//!    [`PtyPool::release()`] to free the slot in the pool. Dropping a
+//!    [`PtyHandle`] does both automatically (idempotent with explicit cleanup),
+//!    so a handle can never leak its child process or pool slot.
 //!
 //! ## Capacity Management
 //!
 //! The pool enforces a strict capacity limit. If [`PtyPool::spawn()`] is called
 //! when `active_count() >= max_ptys`, it returns [`PtyError::AtCapacity`].
-//! Clients must release PTYs explicitly via [`PtyPool::release()`] or
-//! [`PtyPool::kill()`].
+//! Slots are freed via [`PtyPool::release()`], [`PtyPool::kill()`], or by
+//! dropping the [`PtyHandle`].
 //!
 //! ## Thread Safety
 //!
@@ -63,7 +65,7 @@
 use std::collections::HashMap;
 use std::io::{Read as IoRead, Write as IoWrite};
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use thiserror::Error;
@@ -193,7 +195,12 @@ pub type Result<T> = std::result::Result<T, PtyError>;
 /// 1. Call [`kill()`](PtyHandle::kill) to terminate the child process
 /// 2. Drain the reader channel to consume remaining output
 /// 3. Call [`PtyPool::release()`] to remove the handle from the pool
-/// 4. Drop the handle to release resources and join threads
+/// 4. Drop the handle to release resources
+///
+/// Steps 1 and 3 are also performed by `Drop`: dropping a handle whose child
+/// is still running kills (and reaps) it, and the handle's pool slot is always
+/// freed. Explicit cleanup first is still fine -- `Drop` skips the kill for an
+/// exited child and freeing an already-released slot is a no-op.
 ///
 /// ## Example
 ///
@@ -243,6 +250,10 @@ pub struct PtyHandle {
 
     /// Background thread that receives from `writer` channel and writes to PTY master.
     _writer_thread: Option<std::thread::JoinHandle<()>>,
+
+    /// The owning pool's slot table, so `Drop` can free this handle's slot.
+    /// Weak: a handle must not keep a dropped pool's bookkeeping alive.
+    pool_slots: Weak<Mutex<HashMap<Uuid, ()>>>,
 }
 
 impl PtyHandle {
@@ -265,6 +276,17 @@ impl PtyHandle {
             Ok(None) => true,
             Err(_) => false,
         }
+    }
+
+    /// OS process id of the child, if the platform exposes one.
+    pub fn process_id(&self) -> Option<u32> {
+        self.child
+            .lock()
+            .unwrap_or_else(|e| {
+                warn!("child lock was poisoned, recovering");
+                e.into_inner()
+            })
+            .process_id()
     }
 
     /// Non-blocking check of the child's exit code.
@@ -462,6 +484,51 @@ impl PtyHandle {
     }
 }
 
+impl Drop for PtyHandle {
+    /// Kill a still-running child and free this handle's pool slot.
+    ///
+    /// Idempotent with explicit cleanup ([`PtyHandle::kill()`] +
+    /// [`PtyPool::release()`], as the agent executor's guard does): an exited
+    /// child is not signalled again and removing an absent slot is a no-op.
+    fn drop(&mut self) {
+        let mut child = self.child.lock().unwrap_or_else(|e| e.into_inner());
+        let needs_reap = match child.try_wait() {
+            Ok(Some(_)) => false,
+            Ok(None) => {
+                debug!(pty_id = %self.id, "PtyHandle dropped with live child; killing");
+                if let Err(e) = child.kill() {
+                    warn!(pty_id = %self.id, error = %e, "failed to kill PTY child on drop");
+                }
+                !matches!(child.try_wait(), Ok(Some(_)))
+            }
+            // Status unknown: nothing safe to signal; don't block on wait().
+            Err(_) => false,
+        };
+        drop(child);
+        if needs_reap {
+            // SIGKILL was sent but the exit isn't observable yet; reap off-thread
+            // so the child doesn't linger as a zombie and Drop never blocks.
+            let child = Arc::clone(&self.child);
+            let _ = std::thread::Builder::new()
+                .name("pty-reaper".into())
+                .spawn(move || {
+                    let _ = child.lock().unwrap_or_else(|e| e.into_inner()).wait();
+                });
+        }
+
+        if let Some(slots) = self.pool_slots.upgrade() {
+            let removed = slots
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(&self.id)
+                .is_some();
+            if removed {
+                debug!(pty_id = %self.id, "freed PTY pool slot on drop");
+            }
+        }
+    }
+}
+
 impl std::fmt::Debug for PtyHandle {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PtyHandle")
@@ -495,7 +562,9 @@ impl std::fmt::Debug for PtyHandle {
 ///
 /// ## Resource Cleanup
 ///
-/// The pool does NOT automatically clean up PTYs. Callers are responsible for:
+/// Dropping a [`PtyHandle`] kills its child (if still running) and frees its
+/// slot. Callers that keep the handle alive after the process exits must still
+/// free the slot explicitly:
 /// 1. Killing the process via [`PtyHandle::kill()`]
 /// 2. Releasing the handle via [`release()`] or [`kill()`]
 ///
@@ -795,6 +864,7 @@ impl PtyPool {
             master: Arc::new(Mutex::new(pair.master)),
             _reader_thread: Some(reader_thread),
             _writer_thread: Some(writer_thread),
+            pool_slots: Arc::downgrade(&self.handles),
         })
     }
 
