@@ -669,7 +669,7 @@ The configuration file is divided into 20+ sections:
 | `[providers]` | LLM provider configuration and failover |
 | `[agents]` | Agent concurrency, heartbeat, auto-restart |
 | `[security]` | Shell execution, sandbox, execution profiles |
-| `[daemon]` | Daemon port, host, TLS settings |
+| `[daemon]` | Daemon port, host, TLS settings; `[daemon.patrol]` stuck-agent thresholds |
 | `[ui]` | UI theme, refresh rate, token cost display |
 | `[bridge]` | API transport, socket path, buffer size |
 | `[display]` | Display theme, font size, compact mode |
@@ -900,6 +900,53 @@ port = 9090
 host = "127.0.0.1"
 tls = false
 ```
+
+#### `[daemon.patrol]` - Stuck-Agent Detection
+
+Stuck-session policy for the daemon patrol (ported from gastown's deacon). On each
+heartbeat tick, the daemon checks each live agent (Active/Idle/Unknown with a
+`pid` or `session_id`). A check fails when `last_seen` is older than
+`ping_timeout_secs`; at most one failure counts per timeout window, and a fresh
+heartbeat resets the count. After `consecutive_failures` failures the agent is
+marked `Stopped`, and the daemon publishes `AgentUpdated`, an `agent_force_kill`
+event, and one `agent_stuck_escalation` event. The slot is then held for
+`kill_cooldown_secs`. When the cooldown ends, the daemon publishes
+`agent_slot_released`.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | bool | `false` | Turn on stuck-agent detection and force-kill. Leave off until executors heartbeat `Agent.last_seen`, or live agents are marked `Stopped` after ~90-120 s |
+| `ping_timeout_secs` | u64 | `30` | Seconds of heartbeat silence before a health check fails |
+| `consecutive_failures` | u32 | `3` | Failed checks in a row before force-kill (minimum 1) |
+| `kill_cooldown_secs` | u64 | `300` | Seconds after a force-kill before the agent slot may be reused |
+
+**Example:**
+```toml
+[daemon.patrol]
+enabled = true
+ping_timeout_secs = 30
+consecutive_failures = 3
+kill_cooldown_secs = 300
+```
+
+#### Scheduler Scoring
+
+The scheduler has no config keys. It picks the next backlog bead by lane first
+(Critical > Standard > Experimental). Within a lane it takes the highest score,
+using the formula below, which is derived from gastown's refinery:
+
+```text
+score = 1000
+      + 10  * whole hours since convoy_created_at   (only if the bead has a convoy_id)
+      + 100 * max(priority, 0)                      (higher priority = more urgent)
+      - min(50 * retry_count, 300)
+      + 1   * whole hours since the bead was created
+```
+
+Ties go to the older `created_at`, then the lower `id`. Two keys in the bead's
+`metadata` JSON feed the formula: `retry_count` (non-negative integer, default 0)
+and `convoy_created_at` (RFC 3339 timestamp; without it there is no convoy age
+bonus).
 
 ---
 
