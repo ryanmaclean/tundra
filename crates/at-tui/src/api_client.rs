@@ -230,12 +230,14 @@ impl ApiClient {
     /// Fetch all data in one go. Individual failures are logged but don't
     /// block the rest — each endpoint returns its fallback default.
     ///
-    /// `GET /api/bootstrap` and the agents/beads/kpi endpoints it can replace
-    /// are all spawned together with the other endpoints, so one cycle never
-    /// takes more than one round-trip's worth of wall time. When bootstrap
-    /// succeeds its data wins and the agents/beads/kpi results are discarded;
-    /// when it fails (old server, network error) their results are used
-    /// instead. Once bootstrap has answered 404, it is not requested again.
+    /// `GET /api/bootstrap` is spawned together with the other endpoints, so
+    /// one cycle never takes more than one round-trip's worth of wall time.
+    /// The agents/beads/kpi fallback fetches are only spawned when bootstrap
+    /// is skipped (cached as unsupported, in which case they run in parallel
+    /// with everything else, same as bootstrap would have) or when this
+    /// cycle's bootstrap call fails — never when it succeeds, so a healthy
+    /// bootstrap costs exactly one request instead of four. Once bootstrap
+    /// has answered 404, it is not requested again.
     pub fn fetch_all(&self) -> AppData {
         let profile = std::env::var_os("AT_TUI_PROFILE").is_some();
         let started = Instant::now();
@@ -249,12 +251,22 @@ impl ApiClient {
             // fan-out starts, and never joined one at a time.
             let bootstrap_handle = try_bootstrap
                 .then(|| scope.spawn(|| timed_fetch(profile, "bootstrap", || self.fetch_bootstrap())));
-            let agents_handle = scope
-                .spawn(|| timed_fetch(profile, "agents", || tally.record(self.fetch_agents())));
-            let beads_handle =
-                scope.spawn(|| timed_fetch(profile, "beads", || tally.record(self.fetch_beads())));
-            let kpi_handle =
-                scope.spawn(|| timed_fetch(profile, "kpi", || tally.record(self.fetch_kpi())));
+
+            // Bootstrap is already known unsupported this cycle (cached from a
+            // previous 404), so there is nothing to await before starting the
+            // fallback fetches — spawn them now so they fan out with the rest
+            // instead of waiting on a bootstrap call we know will be skipped.
+            let cached_fallback = (!try_bootstrap).then(|| {
+                (
+                    scope.spawn(|| {
+                        timed_fetch(profile, "agents", || tally.record(self.fetch_agents()))
+                    }),
+                    scope.spawn(|| {
+                        timed_fetch(profile, "beads", || tally.record(self.fetch_beads()))
+                    }),
+                    scope.spawn(|| timed_fetch(profile, "kpi", || tally.record(self.fetch_kpi()))),
+                )
+            });
 
             let sessions = scope
                 .spawn(|| timed_fetch(profile, "sessions", || tally.record(self.fetch_sessions())));
@@ -306,6 +318,8 @@ impl ApiClient {
             });
             let (agents, beads, kpi) = match bootstrap_result {
                 Some(Ok(b)) => {
+                    // Bootstrap answered with everything we need — the fast
+                    // path. No fallback requests were spawned for this cycle.
                     tally.ok.fetch_add(1, Ordering::Relaxed);
                     (b.agents, b.beads, b.kpi)
                 }
@@ -315,17 +329,35 @@ impl ApiClient {
                     } else if is_not_found_error(&e) {
                         self.bootstrap_unsupported.store(true, Ordering::Relaxed);
                     }
+                    // Bootstrap was attempted this cycle and failed — only now
+                    // do we spawn the three fallbacks, in parallel with each
+                    // other (not with the rest, since we couldn't know we'd
+                    // need them until this point).
+                    let agents_handle = scope.spawn(|| {
+                        timed_fetch(profile, "agents", || tally.record(self.fetch_agents()))
+                    });
+                    let beads_handle = scope.spawn(|| {
+                        timed_fetch(profile, "beads", || tally.record(self.fetch_beads()))
+                    });
+                    let kpi_handle = scope
+                        .spawn(|| timed_fetch(profile, "kpi", || tally.record(self.fetch_kpi())));
                     (
                         agents_handle.join().unwrap_or_default(),
                         beads_handle.join().unwrap_or_default(),
                         kpi_handle.join().unwrap_or_default(),
                     )
                 }
-                None => (
-                    agents_handle.join().unwrap_or_default(),
-                    beads_handle.join().unwrap_or_default(),
-                    kpi_handle.join().unwrap_or_default(),
-                ),
+                None => {
+                    // Bootstrap was skipped (cached unsupported); the fallback
+                    // handles were already spawned up front alongside it.
+                    let (agents_handle, beads_handle, kpi_handle) = cached_fallback
+                        .expect("fallback handles are spawned whenever bootstrap is skipped");
+                    (
+                        agents_handle.join().unwrap_or_default(),
+                        beads_handle.join().unwrap_or_default(),
+                        kpi_handle.join().unwrap_or_default(),
+                    )
+                }
             };
 
             AppData {
@@ -601,5 +633,115 @@ mod fanout_tests {
             elapsed < DELAY * 3,
             "fallback took {elapsed:?}; expected ~2x {DELAY:?}"
         );
+    }
+}
+
+/// Regression coverage for the review finding that `fetch_all` unconditionally
+/// spawned *and awaited* the agents/beads/kpi fallbacks even when bootstrap
+/// succeeded, defeating the bootstrap fast path and doubling request load.
+#[cfg(test)]
+mod bootstrap_request_count_tests {
+    use super::*;
+    use std::io::{BufRead, BufReader, Write};
+    use std::net::TcpListener;
+    use std::sync::Arc;
+
+    /// How the fake daemon answers `GET /api/bootstrap` for this test.
+    #[derive(Clone, Copy)]
+    enum BootStatus {
+        Ok,
+        NotFound,
+        ServerError,
+    }
+
+    /// Fake daemon that counts every request to the bootstrap/agents/beads/kpi
+    /// group specifically — the group whose fan-out #42/#47 fixed, and where
+    /// the unconditional-fallback regression this test guards against would
+    /// double the request count. All other endpoints are answered with plain
+    /// empty payloads and are not counted.
+    fn start_counting_server(boot: BootStatus) -> (String, Arc<AtomicUsize>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let hits = Arc::new(AtomicUsize::new(0));
+        let hits_srv = hits.clone();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { break };
+                let hits = hits_srv.clone();
+                std::thread::spawn(move || {
+                    let mut reader = BufReader::new(stream.try_clone().unwrap());
+                    let mut request_line = String::new();
+                    let _ = reader.read_line(&mut request_line);
+                    let mut line = String::new();
+                    while reader.read_line(&mut line).unwrap_or(0) > 0 {
+                        if line.trim_end().is_empty() {
+                            break;
+                        }
+                        line.clear();
+                    }
+                    let path = request_line.split_whitespace().nth(1).unwrap_or("");
+                    let (status, body): (&str, &str) = match path {
+                        "/api/bootstrap" => {
+                            hits.fetch_add(1, Ordering::SeqCst);
+                            match boot {
+                                BootStatus::Ok => {
+                                    ("200 OK", "{\"beads\":[],\"agents\":[],\"kpi\":{}}")
+                                }
+                                BootStatus::NotFound => ("404 Not Found", "{}"),
+                                BootStatus::ServerError => ("500 Internal Server Error", "{}"),
+                            }
+                        }
+                        "/api/agents" | "/api/beads" => {
+                            hits.fetch_add(1, Ordering::SeqCst);
+                            ("200 OK", "[]")
+                        }
+                        "/api/kpi" => {
+                            hits.fetch_add(1, Ordering::SeqCst);
+                            ("200 OK", "{}")
+                        }
+                        "/api/costs" => ("200 OK", "{}"),
+                        _ => ("200 OK", "[]"),
+                    };
+                    let _ = write!(
+                        stream,
+                        "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    );
+                });
+            }
+        });
+        (base, hits)
+    }
+
+    /// When bootstrap succeeds, the agents/beads/kpi fallbacks must NOT also
+    /// run — exactly one request across the whole group.
+    #[test]
+    fn fetch_all_bootstrap_ok_sends_exactly_one_request() {
+        let (base, hits) = start_counting_server(BootStatus::Ok);
+        let client = ApiClient::with_api_key(&base, None);
+        let data = client.fetch_all();
+        assert!(data.status.connected());
+        assert_eq!(
+            hits.load(Ordering::SeqCst),
+            1,
+            "bootstrap success must not trigger the agents/beads/kpi fallbacks"
+        );
+    }
+
+    /// When bootstrap answers 404 or 500, the fallbacks must all still run:
+    /// bootstrap itself plus the three fallback fetches (agents, beads, kpi).
+    #[test]
+    fn fetch_all_bootstrap_failure_sends_bootstrap_plus_three_fallbacks() {
+        for boot in [BootStatus::NotFound, BootStatus::ServerError] {
+            let (base, hits) = start_counting_server(boot);
+            let client = ApiClient::with_api_key(&base, None);
+            let data = client.fetch_all();
+            assert!(data.status.connected());
+            assert_eq!(
+                hits.load(Ordering::SeqCst),
+                4,
+                "bootstrap failure must fall back to agents+beads+kpi (4 total requests)"
+            );
+        }
     }
 }
