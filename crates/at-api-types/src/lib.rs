@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 
 pub mod auth;
 pub mod catalog;
+pub mod merge_gate;
+pub mod schemas;
 
 // ── Core API response types (matching backend JSON) ──
 
@@ -398,6 +400,11 @@ pub struct CreateTaskRequest {
     pub priority: String,
     pub complexity: String,
     pub category: String,
+    /// Shell commands that must exit 0 in the task worktree before merge.
+    /// Omitted when empty, in which case the server inherits the bead's
+    /// `metadata.acceptance_criteria`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub acceptance_criteria: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
