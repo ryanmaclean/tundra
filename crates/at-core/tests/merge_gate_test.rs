@@ -80,6 +80,7 @@ async fn gate_passes_then_merges() {
     let p = repo.path();
     let wt = task_worktree(p, "pass");
 
+    let wt_head = sh_git(Path::new(&wt.path), &["rev-parse", "HEAD"]);
     let manager = WorktreeManager::new(p);
     let outcome = manager
         .merge_to_main_gated(&wt, &criteria(&["test -f g", "echo checked"]))
@@ -96,6 +97,10 @@ async fn gate_passes_then_merges() {
     assert_eq!(report.results.len(), 2);
     assert_eq!(report.results[0].exit_code, Some(0));
     assert_eq!(report.results[1].stdout_tail, "checked\n");
+    // Attestation fields: what ran, on which commit, when.
+    assert_eq!(report.criteria, criteria(&["test -f g", "echo checked"]));
+    assert_eq!(report.head.as_deref(), Some(wt_head.as_str()));
+    assert!(report.generated_at.is_some());
     assert!(main_has(p, "g"));
 }
 

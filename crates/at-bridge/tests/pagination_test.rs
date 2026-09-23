@@ -79,6 +79,7 @@ async fn seed_tasks(state: &ApiState, count: usize) -> Vec<Uuid> {
             build_logs: vec![],
             acceptance_criteria: vec![],
             merge_gate_report: None,
+            merged_at: None,
         };
         tasks.insert(task_id, task);
         ids.push(task_id);

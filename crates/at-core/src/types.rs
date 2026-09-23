@@ -1070,6 +1070,10 @@ pub struct Task {
     /// Report from the most recent merge-gate run, if any.
     #[serde(default)]
     pub merge_gate_report: Option<crate::merge_gate::MergeGateReport>,
+    /// When the task branch was merged into its target by a gated merge
+    /// (`None` while unmerged, including after a verify-only gate pass).
+    #[serde(default)]
+    pub merged_at: Option<DateTime<Utc>>,
 }
 
 impl Task {
@@ -1111,6 +1115,7 @@ impl Task {
             build_logs: Vec::new(),
             acceptance_criteria: Vec::new(),
             merge_gate_report: None,
+            merged_at: None,
         }
     }
 
