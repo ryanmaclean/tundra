@@ -1,6 +1,7 @@
 use at_bridge::event_bus::EventBus;
 use at_bridge::protocol::{BridgeMessage, EventPayload};
-use at_core::types::{Task, TaskLogType, TaskPhase};
+use at_core::types::{QaReport, QaStatus, Task, TaskLogType, TaskPhase};
+use std::sync::Arc;
 use chrono::Utc;
 use thiserror::Error;
 use tracing::{error, info, warn};
@@ -110,6 +111,17 @@ pub enum OrchestratorError {
     /// report stored in `task.merge_gate_report`.
     #[error("{}", .0.summary())]
     MergeGateFailed(Box<MergeGateReport>),
+
+    /// QA kept failing after the allowed number of Fixing iterations. The
+    /// task is left in [`TaskPhase::Error`] with the last report stored in
+    /// `task.qa_report`; nothing was merged.
+    #[error("QA failed with {} issue(s) after fix iterations were exhausted", .0.issues.len())]
+    QaFailed(Box<QaReport>),
+
+    /// An agent phase finished without success (non-zero exit, timeout,
+    /// abort or no output). The task is left in [`TaskPhase::Error`].
+    #[error("phase {0:?} did not succeed")]
+    PhaseFailed(TaskPhase),
 }
 
 /// A specialized [`Result`](std::result::Result) type for orchestrator operations.
@@ -142,6 +154,19 @@ pub struct TaskOrchestrator {
     worktree_manager: WorktreeManager,
     event_bus: EventBus,
     max_gate_fix_iterations: usize,
+    qa_checker: QaChecker,
+}
+
+/// Produces the automated QA verdict for a task at the start of the Qa phase.
+///
+/// `Passed` goes straight to Merging, `Failed` goes to Fixing and back to QA,
+/// `Pending` hands the review to a QA agent whose run must succeed.
+pub type QaChecker = Arc<dyn Fn(&Task) -> QaReport + Send + Sync>;
+
+fn default_qa_checker() -> QaChecker {
+    Arc::new(|task: &Task| {
+        QaRunner::new().run_qa_checks(task.id, &task.title, task.worktree_path.as_deref())
+    })
 }
 
 /// Fix iterations allowed after a merge-gate failure before the task errors.
@@ -159,11 +184,21 @@ impl TaskOrchestrator {
             worktree_manager,
             event_bus,
             max_gate_fix_iterations: DEFAULT_MAX_GATE_FIX_ITERATIONS,
+            qa_checker: default_qa_checker(),
         }
     }
 
-    /// Set how many Fixing -> Qa -> Merging iterations a task gets after the
-    /// merge gate refuses it (0 = fail immediately).
+    /// Replace the automated QA check (default: [`QaRunner::run_qa_checks`]).
+    pub fn with_qa_checker(
+        mut self,
+        checker: impl Fn(&Task) -> QaReport + Send + Sync + 'static,
+    ) -> Self {
+        self.qa_checker = Arc::new(checker);
+        self
+    }
+
+    /// Set how many Fixing iterations a task gets after QA fails, and
+    /// separately after the merge gate refuses it (0 = fail immediately).
     pub fn with_max_gate_fix_iterations(mut self, n: usize) -> Self {
         self.max_gate_fix_iterations = n;
         self
@@ -175,8 +210,13 @@ impl TaskOrchestrator {
     /// 1. Create a worktree for the task
     /// 2. Walk through each pipeline phase (Discovery -> ... -> Complete)
     /// 3. At each phase, spawn an agent with appropriate config
-    /// 4. On the Merging phase, attempt to merge back to main
-    /// 5. Publish events throughout
+    /// 4. In the Qa phase, loop Fixing -> Qa until QA passes (bounded by
+    ///    `max_gate_fix_iterations`); a still-failing QA errors the task
+    /// 5. On the Merging phase, attempt to merge back to main
+    /// 6. Publish events throughout
+    ///
+    /// Any agent phase that does not succeed moves the task to Error and
+    /// stops the pipeline; nothing after it (in particular Merging) runs.
     pub async fn start_task(&self, task: &mut Task) -> Result<()> {
         info!(task_id = %task.id, title = %task.title, "orchestrator starting task");
 
@@ -244,130 +284,194 @@ impl TaskOrchestrator {
                 continue;
             }
 
-            // QA phase: run QA checks (at-intelligence QaRunner) and attach QaReport to task
+            // QA phase: automated checks, then Fixing -> Qa until QA passes.
             if *phase == TaskPhase::Qa {
-                let mut qa_runner = QaRunner::new();
-                let report =
-                    qa_runner.run_qa_checks(task.id, &task.title, task.worktree_path.as_deref());
-                task.qa_report = Some(report.clone());
-                task.log(
-                    TaskLogType::Info,
-                    format!(
-                        "QA report generated: {:?} with {} issues",
-                        report.status,
-                        report.issues.len()
-                    ),
-                );
-                for issue in &report.issues {
-                    task.log(
-                        TaskLogType::Info,
-                        format!("QA issue: {:?} - {}", issue.severity, issue.description),
-                    );
-                }
-                // Advance phase based on QA status
-                let next_phase = report.next_phase();
-                task.set_phase(next_phase.clone());
-                task.log(
-                    TaskLogType::PhaseEnd,
-                    format!("QA phase completed, advancing to: {:?}", next_phase),
-                );
-                self.publish_event(task, &format!("phase_end:{phase:?}"));
-                // If QA passed, continue to Merging; if failed, go to Fixing
-                if next_phase == TaskPhase::Merging || next_phase == TaskPhase::Fixing {
-                    continue; // Skip the normal executor path
-                }
+                self.run_qa_phase(task).await?;
+                continue;
             }
 
             // Build prompt and execute via agent
             let prompt = self.build_prompt_for_phase(task, phase.clone());
-            let config =
-                AgentConfig::default_for_phase(at_core::types::CliType::Claude, phase.clone());
-
-            // Store the prompt in the task description for the executor
-            let mut exec_task = task.clone();
-            exec_task.description = Some(prompt);
-
-            match self.executor.execute_task(&exec_task, &config).await {
-                Ok(result) => {
-                    // A2: Collect executor events/output/tool_errors into task logs
-                    if !result.events.is_empty() {
-                        task.log(
-                            TaskLogType::Info,
-                            format!("Collected {} structured events", result.events.len()),
-                        );
-                        for event in &result.events {
-                            task.log(
-                                TaskLogType::Info,
-                                format!("Event: {} - {}", event.event_type, event.message),
-                            );
-                        }
-                    }
-                    if !result.output.is_empty() {
-                        // Log output in chunks if it's large
-                        let output_preview = if result.output.len() > OUTPUT_PREVIEW_BYTES {
-                            format!(
-                                "{}... (truncated, {} bytes total)",
-                                preview(&result.output, OUTPUT_PREVIEW_BYTES),
-                                result.output.len()
-                            )
-                        } else {
-                            result.output.clone()
-                        };
-                        task.log(
-                            TaskLogType::Info,
-                            format!("Agent output:\n{}", output_preview),
-                        );
-                    }
-                    if !result.tool_errors.is_empty() {
-                        warn!(
-                            task_id = %task.id,
-                            tool_error_count = result.tool_errors.len(),
-                            "tool use errors detected"
-                        );
-                        for tool_err in &result.tool_errors {
-                            task.log(
-                                TaskLogType::Error,
-                                format!(
-                                    "Tool error: {} - {}",
-                                    tool_err.tool_name, tool_err.error_message
-                                ),
-                            );
-                        }
-                    }
-                    task.log(
-                        TaskLogType::Info,
-                        format!("Execution duration: {}ms", result.duration_ms),
-                    );
-
-                    if !result.success {
-                        warn!(
-                            task_id = %task.id,
-                            phase = ?phase,
-                            "phase execution was not successful"
-                        );
-                        task.log(
-                            TaskLogType::Error,
-                            format!("Phase {phase:?} did not succeed"),
-                        );
-                    } else {
-                        task.log(TaskLogType::PhaseEnd, format!("Completed phase: {phase:?}"));
-                    }
-                }
-                Err(e) => {
-                    error!(task_id = %task.id, phase = ?phase, error = %e, "phase execution failed");
-                    task.set_phase(TaskPhase::Error);
-                    task.error = Some(e.to_string());
-                    task.log(TaskLogType::Error, format!("Phase {phase:?} failed: {e}"));
-                    self.publish_event(task, "task_error");
-                    return Err(OrchestratorError::Executor(e));
-                }
-            }
+            self.run_agent_phase(task, phase.clone(), prompt).await?;
 
             self.publish_event(task, &format!("phase_end:{phase:?}"));
         }
 
         info!(task_id = %task.id, "orchestrator finished task");
         Ok(())
+    }
+
+    /// Run one agent phase. Returns an error (and moves the task to Error)
+    /// when the executor fails or the agent run does not succeed.
+    async fn run_agent_phase(&self, task: &mut Task, phase: TaskPhase, prompt: String) -> Result<()> {
+        let config =
+            AgentConfig::default_for_phase(at_core::types::CliType::Claude, phase.clone());
+
+        // Store the prompt in the task description for the executor
+        let mut exec_task = task.clone();
+        exec_task.description = Some(prompt);
+
+        match self.executor.execute_task(&exec_task, &config).await {
+            Ok(result) => {
+                // A2: Collect executor events/output/tool_errors into task logs
+                if !result.events.is_empty() {
+                    task.log(
+                        TaskLogType::Info,
+                        format!("Collected {} structured events", result.events.len()),
+                    );
+                    for event in &result.events {
+                        task.log(
+                            TaskLogType::Info,
+                            format!("Event: {} - {}", event.event_type, event.message),
+                        );
+                    }
+                }
+                if !result.output.is_empty() {
+                    // Log output in chunks if it's large
+                    let output_preview = if result.output.len() > OUTPUT_PREVIEW_BYTES {
+                        format!(
+                            "{}... (truncated, {} bytes total)",
+                            preview(&result.output, OUTPUT_PREVIEW_BYTES),
+                            result.output.len()
+                        )
+                    } else {
+                        result.output.clone()
+                    };
+                    task.log(
+                        TaskLogType::Info,
+                        format!("Agent output:\n{}", output_preview),
+                    );
+                }
+                if !result.tool_errors.is_empty() {
+                    warn!(
+                        task_id = %task.id,
+                        tool_error_count = result.tool_errors.len(),
+                        "tool use errors detected"
+                    );
+                    for tool_err in &result.tool_errors {
+                        task.log(
+                            TaskLogType::Error,
+                            format!(
+                                "Tool error: {} - {}",
+                                tool_err.tool_name, tool_err.error_message
+                            ),
+                        );
+                    }
+                }
+                task.log(
+                    TaskLogType::Info,
+                    format!("Execution duration: {}ms", result.duration_ms),
+                );
+
+                if !result.success {
+                    warn!(
+                        task_id = %task.id,
+                        phase = ?phase,
+                        exit_code = ?result.exit_code,
+                        "phase execution was not successful"
+                    );
+                    let msg = format!("Phase {phase:?} did not succeed");
+                    task.set_phase(TaskPhase::Error);
+                    task.error = Some(msg.clone());
+                    task.log(TaskLogType::Error, msg);
+                    self.publish_event(task, "task_error");
+                    return Err(OrchestratorError::PhaseFailed(phase));
+                }
+                task.log(TaskLogType::PhaseEnd, format!("Completed phase: {phase:?}"));
+            }
+            Err(e) => {
+                error!(task_id = %task.id, phase = ?phase, error = %e, "phase execution failed");
+                task.set_phase(TaskPhase::Error);
+                task.error = Some(e.to_string());
+                task.log(TaskLogType::Error, format!("Phase {phase:?} failed: {e}"));
+                self.publish_event(task, "task_error");
+                return Err(OrchestratorError::Executor(e));
+            }
+        }
+        Ok(())
+    }
+
+    /// Qa phase: run the automated QA check and act on its verdict.
+    ///
+    /// `Failed` runs a Fixing agent and re-checks, up to
+    /// `max_gate_fix_iterations` times; when they are exhausted the task moves
+    /// to Error and [`OrchestratorError::QaFailed`] is returned. Only a passed
+    /// check (or a successful QA agent review for `Pending`) lets the pipeline
+    /// continue to Merging.
+    async fn run_qa_phase(&self, task: &mut Task) -> Result<()> {
+        let mut fix_iterations = 0usize;
+        loop {
+            let report = (self.qa_checker)(task);
+            task.qa_report = Some(report.clone());
+            task.log(
+                TaskLogType::Info,
+                format!(
+                    "QA report generated: {:?} with {} issues",
+                    report.status,
+                    report.issues.len()
+                ),
+            );
+            for issue in &report.issues {
+                task.log(
+                    TaskLogType::Info,
+                    format!("QA issue: {:?} - {}", issue.severity, issue.description),
+                );
+            }
+
+            match report.status {
+                QaStatus::Passed => {
+                    task.log(TaskLogType::PhaseEnd, "QA passed, advancing to: Merging");
+                    self.publish_event(task, "phase_end:Qa");
+                    return Ok(());
+                }
+                QaStatus::Pending => {
+                    // No automated verdict: a QA agent reviews the change.
+                    let prompt = self.build_prompt_for_phase(task, TaskPhase::Qa);
+                    self.run_agent_phase(task, TaskPhase::Qa, prompt).await?;
+                    self.publish_event(task, "phase_end:Qa");
+                    return Ok(());
+                }
+                QaStatus::Failed => {
+                    self.publish_event(task, "qa_failed");
+                    if fix_iterations >= self.max_gate_fix_iterations {
+                        let msg = format!(
+                            "QA failed with {} issue(s) after {fix_iterations} fix iteration(s)",
+                            report.issues.len()
+                        );
+                        task.log(TaskLogType::Error, &msg);
+                        task.set_phase(TaskPhase::Error);
+                        task.error = Some(msg);
+                        self.publish_event(task, "task_error");
+                        return Err(OrchestratorError::QaFailed(Box::new(report)));
+                    }
+                    fix_iterations += 1;
+
+                    task.set_phase(TaskPhase::Fixing);
+                    task.log(
+                        TaskLogType::PhaseStart,
+                        format!(
+                            "Starting phase: Fixing (QA iteration {fix_iterations}/{})",
+                            self.max_gate_fix_iterations
+                        ),
+                    );
+                    self.publish_event(task, "phase_start:Fixing");
+                    let mut prompt = self.build_prompt_for_phase(task, TaskPhase::Fixing);
+                    prompt.push_str("\n\nQA reported these issues:");
+                    for issue in &report.issues {
+                        prompt.push_str(&format!(
+                            "\n- {:?}: {}",
+                            issue.severity, issue.description
+                        ));
+                    }
+                    self.run_agent_phase(task, TaskPhase::Fixing, prompt).await?;
+                    self.publish_event(task, "phase_end:Fixing");
+
+                    task.set_phase(TaskPhase::Qa);
+                    task.log(TaskLogType::PhaseStart, "Starting phase: Qa (re-check)");
+                    self.publish_event(task, "phase_start:Qa");
+                }
+            }
+        }
     }
 
     /// Merging phase: run the merge gate and merge only if it passes.
@@ -437,8 +541,12 @@ impl TaskOrchestrator {
                 }
                 Err(e) => {
                     warn!(task_id = %task.id, error = %e, "merge failed");
-                    task.log(TaskLogType::Error, format!("Merge failed: {e}"));
-                    return Ok(());
+                    let msg = format!("Merge failed: {e}");
+                    task.log(TaskLogType::Error, &msg);
+                    task.set_phase(TaskPhase::Error);
+                    task.error = Some(msg);
+                    self.publish_event(task, "task_error");
+                    return Err(OrchestratorError::Worktree(e));
                 }
             }
         }
@@ -746,7 +854,15 @@ mod tests {
     }
 
     impl GitRunner for MockGit {
-        fn run_git(&self, _dir: &str, _args: &[&str]) -> std::result::Result<GitOutput, String> {
+        fn run_git(&self, _dir: &str, args: &[&str]) -> std::result::Result<GitOutput, String> {
+            // `rev-list --count` must parse as a number; "0" = nothing to merge.
+            if args.starts_with(&["rev-list", "--count"]) {
+                return Ok(GitOutput {
+                    success: true,
+                    stdout: "0\n".to_string(),
+                    stderr: String::new(),
+                });
+            }
             let mut responses = self.responses.lock().unwrap();
             if responses.is_empty() {
                 Ok(GitOutput {
