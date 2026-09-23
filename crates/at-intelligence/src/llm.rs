@@ -164,6 +164,28 @@ pub trait LlmProvider: Send + Sync {
 }
 
 // ---------------------------------------------------------------------------
+// Shared HTTP client for cloud providers
+// ---------------------------------------------------------------------------
+
+/// Connect timeout for cloud LLM APIs.
+pub const CLOUD_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Default total request timeout for non-streaming cloud LLM calls. Sized for
+/// large `max_tokens` completions; a stalled connection fails with
+/// [`LlmError::Timeout`] instead of hanging the caller forever.
+pub const CLOUD_REQUEST_TIMEOUT: Duration = Duration::from_secs(300);
+
+/// Build the reqwest client used by the cloud providers, with connect and
+/// total-request timeouts (reqwest's `Client::new()` has neither).
+fn cloud_client(timeout: Duration) -> reqwest::Client {
+    reqwest::Client::builder()
+        .connect_timeout(CLOUD_CONNECT_TIMEOUT)
+        .timeout(timeout)
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new())
+}
+
+// ---------------------------------------------------------------------------
 // AnthropicProvider
 // ---------------------------------------------------------------------------
 
@@ -180,10 +202,17 @@ impl AnthropicProvider {
     /// `api_key` is the Anthropic API key (x-api-key header).
     pub fn new(api_key: impl Into<String>) -> Self {
         Self {
-            client: reqwest::Client::new(),
+            client: cloud_client(CLOUD_REQUEST_TIMEOUT),
             api_key: api_key.into(),
             base_url: "https://api.anthropic.com".to_string(),
         }
+    }
+
+    /// Override the total request timeout (default [`CLOUD_REQUEST_TIMEOUT`]).
+    /// A request exceeding it fails with [`LlmError::Timeout`].
+    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.client = cloud_client(timeout);
+        self
     }
 
     /// Override the base URL (useful for testing with a mock server).
@@ -361,10 +390,17 @@ impl OpenAiProvider {
     /// Create a new OpenAI provider.
     pub fn new(api_key: impl Into<String>) -> Self {
         Self {
-            client: reqwest::Client::new(),
+            client: cloud_client(CLOUD_REQUEST_TIMEOUT),
             api_key: api_key.into(),
             base_url: "https://api.openai.com".to_string(),
         }
+    }
+
+    /// Override the total request timeout (default [`CLOUD_REQUEST_TIMEOUT`]).
+    /// A request exceeding it fails with [`LlmError::Timeout`].
+    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.client = cloud_client(timeout);
+        self
     }
 
     /// Override the base URL (useful for testing or Azure OpenAI).
@@ -1412,5 +1448,52 @@ mod tests {
         let usage = resp.usage.unwrap();
         assert_eq!(usage.prompt_tokens, Some(42));
         assert_eq!(usage.completion_tokens, Some(10));
+    }
+
+    // -- Cloud client timeout tests (finding #19) ----------------------------
+
+    /// Accept connections but never answer, simulating a stalled upstream.
+    async fn stalled_server() -> (String, tokio::task::JoinHandle<()>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let handle = tokio::spawn(async move {
+            let mut held = Vec::new();
+            while let Ok((sock, _)) = listener.accept().await {
+                held.push(sock); // keep the socket open, never respond
+            }
+        });
+        (format!("http://{addr}"), handle)
+    }
+
+    #[tokio::test]
+    async fn anthropic_stalled_request_times_out() {
+        let (url, server) = stalled_server().await;
+        let provider = AnthropicProvider::new("k")
+            .with_base_url(url)
+            .with_timeout(Duration::from_millis(200));
+        let res = tokio::time::timeout(
+            Duration::from_secs(5),
+            provider.complete(&[LlmMessage::user("hi")], &default_config()),
+        )
+        .await
+        .expect("request must not hang past the client timeout");
+        assert!(matches!(res, Err(LlmError::Timeout)), "got {res:?}");
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn openai_stalled_request_times_out() {
+        let (url, server) = stalled_server().await;
+        let provider = OpenAiProvider::new("k")
+            .with_base_url(url)
+            .with_timeout(Duration::from_millis(200));
+        let res = tokio::time::timeout(
+            Duration::from_secs(5),
+            provider.complete(&[LlmMessage::user("hi")], &default_config()),
+        )
+        .await
+        .expect("request must not hang past the client timeout");
+        assert!(matches!(res, Err(LlmError::Timeout)), "got {res:?}");
+        server.abort();
     }
 }

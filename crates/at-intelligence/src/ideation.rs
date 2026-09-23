@@ -186,11 +186,31 @@ impl IdeationEngine {
     /// the response as JSON.  If JSON parsing fails it falls back to simple
     /// line-based text parsing so that the engine is resilient to varying
     /// LLM output formats.
+    ///
+    /// This holds `&mut self` across the LLM call. Callers that keep the
+    /// engine behind a lock should instead use [`Self::prepare_ai_request`],
+    /// run the returned [`AiIdeationRequest`] without the lock, and then call
+    /// [`Self::store_ideas`].
     pub async fn generate_ideas_with_ai(
         &mut self,
         category: &IdeaCategory,
         context: &str,
     ) -> Result<IdeationResult, crate::IntelligenceError> {
+        let request = self.prepare_ai_request(category, context)?;
+        let result = request.run().await?;
+        self.store_ideas(&result);
+        Ok(result)
+    }
+
+    /// Build an AI ideation request from the engine's provider and model.
+    ///
+    /// The returned request owns everything it needs, so the (potentially
+    /// slow) LLM call can run without borrowing or locking the engine.
+    pub fn prepare_ai_request(
+        &self,
+        category: &IdeaCategory,
+        context: &str,
+    ) -> Result<AiIdeationRequest, crate::IntelligenceError> {
         let provider = self
             .provider
             .as_ref()
@@ -230,25 +250,17 @@ impl IdeationEngine {
             system_prompt: None,
         };
 
-        let response = provider.complete(&messages, &config).await.map_err(|e| {
-            crate::IntelligenceError::InvalidOperation(format!("LLM call failed: {e}"))
-        })?;
-
-        // Try JSON parsing first, fall back to text parsing.
-        let ideas = self
-            .parse_ideas_json(&response.content, category)
-            .unwrap_or_else(|| self.parse_ideas_text(&response.content, category));
-
-        // Store the generated ideas.
-        for idea in &ideas {
-            self.ideas.push(idea.clone());
-        }
-
-        Ok(IdeationResult {
-            ideas,
-            analysis_type: category_label.to_string(),
-            generated_at: Utc::now(),
+        Ok(AiIdeationRequest {
+            provider,
+            messages,
+            config,
+            category: category.clone(),
         })
+    }
+
+    /// Store ideas produced by an [`AiIdeationRequest`] in the engine.
+    pub fn store_ideas(&mut self, result: &IdeationResult) {
+        self.ideas.extend(result.ideas.iter().cloned());
     }
 
     // -----------------------------------------------------------------------
@@ -288,7 +300,7 @@ impl IdeationEngine {
     }
 
     /// Attempt to parse the LLM response as our expected JSON schema.
-    fn parse_ideas_json(&self, text: &str, category: &IdeaCategory) -> Option<Vec<Idea>> {
+    fn parse_ideas_json(text: &str, category: &IdeaCategory) -> Option<Vec<Idea>> {
         // Strip markdown code fences if the LLM wrapped output in them.
         let cleaned = text
             .trim()
@@ -321,7 +333,7 @@ impl IdeationEngine {
     }
 
     /// Fallback: treat each non-empty line as an idea title.
-    fn parse_ideas_text(&self, text: &str, category: &IdeaCategory) -> Vec<Idea> {
+    fn parse_ideas_text(text: &str, category: &IdeaCategory) -> Vec<Idea> {
         text.lines()
             .map(|l| l.trim())
             .filter(|l| !l.is_empty())
@@ -363,6 +375,53 @@ impl IdeationEngine {
             "massive" => EffortLevel::Massive,
             _ => EffortLevel::Medium,
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// AiIdeationRequest
+// ---------------------------------------------------------------------------
+
+/// A self-contained AI ideation request, produced by
+/// [`IdeationEngine::prepare_ai_request`]. Running it does not touch the
+/// engine, so callers can drop any engine lock for the duration of the call.
+pub struct AiIdeationRequest {
+    provider: Arc<dyn LlmProvider>,
+    messages: Vec<LlmMessage>,
+    config: LlmConfig,
+    category: IdeaCategory,
+}
+
+impl std::fmt::Debug for AiIdeationRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AiIdeationRequest")
+            .field("model", &self.config.model)
+            .field("category", &self.category)
+            .finish()
+    }
+}
+
+impl AiIdeationRequest {
+    /// Call the LLM and parse its output into ideas. Ideas are **not** stored;
+    /// pass the result to [`IdeationEngine::store_ideas`].
+    pub async fn run(self) -> Result<IdeationResult, crate::IntelligenceError> {
+        let response = self
+            .provider
+            .complete(&self.messages, &self.config)
+            .await
+            .map_err(|e| {
+                crate::IntelligenceError::InvalidOperation(format!("LLM call failed: {e}"))
+            })?;
+
+        // Try JSON parsing first, fall back to text parsing.
+        let ideas = IdeationEngine::parse_ideas_json(&response.content, &self.category)
+            .unwrap_or_else(|| IdeationEngine::parse_ideas_text(&response.content, &self.category));
+
+        Ok(IdeationResult {
+            ideas,
+            analysis_type: IdeationEngine::category_label(&self.category).to_string(),
+            generated_at: Utc::now(),
+        })
     }
 }
 
@@ -543,5 +602,69 @@ mod tests {
         assert!(bead.title.contains("code_improvement"));
         assert!(bead.description.is_some());
         assert!(engine.convert_to_task(&Uuid::new_v4()).is_none());
+    }
+
+    /// Provider that blocks until notified, to observe engine locking.
+    struct GatedProvider {
+        gate: Arc<tokio::sync::Notify>,
+        response: String,
+    }
+
+    #[async_trait::async_trait]
+    impl LlmProvider for GatedProvider {
+        async fn complete(
+            &self,
+            _messages: &[LlmMessage],
+            _config: &LlmConfig,
+        ) -> Result<LlmResponse, LlmError> {
+            self.gate.notified().await;
+            Ok(LlmResponse {
+                content: self.response.clone(),
+                model: "gated".to_string(),
+                input_tokens: 1,
+                output_tokens: 1,
+                finish_reason: "end_turn".to_string(),
+            })
+        }
+
+        async fn stream(
+            &self,
+            _messages: &[LlmMessage],
+            _config: &LlmConfig,
+        ) -> Result<Pin<Box<dyn Stream<Item = Result<String, LlmError>> + Send>>, LlmError>
+        {
+            Err(LlmError::Unsupported("gated".into()))
+        }
+    }
+
+    #[tokio::test]
+    async fn prepared_request_runs_without_holding_engine_lock() {
+        let gate = Arc::new(tokio::sync::Notify::new());
+        let provider = Arc::new(GatedProvider {
+            gate: gate.clone(),
+            response: r#"{"ideas":[{"title":"T","description":"D"}]}"#.into(),
+        });
+        let engine = Arc::new(tokio::sync::RwLock::new(IdeationEngine::with_provider(
+            provider, "m",
+        )));
+
+        let request = engine
+            .read()
+            .await
+            .prepare_ai_request(&IdeaCategory::Quality, "ctx")
+            .unwrap();
+        let pending = tokio::spawn(request.run());
+        tokio::task::yield_now().await;
+
+        // While the LLM call is in flight the engine is fully available.
+        assert!(engine.try_write().is_ok(), "engine must not be locked");
+        assert!(!pending.is_finished());
+
+        gate.notify_one();
+        let result = pending.await.unwrap().unwrap();
+        assert_eq!(result.ideas.len(), 1);
+        assert!(engine.read().await.list_ideas().is_empty());
+        engine.write().await.store_ideas(&result);
+        assert_eq!(engine.read().await.list_ideas().len(), 1);
     }
 }
