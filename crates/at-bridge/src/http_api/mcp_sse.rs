@@ -27,7 +27,6 @@ use axum::{
     },
     Json,
 };
-use futures_util::stream::Stream;
 use serde::Deserialize;
 use tokio::sync::{mpsc, RwLock};
 use tracing::{debug, info, warn};
@@ -58,51 +57,90 @@ pub fn new_session_store() -> McpSessionStore {
 // GET /mcp/sse
 // ---------------------------------------------------------------------------
 
+/// Upper bound on concurrently open MCP SSE sessions. Each session holds a
+/// map entry and a 64-slot channel; beyond this GET /mcp/sse answers 503.
+pub const MAX_MCP_SESSIONS: usize = 256;
+
+/// Removes its session from the store when dropped.
+///
+/// The guard is moved into the SSE stream, so the session lives exactly as
+/// long as the client's connection: axum drops the stream when the client
+/// disconnects, and a live stream is never cut off by a timer.
+struct SessionGuard {
+    id: Uuid,
+    store: McpSessionStore,
+}
+
+impl Drop for SessionGuard {
+    fn drop(&mut self) {
+        let id = self.id;
+        if let Ok(mut sessions) = self.store.try_write() {
+            sessions.remove(&id);
+            debug!(session_id = %id, "MCP SSE session closed, removed");
+            return;
+        }
+        // Lock contended: finish the removal asynchronously.
+        let store = Arc::clone(&self.store);
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            handle.spawn(async move {
+                store.write().await.remove(&id);
+                debug!(session_id = %id, "MCP SSE session closed, removed");
+            });
+        }
+    }
+}
+
 /// Open an SSE connection. The server immediately sends an `endpoint` event
 /// telling the client where to POST JSON-RPC messages.
-pub async fn handle_sse(
-    State(state): State<Arc<ApiState>>,
-) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+///
+/// The session is removed from the store when the stream is dropped (client
+/// disconnect). Returns 503 when [`MAX_MCP_SESSIONS`] sessions are open.
+pub async fn handle_sse(State(state): State<Arc<ApiState>>) -> axum::response::Response {
     let session_id = Uuid::new_v4();
     let (tx, mut rx) = mpsc::channel::<String>(64);
 
     // Register the sender in the session store.
     {
         let mut sessions = state.mcp_sessions.write().await;
+        if sessions.len() >= MAX_MCP_SESSIONS {
+            warn!(open = sessions.len(), "MCP SSE session limit reached");
+            return (
+                axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({
+                    "error": "too many MCP sessions",
+                    "max_sessions": MAX_MCP_SESSIONS,
+                })),
+            )
+                .into_response();
+        }
         sessions.insert(session_id, tx);
     }
 
     info!(session_id = %session_id, "MCP SSE session opened");
 
+    let guard = SessionGuard {
+        id: session_id,
+        store: Arc::clone(&state.mcp_sessions),
+    };
+
     // Build the SSE stream from the mpsc receiver.
     let stream = async_stream::stream! {
+        // Owned by the stream: dropping the stream removes the session.
+        let _guard = guard;
+
         // First event: tell the client where to POST.
         let endpoint = format!("/mcp/messages?session_id={}", session_id);
-        yield Ok(Event::default().event("endpoint").data(endpoint));
+        yield Ok::<Event, Infallible>(Event::default().event("endpoint").data(endpoint));
 
         // Relay any messages the server sends on the channel.
         while let Some(msg) = rx.recv().await {
             yield Ok(Event::default().data(msg));
         }
-
-        // Channel closed — clean up session.
-        debug!(session_id = %session_id, "MCP SSE session closed");
     };
 
-    // Spawn a cleanup task: if the SSE consumer drops, remove the session.
-    let sessions_cleanup = Arc::clone(&state.mcp_sessions);
-    tokio::spawn(async move {
-        // The stream owns rx; when the stream is dropped the channel closes.
-        // We rely on the channel sender being removed from the store when the
-        // POST handler gets a SendError (channel closed) rather than here, so
-        // this cleanup is just a belt-and-suspenders safety net.
-        tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
-        let mut sessions = sessions_cleanup.write().await;
-        sessions.remove(&session_id);
-        debug!(session_id = %session_id, "MCP session TTL expired, removed");
-    });
-
-    Sse::new(stream).keep_alive(KeepAlive::default())
+    Sse::new(stream)
+        .keep_alive(KeepAlive::default())
+        .into_response()
 }
 
 // ---------------------------------------------------------------------------
@@ -713,6 +751,48 @@ mod tests {
         assert!(result.is_error, "non-string description must be rejected");
 
         assert!(state.beads.read().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn sse_session_lives_with_stream_and_is_removed_on_drop() {
+        use futures_util::StreamExt;
+
+        let state = make_state();
+        let resp = handle_sse(State(state.clone())).await;
+        assert_eq!(resp.status(), axum::http::StatusCode::OK);
+        assert_eq!(state.mcp_sessions.read().await.len(), 1);
+
+        // Read the endpoint event: the session stays registered while the
+        // stream is alive.
+        let mut body = resp.into_body().into_data_stream();
+        let chunk = body.next().await.unwrap().unwrap();
+        let text = String::from_utf8(chunk.to_vec()).unwrap();
+        assert!(text.contains("event: endpoint"), "got {text}");
+        assert_eq!(state.mcp_sessions.read().await.len(), 1);
+
+        // Client disconnect == stream dropped: the session must go away now,
+        // not after an hour.
+        drop(body);
+        tokio::task::yield_now().await;
+        assert!(
+            state.mcp_sessions.read().await.is_empty(),
+            "dropping the SSE stream must remove its session"
+        );
+    }
+
+    #[tokio::test]
+    async fn sse_session_count_is_capped() {
+        let state = make_state();
+        {
+            let mut sessions = state.mcp_sessions.write().await;
+            for _ in 0..MAX_MCP_SESSIONS {
+                let (tx, _rx) = mpsc::channel(1);
+                sessions.insert(Uuid::new_v4(), tx);
+            }
+        }
+        let resp = handle_sse(State(state.clone())).await;
+        assert_eq!(resp.status(), axum::http::StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(state.mcp_sessions.read().await.len(), MAX_MCP_SESSIONS);
     }
 
     #[tokio::test]

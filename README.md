@@ -64,6 +64,8 @@ cargo run --bin at -- status
 
 The CLI and TUI locate the daemon through `~/.auto-tundra/daemon.lock` and read the API key from `AUTO_TUNDRA_API_KEY` or `~/.auto-tundra/daemon.key`. Pass `--api-url` (CLI) or `--api` (TUI) to override the lockfile; `http://127.0.0.1:9090` is only the fallback when no daemon is running.
 
+Claude Code connects to the daemon's MCP server (`GET /mcp/sse`) through the tracked `.mcp.json`, which sends the key as `x-api-key: ${AUTO_TUNDRA_API_KEY}`. Export the variable before starting Claude Code, e.g. `export AUTO_TUNDRA_API_KEY="$(cat ~/.auto-tundra/daemon.key)"`; the key itself is never written to the repo.
+
 **🎉 Success!** You're ready to orchestrate agents.
 
 For detailed setup instructions, see **[GETTING_STARTED.md](GETTING_STARTED.md)**
