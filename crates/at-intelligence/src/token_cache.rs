@@ -164,12 +164,12 @@ impl TokenCache {
         match outcome {
             Outcome::HashHit(response) => {
                 stats.hash_hits += 1;
-                stats.tokens_saved += response.input_tokens + response.output_tokens;
+                stats.tokens_saved += response.total_tokens();
                 Some(response)
             }
             Outcome::PrefixHit(response) => {
                 stats.prefix_hits += 1;
-                stats.tokens_saved += response.input_tokens + response.output_tokens;
+                stats.tokens_saved += response.total_tokens();
                 Some(response)
             }
             Outcome::Miss => {
@@ -359,6 +359,8 @@ mod tests {
             model: "test-model".into(),
             input_tokens: 100,
             output_tokens: 50,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
             finish_reason: "end_turn".into(),
         }
     }

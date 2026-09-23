@@ -479,11 +479,25 @@ pub(crate) async fn generate_ideas(
         Some(Json(req)) => (req.category, req.context),
         None => (IdeaCategory::CodeImprovement, String::new()),
     };
-    let mut engine = state.ideation_engine.write().await;
     // Try AI-powered ideation first; fall back to deterministic generation
     // when no LLM provider is configured (e.g. in tests or offline mode).
-    let result = match engine.generate_ideas_with_ai(&category, &context).await {
-        Ok(result) => result,
+    // The request is prepared under a short read lock and the LLM call runs
+    // with no engine lock held, so a slow provider cannot block other readers.
+    let prepared = state
+        .ideation_engine
+        .read()
+        .await
+        .prepare_ai_request(&category, &context);
+    let ai_result = match prepared {
+        Ok(request) => request.run().await,
+        Err(e) => Err(e),
+    };
+    let mut engine = state.ideation_engine.write().await;
+    let result = match ai_result {
+        Ok(result) => {
+            engine.store_ideas(&result);
+            result
+        }
         Err(_) => engine.generate_ideas(&category, &context),
     };
     (

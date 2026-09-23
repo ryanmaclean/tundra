@@ -138,15 +138,34 @@ impl ModelRouter {
         }
     }
 
-    /// Select the best model for the given messages and config.
-    pub async fn route(&self, messages: &[LlmMessage], _config: &LlmConfig) -> RouteDecision {
+    /// Select the best model for the given messages and config, across all
+    /// providers in the routing tiers.
+    pub async fn route(&self, messages: &[LlmMessage], config: &LlmConfig) -> RouteDecision {
+        self.route_for_provider(messages, config, None).await
+    }
+
+    /// Select the best model, restricted to tiers served by `provider`
+    /// (matched against [`ModelPricing::provider`]). When `provider` is `Some`
+    /// and has no routing tiers (e.g. a local server), the request's own
+    /// `config.model` is used unchanged.
+    pub async fn route_for_provider(
+        &self,
+        messages: &[LlmMessage],
+        config: &LlmConfig,
+        provider: Option<&str>,
+    ) -> RouteDecision {
         match &self.strategy {
             RoutingStrategy::Fixed { model } => self.route_fixed(model).await,
-            RoutingStrategy::ComplexityBased => self.route_by_complexity(messages).await,
-            RoutingStrategy::CostOptimized { min_quality } => {
-                self.route_cost_optimized(messages, *min_quality).await
+            RoutingStrategy::ComplexityBased => {
+                let min_quality = estimate_complexity(messages).min_quality();
+                self.route_cost_optimized(config, min_quality, provider)
+                    .await
             }
-            RoutingStrategy::Cascade => self.route_cascade(messages).await,
+            RoutingStrategy::CostOptimized { min_quality } => {
+                self.route_cost_optimized(config, *min_quality, provider)
+                    .await
+            }
+            RoutingStrategy::Cascade => self.route_cascade(messages, config, provider).await,
         }
     }
 
@@ -170,8 +189,19 @@ impl ModelRouter {
             return Ok((cached, decision));
         }
 
-        // Route to best model
-        let decision = self.route(messages, config).await;
+        // Route to best model among those the supplied provider can serve.
+        let provider_name = provider.provider_name();
+        let decision = self
+            .route_for_provider(messages, config, provider_name)
+            .await;
+        if let Some(name) = provider_name {
+            if !decision.provider.is_empty() && decision.provider != name {
+                return Err(LlmError::Unsupported(format!(
+                    "routed model '{}' is served by provider '{}', but the supplied provider is '{}'",
+                    decision.model, decision.provider, name
+                )));
+            }
+        }
 
         // Check budget
         if let Some(key) = budget_key {
@@ -198,20 +228,38 @@ impl ModelRouter {
         let latency_ms = start.elapsed().as_millis() as u64;
 
         // Calculate actual cost
-        let cost = self
+        // Price by the routed model; fall back to the name the provider
+        // returned (often a dated snapshot, resolved by prefix).
+        let cost = match self
             .cost_tracker
-            .calculate_cost(
-                &response.model,
+            .try_calculate_cost_with_cache(
+                &decision.model,
                 response.input_tokens,
                 response.output_tokens,
+                response.cache_creation_input_tokens,
+                response.cache_read_input_tokens,
             )
-            .await;
+            .await
+        {
+            Some(cost) => cost,
+            None => {
+                self.cost_tracker
+                    .calculate_cost_with_cache(
+                        &response.model,
+                        response.input_tokens,
+                        response.output_tokens,
+                        response.cache_creation_input_tokens,
+                        response.cache_read_input_tokens,
+                    )
+                    .await
+            }
+        };
 
-        // Record in cost tracker
+        // Record in cost tracker (input includes prompt-cache writes/reads)
         let record = crate::cost_tracker::RequestRecord {
             model: response.model.clone(),
             provider: decision.provider.clone(),
-            input_tokens: response.input_tokens,
+            input_tokens: response.total_input_tokens(),
             output_tokens: response.output_tokens,
             cost_usd: cost,
             latency_ms,
@@ -225,7 +273,7 @@ impl ModelRouter {
         // Consume budget
         if let Some(key) = budget_key {
             self.cost_tracker
-                .consume_budget(key, response.input_tokens + response.output_tokens, cost)
+                .consume_budget(key, response.total_tokens(), cost)
                 .await;
         }
 
@@ -251,7 +299,7 @@ impl ModelRouter {
 
     async fn route_fixed(&self, model: &str) -> RouteDecision {
         let tiers = self.model_tiers.read().await;
-        let pricing = tiers.iter().find(|p| p.model == model);
+        let pricing = crate::cost_tracker::resolve_pricing(tiers.iter(), model);
 
         RouteDecision {
             model: model.to_string(),
@@ -262,18 +310,27 @@ impl ModelRouter {
         }
     }
 
-    async fn route_by_complexity(&self, messages: &[LlmMessage]) -> RouteDecision {
-        let complexity = estimate_complexity(messages);
-        let min_quality = complexity.min_quality();
-        self.route_cost_optimized(messages, min_quality).await
-    }
-
     async fn route_cost_optimized(
         &self,
-        _messages: &[LlmMessage],
+        config: &LlmConfig,
         min_quality: f64,
+        provider: Option<&str>,
     ) -> RouteDecision {
-        let tiers = self.model_tiers.read().await;
+        let all_tiers = self.model_tiers.read().await;
+        let tiers: Vec<&ModelPricing> = all_tiers
+            .iter()
+            .filter(|p| provider.is_none_or(|name| p.provider == name))
+            .collect();
+
+        if let (Some(name), true) = (provider, tiers.is_empty()) {
+            return RouteDecision {
+                model: config.model.clone(),
+                provider: name.to_string(),
+                reason: format!("no routing tiers for provider '{name}'; using requested model"),
+                estimated_cost: 0.0,
+                quality_score: 0.5,
+            };
+        }
 
         // Find the cheapest model that meets the quality threshold
         for pricing in tiers.iter() {
@@ -292,7 +349,7 @@ impl ModelRouter {
         }
 
         // Fallback to the highest quality model
-        let best = tiers.last().cloned().unwrap_or(ModelPricing {
+        let best = tiers.last().map(|p| (*p).clone()).unwrap_or(ModelPricing {
             model: "claude-sonnet-4-6".into(),
             provider: "anthropic".into(),
             input_cost_per_1m: 3.0,
@@ -312,7 +369,12 @@ impl ModelRouter {
         }
     }
 
-    async fn route_cascade(&self, messages: &[LlmMessage]) -> RouteDecision {
+    async fn route_cascade(
+        &self,
+        messages: &[LlmMessage],
+        config: &LlmConfig,
+        provider: Option<&str>,
+    ) -> RouteDecision {
         let complexity = estimate_complexity(messages);
         // For cascade, start with the cheapest model that has a reasonable chance
         let min_quality = match complexity {
@@ -321,7 +383,8 @@ impl ModelRouter {
             ComplexityLevel::Complex => 0.85,
             ComplexityLevel::Expert => 0.90,
         };
-        self.route_cost_optimized(messages, min_quality).await
+        self.route_cost_optimized(config, min_quality, provider)
+            .await
     }
 }
 
@@ -577,5 +640,145 @@ mod tests {
         for w in levels.windows(2) {
             assert!(w[0].min_quality() < w[1].min_quality());
         }
+    }
+
+    #[tokio::test]
+    async fn execute_records_prompt_cache_tokens() {
+        let router = make_router(RoutingStrategy::Fixed {
+            model: "claude-sonnet-4-6".into(),
+        });
+        let provider = MockProvider::new().with_response(LlmResponse {
+            content: "ok".into(),
+            model: "claude-sonnet-4-6".into(),
+            input_tokens: 10,
+            output_tokens: 0,
+            finish_reason: "end_turn".into(),
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 1_000_000,
+        });
+        router
+            .execute(&provider, &[LlmMessage::user("q")], &LlmConfig::default(), None)
+            .await
+            .unwrap();
+        assert_eq!(router.cost_tracker.total_tokens().await, 1_000_010);
+        let cost = router.cost_tracker.total_cost().await;
+        // 10 uncached @ $3/M + 1M cache reads @ $0.30/M
+        assert!((cost - (0.30 + 10.0 * 3.0 / 1_000_000.0)).abs() < 1e-9, "got {cost}");
+    }
+
+    #[tokio::test]
+    async fn execute_prices_by_routed_model_not_response_name() {
+        let router = make_router(RoutingStrategy::Fixed {
+            model: "gpt-4o".into(),
+        });
+        // Provider answers with an unpriced alias; routed model is priced.
+        let provider = MockProvider::new().with_response(LlmResponse {
+            content: "ok".into(),
+            model: "some-provider-internal-name".into(),
+            input_tokens: 1_000_000,
+            output_tokens: 0,
+            finish_reason: "stop".into(),
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+        });
+        router
+            .execute(&provider, &[LlmMessage::user("q")], &LlmConfig::default(), None)
+            .await
+            .unwrap();
+        let cost = router.cost_tracker.total_cost().await;
+        assert!((cost - 2.5).abs() < 1e-9, "got {cost}");
+    }
+
+    // -- Provider-aware routing (finding #17) --
+
+    /// MockProvider that claims to be a specific vendor.
+    struct VendorMock {
+        name: &'static str,
+        inner: MockProvider,
+    }
+
+    #[async_trait::async_trait]
+    impl LlmProvider for VendorMock {
+        async fn complete(
+            &self,
+            messages: &[LlmMessage],
+            config: &LlmConfig,
+        ) -> Result<LlmResponse, LlmError> {
+            self.inner.complete(messages, config).await
+        }
+
+        async fn stream(
+            &self,
+            messages: &[LlmMessage],
+            config: &LlmConfig,
+        ) -> Result<
+            std::pin::Pin<
+                Box<dyn futures_util::Stream<Item = Result<String, LlmError>> + Send>,
+            >,
+            LlmError,
+        > {
+            self.inner.stream(messages, config).await
+        }
+
+        fn provider_name(&self) -> Option<&str> {
+            Some(self.name)
+        }
+    }
+
+    #[tokio::test]
+    async fn execute_routes_only_to_supplied_providers_models() {
+        // Trivial prompt: unrestricted routing would pick gpt-4o-mini.
+        let router = make_router(RoutingStrategy::ComplexityBased);
+        let messages = vec![LlmMessage::user("Hi")];
+        let unrestricted = router.route(&messages, &LlmConfig::default()).await;
+        assert_eq!(unrestricted.provider, "openai");
+
+        let provider = VendorMock {
+            name: "anthropic",
+            inner: MockProvider::new(),
+        };
+        let (_, decision) = router
+            .execute(&provider, &messages, &LlmConfig::default(), None)
+            .await
+            .unwrap();
+        assert_eq!(decision.provider, "anthropic");
+        let sent = provider.inner.captured_requests();
+        assert!(sent[0].1.model.starts_with("claude-"), "sent {}", sent[0].1.model);
+    }
+
+    #[tokio::test]
+    async fn execute_uses_requested_model_for_provider_without_tiers() {
+        let router = make_router(RoutingStrategy::CostOptimized { min_quality: 0.8 });
+        let provider = VendorMock {
+            name: "local",
+            inner: MockProvider::new(),
+        };
+        let config = LlmConfig {
+            model: "llama-3-8b".into(),
+            ..LlmConfig::default()
+        };
+        let (_, decision) = router
+            .execute(&provider, &[LlmMessage::user("Hi")], &config, None)
+            .await
+            .unwrap();
+        assert_eq!(decision.model, "llama-3-8b");
+        assert_eq!(provider.inner.captured_requests()[0].1.model, "llama-3-8b");
+    }
+
+    #[tokio::test]
+    async fn execute_rejects_fixed_model_from_other_vendor() {
+        let router = make_router(RoutingStrategy::Fixed {
+            model: "gpt-4o".into(),
+        });
+        let provider = VendorMock {
+            name: "anthropic",
+            inner: MockProvider::new(),
+        };
+        let err = router
+            .execute(&provider, &[LlmMessage::user("Hi")], &LlmConfig::default(), None)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, LlmError::Unsupported(_)), "{err:?}");
+        assert!(provider.inner.captured_requests().is_empty());
     }
 }

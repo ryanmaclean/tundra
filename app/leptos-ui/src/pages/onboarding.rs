@@ -36,7 +36,7 @@ pub fn OnboardingPage() -> impl IntoView {
 
     // Step 4: Agent Configuration
     let (provider, set_provider) = signal("anthropic".to_string());
-    let (model, set_model) = signal("claude-opus-4-0-20250514".to_string());
+    let (model, set_model) = signal("claude-opus-4-7".to_string());
     let (thinking, set_thinking) = signal("medium".to_string());
     let (max_agents, set_max_agents) = signal(4u32);
 
@@ -390,7 +390,7 @@ pub fn OnboardingPage() -> impl IntoView {
                                 class=move || option_class(&provider.get(), "anthropic")
                                 on:click=move |_| {
                                     set_provider.set("anthropic".to_string());
-                                    set_model.set("claude-opus-4-0-20250514".to_string());
+                                    set_model.set("claude-opus-4-7".to_string());
                                 }
                             >
                                 <div class="onboarding-option-icon">"A"</div>
