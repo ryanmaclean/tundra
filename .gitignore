@@ -21,3 +21,6 @@ app/leptos-ui/dist/
 .worktrees/
 .security-key
 logs/security/
+
+# Stale nested copy of the repo (not part of this project)
+/rust-harness/
