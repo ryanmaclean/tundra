@@ -105,6 +105,22 @@ pub struct ImportResult {
     pub message: String,
 }
 
+/// A page of issues returned by [`LinearClient::list_issues_page`], carrying
+/// GraphQL's `pageInfo` cursor so callers can keep paging past Linear's
+/// per-request cap instead of silently truncating at the first page.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LinearIssuePage {
+    pub issues: Vec<LinearIssue>,
+    pub has_next_page: bool,
+    pub end_cursor: Option<String>,
+}
+
+/// Linear's own maximum page size for a single `first` argument.
+const LINEAR_MAX_PAGE_SIZE: u32 = 250;
+/// Safety cap on the number of pages [`LinearClient::list_issues`] will walk
+/// so a misbehaving API (e.g. `hasNextPage` stuck `true`) can't loop forever.
+const LIST_ISSUES_MAX_PAGES: u32 = 100;
+
 // ---------------------------------------------------------------------------
 // Client
 // ---------------------------------------------------------------------------
@@ -113,6 +129,16 @@ pub struct ImportResult {
 pub struct LinearClient {
     pub api_key: String,
     pub active_team_id: Option<String>,
+    /// Shared HTTP client with sane timeouts (see `crate::http`), reused
+    /// across calls instead of building a fresh `reqwest::Client` (and
+    /// paying a new TLS handshake) on every `graphql()` call.
+    client: reqwest::Client,
+    /// Whether this client returns canned stub data instead of calling the
+    /// real Linear API. Always `false` for a client built through
+    /// [`LinearClient::new`], regardless of what the API key looks like — a
+    /// bad or placeholder key must surface as a real API error, never a
+    /// silent fake success. Only [`LinearClient::stub`] can set this.
+    stub: bool,
 }
 
 impl LinearClient {
@@ -123,16 +149,29 @@ impl LinearClient {
         Ok(Self {
             api_key: api_key.to_string(),
             active_team_id: None,
+            client: crate::http::client(),
+            stub: false,
         })
     }
 
-    /// Returns `true` when the API key looks like a test/stub token rather
-    /// than a real Linear key. Used to short-circuit into stub data so
-    /// tests work without network access. Real Linear keys are `lin_api_`
-    /// prefixed and 40+ chars.
-    fn is_stub_key(&self) -> bool {
-        let k = &self.api_key;
-        k.starts_with("tok") || k.starts_with("test") || k.starts_with("stub") || k.len() < 10
+    /// Create a client that returns canned data instead of ever calling the
+    /// real Linear API. Only available to this crate's own tests (or
+    /// downstream crates that opt into the `stub` feature), never to
+    /// production code paths.
+    #[cfg(any(test, feature = "stub"))]
+    pub fn stub(api_key: &str) -> Self {
+        Self {
+            api_key: api_key.to_string(),
+            active_team_id: None,
+            client: crate::http::client(),
+            stub: true,
+        }
+    }
+
+    /// Returns `true` when this client was built via [`LinearClient::stub`]
+    /// and should return canned data instead of calling the real API.
+    fn is_stub(&self) -> bool {
+        self.stub
     }
 
     // -- stub helpers -------------------------------------------------------
@@ -179,8 +218,8 @@ impl LinearClient {
             payload["variables"] = vars;
         }
 
-        let client = reqwest::Client::new();
-        let resp = client
+        let resp = self
+            .client
             .post("https://api.linear.app/graphql")
             .header("Authorization", self.api_key.as_str())
             .json(&payload)
@@ -236,21 +275,33 @@ impl LinearClient {
 
     // -- public API ---------------------------------------------------------
 
-    /// List issues, optionally filtered by team and state.
-    pub async fn list_issues(
+    /// List a single page of issues, optionally filtered by team and state.
+    ///
+    /// `first` is clamped to Linear's own maximum page size (250). Pass the
+    /// returned [`LinearIssuePage::end_cursor`] back in as `after` to fetch
+    /// the next page while [`LinearIssuePage::has_next_page`] is `true`.
+    pub async fn list_issues_page(
         &self,
         team_id: Option<&str>,
         state: Option<&str>,
-    ) -> Result<Vec<LinearIssue>> {
+        first: u32,
+        after: Option<&str>,
+    ) -> Result<LinearIssuePage> {
+        let first = first.clamp(1, LINEAR_MAX_PAGE_SIZE);
+
         // Fall back to stubs during tests with fake keys.
-        if self.is_stub_key() {
+        if self.is_stub() {
             let s = state.unwrap_or("In Progress");
-            let issues = (1..=5).map(|i| Self::stub_issue(i, s)).collect();
-            return Ok(issues);
+            let issues = (1..=5.min(first)).map(|i| Self::stub_issue(i, s)).collect();
+            return Ok(LinearIssuePage {
+                issues,
+                has_next_page: false,
+                end_cursor: None,
+            });
         }
 
-        let query = r#"query($teamId: ID, $state: String) {
-            issues(filter: { team: { id: { eq: $teamId } }, state: { name: { eq: $state } } }, first: 50) {
+        let query = r#"query($teamId: ID, $state: String, $first: Int, $after: String) {
+            issues(filter: { team: { id: { eq: $teamId } }, state: { name: { eq: $state } } }, first: $first, after: $after) {
                 nodes {
                     id
                     identifier
@@ -265,6 +316,10 @@ impl LinearClient {
                     assignee { name }
                     labels { nodes { name } }
                 }
+                pageInfo {
+                    hasNextPage
+                    endCursor
+                }
             }
         }"#;
 
@@ -275,6 +330,13 @@ impl LinearClient {
         if let Some(s) = state {
             variables.insert("state".into(), serde_json::Value::String(s.to_string()));
         }
+        variables.insert("first".into(), serde_json::Value::from(first));
+        if let Some(cursor) = after {
+            variables.insert(
+                "after".into(),
+                serde_json::Value::String(cursor.to_string()),
+            );
+        }
 
         let body = self.graphql(query, Some(variables)).await?;
 
@@ -283,13 +345,52 @@ impl LinearClient {
             .ok_or_else(|| LinearError::Api("missing issues.nodes".into()))?;
 
         let issues = nodes.iter().map(Self::parse_issue).collect();
-        Ok(issues)
+        let has_next_page = body["data"]["issues"]["pageInfo"]["hasNextPage"]
+            .as_bool()
+            .unwrap_or(false);
+        let end_cursor = body["data"]["issues"]["pageInfo"]["endCursor"]
+            .as_str()
+            .map(|s| s.to_string());
+
+        Ok(LinearIssuePage {
+            issues,
+            has_next_page,
+            end_cursor,
+        })
+    }
+
+    /// List all issues matching the filter, optionally filtered by team and
+    /// state. Walks every page via [`LinearClient::list_issues_page`] until
+    /// Linear reports no more pages (up to a safety cap of
+    /// `LIST_ISSUES_MAX_PAGES` pages), instead of silently truncating at the
+    /// first 50 results.
+    pub async fn list_issues(
+        &self,
+        team_id: Option<&str>,
+        state: Option<&str>,
+    ) -> Result<Vec<LinearIssue>> {
+        let mut all = Vec::new();
+        let mut cursor: Option<String> = None;
+
+        for _ in 0..LIST_ISSUES_MAX_PAGES {
+            let page = self
+                .list_issues_page(team_id, state, LINEAR_MAX_PAGE_SIZE, cursor.as_deref())
+                .await?;
+            all.extend(page.issues);
+
+            if !page.has_next_page || page.end_cursor.is_none() {
+                break;
+            }
+            cursor = page.end_cursor;
+        }
+
+        Ok(all)
     }
 
     /// Get a single issue by ID.
     pub async fn get_issue(&self, issue_id: &str) -> Result<LinearIssue> {
         // Fall back to stubs during tests with fake keys.
-        if self.is_stub_key() {
+        if self.is_stub() {
             let mut issue = Self::stub_issue(1, "In Progress");
             issue.id = issue_id.to_string();
             return Ok(issue);
@@ -328,7 +429,7 @@ impl LinearClient {
     /// List all teams the authenticated user has access to.
     pub async fn list_teams(&self) -> Result<Vec<LinearTeam>> {
         // Fall back to stubs during tests with fake keys.
-        if self.is_stub_key() {
+        if self.is_stub() {
             return Ok(vec![Self::stub_team()]);
         }
 
@@ -362,7 +463,7 @@ impl LinearClient {
         description: Option<&str>,
     ) -> Result<LinearIssue> {
         // Fall back to stubs during tests with fake keys.
-        if self.is_stub_key() {
+        if self.is_stub() {
             let mut issue = Self::stub_issue(1, state_name.unwrap_or("In Progress"));
             issue.id = issue_id.to_string();
             if let Some(t) = title {
@@ -482,7 +583,7 @@ mod tests {
 
     #[tokio::test]
     async fn list_issues_stub() {
-        let client = LinearClient::new("tok").unwrap();
+        let client = LinearClient::stub("stub-key");
         let issues = client.list_issues(None, Some("Todo")).await.unwrap();
         assert_eq!(issues.len(), 5);
         assert_eq!(issues[0].state_name, "Todo");
@@ -490,14 +591,14 @@ mod tests {
 
     #[tokio::test]
     async fn get_issue_stub() {
-        let client = LinearClient::new("tok").unwrap();
+        let client = LinearClient::stub("stub-key");
         let issue = client.get_issue("custom-id").await.unwrap();
         assert_eq!(issue.id, "custom-id");
     }
 
     #[tokio::test]
     async fn import_issues_stub() {
-        let client = LinearClient::new("tok").unwrap();
+        let client = LinearClient::stub("stub-key");
         let results = client
             .import_issues(vec!["a".to_string(), "b".to_string()])
             .await
@@ -530,11 +631,61 @@ mod tests {
 
     #[tokio::test]
     async fn test_list_teams_query_structure() {
-        // Verify list_teams works with a test key (returns stub data).
-        let client = LinearClient::new("test_key").unwrap();
+        // Verify list_teams works with an explicit stub client.
+        let client = LinearClient::stub("stub-key");
         let teams = client.list_teams().await.unwrap();
         assert_eq!(teams.len(), 1);
         assert_eq!(teams[0].key, "ENG");
         assert_eq!(teams[0].name, "Engineering");
+    }
+
+    /// Regression test for a stub fallback that used to infer "stub mode"
+    /// from the shape of the API key (`starts_with("tok")`,
+    /// `starts_with("test")`, `starts_with("stub")`, or `len() < 10`). A
+    /// production client built through `new` must never silently switch
+    /// into canned-data mode just because a placeholder key happens to look
+    /// like a test key.
+    #[test]
+    fn real_constructor_is_never_a_stub_regardless_of_key_shape() {
+        for key in ["tok_looks_fake", "test_key", "stub-key", "short", "lin_api_real_key_abc"] {
+            let client = LinearClient::new(key).unwrap();
+            assert!(
+                !client.is_stub(),
+                "key {key:?} incorrectly put the client into stub mode"
+            );
+        }
+    }
+
+    #[test]
+    fn only_the_explicit_stub_constructor_is_a_stub() {
+        let client = LinearClient::stub("anything");
+        assert!(client.is_stub());
+    }
+
+    /// Regression test for a `list_issues` that was hard-capped at 50 with
+    /// no pagination. A single stub page must not silently claim there is
+    /// more data than it returned.
+    #[tokio::test]
+    async fn list_issues_page_reports_no_next_page_for_stub_data() {
+        let client = LinearClient::stub("stub-key");
+        let page = client
+            .list_issues_page(None, Some("Todo"), 250, None)
+            .await
+            .unwrap();
+        assert!(!page.has_next_page);
+        assert!(page.end_cursor.is_none());
+        assert_eq!(page.issues.len(), 5);
+    }
+
+    #[tokio::test]
+    async fn list_issues_page_clamps_first_to_linear_max() {
+        let client = LinearClient::stub("stub-key");
+        // Requesting more than Linear's max page size must not panic or
+        // silently request an out-of-range value.
+        let page = client
+            .list_issues_page(None, None, 10_000, None)
+            .await
+            .unwrap();
+        assert!(page.issues.len() <= LINEAR_MAX_PAGE_SIZE as usize);
     }
 }
