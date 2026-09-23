@@ -40,6 +40,15 @@ const PARAM_VALUE: &str = "00000000-0000-0000-0000-000000000001";
 const ADDED_ROUTES: &[(&str, &str)] = &[
     // Finding #34: stacked-diff listing consumed by leptos-ui and at-tui.
     ("GET", "/api/stacks"),
+    // fu/gitea-client: /api/gitea/* Gitea integration routes.
+    ("GET", "/api/gitea/status"),
+    ("GET", "/api/gitea/repo"),
+    ("GET", "/api/gitea/issues"),
+    ("POST", "/api/gitea/issues"),
+    ("PATCH", "/api/gitea/issues/{number}"),
+    ("POST", "/api/gitea/pulls"),
+    ("GET", "/api/gitea/releases/{tag}/assets"),
+    ("POST", "/api/gitea/releases/{tag}/assets"),
 ];
 
 fn fixture_routes() -> BTreeSet<(String, String)> {

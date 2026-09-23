@@ -54,6 +54,12 @@ Six port branches merged with `--no-ff`: housekeeping (37843d1), scheduler (217b
 - Datadog API key removed from the profiling docs and scripts (6662e99).
 - Test count after the ports: 3,024 (nextest, workspace excluding at-tauri and at-leptos-ui).
 
+### Added: Gitea integration
+
+- `at_integrations::gitea::GiteaClient` for the fleet Gitea (`http://gitea.local:3000`): repo info, paginated issue list/create/update (never PRs; `Link: rel="next"` and `X-Total-Count` paging, `truncated` flag at 100 pages), PR create, release lookup by tag, asset list and multipart upload. Token only from `GITEA_TOKEN` (never serialized or printed); stub tokens (`tok*`, `stub*`, `test*`, under 10 chars) return canned data offline. POST/PATCH bodies and asset names are token-scrubbed and screened by the output guard before any request, stub mode included. 5 s connect / 30 s request timeouts; only GETs retry.
+- `/api/gitea/*` routes (API key, listed in `/api/catalog` under domain `gitea`): `GET /status` (no network; mode `live|stub|unconfigured`), `GET /repo`, `GET|POST /issues`, `PATCH /issues/{number}`, `POST /pulls`, `GET|POST /releases/{tag}/assets` (raw octet-stream upload, 64 MiB limit). Success bodies carry `schema: gitea.<kind>/v1` and `mode`; errors are `{schema: gitea.error/v1, error, code, retryable, env_var?, upstream_status?, detail?}`.
+- Settings `integrations.gitea_token_env` (default `GITEA_TOKEN`), `gitea_url`, `gitea_owner`, `gitea_repo`, all optional in existing config files. `/api/credentials/status` lists `gitea` when `GITEA_TOKEN` is set.
+
 ## 1.0.0 - Agent Orchestration & Comprehensive Testing
 
 ### New Features

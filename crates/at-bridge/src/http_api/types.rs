@@ -578,6 +578,102 @@ pub struct ImportLinearBody {
 }
 
 // ---------------------------------------------------------------------------
+// Gitea types
+// ---------------------------------------------------------------------------
+
+/// `GET /api/gitea/issues` query. `owner`/`repo` override settings.
+#[derive(Debug, Default, Deserialize)]
+pub struct ListGiteaIssuesQuery {
+    #[serde(default)]
+    pub owner: Option<String>,
+    #[serde(default)]
+    pub repo: Option<String>,
+    /// `open` (default), `closed` or `all`.
+    #[serde(default)]
+    pub state: Option<at_integrations::gitea::IssueStateFilter>,
+    /// Comma-separated label names.
+    #[serde(default)]
+    pub labels: Option<String>,
+    #[serde(default)]
+    pub page: Option<u32>,
+    /// Clamped to 50.
+    #[serde(default)]
+    pub limit: Option<u32>,
+    /// Follow every page (up to 100) instead of returning one.
+    #[serde(default)]
+    pub all: Option<bool>,
+}
+
+/// `owner`/`repo` override for routes without other query params.
+#[derive(Debug, Default, Deserialize)]
+pub struct GiteaRepoQuery {
+    #[serde(default)]
+    pub owner: Option<String>,
+    #[serde(default)]
+    pub repo: Option<String>,
+}
+
+/// `POST /api/gitea/issues` body. `labels` are Gitea label ids.
+#[derive(Debug, Default, Deserialize)]
+pub struct CreateGiteaIssueBody {
+    pub title: String,
+    #[serde(default)]
+    pub body: Option<String>,
+    #[serde(default)]
+    pub labels: Option<Vec<u64>>,
+    #[serde(default)]
+    pub assignees: Option<Vec<String>>,
+    #[serde(default)]
+    pub milestone: Option<u64>,
+    #[serde(default)]
+    pub owner: Option<String>,
+    #[serde(default)]
+    pub repo: Option<String>,
+}
+
+/// `PATCH /api/gitea/issues/{number}` body; absent fields are unchanged.
+#[derive(Debug, Default, Deserialize)]
+pub struct UpdateGiteaIssueBody {
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub body: Option<String>,
+    #[serde(default)]
+    pub state: Option<at_integrations::types::IssueState>,
+    #[serde(default)]
+    pub assignees: Option<Vec<String>>,
+    #[serde(default)]
+    pub owner: Option<String>,
+    #[serde(default)]
+    pub repo: Option<String>,
+}
+
+/// `POST /api/gitea/pulls` body. `base` defaults to the repo's default branch.
+#[derive(Debug, Default, Deserialize)]
+pub struct CreateGiteaPrBody {
+    pub title: String,
+    #[serde(default)]
+    pub body: Option<String>,
+    pub head: String,
+    #[serde(default)]
+    pub base: Option<String>,
+    #[serde(default)]
+    pub owner: Option<String>,
+    #[serde(default)]
+    pub repo: Option<String>,
+}
+
+/// `POST /api/gitea/releases/{tag}/assets` query; the body is the raw file.
+#[derive(Debug, Default, Deserialize)]
+pub struct UploadAssetQuery {
+    pub name: String,
+    #[serde(default)]
+    pub owner: Option<String>,
+    #[serde(default)]
+    pub repo: Option<String>,
+}
+
+// ---------------------------------------------------------------------------
 // MCP types
 // ---------------------------------------------------------------------------
 

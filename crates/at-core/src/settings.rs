@@ -135,7 +135,10 @@ impl SettingsManager {
             .ok_or_else(|| ConfigError::Io(format!("invalid settings path: {}", target.display())))?
             .to_string_lossy()
             .into_owned();
-        let tmp = dir.join(format!(".{file_name}.tmp-{}", uuid::Uuid::new_v4().simple()));
+        let tmp = dir.join(format!(
+            ".{file_name}.tmp-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
 
         let write_tmp = || -> std::io::Result<()> {
             let mut f = std::fs::OpenOptions::new()
@@ -437,7 +440,10 @@ project_name = "partial"
         cfg.general.project_name = "via-link".into();
         mgr.save(&cfg).unwrap();
 
-        assert!(fs::symlink_metadata(&path).unwrap().file_type().is_symlink());
+        assert!(fs::symlink_metadata(&path)
+            .unwrap()
+            .file_type()
+            .is_symlink());
         assert_eq!(mgr_real.load().unwrap().general.project_name, "via-link");
         assert_eq!(
             fs::metadata(&real).unwrap().permissions().mode() & 0o777,

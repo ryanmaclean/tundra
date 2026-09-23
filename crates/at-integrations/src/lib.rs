@@ -5,12 +5,15 @@
 //! - GitHub: issues, PRs, releases, and code review automation
 //! - GitLab: project synchronization and CI/CD integration
 //! - Linear: issue tracking and project management
+//! - Gitea: issues, pull requests, repo info and release assets on the fleet
+//!   instance (`http://gitea.local:3000`), token from `GITEA_TOKEN` only
 //!
 //! Each integration exposes:
 //! - A typed client for authenticated API access
 //! - Conversion utilities to map external entities to auto-tundra beads
 //! - Serializable configuration structures
 
+pub mod gitea;
 pub mod github;
 pub mod gitlab;
 pub mod http;

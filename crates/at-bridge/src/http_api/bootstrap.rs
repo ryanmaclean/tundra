@@ -21,22 +21,20 @@ pub(crate) struct BootstrapResponse {
 /// serialised lock acquisition overhead. Excludes GitHub endpoints (external
 /// API calls) and git worktrees (blocking shell invocation).
 pub(crate) async fn get_bootstrap(State(state): State<Arc<ApiState>>) -> Json<BootstrapResponse> {
-    let (beads_guard, agents_guard) =
-        tokio::join!(state.beads.read(), state.agents.read());
+    let (beads_guard, agents_guard) = tokio::join!(state.beads.read(), state.agents.read());
 
-    let (backlog, hooked, slung, review, done, failed, escalated) =
-        beads_guard.values().fold(
-            (0u64, 0u64, 0u64, 0u64, 0u64, 0u64, 0u64),
-            |(bl, ho, sl, rv, dn, fa, es), b| match b.status {
-                BeadStatus::Backlog => (bl + 1, ho, sl, rv, dn, fa, es),
-                BeadStatus::Hooked => (bl, ho + 1, sl, rv, dn, fa, es),
-                BeadStatus::Slung => (bl, ho, sl + 1, rv, dn, fa, es),
-                BeadStatus::Review => (bl, ho, sl, rv + 1, dn, fa, es),
-                BeadStatus::Done => (bl, ho, sl, rv, dn + 1, fa, es),
-                BeadStatus::Failed => (bl, ho, sl, rv, dn, fa + 1, es),
-                BeadStatus::Escalated => (bl, ho, sl, rv, dn, fa, es + 1),
-            },
-        );
+    let (backlog, hooked, slung, review, done, failed, escalated) = beads_guard.values().fold(
+        (0u64, 0u64, 0u64, 0u64, 0u64, 0u64, 0u64),
+        |(bl, ho, sl, rv, dn, fa, es), b| match b.status {
+            BeadStatus::Backlog => (bl + 1, ho, sl, rv, dn, fa, es),
+            BeadStatus::Hooked => (bl, ho + 1, sl, rv, dn, fa, es),
+            BeadStatus::Slung => (bl, ho, sl + 1, rv, dn, fa, es),
+            BeadStatus::Review => (bl, ho, sl, rv + 1, dn, fa, es),
+            BeadStatus::Done => (bl, ho, sl, rv, dn + 1, fa, es),
+            BeadStatus::Failed => (bl, ho, sl, rv, dn, fa + 1, es),
+            BeadStatus::Escalated => (bl, ho, sl, rv, dn, fa, es + 1),
+        },
+    );
 
     let kpi = KpiSnapshot {
         total_beads: beads_guard.len() as u64,

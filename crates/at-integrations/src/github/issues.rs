@@ -397,7 +397,10 @@ mod tests {
         let prs_on_page2 = (101..=135).filter(|n| n % 7 == 0).count();
         assert_eq!(issues.len(), 135 - 10 - prs_on_page2);
         assert!(issues.iter().all(|i| i.number % 10 != 0 || i.number > 100));
-        assert!(issues.iter().any(|i| i.number == 135), "second page not read");
+        assert!(
+            issues.iter().any(|i| i.number == 135),
+            "second page not read"
+        );
         let log = log.lock().unwrap();
         assert_eq!(log.len(), 2, "expected two page requests: {log:?}");
         assert!(log[0].contains("per_page=100"), "{log:?}");

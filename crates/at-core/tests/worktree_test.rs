@@ -218,9 +218,9 @@ async fn test_worktree_tracks_commits_ahead() {
     // whether there is work via `git rev-list --count main..<branch>`.
 
     let git = Box::new(MockGitRunner::new(vec![
-        ok_output(),            // fetch
-        stdout_output("1\n"),   // rev-list --count main..task/ahead-test
-        ok_output(),            // status --porcelain (clean)
+        ok_output(),             // fetch
+        stdout_output("1\n"),    // rev-list --count main..task/ahead-test
+        ok_output(),             // status --porcelain (clean)
         stdout_output("main\n"), // rev-parse --abbrev-ref HEAD
     ]));
 
@@ -289,14 +289,14 @@ async fn test_merge_worktree_to_main() {
     // "Merge to main" orange button in UI
 
     let git = Box::new(MockGitRunner::new(vec![
-        ok_output(),              // fetch origin
-        stdout_output("1\n"),     // rev-list --count (1 commit ahead)
-        ok_output(),              // status --porcelain (clean)
-        stdout_output("main\n"),  // rev-parse --abbrev-ref HEAD
-        ok_output(), // merge --no-ff --no-commit
-        ok_output(), // commit
-        ok_output(), // worktree remove
-        ok_output(), // branch -d
+        ok_output(),             // fetch origin
+        stdout_output("1\n"),    // rev-list --count (1 commit ahead)
+        ok_output(),             // status --porcelain (clean)
+        stdout_output("main\n"), // rev-parse --abbrev-ref HEAD
+        ok_output(),             // merge --no-ff --no-commit
+        ok_output(),             // commit
+        ok_output(),             // worktree remove
+        ok_output(),             // branch -d
     ]));
 
     let manager = WorktreeManager::with_git_runner("/project", git);

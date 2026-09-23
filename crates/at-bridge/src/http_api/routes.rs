@@ -13,7 +13,7 @@ use crate::terminal_ws;
 
 use super::catalog::{get_catalog, Domain, RouteSpec as R, SMALL_BODY};
 use super::{
-    agents, beads, bootstrap, github, integrations, kanban, mcp, mcp_sse, metrics, misc,
+    agents, beads, bootstrap, gitea, github, integrations, kanban, mcp, mcp_sse, metrics, misc,
     notifications, pipeline, projects, queue, sessions, settings, stacks, tasks, websocket,
     worktrees,
 };
@@ -32,6 +32,7 @@ pub(crate) fn all() -> Vec<Domain> {
         settings_router(),
         github_router(),
         gitlab_router(),
+        gitea_router(),
         linear_router(),
         kanban_router(),
         mcp_router(),
@@ -415,6 +416,67 @@ pub(crate) fn gitlab_router() -> Domain {
             )
             .req("ReviewGitLabMrBody"),
             integrations::review_gitlab_merge_request,
+        )
+}
+
+/// `/api/gitea` -- the fleet Gitea instance. Start with `GET /status`.
+pub(crate) fn gitea_router() -> Domain {
+    Domain::new("gitea", "/api/gitea")
+        .route(
+            R::get(
+                "/status",
+                "Gitea integration mode (live|stub|unconfigured), no network call",
+            )
+            .res("GiteaStatus"),
+            gitea::gitea_status,
+        )
+        .route(
+            R::get("/repo", "Gitea repository metadata").res("GiteaRepo"),
+            gitea::get_gitea_repo,
+        )
+        .route(
+            R::get("/issues", "List Gitea issues (never PRs), paginated")
+                .res("GiteaPage<GiteaIssue>"),
+            gitea::list_gitea_issues,
+        )
+        .route(
+            R::post("/issues", "Create a Gitea issue (output-guard screened)")
+                .req("CreateGiteaIssueBody")
+                .res("GiteaIssue")
+                .limit(SMALL_BODY),
+            gitea::create_gitea_issue,
+        )
+        .route(
+            R::patch("/issues/{number}", "Update a Gitea issue")
+                .req("UpdateGiteaIssueBody")
+                .res("GiteaIssue")
+                .limit(SMALL_BODY),
+            gitea::update_gitea_issue,
+        )
+        .route(
+            R::post(
+                "/pulls",
+                "Open a Gitea pull request (output-guard screened)",
+            )
+            .req("CreateGiteaPrBody")
+            .res("GiteaPullRequest")
+            .limit(SMALL_BODY),
+            gitea::create_gitea_pull,
+        )
+        .route(
+            R::get("/releases/{tag}/assets", "List a Gitea release's assets")
+                .res("Vec<GiteaAsset>"),
+            gitea::list_gitea_release_assets,
+        )
+        .route(
+            R::post(
+                "/releases/{tag}/assets",
+                "Upload a release asset (raw octet-stream body, ?name=)",
+            )
+            .req("application/octet-stream")
+            .res("GiteaAsset")
+            .limit(gitea::ASSET_BODY_LIMIT),
+            gitea::upload_gitea_release_asset,
         )
 }
 
