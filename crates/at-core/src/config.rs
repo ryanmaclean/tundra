@@ -1047,77 +1047,44 @@ pub struct CredentialProvider;
 
 impl CredentialProvider {
     /// Read the daemon API key from the `AUTO_TUNDRA_API_KEY` env var.
-    /// Returns `None` in dev mode (var not set).
+    /// Returns `None` when the var is unset or blank.
     pub fn daemon_api_key() -> Option<String> {
-        std::env::var("AUTO_TUNDRA_API_KEY").ok()
+        usable_daemon_key(std::env::var(DAEMON_API_KEY_ENV).ok())
+    }
+
+    /// Discover the daemon API key **without ever creating one**.
+    ///
+    /// This is what clients (CLI, TUI, tests, scripts) use. The lookup order
+    /// matches [`ensure_daemon_api_key`](Self::ensure_daemon_api_key) exactly:
+    /// 1. `AUTO_TUNDRA_API_KEY` env var (if non-blank)
+    /// 2. `~/.auto-tundra/daemon.key` (if present and non-blank)
+    pub fn read_daemon_api_key() -> Option<String> {
+        Self::daemon_api_key().or_else(|| read_key_file(&Self::daemon_key_path()))
     }
 
     /// Ensure a daemon API key is available, auto-generating one if needed.
-    /// Returns a valid API key (never None).
+    /// Returns a valid, non-empty API key (never None).
     ///
     /// Behavior:
-    /// 1. If `AUTO_TUNDRA_API_KEY` env var is set, returns it
-    /// 2. Otherwise, reads or generates `~/.auto-tundra/daemon.key`
-    /// 3. Auto-generated keys are stored with 0o600 permissions (owner read/write only)
+    /// 1. If `AUTO_TUNDRA_API_KEY` env var is set and non-blank, returns it
+    /// 2. Otherwise, reads `~/.auto-tundra/daemon.key`, or generates it when
+    ///    missing or blank
+    /// 3. Auto-generated keys are created with 0o600 permissions (owner
+    ///    read/write only) from the first byte written
     pub fn ensure_daemon_api_key() -> String {
         // Check env var first (takes precedence)
-        if let Ok(key) = std::env::var("AUTO_TUNDRA_API_KEY") {
+        if let Some(key) = Self::daemon_api_key() {
             return key;
         }
 
         // Otherwise, generate or read from file
-        Self::generate_and_store_api_key()
+        ensure_key_file(&Self::daemon_key_path())
     }
 
-    /// Generate and store a new API key, or read existing one from disk.
-    /// Creates `~/.auto-tundra/daemon.key` with 0o600 permissions if it doesn't exist.
-    fn generate_and_store_api_key() -> String {
-        let key_path = Self::daemon_key_path();
-
-        // Read existing key if it exists
-        if key_path.exists() {
-            if let Ok(key) = std::fs::read_to_string(&key_path) {
-                return key.trim().to_string();
-            }
-        }
-
-        // Generate new key
-        let new_key = uuid::Uuid::new_v4().to_string();
-
-        // Ensure parent directory exists
-        if let Some(parent) = key_path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-
-        // Write key to file
-        if let Err(e) = std::fs::write(&key_path, &new_key) {
-            eprintln!(
-                "Warning: failed to write daemon key to {:?}: {}",
-                key_path, e
-            );
-            return new_key;
-        }
-
-        // Set file permissions to 0o600 (owner read/write only)
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            if let Ok(metadata) = std::fs::metadata(&key_path) {
-                let mut perms = metadata.permissions();
-                perms.set_mode(0o600);
-                let _ = std::fs::set_permissions(&key_path, perms);
-            }
-        }
-
-        new_key
-    }
-
-    /// Get the path to the daemon key file.
-    fn daemon_key_path() -> PathBuf {
-        dirs::home_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join(".auto-tundra")
-            .join("daemon.key")
+    /// Path of the daemon key file: `~/.auto-tundra/daemon.key`, next to the
+    /// `daemon.lock` port file (see [`crate::lockfile`]).
+    pub fn daemon_key_path() -> PathBuf {
+        crate::lockfile::data_dir().join("daemon.key")
     }
 
     /// Read the Anthropic API key from the `ANTHROPIC_API_KEY` env var.
@@ -1154,5 +1121,112 @@ impl CredentialProvider {
             providers.push("linear");
         }
         providers
+    }
+}
+
+/// Env var that overrides the on-disk daemon API key.
+/// Mirrors `at_api_types::auth::API_KEY_ENV`.
+pub const DAEMON_API_KEY_ENV: &str = "AUTO_TUNDRA_API_KEY";
+
+/// Trim a candidate key; blank keys are treated as absent so that an empty
+/// env var or key file can never become an "empty password".
+fn usable_daemon_key(raw: Option<String>) -> Option<String> {
+    let key = raw?.trim().to_string();
+    if key.is_empty() {
+        None
+    } else {
+        Some(key)
+    }
+}
+
+/// Read a key file; `None` when missing, unreadable, or blank.
+fn read_key_file(path: &std::path::Path) -> Option<String> {
+    usable_daemon_key(std::fs::read_to_string(path).ok())
+}
+
+/// Return the key stored at `path`, generating and persisting a fresh one if
+/// the file is missing or blank.
+fn ensure_key_file(path: &std::path::Path) -> String {
+    if let Some(key) = read_key_file(path) {
+        return key;
+    }
+
+    let new_key = uuid::Uuid::new_v4().to_string();
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600);
+    }
+    let written = opts.open(path).and_then(|mut f| {
+        use std::io::Write;
+        f.write_all(new_key.as_bytes())?;
+        f.sync_all()
+    });
+    if let Err(e) = written {
+        eprintln!(
+            "Warning: failed to write daemon key to {}: {}",
+            path.display(),
+            e
+        );
+        return new_key;
+    }
+
+    // `mode` only applies on create; tighten an existing (blank) file too.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+    }
+
+    new_key
+}
+
+#[cfg(test)]
+mod daemon_key_tests {
+    use super::*;
+
+    #[test]
+    fn blank_keys_are_not_usable() {
+        assert_eq!(usable_daemon_key(None), None);
+        assert_eq!(usable_daemon_key(Some(String::new())), None);
+        assert_eq!(usable_daemon_key(Some("  \n".into())), None);
+        assert_eq!(usable_daemon_key(Some(" k1 \n".into())), Some("k1".into()));
+    }
+
+    #[test]
+    fn ensure_generates_then_reads_back_same_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sub").join("daemon.key");
+        assert_eq!(read_key_file(&path), None);
+
+        let k1 = ensure_key_file(&path);
+        assert!(!k1.is_empty());
+        assert_eq!(read_key_file(&path).as_deref(), Some(k1.as_str()));
+        assert_eq!(ensure_key_file(&path), k1);
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o600);
+        }
+    }
+
+    #[test]
+    fn ensure_replaces_blank_key_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("daemon.key");
+        std::fs::write(&path, "   \n").unwrap();
+        assert_eq!(read_key_file(&path), None);
+
+        let key = ensure_key_file(&path);
+        assert!(!key.trim().is_empty());
+        assert_eq!(read_key_file(&path).as_deref(), Some(key.as_str()));
     }
 }
