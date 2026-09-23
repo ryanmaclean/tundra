@@ -7,7 +7,7 @@ publish = false
 [dependencies]
 at-core = { path = "../at-core" }
 at-harness = { path = "../at-harness" }
-reqwest = { workspace = true }
+reqwest = { workspace = true, features = ["multipart"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
