@@ -147,6 +147,10 @@ pub struct ApiState {
     // ---- Disconnect buffers for terminal WS reconnection ------------------
     pub disconnect_buffers:
         Arc<RwLock<std::collections::HashMap<Uuid, crate::terminal::DisconnectBuffer>>>,
+    /// Per-terminal WebSocket attachment state (connection count, generation,
+    /// output fan-out). See [`crate::terminal::TerminalConn`].
+    pub terminal_conns:
+        Arc<tokio::sync::Mutex<std::collections::HashMap<Uuid, crate::terminal::TerminalConn>>>,
     // ---- Rate limiting -------------------------------------------------------
     /// Multi-tier rate limiter (global, per-user, per-endpoint).
     pub rate_limiter: Arc<MultiKeyRateLimiter>,
@@ -235,6 +239,7 @@ impl ApiState {
             attachments: Arc::new(RwLock::new(std::collections::HashMap::new())),
             task_drafts: Arc::new(RwLock::new(std::collections::HashMap::new())),
             disconnect_buffers: Arc::new(RwLock::new(std::collections::HashMap::new())),
+            terminal_conns: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
             // ---- Rate Limiter Configuration -------------------------------------
             // Three-tier check-then-commit limiting (see rate_limit_middleware):
             //
