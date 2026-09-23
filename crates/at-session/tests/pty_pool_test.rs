@@ -140,3 +140,51 @@ fn resize_pty_succeeds() {
 
     handle.kill().expect("kill failed");
 }
+
+/// Finding #10: `kill_async` must not stall the async runtime during
+/// portable-pty's SIGHUP grace loop, and must reap the child.
+#[tokio::test(flavor = "current_thread")]
+async fn kill_async_does_not_block_runtime_and_reaps_child() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    let pool = PtyPool::new(1);
+    // Ignore SIGHUP so portable-pty runs its full ~200ms grace loop before SIGKILL.
+    let handle = pool
+        .spawn(
+            "/bin/sh",
+            &["-c", "trap '' HUP; echo ready; while :; do sleep 1; done"],
+            &[],
+        )
+        .expect("spawn sh");
+    let mut seen = String::new();
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while !seen.contains("ready") && std::time::Instant::now() < deadline {
+        if let Some(chunk) = handle.read_timeout(Duration::from_millis(200)).await {
+            seen.push_str(&String::from_utf8_lossy(&chunk));
+        }
+    }
+    assert!(seen.contains("ready"), "shell never became ready: {seen:?}");
+
+    let ticks = Arc::new(AtomicUsize::new(0));
+    let t = Arc::clone(&ticks);
+    let ticker = tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+            t.fetch_add(1, Ordering::SeqCst);
+        }
+    });
+
+    handle.kill_async().await.expect("kill_async failed");
+    let observed = ticks.load(Ordering::SeqCst);
+    ticker.abort();
+
+    // On a single-threaded runtime a blocking kill would starve the ticker
+    // entirely during the ~200ms grace loop.
+    assert!(
+        observed >= 5,
+        "runtime was blocked during kill: only {observed} ticks"
+    );
+    assert!(!handle.is_alive(), "child still alive after kill_async");
+    assert!(handle.exit_code().is_some(), "child not reaped after kill_async");
+}
