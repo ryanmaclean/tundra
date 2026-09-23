@@ -332,7 +332,10 @@ async fn test_patch_settings_roundtrip_keeps_unrelated_sections() {
     let disk = state.settings_manager.load().unwrap();
     assert_eq!(disk.display.theme, "light");
     assert_eq!(disk.providers.local_base_url, "http://gpu:8000");
-    assert_eq!(disk.security.allowed_origins, vec!["https://ui.example".to_string()]);
+    assert_eq!(
+        disk.security.allowed_origins,
+        vec!["https://ui.example".to_string()]
+    );
     assert!(disk.agents.direct_mode);
 }
 

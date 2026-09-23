@@ -365,7 +365,9 @@ impl MrReviewEngine {
                 severity: MrReviewSeverity::Critical,
                 category: "review".into(),
                 message: message.clone(),
-                suggestion: Some("Check GitLab token permissions, project ID and connectivity".into()),
+                suggestion: Some(
+                    "Check GitLab token permissions, project ID and connectivity".into(),
+                ),
             }],
             summary: format!("Review failed; the merge request was NOT analysed. {message}"),
             approved: false,
@@ -457,9 +459,8 @@ impl MrReviewEngine {
             .any(|f| f.severity >= MrReviewSeverity::High);
 
         // Defense in depth: a failed review can never be approved.
-        let approved = self.config.auto_approve
-            && !has_critical
-            && status != MrReviewStatus::Failed;
+        let approved =
+            self.config.auto_approve && !has_critical && status != MrReviewStatus::Failed;
 
         let summary = if findings.is_empty() {
             "No findings. The merge request looks good.".to_string()
@@ -785,7 +786,8 @@ mod tests {
 
     #[tokio::test]
     async fn api_404_fails_closed_and_never_approves() {
-        let (url, _rx) = mock_gitlab("404 Not Found", r#"{"message":"404 Project Not Found"}"#).await;
+        let (url, _rx) =
+            mock_gitlab("404 Not Found", r#"{"message":"404 Project Not Found"}"#).await;
         let client = GitLabClient::new_with_url(&url, REAL_LOOKING_TOKEN).unwrap();
         let engine = MrReviewEngine::with_client(approving_config(), client);
 

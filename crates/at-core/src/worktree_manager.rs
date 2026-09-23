@@ -870,14 +870,14 @@ mod tests {
     #[tokio::test]
     async fn merge_to_main_success_on_main() {
         let (manager, git) = mock_manager(vec![
-            out(""),     // fetch
-            out("2\n"),  // rev-list --count main..task/test
-            out(""),     // status (clean)
+            out(""),       // fetch
+            out("2\n"),    // rev-list --count main..task/test
+            out(""),       // status (clean)
             out("main\n"), // rev-parse --abbrev-ref HEAD
-            out(""),     // merge
-            out(""),     // commit
-            out(""),     // worktree remove
-            out(""),     // branch -d
+            out(""),       // merge
+            out(""),       // commit
+            out(""),       // worktree remove
+            out(""),       // branch -d
         ]);
 
         let result = manager.merge_to_main(&test_wt()).await.unwrap();
@@ -916,8 +916,14 @@ mod tests {
         assert_eq!(result, MergeResult::Success);
         let cmds = args(&git.commands());
         let checkout_main = cmds.iter().position(|c| c == "checkout main").unwrap();
-        let merge = cmds.iter().position(|c| c.starts_with("merge --no-ff")).unwrap();
-        assert!(checkout_main < merge, "must check out main before merging: {cmds:?}");
+        let merge = cmds
+            .iter()
+            .position(|c| c.starts_with("merge --no-ff"))
+            .unwrap();
+        assert!(
+            checkout_main < merge,
+            "must check out main before merging: {cmds:?}"
+        );
         assert_eq!(cmds.last().unwrap(), "checkout -");
     }
 
@@ -947,7 +953,9 @@ mod tests {
         let err = manager.merge_to_main(&test_wt()).await.unwrap_err();
         assert!(err.to_string().contains("uncommitted changes"), "{err}");
         let cmds = args(&git.commands());
-        assert!(!cmds.iter().any(|c| c.starts_with("merge") || c.starts_with("checkout")));
+        assert!(!cmds
+            .iter()
+            .any(|c| c.starts_with("merge") || c.starts_with("checkout")));
     }
 
     #[tokio::test]
@@ -958,7 +966,11 @@ mod tests {
 
         let result = manager.merge_to_main(&test_wt()).await.unwrap();
         assert_eq!(result, MergeResult::NothingToMerge);
-        assert_eq!(git.commands().len(), 2, "no checkout/merge/commit attempted");
+        assert_eq!(
+            git.commands().len(),
+            2,
+            "no checkout/merge/commit attempted"
+        );
     }
 
     #[tokio::test]
@@ -993,7 +1005,7 @@ mod tests {
             out(""),
             out("main\n"),
             fail("CONFLICT (content): Merge conflict in file.rs\n"), // merge
-            out(""),                                                // merge --abort
+            out(""),                                                 // merge --abort
         ]);
 
         let result = manager.merge_to_main(&test_wt()).await.unwrap();
@@ -1035,7 +1047,15 @@ mod tests {
         let branch = format!("task/{name}");
         sh_git(
             repo,
-            &["worktree", "add", "-q", "-b", &branch, wt_path.to_str().unwrap(), "main"],
+            &[
+                "worktree",
+                "add",
+                "-q",
+                "-b",
+                &branch,
+                wt_path.to_str().unwrap(),
+                "main",
+            ],
         );
         WorktreeInfo {
             path: wt_path.to_string_lossy().to_string(),
@@ -1068,7 +1088,10 @@ mod tests {
         let main_files = sh_git(p, &["ls-tree", "--name-only", "main"]);
         assert!(main_files.lines().any(|l| l == "g"), "{main_files}");
         assert_eq!(sh_git(p, &["rev-parse", "feature/foo"]), foo_before);
-        assert_eq!(sh_git(p, &["rev-parse", "--abbrev-ref", "HEAD"]), "feature/foo");
+        assert_eq!(
+            sh_git(p, &["rev-parse", "--abbrev-ref", "HEAD"]),
+            "feature/foo"
+        );
         let msg = sh_git(p, &["log", "-1", "--format=%s", "main"]);
         assert_eq!(msg, "Merge branch 'task/x' into main");
     }

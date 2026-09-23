@@ -716,7 +716,11 @@ mod tests {
         // Recent archived task
         let task3 = create_test_task(recent_archived_id, Some(recent_completed_at));
         state.tasks.write().await.insert(recent_archived_id, task3);
-        state.archived_tasks.write().await.insert(recent_archived_id);
+        state
+            .archived_tasks
+            .write()
+            .await
+            .insert(recent_archived_id);
 
         // Non-archived task
         let task4 = create_test_task(non_archived_id, Some(old_completed_at));

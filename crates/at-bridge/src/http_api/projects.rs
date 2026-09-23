@@ -33,7 +33,14 @@ pub(crate) async fn list_projects(
     let projects = state.projects.read().await;
     let limit = params.limit.unwrap_or(50);
     let offset = params.offset.unwrap_or(0);
-    Json(projects.values().skip(offset).take(limit).cloned().collect())
+    Json(
+        projects
+            .values()
+            .skip(offset)
+            .take(limit)
+            .cloned()
+            .collect(),
+    )
 }
 
 /// POST /api/projects -- create a new project.
