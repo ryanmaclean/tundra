@@ -55,7 +55,7 @@ crossbeam-channel = "0.5"
 # Local repo reads only (status/diff/branches/revwalk/worktrees), with no remote
 # transport, so drop the default `https`/`ssh` features. Those pull in openssl-sys
 # and libssh2-sys.
-git2 = { version = "0.20", default-features = false }
+git2 = { version = "0.21", default-features = false }
 subtle = "2"
 tauri = { version = "2", features = ["devtools"] }
 tauri-build = "2"
