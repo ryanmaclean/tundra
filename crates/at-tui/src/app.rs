@@ -216,8 +216,11 @@ pub struct App {
 
     /// Whether we're running in offline (demo data) mode.
     pub offline: bool,
-    /// Connection status indicator.
+    /// Connection status indicator: the last refresh got at least one
+    /// successful response from the daemon.
     pub api_connected: bool,
+    /// The last refresh was rejected with HTTP 401 (missing/wrong API key).
+    pub api_unauthorized: bool,
 
     // Command mode
     pub in_command_mode: bool,
@@ -260,6 +263,7 @@ impl App {
             memory_entries: demo_memory(),
             offline,
             api_connected: false,
+            api_unauthorized: false,
             in_command_mode: false,
             command_buffer: String::new(),
             command_result: None,
@@ -269,7 +273,13 @@ impl App {
 
     /// Apply a snapshot of data fetched from the API.
     pub fn apply_data(&mut self, data: api_client::AppData) {
-        self.api_connected = true;
+        self.api_connected = data.status.connected();
+        self.api_unauthorized = data.status.unauthorized;
+        if !self.api_connected {
+            // Nothing came back (daemon down or 401): keep what we are showing
+            // rather than replacing it with empty defaults labelled LIVE.
+            return;
+        }
 
         // Agents
         let now = Utc::now();
