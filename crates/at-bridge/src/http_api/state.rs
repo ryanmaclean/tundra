@@ -160,6 +160,8 @@ pub struct ApiState {
     pub mcp_sessions: McpSessionStore,
     /// Set once [`ApiState::start_notification_task`] has spawned its task.
     notification_task_started: AtomicBool,
+    /// Set once [`ApiState::start_agent_registry_task`] has spawned its task.
+    agent_registry_task_started: AtomicBool,
 }
 
 impl ApiState {
@@ -259,6 +261,7 @@ impl ApiState {
             retention_config: Arc::new(RwLock::new(RetentionConfig::default())),
             mcp_sessions: super::mcp_sse::new_session_store(),
             notification_task_started: AtomicBool::new(false),
+            agent_registry_task_started: AtomicBool::new(false),
         }
     }
 
@@ -392,6 +395,26 @@ impl ApiState {
                 tracing::warn!("notification subscriber dropped by event bus, resubscribing");
             }
         });
+    }
+
+    /// Keep [`ApiState::agents`] in sync with agent lifecycle messages on the
+    /// event bus (`AgentCreated` / `AgentUpdated` / `AgentDeleted` and
+    /// `agent_heartbeat` events), so executors that only hold an
+    /// [`EventBus`] still register their agents and advance
+    /// `Agent.last_seen` for the stuck-agent patrol. See
+    /// [`crate::agent_registry`].
+    ///
+    /// Subscribes before returning; idempotent. Must be called from a Tokio
+    /// runtime.
+    pub fn start_agent_registry_task(self: &Arc<Self>) {
+        if self.agent_registry_task_started.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        crate::agent_registry::spawn_registry_sync(
+            self.event_bus.clone(),
+            self.agents.clone(),
+            self.agent_count.clone(),
+        );
     }
 
     /// Start a background cleanup task that periodically removes expired data.
