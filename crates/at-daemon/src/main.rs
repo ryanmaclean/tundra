@@ -104,10 +104,23 @@ async fn main() -> Result<()> {
     let api_port = api_listener.local_addr()?.port();
     info!(api_port, "API listener bound");
 
+    // --- Make sure the API key exists before any client can discover us ---
+    // Clients read the lockfile and then the key file; creating the key first
+    // means a client never sees a lockfile without a matching key.
+    let api_key = at_core::config::CredentialProvider::ensure_daemon_api_key();
+    let api_key_file = at_core::config::CredentialProvider::daemon_api_key()
+        .is_none()
+        .then(|| {
+            at_core::config::CredentialProvider::daemon_key_path()
+                .to_string_lossy()
+                .into_owned()
+        });
+
     // --- Spawn the frontend server with dynamic port ---
     let (frontend_port_tx, frontend_port_rx) = tokio::sync::oneshot::channel::<u16>();
     let frontend_handle = tokio::spawn(serve_frontend(
         api_port,
+        api_key,
         config.daemon.host.clone(),
         frontend_port_tx,
     ));
@@ -128,6 +141,7 @@ async fn main() -> Result<()> {
             .ok()
             .map(|p| p.to_string_lossy().into_owned()),
         version: env!("CARGO_PKG_VERSION").to_string(),
+        api_key_file,
     };
     if let Err(msg) = lockfile.acquire_or_fail() {
         eprintln!("failed to acquire lockfile: {msg}");
@@ -236,60 +250,69 @@ async fn frontend_isolation_headers_middleware(
 
 /// Serve the Leptos dist/ directory as static files on a dynamic port.
 ///
-/// Injects `<script>window.__TUNDRA_API_PORT__={api_port};</script>` into
-/// index.html so the WASM frontend discovers the API server automatically.
+/// Injects the daemon connection (see
+/// `at_api_types::auth::browser_bootstrap_script`) into index.html so the
+/// WASM frontend discovers the API server and can authenticate to it. The API
+/// key is only injected for loopback peers addressing the server by a
+/// loopback host name (see [`may_receive_api_key`]).
 /// Sends the bound port back to main via the oneshot channel.
 ///
 /// **Hot-reload friendly**: index.html is read from disk on every request so
 /// that `trunk build` takes effect immediately without restarting the daemon.
-async fn serve_frontend(api_port: u16, host: String, port_tx: tokio::sync::oneshot::Sender<u16>) {
+async fn serve_frontend(
+    api_port: u16,
+    api_key: String,
+    host: String,
+    port_tx: tokio::sync::oneshot::Sender<u16>,
+) {
     let _span = traced_span!("serve_frontend", component = "http_server");
 
     profiling::record_event("frontend_server_start", &[]);
 
+    use axum::extract::{ConnectInfo, State};
+    use axum::http::HeaderMap;
     use axum::response::Html;
     use axum::routing::get;
     use axum::Router;
+    use std::net::SocketAddr;
+    use std::sync::Arc;
     use tower_http::services::ServeDir;
 
     let dist_dir = find_dist_dir();
 
     profiling::add_span_tags(&[("dist_dir", dist_dir.to_str().unwrap_or("unknown"))]);
 
-    // Helper: read index.html from disk on each request and inject the API port.
+    struct FrontendCtx {
+        dist: std::path::PathBuf,
+        api_port: u16,
+        api_key: String,
+    }
+    let ctx = Arc::new(FrontendCtx {
+        dist: dist_dir.clone(),
+        api_port,
+        api_key,
+    });
+
+    // Read index.html from disk on each request and inject the connection.
     // This means `trunk build` takes effect immediately without daemon restart.
-    let make_index_handler = {
-        let dist = dist_dir.clone();
-        move |port: u16| {
-            let dist = dist.clone();
-            move || {
-                let dist = dist.clone();
-                async move {
-                    let index_path = dist.join("index.html");
-                    let html = match std::fs::read_to_string(&index_path) {
-                        Ok(raw) => raw.replace(
-                            "</head>",
-                            &format!(
-                                "<script>window.__TUNDRA_API_PORT__={port};</script></head>"
-                            ),
-                        ),
-                        Err(_) => format!(
-                            "<html><head><script>window.__TUNDRA_API_PORT__={port};</script></head>\
-                             <body>frontend not built — run <code>cd app/leptos-ui && trunk build</code></body></html>"
-                        ),
-                    };
-                    Html(html)
-                }
-            }
-        }
-    };
+    async fn index(
+        State(ctx): State<Arc<FrontendCtx>>,
+        ConnectInfo(peer): ConnectInfo<SocketAddr>,
+        headers: HeaderMap,
+    ) -> Html<String> {
+        let host = headers
+            .get(axum::http::header::HOST)
+            .and_then(|v| v.to_str().ok());
+        let key = may_receive_api_key(peer.ip(), host).then_some(ctx.api_key.as_str());
+        let raw = std::fs::read_to_string(ctx.dist.join("index.html")).ok();
+        Html(render_index(raw, ctx.api_port, key))
+    }
 
     // Serve live index.html for root and SPA fallback; ServeDir for all other assets.
+    let index_route = get(index).with_state(ctx.clone());
     let app = Router::new()
-        .route("/", get(make_index_handler(api_port)))
-        .fallback_service(
-            ServeDir::new(&dist_dir).fallback(axum::routing::get(make_index_handler(api_port))),
-        )
+        .route("/", index_route.clone())
+        .fallback_service(ServeDir::new(&dist_dir).fallback(index_route))
         .layer(axum::middleware::from_fn(
             frontend_isolation_headers_middleware,
         ));
@@ -317,9 +340,49 @@ async fn serve_frontend(api_port: u16, host: String, port_tx: tokio::sync::onesh
         &[("port", &port.to_string()), ("protocol", "http")],
     );
 
-    if let Err(e) = profile_async!("serve_frontend_requests", axum::serve(listener, app)).await {
+    let service = app.into_make_service_with_connect_info::<std::net::SocketAddr>();
+    if let Err(e) = profile_async!("serve_frontend_requests", axum::serve(listener, service)).await
+    {
         tracing::error!(error = %e, "frontend server error");
         profiling::record_event("frontend_server_error", &[("error", &e.to_string())]);
+    }
+}
+
+/// Whether an index.html request may receive the API key.
+///
+/// Only a loopback peer that addresses us by a loopback host name gets it:
+/// the peer check keeps the key off the LAN when `daemon.host` is not
+/// loopback, and the Host check defeats DNS-rebinding pages (their Host is
+/// the attacker's domain even though the TCP peer is local).
+fn may_receive_api_key(peer: std::net::IpAddr, host_header: Option<&str>) -> bool {
+    if !peer.is_loopback() {
+        return false;
+    }
+    let Some(host) = host_header else {
+        return false;
+    };
+    // Strip the port: "[::1]:8080" -> "[::1]", "localhost:80" -> "localhost".
+    let name = if host.starts_with('[') {
+        host.split_once(']').map(|(h, _)| &host[..h.len() + 1]).unwrap_or(host)
+    } else {
+        host.rsplit_once(':').map(|(h, _)| h).unwrap_or(host)
+    };
+    matches!(name, "localhost" | "127.0.0.1" | "[::1]")
+}
+
+/// Inject the browser bootstrap script into index.html (or a placeholder page
+/// when the frontend has not been built).
+fn render_index(raw: Option<String>, api_port: u16, api_key: Option<&str>) -> String {
+    let script = format!(
+        "<script>{}</script>",
+        at_bridge::http_api::at_api_types::auth::browser_bootstrap_script(api_port, api_key)
+    );
+    match raw {
+        Some(raw) => raw.replacen("</head>", &format!("{script}</head>"), 1),
+        None => format!(
+            "<html><head>{script}</head>\
+             <body>frontend not built — run <code>cd app/leptos-ui && trunk build</code></body></html>"
+        ),
     }
 }
 
@@ -353,4 +416,45 @@ fn find_dist_dir() -> std::path::PathBuf {
         &[("fallback_path", "app/leptos-ui/dist")],
     );
     candidates[0].clone()
+}
+
+#[cfg(test)]
+mod frontend_tests {
+    use super::*;
+    use std::net::IpAddr;
+
+    const V4_LO: IpAddr = IpAddr::V4(std::net::Ipv4Addr::LOCALHOST);
+    const V6_LO: IpAddr = IpAddr::V6(std::net::Ipv6Addr::LOCALHOST);
+
+    #[test]
+    fn key_only_for_loopback_peer_and_loopback_host() {
+        assert!(may_receive_api_key(V4_LO, Some("127.0.0.1:5173")));
+        assert!(may_receive_api_key(V4_LO, Some("localhost:5173")));
+        assert!(may_receive_api_key(V4_LO, Some("localhost")));
+        assert!(may_receive_api_key(V6_LO, Some("[::1]:5173")));
+
+        // DNS rebinding: local TCP peer, attacker Host.
+        assert!(!may_receive_api_key(V4_LO, Some("evil.example:5173")));
+        assert!(!may_receive_api_key(V4_LO, Some("localhost.evil.example")));
+        assert!(!may_receive_api_key(V4_LO, None));
+        // LAN peer.
+        let lan: IpAddr = "192.168.1.20".parse().unwrap();
+        assert!(!may_receive_api_key(lan, Some("127.0.0.1:5173")));
+    }
+
+    #[test]
+    fn render_index_injects_port_and_key_into_head() {
+        let html = render_index(
+            Some("<html><head><title>t</title></head><body></body></html>".into()),
+            4242,
+            Some("k-1"),
+        );
+        assert!(html.contains(
+            "<script>window.__TUNDRA_API_PORT__=4242;window.__TUNDRA_API_KEY__=\"k-1\";</script></head>"
+        ));
+
+        let no_key = render_index(None, 4242, None);
+        assert!(no_key.contains("window.__TUNDRA_API_PORT__=4242;"));
+        assert!(!no_key.contains("__TUNDRA_API_KEY__"));
+    }
 }
