@@ -67,6 +67,7 @@ pub(crate) struct RouteSpec {
     request: Option<&'static str>,
     response: Option<&'static str>,
     body_limit: Option<usize>,
+    schemas: &'static [&'static str],
 }
 
 impl RouteSpec {
@@ -78,6 +79,7 @@ impl RouteSpec {
             request: None,
             response: None,
             body_limit: None,
+            schemas: &[],
         }
     }
     pub(crate) const fn get(path: &'static str, description: &'static str) -> Self {
@@ -103,6 +105,12 @@ impl RouteSpec {
     /// Name of the JSON response body type.
     pub(crate) const fn res(mut self, ty: &'static str) -> Self {
         self.response = Some(ty);
+        self
+    }
+    /// Versioned JSON Schema ids (served at `/api/v1/schemas/{id}`) that
+    /// this route's bodies conform to.
+    pub(crate) const fn schemas(mut self, ids: &'static [&'static str]) -> Self {
+        self.schemas = ids;
         self
     }
     /// Per-route request body limit overriding the global 2 MiB default.
@@ -179,6 +187,7 @@ impl Domain {
                     request: spec.request.map(str::to_string),
                     response: spec.response.map(str::to_string),
                     body_limit: spec.body_limit,
+                    schemas: spec.schemas.iter().map(|s| s.to_string()).collect(),
                     path,
                 }
             })
@@ -251,6 +260,45 @@ pub(crate) fn mount_all(domains: Vec<Domain>, auth_enforced: bool) -> Mounted {
         public,
         protected,
         catalog,
+    }
+}
+
+/// GET /api/v1/schemas -- ids of every published JSON Schema document.
+pub(crate) async fn list_schemas() -> Json<serde_json::Value> {
+    let ids: Vec<&str> = at_api_types::schemas::ALL.iter().map(|(id, _)| *id).collect();
+    Json(serde_json::json!({
+        "schemas": ids
+            .iter()
+            .map(|id| serde_json::json!({
+                "id": id,
+                "href": at_api_types::schemas::path_for(id),
+            }))
+            .collect::<Vec<_>>(),
+    }))
+}
+
+/// GET /api/v1/schemas/{*id} -- one JSON Schema document by id, e.g.
+/// `/api/v1/schemas/at.merge_gate.report/v1`. 404 `{"error", "id"}` when the
+/// id is not published.
+pub(crate) async fn get_schema(
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    let id = id.trim_start_matches('/');
+    match at_api_types::schemas::lookup(id) {
+        Some(doc) => (
+            [(
+                axum::http::header::CONTENT_TYPE,
+                "application/schema+json",
+            )],
+            doc,
+        )
+            .into_response(),
+        None => (
+            axum::http::StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "unknown schema id", "id": id})),
+        )
+            .into_response(),
     }
 }
 

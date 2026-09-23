@@ -11,10 +11,11 @@
 use crate::intelligence_api as intel;
 use crate::terminal_ws;
 
-use super::catalog::{get_catalog, Domain, RouteSpec as R, SMALL_BODY};
+use super::catalog::{get_catalog, get_schema, list_schemas, Domain, RouteSpec as R, SMALL_BODY};
 use super::{
     agents, beads, bootstrap, github, integrations, kanban, mcp, mcp_sse, metrics, misc,
-    notifications, pipeline, projects, queue, sessions, settings, tasks, websocket, worktrees,
+    gate_flow, notifications, pipeline, projects, queue, sessions, settings, tasks, websocket,
+    worktrees,
 };
 
 /// Every domain, in mount order.
@@ -52,8 +53,10 @@ pub(crate) fn all() -> Vec<Domain> {
     ]
 }
 
-/// `/api/catalog`, `/api/v1/catalog` -- route discovery. Served without the
-/// API key (rate limited only) so a cold agent can discover the API first.
+/// `/api/catalog`, `/api/v1/catalog` -- route discovery, and
+/// `/api/v1/schemas/{id}` -- the JSON Schemas catalog cards reference. Served
+/// without the API key (rate limited only) so a cold agent can discover and
+/// validate the API first.
 pub(crate) fn catalog_router() -> Domain {
     Domain::new("catalog", "/api")
         .unauthenticated()
@@ -68,6 +71,17 @@ pub(crate) fn catalog_router() -> Domain {
         .route(
             R::get("/v1/catalog", "Route catalog pinned to schema v1").res("ApiCatalog"),
             get_catalog,
+        )
+        .route(
+            R::get("/v1/schemas", "List published JSON Schema ids and their URLs"),
+            list_schemas,
+        )
+        .route(
+            R::get(
+                "/v1/schemas/{*id}",
+                "JSON Schema document for a versioned schema id (e.g. at.merge_gate.report/v1)",
+            ),
+            get_schema,
         )
 }
 
@@ -170,9 +184,12 @@ pub(crate) fn tasks_router() -> Domain {
             tasks::list_tasks,
         )
         .route(
-            R::post("/", "Create a task")
-                .req("CreateTaskRequest")
-                .res("Task"),
+            R::post(
+                "/",
+                "Create a task; optional acceptance_criteria (shell commands, max 32 x 1024 bytes) gate its merge, omitted = inherit bead metadata.acceptance_criteria",
+            )
+            .req("CreateTaskRequest")
+            .res("Task"),
             tasks::create_task,
         )
         .route(
@@ -199,9 +216,12 @@ pub(crate) fn tasks_router() -> Domain {
         )
         .route(R::get("/{id}", "Get a task").res("Task"), tasks::get_task)
         .route(
-            R::put("/{id}", "Update a task")
-                .req("UpdateTaskRequest")
-                .res("Task"),
+            R::put(
+                "/{id}",
+                "Update a task; acceptance_criteria: omitted = unchanged, [] = clear, list = replace (409 acceptance_criteria_locked while coding/qa/fixing/merging)",
+            )
+            .req("UpdateTaskRequest")
+            .res("Task"),
             tasks::update_task,
         )
         .route(R::delete("/{id}", "Delete a task"), tasks::delete_task)
@@ -219,10 +239,31 @@ pub(crate) fn tasks_router() -> Domain {
         .route(
             R::post(
                 "/{id}/execute",
-                "Run the coding -> QA -> fix pipeline for a task",
+                "Run the coding -> QA -> fix -> merge-gate pipeline for a task (merge_mode verify|auto, default verify)",
             )
-            .req("ExecuteTaskRequest"),
+            .req("ExecuteTaskRequest")
+            .res("ExecuteTaskResponse"),
             pipeline::execute_task_pipeline,
+        )
+        .route(
+            R::get(
+                "/{id}/merge-gate",
+                "Last merge-gate report for a task with state (unverified|passing|failing|merged) and next-action links",
+            )
+            .res("ApiMergeGateState")
+            .schemas(&[at_api_types::merge_gate::MERGE_GATE_SCHEMA_ID]),
+            gate_flow::get_task_merge_gate,
+        )
+        .route(
+            R::post(
+                "/{id}/merge",
+                "Run the merge gate on the task's worktree and merge only if it passes (409 gate_failed | stale_head)",
+            )
+            .req("TaskMergeRequest")
+            .res("ApiMergeResponse")
+            .schemas(&[at_api_types::merge_gate::MERGE_GATE_SCHEMA_ID])
+            .limit(SMALL_BODY),
+            gate_flow::merge_task,
         )
         .route(
             R::get("/{id}/build-logs", "Pipeline build log lines"),
@@ -526,7 +567,13 @@ pub(crate) fn worktrees_router() -> Domain {
             worktrees::delete_worktree,
         )
         .route(
-            R::post("/{id}/merge", "Merge a worktree branch").limit(SMALL_BODY),
+            R::post(
+                "/{id}/merge",
+                "Run the merge gate, then merge a worktree branch (409 gate_failed)",
+            )
+            .res("ApiMergeResponse")
+            .schemas(&[at_api_types::merge_gate::MERGE_GATE_SCHEMA_ID])
+            .limit(SMALL_BODY),
             worktrees::merge_worktree,
         )
         .route(
