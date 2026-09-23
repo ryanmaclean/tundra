@@ -18,14 +18,29 @@ pub enum ThinkingLevel {
 }
 
 impl ThinkingLevel {
-    /// Return the budget-tokens value for Claude's `--thinking-budget` flag.
+    /// Return a nominal thinking-token budget for this level.
     /// Returns `None` for `ThinkingLevel::None` (thinking disabled).
+    ///
+    /// Note: the Claude CLI has no `--thinking-budget` flag (it is rejected
+    /// with "unknown option"); use [`effort`](ThinkingLevel::effort) for CLI
+    /// args instead.
     pub fn budget_tokens(&self) -> Option<u32> {
         match self {
             ThinkingLevel::None => None,
             ThinkingLevel::Low => Some(5_000),
             ThinkingLevel::Medium => Some(10_000),
             ThinkingLevel::High => Some(50_000),
+        }
+    }
+
+    /// Value for the Claude CLI `--effort` flag (`low`/`medium`/`high`).
+    /// Returns `None` for `ThinkingLevel::None` (flag omitted, CLI default).
+    pub fn effort(&self) -> Option<&'static str> {
+        match self {
+            ThinkingLevel::None => None,
+            ThinkingLevel::Low => Some("low"),
+            ThinkingLevel::Medium => Some("medium"),
+            ThinkingLevel::High => Some("high"),
         }
     }
 }
@@ -103,7 +118,9 @@ impl AgentConfig {
     /// Generate the CLI arguments list for spawning the agent process.
     ///
     /// Each CLI type has its own flag conventions:
-    /// - Claude: `claude --model {model} --print [--thinking-budget N]`
+    /// - Claude: `claude --model {model} --print [--effort low|medium|high] --max-turns 50`
+    ///   (the prompt itself is appended by the executor, see
+    ///   [`prompt_in_args`](AgentConfig::prompt_in_args))
     /// - Codex: `codex --model {model}`
     /// - Gemini: `gemini --model {model}`
     /// - OpenCode: `opencode --model {model}`
@@ -115,9 +132,9 @@ impl AgentConfig {
                 args.push("--model".to_string());
                 args.push(self.model.clone());
                 args.push("--print".to_string());
-                if let Some(budget) = self.thinking_level.budget_tokens() {
-                    args.push("--thinking-budget".to_string());
-                    args.push(budget.to_string());
+                if let Some(effort) = self.thinking_level.effort() {
+                    args.push("--effort".to_string());
+                    args.push(effort.to_string());
                 }
                 args.push("--max-turns".to_string());
                 args.push("50".to_string());
@@ -137,6 +154,15 @@ impl AgentConfig {
         }
 
         args
+    }
+
+    /// Whether the prompt must be passed as a trailing positional argument
+    /// rather than written to stdin.
+    ///
+    /// `claude --print` does not read its prompt from a TTY stdin (the
+    /// executor runs agents in a PTY), so Claude takes it on the command line.
+    pub fn prompt_in_args(&self) -> bool {
+        matches!(self.cli_type, CliType::Claude)
     }
 
     /// Return the binary name for this config's CLI type.
@@ -194,9 +220,10 @@ mod tests {
         assert!(args.contains(&"--model".to_string()));
         assert!(args.contains(&"claude-sonnet-4-20250514".to_string()));
         assert!(args.contains(&"--print".to_string()));
-        assert!(args.contains(&"--thinking-budget".to_string()));
-        assert!(args.contains(&"50000".to_string()));
+        assert!(args.contains(&"--effort".to_string()));
+        assert!(args.contains(&"high".to_string()));
         assert!(args.contains(&"--max-turns".to_string()));
+        assert!(!args.contains(&"--thinking-budget".to_string()));
     }
 
     #[test]
@@ -212,6 +239,47 @@ mod tests {
         let args = config.to_cli_args();
         assert!(args.contains(&"--print".to_string()));
         assert!(!args.contains(&"--thinking-budget".to_string()));
+        assert!(!args.contains(&"--effort".to_string()));
+    }
+
+    /// Flags the installed `claude` CLI (2.1.x) accepts, checked against
+    /// `claude --help` / `printf '' | claude -p <flag>` (`--max-turns` is a
+    /// hidden but accepted option). `--thinking-budget` is rejected with
+    /// "unknown option", so it must never be generated.
+    const CLAUDE_ACCEPTED_FLAGS: &[&str] = &["--model", "--print", "--effort", "--max-turns"];
+
+    #[test]
+    fn claude_default_args_only_use_supported_flags_for_every_phase() {
+        for phase in [
+            TaskPhase::Discovery,
+            TaskPhase::ContextGathering,
+            TaskPhase::SpecCreation,
+            TaskPhase::Planning,
+            TaskPhase::Coding,
+            TaskPhase::Qa,
+            TaskPhase::Fixing,
+            TaskPhase::Merging,
+            TaskPhase::Complete,
+        ] {
+            let config = AgentConfig::default_for_phase(CliType::Claude, phase.clone());
+            for arg in config.to_cli_args().iter().filter(|a| a.starts_with("--")) {
+                assert!(
+                    CLAUDE_ACCEPTED_FLAGS.contains(&arg.as_str()),
+                    "phase {phase:?} generated unsupported claude flag {arg}"
+                );
+            }
+            if let Some(effort) = config.thinking_level.effort() {
+                assert!(["low", "medium", "high"].contains(&effort));
+            }
+        }
+    }
+
+    #[test]
+    fn claude_takes_prompt_as_argument() {
+        let claude = AgentConfig::default_for_phase(CliType::Claude, TaskPhase::Coding);
+        assert!(claude.prompt_in_args());
+        let codex = AgentConfig::default_for_phase(CliType::Codex, TaskPhase::Coding);
+        assert!(!codex.prompt_in_args());
     }
 
     #[test]
