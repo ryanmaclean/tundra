@@ -319,29 +319,12 @@ impl Daemon {
     /// for OS-assigned ports). This enables dynamic port allocation in `main.rs`.
     pub async fn run_with_listener(&self, listener: tokio::net::TcpListener) -> Result<()> {
         self.log_profile_bootstrap();
-        let reg = at_intelligence::ResilientRegistry::from_config(&self.config);
-        if let Some(p) = reg.registry.best_available() {
-            let api_key = std::env::var(&p.api_key_env).ok().filter(|s| !s.is_empty());
-            let provider: Arc<dyn at_intelligence::llm::LlmProvider> = match p.provider {
-                at_intelligence::ProviderKind::Local => Arc::new(
-                    at_intelligence::llm::LocalProvider::new(&p.base_url, api_key),
-                ),
-                at_intelligence::ProviderKind::Anthropic => Arc::new(
-                    at_intelligence::llm::AnthropicProvider::new(api_key.unwrap_or_default()),
-                ),
-                at_intelligence::ProviderKind::OpenAi => Arc::new(
-                    at_intelligence::llm::OpenAiProvider::new(api_key.unwrap_or_default()),
-                ),
-                _ => Arc::new(at_intelligence::llm::LocalProvider::new(
-                    &p.base_url,
-                    api_key,
-                )),
-            };
+        // Wire the ideation engine to the full resilient registry so it can
+        // automatically fail over across all configured providers.
+        let reg = Arc::new(ResilientRegistry::from_config(&self.config));
+        {
             let mut engine = self.api_state.ideation_engine.write().await;
-            *engine = at_intelligence::ideation::IdeationEngine::with_provider(
-                provider,
-                p.default_model.clone(),
-            );
+            *engine = at_intelligence::ideation::IdeationEngine::with_registry(reg);
         }
 
         info!(
@@ -397,29 +380,12 @@ impl Daemon {
         let bind_addr = format!("{}:{}", self.config.daemon.host, port);
 
         self.log_profile_bootstrap();
-        let reg = at_intelligence::ResilientRegistry::from_config(&self.config);
-        if let Some(p) = reg.registry.best_available() {
-            let api_key = std::env::var(&p.api_key_env).ok().filter(|s| !s.is_empty());
-            let provider: Arc<dyn at_intelligence::llm::LlmProvider> = match p.provider {
-                at_intelligence::ProviderKind::Local => Arc::new(
-                    at_intelligence::llm::LocalProvider::new(&p.base_url, api_key),
-                ),
-                at_intelligence::ProviderKind::Anthropic => Arc::new(
-                    at_intelligence::llm::AnthropicProvider::new(api_key.unwrap_or_default()),
-                ),
-                at_intelligence::ProviderKind::OpenAi => Arc::new(
-                    at_intelligence::llm::OpenAiProvider::new(api_key.unwrap_or_default()),
-                ),
-                _ => Arc::new(at_intelligence::llm::LocalProvider::new(
-                    &p.base_url,
-                    api_key,
-                )),
-            };
+        // Wire the ideation engine to the full resilient registry so it can
+        // automatically fail over across all configured providers.
+        let reg = Arc::new(ResilientRegistry::from_config(&self.config));
+        {
             let mut engine = self.api_state.ideation_engine.write().await;
-            *engine = at_intelligence::ideation::IdeationEngine::with_provider(
-                provider,
-                p.default_model.clone(),
-            );
+            *engine = at_intelligence::ideation::IdeationEngine::with_registry(reg);
         }
 
         info!(
