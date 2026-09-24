@@ -117,8 +117,25 @@ mod tests {
 
     /// Tags pulldown-cmark may legitimately emit (CommonMark, no extensions).
     const ALLOWED_TAGS: &[&str] = &[
-        "p", "br", "hr", "h1", "h2", "h3", "h4", "h5", "h6", "em", "strong", "code", "pre",
-        "blockquote", "ul", "ol", "li", "a", "img",
+        "p",
+        "br",
+        "hr",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+        "em",
+        "strong",
+        "code",
+        "pre",
+        "blockquote",
+        "ul",
+        "ol",
+        "li",
+        "a",
+        "img",
     ];
     const ALLOWED_ATTRS: &[&str] = &["href", "src", "alt", "title", "class", "start"];
 
@@ -130,7 +147,9 @@ mod tests {
         let mut rest = html;
         while let Some(open) = rest.find('<') {
             let after = &rest[open + 1..];
-            let close = after.find('>').unwrap_or_else(|| panic!("unclosed tag in {html}"));
+            let close = after
+                .find('>')
+                .unwrap_or_else(|| panic!("unclosed tag in {html}"));
             let tag = &after[..close];
             rest = &after[close + 1..];
 
@@ -141,12 +160,16 @@ mod tests {
             // Walk attributes: name="value" pairs (pulldown-cmark always quotes).
             let mut attrs = body[name.len()..].trim();
             while !attrs.is_empty() {
-                let eq = attrs.find('=').unwrap_or_else(|| panic!("bare attr in {tag:?}"));
+                let eq = attrs
+                    .find('=')
+                    .unwrap_or_else(|| panic!("bare attr in {tag:?}"));
                 let attr = attrs[..eq].trim();
                 assert!(ALLOWED_ATTRS.contains(&attr), "attr {attr:?} in {html}");
                 let v = &attrs[eq + 1..];
                 assert!(v.starts_with('"'), "unquoted attr in {tag:?}");
-                let vend = v[1..].find('"').unwrap_or_else(|| panic!("unterminated in {tag:?}"));
+                let vend = v[1..]
+                    .find('"')
+                    .unwrap_or_else(|| panic!("unterminated in {tag:?}"));
                 let value = &v[1..1 + vend];
                 if attr == "href" || attr == "src" {
                     let decoded = value.replace("&amp;", "&").replace("&#58;", ":");

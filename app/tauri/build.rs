@@ -9,10 +9,7 @@ use std::path::PathBuf;
 
 fn main() {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let dist = manifest_dir
-        .join("..")
-        .join("leptos-ui")
-        .join("dist");
+    let dist = manifest_dir.join("..").join("leptos-ui").join("dist");
     let index = dist.join("index.html");
 
     if !index.exists() {

@@ -89,8 +89,8 @@ macro_rules! require_ollama {
 /// [`ApiClient::new`]) so raw requests authenticate like the TUI does.
 fn raw_client(timeout_secs: u64) -> Result<reqwest::blocking::Client, String> {
     let mut headers = reqwest::header::HeaderMap::new();
-    if let Some(key) = at_core::config::CredentialProvider::read_daemon_api_key()
-        .filter(|k| !k.is_empty())
+    if let Some(key) =
+        at_core::config::CredentialProvider::read_daemon_api_key().filter(|k| !k.is_empty())
     {
         if let Ok(value) = reqwest::header::HeaderValue::from_str(&key) {
             headers.insert(at_api_types::auth::API_KEY_HEADER, value);

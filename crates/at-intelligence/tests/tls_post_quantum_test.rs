@@ -23,7 +23,10 @@ fn process_default_provider_prefers_x25519mlkem768() {
         "kx_groups = {groups:?}"
     );
     // Classical groups stay available as a fallback for servers without ML-KEM.
-    assert!(groups.contains(&NamedGroup::X25519), "kx_groups = {groups:?}");
+    assert!(
+        groups.contains(&NamedGroup::X25519),
+        "kx_groups = {groups:?}"
+    );
 
     // The reqwest client the LLM providers use builds on top of that provider.
     reqwest::Client::builder()
@@ -36,5 +39,9 @@ fn crate_feature_default_also_prefers_x25519mlkem768() {
     // What reqwest falls back to when nothing is installed (e.g. library use
     // without our binaries' main): the aws-lc-rs default provider.
     let groups = kx_names(&rustls::crypto::aws_lc_rs::default_provider());
-    assert_eq!(groups.first(), Some(&NamedGroup::X25519MLKEM768), "kx_groups = {groups:?}");
+    assert_eq!(
+        groups.first(),
+        Some(&NamedGroup::X25519MLKEM768),
+        "kx_groups = {groups:?}"
+    );
 }

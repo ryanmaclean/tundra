@@ -143,8 +143,8 @@ use at_harness::security::{InputSanitizer, SecurityError};
 use crate::http_api::ApiState;
 use crate::origin_validation::OriginAllowlist;
 use crate::terminal::{
-    DisconnectBuffer, PtyChunk, TerminalConn, TerminalInfo, TerminalStatus,
-    DISCONNECT_BUFFER_SIZE, OUTPUT_FANOUT_CAPACITY, WS_RECONNECT_GRACE,
+    DisconnectBuffer, PtyChunk, TerminalConn, TerminalInfo, TerminalStatus, DISCONNECT_BUFFER_SIZE,
+    OUTPUT_FANOUT_CAPACITY, WS_RECONNECT_GRACE,
 };
 
 /// Default heartbeat interval for terminal WebSocket connections (30 seconds).
@@ -1251,8 +1251,12 @@ async fn handle_terminal_ws(socket: WebSocket, state: Arc<ApiState>, terminal_id
                                 match cmd {
                                     WsIncoming::Input { data } => {
                                         // Write raw input to PTY stdin.
-                                        forward_input(&pty_writer, data.into_bytes(), writer_terminal_id)
-                                            .await;
+                                        forward_input(
+                                            &pty_writer,
+                                            data.into_bytes(),
+                                            writer_terminal_id,
+                                        )
+                                        .await;
                                     }
                                     WsIncoming::Resize { cols, rows } => {
                                         tracing::debug!(
@@ -2454,12 +2458,7 @@ mod grace_period_tests {
         // Generation `0` is irrelevant here: the task ends via the PTY-exit
         // path below, not the generation-gated timeout path.
         let state_clone = Arc::clone(&state);
-        let task = tokio::spawn(spawn_reconnect_grace_task(
-            state_clone,
-            terminal_id,
-            rx,
-            0,
-        ));
+        let task = tokio::spawn(spawn_reconnect_grace_task(state_clone, terminal_id, rx, 0));
 
         // Send some PTY output while the terminal is still in the grace period.
         let chunk = b"hello from pty\n".to_vec();

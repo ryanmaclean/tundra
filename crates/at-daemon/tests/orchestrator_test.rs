@@ -967,7 +967,11 @@ async fn test_qa_failure_never_merges_and_errors_after_fix_iterations() {
     }
     assert_eq!(task.phase, TaskPhase::Error);
     assert!(task.completed_at.is_none());
-    assert!(task.error.as_deref().unwrap().contains("after 2 fix iteration"));
+    assert!(task
+        .error
+        .as_deref()
+        .unwrap()
+        .contains("after 2 fix iteration"));
 
     let events = collect_events(&rx);
     assert_eq!(
@@ -1002,12 +1006,22 @@ async fn test_qa_failure_loops_through_fixing_until_qa_passes() {
 
     orchestrator.start_task(&mut task).await.expect("completes");
     assert_eq!(task.phase, TaskPhase::Complete);
-    assert_eq!(checks.load(Ordering::SeqCst), 2, "QA re-checked after Fixing");
+    assert_eq!(
+        checks.load(Ordering::SeqCst),
+        2,
+        "QA re-checked after Fixing"
+    );
     assert_eq!(task.qa_report.as_ref().unwrap().status, QaStatus::Passed);
 
     let events = collect_events(&rx);
-    let fixing = events.iter().position(|e| e == "phase_start:Fixing").unwrap();
-    let merging = events.iter().position(|e| e == "phase_start:Merging").unwrap();
+    let fixing = events
+        .iter()
+        .position(|e| e == "phase_start:Fixing")
+        .unwrap();
+    let merging = events
+        .iter()
+        .position(|e| e == "phase_start:Merging")
+        .unwrap();
     assert!(fixing < merging, "{events:?}");
 }
 
@@ -1024,7 +1038,10 @@ async fn test_unsuccessful_agent_phase_stops_pipeline() {
         "{err:?}"
     );
     assert_eq!(task.phase, TaskPhase::Error);
-    assert_eq!(task.error.as_deref(), Some("Phase Discovery did not succeed"));
+    assert_eq!(
+        task.error.as_deref(),
+        Some("Phase Discovery did not succeed")
+    );
     assert!(task.completed_at.is_none());
 
     let events = collect_events(&rx);

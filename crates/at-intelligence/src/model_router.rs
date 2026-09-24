@@ -657,13 +657,21 @@ mod tests {
             cache_read_input_tokens: 1_000_000,
         });
         router
-            .execute(&provider, &[LlmMessage::user("q")], &LlmConfig::default(), None)
+            .execute(
+                &provider,
+                &[LlmMessage::user("q")],
+                &LlmConfig::default(),
+                None,
+            )
             .await
             .unwrap();
         assert_eq!(router.cost_tracker.total_tokens().await, 1_000_010);
         let cost = router.cost_tracker.total_cost().await;
         // 10 uncached @ $3/M + 1M cache reads @ $0.30/M
-        assert!((cost - (0.30 + 10.0 * 3.0 / 1_000_000.0)).abs() < 1e-9, "got {cost}");
+        assert!(
+            (cost - (0.30 + 10.0 * 3.0 / 1_000_000.0)).abs() < 1e-9,
+            "got {cost}"
+        );
     }
 
     #[tokio::test]
@@ -682,7 +690,12 @@ mod tests {
             cache_read_input_tokens: 0,
         });
         router
-            .execute(&provider, &[LlmMessage::user("q")], &LlmConfig::default(), None)
+            .execute(
+                &provider,
+                &[LlmMessage::user("q")],
+                &LlmConfig::default(),
+                None,
+            )
             .await
             .unwrap();
         let cost = router.cost_tracker.total_cost().await;
@@ -712,9 +725,7 @@ mod tests {
             messages: &[LlmMessage],
             config: &LlmConfig,
         ) -> Result<
-            std::pin::Pin<
-                Box<dyn futures_util::Stream<Item = Result<String, LlmError>> + Send>,
-            >,
+            std::pin::Pin<Box<dyn futures_util::Stream<Item = Result<String, LlmError>> + Send>>,
             LlmError,
         > {
             self.inner.stream(messages, config).await
@@ -743,7 +754,11 @@ mod tests {
             .unwrap();
         assert_eq!(decision.provider, "anthropic");
         let sent = provider.inner.captured_requests();
-        assert!(sent[0].1.model.starts_with("claude-"), "sent {}", sent[0].1.model);
+        assert!(
+            sent[0].1.model.starts_with("claude-"),
+            "sent {}",
+            sent[0].1.model
+        );
     }
 
     #[tokio::test]
@@ -775,7 +790,12 @@ mod tests {
             inner: MockProvider::new(),
         };
         let err = router
-            .execute(&provider, &[LlmMessage::user("Hi")], &LlmConfig::default(), None)
+            .execute(
+                &provider,
+                &[LlmMessage::user("Hi")],
+                &LlmConfig::default(),
+                None,
+            )
             .await
             .unwrap_err();
         assert!(matches!(err, LlmError::Unsupported(_)), "{err:?}");

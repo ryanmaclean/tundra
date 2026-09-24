@@ -762,7 +762,8 @@ mod tests {
         }
     }
 
-    const TRUNCATED: &str = "{\"ideas\": [\n  {\"title\": \"Add indexes\",\n   \"description\": \"Adding";
+    const TRUNCATED: &str =
+        "{\"ideas\": [\n  {\"title\": \"Add indexes\",\n   \"description\": \"Adding";
 
     #[tokio::test]
     async fn truncated_output_is_retried_with_larger_budget() {

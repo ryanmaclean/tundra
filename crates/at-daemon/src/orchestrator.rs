@@ -1,8 +1,8 @@
 use at_bridge::event_bus::EventBus;
 use at_bridge::protocol::{BridgeMessage, EventPayload};
 use at_core::types::{QaReport, QaStatus, Task, TaskLogType, TaskPhase};
-use std::sync::Arc;
 use chrono::Utc;
+use std::sync::Arc;
 use thiserror::Error;
 use tracing::{error, info, warn};
 use uuid::Uuid;
@@ -171,8 +171,7 @@ fn default_qa_checker() -> QaChecker {
 
 /// Fix iterations allowed after a merge-gate failure before the task errors,
 /// when `[merge_gate] max_fix_iterations` is not set.
-pub const DEFAULT_MAX_GATE_FIX_ITERATIONS: usize =
-    at_core::merge_gate::DEFAULT_MAX_FIX_ITERATIONS;
+pub const DEFAULT_MAX_GATE_FIX_ITERATIONS: usize = at_core::merge_gate::DEFAULT_MAX_FIX_ITERATIONS;
 
 impl TaskOrchestrator {
     /// Create a new orchestrator from its component parts.
@@ -338,9 +337,13 @@ impl TaskOrchestrator {
 
     /// Run one agent phase. Returns an error (and moves the task to Error)
     /// when the executor fails or the agent run does not succeed.
-    async fn run_agent_phase(&self, task: &mut Task, phase: TaskPhase, prompt: String) -> Result<()> {
-        let config =
-            AgentConfig::default_for_phase(at_core::types::CliType::Claude, phase.clone());
+    async fn run_agent_phase(
+        &self,
+        task: &mut Task,
+        phase: TaskPhase,
+        prompt: String,
+    ) -> Result<()> {
+        let config = AgentConfig::default_for_phase(at_core::types::CliType::Claude, phase.clone());
 
         // Store the prompt in the task description for the executor
         let mut exec_task = task.clone();
@@ -493,12 +496,11 @@ impl TaskOrchestrator {
                     let mut prompt = self.build_prompt_for_phase(task, TaskPhase::Fixing);
                     prompt.push_str("\n\nQA reported these issues:");
                     for issue in &report.issues {
-                        prompt.push_str(&format!(
-                            "\n- {:?}: {}",
-                            issue.severity, issue.description
-                        ));
+                        prompt
+                            .push_str(&format!("\n- {:?}: {}", issue.severity, issue.description));
                     }
-                    self.run_agent_phase(task, TaskPhase::Fixing, prompt).await?;
+                    self.run_agent_phase(task, TaskPhase::Fixing, prompt)
+                        .await?;
                     self.publish_event(task, "phase_end:Fixing");
 
                     task.set_phase(TaskPhase::Qa);

@@ -502,7 +502,10 @@ impl ApiState {
     /// Subscribes before returning; idempotent. Must be called from a Tokio
     /// runtime.
     pub fn start_agent_registry_task(self: &Arc<Self>) {
-        if self.agent_registry_task_started.swap(true, Ordering::SeqCst) {
+        if self
+            .agent_registry_task_started
+            .swap(true, Ordering::SeqCst)
+        {
             return;
         }
         crate::agent_registry::spawn_registry_sync(

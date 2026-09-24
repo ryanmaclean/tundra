@@ -228,10 +228,17 @@ mod truncate_tests {
 
     #[test]
     fn respects_display_width_for_wide_glyphs() {
-        for s in ["🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀", "日本語日本語日本語日本語", "café résumé naïve façade"] {
+        for s in [
+            "🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀",
+            "日本語日本語日本語日本語",
+            "café résumé naïve façade",
+        ] {
             for w in 0..25 {
                 let t = truncate_to_width(s, w);
-                assert!(UnicodeWidthStr::width(t.as_str()) <= w, "{s:?} @ {w} -> {t:?}");
+                assert!(
+                    UnicodeWidthStr::width(t.as_str()) <= w,
+                    "{s:?} @ {w} -> {t:?}"
+                );
             }
         }
     }

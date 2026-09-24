@@ -66,7 +66,9 @@ fn fixture(max_fix_iterations: usize) -> Fixture {
     sh_git(&repo, &["commit", "-q", "-m", "base"]);
     std::fs::write(
         root.join("config.toml"),
-        format!("[merge_gate]\nmax_fix_iterations = {max_fix_iterations}\ncommand_timeout_secs = 30\n"),
+        format!(
+            "[merge_gate]\nmax_fix_iterations = {max_fix_iterations}\ncommand_timeout_secs = 30\n"
+        ),
     )
     .unwrap();
     Fixture { root, repo }
@@ -153,7 +155,10 @@ async fn wait_terminal(app: &Router, id: Uuid) -> Value {
     for _ in 0..1500 {
         let (code, task) = send(app, "GET", &format!("/api/tasks/{id}"), None).await;
         assert_eq!(code, StatusCode::OK);
-        if matches!(task["phase"].as_str(), Some("complete" | "error" | "stopped")) {
+        if matches!(
+            task["phase"].as_str(),
+            Some("complete" | "error" | "stopped")
+        ) {
             return task;
         }
         tokio::time::sleep(Duration::from_millis(20)).await;
@@ -225,7 +230,9 @@ async fn refused_gate_loops_then_errors_with_report() {
         .collect();
     assert_eq!(refused.len(), 2, "{events:?}");
     assert_eq!(refused[0].1, report.summary());
-    assert!(events.iter().any(|(t, _)| t == "merge_gate_fix_iteration_1"));
+    assert!(events
+        .iter()
+        .any(|(t, _)| t == "merge_gate_fix_iteration_1"));
     assert!(!events.iter().any(|(t, _)| t == "merge_success"));
 
     // The fix prompt was logged for the agent, and nothing reached main.
@@ -456,8 +463,12 @@ fn schema_properties_match_serialized_report() {
     let schema: Value =
         serde_json::from_str(at_api_types::merge_gate::MERGE_GATE_REPORT_SCHEMA_JSON).unwrap();
     let report = serde_json::to_value(full_report()).unwrap();
-    let keys: std::collections::BTreeSet<&str> =
-        report.as_object().unwrap().keys().map(String::as_str).collect();
+    let keys: std::collections::BTreeSet<&str> = report
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
     let props: std::collections::BTreeSet<&str> = schema["properties"]
         .as_object()
         .unwrap()
@@ -484,22 +495,28 @@ fn schema_properties_match_serialized_report() {
         stderr_tail: String::new(),
     })
     .unwrap();
-    let result_keys: std::collections::BTreeSet<&str> =
-        result.as_object().unwrap().keys().map(String::as_str).collect();
+    let result_keys: std::collections::BTreeSet<&str> = result
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
     assert_eq!(result_keys, result_props);
 }
 
 #[test]
 fn api_report_round_trips_the_core_report() {
     let core = full_report();
-    let api: ApiMergeGateReport = serde_json::from_value(serde_json::to_value(&core).unwrap()).unwrap();
+    let api: ApiMergeGateReport =
+        serde_json::from_value(serde_json::to_value(&core).unwrap()).unwrap();
     assert_eq!(api.schema, MERGE_GATE_SCHEMA_ID);
     assert_eq!(api.summary(), core.summary());
     assert_eq!(api.blocked_by[0].kind, "uncommitted_changes");
     assert_eq!(api.criteria, core.criteria);
     assert_eq!(api.head, core.head);
     // And back: the core type accepts what the client re-serializes.
-    let back: MergeGateReport = serde_json::from_value(serde_json::to_value(&api).unwrap()).unwrap();
+    let back: MergeGateReport =
+        serde_json::from_value(serde_json::to_value(&api).unwrap()).unwrap();
     assert_eq!(back.blocked_by, core.blocked_by);
     assert_eq!(back.summary(), core.summary());
 }

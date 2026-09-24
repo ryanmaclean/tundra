@@ -1213,10 +1213,9 @@ pub(crate) async fn get_changelog(
         );
         drop(tasks);
         let entry = at_intelligence::changelog::ChangelogEngine::build_entry(&commits, &version);
-        let markdown =
-            at_intelligence::changelog::ChangelogEngine::render_entries(std::slice::from_ref(
-                &entry,
-            ));
+        let markdown = at_intelligence::changelog::ChangelogEngine::render_entries(
+            std::slice::from_ref(&entry),
+        );
 
         (
             axum::http::StatusCode::OK,
@@ -1472,7 +1471,12 @@ mod tests {
             assert!(md.contains("- ship it"), "{md}");
         }
         assert!(
-            state.changelog_engine.read().await.list_entries().is_empty(),
+            state
+                .changelog_engine
+                .read()
+                .await
+                .list_entries()
+                .is_empty(),
             "GET must not store changelog entries"
         );
     }
@@ -1486,9 +1490,10 @@ mod tests {
             release: tokio::sync::Notify::new(),
         });
         let mut state = ApiState::new(crate::event_bus::EventBus::new());
-        state.ideation_engine = Arc::new(tokio::sync::RwLock::new(
-            IdeationEngine::with_provider(provider.clone(), "mock"),
-        ));
+        state.ideation_engine = Arc::new(tokio::sync::RwLock::new(IdeationEngine::with_provider(
+            provider.clone(),
+            "mock",
+        )));
         let state = Arc::new(state);
 
         let handler = tokio::spawn(generate_ideas(

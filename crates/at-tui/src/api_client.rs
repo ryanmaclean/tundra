@@ -249,8 +249,9 @@ impl ApiClient {
         let mut data = std::thread::scope(|scope| {
             // Spawned alongside everything else — never awaited before the
             // fan-out starts, and never joined one at a time.
-            let bootstrap_handle = try_bootstrap
-                .then(|| scope.spawn(|| timed_fetch(profile, "bootstrap", || self.fetch_bootstrap())));
+            let bootstrap_handle = try_bootstrap.then(|| {
+                scope.spawn(|| timed_fetch(profile, "bootstrap", || self.fetch_bootstrap()))
+            });
 
             // Bootstrap is already known unsupported this cycle (cached from a
             // previous 404), so there is nothing to await before starting the

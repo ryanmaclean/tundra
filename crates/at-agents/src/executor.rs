@@ -2061,9 +2061,7 @@ text in between
     fn heartbeats(msgs: &[Arc<BridgeMessage>]) -> Vec<EventPayload> {
         msgs.iter()
             .filter_map(|m| match &**m {
-                BridgeMessage::Event(p) if p.event_type == EVENT_AGENT_HEARTBEAT => {
-                    Some(p.clone())
-                }
+                BridgeMessage::Event(p) if p.event_type == EVENT_AGENT_HEARTBEAT => Some(p.clone()),
                 _ => None,
             })
             .collect()
@@ -2086,7 +2084,10 @@ text in between
         assert_eq!(reg.len(), 1, "one agent per spawned process");
         let agent = &reg[0];
         assert_eq!(agent.status, AgentStatus::Active);
-        assert!(agent.session_id.is_some(), "session id makes it patrol-visible");
+        assert!(
+            agent.session_id.is_some(),
+            "session id makes it patrol-visible"
+        );
         let meta = agent.metadata.as_ref().unwrap();
         assert_eq!(meta["schema"], EXECUTOR_AGENT_SCHEMA);
         assert_eq!(meta["task_id"], serde_json::json!(task.id));
@@ -2196,11 +2197,17 @@ text in between
             .unwrap()
             .unwrap();
         assert!(!result.success);
-        assert!(state.killed.load(Ordering::SeqCst), "process must be killed");
+        assert!(
+            state.killed.load(Ordering::SeqCst),
+            "process must be killed"
+        );
         let msgs = drain(&rx);
         let exit = updated(&msgs).pop().expect("exit update");
         assert_eq!(exit.id, agent_id);
-        assert_eq!(exit.metadata.as_ref().unwrap()["exit"]["force_killed"], true);
+        assert_eq!(
+            exit.metadata.as_ref().unwrap()["exit"]["force_killed"],
+            true
+        );
     }
 
     #[tokio::test]

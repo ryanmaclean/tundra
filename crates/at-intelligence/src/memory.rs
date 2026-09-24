@@ -1117,7 +1117,7 @@ mod graph_tests {
         let mut e2 = make_entry("key2", &"v".repeat(200), MemoryCategory::Pattern);
         e2.tier = MemoryTier::L2;
         e2.confidence = 1.0; // highest confidence but wrong tier
-        // L1 entry
+                             // L1 entry
         let mut e1 = make_entry("key1", "value1", MemoryCategory::Pattern);
         e1.tier = MemoryTier::L1;
         e1.l1_summary = Some("medium summary".into());
@@ -1148,17 +1148,16 @@ mod graph_tests {
         // With strict `used + cost <= budget` (200 chars), exactly 2 entries
         // should fit (2 * 80 = 160 <= 200; 3 * 80 = 240 > 200).
         for i in 0..10 {
-            let mut e = make_entry(
-                &format!("key{i}"),
-                &"x".repeat(80),
-                MemoryCategory::Pattern,
-            );
+            let mut e = make_entry(&format!("key{i}"), &"x".repeat(80), MemoryCategory::Pattern);
             e.confidence = 0.8;
             g.add_entry(e);
         }
         let result = g.assemble_for_context(50); // 50 tokens = 200 chars
-        // At least 1 entry must have been admitted (budget is not zero).
-        assert!(!result.is_empty(), "assemble returned nothing — budget too tight");
+                                                 // At least 1 entry must have been admitted (budget is not zero).
+        assert!(
+            !result.is_empty(),
+            "assemble returned nothing — budget too tight"
+        );
         // Total chars must not exceed the 200-char budget.
         let total_chars: usize = result.iter().map(|e| e.value.len()).sum();
         assert!(

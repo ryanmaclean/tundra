@@ -1731,7 +1731,10 @@ mod tests {
 
     #[test]
     fn cloud_providers_report_vendor() {
-        assert_eq!(AnthropicProvider::new("k").provider_name(), Some("anthropic"));
+        assert_eq!(
+            AnthropicProvider::new("k").provider_name(),
+            Some("anthropic")
+        );
         assert_eq!(OpenAiProvider::new("k").provider_name(), Some("openai"));
         assert_eq!(MockProvider::new().provider_name(), None);
     }

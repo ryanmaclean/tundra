@@ -679,8 +679,16 @@ mod tests {
             stderr_tail: "thread panicked at src/lib.rs".into(),
         });
         let p = r.fix_prompt();
-        assert!(p.starts_with("The merge gate refused this branch: merge gate refused: `cargo test` exited 101"), "{p}");
-        assert!(p.contains("Failing acceptance criterion: `cargo test`"), "{p}");
+        assert!(
+            p.starts_with(
+                "The merge gate refused this branch: merge gate refused: `cargo test` exited 101"
+            ),
+            "{p}"
+        );
+        assert!(
+            p.contains("Failing acceptance criterion: `cargo test`"),
+            "{p}"
+        );
         assert!(p.contains("thread panicked at src/lib.rs"), "{p}");
         assert!(p.ends_with("commit the changes on the task branch."), "{p}");
 
@@ -788,8 +796,13 @@ mod tests {
     async fn run_criterion_keeps_allowlisted_path() {
         let dir = std::env::temp_dir();
         // `sh` itself must still be resolvable via PATH after env_clear.
-        let r = run_criterion("echo -n \"$PATH\" | wc -c", &dir, Duration::from_secs(10), 64)
-            .await;
+        let r = run_criterion(
+            "echo -n \"$PATH\" | wc -c",
+            &dir,
+            Duration::from_secs(10),
+            64,
+        )
+        .await;
         assert_eq!(r.exit_code, Some(0));
         assert_ne!(r.stdout_tail.trim(), "0", "PATH must survive env_clear");
     }

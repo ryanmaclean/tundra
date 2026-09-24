@@ -94,7 +94,10 @@ mod tests {
         std::env::remove_var("AT_MANAGED_AGENTS_TOKEN");
         let result = ManagedAgentsExecutor::from_env();
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("AT_MANAGED_AGENTS_TOKEN"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("AT_MANAGED_AGENTS_TOKEN"));
     }
 
     #[test]
@@ -106,7 +109,10 @@ mod tests {
         assert!(exec.masked_key().ends_with("***"));
         // Debug output must NOT contain the raw key
         let dbg = format!("{:?}", exec);
-        assert!(!dbg.contains("sk-ant-test1234567890"), "api_key leaked in Debug: {dbg}");
+        assert!(
+            !dbg.contains("sk-ant-test1234567890"),
+            "api_key leaked in Debug: {dbg}"
+        );
         std::env::remove_var("AT_MANAGED_AGENTS_TOKEN");
     }
 
@@ -117,7 +123,10 @@ mod tests {
         let exec = ManagedAgentsExecutor::from_env().unwrap();
         let result = exec.spawn("claude", &["--version"], &[]);
         let err_msg = result.map(|_| ()).unwrap_err();
-        assert!(err_msg.contains("Managed Agents stub"), "unexpected: {err_msg}");
+        assert!(
+            err_msg.contains("Managed Agents stub"),
+            "unexpected: {err_msg}"
+        );
         std::env::remove_var("AT_MANAGED_AGENTS_TOKEN");
     }
 
@@ -127,7 +136,10 @@ mod tests {
         std::env::set_var("AT_MANAGED_AGENTS_TOKEN", "sk-ant-supersecret12345");
         let exec = ManagedAgentsExecutor::from_env().unwrap();
         let debug_str = format!("{exec:?}");
-        assert!(!debug_str.contains("supersecret"), "key leaked: {debug_str}");
+        assert!(
+            !debug_str.contains("supersecret"),
+            "key leaked: {debug_str}"
+        );
         assert!(debug_str.contains("***"), "mask missing: {debug_str}");
         std::env::remove_var("AT_MANAGED_AGENTS_TOKEN");
     }

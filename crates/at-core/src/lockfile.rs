@@ -282,7 +282,10 @@ mod tests {
     #[test]
     fn data_dir_is_dot_auto_tundra_under_home() {
         let dir = data_dir();
-        assert_eq!(dir.file_name().and_then(|n| n.to_str()), Some(".auto-tundra"));
+        assert_eq!(
+            dir.file_name().and_then(|n| n.to_str()),
+            Some(".auto-tundra")
+        );
         let expected_home = std::env::var_os("HOME")
             .map(PathBuf::from)
             .or_else(crate::paths::home_dir)

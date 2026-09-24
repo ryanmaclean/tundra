@@ -181,9 +181,8 @@ async fn start_server_short_grace() -> (String, Arc<ApiState>) {
     (format!("http://{addr}"), state)
 }
 
-type Ws = tokio_tungstenite::WebSocketStream<
-    tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
->;
+type Ws =
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 
 /// Read text frames until `needle` shows up in the accumulated output.
 async fn saw(ws: &mut Ws, needle: &str) -> bool {
@@ -228,8 +227,14 @@ async fn concurrent_connections_share_output_and_survive_one_closing() {
 
     // Every viewer gets the full output, not interleaved fragments.
     type_line(&mut ws1, "echo SHARED_$((40+2))").await;
-    assert!(saw(&mut ws1, "SHARED_42").await, "first viewer missed output");
-    assert!(saw(&mut ws2, "SHARED_42").await, "second viewer missed output");
+    assert!(
+        saw(&mut ws1, "SHARED_42").await,
+        "first viewer missed output"
+    );
+    assert!(
+        saw(&mut ws2, "SHARED_42").await,
+        "second viewer missed output"
+    );
 
     // One viewer leaves; the other is still attached, so the terminal must
     // neither go Disconnected nor be killed when the grace period passes.

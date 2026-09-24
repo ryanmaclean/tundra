@@ -97,7 +97,8 @@ pub(crate) async fn execute_task_pipeline(
 
     let criteria = task_snapshot.acceptance_criteria.clone();
     let criteria_sha256 = gate_flow::criteria_sha256(&criteria);
-    let worktree_bound = task_snapshot.worktree_path.is_some() && task_snapshot.git_branch.is_some();
+    let worktree_bound =
+        task_snapshot.worktree_path.is_some() && task_snapshot.git_branch.is_some();
     let merge = if state.repo_root.is_some() || worktree_bound {
         "gated"
     } else if criteria.is_empty() {
@@ -107,9 +108,8 @@ pub(crate) async fn execute_task_pipeline(
     };
     let mut warnings = Vec::new();
     if criteria.is_empty() {
-        warnings.push(
-            "no acceptance_criteria: the merge gate only checks for clean trees".to_string(),
-        );
+        warnings
+            .push("no acceptance_criteria: the merge gate only checks for clean trees".to_string());
     }
     if merge == "blocked_no_worktree" {
         warnings.push(
@@ -220,8 +220,13 @@ async fn run_pipeline_background(ctx: &gate_flow::PipelineCtx, task: Task) {
 
     // -- Coding phase --
     emit("coding_phase_start");
-    ctx.build_log(task_id, bead_id, BuildStream::Stdout, "Coding phase started".into())
-        .await;
+    ctx.build_log(
+        task_id,
+        bead_id,
+        BuildStream::Stdout,
+        "Coding phase started".into(),
+    )
+    .await;
 
     // Bind a worktree so QA and the merge gate run on the task's own branch
     // (mirrors the daemon orchestrator's start_task).
@@ -265,15 +270,25 @@ async fn run_pipeline_background(ctx: &gate_flow::PipelineCtx, task: Task) {
         .await;
     }
 
-    ctx.build_log(task_id, bead_id, BuildStream::Stdout, "Coding phase complete".into())
-        .await;
+    ctx.build_log(
+        task_id,
+        bead_id,
+        BuildStream::Stdout,
+        "Coding phase complete".into(),
+    )
+    .await;
     emit("coding_phase_complete");
 
     // -- QA phase --
     ctx.set_phase(task_id, TaskPhase::Qa).await;
     emit("qa_phase_start");
-    ctx.build_log(task_id, bead_id, BuildStream::Stdout, "QA phase started".into())
-        .await;
+    ctx.build_log(
+        task_id,
+        bead_id,
+        BuildStream::Stdout,
+        "QA phase started".into(),
+    )
+    .await;
     let mut qa_ok = gate_flow::run_qa(ctx, task_id, "QA result").await;
     emit("qa_phase_complete");
 

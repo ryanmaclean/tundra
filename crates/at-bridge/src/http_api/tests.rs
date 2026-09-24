@@ -1564,7 +1564,10 @@ async fn create_task_inherits_bead_acceptance_criteria() {
 
     let (_, inherited) =
         send_json(&app, "POST", "/api/tasks", Some(task_body(bead_id, None))).await;
-    assert_eq!(inherited["acceptance_criteria"], serde_json::json!(["make check"]));
+    assert_eq!(
+        inherited["acceptance_criteria"],
+        serde_json::json!(["make check"])
+    );
 
     // An explicit list (even empty) wins over the bead's.
     let (_, explicit) = send_json(
@@ -1642,9 +1645,19 @@ async fn put_acceptance_criteria_replaces_clears_and_keeps() {
     .await;
     let uri = format!("/api/tasks/{}", created["id"].as_str().unwrap());
 
-    let (code, t) = send_json(&app, "PUT", &uri, Some(serde_json::json!({"title": "renamed"}))).await;
+    let (code, t) = send_json(
+        &app,
+        "PUT",
+        &uri,
+        Some(serde_json::json!({"title": "renamed"})),
+    )
+    .await;
     assert_eq!(code, StatusCode::OK);
-    assert_eq!(t["acceptance_criteria"], serde_json::json!(["true"]), "omitted = unchanged");
+    assert_eq!(
+        t["acceptance_criteria"],
+        serde_json::json!(["true"]),
+        "omitted = unchanged"
+    );
 
     let (_, t) = send_json(
         &app,
@@ -1655,7 +1668,13 @@ async fn put_acceptance_criteria_replaces_clears_and_keeps() {
     .await;
     assert_eq!(t["acceptance_criteria"], serde_json::json!(["a", "b"]));
 
-    let (_, t) = send_json(&app, "PUT", &uri, Some(serde_json::json!({"acceptance_criteria": []}))).await;
+    let (_, t) = send_json(
+        &app,
+        "PUT",
+        &uri,
+        Some(serde_json::json!({"acceptance_criteria": []})),
+    )
+    .await;
     assert_eq!(t["acceptance_criteria"], serde_json::json!([]), "[] clears");
 
     let (code, _) = send_json(

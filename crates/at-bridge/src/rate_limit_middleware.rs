@@ -339,12 +339,14 @@ mod tests {
     /// `ConnectInfo` extension at all, so without it every request falls
     /// into the shared "unknown" bucket regardless of its headers.
     fn test_router_trusting_proxy(rate_limiter: Arc<MultiKeyRateLimiter>) -> Router {
-        Router::new().route("/ping", get(|| async { "pong" })).layer(
-            RateLimitLayer::new(rate_limiter).with_policy(RateLimitPolicy {
-                trust_proxy_headers: true,
-                ..Default::default()
-            }),
-        )
+        Router::new()
+            .route("/ping", get(|| async { "pong" }))
+            .layer(
+                RateLimitLayer::new(rate_limiter).with_policy(RateLimitPolicy {
+                    trust_proxy_headers: true,
+                    ..Default::default()
+                }),
+            )
     }
 
     #[tokio::test]

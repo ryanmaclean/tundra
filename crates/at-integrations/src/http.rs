@@ -77,7 +77,10 @@ mod tests {
         let start = std::time::Instant::now();
         let result = bounded_client.get(format!("http://{addr}/")).send().await;
 
-        assert!(result.is_err(), "a bounded request to a stalled server must time out, not hang");
+        assert!(
+            result.is_err(),
+            "a bounded request to a stalled server must time out, not hang"
+        );
         assert!(
             start.elapsed() < Duration::from_secs(5),
             "request should have been bounded by the client timeout, took {:?}",

@@ -215,7 +215,10 @@ pub(crate) async fn record_gate_outcome(
                     },
                     GateOutcome::Verified(_) => t.add_build_log(
                         BuildStream::Stdout,
-                        format!("verified only (merge_mode=verify); {} not merged", report.branch),
+                        format!(
+                            "verified only (merge_mode=verify); {} not merged",
+                            report.branch
+                        ),
                     ),
                     GateOutcome::Refused(_) => {}
                 }
@@ -418,7 +421,11 @@ impl PipelineCtx {
             "Pipeline completed successfully".to_string(),
         )
         .await;
-        self.emit(bead_id, "pipeline_complete", format!("Task {task_id}: pipeline_complete"));
+        self.emit(
+            bead_id,
+            "pipeline_complete",
+            format!("Task {task_id}: pipeline_complete"),
+        );
     }
 }
 
@@ -430,7 +437,10 @@ pub(crate) async fn run_qa(ctx: &PipelineCtx, task_id: Uuid, label: &str) -> boo
     let Some(task) = ctx.snapshot(task_id).await else {
         return false;
     };
-    let worktree = task.worktree_path.clone().unwrap_or_else(|| ".".to_string());
+    let worktree = task
+        .worktree_path
+        .clone()
+        .unwrap_or_else(|| ".".to_string());
     let report = QaRunner::new().run_qa_checks(task.id, &task.title, Some(&worktree));
     let failed = report.status == at_core::types::QaStatus::Failed;
     let stream = if failed {
@@ -469,7 +479,11 @@ pub(crate) async fn run_merge_phase(ctx: &PipelineCtx, task_id: Uuid) {
         return;
     };
     let bead_id = task.bead_id;
-    ctx.emit(bead_id, "merge_phase_start", format!("Task '{}': merge_phase_start", task.title));
+    ctx.emit(
+        bead_id,
+        "merge_phase_start",
+        format!("Task '{}': merge_phase_start", task.title),
+    );
 
     if criteria_sha256(&task.acceptance_criteria) != ctx.criteria_sha256 {
         ctx.fail(
@@ -508,8 +522,12 @@ pub(crate) async fn run_merge_phase(ctx: &PipelineCtx, task_id: Uuid) {
         None => match main_checkout_of(&path).await {
             Ok(root) => root,
             Err(e) => {
-                ctx.fail(task_id, bead_id, format!("cannot locate main checkout: {e}"))
-                    .await;
+                ctx.fail(
+                    task_id,
+                    bead_id,
+                    format!("cannot locate main checkout: {e}"),
+                )
+                .await;
                 return;
             }
         },
@@ -545,12 +563,19 @@ pub(crate) async fn run_merge_phase(ctx: &PipelineCtx, task_id: Uuid) {
         {
             Ok(o) => o,
             Err(e) => {
-                ctx.fail(task_id, bead_id, format!("merge failed: {e}")).await;
+                ctx.fail(task_id, bead_id, format!("merge failed: {e}"))
+                    .await;
                 return;
             }
         };
-        record_gate_outcome(&ctx.tasks, &ctx.event_bus, Some(task_id), &worktree_id, &outcome)
-            .await;
+        record_gate_outcome(
+            &ctx.tasks,
+            &ctx.event_bus,
+            Some(task_id),
+            &worktree_id,
+            &outcome,
+        )
+        .await;
 
         match outcome {
             GateOutcome::Verified(_)
@@ -632,13 +657,19 @@ fn gate_links(task: &Task) -> Vec<serde_json::Value> {
         json!({"rel": "schema", "method": "GET", "href": at_api_types::schemas::path_for(MERGE_GATE_SCHEMA_ID)}),
     ];
     if !super::tasks::criteria_locked(&task.phase) {
-        links.push(json!({"rel": "update_criteria", "method": "PUT", "href": format!("/api/tasks/{id}")}));
+        links.push(
+            json!({"rel": "update_criteria", "method": "PUT", "href": format!("/api/tasks/{id}")}),
+        );
         if task.worktree_path.is_some() && task.git_branch.is_some() && task.merged_at.is_none() {
-            links.push(json!({"rel": "merge", "method": "POST", "href": format!("/api/tasks/{id}/merge")}));
+            links.push(
+                json!({"rel": "merge", "method": "POST", "href": format!("/api/tasks/{id}/merge")}),
+            );
         }
     }
     if task.phase.can_transition_to(&TaskPhase::Coding) {
-        links.push(json!({"rel": "execute", "method": "POST", "href": format!("/api/tasks/{id}/execute")}));
+        links.push(
+            json!({"rel": "execute", "method": "POST", "href": format!("/api/tasks/{id}/execute")}),
+        );
     }
     links
 }
@@ -770,6 +801,13 @@ pub(crate) async fn merge_task(
         }
     };
     let worktree_id = super::worktrees::stable_worktree_id(&path, &branch);
-    record_gate_outcome(&state.tasks, &state.event_bus, Some(id), &worktree_id, &outcome).await;
+    record_gate_outcome(
+        &state.tasks,
+        &state.event_bus,
+        Some(id),
+        &worktree_id,
+        &outcome,
+    )
+    .await;
     outcome.response()
 }

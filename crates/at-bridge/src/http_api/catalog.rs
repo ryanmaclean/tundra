@@ -265,7 +265,10 @@ pub(crate) fn mount_all(domains: Vec<Domain>, auth_enforced: bool) -> Mounted {
 
 /// GET /api/v1/schemas -- ids of every published JSON Schema document.
 pub(crate) async fn list_schemas() -> Json<serde_json::Value> {
-    let ids: Vec<&str> = at_api_types::schemas::ALL.iter().map(|(id, _)| *id).collect();
+    let ids: Vec<&str> = at_api_types::schemas::ALL
+        .iter()
+        .map(|(id, _)| *id)
+        .collect();
     Json(serde_json::json!({
         "schemas": ids
             .iter()
@@ -287,10 +290,7 @@ pub(crate) async fn get_schema(
     let id = id.trim_start_matches('/');
     match at_api_types::schemas::lookup(id) {
         Some(doc) => (
-            [(
-                axum::http::header::CONTENT_TYPE,
-                "application/schema+json",
-            )],
+            [(axum::http::header::CONTENT_TYPE, "application/schema+json")],
             doc,
         )
             .into_response(),

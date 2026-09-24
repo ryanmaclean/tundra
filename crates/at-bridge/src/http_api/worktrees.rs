@@ -192,7 +192,11 @@ async fn resolve_worktree(
     let found = listed
         .iter()
         .find(|w| stable_worktree_id(&w.path, &w.branch) == id)
-        .or_else(|| listed.iter().find(|w| !w.branch.is_empty() && w.branch == id))
+        .or_else(|| {
+            listed
+                .iter()
+                .find(|w| !w.branch.is_empty() && w.branch == id)
+        })
         .or_else(|| listed.iter().find(|w| w.path == id))
         .cloned();
     let Some(wt) = found else {
@@ -357,8 +361,7 @@ pub(crate) async fn merge_preview_in(discover_dir: &std::path::Path, id: &str) -
         .unwrap_or(0);
 
     // Files changed on the branch since it forked from main.
-    let files_changed: Vec<String> = match run_git(repo, &["diff", "--name-only", &range]).await
-    {
+    let files_changed: Vec<String> = match run_git(repo, &["diff", "--name-only", &range]).await {
         Ok(out) => out
             .lines()
             .filter(|l| !l.is_empty())
@@ -709,8 +712,7 @@ mod tests {
         assert!(fx.wt.exists());
 
         let repo = fx.repo.canonicalize().unwrap();
-        let (code, Json(body)) =
-            delete_worktree_in(&fx.repo, &repo.to_string_lossy(), true).await;
+        let (code, Json(body)) = delete_worktree_in(&fx.repo, &repo.to_string_lossy(), true).await;
         assert_eq!(code, StatusCode::BAD_REQUEST, "{body}");
         assert!(fx.repo.exists());
     }
@@ -722,7 +724,10 @@ mod tests {
 
         let (code, Json(body)) = delete_worktree_in(&fx.repo, "task/dirty", false).await;
         assert_eq!(code, StatusCode::CONFLICT, "{body}");
-        assert!(fx.wt.exists(), "dirty worktree must survive a non-forced delete");
+        assert!(
+            fx.wt.exists(),
+            "dirty worktree must survive a non-forced delete"
+        );
 
         let (code, Json(body)) = delete_worktree_in(&fx.repo, "task/dirty", true).await;
         assert_eq!(code, StatusCode::OK, "{body}");
@@ -738,7 +743,8 @@ mod tests {
         };
 
         for bad in ["-A", "", "/etc/passwd", "../x"] {
-            let (code, Json(body)) = resolve_conflict_in(&fx.repo, "task/res", &req("ours", bad)).await;
+            let (code, Json(body)) =
+                resolve_conflict_in(&fx.repo, "task/res", &req("ours", bad)).await;
             assert_eq!(code, StatusCode::BAD_REQUEST, "{bad:?}: {body}");
         }
 
@@ -772,8 +778,14 @@ mod tests {
         };
         let (code, Json(body)) = resolve_conflict_in(&fx.repo, "task/conf", &req).await;
         assert_eq!(code, StatusCode::OK, "{body}");
-        assert_eq!(std::fs::read_to_string(fx.wt.join("f")).unwrap(), "main side\n");
-        assert_eq!(sh_git(&fx.wt, &["diff", "--name-only", "--diff-filter=U"]), "");
+        assert_eq!(
+            std::fs::read_to_string(fx.wt.join("f")).unwrap(),
+            "main side\n"
+        );
+        assert_eq!(
+            sh_git(&fx.wt, &["diff", "--name-only", "--diff-filter=U"]),
+            ""
+        );
     }
 
     #[tokio::test]

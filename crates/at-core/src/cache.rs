@@ -916,11 +916,17 @@ mod tests {
         // Single-row lookups on a bead whose own row is corrupt still
         // surface a typed error instead of panicking.
         assert!(
-            matches!(db.get_bead(bad_enum).await, Err(CacheError::InvalidRow { .. })),
+            matches!(
+                db.get_bead(bad_enum).await,
+                Err(CacheError::InvalidRow { .. })
+            ),
             "get_bead must surface InvalidRow for a corrupt status enum"
         );
         assert!(
-            matches!(db.get_bead(bad_date).await, Err(CacheError::InvalidRow { .. })),
+            matches!(
+                db.get_bead(bad_date).await,
+                Err(CacheError::InvalidRow { .. })
+            ),
             "get_bead must surface InvalidRow for a corrupt date"
         );
 

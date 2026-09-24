@@ -460,8 +460,8 @@ fn queue_multiple_changes() {
             entity_type: "task".into(),
             entity_id: format!("task-{i:03}"),
             payload: ChangePayload::State {
-            state_id: "state-updated".into(),
-        },
+                state_id: "state-updated".into(),
+            },
             created_at: Utc::now(),
         });
     }
@@ -567,8 +567,8 @@ async fn e2e_import_then_queue_changes() {
             entity_type: "bead".into(),
             entity_id: result.issue_id.clone(),
             payload: ChangePayload::State {
-            state_id: "state-updated".into(),
-        },
+                state_id: "state-updated".into(),
+            },
             created_at: Utc::now(),
         });
     }

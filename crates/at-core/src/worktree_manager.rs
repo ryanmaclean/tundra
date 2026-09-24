@@ -1034,13 +1034,13 @@ mod tests {
         // must fall back to `git diff --name-only --diff-filter=U` via the GitRunner,
         // still report the conflicting files, and still abort the merge.
         let shared = Arc::new(MockGitRunner::new(vec![
-            out(""),       // fetch
-            out("3\n"),    // rev-list --count
-            out(""),       // status
-            out("main\n"), // rev-parse --abbrev-ref HEAD
+            out(""),                                                  // fetch
+            out("3\n"),                                               // rev-list --count
+            out(""),                                                  // status
+            out("main\n"),                                            // rev-parse --abbrev-ref HEAD
             fail("CONFLICT (content): Merge conflict in file1.rs\n"), // merge
             out("file1.rs\nfile2.rs\n"), // fallback: diff --name-only --diff-filter=U
-            out(""),       // merge --abort
+            out(""),                     // merge --abort
         ]));
         let manager = WorktreeManager::with_adapters(
             "/project",

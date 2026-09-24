@@ -220,7 +220,10 @@ async fn config_max_fix_iterations_is_honoured_without_override() {
     let mut task = task_with_criteria(&["exit 1"]);
 
     let err = orch.start_task(&mut task).await.unwrap_err();
-    assert!(matches!(err, OrchestratorError::MergeGateFailed(_)), "{err:?}");
+    assert!(
+        matches!(err, OrchestratorError::MergeGateFailed(_)),
+        "{err:?}"
+    );
     assert_eq!(*spawner.fix_prompts.lock().unwrap(), 1);
     assert!(task
         .error

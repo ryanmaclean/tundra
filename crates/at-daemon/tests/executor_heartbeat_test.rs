@@ -192,7 +192,10 @@ async fn patrol_spares_heartbeating_executor_and_kills_silent_agent() {
         .expect("execution finishes")
         .unwrap()
         .unwrap();
-    assert!(result.success, "silent-but-alive CLI must run to completion");
+    assert!(
+        result.success,
+        "silent-but-alive CLI must run to completion"
+    );
     assert!(!state.killed.load(Ordering::SeqCst));
 
     // Exit event lands in the registry.
@@ -214,7 +217,10 @@ async fn patrol_spares_heartbeating_executor_and_kills_silent_agent() {
             _ => None,
         })
         .collect();
-    assert!(!kills.contains(&Some(exec_id)), "executor agent never killed");
+    assert!(
+        !kills.contains(&Some(exec_id)),
+        "executor agent never killed"
+    );
 
     daemon.shutdown();
 }

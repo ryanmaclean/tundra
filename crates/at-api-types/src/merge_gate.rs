@@ -283,7 +283,10 @@ mod tests {
         assert_eq!(v["$id"], MERGE_GATE_SCHEMA_ID);
         assert_eq!(v["properties"]["schema"]["const"], MERGE_GATE_SCHEMA_ID);
         for key in v["required"].as_array().unwrap() {
-            assert!(v["properties"].get(key.as_str().unwrap()).is_some(), "{key}");
+            assert!(
+                v["properties"].get(key.as_str().unwrap()).is_some(),
+                "{key}"
+            );
         }
     }
 }

@@ -75,7 +75,10 @@ pub(crate) fn catalog_router() -> Domain {
             get_catalog,
         )
         .route(
-            R::get("/v1/schemas", "List published JSON Schema ids and their URLs"),
+            R::get(
+                "/v1/schemas",
+                "List published JSON Schema ids and their URLs",
+            ),
             list_schemas,
         )
         .route(

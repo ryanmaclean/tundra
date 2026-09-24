@@ -45,7 +45,14 @@ pub(crate) async fn list_projects(
     let offset = params.offset.unwrap_or(0);
     let mut ordered: Vec<&Project> = projects.values().collect();
     ordered.sort_by_key(|p| creation_key(&p.created_at, p.id));
-    Json(ordered.into_iter().skip(offset).take(limit).cloned().collect())
+    Json(
+        ordered
+            .into_iter()
+            .skip(offset)
+            .take(limit)
+            .cloned()
+            .collect(),
+    )
 }
 
 /// POST /api/projects -- create a new project.
@@ -149,7 +156,7 @@ pub(crate) async fn activate_project(
 mod tests {
     use super::*;
     use crate::event_bus::EventBus;
-    use crate::http_api::types::{AttachmentQuery, Attachment};
+    use crate::http_api::types::{Attachment, AttachmentQuery};
 
     fn ts(i: i64) -> String {
         (chrono::DateTime::parse_from_rfc3339("2026-01-01T00:00:00Z").unwrap()

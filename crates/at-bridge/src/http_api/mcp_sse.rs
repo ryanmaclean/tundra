@@ -330,9 +330,7 @@ async fn handle_tools_call(state: &Arc<ApiState>, request: &JsonRpcRequest) -> J
         "get_kpi" => Some(exec_get_kpi(state).await),
         "create_bead" => Some(exec_create_bead(state, &tool_request.arguments).await),
         "create_task" => Some(exec_create_task(state, &tool_request.arguments).await),
-        "update_bead_status" => {
-            Some(exec_update_bead_status(state, &tool_request.arguments).await)
-        }
+        "update_bead_status" => Some(exec_update_bead_status(state, &tool_request.arguments).await),
         _ => {
             // Fall back to built-in tools (run_task, list_agents, manage_beads, etc.)
             let ctx = at_harness::builtin_tools::BuiltinToolContext {
@@ -601,7 +599,9 @@ async fn exec_create_bead(state: &Arc<ApiState>, args: &serde_json::Value) -> To
         None | Some(serde_json::Value::Null) => None,
         Some(v) => match serde_json::from_value::<Vec<String>>(v.clone()) {
             Ok(c) => Some(c),
-            Err(_) => return ToolCallResult::error("acceptance_criteria must be an array of strings"),
+            Err(_) => {
+                return ToolCallResult::error("acceptance_criteria must be an array of strings")
+            }
         },
     };
 
@@ -643,7 +643,9 @@ async fn exec_create_task(state: &Arc<ApiState>, args: &serde_json::Value) -> To
         None | Some(serde_json::Value::Null) => None,
         Some(v) => match serde_json::from_value::<Vec<String>>(v.clone()) {
             Ok(c) => Some(c),
-            Err(_) => return ToolCallResult::error("acceptance_criteria must be an array of strings"),
+            Err(_) => {
+                return ToolCallResult::error("acceptance_criteria must be an array of strings")
+            }
         },
     };
 
@@ -962,8 +964,7 @@ mod tests {
         )
         .await;
         assert!(!result.is_error, "{:?}", result.text_content());
-        let bead: serde_json::Value =
-            serde_json::from_str(result.text_content().unwrap()).unwrap();
+        let bead: serde_json::Value = serde_json::from_str(result.text_content().unwrap()).unwrap();
         assert_eq!(
             bead["metadata"]["acceptance_criteria"],
             serde_json::json!(["cargo test", "test -f ok"])
@@ -993,7 +994,10 @@ mod tests {
     #[test]
     fn create_task_schema_declares_acceptance_criteria_and_required() {
         let tool = create_task_tool();
-        assert_eq!(tool.input_schema["required"], serde_json::json!(["title", "bead_id"]));
+        assert_eq!(
+            tool.input_schema["required"],
+            serde_json::json!(["title", "bead_id"])
+        );
         let prop = &tool.input_schema["properties"]["acceptance_criteria"];
         assert_eq!(prop["type"], "array");
         assert_eq!(prop["maxItems"], 32);
@@ -1013,8 +1017,7 @@ mod tests {
         )
         .await;
         assert!(!result.is_error, "{:?}", result.text_content());
-        let task: serde_json::Value =
-            serde_json::from_str(result.text_content().unwrap()).unwrap();
+        let task: serde_json::Value = serde_json::from_str(result.text_content().unwrap()).unwrap();
         assert_eq!(task["bead_id"], serde_json::json!(bead_id));
         assert_eq!(
             task["acceptance_criteria"],

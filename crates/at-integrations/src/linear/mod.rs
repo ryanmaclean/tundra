@@ -716,7 +716,13 @@ mod tests {
     /// like a test key.
     #[test]
     fn real_constructor_is_never_a_stub_regardless_of_key_shape() {
-        for key in ["tok_looks_fake", "test_key", "stub-key", "short", "lin_api_real_key_abc"] {
+        for key in [
+            "tok_looks_fake",
+            "test_key",
+            "stub-key",
+            "short",
+            "lin_api_real_key_abc",
+        ] {
             let client = LinearClient::new(key).unwrap();
             assert!(
                 !client.is_stub(),

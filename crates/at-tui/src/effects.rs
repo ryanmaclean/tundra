@@ -288,7 +288,10 @@ mod tests {
     fn effect_manager_is_busy_after_add() {
         let mut mgr = EffectManager::new();
         mgr.add(fade_in());
-        assert!(!mgr.is_idle(), "an added effect must be reported as running");
+        assert!(
+            !mgr.is_idle(),
+            "an added effect must be reported as running"
+        );
     }
 
     #[test]

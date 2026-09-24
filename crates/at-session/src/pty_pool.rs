@@ -879,10 +879,7 @@ impl PtyPool {
 
         // -- stdout reader thread --
         let (read_tx, read_rx) = flume::bounded::<Vec<u8>>(256);
-        let mut reader = pair
-            .master
-            .try_clone_reader()
-            .map_err(kill_child)?;
+        let mut reader = pair.master.try_clone_reader().map_err(kill_child)?;
         let reader_thread = std::thread::spawn(move || {
             let mut buf = [0u8; 4096];
             loop {
@@ -906,10 +903,7 @@ impl PtyPool {
 
         // -- stdin writer thread --
         let (write_tx, write_rx) = flume::bounded::<Vec<u8>>(256);
-        let mut writer = pair
-            .master
-            .take_writer()
-            .map_err(kill_child)?;
+        let mut writer = pair.master.take_writer().map_err(kill_child)?;
         let writer_thread = std::thread::spawn(move || {
             while let Ok(data) = write_rx.recv() {
                 if writer.write_all(&data).is_err() {

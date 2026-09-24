@@ -262,7 +262,10 @@ mod tests {
             if agents.read().await.get(&a.id).map(|x| x.last_seen) == Some(later) {
                 break;
             }
-            assert!(tokio::time::Instant::now() < deadline, "heartbeat not applied");
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "heartbeat not applied"
+            );
             tokio::time::sleep(std::time::Duration::from_millis(5)).await;
         }
         assert_eq!(count.load(Ordering::Relaxed), 1);

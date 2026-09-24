@@ -832,7 +832,12 @@ mod tests {
             stdout_tail: String::new(),
             stderr_tail: String::new(),
         });
-        ctx.tasks.write().await.get_mut(&id).unwrap().merge_gate_report = Some(report);
+        ctx.tasks
+            .write()
+            .await
+            .get_mut(&id)
+            .unwrap()
+            .merge_gate_report = Some(report);
         let parsed: serde_json::Value = serde_json::from_str(
             execute_builtin_tool(&ctx, &req)
                 .await

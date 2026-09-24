@@ -169,9 +169,7 @@ pub fn resolve_pricing<'a>(
         .into_iter()
         .filter(|p| {
             let key = strip_model_date_suffix(&p.model);
-            norm.len() > key.len()
-                && norm.starts_with(key)
-                && norm.as_bytes()[key.len()] == b'-'
+            norm.len() > key.len() && norm.starts_with(key) && norm.as_bytes()[key.len()] == b'-'
         })
         .max_by_key(|p| p.model.len())
 }
@@ -1145,12 +1143,17 @@ mod tests {
     #[tokio::test]
     async fn dated_snapshot_names_resolve_to_alias_pricing() {
         let tracker = CostTracker::default();
-        let gpt4o = tracker.calculate_cost("gpt-4o-2024-08-06", 1_000_000, 0).await;
+        let gpt4o = tracker
+            .calculate_cost("gpt-4o-2024-08-06", 1_000_000, 0)
+            .await;
         assert!((gpt4o - 2.5).abs() < 1e-9, "gpt-4o snapshot: {gpt4o}");
         let mini = tracker
             .calculate_cost("gpt-4o-mini-2024-07-18", 1_000_000, 0)
             .await;
-        assert!((mini - 0.15).abs() < 1e-9, "must prefer longest prefix: {mini}");
+        assert!(
+            (mini - 0.15).abs() < 1e-9,
+            "must prefer longest prefix: {mini}"
+        );
         let haiku = tracker
             .calculate_cost("claude-haiku-4-5-20251001", 1_000_000, 1_000_000)
             .await;
@@ -1174,17 +1177,32 @@ mod tests {
     fn current_anthropic_prices() {
         let table = default_pricing_table();
         let opus = table.iter().find(|p| p.model == "claude-opus-4-7").unwrap();
-        assert_eq!((opus.input_cost_per_1m, opus.output_cost_per_1m), (5.0, 25.0));
+        assert_eq!(
+            (opus.input_cost_per_1m, opus.output_cost_per_1m),
+            (5.0, 25.0)
+        );
         assert_eq!(opus.context_window, 1_000_000);
-        let haiku = table.iter().find(|p| p.model == "claude-haiku-4-5").unwrap();
-        assert_eq!((haiku.input_cost_per_1m, haiku.output_cost_per_1m), (1.0, 5.0));
+        let haiku = table
+            .iter()
+            .find(|p| p.model == "claude-haiku-4-5")
+            .unwrap();
+        assert_eq!(
+            (haiku.input_cost_per_1m, haiku.output_cost_per_1m),
+            (1.0, 5.0)
+        );
     }
 
     #[test]
     fn strip_date_suffix_variants() {
-        assert_eq!(strip_model_date_suffix("claude-haiku-4-5-20251001"), "claude-haiku-4-5");
+        assert_eq!(
+            strip_model_date_suffix("claude-haiku-4-5-20251001"),
+            "claude-haiku-4-5"
+        );
         assert_eq!(strip_model_date_suffix("gpt-4o-2024-08-06"), "gpt-4o");
-        assert_eq!(strip_model_date_suffix("claude-opus-4-7"), "claude-opus-4-7");
+        assert_eq!(
+            strip_model_date_suffix("claude-opus-4-7"),
+            "claude-opus-4-7"
+        );
         assert_eq!(strip_model_date_suffix("o3-mini"), "o3-mini");
     }
 }

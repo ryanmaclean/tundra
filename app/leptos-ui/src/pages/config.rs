@@ -23,7 +23,10 @@ use leptos::prelude::*;
 /// Recursively diff two JSON values, returning only what changed in `new`.
 /// Objects are diffed key by key; any other changed value (including arrays)
 /// is returned whole. Returns `None` when nothing changed.
-fn settings_json_diff(old: &serde_json::Value, new: &serde_json::Value) -> Option<serde_json::Value> {
+fn settings_json_diff(
+    old: &serde_json::Value,
+    new: &serde_json::Value,
+) -> Option<serde_json::Value> {
     match (old, new) {
         (serde_json::Value::Object(o), serde_json::Value::Object(n)) => {
             let mut out = serde_json::Map::new();
@@ -802,9 +805,11 @@ pub fn ConfigPage(#[prop(optional)] on_close: Option<Callback<()>>) -> impl Into
     // placeholders for unloaded fields would overwrite the real settings.
     let persist_changes = move || async move {
         let Some(old) = baseline.get_value() else {
-            return Err("settings were not loaded from the server; not saving to avoid \
+            return Err(
+                "settings were not loaded from the server; not saving to avoid \
                         overwriting them (reload the page)"
-                .to_string());
+                    .to_string(),
+            );
         };
         let new = serde_json::to_value(build_current()).map_err(|e| e.to_string())?;
         if let Some(patch) = settings_json_diff(&old, &new) {

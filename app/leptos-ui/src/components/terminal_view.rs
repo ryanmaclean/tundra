@@ -334,9 +334,7 @@ fn connect_terminal_ws(ctx: &Rc<TerminalWs>) {
     let ws = match WebSocket::new(&ws_url) {
         Ok(ws) => ws,
         Err(e) => {
-            web_sys::console::warn_1(
-                &format!("[terminal] failed to open websocket: {e:?}").into(),
-            );
+            web_sys::console::warn_1(&format!("[terminal] failed to open websocket: {e:?}").into());
             schedule_terminal_reconnect(ctx);
             return;
         }
@@ -753,6 +751,8 @@ mod reconnect_tests {
             TerminalConnState::Disconnected.css_class(),
             "terminal-status-disconnected"
         );
-        assert!(TerminalConnState::Disconnected.label().contains("Disconnected"));
+        assert!(TerminalConnState::Disconnected
+            .label()
+            .contains("Disconnected"));
     }
 }

@@ -102,8 +102,14 @@ mod tests {
         for s in all {
             assert!(column_for(&s) < KANBAN_COLUMNS, "{s:?}");
         }
-        assert_ne!(column_for(&BeadStatus::Failed), column_for(&BeadStatus::Backlog));
-        assert_ne!(column_for(&BeadStatus::Escalated), column_for(&BeadStatus::Backlog));
+        assert_ne!(
+            column_for(&BeadStatus::Failed),
+            column_for(&BeadStatus::Backlog)
+        );
+        assert_ne!(
+            column_for(&BeadStatus::Escalated),
+            column_for(&BeadStatus::Backlog)
+        );
     }
 
     #[test]

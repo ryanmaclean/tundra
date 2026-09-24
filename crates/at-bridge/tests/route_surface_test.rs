@@ -393,11 +393,7 @@ async fn catalog_is_served_without_the_api_key_and_reports_dev_mode() {
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     for card in json["cards"].as_array().unwrap() {
         let path = card["path"].as_str().unwrap();
-        let want = if is_public(path) {
-            "none"
-        } else {
-            "api_key"
-        };
+        let want = if is_public(path) { "none" } else { "api_key" };
         assert_eq!(card["auth"], want, "{path}");
     }
 
@@ -475,7 +471,11 @@ async fn get_raw(app: &Router, uri: &str, api_key: Option<&str>) -> (StatusCode,
     if let Some(k) = api_key {
         b = b.header("x-api-key", k);
     }
-    let resp = app.clone().oneshot(b.body(Body::empty()).unwrap()).await.unwrap();
+    let resp = app
+        .clone()
+        .oneshot(b.body(Body::empty()).unwrap())
+        .await
+        .unwrap();
     let status = resp.status();
     let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
         .await
@@ -498,8 +498,7 @@ async fn every_catalogued_schema_resolves_without_a_key() {
         "merge routes reference the gate report schema: {ids:?}"
     );
     for id in &ids {
-        let (status, body) =
-            get_raw(&app, &at_api_types::schemas::path_for(id), None).await;
+        let (status, body) = get_raw(&app, &at_api_types::schemas::path_for(id), None).await;
         assert_eq!(status, StatusCode::OK, "{id}");
         let doc: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(doc["$id"], id.as_str(), "{id}");
@@ -540,8 +539,12 @@ async fn merge_routes_carry_types_and_schema_ids() {
     assert_eq!(wt.response.as_deref(), Some("ApiMergeResponse"));
     let exec = card("post-api-tasks-id-execute");
     assert_eq!(exec.response.as_deref(), Some("ExecuteTaskResponse"));
-    assert!(card("post-api-tasks").description.contains("acceptance_criteria"));
-    assert!(card("put-api-tasks-id").description.contains("acceptance_criteria"));
+    assert!(card("post-api-tasks")
+        .description
+        .contains("acceptance_criteria"));
+    assert!(card("put-api-tasks-id")
+        .description
+        .contains("acceptance_criteria"));
     let schema_route = card("get-api-v1-schemas-id");
     assert_eq!(schema_route.auth, RouteAuth::None);
 }

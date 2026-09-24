@@ -49,7 +49,9 @@ pub fn config_dir() -> Option<PathBuf> {
     config_dir_for(
         Platform::current(),
         home_dir().as_deref(),
-        std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from).as_deref(),
+        std::env::var_os("XDG_CONFIG_HOME")
+            .map(PathBuf::from)
+            .as_deref(),
         std::env::var_os("APPDATA").map(PathBuf::from).as_deref(),
     )
 }
@@ -136,7 +138,12 @@ mod tests {
             Some(a)
         );
         assert_eq!(
-            config_dir_for(Platform::Windows, Some(&home()), None, Some(Path::new("rel"))),
+            config_dir_for(
+                Platform::Windows,
+                Some(&home()),
+                None,
+                Some(Path::new("rel"))
+            ),
             None
         );
     }
@@ -171,7 +178,9 @@ mod tests {
         let expected = config_dir_for(
             Platform::current(),
             home_dir().as_deref(),
-            std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from).as_deref(),
+            std::env::var_os("XDG_CONFIG_HOME")
+                .map(PathBuf::from)
+                .as_deref(),
             std::env::var_os("APPDATA").map(PathBuf::from).as_deref(),
         );
         assert_eq!(config_dir(), expected);

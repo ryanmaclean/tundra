@@ -1300,10 +1300,6 @@ mod tests {
                 ));
             }
         }
-        assert!(
-            hits.is_empty(),
-            "findings in docs:\n{}",
-            hits.join("\n")
-        );
+        assert!(hits.is_empty(), "findings in docs:\n{}", hits.join("\n"));
     }
 }

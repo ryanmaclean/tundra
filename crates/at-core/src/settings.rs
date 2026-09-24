@@ -36,7 +36,8 @@ impl SettingsManager {
 
     /// Location used by older builds for settings saved through the API.
     fn legacy_path() -> Option<PathBuf> {
-        crate::paths::home_dir().map(|h| h.join(".config").join("auto-tundra").join("settings.toml"))
+        crate::paths::home_dir()
+            .map(|h| h.join(".config").join("auto-tundra").join("settings.toml"))
     }
 
     /// Copy `legacy` to `target` when `target` is missing and `legacy`
@@ -219,7 +220,11 @@ mod tests {
         let home = crate::paths::home_dir().unwrap_or_else(|| PathBuf::from("."));
         assert_eq!(
             SettingsManager::legacy_path(),
-            Some(home.join(".config").join("auto-tundra").join("settings.toml"))
+            Some(
+                home.join(".config")
+                    .join("auto-tundra")
+                    .join("settings.toml")
+            )
         );
     }
 
