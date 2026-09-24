@@ -98,7 +98,7 @@ impl SessionMetadata {
     fn record_turn(&mut self, response: &LlmResponse) {
         self.last_active_at = Utc::now();
         self.turn_count += 1;
-        self.total_input_tokens += response.input_tokens;
+        self.total_input_tokens += response.total_input_tokens();
         self.total_output_tokens += response.output_tokens;
     }
 
@@ -420,6 +420,8 @@ mod tests {
             model: "test".into(),
             input_tokens: 100,
             output_tokens: 50,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
             finish_reason: "end_turn".into(),
         };
         metadata.record_turn(&response);

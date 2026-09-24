@@ -87,8 +87,14 @@ impl EventBus {
     /// The message is wrapped in `Arc` once and only reference counts are
     /// cloned per subscriber — no deep copies of payload data.
     /// Disconnected subscribers (whose receivers have been dropped) are
-    /// automatically pruned. Filtered subscribers that do not match the
-    /// message are skipped (but retained).
+    /// automatically pruned on every call, whether or not their filter
+    /// matches this particular message. This matters for narrow, one-shot
+    /// filters (e.g. "force-kill events for this one agent_id") that may
+    /// never match again after the receiver is dropped: without an
+    /// unconditional disconnect check, such a subscriber would never be
+    /// pruned and the subscriber list would grow without bound. Filtered
+    /// subscribers that are still connected but whose filter doesn't match
+    /// are skipped (but retained).
     pub fn publish(&self, msg: BridgeMessage) {
         let msg = Arc::new(msg);
         let mut subs = self.inner.lock().unwrap_or_else(|e| {
@@ -96,6 +102,13 @@ impl EventBus {
             e.into_inner()
         });
         subs.retain(|sub| {
+            // Prune disconnected subscribers unconditionally, regardless of
+            // whether their filter matches this message — otherwise a
+            // filter that never matches again (e.g. keyed on a one-shot
+            // agent_id) would leak forever.
+            if sub.tx.is_disconnected() {
+                return false;
+            }
             // If there is a filter and the message doesn't match, skip but keep.
             if let Some(ref f) = sub.filter {
                 if !f(&msg) {
@@ -260,6 +273,46 @@ mod tests {
         drop(rx);
         bus.publish(BridgeMessage::GetStatus);
         assert_eq!(bus.subscriber_count(), 1);
+    }
+
+    #[test]
+    fn one_shot_filtered_subscribers_do_not_leak_across_publishes() {
+        // Regression test for the executor's per-task force-kill subscriber
+        // pattern: `subscribe_filtered` keyed on a unique agent_id that will
+        // never recur, with the receiver dropped when the task finishes
+        // (mirrors `AgentExecutor::execute_task_inner`'s `force_kill_rx`).
+        // Before the fix, `publish` only pruned a disconnected subscriber
+        // when a message happened to pass its filter first, so a filter
+        // keyed on a one-shot id that never matches again would never be
+        // pruned and subscribers would accumulate forever.
+        let bus = EventBus::new();
+        let baseline = bus.subscriber_count();
+
+        const CYCLES: usize = 50;
+        for _ in 0..CYCLES {
+            let agent_id = Uuid::new_v4();
+            let rx = bus.subscribe_filtered(move |msg| match msg {
+                BridgeMessage::Event(p) => p.agent_id == Some(agent_id),
+                _ => false,
+            });
+            // The subscriber is live for a moment (as the real one is, for
+            // the duration of a task) and observes unrelated traffic, none
+            // of which matches its unique filter.
+            bus.publish(status_msg());
+            bus.publish(event_msg(Some(Uuid::new_v4())));
+            drop(rx);
+            // Publish more unrelated traffic after the receiver is dropped —
+            // none of it matches this subscriber's filter either, so the
+            // only way it gets pruned is the unconditional disconnect check.
+            bus.publish(status_msg());
+            bus.publish(BridgeMessage::ListAgents);
+        }
+
+        assert_eq!(
+            bus.subscriber_count(),
+            baseline,
+            "dropped one-shot filtered subscribers must be pruned, not accumulate"
+        );
     }
 
     #[test]

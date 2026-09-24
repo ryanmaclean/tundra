@@ -14,7 +14,7 @@ use at_harness::shutdown::ShutdownSignal;
 
 use crate::heartbeat::HeartbeatMonitor;
 use crate::kpi::KpiCollector;
-use crate::patrol::{reap_orphan_ptys, PatrolRunner};
+use crate::patrol::{reap_orphan_ptys, PatrolRunner, StuckMonitor, StuckPolicy, SystemClock};
 use crate::scheduler::TaskScheduler;
 
 /// Configuration for daemon loop intervals.
@@ -61,7 +61,7 @@ impl Daemon {
             ..DaemonIntervals::default()
         };
         let event_bus = EventBus::new();
-        let api_state = Arc::new(ApiState::new(event_bus.clone()));
+        let api_state = Arc::new(Self::build_api_state(&config, event_bus.clone()));
         Self {
             config,
             cache,
@@ -70,6 +70,47 @@ impl Daemon {
             event_bus,
             api_state,
         }
+    }
+
+    /// Build the shared API state from config.
+    ///
+    /// Attaches a PTY pool (unless `terminal.pty_pool_enabled = false`) so the
+    /// terminal REST and WebSocket API is usable; without it
+    /// `POST /api/terminals` always answers 503.
+    fn build_api_state(config: &Config, event_bus: EventBus) -> ApiState {
+        let term = &config.terminal;
+        let mut state = if term.pty_pool_enabled {
+            let max = term.max_ptys.max(1);
+            info!(max_ptys = max, "terminal PTY pool enabled");
+            ApiState::with_pty_pool(event_bus, Arc::new(at_session::pty_pool::PtyPool::new(max)))
+        } else {
+            info!("terminal PTY pool disabled by config (terminal.pty_pool_enabled = false)");
+            ApiState::new(event_bus)
+        };
+        state.terminal_ws = at_bridge::terminal_ws::TerminalWsSettings::from_liveness_secs(
+            term.ws_liveness_timeout_secs,
+        );
+        state.repo_root = Self::resolve_repo_root(config);
+        match &state.repo_root {
+            Some(root) => info!(repo_root = %root.display(), "merge gate: task worktrees enabled"),
+            None => warn!(
+                "merge gate: no git repo_root ([general] workspace_root unset and cwd is not a git repo); \
+                 tasks with acceptance criteria will fail instead of merging"
+            ),
+        }
+        state
+    }
+
+    /// Main checkout the execute pipeline creates task worktrees in and
+    /// merges into: `[general] workspace_root` when set, otherwise the cwd
+    /// when it is the top of a git repository.
+    fn resolve_repo_root(config: &Config) -> Option<std::path::PathBuf> {
+        if let Some(root) = config.general.workspace_root.as_deref() {
+            let root = std::path::PathBuf::from(shellexpand_home(root));
+            return Some(root);
+        }
+        let cwd = std::env::current_dir().ok()?;
+        cwd.join(".git").exists().then_some(cwd)
     }
 
     /// Create a new daemon, opening (or creating) the cache database from config.
@@ -146,7 +187,14 @@ impl Daemon {
         // Seed demo data so the UI is functional on first launch.
         self.api_state.seed_demo_data().await;
 
-        let allowed_origins = self.config.security.allowed_origins.clone();
+        // The Tauri webview serves the bundled UI from tauri://localhost
+        // (http://tauri.localhost on Windows); allow it for CORS and WS.
+        let mut allowed_origins = self.config.security.allowed_origins.clone();
+        allowed_origins.extend(
+            at_bridge::origin_validation::TAURI_WEBVIEW_ORIGINS
+                .iter()
+                .map(|o| o.to_string()),
+        );
         let api_router = at_bridge::http_api::api_router_with_auth(
             self.api_state.clone(),
             Some(api_key),
@@ -156,7 +204,12 @@ impl Daemon {
         let port = listener.local_addr()?.port();
 
         tokio::spawn(async move {
-            if let Err(e) = axum::serve(listener, api_router).await {
+            if let Err(e) = axum::serve(
+                listener,
+                api_router.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .await
+            {
                 error!(error = %e, "API server error");
             }
         });
@@ -167,8 +220,10 @@ impl Daemon {
         Ok(port)
     }
 
-    /// Spawn patrol, heartbeat, and KPI loops as background tasks.
-    fn spawn_background_loops(&self) {
+    /// Spawn patrol, heartbeat, and KPI loops (plus the notification recorder
+    /// and live agent-registry sync) as background tasks, without binding
+    /// the API server. Stop them with [`shutdown`](Self::shutdown).
+    pub fn spawn_background_loops(&self) {
         let cache = self.cache.clone();
         let api_state = self.api_state.clone();
         let event_bus = self.event_bus.clone();
@@ -181,6 +236,11 @@ impl Daemon {
 
         // Spawn background cleanup task for memory retention
         api_state.start_cleanup_task();
+        // Single event -> notification recorder (not per WebSocket client).
+        api_state.start_notification_task();
+        // Apply executor agent lifecycle + heartbeats to the live registry
+        // (what the stuck-agent patrol reads).
+        api_state.start_agent_registry_task();
 
         tokio::spawn(async move {
             Self::run_loops(cache, api_state, event_bus, config, intervals, shutdown).await;
@@ -201,6 +261,14 @@ impl Daemon {
             config.agents.heartbeat_interval_secs * 2,
         ));
         let kpi_collector = KpiCollector::new();
+        // Stuck-session detection runs on the heartbeat tick against the live
+        // agent registry (`[daemon.patrol]`).
+        let mut stuck_monitor = config.daemon.patrol.enabled.then(|| {
+            StuckMonitor::new(
+                StuckPolicy::from(&config.daemon.patrol),
+                Arc::new(SystemClock),
+            )
+        });
         let _scheduler = TaskScheduler::new(config.agents.max_concurrent);
 
         let mut patrol_interval = tokio::time::interval(Duration::from_secs(intervals.patrol_secs));
@@ -219,7 +287,7 @@ impl Daemon {
             tokio::select! {
                 _ = patrol_interval.tick() => {
                     let reaped = reap_orphan_ptys(&api_state).await;
-                    match patrol_runner.run_patrol(&cache).await {
+                    match patrol_runner.run_patrol_live(&cache, &api_state).await {
                         Ok(mut report) => {
                             report.orphan_ptys = reaped;
                             info!(
@@ -267,39 +335,23 @@ impl Daemon {
                             error!(error = %e, "heartbeat check failed");
                         }
                     }
-                }
-                _ = kpi_interval.tick() => {
-                    match kpi_collector.collect_snapshot(&cache).await {
-                        Ok(snapshot) => {
-                            info!(
-                                total = snapshot.total_beads,
-                                backlog = snapshot.backlog,
-                                active_agents = snapshot.active_agents,
-                                "kpi snapshot collected"
+                    if let Some(monitor) = stuck_monitor.as_mut() {
+                        let sweep = monitor.sweep(&api_state.agents, &event_bus).await;
+                        if !sweep.killed.is_empty() || !sweep.missed.is_empty() {
+                            warn!(
+                                checked = sweep.checked,
+                                missed = sweep.missed.len(),
+                                killed = sweep.killed.len(),
+                                cooling_down = sweep.cooling_down.len(),
+                                "stuck-agent sweep"
                             );
-                            {
-                                let mut kpi = api_state.kpi.write().await;
-                                *kpi = snapshot.clone();
-                            }
-                            event_bus.publish(
-                                at_bridge::protocol::BridgeMessage::KpiUpdate(
-                                    at_bridge::protocol::KpiPayload {
-                                        total_beads: snapshot.total_beads,
-                                        backlog: snapshot.backlog,
-                                        hooked: snapshot.hooked,
-                                        slung: snapshot.slung,
-                                        review: snapshot.review,
-                                        done: snapshot.done,
-                                        failed: snapshot.failed,
-                                        active_agents: snapshot.active_agents,
-                                    },
-                                ),
-                            );
-                        }
-                        Err(e) => {
-                            error!(error = %e, "kpi snapshot failed");
                         }
                     }
+                }
+                _ = kpi_interval.tick() => {
+                    // Live counts from ApiState: the API never writes beads
+                    // or agents to CacheDb, so a cache snapshot is all zeros.
+                    kpi_collector.refresh_live(&api_state, &event_bus).await;
                 }
                 _ = shutdown_rx.recv() => {
                     info!("shutdown signal received, stopping background loops");
@@ -364,7 +416,12 @@ impl Daemon {
         );
         let bind_addr = listener.local_addr()?;
         let api_handle = tokio::spawn(async move {
-            if let Err(e) = axum::serve(listener, api_router).await {
+            if let Err(e) = axum::serve(
+                listener,
+                api_router.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .await
+            {
                 error!(error = %e, "API server error");
             }
         });
@@ -372,6 +429,11 @@ impl Daemon {
 
         // Spawn background cleanup task for memory retention
         self.api_state.start_cleanup_task();
+        // Single event -> notification recorder (not per WebSocket client).
+        self.api_state.start_notification_task();
+        // Apply executor agent lifecycle + heartbeats to the live registry
+        // (what the stuck-agent patrol reads).
+        self.api_state.start_agent_registry_task();
 
         // Run loops inline (blocking) for standalone mode.
         Self::run_loops(
@@ -442,7 +504,12 @@ impl Daemon {
         );
         let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
         let api_handle = tokio::spawn(async move {
-            if let Err(e) = axum::serve(listener, api_router).await {
+            if let Err(e) = axum::serve(
+                listener,
+                api_router.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .await
+            {
                 error!(error = %e, "API server error");
             }
         });
@@ -450,6 +517,11 @@ impl Daemon {
 
         // Spawn background cleanup task for memory retention
         self.api_state.start_cleanup_task();
+        // Single event -> notification recorder (not per WebSocket client).
+        self.api_state.start_notification_task();
+        // Apply executor agent lifecycle + heartbeats to the live registry
+        // (what the stuck-agent patrol reads).
+        self.api_state.start_agent_registry_task();
 
         // Run loops inline (blocking) for standalone mode.
         Self::run_loops(
@@ -465,5 +537,13 @@ impl Daemon {
         api_handle.abort();
         info!("daemon stopped");
         Ok(())
+    }
+}
+
+/// Expand a leading `~/` to `$HOME`.
+fn shellexpand_home(path: &str) -> String {
+    match (path.strip_prefix("~/"), std::env::var("HOME")) {
+        (Some(rest), Ok(home)) => format!("{home}/{rest}"),
+        _ => path.to_string(),
     }
 }

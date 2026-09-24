@@ -4,7 +4,9 @@
 //!
 //! Embeds the full daemon (API server, patrol loops, KPI, heartbeat)
 //! in-process. The Leptos WASM frontend runs in the Tauri webview and
-//! discovers the API port via `window.__TUNDRA_API_PORT__`.
+//! discovers the API port and key via `window.__TUNDRA_API_PORT__` and
+//! `window.__TUNDRA_API_KEY__`, set by a webview initialization script that
+//! runs on every page load (reloads included).
 
 mod tray;
 
@@ -16,6 +18,8 @@ use at_tauri::state::AppState;
 use tracing::info;
 
 fn main() {
+    // Before any TLS client is built: aws-lc-rs provider, X25519MLKEM768 first.
+    at_core::tls::install_default_crypto_provider();
     at_telemetry::logging::init_logging("auto-tundra", "info");
     info!("auto-tundra desktop app starting");
 
@@ -55,9 +59,11 @@ fn main() {
     }
 
     // Inject runtime flags/config into the webview before any JS runs.
-    // NOTE: Tauri's WebviewWindow::eval is the standard Tauri API for
-    // injecting controlled configuration into the webview — we only pass
-    // trusted values (bound port + static mode flags), not user-supplied content.
+    // Registered as an *initialization script*, which the webview re-runs on
+    // every navigation. (A one-shot `eval` in setup was lost on reload, e.g.
+    // after switching projects, sending the UI to 127.0.0.1:9090.)
+    // Only trusted values are injected: the bound port, the daemon API key
+    // (JSON/HTML-escaped by at-api-types) and static mode flags.
     //
     // Native-shell prototype mode (macOS only) can be enabled via:
     //   AT_NATIVE_SHELL_MACOS=1
@@ -73,18 +79,12 @@ fn main() {
         0
     };
 
-    let init_script = format!(
-        "window.__TUNDRA_API_PORT__ = {api_port};\
-         window.__TUNDRA_NATIVE_SHELL__ = {native_shell};\
-         document.documentElement.style.setProperty('--titlebar-inset', '{titlebar_inset}px');\
-         document.documentElement.dataset.nativeShell = {native_shell_data};",
-        api_port = api_port,
-        native_shell = native_shell,
-        titlebar_inset = titlebar_inset,
-        native_shell_data = if native_shell { "\"1\"" } else { "\"0\"" }
-    );
+    // Same key the embedded daemon enforces (env var or ~/.auto-tundra/daemon.key).
+    let api_key = at_core::config::CredentialProvider::ensure_daemon_api_key();
+    let init_script = build_init_script(api_port, &api_key, native_shell, titlebar_inset);
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_notification::init())
         .manage(state)
         .manage(sound_engine)
         .invoke_handler(tauri::generate_handler![
@@ -139,10 +139,22 @@ fn main() {
         ])
         .setup(move |app| {
             use tauri::Manager;
-            if let Some(webview) = app.get_webview_window("main") {
-                // Safe: init_script is a trusted constant (port integer).
-                let _ = webview.eval(&init_script); // tauri::WebviewWindow::eval
-            }
+
+            // The "main" window is declared with `create: false` in
+            // tauri.conf.json so we can attach the initialization script
+            // before any page script runs (webview.eval() after the window
+            // already exists is too late for scripts that ran on load).
+            let window_config = app
+                .config()
+                .app
+                .windows
+                .iter()
+                .find(|w| w.label == "main")
+                .cloned()
+                .ok_or("tauri.conf.json has no window labelled \"main\"")?;
+            tauri::WebviewWindowBuilder::from_config(app.handle(), &window_config)?
+                .initialization_script(init_script.as_str())
+                .build()?;
 
             // Initialize system tray.
             if let Err(e) = tray::init_tray(&app.handle()) {
@@ -171,6 +183,28 @@ fn main() {
     info!("UI closed, shutting down daemon");
 }
 
+/// JavaScript run in the webview before page scripts on every navigation.
+fn build_init_script(
+    api_port: u16,
+    api_key: &str,
+    native_shell: bool,
+    titlebar_inset: u16,
+) -> String {
+    format!(
+        "{connection}\
+         window.__TUNDRA_NATIVE_SHELL__ = {native_shell};\
+         document.documentElement.style.setProperty('--titlebar-inset', '{titlebar_inset}px');\
+         document.documentElement.dataset.nativeShell = {native_shell_data};",
+        connection = at_bridge::http_api::at_api_types::auth::browser_bootstrap_script(
+            api_port,
+            Some(api_key)
+        ),
+        native_shell = native_shell,
+        titlebar_inset = titlebar_inset,
+        native_shell_data = if native_shell { "\"1\"" } else { "\"0\"" }
+    )
+}
+
 fn env_flag(name: &str) -> bool {
     match std::env::var(name) {
         Ok(v) => matches!(
@@ -183,10 +217,14 @@ fn env_flag(name: &str) -> bool {
 
 fn load_config() -> Config {
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-    let data_dir = std::path::Path::new(&home).join(".auto-tundra");
-    std::fs::create_dir_all(&data_dir).ok();
-
-    let config_path = data_dir.join("config.toml");
+    // Same canonical file the daemon and the settings API use; going through
+    // SettingsManager also migrates a legacy ~/.config/auto-tundra/settings.toml.
+    let config_path = at_core::settings::SettingsManager::default_path()
+        .path()
+        .clone();
+    if let Some(dir) = config_path.parent() {
+        std::fs::create_dir_all(dir).ok();
+    }
     let mut config = if config_path.exists() {
         match std::fs::read_to_string(&config_path) {
             Ok(content) => toml::from_str(&content).unwrap_or_else(|e| {
@@ -208,4 +246,35 @@ fn load_config() -> Config {
     }
 
     config
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn init_script_carries_port_key_and_flags() {
+        let s = build_init_script(51234, "key-1", false, 28);
+        assert!(
+            s.starts_with("window.__TUNDRA_API_PORT__=51234;window.__TUNDRA_API_KEY__=\"key-1\";")
+        );
+        assert!(s.contains("window.__TUNDRA_NATIVE_SHELL__ = false;"));
+        assert!(s.contains("'--titlebar-inset', '28px'"));
+        assert!(s.contains("dataset.nativeShell = \"0\";"));
+    }
+
+    #[test]
+    fn main_window_is_created_in_code() {
+        // setup() builds the window itself so the init script is attached;
+        // if tauri.conf.json created it too we would get two windows.
+        let conf: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let main = conf["app"]["windows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|w| w["label"] == "main")
+            .expect("main window config");
+        assert_eq!(main["create"], false);
+    }
 }

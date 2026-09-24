@@ -9,6 +9,8 @@
   "app": {
     "windows": [
       {
+        "label": "main",
+        "create": false,
         "title": "auto-tundra",
         "width": 1280,
         "height": 800,
@@ -23,7 +25,21 @@
       }
     ],
     "security": {
-      "csp": null,
+      "csp": {
+        "default-src": "'self'",
+        "script-src": "'self' 'wasm-unsafe-eval' https://cdn.jsdelivr.net/npm/@duckdb/",
+        "style-src": "'self' 'unsafe-inline'",
+        "img-src": "'self' data: blob: https:",
+        "font-src": "'self' data:",
+        "media-src": "'self' data: blob:",
+        "worker-src": "'self' blob:",
+        "connect-src": "'self' ipc: http://ipc.localhost http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:* https://cdn.jsdelivr.net",
+        "object-src": "'none'",
+        "base-uri": "'self'",
+        "form-action": "'self'",
+        "frame-src": "'none'"
+      },
+      "dangerousDisableAssetCspModification": ["style-src"],
       "capabilities": ["default"]
     },
     "withGlobalTauri": true
@@ -62,7 +78,6 @@
         "bannerPath": null
       },
       "nsis": {
-        "license": null,
         "headerImage": null,
         "sidebarImage": null,
         "installerIcon": null,

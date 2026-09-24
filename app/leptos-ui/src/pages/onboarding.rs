@@ -8,9 +8,9 @@ use crate::i18n::t;
 fn models_for_provider(provider: &str) -> Vec<&'static str> {
     match provider {
         "anthropic" => vec![
-            "claude-opus-4-0-20250514",
-            "claude-sonnet-4-0-20250514",
-            "claude-3-5-haiku-20241022",
+            "claude-opus-4-7",
+            "claude-sonnet-4-6",
+            "claude-haiku-4-5-20251001",
         ],
         "openai" => vec!["gpt-4o", "gpt-4o-mini", "o3-mini"],
         "google" => vec!["gemini-2.0-flash", "gemini-2.0-pro", "gemini-1.5-pro"],
@@ -36,7 +36,7 @@ pub fn OnboardingPage() -> impl IntoView {
 
     // Step 4: Agent Configuration
     let (provider, set_provider) = signal("anthropic".to_string());
-    let (model, set_model) = signal("claude-opus-4-0-20250514".to_string());
+    let (model, set_model) = signal("claude-opus-4-7".to_string());
     let (thinking, set_thinking) = signal("medium".to_string());
     let (max_agents, set_max_agents) = signal(4u32);
 
@@ -390,7 +390,7 @@ pub fn OnboardingPage() -> impl IntoView {
                                 class=move || option_class(&provider.get(), "anthropic")
                                 on:click=move |_| {
                                     set_provider.set("anthropic".to_string());
-                                    set_model.set("claude-opus-4-0-20250514".to_string());
+                                    set_model.set("claude-opus-4-7".to_string());
                                 }
                             >
                                 <div class="onboarding-option-icon">"A"</div>

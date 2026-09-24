@@ -6,7 +6,7 @@ use axum::{
 use std::sync::Arc;
 use uuid::Uuid;
 
-use at_core::types::{Bead, Lane};
+use at_core::types::{Bead, BeadStatus, Lane};
 
 use super::state::ApiState;
 use super::types::{BeadQuery, CreateBeadRequest, UpdateBeadStatusRequest};
@@ -109,32 +109,15 @@ pub(crate) async fn create_bead(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<CreateBeadRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    // Validate title
-    if let Err(e) = validate_text_field(&req.title) {
-        return Err(ApiError::BadRequest(e.to_string()));
-    }
-
-    // Validate description if present
-    if let Some(ref description) = req.description {
-        if let Err(e) = validate_text_field(description) {
-            return Err(ApiError::BadRequest(e.to_string()));
-        }
-    }
-
-    let lane = req.lane.unwrap_or(Lane::Standard);
-    let mut bead = Bead::new(req.title, lane);
-    bead.description = req.description;
-    if let Some(tags) = req.tags {
-        bead.metadata = Some(serde_json::json!({ "tags": tags }));
-    }
-
-    let mut beads = state.beads.write().await;
-    beads.insert(bead.id, bead.clone());
-
-    // Publish event
-    state
-        .event_bus
-        .publish(crate::protocol::BridgeMessage::BeadCreated(bead.clone()));
+    let bead = create_bead_checked(
+        &state,
+        req.title,
+        req.description,
+        req.lane.unwrap_or(Lane::Standard),
+        req.tags,
+        req.acceptance_criteria,
+    )
+    .await?;
 
     Ok((axum::http::StatusCode::CREATED, Json(bead)).into_response())
 }
@@ -186,32 +169,95 @@ pub(crate) async fn update_bead_status(
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateBeadStatusRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let mut beads = state.beads.write().await;
-    let Some(bead) = beads.get_mut(&id) else {
-        return Err(ApiError::NotFound("bead not found".into()));
-    };
-
-    if !bead.status.can_transition_to(&req.status) {
-        return Err(ApiError::BadRequest(format!(
-            "invalid transition from {:?} to {:?}",
-            bead.status, req.status
-        )));
-    }
-
-    bead.status = req.status;
-    bead.updated_at = chrono::Utc::now();
-
-    let bead_snapshot = bead.clone();
-    state
-        .event_bus
-        .publish(crate::protocol::BridgeMessage::BeadUpdated(
-            bead_snapshot.clone(),
-        ));
+    let bead_snapshot = transition_bead_status(&state, id, req.status).await?;
 
     Ok((
         axum::http::StatusCode::OK,
         Json(serde_json::json!(bead_snapshot)),
     ))
+}
+
+// ---------------------------------------------------------------------------
+// Shared bead services (REST handlers and MCP tools both go through these)
+// ---------------------------------------------------------------------------
+
+/// Validate, insert and announce a new bead.
+///
+/// Runs the same input sanitization as every other text field, inserts the
+/// bead and publishes [`BridgeMessage::BeadCreated`](crate::protocol::BridgeMessage)
+/// so WebSocket clients and the notification recorder see it.
+///
+/// `acceptance_criteria` (validated with
+/// [`at_core::merge_gate::validate_criteria`]) is stored as
+/// `metadata.acceptance_criteria` next to `metadata.tags`; tasks created for
+/// the bead without their own criteria inherit it.
+pub(crate) async fn create_bead_checked(
+    state: &ApiState,
+    title: String,
+    description: Option<String>,
+    lane: Lane,
+    tags: Option<Vec<String>>,
+    acceptance_criteria: Option<Vec<String>>,
+) -> Result<Bead, ApiError> {
+    validate_text_field(&title).map_err(|e| ApiError::BadRequest(e.to_string()))?;
+    if let Some(ref description) = description {
+        validate_text_field(description).map_err(|e| ApiError::BadRequest(e.to_string()))?;
+    }
+    if let Some(ref criteria) = acceptance_criteria {
+        at_core::merge_gate::validate_criteria(criteria).map_err(ApiError::BadRequest)?;
+    }
+
+    let mut bead = Bead::new(title, lane);
+    bead.description = description;
+    let mut metadata = serde_json::Map::new();
+    if let Some(tags) = tags {
+        metadata.insert("tags".into(), serde_json::json!(tags));
+    }
+    if let Some(criteria) = acceptance_criteria.filter(|c| !c.is_empty()) {
+        metadata.insert("acceptance_criteria".into(), serde_json::json!(criteria));
+    }
+    if !metadata.is_empty() {
+        bead.metadata = Some(serde_json::Value::Object(metadata));
+    }
+
+    state.beads.write().await.insert(bead.id, bead.clone());
+    state
+        .event_bus
+        .publish(crate::protocol::BridgeMessage::BeadCreated(bead.clone()));
+    Ok(bead)
+}
+
+/// Move a bead to `status` if the lifecycle allows it, then announce it.
+///
+/// Returns `NotFound` for an unknown id and `BadRequest` for a transition
+/// rejected by [`BeadStatus::can_transition_to`]. On success publishes
+/// [`BridgeMessage::BeadUpdated`](crate::protocol::BridgeMessage).
+pub(crate) async fn transition_bead_status(
+    state: &ApiState,
+    id: Uuid,
+    status: BeadStatus,
+) -> Result<Bead, ApiError> {
+    let snapshot = {
+        let mut beads = state.beads.write().await;
+        let Some(bead) = beads.get_mut(&id) else {
+            return Err(ApiError::NotFound("bead not found".into()));
+        };
+        if !bead.status.can_transition_to(&status) {
+            return Err(ApiError::BadRequest(format!(
+                "invalid transition from {:?} to {:?}",
+                bead.status, status
+            )));
+        }
+        bead.status = status;
+        bead.updated_at = chrono::Utc::now();
+        bead.clone()
+    };
+    state
+        .event_bus
+        .publish(crate::protocol::BridgeMessage::BeadUpdated(
+            snapshot.clone(),
+        ));
+    Ok(snapshot)
 }
 
 /// DELETE /api/beads/{id} -- delete a bead by ID.
@@ -245,12 +291,11 @@ pub(crate) async fn delete_bead(
         return Err(ApiError::NotFound("bead not found".into()));
     }
 
-    // Publish updated bead list event
+    // Publish granular delete event so clients can remove the single entry
+    // without receiving the entire collection.
     state
         .event_bus
-        .publish(crate::protocol::BridgeMessage::BeadList(
-            beads.values().cloned().collect(),
-        ));
+        .publish(crate::protocol::BridgeMessage::BeadDeleted(id));
 
     Ok((
         axum::http::StatusCode::OK,
