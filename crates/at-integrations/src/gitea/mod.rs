@@ -1602,6 +1602,7 @@ mod tests {
     // 4 ---------------------------------------------------------------------
 
     #[tokio::test]
+    #[allow(clippy::reversed_empty_ranges)] // page 4+ intentionally returns no items
     async fn list_all_issues_walks_pages_by_total_count() {
         let (base, log) = mock_gitea(|r, _| {
             let page: i64 = r.query()["page"].parse().unwrap();
