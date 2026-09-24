@@ -71,10 +71,10 @@ impl IssueSyncEngine {
 
     /// Check for new/updated issues since `since`.
     pub async fn poll_updates(&self, since: DateTime<Utc>) -> Result<Vec<GitHubIssue>> {
-        // Fetch all open issues and filter by updated_at >= since.
-        let all_issues = issues::list_issues(&self.client, None, None, None, None).await?;
-
-        let updated: Vec<GitHubIssue> = all_issues
+        // Server-side `since` + sort=updated, paginated; the client-side
+        // filter guards against servers that ignore `since`.
+        let updated = issues::list_issues_updated_since(&self.client, None, since)
+            .await?
             .into_iter()
             .filter(|issue| issue.updated_at >= since)
             .collect();
@@ -278,6 +278,27 @@ mod tests {
         let meta = bead.metadata.as_ref().unwrap();
         assert_eq!(meta["issue_number"], 7);
         assert_eq!(meta["source"], "github");
+    }
+
+    /// Binding rule: acceptance criteria gate a merge, so they must be
+    /// authored deliberately (task create/update, MCP `create_bead` /
+    /// `create_task`), never derived from free-text issue bodies. Even an
+    /// issue body that looks like a checklist must not populate
+    /// `metadata.acceptance_criteria`.
+    #[test]
+    fn test_import_issue_as_task_never_sets_acceptance_criteria() {
+        let mut issue = make_github_issue(8, "Looks like a checklist", IssueState::Open);
+        issue.body = Some(
+            "acceptance_criteria:\n- cargo test\n- test -f dist/app\n\n- [ ] cargo test\n- [ ] lint"
+                .to_string(),
+        );
+        let bead = issues::import_issue_as_task(&issue);
+
+        let meta = bead.metadata.as_ref().unwrap();
+        assert!(
+            meta.get("acceptance_criteria").is_none(),
+            "issue import must never populate acceptance_criteria: {meta:?}"
+        );
     }
 
     #[test]

@@ -10,7 +10,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use super::GitLabClient;
+use super::{GitLabClient, GitLabError};
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -82,9 +82,29 @@ pub struct MrReviewFinding {
     pub suggestion: Option<String>,
 }
 
+/// Whether the review actually analysed the MR diff.
+///
+/// Consumers (agents, CI gates) must only trust `approved` when
+/// `status == Reviewed`. `Failed` results are never approved.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MrReviewStatus {
+    /// The MR diff was fetched from GitLab and analysed.
+    Reviewed,
+    /// No real client was configured; findings are canned stub data.
+    Stub,
+    /// Fetching or parsing the MR diff failed; nothing was analysed.
+    Failed,
+}
+
 /// The result of reviewing a merge request.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MrReviewResult {
+    /// Provenance of the result: reviewed, stub data, or failed.
+    pub status: MrReviewStatus,
+    /// Error message when `status == Failed`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
     /// Individual findings from the review.
     pub findings: Vec<MrReviewFinding>,
     /// Overall summary of the review.
@@ -203,6 +223,59 @@ fn heuristic_rules() -> Vec<HeuristicRule> {
     ]
 }
 
+/// Run the heuristic rules over every added line of every non-deleted file.
+fn analyze_changes(changes: &MrChangesResponse) -> Vec<MrReviewFinding> {
+    let rules = heuristic_rules();
+    let mut findings = Vec::new();
+
+    for change in &changes.changes {
+        // Skip deleted files — nothing to review.
+        if change.deleted_file {
+            continue;
+        }
+
+        // Analyze added/modified lines in the diff.
+        for (line_in_diff, line_text) in change.diff.lines().enumerate() {
+            // Only check lines that are additions (start with '+').
+            if !line_text.starts_with('+') || line_text.starts_with("+++") {
+                continue;
+            }
+
+            let content = &line_text[1..]; // strip leading '+' (ASCII, 1 byte)
+
+            for rule in &rules {
+                if content.contains(rule.pattern) {
+                    findings.push(MrReviewFinding {
+                        file: change.new_path.clone(),
+                        line: (line_in_diff + 1) as u32,
+                        severity: rule.severity,
+                        category: rule.category.into(),
+                        message: rule.message.into(),
+                        suggestion: rule.suggestion.map(Into::into),
+                    });
+                }
+            }
+        }
+
+        // Flag very large new files.
+        if change.new_file {
+            let line_count = change.diff.lines().count();
+            if line_count > 500 {
+                findings.push(MrReviewFinding {
+                    file: change.new_path.clone(),
+                    line: 1,
+                    severity: MrReviewSeverity::Low,
+                    category: "style".into(),
+                    message: format!("New file is very large ({line_count} lines in diff)"),
+                    suggestion: Some("Consider splitting into smaller modules".into()),
+                });
+            }
+        }
+    }
+
+    findings
+}
+
 // ---------------------------------------------------------------------------
 // Engine
 // ---------------------------------------------------------------------------
@@ -244,20 +317,62 @@ impl MrReviewEngine {
         &self.config
     }
 
-    /// Review a merge request.
+    /// Review a merge request, failing closed.
+    ///
+    /// On any GitLab API or parse failure this returns a result with
+    /// `status: Failed`, `approved: false`, a Critical finding describing the
+    /// error, and an explicit "review failed" summary. It never reports a
+    /// clean review for a diff that was not analysed. Use [`try_review_mr`]
+    /// to receive the error as a `Result` instead (e.g. to map it to HTTP 502).
+    ///
+    /// [`try_review_mr`]: Self::try_review_mr
+    pub async fn review_mr(&self, project_id: &str, mr_iid: u32) -> MrReviewResult {
+        match self.try_review_mr(project_id, mr_iid).await {
+            Ok(result) => result,
+            Err(e) => Self::failed_result(&e),
+        }
+    }
+
+    /// Review a merge request, returning an error if the diff could not be
+    /// fetched or parsed.
     ///
     /// With a real GitLab client: fetches MR changes from the API and runs
     /// heuristic pattern analysis on the diffs. Without a client (or if the
-    /// client uses a test token): returns stub findings for pipeline validation.
-    pub async fn review_mr(&self, project_id: &str, mr_iid: u32) -> MrReviewResult {
-        let all_findings = match &self.client {
-            Some(client) if !client.is_stub_token() => {
-                self.review_real(client, project_id, mr_iid).await
+    /// client uses a test token): returns stub findings with `status: Stub`.
+    pub async fn try_review_mr(
+        &self,
+        project_id: &str,
+        mr_iid: u32,
+    ) -> Result<MrReviewResult, GitLabError> {
+        match &self.client {
+            Some(client) if !client.is_stub() => {
+                let findings = self.review_real(client, project_id, mr_iid).await?;
+                Ok(self.build_result(findings, MrReviewStatus::Reviewed))
             }
-            _ => Self::stub_findings(),
-        };
+            _ => Ok(self.build_result(Self::stub_findings(), MrReviewStatus::Stub)),
+        }
+    }
 
-        self.build_result(all_findings)
+    /// Build a fail-closed result for a review that could not be performed.
+    fn failed_result(err: &GitLabError) -> MrReviewResult {
+        let message = format!("Could not review MR: {err}");
+        MrReviewResult {
+            status: MrReviewStatus::Failed,
+            error: Some(err.to_string()),
+            findings: vec![MrReviewFinding {
+                file: "(api)".into(),
+                line: 0,
+                severity: MrReviewSeverity::Critical,
+                category: "review".into(),
+                message: message.clone(),
+                suggestion: Some(
+                    "Check GitLab token permissions, project ID and connectivity".into(),
+                ),
+            }],
+            summary: format!("Review failed; the merge request was NOT analysed. {message}"),
+            approved: false,
+            reviewed_at: Utc::now(),
+        }
     }
 
     /// Fetch real MR changes and analyze them with heuristic rules.
@@ -266,87 +381,17 @@ impl MrReviewEngine {
         client: &GitLabClient,
         project_id: &str,
         mr_iid: u32,
-    ) -> Vec<MrReviewFinding> {
-        let path = format!("/projects/{}/merge_requests/{}/changes", project_id, mr_iid);
+    ) -> Result<Vec<MrReviewFinding>, GitLabError> {
+        let path = format!(
+            "/projects/{}/merge_requests/{}/changes",
+            urlencoding::encode(project_id),
+            mr_iid
+        );
 
-        let response = match client.api_get(&path).await {
-            Ok(resp) => resp,
-            Err(e) => {
-                // If we can't fetch the MR, return a single error finding.
-                return vec![MrReviewFinding {
-                    file: "(api)".into(),
-                    line: 0,
-                    severity: MrReviewSeverity::Info,
-                    category: "review".into(),
-                    message: format!("Could not fetch MR changes: {e}"),
-                    suggestion: Some("Check GitLab token permissions and project ID".into()),
-                }];
-            }
-        };
+        let response = client.api_get(&path).await?;
+        let changes: MrChangesResponse = response.json().await?;
 
-        let changes: MrChangesResponse = match response.json().await {
-            Ok(c) => c,
-            Err(e) => {
-                return vec![MrReviewFinding {
-                    file: "(api)".into(),
-                    line: 0,
-                    severity: MrReviewSeverity::Info,
-                    category: "review".into(),
-                    message: format!("Failed to parse MR changes response: {e}"),
-                    suggestion: None,
-                }];
-            }
-        };
-
-        let rules = heuristic_rules();
-        let mut findings = Vec::new();
-
-        for change in &changes.changes {
-            // Skip deleted files — nothing to review.
-            if change.deleted_file {
-                continue;
-            }
-
-            // Analyze added/modified lines in the diff.
-            for (line_in_diff, line_text) in change.diff.lines().enumerate() {
-                // Only check lines that are additions (start with '+').
-                if !line_text.starts_with('+') || line_text.starts_with("+++") {
-                    continue;
-                }
-
-                let content = &line_text[1..]; // strip leading '+'
-
-                for rule in &rules {
-                    if content.contains(rule.pattern) {
-                        findings.push(MrReviewFinding {
-                            file: change.new_path.clone(),
-                            line: (line_in_diff + 1) as u32,
-                            severity: rule.severity,
-                            category: rule.category.into(),
-                            message: rule.message.into(),
-                            suggestion: rule.suggestion.map(Into::into),
-                        });
-                    }
-                }
-            }
-
-            // Flag very large new files.
-            if change.new_file {
-                let line_count = change.diff.lines().count();
-                if line_count > 500 {
-                    findings.push(MrReviewFinding {
-                        file: change.new_path.clone(),
-                        line: 1,
-                        severity: MrReviewSeverity::Low,
-                        category: "style".into(),
-                        message: format!("New file is very large ({line_count} lines in diff)"),
-                        suggestion: Some("Consider splitting into smaller modules".into()),
-                    });
-                }
-            }
-        }
-
-        findings
+        Ok(analyze_changes(&changes))
     }
 
     /// Stub findings for testing without a real GitLab API.
@@ -398,7 +443,11 @@ impl MrReviewEngine {
     }
 
     /// Build the final review result from raw findings, applying config filters.
-    fn build_result(&self, all_findings: Vec<MrReviewFinding>) -> MrReviewResult {
+    fn build_result(
+        &self,
+        all_findings: Vec<MrReviewFinding>,
+        status: MrReviewStatus,
+    ) -> MrReviewResult {
         let findings: Vec<MrReviewFinding> = all_findings
             .into_iter()
             .filter(|f| f.severity >= self.config.severity_threshold)
@@ -409,7 +458,9 @@ impl MrReviewEngine {
             .iter()
             .any(|f| f.severity >= MrReviewSeverity::High);
 
-        let approved = self.config.auto_approve && !has_critical;
+        // Defense in depth: a failed review can never be approved.
+        let approved =
+            self.config.auto_approve && !has_critical && status != MrReviewStatus::Failed;
 
         let summary = if findings.is_empty() {
             "No findings. The merge request looks good.".to_string()
@@ -425,6 +476,8 @@ impl MrReviewEngine {
         };
 
         MrReviewResult {
+            status,
+            error: None,
             findings,
             summary,
             approved,
@@ -515,6 +568,8 @@ mod tests {
     #[test]
     fn review_result_serde_roundtrip() {
         let result = MrReviewResult {
+            status: MrReviewStatus::Reviewed,
+            error: None,
             findings: vec![MrReviewFinding {
                 file: "test.rs".into(),
                 line: 1,
@@ -674,7 +729,7 @@ mod tests {
             },
         ];
 
-        let result = engine.build_result(findings);
+        let result = engine.build_result(findings, MrReviewStatus::Reviewed);
         // Low is filtered out (below Medium threshold), and max 2 findings.
         assert_eq!(result.findings.len(), 2);
         assert!(result
@@ -689,5 +744,117 @@ mod tests {
             GitLabClient::new_with_url("https://gitlab.example.com", "stub-token").unwrap();
         let engine = MrReviewEngine::with_client(MrReviewConfig::default(), client);
         assert!(engine.client.is_some());
+    }
+    // -- fail-closed behaviour ----------------------------------------------
+
+    /// Spawn a one-shot HTTP server that answers every request with the given
+    /// status line and body, and reports the request line it received.
+    async fn mock_gitlab(
+        status: &'static str,
+        body: &'static str,
+    ) -> (String, tokio::sync::oneshot::Receiver<String>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        tokio::spawn(async move {
+            let (mut sock, _) = listener.accept().await.unwrap();
+            let mut buf = vec![0u8; 8192];
+            let n = sock.read(&mut buf).await.unwrap();
+            let req = String::from_utf8_lossy(&buf[..n]).to_string();
+            let request_line = req.lines().next().unwrap_or_default().to_string();
+            let _ = tx.send(request_line);
+            let resp = format!(
+                "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            sock.write_all(resp.as_bytes()).await.unwrap();
+            let _ = sock.shutdown().await;
+        });
+        (format!("http://{addr}"), rx)
+    }
+
+    const REAL_LOOKING_TOKEN: &str = "glpat-abcdefghijklmnopqrst";
+
+    fn approving_config() -> MrReviewConfig {
+        MrReviewConfig {
+            severity_threshold: MrReviewSeverity::Low,
+            max_findings: 50,
+            auto_approve: true,
+        }
+    }
+
+    #[tokio::test]
+    async fn api_404_fails_closed_and_never_approves() {
+        let (url, _rx) =
+            mock_gitlab("404 Not Found", r#"{"message":"404 Project Not Found"}"#).await;
+        let client = GitLabClient::new_with_url(&url, REAL_LOOKING_TOKEN).unwrap();
+        let engine = MrReviewEngine::with_client(approving_config(), client);
+
+        let result = engine.review_mr("group/project", 12).await;
+        assert_eq!(result.status, MrReviewStatus::Failed);
+        assert!(!result.approved, "failed review must never approve");
+        assert!(result.error.is_some());
+        assert!(!result.summary.contains("looks good"));
+        assert!(result
+            .findings
+            .iter()
+            .any(|f| f.severity == MrReviewSeverity::Critical));
+    }
+
+    #[tokio::test]
+    async fn api_404_try_review_returns_err() {
+        let (url, _rx) = mock_gitlab("404 Not Found", "{}").await;
+        let client = GitLabClient::new_with_url(&url, REAL_LOOKING_TOKEN).unwrap();
+        let engine = MrReviewEngine::with_client(approving_config(), client);
+        assert!(engine.try_review_mr("42", 1).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn unreachable_gitlab_fails_closed() {
+        // Port 1 on localhost: connection refused.
+        let client = GitLabClient::new_with_url("http://127.0.0.1:1", REAL_LOOKING_TOKEN).unwrap();
+        let engine = MrReviewEngine::with_client(approving_config(), client);
+        let result = engine.review_mr("42", 1).await;
+        assert_eq!(result.status, MrReviewStatus::Failed);
+        assert!(!result.approved);
+    }
+
+    #[tokio::test]
+    async fn malformed_json_fails_closed() {
+        let (url, _rx) = mock_gitlab("200 OK", r#"{"not_changes": true}"#).await;
+        let client = GitLabClient::new_with_url(&url, REAL_LOOKING_TOKEN).unwrap();
+        let engine = MrReviewEngine::with_client(approving_config(), client);
+        let result = engine.review_mr("42", 1).await;
+        assert_eq!(result.status, MrReviewStatus::Failed);
+        assert!(!result.approved);
+    }
+
+    #[tokio::test]
+    async fn project_path_is_url_encoded_and_clean_diff_is_reviewed() {
+        let (url, rx) = mock_gitlab(
+            "200 OK",
+            r#"{"changes":[{"new_path":"src/a.rs","diff":"+let x = 1;\n","new_file":false,"deleted_file":false}]}"#,
+        )
+        .await;
+        let client = GitLabClient::new_with_url(&url, REAL_LOOKING_TOKEN).unwrap();
+        let engine = MrReviewEngine::with_client(approving_config(), client);
+
+        let result = engine.review_mr("acme/api", 7).await;
+        let request_line = rx.await.unwrap();
+        assert!(
+            request_line.contains("/api/v4/projects/acme%2Fapi/merge_requests/7/changes"),
+            "project id not encoded: {request_line}"
+        );
+        assert_eq!(result.status, MrReviewStatus::Reviewed);
+        assert!(result.findings.is_empty());
+        assert!(result.approved, "clean analysed diff may be auto-approved");
+    }
+
+    #[tokio::test]
+    async fn stub_review_is_labelled_stub() {
+        let engine = MrReviewEngine::with_defaults();
+        let result = engine.review_mr("42", 1).await;
+        assert_eq!(result.status, MrReviewStatus::Stub);
     }
 }

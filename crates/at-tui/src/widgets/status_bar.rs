@@ -16,6 +16,11 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect) {
             " OFFLINE ",
             Style::default().fg(Color::Black).bg(Color::Yellow),
         )
+    } else if app.api_unauthorized && !app.api_connected {
+        Span::styled(
+            " UNAUTHORIZED ",
+            Style::default().fg(Color::White).bg(Color::Red),
+        )
     } else if app.api_connected {
         Span::styled(" LIVE ", Style::default().fg(Color::Black).bg(Color::Green))
     } else {

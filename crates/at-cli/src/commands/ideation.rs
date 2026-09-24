@@ -1,4 +1,3 @@
-use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -20,7 +19,7 @@ struct IdeationResult {
 
 pub async fn list(api_url: &str) -> anyhow::Result<()> {
     let url = format!("{}/api/ideation/ideas", api_url);
-    let client = Client::new();
+    let client = super::api_client();
     let res = client.get(&url).send().await?;
     if !res.status().is_success() {
         let msg = res.text().await?;
@@ -49,7 +48,7 @@ pub async fn list(api_url: &str) -> anyhow::Result<()> {
 
 pub async fn generate(api_url: &str, category: &str, context: &str) -> anyhow::Result<()> {
     let url = format!("{}/api/ideation/generate", api_url);
-    let client = Client::new();
+    let client = super::api_client();
 
     let cat_mapped = match category.to_lowercase().as_str() {
         "quality" => "quality",
@@ -88,7 +87,7 @@ pub async fn generate(api_url: &str, category: &str, context: &str) -> anyhow::R
 
 pub async fn convert(api_url: &str, idea_id: &str) -> anyhow::Result<()> {
     let url = format!("{}/api/ideation/ideas/{}/convert", api_url, idea_id);
-    let client = Client::new();
+    let client = super::api_client();
     let res = client.post(&url).send().await?;
     if !res.status().is_success() {
         let msg = res.text().await?;

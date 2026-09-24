@@ -24,9 +24,7 @@
 use std::time::Duration;
 
 use ratatui::{buffer::Buffer, layout::Rect, style::Color};
-// Shader trait is needed for .done() method in tests
-#[allow(unused_imports)]
-use tachyonfx::{fx, Effect, EffectManager as TachyonManager, Interpolation, Motion, Shader};
+use tachyonfx::{fx, Effect, EffectManager as TachyonManager, Interpolation, Motion};
 
 // ---------------------------------------------------------------------------
 // Direction type re-exported for callers
@@ -158,9 +156,11 @@ impl EffectManager {
     }
 
     /// Returns `true` when there are no active effects remaining.
+    ///
+    /// Callers can use this to skip redraws once all transitions finished.
     #[allow(dead_code)]
     pub fn is_idle(&self) -> bool {
-        false
+        !self.inner.is_running()
     }
 }
 
@@ -177,7 +177,6 @@ impl Default for EffectManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tachyonfx::Shader;
 
     #[test]
     fn sweep_direction_converts_to_motion() {
@@ -280,9 +279,53 @@ mod tests {
     }
 
     #[test]
-    fn effect_manager_default_is_idle_equivalent() {
+    fn effect_manager_default_is_idle() {
         let mgr = EffectManager::default();
-        // Default manager starts empty; is_idle is a non-panicking stub.
-        let _ = mgr.is_idle();
+        assert!(mgr.is_idle(), "a fresh manager has no running effects");
+    }
+
+    #[test]
+    fn effect_manager_is_busy_after_add() {
+        let mut mgr = EffectManager::new();
+        mgr.add(fade_in());
+        assert!(
+            !mgr.is_idle(),
+            "an added effect must be reported as running"
+        );
+    }
+
+    #[test]
+    fn effect_manager_is_idle_after_remove_all() {
+        let mut mgr = EffectManager::new();
+        mgr.add_named("pulse", glow_pulse());
+        assert!(!mgr.is_idle());
+        mgr.remove_all();
+        assert!(mgr.is_idle());
+    }
+
+    #[test]
+    fn effect_manager_becomes_idle_once_effects_finish() {
+        let mut mgr = EffectManager::new();
+        mgr.add(fade_in()); // 350 ms
+        let area = Rect::new(0, 0, 10, 5);
+        let mut buf = Buffer::empty(area);
+        mgr.tick_and_render(Duration::from_millis(100), &mut buf, area);
+        assert!(!mgr.is_idle(), "fade_in is still running after 100 ms");
+        mgr.tick_and_render(Duration::from_millis(400), &mut buf, area);
+        // Finished effects are dropped on the next processing pass.
+        mgr.tick_and_render(Duration::from_millis(16), &mut buf, area);
+        assert!(mgr.is_idle(), "fade_in must be finished after 516 ms");
+    }
+
+    #[test]
+    fn repeating_effect_never_goes_idle() {
+        let mut mgr = EffectManager::new();
+        mgr.add(glow_pulse());
+        let area = Rect::new(0, 0, 4, 2);
+        let mut buf = Buffer::empty(area);
+        for _ in 0..10 {
+            mgr.tick_and_render(Duration::from_millis(500), &mut buf, area);
+        }
+        assert!(!mgr.is_idle(), "glow_pulse repeats forever");
     }
 }

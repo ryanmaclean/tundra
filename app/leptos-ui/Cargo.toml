@@ -9,7 +9,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 at-api-types = { path = "../../crates/at-api-types" }
-leptos = { version = "0.7", features = ["csr"] }
+leptos = { version = "0.8.19", features = ["csr"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 wasm-bindgen = "0.2"
@@ -31,7 +31,7 @@ fluent = { version = "0.16", optional = true }
 fluent-bundle = { version = "0.16", optional = true }
 fluent-syntax = { version = "0.12", optional = true }
 unic-langid = { version = "0.9", optional = true }
-reactive_graph = "0.1"
+reactive_graph = "0.2"
 send_wrapper = "0.6"
 futures = "0.3"
 pulldown-cmark = { version = "0.13.3", optional = true }

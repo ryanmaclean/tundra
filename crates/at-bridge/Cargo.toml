@@ -25,6 +25,8 @@ tower = { workspace = true }
 tower-http = { workspace = true }
 async-trait = { workspace = true }
 futures-util = "0.3"
+async-stream = "0.3"
+tokio-stream = "0.1"
 ahash = { workspace = true }
 subtle = { workspace = true }
 ring = "0.17"
@@ -36,7 +38,8 @@ libgit2 = ["at-core/libgit2"]
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
-reqwest = { version = "0.12", features = ["json"] }
+# `query` is opt-in since reqwest 0.13 (task_api_test uses RequestBuilder::query).
+reqwest = { workspace = true, features = ["query"] }
 tokio-tungstenite = "0.28"
 futures-util = "0.3"
 chrono = { workspace = true }

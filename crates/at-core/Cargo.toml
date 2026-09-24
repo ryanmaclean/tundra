@@ -15,13 +15,13 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 tokio-rusqlite = "0.6"
 tokio = { workspace = true }
 toml = "0.8"
-dirs = "6"
 notify = { workspace = true }
 crossbeam-channel = { workspace = true }
 git2 = { workspace = true, optional = true }
 libc = "0.2"
-lru = "0.12"
+lru = "0.18"
 ring = "0.17"
+rustls = { workspace = true }
 zeroize = { version = "1", features = ["derive"] }
 
 [features]

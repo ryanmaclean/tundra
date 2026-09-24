@@ -139,6 +139,10 @@ pub struct CreateBeadRequest {
     pub description: Option<String>,
     pub lane: Option<Lane>,
     pub tags: Option<Vec<String>>,
+    /// Stored in `metadata.acceptance_criteria`; tasks created for this bead
+    /// without their own criteria inherit them.
+    #[serde(default)]
+    pub acceptance_criteria: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -158,6 +162,12 @@ pub struct CreateTaskRequest {
     pub agent_profile: Option<AgentProfile>,
     pub phase_configs: Option<Vec<PhaseConfig>>,
     pub source: Option<TaskSource>,
+    /// Shell commands that must all exit 0 in the task worktree before the
+    /// task branch may merge. Omitted: inherit the bead's
+    /// `metadata.acceptance_criteria` (if any). Validated by
+    /// [`at_core::merge_gate::validate_criteria`].
+    #[serde(default)]
+    pub acceptance_criteria: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -170,6 +180,11 @@ pub struct UpdateTaskRequest {
     pub impact: Option<TaskImpact>,
     pub agent_profile: Option<AgentProfile>,
     pub phase_configs: Option<Vec<PhaseConfig>>,
+    /// Omitted or `null`: unchanged. `[]`: clear. A list: replace. Refused
+    /// with 409 `acceptance_criteria_locked` while the task is in Coding,
+    /// Qa, Fixing or Merging.
+    #[serde(default)]
+    pub acceptance_criteria: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -268,6 +283,42 @@ pub struct DirectModeRequest {
 pub struct ExecuteTaskRequest {
     /// Optional CLI type override; defaults to Claude.
     pub cli_type: Option<CliType>,
+    /// What the pipeline does once QA passes. Defaults to
+    /// [`MergeMode::Verify`], so agent output never lands on `main` unless
+    /// the caller opts in with `"auto"`.
+    #[serde(default)]
+    pub merge_mode: Option<MergeMode>,
+}
+
+/// Merge behaviour of the execute pipeline after QA.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MergeMode {
+    /// Run the merge gate in the task worktree but never merge; a passing
+    /// gate ends the task in Complete with the branch left for
+    /// `POST /api/tasks/{id}/merge`.
+    #[default]
+    Verify,
+    /// Run the merge gate and merge into `main` when it passes.
+    Auto,
+}
+
+impl MergeMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            MergeMode::Verify => "verify",
+            MergeMode::Auto => "auto",
+        }
+    }
+}
+
+/// Optional body of `POST /api/tasks/{id}/merge`.
+#[derive(Debug, Default, Deserialize)]
+pub struct TaskMergeRequest {
+    /// Refuse with 409 `stale_head` unless the worktree is at this commit
+    /// (e.g. the `head` of the report the caller reviewed).
+    #[serde(default)]
+    pub expected_head: Option<String>,
 }
 
 /// Response entry for `GET /api/cli/available`.
@@ -413,6 +464,9 @@ pub struct TaskListQuery {
     pub priority: Option<String>,
     #[serde(default)]
     pub source: Option<String>,
+    /// Only tasks belonging to this bead.
+    #[serde(default)]
+    pub bead_id: Option<Uuid>,
     pub limit: Option<usize>,
     pub offset: Option<usize>,
 }
@@ -575,6 +629,102 @@ pub struct ListLinearIssuesQuery {
 #[derive(Debug, Deserialize)]
 pub struct ImportLinearBody {
     pub issue_ids: Vec<String>,
+}
+
+// ---------------------------------------------------------------------------
+// Gitea types
+// ---------------------------------------------------------------------------
+
+/// `GET /api/gitea/issues` query. `owner`/`repo` override settings.
+#[derive(Debug, Default, Deserialize)]
+pub struct ListGiteaIssuesQuery {
+    #[serde(default)]
+    pub owner: Option<String>,
+    #[serde(default)]
+    pub repo: Option<String>,
+    /// `open` (default), `closed` or `all`.
+    #[serde(default)]
+    pub state: Option<at_integrations::gitea::IssueStateFilter>,
+    /// Comma-separated label names.
+    #[serde(default)]
+    pub labels: Option<String>,
+    #[serde(default)]
+    pub page: Option<u32>,
+    /// Clamped to 50.
+    #[serde(default)]
+    pub limit: Option<u32>,
+    /// Follow every page (up to 100) instead of returning one.
+    #[serde(default)]
+    pub all: Option<bool>,
+}
+
+/// `owner`/`repo` override for routes without other query params.
+#[derive(Debug, Default, Deserialize)]
+pub struct GiteaRepoQuery {
+    #[serde(default)]
+    pub owner: Option<String>,
+    #[serde(default)]
+    pub repo: Option<String>,
+}
+
+/// `POST /api/gitea/issues` body. `labels` are Gitea label ids.
+#[derive(Debug, Default, Deserialize)]
+pub struct CreateGiteaIssueBody {
+    pub title: String,
+    #[serde(default)]
+    pub body: Option<String>,
+    #[serde(default)]
+    pub labels: Option<Vec<u64>>,
+    #[serde(default)]
+    pub assignees: Option<Vec<String>>,
+    #[serde(default)]
+    pub milestone: Option<u64>,
+    #[serde(default)]
+    pub owner: Option<String>,
+    #[serde(default)]
+    pub repo: Option<String>,
+}
+
+/// `PATCH /api/gitea/issues/{number}` body; absent fields are unchanged.
+#[derive(Debug, Default, Deserialize)]
+pub struct UpdateGiteaIssueBody {
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub body: Option<String>,
+    #[serde(default)]
+    pub state: Option<at_integrations::types::IssueState>,
+    #[serde(default)]
+    pub assignees: Option<Vec<String>>,
+    #[serde(default)]
+    pub owner: Option<String>,
+    #[serde(default)]
+    pub repo: Option<String>,
+}
+
+/// `POST /api/gitea/pulls` body. `base` defaults to the repo's default branch.
+#[derive(Debug, Default, Deserialize)]
+pub struct CreateGiteaPrBody {
+    pub title: String,
+    #[serde(default)]
+    pub body: Option<String>,
+    pub head: String,
+    #[serde(default)]
+    pub base: Option<String>,
+    #[serde(default)]
+    pub owner: Option<String>,
+    #[serde(default)]
+    pub repo: Option<String>,
+}
+
+/// `POST /api/gitea/releases/{tag}/assets` query; the body is the raw file.
+#[derive(Debug, Default, Deserialize)]
+pub struct UploadAssetQuery {
+    pub name: String,
+    #[serde(default)]
+    pub owner: Option<String>,
+    #[serde(default)]
+    pub repo: Option<String>,
 }
 
 // ---------------------------------------------------------------------------

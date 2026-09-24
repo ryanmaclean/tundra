@@ -4,8 +4,8 @@ use axum::{extract::State, response::IntoResponse};
 use futures_util::{SinkExt, StreamExt};
 use std::sync::Arc;
 
-use crate::notifications::notification_from_event;
-use crate::origin_validation::{get_default_allowed_origins, validate_websocket_origin};
+use crate::origin_validation::OriginAllowlist;
+use axum::Extension;
 
 use super::state::ApiState;
 
@@ -13,10 +13,12 @@ use super::state::ApiState;
 pub(crate) async fn ws_handler(
     ws: WebSocketUpgrade,
     State(state): State<Arc<ApiState>>,
+    origins: Option<Extension<OriginAllowlist>>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
     // Validate Origin header to prevent cross-site WebSocket hijacking
-    if let Err(status) = validate_websocket_origin(&headers, &get_default_allowed_origins()) {
+    let origins = origins.map(|Extension(o)| o).unwrap_or_default();
+    if let Err(status) = origins.validate(&headers) {
         return status.into_response();
     }
 
@@ -34,14 +36,16 @@ async fn handle_ws(mut socket: WebSocket, state: Arc<ApiState>) {
     }
 }
 
-/// WebSocket GET /api/events/ws -- real-time event streaming with heartbeat and notification integration.
+/// WebSocket GET /api/events/ws -- real-time event streaming with heartbeat.
 pub(crate) async fn events_ws_handler(
     ws: WebSocketUpgrade,
     State(state): State<Arc<ApiState>>,
+    origins: Option<Extension<OriginAllowlist>>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
     // Validate Origin header to prevent cross-site WebSocket hijacking
-    if let Err(status) = validate_websocket_origin(&headers, &get_default_allowed_origins()) {
+    let origins = origins.map(|Extension(o)| o).unwrap_or_default();
+    if let Err(status) = origins.validate(&headers) {
         return status.into_response();
     }
 
@@ -51,8 +55,9 @@ pub(crate) async fn events_ws_handler(
 /// Internal handler that processes the upgraded WebSocket connection with heartbeat support.
 async fn handle_events_ws(socket: WebSocket, state: Arc<ApiState>) {
     let (mut ws_tx, mut ws_rx) = socket.split();
+    // Only forward events here. Event -> notification conversion runs once in
+    // ApiState::start_notification_task, not once per connected client.
     let rx = state.event_bus.subscribe();
-    let notification_store = state.notification_store.clone();
 
     // Heartbeat interval: 30 seconds
     let mut heartbeat = tokio::time::interval(std::time::Duration::from_secs(30));
@@ -63,12 +68,6 @@ async fn handle_events_ws(socket: WebSocket, state: Arc<ApiState>) {
             result = rx.recv_async() => {
                 match result {
                     Ok(msg) => {
-                        // Wire event to notification store
-                        if let Some((title, message, level, source, action_url)) = notification_from_event(&msg) {
-                            let mut store = notification_store.write().await;
-                            store.add_with_url(title, message, level, source, action_url);
-                        }
-
                         let json = serde_json::to_string(&*msg).unwrap_or_default();
                         if ws_tx.send(Message::Text(json.into())).await.is_err() {
                             break;
