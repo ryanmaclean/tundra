@@ -148,6 +148,34 @@ pub const WS_RECONNECT_GRACE: std::time::Duration = std::time::Duration::from_se
 /// than it can be consumed during a prolonged disconnection.
 pub const DISCONNECT_BUFFER_SIZE: usize = 65536;
 
+/// One chunk of PTY output, shared by every subscriber of a terminal.
+pub type PtyChunk = std::sync::Arc<[u8]>;
+
+/// Capacity (in chunks) of a terminal's output fan-out channel. A subscriber
+/// that falls further behind skips the oldest chunks.
+pub const OUTPUT_FANOUT_CAPACITY: usize = 1024;
+
+/// WebSocket attachment state for one terminal, in `ApiState::terminal_conns`.
+///
+/// Several WebSocket connections (two viewers, or a remount whose new socket
+/// opens before the old one is torn down) may share one terminal:
+/// - PTY output is read by a single hub task and fanned out through a
+///   broadcast channel, so every connection sees every chunk.
+/// - `active` counts open connections; the terminal only enters
+///   `Disconnected` (and starts the reconnect-grace timer) when it drops to 0.
+/// - `generation` is bumped on every connect; a grace task only kills the PTY
+///   if the generation it started with is still current.
+#[derive(Default)]
+pub struct TerminalConn {
+    /// Open WebSocket connections.
+    pub active: u32,
+    /// Incremented on every connect.
+    pub generation: u64,
+    /// Output fan-out. Weak so that when the hub exits (PTY closed) every
+    /// subscriber sees `Closed`.
+    pub output: Option<tokio::sync::broadcast::WeakSender<PtyChunk>>,
+}
+
 /// Ring buffer that captures PTY output while a terminal is disconnected.
 ///
 /// When a WebSocket drops, we allocate a [`DisconnectBuffer`] and continue reading

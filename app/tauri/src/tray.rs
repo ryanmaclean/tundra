@@ -23,13 +23,13 @@ use tauri::{
     image::Image,
     menu::{MenuBuilder, MenuItemBuilder},
     tray::{MouseButton, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Emitter, Manager, Runtime,
+    AppHandle, Emitter, Manager,
 };
 use tracing::{error, info};
 
-use crate::state::AppState;
 use at_bridge::protocol::BridgeMessage;
 use at_core::types::{Bead, Lane};
+use at_tauri::state::AppState;
 
 // Re-export image crate for icon loading.
 use image;
@@ -52,7 +52,7 @@ mod menu_ids {
 /// - The tray icon file cannot be loaded
 /// - The platform doesn't support system tray icons
 /// - Menu creation fails
-pub fn init_tray<R: Runtime>(app: &AppHandle<R>) -> Result<(), Box<dyn std::error::Error>> {
+pub fn init_tray(app: &AppHandle<tauri::Wry>) -> Result<(), Box<dyn std::error::Error>> {
     info!("initializing system tray");
 
     // Load the tray icon from the bundled assets.
@@ -65,7 +65,7 @@ pub fn init_tray<R: Runtime>(app: &AppHandle<R>) -> Result<(), Box<dyn std::erro
     let _tray = TrayIconBuilder::new()
         .icon(icon)
         .menu(&menu)
-        .menu_on_left_click(false) // Right-click shows menu (standard behavior)
+        .show_menu_on_left_click(false) // Right-click shows menu (standard behavior)
         .on_tray_icon_event(|tray, event| {
             // Handle tray icon events (click, double-click, etc.)
             handle_tray_event(tray, event);
@@ -104,9 +104,9 @@ fn load_tray_icon() -> Result<Image<'static>, Box<dyn std::error::Error>> {
 /// - New Task (opens main window + creates bead)
 /// - ---
 /// - Quit
-fn build_tray_menu<R: Runtime>(
-    app: &AppHandle<R>,
-) -> Result<tauri::menu::Menu<R>, Box<dyn std::error::Error>> {
+fn build_tray_menu(
+    app: &AppHandle<tauri::Wry>,
+) -> Result<tauri::menu::Menu<tauri::Wry>, Box<dyn std::error::Error>> {
     // Status item (disabled, acts as a label).
     let status_item = MenuItemBuilder::with_id(menu_ids::STATUS, "Auto-Tundra Running")
         .enabled(false)
@@ -135,7 +135,7 @@ fn build_tray_menu<R: Runtime>(
 }
 
 /// Handle tray icon events (click, double-click, etc.).
-fn handle_tray_event(tray: &tauri::tray::TrayIcon, event: TrayIconEvent) {
+fn handle_tray_event(tray: &tauri::tray::TrayIcon<tauri::Wry>, event: TrayIconEvent) {
     match event {
         TrayIconEvent::Click {
             button: MouseButton::Left,
@@ -165,7 +165,7 @@ fn handle_tray_event(tray: &tauri::tray::TrayIcon, event: TrayIconEvent) {
 }
 
 /// Handle tray menu item clicks.
-fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, menu_id: &str) {
+fn handle_menu_event(app: &AppHandle<tauri::Wry>, menu_id: &str) {
     match menu_id {
         menu_ids::NEW_TASK => {
             info!("tray: new task requested");
@@ -195,9 +195,7 @@ fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, menu_id: &str) {
                 state
                     .daemon
                     .event_bus()
-                    .publish(at_bridge::protocol::BridgeMessage::BeadCreated(
-                        bead.clone(),
-                    ));
+                    .publish(BridgeMessage::BeadCreated(bead.clone()));
 
                 info!(bead_id = %bead_id, "tray: created new bead");
 

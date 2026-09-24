@@ -27,39 +27,68 @@ pub struct ModelPricing {
     pub context_window: u64,
 }
 
+/// Prompt-cache write price as a multiple of the base input price
+/// (Anthropic 5-minute ephemeral cache writes are billed at 1.25x).
+pub const CACHE_WRITE_INPUT_MULTIPLIER: f64 = 1.25;
+
+/// Prompt-cache read price as a multiple of the base input price
+/// (Anthropic cache hits are billed at 0.1x).
+pub const CACHE_READ_INPUT_MULTIPLIER: f64 = 0.1;
+
 impl ModelPricing {
     /// Calculate cost for a request with the given token counts.
     pub fn calculate_cost(&self, input_tokens: u64, output_tokens: u64) -> f64 {
         (input_tokens as f64 / 1_000_000.0) * self.input_cost_per_1m
             + (output_tokens as f64 / 1_000_000.0) * self.output_cost_per_1m
     }
+
+    /// Calculate cost including prompt-cache tokens. `input_tokens` is the
+    /// uncached remainder; cache writes and reads are billed at
+    /// [`CACHE_WRITE_INPUT_MULTIPLIER`] and [`CACHE_READ_INPUT_MULTIPLIER`]
+    /// times the base input rate.
+    pub fn calculate_cost_with_cache(
+        &self,
+        input_tokens: u64,
+        output_tokens: u64,
+        cache_creation_input_tokens: u64,
+        cache_read_input_tokens: u64,
+    ) -> f64 {
+        let per_input = self.input_cost_per_1m / 1_000_000.0;
+        self.calculate_cost(input_tokens, output_tokens)
+            + cache_creation_input_tokens as f64 * per_input * CACHE_WRITE_INPUT_MULTIPLIER
+            + cache_read_input_tokens as f64 * per_input * CACHE_READ_INPUT_MULTIPLIER
+    }
 }
 
 /// Default pricing table for common models (approximate 2025-2026 pricing).
+///
+/// Keys are undated model aliases; dated snapshot names returned by
+/// providers (e.g. `gpt-4o-2024-08-06`, `claude-haiku-4-5-20251001`) are
+/// matched by [`resolve_pricing`].
 pub fn default_pricing_table() -> Vec<ModelPricing> {
     vec![
         // Anthropic
         ModelPricing {
-            model: "claude-opus-4-20250514".into(),
+            model: "claude-opus-4-7".into(),
             provider: "anthropic".into(),
-            input_cost_per_1m: 15.0,
-            output_cost_per_1m: 75.0,
+            input_cost_per_1m: 5.0,
+            output_cost_per_1m: 25.0,
             quality_score: 0.98,
-            context_window: 200_000,
+            context_window: 1_000_000,
         },
         ModelPricing {
-            model: "claude-sonnet-4-20250514".into(),
+            model: "claude-sonnet-4-6".into(),
             provider: "anthropic".into(),
             input_cost_per_1m: 3.0,
             output_cost_per_1m: 15.0,
             quality_score: 0.92,
-            context_window: 200_000,
+            context_window: 1_000_000,
         },
         ModelPricing {
-            model: "claude-haiku-4-20250514".into(),
+            model: "claude-haiku-4-5".into(),
             provider: "anthropic".into(),
-            input_cost_per_1m: 0.80,
-            output_cost_per_1m: 4.0,
+            input_cost_per_1m: 1.0,
+            output_cost_per_1m: 5.0,
             quality_score: 0.82,
             context_window: 200_000,
         },
@@ -89,6 +118,60 @@ pub fn default_pricing_table() -> Vec<ModelPricing> {
             context_window: 200_000,
         },
     ]
+}
+
+/// Strip a trailing snapshot date (`-YYYYMMDD` or `-YYYY-MM-DD`) from a model id.
+pub fn strip_model_date_suffix(model: &str) -> &str {
+    let is_digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+    if let Some((head, tail)) = model.rsplit_once('-') {
+        if tail.len() == 8 && is_digits(tail) {
+            return head;
+        }
+    }
+    if model.len() > 11 && model.is_char_boundary(model.len() - 11) {
+        let (head, tail) = model.split_at(model.len() - 11);
+        let b = tail.as_bytes();
+        if b[0] == b'-'
+            && b[5] == b'-'
+            && b[8] == b'-'
+            && is_digits(&tail[1..5])
+            && is_digits(&tail[6..8])
+            && is_digits(&tail[9..11])
+        {
+            return head;
+        }
+    }
+    model
+}
+
+/// Find the pricing entry for `model` among `candidates`.
+///
+/// Tries, in order: an exact id match; a match after stripping snapshot
+/// dates from both sides (`claude-haiku-4-5-20251001` == `claude-haiku-4-5`);
+/// and finally the longest candidate id that is a `-`-delimited prefix of
+/// the model (`gpt-4o-mini-2024-07-18` -> `gpt-4o-mini`, not `gpt-4o`).
+pub fn resolve_pricing<'a>(
+    candidates: impl IntoIterator<Item = &'a ModelPricing>,
+    model: &str,
+) -> Option<&'a ModelPricing> {
+    let candidates: Vec<&ModelPricing> = candidates.into_iter().collect();
+    if let Some(p) = candidates.iter().find(|p| p.model == model) {
+        return Some(p);
+    }
+    let norm = strip_model_date_suffix(model);
+    if let Some(p) = candidates
+        .iter()
+        .find(|p| strip_model_date_suffix(&p.model) == norm)
+    {
+        return Some(p);
+    }
+    candidates
+        .into_iter()
+        .filter(|p| {
+            let key = strip_model_date_suffix(&p.model);
+            norm.len() > key.len() && norm.starts_with(key) && norm.as_bytes()[key.len()] == b'-'
+        })
+        .max_by_key(|p| p.model.len())
 }
 
 // ---------------------------------------------------------------------------
@@ -338,16 +421,70 @@ impl CostTracker {
         map.insert(pricing.model.clone(), pricing);
     }
 
-    /// Get pricing for a model.
+    /// Get pricing for a model (exact, date-stripped, or longest-prefix match;
+    /// see [`resolve_pricing`]).
     pub async fn get_pricing(&self, model: &str) -> Option<ModelPricing> {
-        self.pricing.read().await.get(model).cloned()
+        let map = self.pricing.read().await;
+        match map.get(model) {
+            Some(p) => Some(p.clone()),
+            None => resolve_pricing(map.values(), model).cloned(),
+        }
     }
 
-    /// Calculate cost for a request (returns 0.0 if model not in pricing table).
+    /// Calculate cost for a request. Returns 0.0 and logs a warning if the
+    /// model has no pricing; use [`Self::try_calculate_cost_with_cache`] to
+    /// detect that case.
     pub async fn calculate_cost(&self, model: &str, input_tokens: u64, output_tokens: u64) -> f64 {
-        match self.pricing.read().await.get(model) {
-            Some(p) => p.calculate_cost(input_tokens, output_tokens),
-            None => 0.0,
+        self.calculate_cost_with_cache(model, input_tokens, output_tokens, 0, 0)
+            .await
+    }
+
+    /// Calculate cost including prompt-cache tokens, or `None` when the model
+    /// has no pricing entry (so callers can flag the request as unpriced
+    /// instead of silently recording $0).
+    pub async fn try_calculate_cost_with_cache(
+        &self,
+        model: &str,
+        input_tokens: u64,
+        output_tokens: u64,
+        cache_creation_input_tokens: u64,
+        cache_read_input_tokens: u64,
+    ) -> Option<f64> {
+        self.get_pricing(model).await.map(|p| {
+            p.calculate_cost_with_cache(
+                input_tokens,
+                output_tokens,
+                cache_creation_input_tokens,
+                cache_read_input_tokens,
+            )
+        })
+    }
+
+    /// Calculate cost for a request including prompt-cache writes and reads.
+    /// Returns 0.0 and logs a warning if the model has no pricing entry.
+    pub async fn calculate_cost_with_cache(
+        &self,
+        model: &str,
+        input_tokens: u64,
+        output_tokens: u64,
+        cache_creation_input_tokens: u64,
+        cache_read_input_tokens: u64,
+    ) -> f64 {
+        match self
+            .try_calculate_cost_with_cache(
+                model,
+                input_tokens,
+                output_tokens,
+                cache_creation_input_tokens,
+                cache_read_input_tokens,
+            )
+            .await
+        {
+            Some(cost) => cost,
+            None => {
+                tracing::warn!(model, "no pricing for model; recording cost as $0");
+                0.0
+            }
         }
     }
 
@@ -982,5 +1119,90 @@ mod tests {
         // Cost should be only from 2 records (the last 2)
         let total_cost = tracker.total_cost().await;
         assert!((total_cost - 0.02).abs() < 0.001);
+    }
+
+    #[tokio::test]
+    async fn cost_includes_prompt_cache_tokens() {
+        let tracker = CostTracker::default();
+        // Sonnet 4.6: $3/M input. 1M cache writes at 1.25x = $3.75,
+        // 1M cache reads at 0.1x = $0.30.
+        let plain = tracker.calculate_cost("claude-sonnet-4-6", 0, 0).await;
+        assert_eq!(plain, 0.0);
+        let cached = tracker
+            .calculate_cost_with_cache("claude-sonnet-4-6", 0, 0, 1_000_000, 1_000_000)
+            .await;
+        assert!((cached - 4.05).abs() < 1e-9, "got {cached}");
+        let full = tracker
+            .calculate_cost_with_cache("claude-sonnet-4-6", 1_000_000, 1_000_000, 0, 0)
+            .await;
+        assert!((full - 18.0).abs() < 1e-9, "got {full}");
+    }
+
+    // -- Pricing resolution (finding #16) --
+
+    #[tokio::test]
+    async fn dated_snapshot_names_resolve_to_alias_pricing() {
+        let tracker = CostTracker::default();
+        let gpt4o = tracker
+            .calculate_cost("gpt-4o-2024-08-06", 1_000_000, 0)
+            .await;
+        assert!((gpt4o - 2.5).abs() < 1e-9, "gpt-4o snapshot: {gpt4o}");
+        let mini = tracker
+            .calculate_cost("gpt-4o-mini-2024-07-18", 1_000_000, 0)
+            .await;
+        assert!(
+            (mini - 0.15).abs() < 1e-9,
+            "must prefer longest prefix: {mini}"
+        );
+        let haiku = tracker
+            .calculate_cost("claude-haiku-4-5-20251001", 1_000_000, 1_000_000)
+            .await;
+        assert!((haiku - 6.0).abs() < 1e-9, "haiku 4.5 is $1/$5: {haiku}");
+        assert!(tracker.get_pricing("claude-haiku-4-5").await.is_some());
+    }
+
+    #[tokio::test]
+    async fn unknown_model_is_reported_unpriced() {
+        let tracker = CostTracker::default();
+        assert!(tracker
+            .try_calculate_cost_with_cache("mystery-model", 1000, 1000, 0, 0)
+            .await
+            .is_none());
+        // Near-miss names must not borrow another model's price.
+        assert!(tracker.get_pricing("claude-opus-4-8").await.is_none());
+        assert!(tracker.get_pricing("gpt-4").await.is_none());
+    }
+
+    #[test]
+    fn current_anthropic_prices() {
+        let table = default_pricing_table();
+        let opus = table.iter().find(|p| p.model == "claude-opus-4-7").unwrap();
+        assert_eq!(
+            (opus.input_cost_per_1m, opus.output_cost_per_1m),
+            (5.0, 25.0)
+        );
+        assert_eq!(opus.context_window, 1_000_000);
+        let haiku = table
+            .iter()
+            .find(|p| p.model == "claude-haiku-4-5")
+            .unwrap();
+        assert_eq!(
+            (haiku.input_cost_per_1m, haiku.output_cost_per_1m),
+            (1.0, 5.0)
+        );
+    }
+
+    #[test]
+    fn strip_date_suffix_variants() {
+        assert_eq!(
+            strip_model_date_suffix("claude-haiku-4-5-20251001"),
+            "claude-haiku-4-5"
+        );
+        assert_eq!(strip_model_date_suffix("gpt-4o-2024-08-06"), "gpt-4o");
+        assert_eq!(
+            strip_model_date_suffix("claude-opus-4-7"),
+            "claude-opus-4-7"
+        );
+        assert_eq!(strip_model_date_suffix("o3-mini"), "o3-mini");
     }
 }

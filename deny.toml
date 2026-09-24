@@ -21,10 +21,6 @@ yanked = "warn"
 unmaintained = "workspace"          # warn only for direct deps
 unsound = "all"                     # deny unsound for all deps
 ignore = [
-    # lru 0.12 unsound issue — pinned by ratatui 0.29; upgrade when ratatui bumps
-    # expires: 2026-07-26
-    # owner: TBD
-    "RUSTSEC-2026-0002",
     # dotenv is used for local/dev bootstrap in at-daemon.
     # expires: 2026-07-26
     # owner: TBD
@@ -45,25 +41,68 @@ ignore = [
 # [licenses] — enforce allowed licenses, block copyleft/unknown
 # ---------------------------------------------------------------------------
 [licenses]
+# Project policy: MIT, BSD-2-Clause, BSD-3-Clause, Apache-2.0 only.
 allow = [
     "MIT",
     "Apache-2.0",
-    "Apache-2.0 WITH LLVM-exception",
     "BSD-2-Clause",
     "BSD-3-Clause",
-    "BSL-1.0",
+    # --- Permissive, transitive-only (no direct workspace dep uses these) ---
+    # ISC: required by the TLS crypto providers themselves and effectively
+    #      tolerated before this entry was documented:
+    #      aws-lc-rs / aws-lc-sys (rustls default provider since reqwest 0.13;
+    #      "ISC AND (Apache-2.0 OR ISC)"), ring ("Apache-2.0 AND ISC"; direct dep
+    #      of at-core and at-bridge), untrusted, rustls-webpki (any rustls stack),
+    #      simple_asn1 (jsonwebtoken <- octocrab), inotify/inotify-sys (notify, Linux).
+    #      ISC is MIT-equivalent (permissive, no copyleft).
     "ISC",
+    # Zlib: foldhash (hashbrown), nanorand (flume), const_format + slotmap (leptos).
     "Zlib",
+    # Unicode-3.0: icu_* / zerovec / yoke / litemap (url -> idna), unicode-ident.
     "Unicode-3.0",
-    "Unicode-DFS-2016",
-    "CDLA-Permissive-2.0",
-    "MPL-2.0",
-    "Unlicense",
-    "CC0-1.0",
-    "LGPL-2.1-or-later",       # r-efi (Windows-only, header-only, no linking risk)
-    "NCSA",                    # libfuzzer-sys (transitive via tauri/image/ravif/rav1e); OSI-approved permissive
 ]
 confidence-threshold = 0.8
+
+# Narrow, per-crate exceptions for licenses outside the policy. Each one is
+# pinned to the crate that needs it and documents the dependency path.
+# Revisit when the pulling dependency changes.
+exceptions = [
+    # CC0-1.0 (public-domain dedication). notify is a DIRECT dep of at-core
+    # (file watching); no MIT/Apache replacement adopted yet.
+    { crate = "notify", allow = ["CC0-1.0"] },
+    # CC0-1.0: base16 <- wasm_split_macros <- leptos 0.8 (at-leptos-ui, WASM).
+    { crate = "base16", allow = ["CC0-1.0"] },
+    # CC0-1.0, only with non-default features (`cargo deny --all-features`):
+    # tiny-keccak <- const-random <- ahash `compile-time-rng`.
+    # (hexf-parse <- naga 24 went away with ratatui-wgpu 0.6 / wgpu 30.)
+    { crate = "tiny-keccak", allow = ["CC0-1.0"] },
+    # BSL-1.0: xxhash-rust <- server_fn <- leptos 0.8 (at-leptos-ui, WASM).
+    { crate = "xxhash-rust", allow = ["BSL-1.0"] },
+    # Apache-2.0 WITH LLVM-exception (strictly more permissive than Apache-2.0):
+    # target-lexicon <- cfg-expr <- system-deps <- gtk-rs <- tauri (Linux only).
+    { crate = "target-lexicon", allow = ["Apache-2.0 WITH LLVM-exception"] },
+    # MPL-2.0 (file-level copyleft) -- POLICY EXCEPTION, needs owner sign-off:
+    # cssparser/cssparser-macros/dtoa-short/selectors <- kuchikiki <- tauri-utils
+    # (tauri build-time HTML/CSP processing; unavoidable while using tauri 2).
+    { crate = "cssparser", allow = ["MPL-2.0"] },
+    { crate = "cssparser-macros", allow = ["MPL-2.0"] },
+    { crate = "dtoa-short", allow = ["MPL-2.0"] },
+    { crate = "selectors", allow = ["MPL-2.0"] },
+    # CDLA-Permissive-2.0: webpki-root-certs <- rustls-platform-verifier 0.6 <-
+    # reqwest 0.13 `rustls` feature. rustls-platform-verifier only depends on
+    # it under cfg(target_arch = "wasm32") and reqwest only pulls the verifier
+    # on non-wasm32-unknown targets, so it is compiled only for wasm32-wasi,
+    # which we do not build (cargo-deny's graph has targets = [] = all). Native
+    # builds use the OS trust store, as before. Remove if [graph] targets is
+    # ever narrowed to the shipped triples. Review 2026-12-31.
+    { crate = "webpki-root-certs", allow = ["CDLA-Permissive-2.0"] },
+    # MPL-2.0: option-ext <- dirs-sys 0.5 <- dirs 6. No first-party crate uses
+    # `dirs` any more (at-core/at-cli/at-tui resolve paths via at_core::paths,
+    # std-only); it is now pulled only by tauri / tauri-build / tray-icon / wry
+    # (app/tauri). Remove once tauri drops `dirs` or at-tauri leaves the graph.
+    { crate = "option-ext", allow = ["MPL-2.0"] },
+]
+
 
 # Workspace crates have no license yet — mark them private
 [licenses.private]

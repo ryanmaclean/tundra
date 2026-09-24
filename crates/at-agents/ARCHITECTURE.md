@@ -1862,7 +1862,7 @@ daemon.mark_done(bead_id)?;
 ```rust
 // AgentConfig specifies model preferences
 let agent_config = AgentConfig {
-    model: "claude-3-5-sonnet-20241022",
+    model: "claude-sonnet-4-6",
     temperature: 0.7,
     max_tokens: 4096,
     ..Default::default()

@@ -138,6 +138,28 @@ pub fn parse_json_command(json: &str) -> Option<AppCommand> {
 // Command execution
 // ---------------------------------------------------------------------------
 
+/// Structured error for commands the TUI parses but cannot perform yet.
+fn not_implemented(cmd: &str) -> String {
+    serde_json::json!({
+        "event": "error",
+        "code": "not_implemented",
+        "cmd": cmd,
+        "message": format!("command '{cmd}' is not implemented"),
+    })
+    .to_string()
+}
+
+fn not_implemented_with(cmd: &str, arg: &str) -> String {
+    serde_json::json!({
+        "event": "error",
+        "code": "not_implemented",
+        "cmd": cmd,
+        "arg": arg,
+        "message": format!("command '{cmd}' is not implemented"),
+    })
+    .to_string()
+}
+
 /// Execute a command against the application state.
 ///
 /// Returns `Some(json_string)` for query commands, `None` for everything else.
@@ -186,25 +208,18 @@ pub fn execute_command(app: &mut App, cmd: AppCommand) -> Option<String> {
             None
         }
         AppCommand::Right => {
-            if app.current_tab == 2 && app.kanban_column < 4 {
+            if app.current_tab == 2 && app.kanban_column + 1 < crate::tabs::beads::KANBAN_COLUMNS {
                 app.kanban_column += 1;
             }
             None
         }
 
         // -- Actions --------------------------------------------------------
-        AppCommand::Refresh => {
-            // Handled by caller (triggers data reload).
-            None
-        }
-        AppCommand::Action(_name) => {
-            // Delegate to appropriate action handler in the future.
-            None
-        }
-        AppCommand::CreateBead(_title) => {
-            // Delegate to bead creation logic in the future.
-            None
-        }
+        // Not implemented yet: report a structured error instead of letting
+        // the headless loop acknowledge a no-op with {"event":"ok"}.
+        AppCommand::Refresh => Some(not_implemented("refresh")),
+        AppCommand::Action(name) => Some(not_implemented_with("action", &name)),
+        AppCommand::CreateBead(title) => Some(not_implemented_with("create_bead", &title)),
 
         // -- Queries --------------------------------------------------------
         AppCommand::QueryState => {
@@ -214,6 +229,7 @@ pub fn execute_command(app: &mut App, cmd: AppCommand) -> Option<String> {
                 "tab_name": tab_name,
                 "selected_index": app.selected_index,
                 "api_connected": app.api_connected,
+                "api_unauthorized": app.api_unauthorized,
                 "offline": app.offline,
                 "counts": {
                     "agents": app.agents.len(),
@@ -861,6 +877,21 @@ mod tests {
         let mut app = test_app();
         execute_command(&mut app, AppCommand::Select(3));
         assert_eq!(app.selected_index, 3);
+    }
+
+    #[test]
+    fn unimplemented_commands_report_error_not_ok() {
+        for cmd in [
+            AppCommand::Refresh,
+            AppCommand::Action("deploy".into()),
+            AppCommand::CreateBead("Fix login".into()),
+        ] {
+            let mut app = test_app();
+            let out = execute_command(&mut app, cmd).expect("must not be a silent ack");
+            let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+            assert_eq!(v["event"], "error");
+            assert_eq!(v["code"], "not_implemented");
+        }
     }
 
     #[test]

@@ -5,6 +5,11 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod auth;
+pub mod catalog;
+pub mod merge_gate;
+pub mod schemas;
+
 // ── Core API response types (matching backend JSON) ──
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -319,6 +324,26 @@ pub struct ApiChangelogEntry {
     pub sections: Vec<ApiChangelogSection>,
 }
 
+// ── Bootstrap snapshot ──
+
+/// Single-request startup snapshot returned by `GET /api/bootstrap`.
+///
+/// Contains the collections the TUI needs for initial render. Fields use
+/// `#[serde(default)]` so new server fields don't break old TUI clients.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ApiBootstrap {
+    #[serde(default)]
+    pub beads: Vec<ApiBead>,
+    #[serde(default)]
+    pub agents: Vec<ApiAgent>,
+    #[serde(default)]
+    pub kpi: ApiKpi,
+    #[serde(default)]
+    pub server_version: String,
+    #[serde(default)]
+    pub uptime_seconds: u64,
+}
+
 // ── API request types ──
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -375,6 +400,11 @@ pub struct CreateTaskRequest {
     pub priority: String,
     pub complexity: String,
     pub category: String,
+    /// Shell commands that must exit 0 in the task worktree before merge.
+    /// Omitted when empty, in which case the server inherits the bead's
+    /// `metadata.acceptance_criteria`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub acceptance_criteria: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -798,6 +828,7 @@ mod serde_tests {
             priority: "p1".into(),
             complexity: "M".into(),
             category: "infra".into(),
+            acceptance_criteria: vec!["it works".into()],
         });
     }
 
@@ -1226,6 +1257,7 @@ mod serde_tests {
                 priority: "p1".into(),
                 complexity: "M".into(),
                 category: "c".into(),
+                acceptance_criteria: Vec::new(),
             }
         }
         pub fn generate_changelog_request() -> GenerateChangelogRequest {

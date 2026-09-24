@@ -159,3 +159,28 @@ async fn reap_orphan_ptys_idempotent_on_second_call() {
     let second = reap_orphan_ptys(&state).await;
     assert_eq!(second, 0);
 }
+
+#[tokio::test]
+async fn patrol_live_detects_stuck_beads_held_only_in_api_state() {
+    // The API keeps beads in ApiState, never in CacheDb.
+    let cache = CacheDb::new_in_memory().await.expect("in-memory cache");
+    let state = ApiState::new(EventBus::new());
+    let mut stuck = Bead::new("api stuck", Lane::Standard);
+    stuck.status = BeadStatus::Slung;
+    stuck.slung_at = Some(Utc::now() - Duration::hours(2));
+    let mut fresh = Bead::new("api fresh", Lane::Standard);
+    fresh.status = BeadStatus::Slung;
+    fresh.slung_at = Some(Utc::now());
+    {
+        let mut beads = state.beads.write().await;
+        beads.insert(stuck.id, stuck.clone());
+        beads.insert(fresh.id, fresh.clone());
+    }
+
+    let runner = PatrolRunner::new(30);
+    assert_eq!(runner.run_patrol(&cache).await.unwrap().stuck_beads, 0);
+
+    let report = runner.run_patrol_live(&cache, &state).await.unwrap();
+    assert_eq!(report.stuck_beads, 1);
+    assert_eq!(report.stuck_bead_ids, vec![stuck.id]);
+}

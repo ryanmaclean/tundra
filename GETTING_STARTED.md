@@ -134,11 +134,11 @@ make test
 
 **Expected Output:**
 ```
-Running 1483 tests...
+Running 2944 tests...
 ✓ at-core::tests::config_loads_from_env (0.002s)
 ✓ at-agents::tests::role_registry_loads (0.005s)
 ...
-Test run successful. 1483 tests passed.
+Test run successful. 2944 tests passed.
 ```
 
 If tests pass, **you're ready to go!** 🎉

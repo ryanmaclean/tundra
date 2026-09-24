@@ -2444,7 +2444,8 @@ Auto-Tundra implements a **three-state circuit breaker** with automatic recovery
    - Prevents cascading failures and resource exhaustion
 
 3. **HalfOpen (Testing Recovery):**
-   - Allows limited requests through to test provider health
+   - Admits at most `half_open_max_calls` (default 1) concurrent probe requests;
+     further calls are rejected as if Open until a probe completes
    - On success: increments success_count
    - On failure: immediately transitions back to **Open**
    - After `success_threshold` (2) consecutive successes: transitions to **Closed**
@@ -2476,6 +2477,7 @@ Auto-Tundra implements a **three-state circuit breaker** with automatic recovery
 - `success_threshold`: 2 consecutive successes (in HalfOpen)
 - `timeout`: 60 seconds (Open → HalfOpen)
 - `call_timeout`: 30 seconds per individual request
+- `half_open_max_calls`: 1 concurrent probe request in HalfOpen
 
 **Solutions:**
 
