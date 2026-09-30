@@ -21,6 +21,7 @@ at-bridge = { path = "../../crates/at-bridge" }
 at-integrations = { path = "../../crates/at-integrations" }
 at-intelligence = { path = "../../crates/at-intelligence" }
 tauri = { workspace = true }
+tauri-plugin-notification = "2"
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -30,11 +31,19 @@ thiserror = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
 toml = "0.8"
-rodio = { version = "0.19", optional = true }
-image = "0.25"
+# default-features = false: SoundEngine synthesizes effects procedurally and needs
+# no file decoders; rodio's default decoders pull MPL-2.0 symphonia.
+rodio = { version = "0.19", optional = true, default-features = false }
+# default-features = false, features = ["png"]: tray.rs only decodes the
+# bundled icon.png. image's default features pull in ravif/rav1e (AVIF
+# encode/decode), which drags in libfuzzer-sys (NCSA license, outside our
+# MIT/BSD/Apache-2.0 policy) as a transitive dependency of rav1e's fuzz
+# targets; PNG-only avoids that entirely.
+image = { version = "0.25", default-features = false, features = ["png"] }
 
 [features]
-default = ["sounds"]
+# `sounds` is opt-in (`--features sounds`); without it SoundEngine is a no-op stub.
+default = []
 sounds = ["dep:rodio"]
 
 [build-dependencies]
@@ -46,4 +55,4 @@ at-agents = { path = "../../crates/at-agents" }
 at-bridge = { path = "../../crates/at-bridge" }
 at-core = { path = "../../crates/at-core" }
 at-daemon = { path = "../../crates/at-daemon" }
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { workspace = true }

@@ -50,7 +50,7 @@ export ANTHROPIC_API_KEY=sk-ant-api03-your-key-here
 - Highest quality for complex reasoning tasks
 - Supports streaming, tool use, and artifacts
 - No free tier, but cost-effective per token
-- Default model: `claude-3-5-sonnet-20241022`
+- Default model: `claude-sonnet-4-6`
 
 ### OPENROUTER_API_KEY
 
@@ -73,7 +73,7 @@ export OPENROUTER_API_KEY=sk-or-v1-your-key-here
 - Free tier: 100 requests/day
 - Access to multiple model providers (Anthropic, OpenAI, Meta, Google, etc.)
 - Best for experimentation and testing
-- Default model: `anthropic/claude-3.5-sonnet`
+- Default model: `anthropic/claude-sonnet-4-6`
 
 ### OPENAI_API_KEY
 
@@ -669,7 +669,7 @@ The configuration file is divided into 20+ sections:
 | `[providers]` | LLM provider configuration and failover |
 | `[agents]` | Agent concurrency, heartbeat, auto-restart |
 | `[security]` | Shell execution, sandbox, execution profiles |
-| `[daemon]` | Daemon port, host, TLS settings |
+| `[daemon]` | Daemon port, host, TLS settings; `[daemon.patrol]` stuck-agent thresholds |
 | `[ui]` | UI theme, refresh rate, token cost display |
 | `[bridge]` | API transport, socket path, buffer size |
 | `[display]` | Display theme, font size, compact mode |
@@ -900,6 +900,69 @@ port = 9090
 host = "127.0.0.1"
 tls = false
 ```
+
+#### `[daemon.patrol]` - Stuck-Agent Detection
+
+Stuck-session policy for the daemon patrol (ported from gastown's deacon). On each
+heartbeat tick, the daemon checks each live agent (Active/Idle/Unknown with a
+`pid` or `session_id`). A check fails when `last_seen` is older than
+`ping_timeout_secs`; at most one failure counts per timeout window, and a fresh
+heartbeat resets the count. After `consecutive_failures` failures the agent is
+marked `Stopped`, and the daemon publishes `AgentUpdated`, an `agent_force_kill`
+event, and one `agent_stuck_escalation` event. The slot is then held for
+`kill_cooldown_secs`. When the cooldown ends, the daemon publishes
+`agent_slot_released`.
+
+**Heartbeat source.** Each `at-agents` executor run registers one agent per
+spawned CLI process on the event bus, and the daemon applies it to the live
+registry (`GET /api/agents`):
+
+| Bus message | When | Registry effect |
+|-------------|------|-----------------|
+| `AgentCreated` | process spawned | agent inserted, `status = Active`, `session_id` = process id, `metadata.schema = "at.executor_agent.v1"`, `metadata.task_id` / `bead_id` |
+| `Event` `agent_heartbeat` | a read finds the process alive (output or an idle poll), at most every 5 s | `last_seen` advanced to the event `timestamp` (ignored once `Stopped`) |
+| `AgentUpdated` | process exited, timed out, was aborted, or the run was cancelled | `status = Stopped`, `metadata.exit = {success, exit_code, timed_out, aborted, force_killed}` |
+
+The heartbeat reports that the executor sees the process alive, not that the
+process is printing: `claude --print` stays silent until it finishes. A CLI
+that hangs while alive is bounded by the agent profile's `timeout_secs`. The
+patrol catches executors that stop reporting. On `agent_force_kill`, the
+executor that owns the agent kills the process.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | bool | `true` | Stuck-agent detection and force-kill. Set `false` to disable |
+| `ping_timeout_secs` | u64 | `30` | Seconds of heartbeat silence before a health check fails |
+| `consecutive_failures` | u32 | `3` | Failed checks in a row before force-kill (minimum 1) |
+| `kill_cooldown_secs` | u64 | `300` | Seconds after a force-kill before the agent slot may be reused |
+
+**Example:**
+```toml
+[daemon.patrol]
+enabled = true   # default; set false to opt out
+ping_timeout_secs = 30
+consecutive_failures = 3
+kill_cooldown_secs = 300
+```
+
+#### Scheduler Scoring
+
+The scheduler has no config keys. It picks the next backlog bead by lane first
+(Critical > Standard > Experimental). Within a lane it takes the highest score,
+using the formula below, which is derived from gastown's refinery:
+
+```text
+score = 1000
+      + 10  * whole hours since convoy_created_at   (only if the bead has a convoy_id)
+      + 100 * max(priority, 0)                      (higher priority = more urgent)
+      - min(50 * retry_count, 300)
+      + 1   * whole hours since the bead was created
+```
+
+Ties go to the older `created_at`, then the lower `id`. Two keys in the bead's
+`metadata` JSON feed the formula: `retry_count` (non-negative integer, default 0)
+and `convoy_created_at` (RFC 3339 timestamp; without it there is no convoy age
+bonus).
 
 ---
 
@@ -1173,7 +1236,7 @@ ai_terminal_naming = true
 
 [[agent_profile.phase_configs]]
 phase = "planning"
-model = "claude-3-5-sonnet-20241022"
+model = "claude-sonnet-4-6"
 thinking_level = "deep"
 
 [[agent_profile.phase_configs]]
@@ -1868,7 +1931,7 @@ Authentication failed for provider: anthropic
      -H "x-api-key: $ANTHROPIC_API_KEY" \
      -H "anthropic-version: 2023-06-01" \
      -H "content-type: application/json" \
-     -d '{"model":"claude-3-5-sonnet-20241022","max_tokens":1024,"messages":[{"role":"user","content":"Hello"}]}'
+     -d '{"model":"claude-sonnet-4-6","max_tokens":1024,"messages":[{"role":"user","content":"Hello"}]}'
    ```
 
 3. **Regenerate API key** if invalid (visit provider console)

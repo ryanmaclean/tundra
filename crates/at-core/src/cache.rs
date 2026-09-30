@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use chrono::Utc;
 use tokio_rusqlite::Connection;
@@ -47,6 +48,27 @@ impl CacheError {
 /// Async SQLite-backed cache for beads, agents, and events.
 pub struct CacheDb {
     conn: Connection,
+}
+
+// ---------------------------------------------------------------------------
+// Skipped-row counter
+// ---------------------------------------------------------------------------
+
+/// Process-wide count of rows skipped by list/scan queries (e.g.
+/// [`CacheDb::list_beads_by_status`]) because they could not be decoded.
+///
+/// A single corrupt row must never hide the other, well-formed rows from a
+/// list query — see [`cache_rows_skipped`] for the accessor, and
+/// `tracing::warn!` output (target this module) for the per-row detail
+/// (table, row id, and decode error) at the point each row is skipped.
+static CACHE_ROWS_SKIPPED: AtomicU64 = AtomicU64::new(0);
+
+/// Returns the process-wide count of rows skipped by list/scan queries since
+/// startup because they could not be decoded. Exposed so callers (e.g. a
+/// metrics exporter) can surface it without at-core depending on any
+/// particular metrics backend.
+pub fn cache_rows_skipped() -> u64 {
+    CACHE_ROWS_SKIPPED.load(Ordering::Relaxed)
 }
 
 // ---------------------------------------------------------------------------
@@ -250,12 +272,23 @@ impl CacheDb {
 
     /// List all beads with a given status.
     ///
-    /// Returns `Err(CacheError::InvalidRow)` if any stored row cannot be
-    /// decoded, rather than panicking.
+    /// **Skip-and-continue policy:** a row that cannot be decoded
+    /// (`CacheError::InvalidRow` — corrupt UUID, unknown enum variant, bad
+    /// date, etc.) is skipped rather than failing the whole query, so one
+    /// bad row can never hide the other, well-formed rows from callers (the
+    /// scheduler's `next_bead` depends on this: one corrupt backlog bead
+    /// must not stop scheduling). Each skipped row is logged via
+    /// `tracing::warn!` with its raw id and the decode error, and counted in
+    /// [`cache_rows_skipped`]. A `CacheError::Db` error (lost connection,
+    /// cursor failure, etc.) still aborts and propagates immediately — only
+    /// row-decode failures are swallowed.
+    ///
+    /// Contrast with [`CacheDb::get_bead`], whose single-row lookup still
+    /// returns `Err(CacheError::InvalidRow)` for a corrupt row: there is no
+    /// "other row" to fall back to, so surfacing the error is correct there.
     pub async fn list_beads_by_status(&self, status: BeadStatus) -> Result<Vec<Bead>, CacheError> {
         let status_str = enum_to_sql(&status);
-        let outer: Result<Result<Vec<Bead>, CacheError>, tokio_rusqlite::Error> = self
-            .conn
+        self.conn
             .call(move |conn| {
                 let mut stmt = conn.prepare_cached(
                     "SELECT id, title, description, status, lane, priority,
@@ -268,18 +301,25 @@ impl CacheDb {
                 while let Some(row) = rows.next()? {
                     match row_to_bead(row) {
                         Ok(bead) => out.push(bead),
-                        Err(e) => return Ok(Err(e)),
+                        Err(e) => {
+                            // Best-effort raw id for the warning; the id
+                            // column itself may be part of what failed to
+                            // decode, in which case this is just `None`.
+                            let raw_id: Option<String> = row.get(0).ok();
+                            CACHE_ROWS_SKIPPED.fetch_add(1, Ordering::Relaxed);
+                            tracing::warn!(
+                                table = "beads",
+                                row_id = ?raw_id,
+                                error = %e,
+                                "list_beads_by_status: skipping undecodable row"
+                            );
+                        }
                     }
                 }
-                Ok(Ok(out))
+                Ok(out)
             })
-            .await;
-
-        match outer {
-            Ok(Ok(beads)) => Ok(beads),
-            Ok(Err(e)) => Err(e),
-            Err(e) => Err(CacheError::Db(e)),
-        }
+            .await
+            .map_err(CacheError::Db)
     }
 
     // -----------------------------------------------------------------------
@@ -597,6 +637,7 @@ fn row_to_agent(row: &rusqlite::Row<'_>) -> Result<Agent, CacheError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::Lane;
 
     // Helper: raw INSERT into beads with arbitrary strings, bypassing type
     // validation so we can inject corrupt data.
@@ -655,12 +696,12 @@ mod tests {
         );
     }
 
-    /// Test 2: a bead whose `id` column is not a valid UUID must return
-    /// `Err(CacheError::InvalidRow)` — not panic.
-    ///
-    /// We use `list_beads_by_status` (a full-scan query) because `get_bead`
-    /// takes a `Uuid` argument and constructs the lookup key itself, so it
-    /// would never find the deliberately-corrupt row.
+    /// Test 2: a bead whose `id` column is not a valid UUID must be
+    /// **skipped** by `list_beads_by_status` (skip-and-continue policy) — not
+    /// panic, and not fail the whole query. (A dedicated single-row test
+    /// showing `get_bead` still surfaces `CacheError::InvalidRow` for a
+    /// corrupt row lives in `malformed_bead_row_errors_without_killing_connection`
+    /// below.)
     #[tokio::test]
     async fn cache_returns_error_on_invalid_uuid() {
         let db = CacheDb::new_in_memory().await.unwrap();
@@ -680,12 +721,41 @@ mod tests {
             .await
             .unwrap();
 
-        // list_beads_by_status scans all rows with status='backlog', hitting
-        // the bad id.
+        // list_beads_by_status scans all rows with status='backlog'. The
+        // corrupt-id row is skipped (logged + counted), not returned and not
+        // an error — a single bad row must never hide well-formed rows nor
+        // fail the whole query.
+        let result = db
+            .list_beads_by_status(BeadStatus::Backlog)
+            .await
+            .expect("skip-and-continue: list must not error on a corrupt row");
+        assert!(
+            result.is_empty(),
+            "corrupt-id row should have been skipped, got: {:?}",
+            result
+        );
+    }
+
+    /// A real database-level failure (as opposed to a single undecodable
+    /// row) must propagate as `Err(CacheError::Db)` rather than being
+    /// swallowed by the skip-and-continue policy. Drop the `beads` table out
+    /// from under the connection so the underlying `SELECT` itself fails.
+    #[tokio::test]
+    async fn cache_list_beads_by_status_propagates_db_error() {
+        let db = CacheDb::new_in_memory().await.unwrap();
+
+        db.conn
+            .call(|conn| {
+                conn.execute_batch("DROP TABLE beads;")?;
+                Ok(())
+            })
+            .await
+            .unwrap();
+
         let result = db.list_beads_by_status(BeadStatus::Backlog).await;
         assert!(
-            matches!(result, Err(CacheError::InvalidRow { .. })),
-            "expected Err(CacheError::InvalidRow), got: {:?}",
+            matches!(result, Err(CacheError::Db(_))),
+            "expected Err(CacheError::Db) when the beads table is missing, got: {:?}",
             result
         );
     }
@@ -765,5 +835,117 @@ mod tests {
         // Named buckets for known statuses are correct.
         assert_eq!(snapshot.backlog, 1);
         assert_eq!(snapshot.done, 1);
+    }
+
+    /// Test 5: an agent row with an unrecognised `role` and invalid JSON
+    /// `metadata` must return `Err(CacheError::InvalidRow)` — not panic —
+    /// and a lookup for a name that doesn't exist must still cleanly return
+    /// `Ok(None)` afterwards (the connection survives the earlier failure).
+    #[tokio::test]
+    async fn cache_returns_error_on_malformed_agent_row() {
+        let db = CacheDb::new_in_memory().await.unwrap();
+        let now = Utc::now().to_rfc3339();
+        db.conn
+            .call(move |conn| {
+                conn.execute(
+                    "INSERT INTO agents (id, name, role, cli_type, status, created_at, last_seen, metadata)
+                     VALUES (?1, 'ghost', 'retired_role', 'claude', 'active', ?2, ?2, '{bad json')",
+                    rusqlite::params![Uuid::new_v4().to_string(), now],
+                )?;
+                Ok(())
+            })
+            .await
+            .unwrap();
+
+        let result = db.get_agent_by_name("ghost").await;
+        assert!(
+            matches!(result, Err(CacheError::InvalidRow { .. })),
+            "expected Err(CacheError::InvalidRow), got: {:?}",
+            result
+        );
+
+        // The connection is still usable after the failure.
+        assert!(db.get_agent_by_name("nobody").await.unwrap().is_none());
+    }
+
+    /// Regression test (restored from pre-merge local `main`, updated for the
+    /// typed `CacheError` design): a backlog full of a mix of corrupt rows
+    /// (unknown status enum, bad date, invalid id) must not prevent
+    /// `list_beads_by_status` from returning the well-formed beads, and must
+    /// not "kill" the connection for subsequent queries.
+    ///
+    /// This is the scenario `at-daemon`'s scheduler (`TaskScheduler::next_bead`)
+    /// depends on: one corrupt bead must not stop scheduling.
+    #[tokio::test]
+    async fn malformed_bead_row_errors_without_killing_connection() {
+        let db = CacheDb::new_in_memory().await.unwrap();
+        let now = Utc::now().to_rfc3339();
+
+        // Bad status enum. Status is not "backlog", so this row is not part
+        // of the backlog scan below — it only exercises the single-row
+        // get_bead() path.
+        let bad_enum = Uuid::new_v4();
+        insert_raw_bead(
+            &db,
+            &bad_enum.to_string(),
+            "from_the_future",
+            GOOD_LANE,
+            &now,
+            &now,
+        )
+        .await;
+
+        // Bad created_at date, status = backlog — part of the scan below.
+        let bad_date = Uuid::new_v4();
+        insert_raw_bead(
+            &db,
+            &bad_date.to_string(),
+            GOOD_STATUS,
+            GOOD_LANE,
+            "yesterday",
+            &now,
+        )
+        .await;
+
+        // Bad id, status = backlog — part of the scan below.
+        insert_raw_bead(&db, "not-a-uuid", GOOD_STATUS, GOOD_LANE, &now, &now).await;
+
+        let good = Bead::new("good", Lane::Standard);
+        db.upsert_bead(&good).await.unwrap();
+
+        // Single-row lookups on a bead whose own row is corrupt still
+        // surface a typed error instead of panicking.
+        assert!(
+            matches!(
+                db.get_bead(bad_enum).await,
+                Err(CacheError::InvalidRow { .. })
+            ),
+            "get_bead must surface InvalidRow for a corrupt status enum"
+        );
+        assert!(
+            matches!(
+                db.get_bead(bad_date).await,
+                Err(CacheError::InvalidRow { .. })
+            ),
+            "get_bead must surface InvalidRow for a corrupt date"
+        );
+
+        // List queries skip undecodable rows (logging a warning and bumping
+        // the skipped-row counter) and still return the good ones. Of the 3
+        // rows in this test, only 2 (bad_date, not-a-uuid) have status =
+        // backlog and are hit by this scan.
+        let skipped_before = cache_rows_skipped();
+        let backlog = db.list_beads_by_status(BeadStatus::Backlog).await.unwrap();
+        assert_eq!(backlog.len(), 1);
+        assert_eq!(backlog[0].id, good.id);
+        assert_eq!(
+            cache_rows_skipped(),
+            skipped_before + 2,
+            "the 2 corrupt backlog rows should have been counted as skipped"
+        );
+
+        // The connection is still usable after the failures.
+        assert!(db.get_bead(good.id).await.unwrap().is_some());
+        db.compute_kpi_snapshot().await.unwrap();
     }
 }

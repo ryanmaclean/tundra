@@ -234,7 +234,8 @@ impl WorktreeManager {
         let worktrees_prefix = format!("{}/.worktrees/", project_canon.display());
 
         let mut results = Vec::new();
-        for name in names.iter().flatten() {
+        // git2 0.21: StringArray yields Result<Option<&str>>; skip non-UTF-8 names.
+        for name in names.iter().flatten().flatten() {
             let wt = match repo.find_worktree(name) {
                 Ok(w) => w,
                 Err(_) => continue,

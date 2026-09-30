@@ -411,6 +411,22 @@ async fn exec_manage_beads(ctx: &BuiltinToolContext, args: &serde_json::Value) -
     }
 }
 
+/// `{schema, passed, summary, head, merged}` from the task's last merge-gate
+/// report (`null` when the gate never ran). The full `at.merge_gate.report/v1`
+/// document is at `GET /api/tasks/{id}/merge-gate`.
+fn merge_gate_status(task: &Task) -> serde_json::Value {
+    match &task.merge_gate_report {
+        Some(r) => json!({
+            "schema": r.schema,
+            "passed": r.passed,
+            "summary": r.summary(),
+            "head": r.head,
+            "merged": task.merged_at.is_some(),
+        }),
+        None => serde_json::Value::Null,
+    }
+}
+
 async fn exec_get_build_status(
     ctx: &BuiltinToolContext,
     args: &serde_json::Value,
@@ -431,6 +447,8 @@ async fn exec_get_build_status(
                     "progress_percent": task.progress_percent,
                     "started_at": task.started_at,
                     "error": task.error,
+                    "acceptance_criteria_count": task.acceptance_criteria.len(),
+                    "merge_gate": merge_gate_status(task),
                 })
                 .to_string(),
             ),
@@ -452,6 +470,8 @@ async fn exec_get_build_status(
                     "title": t.title,
                     "phase": t.phase,
                     "progress_percent": t.progress_percent,
+                    "acceptance_criteria_count": t.acceptance_criteria.len(),
+                    "merge_gate": merge_gate_status(t),
                 })
             })
             .collect();
@@ -772,6 +792,67 @@ mod tests {
         let parsed: serde_json::Value =
             serde_json::from_str(result.text_content().unwrap()).unwrap();
         assert_eq!(parsed["count"], 1);
+    }
+
+    #[tokio::test]
+    async fn exec_get_build_status_includes_merge_gate() {
+        let ctx = make_ctx();
+        let mut task = Task::new(
+            "Gated",
+            Uuid::new_v4(),
+            TaskCategory::Feature,
+            TaskPriority::Medium,
+            TaskComplexity::Small,
+        );
+        task.acceptance_criteria = vec!["cargo test".into(), "true".into()];
+        let id = task.id;
+        ctx.tasks.write().await.insert(id, task);
+
+        let req = ToolCallRequest {
+            name: "get_build_status".into(),
+            arguments: json!({"task_id": id.to_string()}),
+        };
+        let parsed: serde_json::Value = serde_json::from_str(
+            execute_builtin_tool(&ctx, &req)
+                .await
+                .unwrap()
+                .text_content()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(parsed["acceptance_criteria_count"], 2);
+        assert!(parsed["merge_gate"].is_null(), "gate never ran");
+
+        let mut report = at_core::merge_gate::MergeGateReport::new("task/g", "main", "/wt");
+        report.results.push(at_core::merge_gate::CommandResult {
+            cmd: "cargo test".into(),
+            exit_code: Some(101),
+            timed_out: false,
+            duration_ms: 1,
+            stdout_tail: String::new(),
+            stderr_tail: String::new(),
+        });
+        ctx.tasks
+            .write()
+            .await
+            .get_mut(&id)
+            .unwrap()
+            .merge_gate_report = Some(report);
+        let parsed: serde_json::Value = serde_json::from_str(
+            execute_builtin_tool(&ctx, &req)
+                .await
+                .unwrap()
+                .text_content()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(parsed["merge_gate"]["passed"], false);
+        assert_eq!(parsed["merge_gate"]["schema"], "at.merge_gate.report/v1");
+        assert!(parsed["merge_gate"]["summary"]
+            .as_str()
+            .unwrap()
+            .contains("exited 101"));
+        assert_eq!(parsed["merge_gate"]["merged"], false);
     }
 
     #[tokio::test]

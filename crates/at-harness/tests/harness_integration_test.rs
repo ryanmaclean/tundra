@@ -142,6 +142,7 @@ fn fast_config() -> CircuitBreakerConfig {
         success_threshold: 2,
         timeout: Duration::from_millis(100),
         call_timeout: Duration::from_secs(5),
+        half_open_max_calls: 1,
     }
 }
 
@@ -195,6 +196,7 @@ async fn test_circuit_breaker_closes_on_success() {
         success_threshold: 2,
         timeout: Duration::from_millis(50),
         call_timeout: Duration::from_secs(5),
+        half_open_max_calls: 1,
     };
     let cb = CircuitBreaker::new(config);
 
@@ -226,6 +228,7 @@ async fn test_circuit_breaker_stays_open_on_continued_failure() {
         success_threshold: 2,
         timeout: Duration::from_millis(50),
         call_timeout: Duration::from_secs(5),
+        half_open_max_calls: 1,
     };
     let cb = CircuitBreaker::new(config);
 
@@ -254,6 +257,7 @@ async fn test_circuit_breaker_failure_threshold_configurable() {
         success_threshold: 1,
         timeout: Duration::from_millis(50),
         call_timeout: Duration::from_secs(5),
+        half_open_max_calls: 1,
     };
     let cb = CircuitBreaker::new(config);
 
@@ -280,6 +284,7 @@ async fn test_circuit_breaker_timeout_configurable() {
         success_threshold: 1,
         timeout: Duration::from_millis(10),
         call_timeout: Duration::from_secs(5),
+        half_open_max_calls: 1,
     };
     let cb = CircuitBreaker::new(config);
 
@@ -471,6 +476,7 @@ async fn test_rate_limit_and_circuit_breaker_combined() {
         success_threshold: 1,
         timeout: Duration::from_millis(100),
         call_timeout: Duration::from_secs(5),
+        half_open_max_calls: 1,
     });
 
     // Simulate a series of requests going through both layers.
@@ -568,6 +574,7 @@ async fn test_security_harness_full_stack() {
         success_threshold: 1,
         timeout: Duration::from_millis(50),
         call_timeout: Duration::from_secs(5),
+        half_open_max_calls: 1,
     });
 
     // Successful calls.
@@ -632,6 +639,7 @@ async fn test_circuit_breaker_call_timeout() {
         success_threshold: 1,
         timeout: Duration::from_millis(50),
         call_timeout: Duration::from_millis(10), // Very short call timeout.
+        half_open_max_calls: 1,
     };
     let cb = CircuitBreaker::new(config);
 
@@ -770,6 +778,7 @@ async fn test_circuit_breaker_concurrent_calls() {
         success_threshold: 2,
         timeout: Duration::from_millis(100),
         call_timeout: Duration::from_secs(5),
+        half_open_max_calls: 1,
     });
 
     let mut handles = Vec::new();

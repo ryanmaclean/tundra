@@ -70,6 +70,10 @@ pub fn use_event_stream() -> (
     let mounted_clone = mounted.clone();
     let ws_handle_clone = ws_handle.clone();
 
+    // Consecutive failed connection attempts; drives exponential backoff and
+    // is reset once a connection opens.
+    let failures: Rc<Cell<u32>> = Rc::new(Cell::new(0));
+
     spawn_local(async move {
         connect_ws(
             set_conn_state_clone,
@@ -78,6 +82,7 @@ pub fn use_event_stream() -> (
             set_unread_count,
             mounted_clone,
             ws_handle_clone,
+            failures,
         );
     });
 
@@ -109,6 +114,7 @@ fn connect_ws(
     set_unread_count: WriteSignal<u64>,
     mounted: Rc<Cell<bool>>,
     ws_handle: Rc<Cell<Option<WebSocket>>>,
+    failures: Rc<Cell<u32>>,
 ) {
     // Don't connect if the component has already been unmounted.
     if !mounted.get() {
@@ -123,14 +129,15 @@ fn connect_ws(
         Ok(ws) => ws,
         Err(_) => {
             set_conn_state.set(WsConnectionState::Disconnected);
+            failures.set(failures.get().saturating_add(1));
             schedule_reconnect(
                 set_conn_state,
                 set_latest_event,
                 set_toasts,
                 set_unread_count,
-                1,
                 mounted,
                 ws_handle,
+                failures,
             );
             return;
         }
@@ -142,7 +149,9 @@ fn connect_ws(
     // On open
     {
         let set_state = set_conn_state;
+        let failures_open = failures.clone();
         let onopen = Closure::wrap(Box::new(move |_: JsValue| {
+            failures_open.set(0);
             set_state.set(WsConnectionState::Connected);
             web_sys::console::log_1(&"[events] WebSocket connected".into());
         }) as Box<dyn FnMut(JsValue)>);
@@ -209,18 +218,22 @@ fn connect_ws(
         let set_unread = set_unread_count;
         let mounted_close = mounted.clone();
         let ws_handle_close = ws_handle.clone();
+        let failures_close = failures.clone();
         let onclose = Closure::wrap(Box::new(move |_: CloseEvent| {
             set_state.set(WsConnectionState::Disconnected);
             if mounted_close.get() {
                 web_sys::console::log_1(&"[events] WebSocket closed, will reconnect".into());
+                // A close before onopen (e.g. 401/403 on upgrade) counts as a
+                // failure too, so the delay grows instead of retrying every 1s.
+                failures_close.set(failures_close.get().saturating_add(1));
                 schedule_reconnect(
                     set_state,
                     set_event,
                     set_toasts3,
                     set_unread,
-                    1,
                     mounted_close.clone(),
                     ws_handle_close.clone(),
+                    failures_close.clone(),
                 );
             } else {
                 web_sys::console::log_1(
@@ -238,16 +251,17 @@ fn schedule_reconnect(
     set_latest_event: WriteSignal<Option<serde_json::Value>>,
     set_toasts: WriteSignal<Vec<Toast>>,
     set_unread_count: WriteSignal<u64>,
-    attempt: u32,
     mounted: Rc<Cell<bool>>,
     ws_handle: Rc<Cell<Option<WebSocket>>>,
+    failures: Rc<Cell<u32>>,
 ) {
     // Don't schedule reconnect if the component has been unmounted.
     if !mounted.get() {
         return;
     }
 
-    let delay_secs = std::cmp::min(2u32.pow(attempt.saturating_sub(1)), 16);
+    let attempt = failures.get().max(1);
+    let delay_secs = reconnect_delay_secs(attempt);
     set_conn_state.set(WsConnectionState::Reconnecting);
 
     spawn_local(async move {
@@ -271,8 +285,14 @@ fn schedule_reconnect(
             set_unread_count,
             mounted,
             ws_handle,
+            failures,
         );
     });
+}
+
+/// Exponential backoff: 1, 2, 4, 8, 16, 16, ... seconds for attempt 1, 2, ...
+pub fn reconnect_delay_secs(attempt: u32) -> u32 {
+    2u32.saturating_pow(attempt.saturating_sub(1)).min(16)
 }
 
 /// Convert a raw JSON event into a toast notification if it's important enough.
@@ -311,5 +331,17 @@ fn event_to_toast(value: &serde_json::Value) -> Option<Toast> {
             })
         }
         _ => None,
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod backoff_tests {
+    use super::reconnect_delay_secs;
+
+    #[test]
+    fn reconnect_backoff_grows_and_caps() {
+        let delays: Vec<u32> = (1..=7).map(reconnect_delay_secs).collect();
+        assert_eq!(delays, vec![1, 2, 4, 8, 16, 16, 16]);
+        assert_eq!(reconnect_delay_secs(u32::MAX), 16);
     }
 }

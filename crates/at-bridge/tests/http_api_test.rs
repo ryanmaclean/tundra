@@ -2287,6 +2287,10 @@ async fn test_resolve_conflict_invalid_strategy() {
 
 #[tokio::test]
 async fn test_resolve_conflict_valid_strategies() {
+    // A valid strategy clears strategy validation and reaches worktree
+    // resolution; "test-id" matches no real worktree, so the handler must
+    // report 404 rather than the pre-fix behavior of blindly reporting
+    // "resolved" for a worktree (and file) that were never checked.
     let (base, _state) = start_test_server().await;
     let client = reqwest::Client::new();
 
@@ -2297,11 +2301,10 @@ async fn test_resolve_conflict_valid_strategies() {
             .send()
             .await
             .unwrap();
-        assert_eq!(resp.status(), 200);
+        assert_eq!(resp.status(), 404, "strategy {strategy}");
 
         let body: Value = resp.json().await.unwrap();
-        assert_eq!(body["status"], "resolved");
-        assert_eq!(body["strategy"], *strategy);
+        assert_eq!(body["error"], "worktree not found");
     }
 }
 

@@ -30,23 +30,19 @@ async-trait = { workspace = true }
 mimalloc = { workspace = true }
 toml = "0.8"
 tower-http = { workspace = true }
-datadog-tracing = { workspace = true }
-datadog-apm-sync = { workspace = true }
-tracing-datadog = { workspace = true }
 opentelemetry = { workspace = true }
-opentelemetry-datadog = { workspace = true }
 tracing-opentelemetry = { workspace = true }
 opentelemetry_sdk = { workspace = true }
 dotenv = "0.15"
 libc = "0.2"
 futures = "0.3"
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { workspace = true }
 tracing-subscriber.workspace = true
 
 [dev-dependencies]
 at-core = { path = "../at-core", features = ["test-utils"] }
 tokio = { workspace = true }
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { workspace = true }
 tokio-tungstenite = "0.28"
 futures-util = "0.3"
 portable-pty = "0.8"

@@ -31,7 +31,7 @@ apm_config:
     cpu_profiling_enabled: true
     heap_profiling_enabled: true
     allocation_profiling_enabled: true
-    api_key: cee054f0868d53693f5a956f6ca4dcd1  # Your API key
+    api_key: <YOUR_DD_API_KEY>  # Your API key
     site: datadoghq.com
     env: development
     service: at-daemon

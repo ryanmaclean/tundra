@@ -255,10 +255,10 @@ fn render_beads_kanban_columns() {
 #[test]
 fn render_beads_shows_bead_titles() {
     let output = render_tab(2);
-    // Demo beads (titles truncated in narrow 20% kanban columns)
-    assert_contains(&output, "Refactor conf");
-    assert_contains(&output, "Implement aut");
-    assert_contains(&output, "Design TUI la");
+    // Demo beads (titles truncated in narrow 1/6-width kanban columns)
+    assert_contains(&output, "Refactor");
+    assert_contains(&output, "Implement");
+    assert_contains(&output, "Design");
 }
 
 #[test]

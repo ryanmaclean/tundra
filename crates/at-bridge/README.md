@@ -2,17 +2,93 @@
 
 Bridge layer connecting auto-tundra core to external interfaces.
 
-This crate provides the transport and integration layer for auto-tundra, exposing the core agent system through multiple channels: HTTP REST API with authentication, WebSocket terminal connections, IPC command registry, event bus for system-wide notifications, and intelligence API client for LLM integration.
+This crate provides the transport and integration layer for auto-tundra, exposing the core agent system through multiple channels: HTTP REST API with authentication, WebSocket terminal connections, IPC protocol, event bus for system-wide notifications, and intelligence API client for LLM integration.
 
 ## Architecture Overview
 
 The crate is built around five core components:
 
-1. **HTTP API** (`http_api`): Axum-based REST API server with route registration
+1. **HTTP API** (`http_api`): Axum-based REST API server; per-domain sub-routers plus a self-describing route catalog
 2. **Terminal WebSocket** (`terminal_ws`): WebSocket multiplexing for terminal I/O with reconnection support
 3. **IPC Protocol** (`ipc`): Inter-process communication for command execution
 4. **Authentication** (`auth`): API key authentication middleware
 5. **Event Bus** (`event_bus`): Pub/sub event system for real-time notifications
+
+## Route Discovery: `GET /api/catalog`
+
+An agent can discover the whole HTTP API in one call, without a key:
+
+```sh
+curl -s http://localhost:$PORT/api/catalog \
+  | jq '.cards[] | {method, path, description, request, response}'
+```
+
+`GET /api/catalog` (alias pinned to the schema: `GET /api/v1/catalog`) returns
+an `at_api_types::catalog::ApiCatalog`. The top level follows bop's
+`schema/catalog.v1.json` (`schema_version`, `generated_at`, `source`,
+`cards[]` with `id` + `version`), so `bop-catalog` recipes work unchanged; each
+card adds the HTTP fields:
+
+```json
+{
+  "schema_version": "v1",
+  "generated_at": "2026-09-22T12:00:00+00:00",
+  "source": "at-bridge",
+  "service": { "name": "auto-tundra", "version": "0.1.0" },
+  "auth": { "scheme": "api_key", "enforced": true, "header": "x-api-key",
+            "bearer": true, "ws_query_param": "api_key", "contract_version": "1.0.0" },
+  "cards": [
+    { "id": "get-api-agents", "version": "0.1.0", "title": "GET /api/agents",
+      "description": "List agents", "domain": "agents", "method": "GET",
+      "path": "/api/agents", "auth": "api_key", "response": "Vec<Agent>" },
+    { "id": "post-api-beads-id-status", "version": "0.1.0",
+      "title": "POST /api/beads/{id}/status",
+      "description": "Transition a bead to a new status", "domain": "beads",
+      "method": "POST", "path": "/api/beads/{id}/status", "auth": "api_key",
+      "request": "UpdateBeadStatusRequest", "response": "Bead", "body_limit": 262144 }
+  ]
+}
+```
+
+- `cards` is sorted by `path`, then `method`; one card per `(method, path)`.
+- `id` is derived from method + path (kebab-case) and is stable.
+- `auth` is `none` for `GET /api/catalog` and `GET /api/v1/catalog`, which are
+  mounted outside the auth layer so a cold agent can discover the API before
+  it has a key; they still pass the shared rate limiter (loopback peers skip
+  the per-client tiers, as everywhere). Every other route is `api_key`.
+  `auth.enforced` is `false` only in development mode (no key).
+- `request` / `response` / `body_limit` are omitted when unknown / default.
+- Breaking shape changes bump `schema_version` and add `/api/v2/catalog`.
+
+### Router layout
+
+`http_api/routes.rs` defines one `Domain` per URL prefix (`beads_router()`,
+`tasks_router()`, `github_router()`, ...), each nested with
+`Router::nest(prefix, ..)`: `catalog` + `system` (`/api`), `beads`, `agents`,
+`tasks`, `pipeline`, `terminals`, `settings`, `github`, `gitlab`, `linear`,
+`kanban`, `mcp` (`/api/mcp`), `mcp_transport` (`/mcp`), `worktrees`, `queue`,
+`notifications`, `metrics`, `sessions`, `projects`, `files`, `events`,
+`websocket` (`/ws`), `insights`, `ideation`, `roadmap`, `memory`, `changelog`,
+`context`. Handlers stay in their `http_api/*.rs` / `intelligence_api.rs` /
+`terminal_ws.rs` modules.
+
+Routes are added only through `Domain::route(RouteSpec, handler)`, which
+registers the handler and records its catalog entry in the same call, so the
+router and the catalog cannot drift. `api_router_with_auth` mounts
+authenticated domains on one router (auth -> rate limit) and
+`Domain::unauthenticated()` domains (only `catalog`) on another (rate limit
+only), merges them, then applies the shared stack once (CORS/origin allowlist
+-> body limit -> security headers -> request id -> metrics -> compression,
+outermost first). axum 0.8 flattens nested routes, so `MatchedPath`
+(used for per-endpoint rate-limit buckets) is still the full template, e.g.
+`/api/beads/{id}/status`.
+
+`tests/route_surface_test.rs` pins the surface: `tests/fixtures/routes.txt` is
+the 134 `(method, path)` pairs of the pre-nesting router; the test asserts each
+is still served and requires the key, that the catalog lists exactly those
+plus the two catalog routes, that no uncatalogued method is served on a
+catalogued path, and that the catalog answers without a key (`auth: none`)
+but is rate limited.
 
 ## Security
 
@@ -41,9 +117,8 @@ All HTTP API endpoints enforce request body size limits to prevent denial-of-ser
 - `POST /api/tasks` → 2MB (task creation with metadata)
 
 **Configuration:**
-Body size limits are configured in `crates/at-bridge/src/http_api/mod.rs`. To modify limits:
-- Global default: Adjust `DefaultBodyLimit::max()` parameter in the router layer chain
-- Per-endpoint: Apply `DefaultBodyLimit` layer to specific routes
+- Global default: Adjust `DefaultBodyLimit::max()` in the layer chain of `api_router_with_auth` (`crates/at-bridge/src/http_api/mod.rs`)
+- Per-endpoint: `.limit(bytes)` on the route's `RouteSpec` in `crates/at-bridge/src/http_api/routes.rs` (also reported as `body_limit` in the catalog)
 
 **Security Posture:**
 - ✅ CWE-770 vulnerability mitigated

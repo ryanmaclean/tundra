@@ -288,6 +288,8 @@ mod tests {
                 model: "mock".to_string(),
                 input_tokens: 10,
                 output_tokens: 5,
+                cache_creation_input_tokens: 0,
+                cache_read_input_tokens: 0,
                 finish_reason: "end_turn".to_string(),
             })
         }
@@ -447,6 +449,8 @@ mod tests {
             input_tokens: 20,
             output_tokens: 8,
             finish_reason: "end_turn".into(),
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
         }));
 
         let mut engine = InsightsEngine::with_provider(success_provider);

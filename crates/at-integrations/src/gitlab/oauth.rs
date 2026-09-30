@@ -109,10 +109,9 @@ pub struct GitLabOAuthClient {
 impl GitLabOAuthClient {
     /// Create a new OAuth client from the given configuration.
     pub fn new(config: GitLabOAuthConfig) -> Self {
-        let http = Client::builder()
-            .user_agent("auto-tundra/1.0")
-            .build()
-            .expect("failed to build reqwest client");
+        // Shared builder: sets connect/request timeouts so a stalled GitLab
+        // OAuth endpoint can't hang the code-exchange handler indefinitely.
+        let http = crate::http::client();
 
         Self { config, http }
     }

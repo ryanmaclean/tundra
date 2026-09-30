@@ -425,6 +425,38 @@ fn test_integration_gitlab_token_env() {
 }
 
 #[test]
+fn test_integration_gitea_defaults_and_roundtrip() {
+    // A config.toml written before the Gitea fields existed still loads.
+    let old = r#"
+[integrations]
+github_token_env = "GITHUB_TOKEN"
+gitlab_token_env = "GITLAB_TOKEN"
+linear_api_key_env = "LINEAR_API_KEY"
+"#;
+    let parsed: Config = toml::from_str(old).unwrap();
+    assert_eq!(parsed.integrations.gitea_token_env, "GITEA_TOKEN");
+    assert_eq!(parsed.integrations.gitea_url, None);
+    assert_eq!(parsed.integrations.gitea_owner, None);
+    assert_eq!(parsed.integrations.gitea_repo, None);
+
+    let mut cfg = Config::default();
+    assert_eq!(cfg.integrations.gitea_token_env, "GITEA_TOKEN");
+    cfg.integrations.gitea_token_env = "MY_GITEA_TOKEN".into();
+    cfg.integrations.gitea_url = Some("http://gitea.local:3000".into());
+    cfg.integrations.gitea_owner = Some("fleet".into());
+    cfg.integrations.gitea_repo = Some("tundra".into());
+    let toml_str = cfg.to_toml().unwrap();
+    let parsed: Config = toml::from_str(&toml_str).unwrap();
+    assert_eq!(parsed.integrations.gitea_token_env, "MY_GITEA_TOKEN");
+    assert_eq!(
+        parsed.integrations.gitea_url.as_deref(),
+        Some("http://gitea.local:3000")
+    );
+    assert_eq!(parsed.integrations.gitea_owner.as_deref(), Some("fleet"));
+    assert_eq!(parsed.integrations.gitea_repo.as_deref(), Some("tundra"));
+}
+
+#[test]
 fn test_integration_linear_api_key_env() {
     let mut cfg = Config::default();
     assert_eq!(cfg.integrations.linear_api_key_env, "LINEAR_API_KEY");

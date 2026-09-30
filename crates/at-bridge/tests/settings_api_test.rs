@@ -256,6 +256,89 @@ async fn test_patch_settings_preserves_unmodified_fields() {
     assert_eq!(body["terminal"]["font_size"], 16);
 }
 
+/// Write an invalid settings file (type error) and return its contents.
+fn write_invalid_settings(state: &ApiState) -> String {
+    let path = state.settings_manager.path().clone();
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let text = "[general]\nproject_name = \"my-project\"\n\n[display]\nfont_size = \"14\"\n";
+    std::fs::write(&path, text).unwrap();
+    text.to_string()
+}
+
+#[tokio::test]
+async fn test_patch_settings_refuses_to_overwrite_invalid_file() {
+    let (base, state) = start_test_server().await;
+    let original = write_invalid_settings(&state);
+
+    let resp = reqwest::Client::new()
+        .patch(format!("{base}/api/settings"))
+        .json(&json!({"display": {"compact_mode": true}}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 409);
+    let body: Value = resp.json().await.unwrap();
+    assert!(body["error"].as_str().unwrap().contains("invalid"));
+
+    // The user's file must be left exactly as it was, not replaced by defaults.
+    let on_disk = std::fs::read_to_string(state.settings_manager.path()).unwrap();
+    assert_eq!(on_disk, original);
+}
+
+#[tokio::test]
+async fn test_direct_mode_refuses_to_overwrite_invalid_file() {
+    let (base, state) = start_test_server().await;
+    let original = write_invalid_settings(&state);
+
+    let resp = reqwest::Client::new()
+        .post(format!("{base}/api/settings/direct-mode"))
+        .json(&json!({"enabled": true}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 409);
+    let on_disk = std::fs::read_to_string(state.settings_manager.path()).unwrap();
+    assert_eq!(on_disk, original);
+}
+
+#[tokio::test]
+async fn test_get_settings_reports_invalid_file() {
+    let (base, state) = start_test_server().await;
+    write_invalid_settings(&state);
+
+    let resp = reqwest::get(format!("{base}/api/settings")).await.unwrap();
+    assert_eq!(resp.status(), 409);
+    let body: Value = resp.json().await.unwrap();
+    assert!(body["path"].as_str().unwrap().ends_with("settings.toml"));
+}
+
+#[tokio::test]
+async fn test_patch_settings_roundtrip_keeps_unrelated_sections() {
+    let (base, state) = start_test_server().await;
+    let mut cfg = Config::default();
+    cfg.providers.local_base_url = "http://gpu:8000".into();
+    cfg.security.allowed_origins = vec!["https://ui.example".into()];
+    cfg.agents.direct_mode = true;
+    state.settings_manager.save(&cfg).unwrap();
+
+    let resp = reqwest::Client::new()
+        .patch(format!("{base}/api/settings"))
+        .json(&json!({"display": {"theme": "light"}}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    let disk = state.settings_manager.load().unwrap();
+    assert_eq!(disk.display.theme, "light");
+    assert_eq!(disk.providers.local_base_url, "http://gpu:8000");
+    assert_eq!(
+        disk.security.allowed_origins,
+        vec!["https://ui.example".to_string()]
+    );
+    assert!(disk.agents.direct_mode);
+}
+
 // ===========================================================================
 // Notification Settings API
 // ===========================================================================

@@ -402,8 +402,14 @@ pub async fn cmd_create_worktree(path: String, branch: String) -> Result<Worktre
 }
 
 /// Delete a git worktree by ID.
+///
+/// Without `force`, a worktree with uncommitted changes is left in place and
+/// this returns an error surfacing git's message (mirrors the HTTP
+/// `DELETE /api/worktrees/{id}[?force=true]` behavior in
+/// `at-bridge::http_api::worktrees::delete_worktree_in`, so the desktop app
+/// gets the same "confirm before discarding uncommitted changes" safety net).
 #[tauri::command]
-pub async fn cmd_delete_worktree(id: String) -> Result<String, String> {
+pub async fn cmd_delete_worktree(id: String, force: bool) -> Result<String, String> {
     let output = tokio::process::Command::new("git")
         .args(["worktree", "list", "--porcelain"])
         .output()
@@ -447,8 +453,14 @@ pub async fn cmd_delete_worktree(id: String) -> Result<String, String> {
         return Err("worktree not found".to_string());
     };
 
+    let mut args = vec!["worktree", "remove"];
+    if force {
+        args.push("--force");
+    }
+    args.push(&path);
+
     let rm = tokio::process::Command::new("git")
-        .args(["worktree", "remove", "--force", &path])
+        .args(&args)
         .output()
         .await
         .map_err(|e| e.to_string())?;

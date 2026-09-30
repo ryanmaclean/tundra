@@ -51,6 +51,8 @@ impl LlmProvider for MockProvider {
             model: "mock".to_string(),
             input_tokens: 10,
             output_tokens: 5,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
             finish_reason: "end_turn".to_string(),
         })
     }
