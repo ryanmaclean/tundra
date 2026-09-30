@@ -120,7 +120,9 @@ jobs:
           nohup cargo run -p at-daemon -- --replace >/tmp/at-daemon.log 2>&1 &
           daemon_pid=$!
           for _ in {1..60}; do
-            if curl -sf http://127.0.0.1:9090/api/status >/dev/null; then
+            # The daemon enforces x-api-key auth (key auto-generated in
+            # ~/.auto-tundra/daemon.key), so an unauthenticated probe gets 401.
+            if [ -s ~/.auto-tundra/daemon.key ] && curl -sf -H "x-api-key: $(cat ~/.auto-tundra/daemon.key)" http://127.0.0.1:9090/api/status >/dev/null; then
               exit 0
             fi
             if ! kill -0 "$daemon_pid" 2>/dev/null; then
@@ -200,7 +202,9 @@ jobs:
           nohup cargo run -p at-daemon -- --replace >/tmp/at-daemon.log 2>&1 &
           daemon_pid=$!
           for _ in {1..45}; do
-            if curl -sf http://127.0.0.1:9090/api/status >/dev/null; then
+            # The daemon enforces x-api-key auth (key auto-generated in
+            # ~/.auto-tundra/daemon.key), so an unauthenticated probe gets 401.
+            if [ -s ~/.auto-tundra/daemon.key ] && curl -sf -H "x-api-key: $(cat ~/.auto-tundra/daemon.key)" http://127.0.0.1:9090/api/status >/dev/null; then
               exit 0
             fi
             if ! kill -0 "$daemon_pid" 2>/dev/null; then
