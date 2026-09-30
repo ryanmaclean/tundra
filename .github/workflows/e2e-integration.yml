@@ -103,13 +103,30 @@ jobs:
           port = 9090
           EOF
 
+      # Compile before starting the daemon. A cold `cargo run -p at-daemon`
+      # takes minutes on a hosted runner, much longer than the 60 s readiness
+      # wait below, so the gate failed mid-compile ("Daemon failed to start on
+      # :9090") every time the target cache missed (red since 2026-09-21).
+      # Build the daemon and the E2E test binary first; `cargo run` below then
+      # starts the already-built binary.
+      - name: Build daemon and E2E test binaries
+        run: |
+          cargo build -p at-daemon
+          cargo test -p at-tui --test e2e_test --no-run
+
       - name: Start daemon
         run: |
           rm -f ~/.auto-tundra/daemon.lock
           nohup cargo run -p at-daemon -- --replace >/tmp/at-daemon.log 2>&1 &
+          daemon_pid=$!
           for _ in {1..60}; do
             if curl -sf http://127.0.0.1:9090/api/status >/dev/null; then
               exit 0
+            fi
+            if ! kill -0 "$daemon_pid" 2>/dev/null; then
+              echo "Daemon process exited before becoming ready"
+              tail -n 200 /tmp/at-daemon.log || true
+              exit 1
             fi
             sleep 1
           done
@@ -172,13 +189,24 @@ jobs:
           port = 9090
           EOF
 
+      - name: Build daemon and E2E test binaries
+        run: |
+          cargo build -p at-daemon
+          cargo test -p at-tui --test e2e_test --no-run
+
       - name: Start daemon
         run: |
           rm -f ~/.auto-tundra/daemon.lock
           nohup cargo run -p at-daemon -- --replace >/tmp/at-daemon.log 2>&1 &
+          daemon_pid=$!
           for _ in {1..45}; do
             if curl -sf http://127.0.0.1:9090/api/status >/dev/null; then
               exit 0
+            fi
+            if ! kill -0 "$daemon_pid" 2>/dev/null; then
+              echo "Daemon process exited before becoming ready"
+              tail -n 200 /tmp/at-daemon.log || true
+              exit 1
             fi
             sleep 1
           done
