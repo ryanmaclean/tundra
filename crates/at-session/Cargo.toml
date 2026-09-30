@@ -17,7 +17,7 @@ flume = { workspace = true }
 tracing = { workspace = true }
 thiserror = { workspace = true }
 uuid = { workspace = true }
-portable-pty = "0.8"
+portable-pty = "0.9"
 serde = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
