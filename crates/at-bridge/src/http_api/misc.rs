@@ -73,44 +73,7 @@ pub(crate) async fn get_status(State(state): State<Arc<ApiState>>) -> Json<Statu
 
 /// GET /api/kpi -- retrieve the current KPI snapshot.
 pub(crate) async fn get_kpi(State(state): State<Arc<ApiState>>) -> Json<KpiSnapshot> {
-    let beads = state.beads.read().await;
-    let agents = state.agents.read().await;
-
-    // Single fold replaces 7 separate filter().count() calls
-    let (backlog, hooked, slung, review, done, failed, escalated) = beads.values().fold(
-        (0u64, 0u64, 0u64, 0u64, 0u64, 0u64, 0u64),
-        |(backlog, hooked, slung, review, done, failed, escalated), bead| {
-            use at_core::types::BeadStatus;
-            match bead.status {
-                BeadStatus::Backlog => {
-                    (backlog + 1, hooked, slung, review, done, failed, escalated)
-                }
-                BeadStatus::Hooked => (backlog, hooked + 1, slung, review, done, failed, escalated),
-                BeadStatus::Slung => (backlog, hooked, slung + 1, review, done, failed, escalated),
-                BeadStatus::Review => (backlog, hooked, slung, review + 1, done, failed, escalated),
-                BeadStatus::Done => (backlog, hooked, slung, review, done + 1, failed, escalated),
-                BeadStatus::Failed => (backlog, hooked, slung, review, done, failed + 1, escalated),
-                BeadStatus::Escalated => {
-                    (backlog, hooked, slung, review, done, failed, escalated + 1)
-                }
-            }
-        },
-    );
-
-    let snapshot = KpiSnapshot {
-        total_beads: beads.len() as u64,
-        backlog,
-        hooked,
-        slung,
-        review,
-        done,
-        failed,
-        escalated,
-        active_agents: agents.len() as u64,
-        timestamp: chrono::Utc::now(),
-    };
-
-    Json(snapshot)
+    Json(state.compute_kpi().await)
 }
 
 // ---------------------------------------------------------------------------
@@ -166,7 +129,14 @@ pub(crate) async fn toggle_direct_mode(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<DirectModeRequest>,
 ) -> impl IntoResponse {
-    let mut current = state.settings_manager.load_or_default();
+    // Never merge into defaults when the file on disk is invalid: saving
+    // would overwrite the user's settings.
+    let mut current = match state.settings_manager.load_for_update() {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            return super::settings::settings_error_response(&e, state.settings_manager.path())
+        }
+    };
     let mut current_val = match serde_json::to_value(&current) {
         Ok(v) => v,
         Err(e) => {
@@ -296,9 +266,7 @@ pub(crate) async fn archive_task(
     Path(id): Path<Uuid>,
 ) -> impl IntoResponse {
     let mut archived = state.archived_tasks.write().await;
-    if !archived.contains(&id) {
-        archived.push(id);
-    }
+    archived.insert(id);
     (
         axum::http::StatusCode::OK,
         Json(serde_json::json!({"archived": id})),
@@ -311,7 +279,7 @@ pub(crate) async fn unarchive_task(
     Path(id): Path<Uuid>,
 ) -> impl IntoResponse {
     let mut archived = state.archived_tasks.write().await;
-    archived.retain(|&aid| aid != id);
+    archived.remove(&id);
     (
         axum::http::StatusCode::OK,
         Json(serde_json::json!({"unarchived": id})),
@@ -389,9 +357,14 @@ pub(crate) async fn list_attachments(
     let limit = params.limit.unwrap_or(50);
     let offset = params.offset.unwrap_or(0);
 
-    let filtered: Vec<Attachment> = attachments
-        .iter()
+    // Oldest first, so offset/limit pages are stable across calls.
+    let mut matching: Vec<&Attachment> = attachments
+        .values()
         .filter(|a| a.task_id == task_id)
+        .collect();
+    matching.sort_by_key(|a| super::projects::creation_key(&a.uploaded_at, a.id));
+    let filtered: Vec<Attachment> = matching
+        .into_iter()
         .skip(offset)
         .take(limit)
         .cloned()
@@ -423,7 +396,7 @@ pub(crate) async fn add_attachment(
         uploaded_at: chrono::Utc::now().to_rfc3339(),
     };
     let mut attachments = state.attachments.write().await;
-    attachments.push(attachment.clone());
+    attachments.insert(attachment.id, attachment.clone());
     (
         axum::http::StatusCode::CREATED,
         Json(serde_json::json!(attachment)),
@@ -436,9 +409,7 @@ pub(crate) async fn delete_attachment(
     Path((_task_id, attachment_id)): Path<(Uuid, Uuid)>,
 ) -> impl IntoResponse {
     let mut attachments = state.attachments.write().await;
-    let before = attachments.len();
-    attachments.retain(|a| a.id != attachment_id);
-    if attachments.len() < before {
+    if attachments.remove(&attachment_id).is_some() {
         (
             axum::http::StatusCode::OK,
             Json(serde_json::json!({"deleted": attachment_id})),

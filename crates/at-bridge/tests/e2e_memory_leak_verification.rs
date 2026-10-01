@@ -129,7 +129,7 @@ async fn test_e2e_memory_leak_verification_100_tasks() {
     {
         let mut archived = state.archived_tasks.write().await;
         for task_id in &task_ids {
-            archived.push(*task_id);
+            archived.insert(*task_id);
         }
     }
     println!("✓ Archived all 100 tasks");
@@ -247,7 +247,7 @@ async fn test_background_cleanup_cycle() {
     {
         let mut archived = state.archived_tasks.write().await;
         for task_id in old_task_ids.iter().chain(recent_task_ids.iter()) {
-            archived.push(*task_id);
+            archived.insert(*task_id);
         }
     }
 
@@ -350,7 +350,7 @@ async fn test_stress_cleanup_with_buffers() {
 
         let mut archived = state.archived_tasks.write().await;
         for task_id in task_ids {
-            archived.push(task_id);
+            archived.insert(task_id);
         }
     }
 

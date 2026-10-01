@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
-use web_sys::{Request, RequestInit, Response};
+use web_sys::{RequestInit, Response};
 
 // ---------------------------------------------------------------------------
 // API types
@@ -70,8 +70,7 @@ async fn api_create_terminal() -> Result<TerminalInfo, String> {
     opts.set_method("POST");
     let api_base = get_api_base();
 
-    let request = Request::new_with_str_and_init(&format!("{api_base}/api/terminals"), &opts)
-        .map_err(|e| format!("{e:?}"))?;
+    let request = crate::api::new_request(&format!("{api_base}/api/terminals"), &opts)?;
     request
         .headers()
         .set("Content-Type", "application/json")
@@ -93,8 +92,7 @@ async fn api_list_terminals() -> Result<Vec<TerminalInfo>, String> {
     opts.set_method("GET");
     let api_base = get_api_base();
 
-    let request = Request::new_with_str_and_init(&format!("{api_base}/api/terminals"), &opts)
-        .map_err(|e| format!("{e:?}"))?;
+    let request = crate::api::new_request(&format!("{api_base}/api/terminals"), &opts)?;
 
     let window = web_sys::window().ok_or("no global window")?;
     let resp_value = JsFuture::from(window.fetch_with_request(&request))
@@ -112,8 +110,7 @@ async fn api_delete_terminal(id: &str) -> Result<(), String> {
     opts.set_method("DELETE");
     let api_base = get_api_base();
 
-    let request = Request::new_with_str_and_init(&format!("{api_base}/api/terminals/{id}"), &opts)
-        .map_err(|e| format!("{e:?}"))?;
+    let request = crate::api::new_request(&format!("{api_base}/api/terminals/{id}"), &opts)?;
 
     let window = web_sys::window().ok_or("no global window")?;
     JsFuture::from(window.fetch_with_request(&request))

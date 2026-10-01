@@ -1,9 +1,11 @@
 use std::sync::{
-    atomic::{AtomicUsize, Ordering},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
     Arc,
 };
 use tokio::sync::{RwLock, Semaphore};
 use uuid::Uuid;
+
+use super::mcp_sse::McpSessionStore;
 
 use at_core::session_store::SessionStore;
 use at_core::settings::SettingsManager;
@@ -17,6 +19,7 @@ use at_intelligence::{
 use crate::event_bus::EventBus;
 use crate::notifications::NotificationStore;
 use crate::oauth_token_manager::OAuthTokenManager;
+use crate::rate_limit_middleware::RateLimitPolicy;
 use crate::terminal::TerminalRegistry;
 
 use super::types::{
@@ -118,6 +121,8 @@ pub struct ApiState {
     pub task_count: Arc<AtomicUsize>,
     pub start_time: std::time::Instant,
     pub pty_pool: Option<Arc<at_session::pty_pool::PtyPool>>,
+    /// Heartbeat / liveness timing for `/ws/terminal/{id}` connections.
+    pub terminal_ws: crate::terminal_ws::TerminalWsSettings,
     pub terminal_registry: Arc<RwLock<TerminalRegistry>>,
     /// Active PTY handles keyed by terminal ID.
     pub pty_handles: Arc<RwLock<std::collections::HashMap<Uuid, at_session::pty_pool::PtyHandle>>>,
@@ -158,26 +163,86 @@ pub struct ApiState {
     /// Setting this is only useful in tests; production code leaves it `None`.
     pub github_token_url_override: Option<String>,
     // ---- Projects --------------------------------------------------------
-    pub projects: Arc<RwLock<Vec<Project>>>,
+    pub projects: Arc<RwLock<std::collections::HashMap<Uuid, Project>>>,
     // ---- PR polling -------------------------------------------------------
     pub pr_poll_registry: Arc<RwLock<std::collections::HashMap<u32, PrPollStatus>>>,
     // ---- GitHub releases --------------------------------------------------
     pub releases: Arc<RwLock<Vec<GitHubRelease>>>,
     // ---- Task archival ----------------------------------------------------
-    pub archived_tasks: Arc<RwLock<Vec<Uuid>>>,
+    pub archived_tasks: Arc<RwLock<std::collections::HashSet<Uuid>>>,
     // ---- Attachments ------------------------------------------------------
-    pub attachments: Arc<RwLock<Vec<Attachment>>>,
+    pub attachments: Arc<RwLock<std::collections::HashMap<Uuid, Attachment>>>,
     // ---- Task drafts ------------------------------------------------------
     pub task_drafts: Arc<RwLock<std::collections::HashMap<Uuid, TaskDraft>>>,
     // ---- Disconnect buffers for terminal WS reconnection ------------------
     pub disconnect_buffers:
         Arc<RwLock<std::collections::HashMap<Uuid, crate::terminal::DisconnectBuffer>>>,
+    /// Per-terminal WebSocket attachment state (connection count, generation,
+    /// output fan-out). See [`crate::terminal::TerminalConn`].
+    pub terminal_conns:
+        Arc<tokio::sync::Mutex<std::collections::HashMap<Uuid, crate::terminal::TerminalConn>>>,
     // ---- Rate limiting -------------------------------------------------------
     /// Multi-tier rate limiter (global, per-user, per-endpoint).
     pub rate_limiter: Arc<MultiKeyRateLimiter>,
+    /// Client-identity / loopback-exemption policy for the rate limiter.
+    pub rate_limit_policy: RateLimitPolicy,
     // ---- Retention configuration ------------------------------------------
     /// Memory retention policies for cleanup (TTL, max entries, cleanup intervals).
     pub retention_config: Arc<RwLock<RetentionConfig>>,
+    // ---- MCP SSE sessions ------------------------------------------------
+    /// Active MCP SSE sessions: session_id → SSE message sender.
+    pub mcp_sessions: McpSessionStore,
+    // ---- Merge gate ------------------------------------------------------
+    /// Main checkout that task worktrees are created in and merged into.
+    /// `None` (the default, and in tests) means the execute pipeline cannot
+    /// create worktrees, so it skips the merge gate for tasks without
+    /// acceptance criteria and fails tasks that have some. The daemon sets it
+    /// from `[general] workspace_root` (or its cwd when that is a git repo).
+    pub repo_root: Option<std::path::PathBuf>,
+    /// Serializes every merge-gate run and merge against the main checkout
+    /// (pipeline, `POST /api/tasks/{id}/merge`, `POST /api/worktrees/{id}/merge`)
+    /// and task worktree creation, so concurrent git writes never race on
+    /// `index.lock` and no two gates run `sh -c` in one worktree at once.
+    pub merge_lock: Arc<tokio::sync::Mutex<()>>,
+    /// Set once [`ApiState::start_notification_task`] has spawned its task.
+    notification_task_started: AtomicBool,
+    /// Set once [`ApiState::start_agent_registry_task`] has spawned its task.
+    agent_registry_task_started: AtomicBool,
+}
+
+/// Fold bead statuses into a [`KpiSnapshot`] in one pass.
+///
+/// Takes already-borrowed collections so callers that hold write locks (e.g.
+/// [`ApiState::seed_demo_data`]) can use it without re-locking.
+pub(crate) fn kpi_snapshot_of<'a>(
+    beads: impl IntoIterator<Item = &'a Bead>,
+    active_agents: usize,
+) -> KpiSnapshot {
+    let mut snap = KpiSnapshot {
+        total_beads: 0,
+        backlog: 0,
+        hooked: 0,
+        slung: 0,
+        review: 0,
+        done: 0,
+        failed: 0,
+        escalated: 0,
+        active_agents: active_agents as u64,
+        timestamp: chrono::Utc::now(),
+    };
+    for bead in beads {
+        snap.total_beads += 1;
+        match bead.status {
+            BeadStatus::Backlog => snap.backlog += 1,
+            BeadStatus::Hooked => snap.hooked += 1,
+            BeadStatus::Slung => snap.slung += 1,
+            BeadStatus::Review => snap.review += 1,
+            BeadStatus::Done => snap.done += 1,
+            BeadStatus::Failed => snap.failed += 1,
+            BeadStatus::Escalated => snap.escalated += 1,
+        }
+    }
+    snap
 }
 
 impl ApiState {
@@ -215,6 +280,7 @@ impl ApiState {
             task_count: Arc::new(AtomicUsize::new(0)),
             start_time: std::time::Instant::now(),
             pty_pool: None,
+            terminal_ws: crate::terminal_ws::TerminalWsSettings::default(),
             terminal_registry: Arc::new(RwLock::new(TerminalRegistry::new())),
             pty_handles: Arc::new(RwLock::new(std::collections::HashMap::new())),
             settings_manager: Arc::new(SettingsManager::default_path()),
@@ -236,49 +302,52 @@ impl ApiState {
             github_token_url_override: None,
             pr_poll_registry: Arc::new(RwLock::new(std::collections::HashMap::new())),
             releases: Arc::new(RwLock::new(Vec::new())),
-            archived_tasks: Arc::new(RwLock::new(Vec::new())),
-            projects: Arc::new(RwLock::new(vec![Project {
-                id: Uuid::new_v4(),
-                name: "auto-tundra".to_string(),
-                path: std::env::current_dir()
-                    .map(|p| p.display().to_string())
-                    .unwrap_or_else(|_| ".".to_string()),
-                created_at: chrono::Utc::now().to_rfc3339(),
-                is_active: true,
-            }])),
-            attachments: Arc::new(RwLock::new(Vec::new())),
+            archived_tasks: Arc::new(RwLock::new(std::collections::HashSet::new())),
+            projects: Arc::new(RwLock::new({
+                let p = Project {
+                    id: Uuid::new_v4(),
+                    name: "auto-tundra".to_string(),
+                    path: std::env::current_dir()
+                        .map(|p| p.display().to_string())
+                        .unwrap_or_else(|_| ".".to_string()),
+                    created_at: chrono::Utc::now().to_rfc3339(),
+                    is_active: true,
+                };
+                let mut m = std::collections::HashMap::new();
+                m.insert(p.id, p);
+                m
+            })),
+            attachments: Arc::new(RwLock::new(std::collections::HashMap::new())),
             task_drafts: Arc::new(RwLock::new(std::collections::HashMap::new())),
             disconnect_buffers: Arc::new(RwLock::new(std::collections::HashMap::new())),
+            terminal_conns: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
             // ---- Rate Limiter Configuration -------------------------------------
-            // Three-tier rate limiting protects the API from abuse and overload:
+            // Three-tier check-then-commit limiting (see rate_limit_middleware):
             //
-            // 1. Global Limit: 100 requests/minute across ALL clients
-            //    - Prevents total server overload
-            //    - First line of defense against DoS attacks
-            //    - Shared bucket for entire API
+            // 1. Global: 1200/min across ALL clients — protects the daemon.
+            // 2. Per-client: 600/min per peer IP (ConnectInfo; proxy headers
+            //    only with `rate_limit_policy.trust_proxy_headers`).
+            // 3. Per-client-per-route: 120/min per (client, method, route
+            //    template) — throttles hammering of one expensive endpoint.
             //
-            // 2. Per-User Limit: 20 requests/minute per client IP
-            //    - Prevents single client monopolization
-            //    - IP extracted from X-Forwarded-For or X-Real-IP headers
-            //    - Each IP gets independent bucket
-            //
-            // 3. Per-Endpoint Limit: 10 requests/minute per URI path
-            //    - Prevents abuse of expensive endpoints (AI, GitHub sync)
-            //    - Each endpoint (e.g., /api/tasks, /api/beads) tracked separately
-            //    - Allows high-frequency status polling on cheap endpoints
-            //
-            // To adjust limits:
-            // - Use RateLimitConfig::per_second(n), per_minute(n), or per_hour(n)
-            // - For production: increase global and per-user limits
-            // - For development: use per_second(n) for faster iteration
+            // Direct loopback peers (TUI, desktop app, CLI, MCP) skip tiers 2
+            // and 3 by default and only count toward the global tier. A single
+            // TUI refresh is ~13 requests every 5 s (~156/min), which the old
+            // 20/min shared "unknown" bucket could not absorb.
             //
             // When exceeded, middleware returns HTTP 429 with Retry-After header.
             rate_limiter: Arc::new(MultiKeyRateLimiter::new(
-                RateLimitConfig::per_minute(100), // Global tier
-                RateLimitConfig::per_minute(20),  // Per-user tier
-                RateLimitConfig::per_minute(10),  // Per-endpoint tier
+                RateLimitConfig::per_minute(1200), // Global tier
+                RateLimitConfig::per_minute(600),  // Per-client tier
+                RateLimitConfig::per_minute(120),  // Per-client-per-route tier
             )),
+            rate_limit_policy: RateLimitPolicy::default(),
             retention_config: Arc::new(RwLock::new(RetentionConfig::default())),
+            mcp_sessions: super::mcp_sse::new_session_store(),
+            repo_root: None,
+            merge_lock: Arc::new(tokio::sync::Mutex::new(())),
+            notification_task_started: AtomicBool::new(false),
+            agent_registry_task_started: AtomicBool::new(false),
         }
     }
 
@@ -387,6 +456,65 @@ impl ApiState {
         removed_count
     }
 
+    /// Start the single background task that turns event-bus messages into
+    /// entries in [`ApiState::notification_store`].
+    ///
+    /// Event-to-notification conversion must happen exactly once per event,
+    /// independent of how many WebSocket clients are connected (previously
+    /// every `/api/events/ws` connection wrote its own copy, and nothing was
+    /// recorded while no client was connected). Idempotent: repeated calls
+    /// do not spawn additional tasks. Must be called from a Tokio runtime.
+    pub fn start_notification_task(self: &Arc<Self>) {
+        if self.notification_task_started.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let event_bus = self.event_bus.clone();
+        let store = self.notification_store.clone();
+        tokio::spawn(async move {
+            loop {
+                let rx = event_bus.subscribe_filtered(|msg| {
+                    crate::notifications::notification_from_event(msg).is_some()
+                });
+                while let Ok(msg) = rx.recv_async().await {
+                    if let Some((title, message, level, source, action_url)) =
+                        crate::notifications::notification_from_event(&msg)
+                    {
+                        store
+                            .write()
+                            .await
+                            .add_with_url(title, message, level, source, action_url);
+                    }
+                }
+                // The bus drops subscribers whose channel fills up; resubscribe
+                // rather than silently stop recording notifications.
+                tracing::warn!("notification subscriber dropped by event bus, resubscribing");
+            }
+        });
+    }
+
+    /// Keep [`ApiState::agents`] in sync with agent lifecycle messages on the
+    /// event bus (`AgentCreated` / `AgentUpdated` / `AgentDeleted` and
+    /// `agent_heartbeat` events), so executors that only hold an
+    /// [`EventBus`] still register their agents and advance
+    /// `Agent.last_seen` for the stuck-agent patrol. See
+    /// [`crate::agent_registry`].
+    ///
+    /// Subscribes before returning; idempotent. Must be called from a Tokio
+    /// runtime.
+    pub fn start_agent_registry_task(self: &Arc<Self>) {
+        if self
+            .agent_registry_task_started
+            .swap(true, Ordering::SeqCst)
+        {
+            return;
+        }
+        crate::agent_registry::spawn_registry_sync(
+            self.event_bus.clone(),
+            self.agents.clone(),
+            self.agent_count.clone(),
+        );
+    }
+
     /// Start a background cleanup task that periodically removes expired data.
     ///
     /// This method spawns a tokio task that runs at the interval specified in
@@ -459,6 +587,17 @@ impl ApiState {
         });
     }
 
+    /// Compute a KPI snapshot from the live in-memory beads and agents.
+    ///
+    /// This is the source of truth for `GET /api/kpi`, the MCP `get_kpi`
+    /// tool and the daemon's periodic `KpiUpdate` broadcast. The bridge keeps
+    /// beads and agents in memory, not in `CacheDb`.
+    pub async fn compute_kpi(&self) -> KpiSnapshot {
+        let beads = self.beads.read().await;
+        let agents = self.agents.read().await;
+        kpi_snapshot_of(beads.values(), agents.len())
+    }
+
     /// Seed lightweight demo data for local development/web UI previews.
     ///
     /// No-op when beads are already present.
@@ -505,39 +644,7 @@ impl ApiState {
             agents.insert(agent2.id, agent2);
         }
 
-        let snapshot = KpiSnapshot {
-            total_beads: beads.len() as u64,
-            backlog: beads
-                .values()
-                .filter(|b| b.status == BeadStatus::Backlog)
-                .count() as u64,
-            hooked: beads
-                .values()
-                .filter(|b| b.status == BeadStatus::Hooked)
-                .count() as u64,
-            slung: beads
-                .values()
-                .filter(|b| b.status == BeadStatus::Slung)
-                .count() as u64,
-            review: beads
-                .values()
-                .filter(|b| b.status == BeadStatus::Review)
-                .count() as u64,
-            done: beads
-                .values()
-                .filter(|b| b.status == BeadStatus::Done)
-                .count() as u64,
-            failed: beads
-                .values()
-                .filter(|b| b.status == BeadStatus::Failed)
-                .count() as u64,
-            escalated: beads
-                .values()
-                .filter(|b| b.status == BeadStatus::Escalated)
-                .count() as u64,
-            active_agents: agents.len() as u64,
-            timestamp: chrono::Utc::now(),
-        };
+        let snapshot = kpi_snapshot_of(beads.values(), agents.len());
         *self.kpi.write().await = snapshot;
 
         // Initialize atomic counters to reflect seeded demo data
@@ -588,6 +695,9 @@ mod tests {
             stack_position: None,
             pr_number: None,
             build_logs: vec![],
+            acceptance_criteria: vec![],
+            merge_gate_report: None,
+            merged_at: None,
         }
     }
 
@@ -605,7 +715,7 @@ mod tests {
         state.task_count.store(1, Ordering::Relaxed);
 
         // Archive the task
-        state.archived_tasks.write().await.push(task_id);
+        state.archived_tasks.write().await.insert(task_id);
 
         // Cleanup with TTL of 7 days (604800 seconds)
         let removed = state.cleanup_archived_tasks(7 * 24 * 60 * 60).await;
@@ -629,7 +739,7 @@ mod tests {
         state.task_count.store(1, Ordering::Relaxed);
 
         // Archive the task
-        state.archived_tasks.write().await.push(task_id);
+        state.archived_tasks.write().await.insert(task_id);
 
         // Cleanup with TTL of 7 days (task is only 5 days old)
         let removed = state.cleanup_archived_tasks(7 * 24 * 60 * 60).await;
@@ -671,7 +781,7 @@ mod tests {
         // Add task to tasks HashMap and archive it
         state.tasks.write().await.insert(task_id, task);
         state.task_count.store(1, Ordering::Relaxed);
-        state.archived_tasks.write().await.push(task_id);
+        state.archived_tasks.write().await.insert(task_id);
 
         // Cleanup with TTL of 7 days
         let removed = state.cleanup_archived_tasks(7 * 24 * 60 * 60).await;
@@ -697,17 +807,21 @@ mod tests {
         // Old archived task 1
         let task1 = create_test_task(old_archived_id1, Some(old_completed_at));
         state.tasks.write().await.insert(old_archived_id1, task1);
-        state.archived_tasks.write().await.push(old_archived_id1);
+        state.archived_tasks.write().await.insert(old_archived_id1);
 
         // Old archived task 2
         let task2 = create_test_task(old_archived_id2, Some(old_completed_at));
         state.tasks.write().await.insert(old_archived_id2, task2);
-        state.archived_tasks.write().await.push(old_archived_id2);
+        state.archived_tasks.write().await.insert(old_archived_id2);
 
         // Recent archived task
         let task3 = create_test_task(recent_archived_id, Some(recent_completed_at));
         state.tasks.write().await.insert(recent_archived_id, task3);
-        state.archived_tasks.write().await.push(recent_archived_id);
+        state
+            .archived_tasks
+            .write()
+            .await
+            .insert(recent_archived_id);
 
         // Non-archived task
         let task4 = create_test_task(non_archived_id, Some(old_completed_at));
@@ -754,7 +868,7 @@ mod tests {
         // Add task to tasks HashMap and archive it
         state.tasks.write().await.insert(task_id, task);
         state.task_count.store(1, Ordering::Relaxed);
-        state.archived_tasks.write().await.push(task_id);
+        state.archived_tasks.write().await.insert(task_id);
 
         // Cleanup with TTL of 0 seconds (should remove all archived tasks with completed_at)
         let removed = state.cleanup_archived_tasks(0).await;
@@ -897,9 +1011,12 @@ mod tests {
         let state = create_test_state();
         let terminal_id = Uuid::new_v4();
 
-        // Create a buffer that was disconnected exactly 5 minutes ago
+        // Create a buffer that was disconnected 5 minutes and 1 second ago to
+        // reliably land before the cutoff. Using exactly 5 minutes can race at
+        // nanosecond precision when both Utc::now() calls happen in the same
+        // clock tick (disconnected_at == cutoff → strict-less-than is false).
         let mut buffer = crate::terminal::DisconnectBuffer::new(1024);
-        buffer.disconnected_at = Utc::now() - Duration::minutes(5);
+        buffer.disconnected_at = Utc::now() - Duration::minutes(5) - Duration::seconds(1);
 
         // Add buffer to disconnect_buffers HashMap
         state
@@ -908,8 +1025,7 @@ mod tests {
             .await
             .insert(terminal_id, buffer);
 
-        // Cleanup with TTL of 5 minutes (buffer is exactly at the boundary)
-        // The buffer should be removed because disconnected_at < cutoff
+        // Cleanup with TTL of 5 minutes (buffer is past the boundary, should be removed)
         let removed = state.cleanup_disconnect_buffers(5 * 60).await;
 
         assert_eq!(removed, 1);
@@ -1022,7 +1138,7 @@ mod tests {
         let task_id = Uuid::new_v4();
         let old_task = create_test_task(task_id, Some(Utc::now() - Duration::days(10)));
         state.tasks.write().await.insert(task_id, old_task);
-        state.archived_tasks.write().await.push(task_id);
+        state.archived_tasks.write().await.insert(task_id);
         state.task_count.store(1, Ordering::Relaxed);
 
         // Create old disconnect buffer
@@ -1073,7 +1189,7 @@ mod tests {
         let task_id = Uuid::new_v4();
         let recent_task = create_test_task(task_id, Some(Utc::now() - Duration::days(5)));
         state.tasks.write().await.insert(task_id, recent_task);
-        state.archived_tasks.write().await.push(task_id);
+        state.archived_tasks.write().await.insert(task_id);
         state.task_count.store(1, Ordering::Relaxed);
 
         // Create recent disconnect buffer (3 minutes old, should be kept)
@@ -1120,7 +1236,7 @@ mod tests {
             let task_id = Uuid::new_v4();
             let old_task = create_test_task(task_id, Some(Utc::now() - Duration::days(10)));
             state.tasks.write().await.insert(task_id, old_task);
-            state.archived_tasks.write().await.push(task_id);
+            state.archived_tasks.write().await.insert(task_id);
             state
                 .task_count
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -1175,7 +1291,7 @@ mod tests {
         let task_id = Uuid::new_v4();
         let old_task = create_test_task(task_id, Some(Utc::now() - Duration::days(10)));
         state.tasks.write().await.insert(task_id, old_task);
-        state.archived_tasks.write().await.push(task_id);
+        state.archived_tasks.write().await.insert(task_id);
         state.task_count.store(1, Ordering::Relaxed);
 
         // Start the background cleanup task

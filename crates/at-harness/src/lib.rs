@@ -7,12 +7,16 @@
 //! - MCP (Model Context Protocol) tool definitions and execution
 //! - Reliability patterns (circuit breaker, rate limiter) for external calls
 //! - Security primitives for sandboxing and validation
+//! - Outbound screening of agent output for leaked secrets and prompt injection
+//!   ([`output_guard`]) and a hash-chained, tamper-evident audit log ([`audit_chain`])
 //! - Operational concerns (shutdown coordination, distributed tracing context)
 //! - Built-in "Tundra Tools" for agent self-management (run_task, get_build_status, etc.)
 
+pub mod audit_chain;
 pub mod builtin_tools;
 pub mod circuit_breaker;
 pub mod mcp;
+pub mod output_guard;
 pub mod provider;
 pub mod rate_limiter;
 pub mod security;

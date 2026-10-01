@@ -11,6 +11,7 @@ use at_core::types::Agent;
 use super::state::ApiState;
 use super::types::AgentQuery;
 use crate::api_error::ApiError;
+use crate::protocol::BridgeMessage;
 
 /// GET /api/agents -- retrieve all registered agents in the system.
 ///
@@ -96,6 +97,12 @@ pub(crate) async fn nudge_agent(
     }
 
     let snapshot = agent.clone();
+
+    // Publish granular agent update so clients can patch a single entry.
+    state
+        .event_bus
+        .publish(BridgeMessage::AgentUpdated(snapshot.clone()));
+
     Ok((
         axum::http::StatusCode::OK,
         Json(serde_json::json!(snapshot)),
@@ -142,6 +149,12 @@ pub(crate) async fn stop_agent(
     agent.last_seen = chrono::Utc::now();
 
     let snapshot = agent.clone();
+
+    // Publish granular agent update so clients can patch a single entry.
+    state
+        .event_bus
+        .publish(BridgeMessage::AgentUpdated(snapshot.clone()));
+
     Ok((
         axum::http::StatusCode::OK,
         Json(serde_json::json!(snapshot)),

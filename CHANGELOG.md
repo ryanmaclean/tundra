@@ -1,3 +1,80 @@
+## Unreleased — 2026-09-22 review wave
+
+Fixes from the 2026-09-22 multi-agent review. Unverified findings still to triage are listed in `docs/reviews/2026-09-22-unverified-findings.md`; open follow-ups are in `todo.md`.
+
+### Security and auth
+
+- Clients send the daemon API key: CLI (b434777), TUI (d905455), web UI and WebSocket (9c4da2a, 5cfa5c7), Tauri (aff0b04, a93c9e0). CLI and TUI share one discovery path: URL from `~/.auto-tundra/daemon.lock`, key from `AUTO_TUNDRA_API_KEY` or the separate `~/.auto-tundra/daemon.key` (7c1641c, 68b87ae).
+- Rate limiter keyed per client (peer address, loopback exempt) and only spends tokens when every tier admits (f318199, 7200e80).
+- One origin allowlist for CORS and WebSockets (118eb8e).
+- Task descriptions sanitized before `inner_html` (stored XSS) and a Content-Security-Policy for the Tauri webview (d3e915a, df08ca4).
+- MCP bead tools go through the REST bead services and their validation; unknown MCP sessions are rejected before a tool runs (374bd5f, e80ae05).
+- GitLab MR review fails closed on API errors (7355784).
+- `EncryptionKey` bytes are actually zeroized (59e53e3).
+
+### Runtime
+
+- Notifications recorded once per event, not once per WebSocket client (bd254ea).
+- `PtyPool` attached in the daemon by default; terminal WebSockets close on a dead client, not on a quiet PTY (477e803).
+- PTY children spawn in the requested cwd; pool slots reserved atomically (eed13f6, 1115405, fa54f6a).
+- Executor no longer spins, enforces its timeout, and kills and releases agent processes (5600fdb).
+- Claude CLI: no more `--thinking-budget`; thinking maps to `--effort` (8f84de6).
+- `TokenCache` get/put ABBA deadlock removed (759466b).
+- Profile selection: the implicit local profile no longer shadows keyed cloud providers (49dca05).
+- Settings saved atomically; settings endpoints return 409 instead of overwriting an invalid settings file (10e74bb, d34debe). The Settings page PATCHes only changed fields (3e9be51, 2c4acb5).
+- Context steering loads project rules in every phase (6ebbe79).
+- `merge_to_main` targets `main` and handles tasks with no changes (b85de91).
+- `at exec --wait` stops on the phases the server actually emits (ca6ee1b).
+- Every `AgentExecutor` run now registers a live agent per spawned CLI process and heartbeats `Agent.last_seen` on the event bus (`AgentCreated` → throttled `agent_heartbeat` → `AgentUpdated(Stopped)` on exit/timeout/abort/cancel); the daemon's `agent_registry` applies these to `ApiState.agents`. `[daemon.patrol]` stuck-agent detection is now **enabled by default**, proven by a daemon test that a heartbeating-but-silent executor survives patrol while a non-heartbeating agent is force-killed.
+
+### Integrations and UI
+
+- GitHub issue listing paginates and drops pull requests (8d16bd4).
+- TUI: UTF-8-safe, width-aware truncation; every bead/agent/convoy status mapped; new Attention kanban column; unsupported commands report `not_implemented` (9b4d481, 6b40c30, 71ddcfa, 121fc7a).
+- Web UI: WebSocket reconnect backoff grows; page intervals cleared on unmount (0d18d0b, 5db15ad).
+
+### Build and tests
+
+- Clippy clean under `-D warnings` (96b2383, 1565284).
+- License allow list tightened (50b734b).
+- OpenSSL removed: reqwest uses rustls (d624fa5).
+- Advisories updated via `cargo update` (5e02b5a).
+- at-tui e2e tests skip cleanly when no daemon is running (d1ff75f).
+- Test count: 2,944 (nextest, workspace excluding at-tauri and at-leptos-ui).
+
+### Ports (2026-09-23)
+
+Six port branches merged with `--no-ff`: housekeeping (37843d1), scheduler (217b938), merge-gate (65c3ea5), output-security (e0f85b3), api-surface (6258eb0), deps-major (ff79818).
+
+- API surface: routes nested into per-domain sub-routers with a route catalog at `GET /api/catalog` and `GET /api/v1/catalog` (269a1bb, 0e1364e, d104284, 7fa3940). The catalog is served without the API key but rate limited (loopback exempt) and reports `auth: none` for itself; every other route still requires the key (fae6cfe). Unused `command_registry` and `commands` modules removed (2c636fc).
+- Merge gate in front of `WorktreeManager::merge_to_main`: acceptance criteria produce a `MergeGateReport`, and the worktree merge endpoint returns 409 with the report when the gate refuses (6d3cee2, b429685). The orchestrator gates the Merging phase and sends gate failures to the fix loop (39be659).
+- Scheduler ranks backlog beads by a priority score (780f0db). Patrol detects and force-kills stuck agents via `[daemon.patrol]`, disabled by default (9da5e86, d3fd0ba, a291334, f7cdfdc).
+- Output guard (credential redaction, prompt-injection blocking) and a hash-chained audit log for approval decisions (b27c3ca, 1c10f7d). Outbound PR, MR, issue and Linear payloads are screened, and notifications are redacted before they are recorded (32c938b, 6e168b1). The docs scan runs with no allowlist (1111a98).
+- Dependencies: reqwest 0.13 on rustls with aws-lc-rs and post-quantum key exchange (06769d5, a0d6ca0); git2 0.21, octocrab 0.54, tauri 2.11; RustSec advisories cleared (c42bafa). `cargo deny` passes. The lru 0.12.5 that ratatui 0.29 pulls in stays ignored: RUSTSEC-2026-0002 was already ignored, RUSTSEC-2026-0253 is new.
+- Datadog API key removed from the profiling docs and scripts (6662e99).
+- Test count after the ports: 3,024 (nextest, workspace excluding at-tauri and at-leptos-ui).
+
+### Added: Gitea integration
+
+- `at_integrations::gitea::GiteaClient` for the fleet Gitea (`http://gitea.local:3000`): repo info, paginated issue list/create/update (never PRs; `Link: rel="next"` and `X-Total-Count` paging, `truncated` flag at 100 pages), PR create, release lookup by tag, asset list and multipart upload. Token only from `GITEA_TOKEN` (never serialized or printed); stub tokens (`tok*`, `stub*`, `test*`, under 10 chars) return canned data offline. POST/PATCH bodies and asset names are token-scrubbed and screened by the output guard before any request, stub mode included. 5 s connect / 30 s request timeouts; only GETs retry.
+- `/api/gitea/*` routes (API key, listed in `/api/catalog` under domain `gitea`): `GET /status` (no network; mode `live|stub|unconfigured`), `GET /repo`, `GET|POST /issues`, `PATCH /issues/{number}`, `POST /pulls`, `GET|POST /releases/{tag}/assets` (raw octet-stream upload, 64 MiB limit). Success bodies carry `schema: gitea.<kind>/v1` and `mode`; errors are `{schema: gitea.error/v1, error, code, retryable, env_var?, upstream_status?, detail?}`.
+- Settings `integrations.gitea_token_env` (default `GITEA_TOKEN`), `gitea_url`, `gitea_owner`, `gitea_repo`, all optional in existing config files. `/api/credentials/status` lists `gitea` when `GITEA_TOKEN` is set.
+
+### Tundra follow-ups and unverified-findings sweep (2026-09-23)
+
+Eight branches merged into `main` with `--no-ff`, in order: `unv/at-tui`, `unv/at-bridge`, `fu/pty-drop-and-breaker`, `fu/executor-heartbeat`, `fu/terminal-reconnect`, `fu/gitea-client`, `fu/acceptance-e2e`, `fu/deps-mpl-and-ratatui`.
+
+- `unv/at-tui`: `fetch_all` parallelizes its bootstrap and fallback calls and skips the agents/beads/KPI fallback fetches once bootstrap already succeeded.
+- `unv/at-bridge`: MCP SSE sessions scoped to the stream; git-backed worktree merge/resolve/delete validate real exit codes instead of assuming success, and delete no longer matches by id substring; project and attachment listing/pagination sorted by a stable creation-order key instead of `HashMap` iteration order; PTY output fanned out per terminal with connection refcounts (fixes a `terminal_conns` leak); engine locks no longer held across I/O or mutated on GET; new `GET /api/stacks`; authenticated MCP client config.
+- `fu/pty-drop-and-breaker`: `PtyHandle` now has a `Drop` impl that kills a still-live child and frees its pool slot (idempotent with the explicit kill+release dance and with the already-merged non-blocking `kill_async`), plus `PtyHandle::process_id()`. Circuit breaker `HalfOpen` probe-gating was reimplemented with per-window generation tracking so a stale probe from a fast reopen-and-retry can no longer mis-count a later `HalfOpen` window's in-flight probes — replacing the simpler counter merged earlier the same day, which a new regression test proved could under/over-admit.
+- `fu/executor-heartbeat`: `AgentExecutor` registers a live agent and heartbeats `last_seen`; the bridge syncs a live agent registry from `EventBus` lifecycle/heartbeat events; `EventBus` prunes disconnected subscribers unconditionally; stuck-agent patrol is now **enabled by default**, proven by a daemon-level test that a heartbeating-but-silent executor survives patrol while a non-heartbeating agent is force-killed.
+- `fu/terminal-reconnect`: the Leptos `TerminalView` websocket reconnects with exponential backoff instead of giving up on the first drop.
+- `fu/gitea-client`: 8 `/api/gitea/*` routes (status, repo, issue list/create/update, pull-request create, release asset list/upload) wired through the catalog; the route-surface snapshot's exemption list (not the frozen fixture) was extended to cover them, matching how `GET /api/stacks` was tracked.
+- `fu/acceptance-e2e`: acceptance criteria flow end to end — tasks/beads author and inherit `acceptance_criteria`, the execute pipeline runs the merge gate (env-cleared gate commands) via `gate_flow` with a fix-iteration budget computed from the worktree manager's own merge-gate config, `GET /api/tasks/{id}/merge-gate` and `POST /api/tasks/{id}/merge` expose the gate report and merge action, the daemon fails closed on merge-gate errors, PR bodies surface acceptance criteria, and JSON Schema documents are served at `/api/v1/schemas/*`.
+- `fu/deps-mpl-and-ratatui`: dropped the `dirs` crate (which pulled in `dirs-sys` → `option-ext`, MPL-2.0) from `at-core`/`at-cli`/`at-tui` in favor of a new std-only `at_core::paths`; `option-ext` now reaches the graph only via `tauri`/`wry`. Bumped `ratatui` to 0.30 (`crossterm` 0.29) and `tachyonfx` to 0.25, both of which drop the `lru` 0.12 dependency that carried the unsound `IterMut` aliasing bug (RUSTSEC-2026-0002) and the `LruCache::pop` panic-safety bug (RUSTSEC-2026-0253); both advisory ignores removed from `deny.toml`, along with the `ratatui-wgpu` 0.2 → 0.6 bump's now-unneeded `hexf-parse` (CC0-1.0) exception.
+- Merge-induced fixes: two brace-balance breaks introduced by the merge tooling concatenating two independently-appended test blocks in `at-session/tests/pty_pool_test.rs` and `at-bridge/src/http_api/tests.rs`; a stale `at-core::settings` test asserting the pre-migration `default_path()` behavior, split into a test of the current canonical-path behavior and a test of the `legacy_path()` helper it actually meant to check; a missing `acceptance_criteria` field in the Leptos frontend's `CreateTaskRequest` literal.
+- Verification after merge: `cargo clippy --workspace --exclude at-tauri --exclude at-leptos-ui -- -D warnings` clean; `cargo nextest run --workspace --exclude at-tauri --exclude at-leptos-ui` — 3265 passed, 0 failed, 0 skipped; `cargo check -p at-leptos-ui --target wasm32-unknown-unknown` clean; `cargo check -p at-tauri` clean; `cargo deny check` — advisories ok, bans ok, licenses ok, sources ok; `cargo tree -i openssl-sys --target all` matches nothing.
+
 ## 1.0.0 - Agent Orchestration & Comprehensive Testing
 
 ### New Features
@@ -117,3 +194,34 @@
 ## Thanks to all contributors
 
 @ryanlmacLean
+## Unverified-findings sweep (2026-09-23)
+
+Merged reviewed branches from the 2026-09-22 unverified-findings list (see `docs/reviews/2026-09-22-unverified-findings.md`) after per-branch approval. Fixed:
+
+- #3 — WebSocket reconnect backoff never grows: every close retries after 1s, forever
+- #4 — Timer closures outlive their pages: beads auto-refresh keeps polling and writing global state after navigating away
+- #9 — New public rig-core `shell_exec` tool runs arbitrary `sh -c` with no gate, is unused, and pulls rig-core into daemon/tauri
+- #10 — at-api-types defines ApiStack but the bridge has no /api/stacks route; UI silently shows demo stacks
+- #12 — MCP SSE sessions are force-closed after exactly 1 hour, and abandoned sessions stay in memory for that hour
+- #13 — MCP transport: tools run before the session is checked, and the shipped Claude Code config cannot authenticate
+- #14 — MCP SSE tools/call skips bead lifecycle checks, input sanitization and event publishing that the REST API enforces
+- #15 — Projects changed from Vec to HashMap, so list order and pagination are no longer stable and deleting the active project activates an arbitrary one
+- #16 — Vec to HashMap conversion makes project and attachment listing and pagination order random
+- #17 — Worktree merge and resolve endpoints ignore git exit codes and report success; delete matches by substring and runs `git worktree remove --force`
+- #18 — POST /api/ideation/generate holds the ideation_engine write lock across the LLM network call
+- #19 — GET /api/changelog?source=tasks mutates state: every call appends a duplicate entry and returns ever-growing markdown
+- #20 — Blocking flume::Sender::send on the bounded (256) PTY stdin channel inside an async task can wedge a tokio worker and the terminal
+- #30 — Orchestrator slices agent output at byte 1000 and panics on multi-byte UTF-8
+- #31 — Circuit breaker HalfOpen state admits unlimited concurrent calls
+- #32 — RateLimitConfig with a zero rate panics on the first rejected check (Duration::from_secs_f64(inf))
+- #33 — No HTTP timeouts on any GitHub, GitLab or Linear client, so a stalled upstream hangs request handlers indefinitely
+- #35 — Linear list_issues is hard-capped at 50 with no pagination, so bridge offset/limit can't reach past item 50
+- #36 — Linear sync push overwrites remote issue titles with their own IDs and descriptions with a fixed string
+- #37 — Cost lookup needs an exact model-name match and silently returns $0; the renamed pricing rows also keep the old, wrong prices
+- #38 — Ideation's text fallback turns truncated or non-JSON LLM output into junk ideas like "{" and "\"ideas\": ["
+- #39 — The cloud provider HTTP clients have no timeout, so a stalled Anthropic or OpenAI connection hangs the caller forever
+- #48 — Uncommitted bootstrap change runs fetches one after another instead of in parallel
+
+Skipped (blocked, worktrees left in place for inspection — see report): findings surfaced on `unv/at-bridge` (worktree delete `force=false` default not wired to the only caller; `terminal_conns` leak on direct terminal delete) and `unv/at-tui` (bootstrap-success path still fires the 3 fallback fetches unconditionally, defeating the fast path).
+
+Verification after merge: `cargo check --workspace --exclude at-tauri --exclude at-leptos-ui` clean; `cargo clippy --workspace --exclude at-tauri --exclude at-leptos-ui -- -D warnings` clean; `cargo nextest run --workspace --exclude at-tauri --exclude at-leptos-ui` — 3096 passed, 0 failed, 0 skipped; `cargo deny check` — advisories ok, bans ok, licenses ok, sources ok; `cargo check -p at-leptos-ui --target wasm32-unknown-unknown` clean.

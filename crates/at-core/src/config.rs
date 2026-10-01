@@ -54,6 +54,9 @@ pub struct Config {
     pub debug: DebugConfig,
     #[serde(default)]
     pub memory: MemoryConfig,
+    /// Pre-merge verification of task branches (acceptance criteria, etc.).
+    #[serde(default)]
+    pub merge_gate: crate::merge_gate::MergeGateConfig,
 }
 
 impl std::fmt::Debug for Config {
@@ -79,6 +82,7 @@ impl std::fmt::Debug for Config {
             .field("notifications", &self.notifications)
             .field("debug", &self.debug)
             .field("memory", &self.memory)
+            .field("merge_gate", &self.merge_gate)
             .finish()
     }
 }
@@ -124,8 +128,12 @@ impl Config {
         Ok(())
     }
 
-    fn default_path() -> PathBuf {
-        dirs::home_dir()
+    /// Canonical on-disk config location (`~/.auto-tundra/config.toml`).
+    ///
+    /// This is the single file the daemon, desktop app and the settings API
+    /// (`SettingsManager::default_path`) all read and write.
+    pub fn default_path() -> PathBuf {
+        crate::paths::home_dir()
             .unwrap_or_else(|| PathBuf::from("."))
             .join(".auto-tundra")
             .join("config.toml")
@@ -477,6 +485,9 @@ pub struct DaemonConfig {
     pub host: String,
     #[serde(default)]
     pub tls: bool,
+    /// Stuck-agent patrol thresholds (`[daemon.patrol]`).
+    #[serde(default)]
+    pub patrol: PatrolConfig,
 }
 
 impl Default for DaemonConfig {
@@ -485,8 +496,60 @@ impl Default for DaemonConfig {
             port: default_daemon_port(),
             host: default_daemon_host(),
             tls: false,
+            patrol: PatrolConfig::default(),
         }
     }
+}
+
+/// Stuck-session detection policy for the daemon patrol (`[daemon.patrol]`).
+///
+/// An agent with a live session whose `last_seen` heartbeat is older than
+/// `ping_timeout_secs` fails a health check; after `consecutive_failures`
+/// failed checks in a row it is force-killed, and its slot is held for
+/// `kill_cooldown_secs` before it may be reused. Defaults follow gastown's
+/// deacon (30 s / 3 / 5 min). On by default: `at-agents` executors register
+/// one agent per spawned CLI process and heartbeat `last_seen` (every 5 s
+/// while the process is observed alive) through the event bus into the live
+/// registry, so only agents whose executor stopped reporting are killed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PatrolConfig {
+    /// Master switch for stuck-agent detection and force-kill. On by default
+    /// (executors heartbeat `Agent.last_seen`); set `false` to disable.
+    #[serde(default = "default_patrol_enabled")]
+    pub enabled: bool,
+    /// Seconds of heartbeat silence after which a health check fails.
+    #[serde(default = "default_patrol_ping_timeout_secs")]
+    pub ping_timeout_secs: u64,
+    /// Consecutive failed health checks before an agent is force-killed.
+    #[serde(default = "default_patrol_consecutive_failures")]
+    pub consecutive_failures: u32,
+    /// Seconds after a force-kill before the agent slot may be reused.
+    #[serde(default = "default_patrol_kill_cooldown_secs")]
+    pub kill_cooldown_secs: u64,
+}
+
+impl Default for PatrolConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_patrol_enabled(),
+            ping_timeout_secs: default_patrol_ping_timeout_secs(),
+            consecutive_failures: default_patrol_consecutive_failures(),
+            kill_cooldown_secs: default_patrol_kill_cooldown_secs(),
+        }
+    }
+}
+
+fn default_patrol_enabled() -> bool {
+    true
+}
+fn default_patrol_ping_timeout_secs() -> u64 {
+    30
+}
+fn default_patrol_consecutive_failures() -> u32 {
+    3
+}
+fn default_patrol_kill_cooldown_secs() -> u64 {
+    300
 }
 
 fn default_daemon_port() -> u16 {
@@ -684,6 +747,19 @@ pub struct TerminalConfig {
     pub font_size: u8,
     #[serde(default = "default_cursor_style")]
     pub cursor_style: String,
+    /// Attach a PTY pool to the daemon so `POST /api/terminals` and
+    /// `/ws/terminal/{id}` work. When `false` the terminal API returns 503.
+    #[serde(default = "default_pty_pool_enabled")]
+    pub pty_pool_enabled: bool,
+    /// Maximum number of concurrently running PTY sessions.
+    #[serde(default = "default_max_ptys")]
+    pub max_ptys: usize,
+    /// Close a terminal WebSocket only after the *client* has been silent
+    /// (no frames, including Pong replies to the server's 30 s Pings) for this
+    /// many seconds, i.e. the connection is dead. Quiet PTY output never
+    /// closes the connection. `0` disables the check.
+    #[serde(default = "default_ws_liveness_timeout_secs")]
+    pub ws_liveness_timeout_secs: u64,
 }
 
 impl Default for TerminalConfig {
@@ -692,8 +768,21 @@ impl Default for TerminalConfig {
             font_family: default_term_font_family(),
             font_size: default_term_font_size(),
             cursor_style: default_cursor_style(),
+            pty_pool_enabled: default_pty_pool_enabled(),
+            max_ptys: default_max_ptys(),
+            ws_liveness_timeout_secs: default_ws_liveness_timeout_secs(),
         }
     }
+}
+
+fn default_pty_pool_enabled() -> bool {
+    true
+}
+fn default_max_ptys() -> usize {
+    16
+}
+fn default_ws_liveness_timeout_secs() -> u64 {
+    120
 }
 
 fn default_term_font_family() -> String {
@@ -740,6 +829,19 @@ pub struct IntegrationConfig {
     /// Linear team ID to scope issues.
     #[serde(default)]
     pub linear_team_id: Option<String>,
+    /// Env var name for the Gitea token (default: `GITEA_TOKEN`). This is the
+    /// variable's *name*; the token itself is never stored in config.
+    #[serde(default = "default_gitea_env")]
+    pub gitea_token_env: String,
+    /// Gitea instance URL (default: `http://gitea.local:3000`, the fleet QNAS).
+    #[serde(default)]
+    pub gitea_url: Option<String>,
+    /// Gitea repository owner (user or org).
+    #[serde(default)]
+    pub gitea_owner: Option<String>,
+    /// Gitea repository name.
+    #[serde(default)]
+    pub gitea_repo: Option<String>,
 }
 
 impl Default for IntegrationConfig {
@@ -753,6 +855,10 @@ impl Default for IntegrationConfig {
             gitlab_url: None,
             linear_api_key_env: default_linear_env(),
             linear_team_id: None,
+            gitea_token_env: default_gitea_env(),
+            gitea_url: None,
+            gitea_owner: None,
+            gitea_repo: None,
         }
     }
 }
@@ -765,6 +871,9 @@ fn default_gitlab_env() -> String {
 }
 fn default_linear_env() -> String {
     "LINEAR_API_KEY".into()
+}
+fn default_gitea_env() -> String {
+    "GITEA_TOKEN".into()
 }
 
 // ---------------------------------------------------------------------------
@@ -1047,77 +1156,44 @@ pub struct CredentialProvider;
 
 impl CredentialProvider {
     /// Read the daemon API key from the `AUTO_TUNDRA_API_KEY` env var.
-    /// Returns `None` in dev mode (var not set).
+    /// Returns `None` when the var is unset or blank.
     pub fn daemon_api_key() -> Option<String> {
-        std::env::var("AUTO_TUNDRA_API_KEY").ok()
+        usable_daemon_key(std::env::var(DAEMON_API_KEY_ENV).ok())
+    }
+
+    /// Discover the daemon API key **without ever creating one**.
+    ///
+    /// This is what clients (CLI, TUI, tests, scripts) use. The lookup order
+    /// matches [`ensure_daemon_api_key`](Self::ensure_daemon_api_key) exactly:
+    /// 1. `AUTO_TUNDRA_API_KEY` env var (if non-blank)
+    /// 2. `~/.auto-tundra/daemon.key` (if present and non-blank)
+    pub fn read_daemon_api_key() -> Option<String> {
+        Self::daemon_api_key().or_else(|| read_key_file(&Self::daemon_key_path()))
     }
 
     /// Ensure a daemon API key is available, auto-generating one if needed.
-    /// Returns a valid API key (never None).
+    /// Returns a valid, non-empty API key (never None).
     ///
     /// Behavior:
-    /// 1. If `AUTO_TUNDRA_API_KEY` env var is set, returns it
-    /// 2. Otherwise, reads or generates `~/.auto-tundra/daemon.key`
-    /// 3. Auto-generated keys are stored with 0o600 permissions (owner read/write only)
+    /// 1. If `AUTO_TUNDRA_API_KEY` env var is set and non-blank, returns it
+    /// 2. Otherwise, reads `~/.auto-tundra/daemon.key`, or generates it when
+    ///    missing or blank
+    /// 3. Auto-generated keys are created with 0o600 permissions (owner
+    ///    read/write only) from the first byte written
     pub fn ensure_daemon_api_key() -> String {
         // Check env var first (takes precedence)
-        if let Ok(key) = std::env::var("AUTO_TUNDRA_API_KEY") {
+        if let Some(key) = Self::daemon_api_key() {
             return key;
         }
 
         // Otherwise, generate or read from file
-        Self::generate_and_store_api_key()
+        ensure_key_file(&Self::daemon_key_path())
     }
 
-    /// Generate and store a new API key, or read existing one from disk.
-    /// Creates `~/.auto-tundra/daemon.key` with 0o600 permissions if it doesn't exist.
-    fn generate_and_store_api_key() -> String {
-        let key_path = Self::daemon_key_path();
-
-        // Read existing key if it exists
-        if key_path.exists() {
-            if let Ok(key) = std::fs::read_to_string(&key_path) {
-                return key.trim().to_string();
-            }
-        }
-
-        // Generate new key
-        let new_key = uuid::Uuid::new_v4().to_string();
-
-        // Ensure parent directory exists
-        if let Some(parent) = key_path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-
-        // Write key to file
-        if let Err(e) = std::fs::write(&key_path, &new_key) {
-            eprintln!(
-                "Warning: failed to write daemon key to {:?}: {}",
-                key_path, e
-            );
-            return new_key;
-        }
-
-        // Set file permissions to 0o600 (owner read/write only)
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            if let Ok(metadata) = std::fs::metadata(&key_path) {
-                let mut perms = metadata.permissions();
-                perms.set_mode(0o600);
-                let _ = std::fs::set_permissions(&key_path, perms);
-            }
-        }
-
-        new_key
-    }
-
-    /// Get the path to the daemon key file.
-    fn daemon_key_path() -> PathBuf {
-        dirs::home_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join(".auto-tundra")
-            .join("daemon.key")
+    /// Path of the daemon key file: `~/.auto-tundra/daemon.key`, next to the
+    /// `daemon.lock` port file (see [`crate::lockfile`]).
+    pub fn daemon_key_path() -> PathBuf {
+        crate::lockfile::data_dir().join("daemon.key")
     }
 
     /// Read the Anthropic API key from the `ANTHROPIC_API_KEY` env var.
@@ -1153,6 +1229,153 @@ impl CredentialProvider {
         if Self::from_env("LINEAR_API_KEY").is_some() {
             providers.push("linear");
         }
+        if Self::from_env("GITEA_TOKEN").is_some() {
+            providers.push("gitea");
+        }
         providers
+    }
+}
+
+/// Env var that overrides the on-disk daemon API key.
+/// Mirrors `at_api_types::auth::API_KEY_ENV`.
+pub const DAEMON_API_KEY_ENV: &str = "AUTO_TUNDRA_API_KEY";
+
+/// Trim a candidate key; blank keys are treated as absent so that an empty
+/// env var or key file can never become an "empty password".
+fn usable_daemon_key(raw: Option<String>) -> Option<String> {
+    let key = raw?.trim().to_string();
+    if key.is_empty() {
+        None
+    } else {
+        Some(key)
+    }
+}
+
+/// Read a key file; `None` when missing, unreadable, or blank.
+fn read_key_file(path: &std::path::Path) -> Option<String> {
+    usable_daemon_key(std::fs::read_to_string(path).ok())
+}
+
+/// Return the key stored at `path`, generating and persisting a fresh one if
+/// the file is missing or blank.
+fn ensure_key_file(path: &std::path::Path) -> String {
+    if let Some(key) = read_key_file(path) {
+        return key;
+    }
+
+    let new_key = uuid::Uuid::new_v4().to_string();
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600);
+    }
+    let written = opts.open(path).and_then(|mut f| {
+        use std::io::Write;
+        f.write_all(new_key.as_bytes())?;
+        f.sync_all()
+    });
+    if let Err(e) = written {
+        eprintln!(
+            "Warning: failed to write daemon key to {}: {}",
+            path.display(),
+            e
+        );
+        return new_key;
+    }
+
+    // `mode` only applies on create; tighten an existing (blank) file too.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+    }
+
+    new_key
+}
+
+#[cfg(test)]
+mod daemon_key_tests {
+    use super::*;
+
+    #[test]
+    fn blank_keys_are_not_usable() {
+        assert_eq!(usable_daemon_key(None), None);
+        assert_eq!(usable_daemon_key(Some(String::new())), None);
+        assert_eq!(usable_daemon_key(Some("  \n".into())), None);
+        assert_eq!(usable_daemon_key(Some(" k1 \n".into())), Some("k1".into()));
+    }
+
+    #[test]
+    fn ensure_generates_then_reads_back_same_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sub").join("daemon.key");
+        assert_eq!(read_key_file(&path), None);
+
+        let k1 = ensure_key_file(&path);
+        assert!(!k1.is_empty());
+        assert_eq!(read_key_file(&path).as_deref(), Some(k1.as_str()));
+        assert_eq!(ensure_key_file(&path), k1);
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o600);
+        }
+    }
+
+    #[test]
+    fn ensure_replaces_blank_key_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("daemon.key");
+        std::fs::write(&path, "   \n").unwrap();
+        assert_eq!(read_key_file(&path), None);
+
+        let key = ensure_key_file(&path);
+        assert!(!key.trim().is_empty());
+        assert_eq!(read_key_file(&path).as_deref(), Some(key.as_str()));
+    }
+}
+
+#[cfg(test)]
+mod patrol_config_tests {
+    use super::*;
+
+    #[test]
+    fn config_default_path_is_home_auto_tundra_config_toml() {
+        let home = crate::paths::home_dir().unwrap_or_else(|| PathBuf::from("."));
+        assert_eq!(
+            Config::default_path(),
+            home.join(".auto-tundra").join("config.toml")
+        );
+    }
+
+    #[test]
+    fn patrol_defaults_match_gastown_deacon() {
+        let p = Config::default().daemon.patrol;
+        assert!(p.enabled, "on: executors heartbeat last_seen");
+        assert_eq!(p.ping_timeout_secs, 30);
+        assert_eq!(p.consecutive_failures, 3);
+        assert_eq!(p.kill_cooldown_secs, 300);
+    }
+
+    #[test]
+    fn patrol_section_is_optional_and_partially_overridable() {
+        let cfg: Config = toml::from_str("[daemon]\nport = 1234\n").expect("parse");
+        assert_eq!(cfg.daemon.patrol, PatrolConfig::default());
+
+        let cfg: Config =
+            toml::from_str("[daemon.patrol]\nenabled = false\nconsecutive_failures = 5\n")
+                .expect("parse");
+        assert!(!cfg.daemon.patrol.enabled, "explicit opt-out is honoured");
+        assert_eq!(cfg.daemon.patrol.consecutive_failures, 5);
+        assert_eq!(cfg.daemon.patrol.ping_timeout_secs, 30);
+        assert_eq!(cfg.daemon.port, 9876);
     }
 }

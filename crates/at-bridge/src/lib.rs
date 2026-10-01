@@ -4,7 +4,7 @@
 //! exposing the core agent system through multiple channels:
 //! - HTTP API server with authentication
 //! - WebSocket terminal connections
-//! - IPC command registry and protocol
+//! - IPC protocol
 //! - Event bus for system-wide notifications
 //! - Intelligence API client for LLM integration
 //!
@@ -15,10 +15,9 @@
 //! - [`auth`] — API key authentication middleware
 //! - [`event_bus`] — Pub/sub event system
 
+pub mod agent_registry;
 pub mod api_error;
 pub mod auth;
-pub mod command_registry;
-pub mod commands;
 pub mod event_bus;
 pub mod http_api;
 pub mod intelligence_api;

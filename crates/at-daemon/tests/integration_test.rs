@@ -211,6 +211,41 @@ async fn test_kpi_updates_when_beads_added() {
     assert_eq!(body["done"], 2);
 }
 
+#[tokio::test]
+async fn test_daemon_kpi_refresh_uses_live_api_state() {
+    use at_core::types::{Agent, AgentRole, Bead, BeadStatus, CliType, Lane};
+    use at_daemon::kpi::KpiCollector;
+
+    let bus = EventBus::new();
+    let rx = bus.subscribe();
+    let state = ApiState::new(bus.clone());
+    {
+        let mut beads = state.beads.write().await;
+        let mut b = Bead::new("slung", Lane::Standard);
+        b.status = BeadStatus::Slung;
+        beads.insert(b.id, b);
+        let b = Bead::new("backlog", Lane::Standard);
+        beads.insert(b.id, b);
+        let a = Agent::new("crew", AgentRole::Crew, CliType::Claude);
+        state.agents.write().await.insert(a.id, a);
+    }
+
+    // The daemon's cache is empty; the tick must not zero the live KPI.
+    let snap = KpiCollector::new().refresh_live(&state, &bus).await;
+    assert_eq!(snap.total_beads, 2);
+    assert_eq!(snap.slung, 1);
+    assert_eq!(snap.active_agents, 1);
+    assert_eq!(state.kpi.read().await.total_beads, 2);
+
+    let update = std::iter::from_fn(|| rx.try_recv().ok())
+        .find_map(|m| match &*m {
+            BridgeMessage::KpiUpdate(p) => Some(p.total_beads),
+            _ => None,
+        })
+        .expect("KpiUpdate broadcast");
+    assert_eq!(update, 2);
+}
+
 // ===========================================================================
 // Settings GET / PUT cycle
 // ===========================================================================

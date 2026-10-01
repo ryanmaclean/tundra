@@ -99,6 +99,17 @@ impl ChangelogEngine {
     /// This is a synchronous parser — the actual LLM call happens in the API
     /// layer.
     pub fn generate_from_commits(&mut self, commits: &str, version: &str) -> ChangelogEntry {
+        let entry = Self::build_entry(commits, version);
+        self.entries.push(entry.clone());
+        entry
+    }
+
+    /// Parse `commits` into a [`ChangelogEntry`] **without** storing it.
+    ///
+    /// Pure counterpart of [`Self::generate_from_commits`], for read-only
+    /// callers (e.g. `GET /api/changelog?source=tasks`) that must not mutate
+    /// engine state.
+    pub fn build_entry(commits: &str, version: &str) -> ChangelogEntry {
         use std::collections::BTreeMap;
 
         // Accumulate items per category.
@@ -170,22 +181,24 @@ impl ChangelogEngine {
             });
         }
 
-        let entry = ChangelogEntry {
+        ChangelogEntry {
             id: Uuid::new_v4(),
             version: version.to_string(),
             date: Utc::now(),
             sections,
-        };
-
-        self.entries.push(entry.clone());
-        entry
+        }
     }
 
     /// Render all changelog entries as a Keep-a-Changelog-style markdown string.
     pub fn generate_markdown(&self) -> String {
+        Self::render_entries(&self.entries)
+    }
+
+    /// Render `entries` as a Keep-a-Changelog-style markdown string.
+    pub fn render_entries(entries: &[ChangelogEntry]) -> String {
         let mut md = String::from("# Changelog\n\n");
 
-        for entry in &self.entries {
+        for entry in entries {
             md.push_str(&format!(
                 "## [{}] - {}\n\n",
                 entry.version,

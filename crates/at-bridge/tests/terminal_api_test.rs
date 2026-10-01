@@ -214,6 +214,53 @@ async fn test_delete_nonexistent_terminal_returns_404() {
     assert!(body["error"].as_str().unwrap().contains("not found"));
 }
 
+/// Regression: `DELETE /api/terminals/{id}` removed the terminal from the
+/// registry, PTY handles, pool and disconnect buffers, but never dropped its
+/// entry in `ApiState::terminal_conns`. Nothing else ever reaps that entry
+/// for a terminal that no longer exists (the reconnect-grace task that
+/// normally does so only runs when a WebSocket disconnects on its own), so
+/// every terminal deleted while a client was still attached leaked forever.
+#[tokio::test]
+async fn test_delete_terminal_removes_conn_tracking_while_connected() {
+    let (base, state) = start_test_server().await;
+    let client = reqwest::Client::new();
+
+    // Create, then connect a WebSocket so the handler's attach step
+    // populates `terminal_conns`.
+    let terminal = create_terminal(&client, &base).await;
+    let tid: Uuid = terminal["id"].as_str().unwrap().parse().unwrap();
+    let ws_url = base.replace("http://", "ws://") + &format!("/ws/terminal/{tid}");
+    let (_ws_stream, _) = tokio_tungstenite::connect_async(ws_request(&ws_url))
+        .await
+        .expect("failed to connect to terminal websocket");
+
+    let mut attached = false;
+    for _ in 0..50 {
+        if state.terminal_conns.lock().await.contains_key(&tid) {
+            attached = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(
+        attached,
+        "expected terminal_conns to hold an entry once the WS attached"
+    );
+
+    // Delete via the REST path while the WebSocket is still attached.
+    let resp = client
+        .delete(format!("{base}/api/terminals/{tid}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    assert!(
+        !state.terminal_conns.lock().await.contains_key(&tid),
+        "terminal_conns entry must be removed when the terminal is deleted"
+    );
+}
+
 #[tokio::test]
 async fn test_terminal_capacity_limit() {
     // Pool capacity of 2.

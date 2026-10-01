@@ -203,6 +203,8 @@ fn test_llm_response_fields() {
         model: "claude-sonnet-4-20250514".to_string(),
         input_tokens: 150,
         output_tokens: 42,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
         finish_reason: "end_turn".to_string(),
     };
     assert_eq!(resp.content, "Hello, world!");
@@ -219,6 +221,8 @@ fn test_llm_response_serialization() {
         model: "gpt-4".to_string(),
         input_tokens: 100,
         output_tokens: 50,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
         finish_reason: "stop".to_string(),
     };
     let json = serde_json::to_string(&resp).unwrap();
@@ -237,6 +241,8 @@ fn test_llm_response_with_zero_tokens() {
         model: "test".to_string(),
         input_tokens: 0,
         output_tokens: 0,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
         finish_reason: "length".to_string(),
     };
     assert_eq!(resp.input_tokens, 0);
@@ -367,6 +373,8 @@ async fn test_mock_provider_returns_queued_response() {
         model: "custom-model".to_string(),
         input_tokens: 42,
         output_tokens: 99,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
         finish_reason: "stop".to_string(),
     };
     let provider = MockProvider::new().with_response(custom_response);
@@ -425,6 +433,8 @@ async fn test_mock_provider_multiple_calls() {
         model: "model-1".to_string(),
         input_tokens: 10,
         output_tokens: 5,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
         finish_reason: "end_turn".to_string(),
     };
     let resp2 = LlmResponse {
@@ -432,6 +442,8 @@ async fn test_mock_provider_multiple_calls() {
         model: "model-2".to_string(),
         input_tokens: 20,
         output_tokens: 15,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
         finish_reason: "stop".to_string(),
     };
     let provider = MockProvider::new()
@@ -518,6 +530,8 @@ async fn test_mock_provider_mixed_responses_and_errors() {
         model: "m".to_string(),
         input_tokens: 1,
         output_tokens: 1,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
         finish_reason: "stop".to_string(),
     };
     let provider = MockProvider::new()
@@ -600,8 +614,14 @@ fn test_anthropic_provider_system_extraction() {
 
     let body = AnthropicProvider::build_request_body(&messages, &config);
 
-    // System messages extracted to top-level system field
-    assert_eq!(body["system"], "Be concise");
+    // System messages extracted to top-level system field as a content-block array.
+    // Short prompts (<1024 tokens) do not get cache_control injected.
+    let system_blocks = body["system"].as_array().unwrap();
+    assert_eq!(system_blocks.len(), 1);
+    assert_eq!(system_blocks[0]["type"], "text");
+    assert_eq!(system_blocks[0]["text"], "Be concise");
+    // Short prompt — no cache_control injected
+    assert!(system_blocks[0].get("cache_control").is_none());
     let msgs = body["messages"].as_array().unwrap();
     assert_eq!(msgs.len(), 3); // user, assistant, user (no system inline)
     for msg in msgs {
@@ -623,9 +643,43 @@ fn test_anthropic_provider_config_system_plus_message_system() {
     };
 
     let body = AnthropicProvider::build_request_body(&messages, &config);
-    let system = body["system"].as_str().unwrap();
-    assert!(system.contains("Base system prompt"));
-    assert!(system.contains("Additional instruction"));
+    // system is now a content-block array; short prompts have no cache_control.
+    let system_blocks = body["system"].as_array().unwrap();
+    assert_eq!(system_blocks.len(), 1);
+    let system_text = system_blocks[0]["text"].as_str().unwrap();
+    assert!(system_text.contains("Base system prompt"));
+    assert!(system_text.contains("Additional instruction"));
+}
+
+#[test]
+fn test_anthropic_provider_cache_control_injected_for_large_system_prompt() {
+    // System prompts >= 1024 tokens (~4096 chars) get cache_control: ephemeral.
+    let large_system = "x".repeat(4096);
+    let config = LlmConfig {
+        model: "claude-sonnet-4-6".to_string(),
+        max_tokens: 256,
+        temperature: 0.0,
+        system_prompt: Some(large_system),
+    };
+    let body = AnthropicProvider::build_request_body(&[], &config);
+    let system_blocks = body["system"].as_array().unwrap();
+    assert_eq!(system_blocks.len(), 1);
+    assert_eq!(system_blocks[0]["cache_control"]["type"], "ephemeral");
+}
+
+#[test]
+fn test_anthropic_provider_no_cache_control_for_small_system_prompt() {
+    // System prompts < 1024 tokens get no cache_control to avoid surcharge.
+    let config = LlmConfig {
+        model: "claude-sonnet-4-6".to_string(),
+        max_tokens: 256,
+        temperature: 0.0,
+        system_prompt: Some("Be concise".to_string()),
+    };
+    let body = AnthropicProvider::build_request_body(&[], &config);
+    let system_blocks = body["system"].as_array().unwrap();
+    assert_eq!(system_blocks.len(), 1);
+    assert!(system_blocks[0].get("cache_control").is_none());
 }
 
 #[tokio::test]
@@ -838,6 +892,8 @@ fn test_usage_tracker_record() {
         model: "test".to_string(),
         input_tokens: 100,
         output_tokens: 50,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
         finish_reason: "end_turn".to_string(),
     };
 
@@ -858,6 +914,8 @@ fn test_usage_tracker_multiple_records() {
             model: "m".to_string(),
             input_tokens: i * 10,
             output_tokens: i * 5,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
             finish_reason: "stop".to_string(),
         };
         tracker.record(&resp);

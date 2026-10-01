@@ -77,6 +77,9 @@ async fn seed_tasks(state: &ApiState, count: usize) -> Vec<Uuid> {
             stack_position: None,
             pr_number: None,
             build_logs: vec![],
+            acceptance_criteria: vec![],
+            merge_gate_report: None,
+            merged_at: None,
         };
         tasks.insert(task_id, task);
         ids.push(task_id);
@@ -134,7 +137,7 @@ async fn seed_projects(state: &ApiState, count: usize) -> Vec<Uuid> {
             created_at: chrono::Utc::now().to_rfc3339(),
             is_active: true,
         };
-        projects.push(project);
+        projects.insert(project_id, project);
         ids.push(project_id);
     }
     ids

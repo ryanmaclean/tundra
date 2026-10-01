@@ -40,6 +40,15 @@ pub trait RoleConfig {
     fn preferred_model(&self) -> Option<&str> {
         None
     }
+
+    /// The [`AgentRole`] whose approval policies govern this config, if any.
+    ///
+    /// The executor resolves `ToolApprovalSystem` policies for this role.
+    /// Configs that return `None` (e.g. plugin agents) are checked as
+    /// [`AgentRole::Crew`], the base role for specialised agents.
+    fn agent_role(&self) -> Option<AgentRole> {
+        None
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -116,6 +125,10 @@ impl Default for MayorAgent {
 }
 
 impl RoleConfig for MayorAgent {
+    fn agent_role(&self) -> Option<AgentRole> {
+        Some(AgentRole::Mayor)
+    }
+
     fn system_prompt(&self) -> &str {
         MAYOR_SYSTEM_PROMPT
     }
@@ -234,6 +247,10 @@ impl Default for DeaconAgent {
 }
 
 impl RoleConfig for DeaconAgent {
+    fn agent_role(&self) -> Option<AgentRole> {
+        Some(AgentRole::Deacon)
+    }
+
     fn system_prompt(&self) -> &str {
         DEACON_SYSTEM_PROMPT
     }
@@ -350,6 +367,10 @@ impl Default for WitnessAgent {
 }
 
 impl RoleConfig for WitnessAgent {
+    fn agent_role(&self) -> Option<AgentRole> {
+        Some(AgentRole::Witness)
+    }
+
     fn system_prompt(&self) -> &str {
         WITNESS_SYSTEM_PROMPT
     }
@@ -464,6 +485,10 @@ impl Default for RefineryAgent {
 }
 
 impl RoleConfig for RefineryAgent {
+    fn agent_role(&self) -> Option<AgentRole> {
+        Some(AgentRole::Refinery)
+    }
+
     fn system_prompt(&self) -> &str {
         REFINERY_SYSTEM_PROMPT
     }
@@ -580,6 +605,10 @@ impl Default for PolecatAgent {
 }
 
 impl RoleConfig for PolecatAgent {
+    fn agent_role(&self) -> Option<AgentRole> {
+        Some(AgentRole::Polecat)
+    }
+
     fn system_prompt(&self) -> &str {
         POLECAT_SYSTEM_PROMPT
     }
@@ -700,6 +729,10 @@ impl Default for CrewAgent {
 }
 
 impl RoleConfig for CrewAgent {
+    fn agent_role(&self) -> Option<AgentRole> {
+        Some(AgentRole::Crew)
+    }
+
     fn system_prompt(&self) -> &str {
         CREW_SYSTEM_PROMPT
     }

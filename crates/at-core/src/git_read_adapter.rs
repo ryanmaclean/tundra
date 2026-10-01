@@ -191,7 +191,7 @@ impl GitReadAdapter for Git2ReadAdapter {
         Ok(statuses
             .iter()
             .filter(|s| s.status().contains(git2::Status::CONFLICTED))
-            .filter_map(|s| s.path().map(ToOwned::to_owned))
+            .filter_map(|s| s.path().ok().map(ToOwned::to_owned))
             .collect())
     }
 }

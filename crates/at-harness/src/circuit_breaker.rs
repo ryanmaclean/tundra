@@ -1,7 +1,6 @@
 use std::future::Future;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
-use tokio::sync::Mutex;
 use tracing::{info, warn};
 
 // ---------------------------------------------------------------------------
@@ -47,6 +46,10 @@ pub enum CircuitBreakerError {
     /// The circuit will automatically transition to **HalfOpen** after the
     /// configured timeout period, at which point limited calls will be allowed
     /// through to test if the service has recovered.
+    ///
+    /// Also returned in **HalfOpen** when
+    /// [`CircuitBreakerConfig::half_open_max_calls`] probes are already in
+    /// flight: excess calls are refused until a probe completes.
     #[error("circuit is open – refusing call")]
     Open,
 
@@ -101,6 +104,12 @@ pub struct CircuitBreakerConfig {
     pub timeout: Duration,
     /// Maximum duration for an individual call.
     pub call_timeout: Duration,
+    /// Maximum number of probe calls admitted concurrently while
+    /// **HalfOpen**. Further calls are rejected with
+    /// [`CircuitBreakerError::Open`] until an in-flight probe completes; each
+    /// probe outcome then decides the state (any failure reopens, and
+    /// `success_threshold` successes close). A value of `0` is treated as `1`.
+    pub half_open_max_calls: u32,
 }
 
 impl Default for CircuitBreakerConfig {
@@ -110,6 +119,7 @@ impl Default for CircuitBreakerConfig {
             success_threshold: 2,
             timeout: Duration::from_secs(60),
             call_timeout: Duration::from_secs(30),
+            half_open_max_calls: 1,
         }
     }
 }
@@ -124,6 +134,56 @@ struct InnerState {
     failure_count: u32,
     success_count: u32,
     last_failure_time: Option<Instant>,
+    /// Probes admitted in the current HalfOpen window and not yet completed.
+    half_open_in_flight: u32,
+    /// Bumped on every state transition so a probe's completion only counts
+    /// against the HalfOpen window that admitted it.
+    generation: u64,
+}
+
+impl InnerState {
+    fn transition(&mut self, to: CircuitState) {
+        self.state = to;
+        self.success_count = 0;
+        self.half_open_in_flight = 0;
+        self.generation = self.generation.wrapping_add(1);
+    }
+}
+
+/// A HalfOpen probe slot. Released when the probe completes or, if the
+/// calling future is cancelled mid-probe, on drop -- so an abandoned probe
+/// can never wedge the breaker in HalfOpen.
+struct ProbePermit<'a> {
+    inner: &'a Mutex<InnerState>,
+    generation: u64,
+    armed: bool,
+}
+
+impl ProbePermit<'_> {
+    /// Release the slot under an already-held lock. Returns whether this
+    /// probe still belongs to the current HalfOpen window (i.e. whether its
+    /// outcome should decide the state).
+    fn complete(&mut self, guard: &mut InnerState) -> bool {
+        self.armed = false;
+        let current = guard.state == CircuitState::HalfOpen && guard.generation == self.generation;
+        if current {
+            guard.half_open_in_flight = guard.half_open_in_flight.saturating_sub(1);
+        }
+        current
+    }
+}
+
+impl Drop for ProbePermit<'_> {
+    fn drop(&mut self) {
+        if self.armed {
+            let mut guard = lock(self.inner);
+            self.complete(&mut guard);
+        }
+    }
+}
+
+fn lock(inner: &Mutex<InnerState>) -> MutexGuard<'_, InnerState> {
+    inner.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 // ---------------------------------------------------------------------------
@@ -145,75 +205,65 @@ impl CircuitBreaker {
                 failure_count: 0,
                 success_count: 0,
                 last_failure_time: None,
+                half_open_in_flight: 0,
+                generation: 0,
             })),
         }
     }
 
     /// Returns the current state of the circuit breaker.
     pub async fn state(&self) -> CircuitState {
-        let guard = self.inner.lock().await;
-        guard.state
+        lock(&self.inner).state
     }
 
     /// Returns the current failure count.
     pub async fn failure_count(&self) -> u32 {
-        let guard = self.inner.lock().await;
-        guard.failure_count
+        lock(&self.inner).failure_count
     }
 
     /// Returns the current success count (relevant in half-open).
     pub async fn success_count(&self) -> u32 {
-        let guard = self.inner.lock().await;
-        guard.success_count
+        lock(&self.inner).success_count
+    }
+
+    /// Returns the number of HalfOpen probes currently in flight (always 0
+    /// outside HalfOpen).
+    pub async fn half_open_in_flight(&self) -> u32 {
+        lock(&self.inner).half_open_in_flight
     }
 
     /// Execute `f` through the circuit breaker.
     ///
     /// If the circuit is **Open** and the timeout has not elapsed the call is
     /// rejected immediately.  If the timeout *has* elapsed the circuit moves
-    /// to **HalfOpen** and the call is allowed through.
+    /// to **HalfOpen** and the call is admitted as a probe.  In **HalfOpen**
+    /// at most [`CircuitBreakerConfig::half_open_max_calls`] probes run at
+    /// once; further calls are rejected with [`CircuitBreakerError::Open`].
     pub async fn call<F, Fut, T, E>(&self, f: F) -> Result<T, CircuitBreakerError>
     where
         F: FnOnce() -> Fut,
         Fut: Future<Output = Result<T, E>>,
         E: std::fmt::Display,
     {
-        // --- pre-flight check ---
-        {
-            let mut guard = self.inner.lock().await;
-            match guard.state {
-                CircuitState::Open => {
-                    // Check whether the timeout has elapsed.
-                    if let Some(last) = guard.last_failure_time {
-                        if last.elapsed() >= self.config.timeout {
-                            info!("circuit breaker transitioning Open -> HalfOpen");
-                            guard.state = CircuitState::HalfOpen;
-                            guard.success_count = 0;
-                        } else {
-                            return Err(CircuitBreakerError::Open);
-                        }
-                    } else {
-                        return Err(CircuitBreakerError::Open);
-                    }
-                }
-                CircuitState::Closed | CircuitState::HalfOpen => { /* allow */ }
-            }
-        }
+        // --- pre-flight check (admission) ---
+        let mut permit = self.admit()?;
 
         // --- execute with timeout ---
         let result = tokio::time::timeout(self.config.call_timeout, f()).await;
 
+        let mut guard = lock(&self.inner);
+        let is_current_probe = permit.as_mut().is_some_and(|p| p.complete(&mut guard));
         match result {
             Ok(Ok(value)) => {
-                self.record_success().await;
+                self.record_success(&mut guard, is_current_probe);
                 Ok(value)
             }
             Ok(Err(e)) => {
-                self.record_failure().await;
+                self.record_failure(&mut guard, is_current_probe);
                 Err(CircuitBreakerError::Inner(e.to_string()))
             }
             Err(_elapsed) => {
-                self.record_failure().await;
+                self.record_failure(&mut guard, is_current_probe);
                 Err(CircuitBreakerError::Timeout(self.config.call_timeout))
             }
         }
@@ -221,56 +271,91 @@ impl CircuitBreaker {
 
     // ----- helpers -----
 
-    async fn record_success(&self) {
-        let mut guard = self.inner.lock().await;
+    /// Decide whether a call may run. `Ok(Some(_))` admits a HalfOpen probe,
+    /// `Ok(None)` admits a normal Closed-state call.
+    fn admit(&self) -> Result<Option<ProbePermit<'_>>, CircuitBreakerError> {
+        let mut guard = lock(&self.inner);
+        if guard.state == CircuitState::Open {
+            match guard.last_failure_time {
+                Some(last) if last.elapsed() >= self.config.timeout => {
+                    info!("circuit breaker transitioning Open -> HalfOpen");
+                    guard.transition(CircuitState::HalfOpen);
+                }
+                _ => return Err(CircuitBreakerError::Open),
+            }
+        }
         match guard.state {
+            CircuitState::Closed => Ok(None),
             CircuitState::HalfOpen => {
+                if guard.half_open_in_flight >= self.config.half_open_max_calls.max(1) {
+                    return Err(CircuitBreakerError::Open);
+                }
+                guard.half_open_in_flight += 1;
+                Ok(Some(ProbePermit {
+                    inner: &self.inner,
+                    generation: guard.generation,
+                    armed: true,
+                }))
+            }
+            CircuitState::Open => Err(CircuitBreakerError::Open),
+        }
+    }
+
+    fn record_success(&self, guard: &mut InnerState, is_current_probe: bool) {
+        match guard.state {
+            CircuitState::HalfOpen if is_current_probe => {
                 guard.success_count += 1;
                 if guard.success_count >= self.config.success_threshold {
                     info!("circuit breaker transitioning HalfOpen -> Closed");
-                    guard.state = CircuitState::Closed;
+                    guard.transition(CircuitState::Closed);
                     guard.failure_count = 0;
-                    guard.success_count = 0;
                 }
             }
             CircuitState::Closed => {
                 // Reset failure streak on success.
                 guard.failure_count = 0;
             }
-            CircuitState::Open => { /* shouldn't happen */ }
+            // A call admitted before the current HalfOpen window (or while
+            // Open) carries no information about the probe; ignore it.
+            CircuitState::HalfOpen | CircuitState::Open => {}
         }
     }
 
-    async fn record_failure(&self) {
-        let mut guard = self.inner.lock().await;
-        guard.failure_count += 1;
-        guard.last_failure_time = Some(Instant::now());
-
+    fn record_failure(&self, guard: &mut InnerState, is_current_probe: bool) {
         match guard.state {
             CircuitState::Closed => {
+                guard.failure_count += 1;
+                guard.last_failure_time = Some(Instant::now());
                 if guard.failure_count >= self.config.failure_threshold {
                     warn!(
                         failures = guard.failure_count,
                         "circuit breaker transitioning Closed -> Open"
                     );
-                    guard.state = CircuitState::Open;
+                    guard.transition(CircuitState::Open);
                 }
             }
-            CircuitState::HalfOpen => {
+            CircuitState::HalfOpen if is_current_probe => {
+                guard.failure_count += 1;
+                guard.last_failure_time = Some(Instant::now());
                 warn!("circuit breaker transitioning HalfOpen -> Open (failure during probe)");
-                guard.state = CircuitState::Open;
-                guard.success_count = 0;
+                guard.transition(CircuitState::Open);
             }
-            CircuitState::Open => { /* already open */ }
+            // Stale result from a call admitted before this HalfOpen window:
+            // don't let it reopen the circuit mid-probe.
+            CircuitState::HalfOpen => {}
+            CircuitState::Open => {
+                // Late failure while already open: extend the open window.
+                guard.failure_count += 1;
+                guard.last_failure_time = Some(Instant::now());
+            }
         }
     }
 
     /// Manually reset the circuit breaker to the **Closed** state.
     pub async fn reset(&self) {
-        let mut guard = self.inner.lock().await;
-        guard.state = CircuitState::Closed;
+        let mut guard = lock(&self.inner);
+        guard.transition(CircuitState::Closed);
         guard.failure_count = 0;
-        guard.success_count = 0;
         guard.last_failure_time = None;
     }
 
@@ -283,7 +368,7 @@ impl CircuitBreaker {
     /// treat the timeout as having expired.
     #[cfg(test)]
     pub(crate) async fn force_open_elapsed(&self, elapsed: Duration) {
-        let mut guard = self.inner.lock().await;
+        let mut guard = lock(&self.inner);
         guard.state = CircuitState::Open;
         guard.last_failure_time = Instant::now().checked_sub(elapsed);
     }
@@ -308,6 +393,7 @@ mod tests {
             success_threshold,
             timeout: Duration::from_secs(timeout_secs),
             call_timeout: Duration::from_secs(5),
+            half_open_max_calls: 1,
         }
     }
 

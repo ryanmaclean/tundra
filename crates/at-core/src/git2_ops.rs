@@ -270,7 +270,7 @@ impl Git2ReadOps {
             let oid = oid_result.map_err(RepoError::from)?;
             let commit = repo.find_commit(oid).map_err(RepoError::from)?;
 
-            let message = commit.summary().unwrap_or("").to_string();
+            let message = commit.summary().ok().flatten().unwrap_or("").to_string();
 
             let author = commit.author();
             let author_name = author.name().unwrap_or("").to_string();
@@ -595,11 +595,12 @@ impl Git2ReadOps {
         let mut total_lines = 0u32;
 
         for hunk in blame.iter() {
+            // git2 0.21 returns None for hunks without a signature (the
+            // RUSTSEC-2026-0184 fix) and Err for non-UTF-8 names.
             let author = hunk
                 .final_signature()
-                .name()
-                .unwrap_or("unknown")
-                .to_string();
+                .and_then(|sig| sig.name().ok().map(str::to_owned))
+                .unwrap_or_else(|| "unknown".to_string());
             let lines = hunk.lines_in_hunk() as u32;
             *author_lines.entry(author).or_insert(0) += lines;
             total_lines += lines;

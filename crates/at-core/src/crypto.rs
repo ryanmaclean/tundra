@@ -104,9 +104,10 @@ impl From<Unspecified> for CryptoError {
 // ---------------------------------------------------------------------------
 
 /// A cryptographic key that is automatically zeroed from memory when dropped.
+///
+/// Note: `Clone` produces an independent copy that is also zeroized on drop.
 #[derive(Clone, Zeroize, ZeroizeOnDrop)]
 pub struct EncryptionKey {
-    #[zeroize(skip)]
     bytes: [u8; KEY_LEN],
 }
 
@@ -264,6 +265,17 @@ pub fn decrypt(key: &EncryptionKey, ciphertext: &[u8]) -> Result<Vec<u8>, Crypto
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn encryption_key_zeroize_clears_bytes() {
+        let mut key = EncryptionKey::from_bytes(&[0xAB; KEY_LEN]).unwrap();
+        assert!(key.as_bytes().iter().all(|b| *b == 0xAB));
+        key.zeroize();
+        assert!(
+            key.as_bytes().iter().all(|b| *b == 0),
+            "derived Zeroize must clear key material (no #[zeroize(skip)])"
+        );
+    }
 
     #[test]
     fn test_key_generation() {
