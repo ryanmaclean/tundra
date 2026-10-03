@@ -67,9 +67,7 @@ impl From<reqwest::Error> for LlmError {
 /// All other errors (rate limits, 5xx, network failures, timeouts) are
 /// **transient** and warrant trying the next provider via
 /// [`RetryDecision::Retry`].
-pub fn lm_error_to_retry_decision(
-    e: LlmError,
-) -> crate::api_profiles::RetryDecision<LlmError> {
+pub fn lm_error_to_retry_decision(e: LlmError) -> crate::api_profiles::RetryDecision<LlmError> {
     use crate::api_profiles::RetryDecision;
     // Use `matches!` to borrow-check safely: the temporary borrow of `e`
     // ends before we move `e` into the GiveUp/Retry variant.
@@ -1516,7 +1514,9 @@ mod retry_decision_tests {
                 async move {
                     cnt.fetch_add(1, Ordering::SeqCst);
                     if name == "primary" {
-                        let err = LlmError::RateLimited { retry_after_secs: Some(5) };
+                        let err = LlmError::RateLimited {
+                            retry_after_secs: Some(5),
+                        };
                         Err(lm_error_to_retry_decision(err))
                     } else {
                         Ok::<String, _>("ok:secondary".into())
@@ -1565,36 +1565,65 @@ mod retry_decision_tests {
     // -----------------------------------------------------------------------
     #[test]
     fn retry_decision_401_is_give_up() {
-        let e = LlmError::ApiError { status: 401, message: "Unauthorized".into() };
-        assert!(matches!(lm_error_to_retry_decision(e), crate::api_profiles::RetryDecision::GiveUp(_)));
+        let e = LlmError::ApiError {
+            status: 401,
+            message: "Unauthorized".into(),
+        };
+        assert!(matches!(
+            lm_error_to_retry_decision(e),
+            crate::api_profiles::RetryDecision::GiveUp(_)
+        ));
     }
 
     #[test]
     fn retry_decision_403_is_give_up() {
-        let e = LlmError::ApiError { status: 403, message: "Forbidden".into() };
-        assert!(matches!(lm_error_to_retry_decision(e), crate::api_profiles::RetryDecision::GiveUp(_)));
+        let e = LlmError::ApiError {
+            status: 403,
+            message: "Forbidden".into(),
+        };
+        assert!(matches!(
+            lm_error_to_retry_decision(e),
+            crate::api_profiles::RetryDecision::GiveUp(_)
+        ));
     }
 
     #[test]
     fn retry_decision_429_is_retry() {
-        let e = LlmError::RateLimited { retry_after_secs: None };
-        assert!(matches!(lm_error_to_retry_decision(e), crate::api_profiles::RetryDecision::Retry(_)));
+        let e = LlmError::RateLimited {
+            retry_after_secs: None,
+        };
+        assert!(matches!(
+            lm_error_to_retry_decision(e),
+            crate::api_profiles::RetryDecision::Retry(_)
+        ));
     }
 
     #[test]
     fn retry_decision_500_is_retry() {
-        let e = LlmError::ApiError { status: 500, message: "server error".into() };
-        assert!(matches!(lm_error_to_retry_decision(e), crate::api_profiles::RetryDecision::Retry(_)));
+        let e = LlmError::ApiError {
+            status: 500,
+            message: "server error".into(),
+        };
+        assert!(matches!(
+            lm_error_to_retry_decision(e),
+            crate::api_profiles::RetryDecision::Retry(_)
+        ));
     }
 
     #[test]
     fn retry_decision_timeout_is_retry() {
-        assert!(matches!(lm_error_to_retry_decision(LlmError::Timeout), crate::api_profiles::RetryDecision::Retry(_)));
+        assert!(matches!(
+            lm_error_to_retry_decision(LlmError::Timeout),
+            crate::api_profiles::RetryDecision::Retry(_)
+        ));
     }
 
     #[test]
     fn retry_decision_http_error_is_retry() {
         let e = LlmError::HttpError("connection refused".into());
-        assert!(matches!(lm_error_to_retry_decision(e), crate::api_profiles::RetryDecision::Retry(_)));
+        assert!(matches!(
+            lm_error_to_retry_decision(e),
+            crate::api_profiles::RetryDecision::Retry(_)
+        ));
     }
 }
