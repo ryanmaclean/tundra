@@ -182,7 +182,7 @@ jobs:
         run: ast-grep scan --config .ast-grep.yml crates/
 
       - name: ast-grep SAST (SARIF output)
-        if: always()
+        if: success()
         continue-on-error: true
         run: ast-grep scan --config .ast-grep.yml --format sarif crates/ > ast-grep-results.sarif
 
