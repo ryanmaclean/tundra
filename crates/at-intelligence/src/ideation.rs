@@ -7,8 +7,8 @@ use at_core::types::{Bead, Lane};
 
 use crate::api_profiles::{ProviderKind, ResilientRegistry};
 use crate::llm::{
-    AnthropicProvider, LlmConfig, LlmMessage, LlmProvider, LocalProvider, OpenAiProvider,
-    lm_error_to_retry_decision,
+    lm_error_to_retry_decision, AnthropicProvider, LlmConfig, LlmMessage, LlmProvider,
+    LocalProvider, OpenAiProvider,
 };
 
 // ---------------------------------------------------------------------------
@@ -301,12 +301,9 @@ impl IdeationEngine {
                 temperature: 0.7,
                 system_prompt: None,
             };
-            provider
-                .complete(&messages, &config)
-                .await
-                .map_err(|e| {
-                    crate::IntelligenceError::InvalidOperation(format!("LLM call failed: {e}"))
-                })?
+            provider.complete(&messages, &config).await.map_err(|e| {
+                crate::IntelligenceError::InvalidOperation(format!("LLM call failed: {e}"))
+            })?
         } else {
             return Err(crate::IntelligenceError::InvalidOperation(
                 "No LLM provider configured – use IdeationEngine::with_provider() or IdeationEngine::with_registry()".into(),
