@@ -111,7 +111,7 @@ impl ApiProfile {
             // configured it's treated as optional, not required.
             return true;
         }
-        std::env::var(&self.api_key_env).is_ok()
+        matches!(std::env::var(&self.api_key_env), Ok(key) if !key.is_empty())
     }
 
     /// Build a local provider profile from core providers config.
@@ -523,7 +523,9 @@ pub enum ResilientCallError {
 /// `Retry`.
 #[derive(Debug)]
 pub enum RetryDecision<E> {
+    /// Move to the next provider; this error is transient or provider-specific.
     Retry(E),
+    /// Abort immediately; the error is non-retryable regardless of provider.
     GiveUp(E),
 }
 
@@ -792,6 +794,39 @@ mod tests {
         std::env::remove_var("LOCAL_API_KEY");
         let profile = ApiProfile::new("local", ProviderKind::Local);
         assert!(profile.has_api_key());
+    }
+
+    #[tokio::test]
+    async fn empty_nonlocal_key_skips_profile_before_failover() {
+        let _lock = ENV_TEST_LOCK.lock().unwrap();
+        const KEY_ENV: &str = "AT_INTELLIGENCE_TEST_EMPTY_PRIMARY_KEY";
+        std::env::set_var(KEY_ENV, "present");
+
+        let mut primary = ApiProfile::new("empty-key-primary", ProviderKind::Custom);
+        primary.api_key_env = KEY_ENV.into();
+        primary.priority = 0;
+        assert!(primary.has_api_key());
+
+        std::env::set_var(KEY_ENV, "");
+        assert!(!primary.has_api_key());
+
+        let mut secondary = ApiProfile::new("local-secondary", ProviderKind::Local);
+        secondary.priority = 1;
+        let mut reg = ResilientRegistry::new();
+        reg.add_profile(primary);
+        let secondary_id = reg.add_profile(secondary);
+
+        let result = reg
+            .call_with_failover(|profile| {
+                let name = profile.name.clone();
+                async move { Ok::<String, RetryDecision<String>>(name) }
+            })
+            .await;
+        std::env::remove_var(KEY_ENV);
+
+        let (used, name) = result.expect("eligible local secondary should succeed");
+        assert_eq!(used, secondary_id);
+        assert_eq!(name, "local-secondary");
     }
 
     #[test]
