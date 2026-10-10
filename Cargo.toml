@@ -42,7 +42,7 @@ axum = { version = "0.8", features = ["ws"] }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["cors", "trace", "fs", "compression-gzip", "compression-br"] }
 octocrab = "0.43"
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.13", features = ["json"] }
 ahash = { version = "0.8", features = ["serde"] }
 mimalloc = "0.1"
 notify = { version = "7", default-features = false, features = ["macos_fsevent"] }

@@ -46,4 +46,4 @@ at-agents = { path = "../../crates/at-agents" }
 at-bridge = { path = "../../crates/at-bridge" }
 at-core = { path = "../../crates/at-core" }
 at-daemon = { path = "../../crates/at-daemon" }
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.13", features = ["json"] }
