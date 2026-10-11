@@ -167,6 +167,14 @@ impl IdeationEngine {
         }
     }
 
+    /// Whether generation is configured to use AI, even if no profile is currently eligible.
+    ///
+    /// A configured but unavailable provider is not offline mode. Callers must
+    /// propagate its failure instead of generating placeholder success.
+    pub fn has_ai_configuration(&self) -> bool {
+        self.provider.is_some() || self.registry.is_some()
+    }
+
     /// Generate ideas for a given category and context.
     ///
     /// In a production system this would call an LLM; here we produce
