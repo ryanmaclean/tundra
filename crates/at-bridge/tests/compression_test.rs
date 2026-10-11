@@ -115,7 +115,7 @@ async fn test_gzip_compression_on_tasks_endpoint() {
 
     // Verify the body is non-empty (it's compressed, so we won't parse it)
     let body = body_bytes(resp).await;
-    assert!(body.len() > 0, "Response body should not be empty");
+    assert!(!body.is_empty(), "Response body should not be empty");
 }
 
 #[tokio::test]
@@ -220,7 +220,7 @@ async fn test_brotli_compression_on_tasks_endpoint() {
     );
 
     let body = body_bytes(resp).await;
-    assert!(body.len() > 0, "Response body should not be empty");
+    assert!(!body.is_empty(), "Response body should not be empty");
 }
 
 #[tokio::test]

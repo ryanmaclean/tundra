@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use at_bridge::http_api::ApiState;
-use at_core::cache::CacheDb;
+use at_core::cache::{CacheDb, CacheError};
 use at_core::types::BeadStatus;
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use serde::{Deserialize, Serialize};
@@ -65,7 +65,25 @@ impl PatrolRunner {
         let slung_beads = cache
             .list_beads_by_status(BeadStatus::Slung)
             .await
-            .map_err(|e| anyhow::anyhow!("failed to query slung beads: {}", e))?;
+            .map_err(|e| match e {
+                CacheError::InvalidRow { ref context, .. } => {
+                    // Persistent schema corruption — log at error; operator action required.
+                    tracing::error!(
+                        context = %context,
+                        "slung bead row has corrupt data (schema drift?); \
+                         patrol cannot complete stuck-bead check"
+                    );
+                    anyhow::anyhow!("slung beads contain corrupt row data — {}: {}", context, e)
+                }
+                CacheError::Db(ref db_err) => {
+                    // Transient DB error — patrol will retry on the next cycle.
+                    tracing::warn!(
+                        error = %db_err,
+                        "transient DB error querying slung beads; patrol will retry next cycle"
+                    );
+                    anyhow::anyhow!("transient DB error querying slung beads: {}", db_err)
+                }
+            })?;
 
         let mut stuck_bead_ids = Vec::new();
         for bead in &slung_beads {
@@ -112,49 +130,45 @@ impl PatrolRunner {
 /// `pty_handles` entry for liveness via `PtyHandle::is_alive()`, and removes
 /// dead entries from both maps. Returns the number of orphans reaped.
 pub async fn reap_orphan_ptys(state: &Arc<ApiState>) -> usize {
-    // Collect terminal IDs that have a registered PTY handle.
-    let terminal_ids: Vec<uuid::Uuid> = {
-        let registry = state.terminal_registry.read().await;
-        registry.list().iter().map(|t| t.id).collect()
-    };
-
-    let mut orphan_count = 0;
-
-    for tid in &terminal_ids {
-        let is_dead = {
-            let handles = state.pty_handles.read().await;
-            match handles.get(tid) {
-                Some(handle) => !handle.is_alive(),
-                // Terminal registered but no PTY handle at all — also an orphan.
-                None => true,
-            }
-        };
-
-        if is_dead {
-            orphan_count += 1;
-            warn!(terminal_id = %tid, "orphaned PTY detected — reaping");
-
-            // Remove from pty_handles (and kill if still present).
-            {
-                let mut handles = state.pty_handles.write().await;
-                if let Some(handle) = handles.remove(tid) {
-                    let _ = handle.kill();
+    use at_session::pty_pool::{Liveness, Retirement};
+    let _lifecycle = state.terminal_lifecycle.lock().await;
+    // Handle-only terminals are included; pool-only agent sessions are not
+    // misclassified as terminal orphans merely because they have no UI row.
+    let mut ids = std::collections::HashSet::new();
+    ids.extend(state.terminal_registry.read().await.list().iter().map(|info| info.id));
+    ids.extend(state.pty_handles.read().await.keys().copied());
+    let mut reaped = 0;
+    for id in ids {
+        let handle = state.pty_handles.read().await.get(&id).cloned()
+            .or_else(|| state.pty_pool.as_ref().and_then(|pool| pool.get(id)));
+        match handle {
+            Some(handle) => {
+                let metadata_present = state.terminal_registry.read().await.get(&id).is_some();
+                if handle.liveness() == Liveness::Exited || !metadata_present {
+                    if handle.kill().is_err() { continue; }
                 }
-            }
-
-            // Mark as closed in the registry and remove.
-            {
+                if handle.retirement() != Retirement::Retired { continue; }
+                state.pty_handles.write().await.remove(&id);
                 let mut registry = state.terminal_registry.write().await;
-                registry.unregister(tid);
+                let disconnected = registry.get(&id).is_some_and(|info| matches!(info.status, at_bridge::terminal::TerminalStatus::Disconnected { .. } | at_bridge::terminal::TerminalStatus::Dead));
+                if disconnected {
+                    registry.update_status(&id, at_bridge::terminal::TerminalStatus::Dead);
+                } else { registry.unregister(&id); }
+                state.disconnect_buffers.write().await.remove(&id);
+                reaped += 1;
+            }
+            None => {
+                // Existing report counts orphan entries, not exclusively native
+                // processes. Keep confirmed Dead tombstones for reconnect 410.
+                let mut registry = state.terminal_registry.write().await;
+                if !registry.get(&id).is_some_and(|info| matches!(info.status, at_bridge::terminal::TerminalStatus::Dead)) {
+                    if registry.unregister(&id).is_some() { reaped += 1; }
+                }
             }
         }
     }
-
-    if orphan_count > 0 {
-        info!(orphan_count, "orphan PTY reaping complete");
-    }
-
-    orphan_count
+    if let Some(pool) = &state.pty_pool { pool.active_count(); }
+    reaped
 }
 
 #[cfg(test)]
@@ -220,7 +234,7 @@ mod tests {
             let mut state = self.0.lock().unwrap();
             state.kill_called = true;
             if state.should_fail_kill {
-                Err(io::Error::new(io::ErrorKind::Other, "mock kill failure"))
+                Err(io::Error::other("mock kill failure"))
             } else {
                 Ok(())
             }
@@ -305,10 +319,10 @@ mod tests {
             rx,
             tx,
             Arc::new(Mutex::new(
-                Box::new(child.clone()) as Box<dyn portable_pty::Child + Send + Sync>,
+                Box::new(child.clone()) as Box<dyn portable_pty::Child + Send + Sync>
             )),
             Arc::new(Mutex::new(
-                Box::new(MockMasterPty) as Box<dyn MasterPty + Send>,
+                Box::new(MockMasterPty) as Box<dyn MasterPty + Send>
             )),
         );
         (handle, child)
@@ -373,7 +387,10 @@ mod tests {
 
         let reaped = reap_orphan_ptys(&state).await;
 
-        assert_eq!(reaped, 0, "no orphans expected when both maps are consistent");
+        assert_eq!(
+            reaped, 0,
+            "no orphans expected when both maps are consistent"
+        );
         assert!(
             !mock_child.kill_was_called(),
             "kill() must not be called when the PTY is alive"
@@ -449,8 +466,7 @@ mod tests {
     }
 
     /// When `kill()` fails on the underlying child, `reap_orphan_ptys` must NOT
-    /// panic.  The production code uses `let _ = handle.kill()` which discards
-    /// the error, so the entry is removed regardless of kill outcome.
+    /// panic or erase the owner. Both maps remain available for a later retry.
     #[tokio::test]
     async fn reap_orphan_ptys_handles_kill_failure_gracefully() {
         let tid = Uuid::new_v4();
@@ -468,19 +484,19 @@ mod tests {
         // Must NOT panic even though kill() returns Err.
         let reaped = reap_orphan_ptys(&state).await;
 
-        assert_eq!(reaped, 1, "orphan count must be 1 even after kill failure");
+        assert_eq!(reaped, 0, "failed retirement is not a reaped orphan");
         assert!(
             mock_child.kill_was_called(),
             "kill() must still be attempted on the orphaned handle"
         );
-        // Graceful degradation: entry is removed regardless of kill outcome.
+        // Failed retirement keeps both identity views for retry.
         assert!(
-            state.pty_handles.read().await.is_empty(),
-            "handle must be removed from pty_handles even when kill() fails"
+            state.pty_handles.read().await.contains_key(&tid),
+            "failed retirement must preserve the native handle"
         );
         assert!(
-            state.terminal_registry.read().await.list().is_empty(),
-            "terminal must be removed from terminal_registry even when kill() fails"
+            state.terminal_registry.read().await.get(&tid).is_some(),
+            "failed retirement must preserve terminal metadata"
         );
     }
 
@@ -673,5 +689,59 @@ mod tests {
         let report = runner.run_patrol(&cache).await.expect("patrol");
         assert_eq!(report.stale_agents, 0);
         assert_eq!(report.orphan_ptys, 0);
+    }
+
+    // ----- CacheError::InvalidRow regression tests -----
+
+    /// When `list_beads_by_status` returns `CacheError::InvalidRow` (because a
+    /// slung row has a corrupt lane value), `run_patrol` must return an `Err`
+    /// rather than panicking.  The error message must mention the corruption so
+    /// operators can identify the source.
+    #[tokio::test]
+    async fn run_patrol_returns_err_on_invalid_row_in_slung_beads() {
+        let runner = PatrolRunner::new(60);
+        let cache = CacheDb::new_in_memory().await.expect("cache");
+
+        // Insert a slung bead with a bogus lane — row_to_bead will return
+        // CacheError::InvalidRow when the patrol queries slung beads.
+        cache
+            .insert_raw_bead_for_test(
+                "550e8400-e29b-41d4-a716-446655440002",
+                "slung",
+                "GALAXY_BRAIN_LANE",
+            )
+            .await
+            .expect("raw insert");
+
+        let result = runner.run_patrol(&cache).await;
+        assert!(
+            result.is_err(),
+            "run_patrol must propagate CacheError::InvalidRow as Err"
+        );
+        let msg = result.unwrap_err().to_string();
+        // The anyhow message must mention the corrupt data context.
+        assert!(
+            msg.contains("corrupt") || msg.contains("invalid"),
+            "error message should describe the corruption, got: {msg}"
+        );
+    }
+
+    /// When the slung bead query succeeds (no corruption), `run_patrol` must
+    /// return `Ok` even if there are stuck beads mixed with fresh ones — confirming
+    /// the baseline happy-path is unaffected by the error-handling changes.
+    #[tokio::test]
+    async fn run_patrol_ok_with_valid_slung_beads_after_error_handling_change() {
+        let runner = PatrolRunner::new(60).with_slung_timeout(ChronoDuration::minutes(10));
+        let cache = CacheDb::new_in_memory().await.expect("cache");
+
+        let fresh = make_slung_bead(Some(Utc::now() - ChronoDuration::minutes(1)));
+        let stuck = make_slung_bead(Some(Utc::now() - ChronoDuration::hours(1)));
+        insert_beads(&cache, &[fresh, stuck]).await;
+
+        let report = runner
+            .run_patrol(&cache)
+            .await
+            .expect("patrol must succeed");
+        assert_eq!(report.stuck_beads, 1);
     }
 }

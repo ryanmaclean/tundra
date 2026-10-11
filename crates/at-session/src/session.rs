@@ -51,6 +51,24 @@ impl AgentSession {
         self.handle.send_line(cmd)
     }
 
+    /// Await bounded input capacity without blocking the executor thread.
+    pub async fn send_command_async(&self, cmd: &str) -> Result<()> {
+        let mut bytes = cmd.as_bytes().to_vec();
+        bytes.push(10);
+        self.handle.send_async(&bytes).await
+    }
+
+    pub async fn send_raw_async(&self, data: &[u8]) -> Result<()> {
+        self.handle.send_async(data).await
+    }
+
+    pub fn liveness(&self) -> crate::pty_pool::Liveness { self.handle.liveness() }
+
+    pub async fn retire(&self, timeout: Duration) -> Result<()> {
+        self.handle.kill()?;
+        self.handle.wait_retired(timeout).await
+    }
+
     /// Send raw bytes to the agent process stdin.
     pub fn send_raw(&self, data: &[u8]) -> Result<()> {
         self.handle.send(data)
@@ -106,11 +124,7 @@ impl AgentSession {
     /// crate's `[dev-dependencies]` entry for `at-session` to use this.
     /// Production code should always use [`AgentSession::spawn`].
     #[cfg(any(test, feature = "test-helpers"))]
-    pub fn from_parts(
-        agent_id: Uuid,
-        handle: PtyHandle,
-        adapter: Box<dyn CliAdapter>,
-    ) -> Self {
+    pub fn from_parts(agent_id: Uuid, handle: PtyHandle, adapter: Box<dyn CliAdapter>) -> Self {
         Self {
             agent_id,
             handle,

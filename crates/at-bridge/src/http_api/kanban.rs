@@ -703,3 +703,158 @@ pub(crate) async fn get_planning_poker_session(
         ),
     ))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use at_core::config::PlanningPokerConfig;
+
+    fn make_cards(strs: &[&str]) -> Vec<String> {
+        strs.iter().map(|s| s.to_string()).collect()
+    }
+
+    fn make_votes(cards: &[&str]) -> Vec<PlanningPokerVote> {
+        cards
+            .iter()
+            .enumerate()
+            .map(|(i, card)| PlanningPokerVote {
+                voter: format!("voter{}", i),
+                card: card.to_string(),
+            })
+            .collect()
+    }
+
+    fn default_poker_cfg() -> PlanningPokerConfig {
+        PlanningPokerConfig::default()
+    }
+
+    // --- nearest_card_index ---
+
+    #[test]
+    fn nearest_card_index_picks_closest_numeric_card() {
+        // deck: ["1","2","3","5","8"], target "4"
+        // distances: |1-4|=3, |2-4|=2, |3-4|=1, |5-4|=1, |8-4|=4
+        // "3" and "5" are equidistant; min_by returns first encountered at equal distance
+        // Production code: min_by stops at "3" (index 2) because tie resolves to Equal
+        // so whichever comes first in the iterator wins — "3" at index 2.
+        let deck = make_cards(&["1", "2", "3", "5", "8"]);
+        let idx = nearest_card_index(&deck, "4");
+        // "3" (index 2) is closest by absolute difference (tie with "5", first wins)
+        assert_eq!(idx, 2, "expected index of '3' for target 4.0");
+    }
+
+    #[test]
+    fn nearest_card_index_picks_lower_on_exact_midpoint() {
+        // deck: ["1","3"], target "2" — equidistant; first encountered wins → index 0 ("1")
+        let deck = make_cards(&["1", "3"]);
+        let idx = nearest_card_index(&deck, "2");
+        // Both are distance 1; min_by with Equal ordering picks the first → index 0
+        assert_eq!(
+            idx, 0,
+            "expected index 0 ('1') when target is equidistant from two cards"
+        );
+    }
+
+    #[test]
+    fn nearest_card_index_all_text_deck_returns_median() {
+        // BUG? When no card in the deck is parseable as f64 and the target is also not an exact
+        // match, the function falls back to `cards.len() / 2` regardless of the target value.
+        // For an all-text (T-shirt) deck this means every unknown numeric target silently
+        // returns the median index — the target is effectively ignored.
+        let deck = make_cards(&["XS", "S", "M", "L", "XL"]);
+        let idx = nearest_card_index(&deck, "5.0");
+        // cards.len() / 2 = 5 / 2 = 2  → "M"
+        assert_eq!(
+            idx, 2,
+            "all-text deck should fall back to median index (cards.len()/2)"
+        );
+    }
+
+    #[test]
+    fn nearest_card_index_exact_match_returns_correct_index() {
+        let deck = make_cards(&["1", "2", "3", "5", "8"]);
+        let idx = nearest_card_index(&deck, "5");
+        assert_eq!(idx, 3, "exact string match '5' should return index 3");
+    }
+
+    // --- consensus_card_from_votes ---
+
+    #[test]
+    fn consensus_card_from_votes_returns_majority_winner() {
+        // votes: "3","3","3","5" → "3" wins with 3
+        let votes = make_votes(&["3", "3", "3", "5"]);
+        let result = consensus_card_from_votes(&votes);
+        assert_eq!(
+            result,
+            Some("3".to_string()),
+            "majority card '3' should be returned"
+        );
+    }
+
+    #[test]
+    fn consensus_card_from_votes_returns_none_on_two_way_tie() {
+        // votes: "3","3","5","5" → tie → None
+        let votes = make_votes(&["3", "3", "5", "5"]);
+        let result = consensus_card_from_votes(&votes);
+        assert_eq!(result, None, "two-way tie should return None");
+    }
+
+    #[test]
+    fn consensus_card_from_votes_returns_none_on_three_way_tie() {
+        // votes: "3","5","8" → each has 1 vote → three-way tie → None
+        let votes = make_votes(&["3", "5", "8"]);
+        let result = consensus_card_from_votes(&votes);
+        assert_eq!(
+            result, None,
+            "three-way tie (one vote each) should return None"
+        );
+    }
+
+    // --- resolve_poker_deck ---
+
+    #[test]
+    fn resolve_poker_deck_default_is_fibonacci() {
+        let cfg = default_poker_cfg(); // default_deck = "fibonacci"
+        let deck = resolve_poker_deck(&cfg, None, None).expect("default resolve should succeed");
+        let expected = make_cards(&[
+            "0", "1", "2", "3", "5", "8", "13", "21", "34", "55", "89", "?", "coffee",
+        ]);
+        assert_eq!(deck, expected, "default deck should be the fibonacci deck");
+    }
+
+    #[test]
+    fn resolve_poker_deck_unknown_name_falls_back_to_error() {
+        // An unknown preset name returns Err — the caller must handle it.
+        // Pinning this: passing an unrecognized preset name is an explicit user error and
+        // returns a 400 Bad Request, NOT a silent fallback to the default deck.
+        let cfg = default_poker_cfg();
+        let result = resolve_poker_deck(&cfg, Some("nonexistent"), None);
+        assert!(
+            result.is_err(),
+            "unknown deck preset should return Err, not silently fall back"
+        );
+        let (status, body) = result.unwrap_err();
+        assert_eq!(
+            status,
+            axum::http::StatusCode::BAD_REQUEST,
+            "unknown preset should produce 400 Bad Request"
+        );
+        assert_eq!(
+            body.get("error").and_then(|v| v.as_str()),
+            Some("unknown deck preset"),
+            "error body should describe unknown preset"
+        );
+    }
+
+    #[test]
+    fn resolve_poker_deck_known_preset_powers_of_two() {
+        let cfg = default_poker_cfg();
+        let deck = resolve_poker_deck(&cfg, Some("powers_of_two"), None)
+            .expect("known preset should succeed");
+        let expected = make_cards(&["1", "2", "4", "8", "16", "32", "64", "128", "?", "coffee"]);
+        assert_eq!(
+            deck, expected,
+            "powers_of_two preset should return exact deck"
+        );
+    }
+}

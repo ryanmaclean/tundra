@@ -494,7 +494,12 @@ impl Orchestrator {
                     stuck_detectors_before,
                     stuck_detectors_after,
                 ) = {
-                    let mut orch_guard = orch.lock().unwrap();
+                    let mut orch_guard = orch.lock().unwrap_or_else(|e| {
+                        tracing::warn!(
+                            "orchestrator mutex was poisoned; continuing with recovered state"
+                        );
+                        e.into_inner()
+                    });
                     let ttl = orch_guard.config.execution_ttl_secs;
 
                     // Capture before counts
@@ -903,11 +908,15 @@ mod tests {
         // Starting the background task should not panic
         Orchestrator::start_cleanup_task(Arc::clone(&orch));
 
-        // Give the task a moment to start
+        // Give the task a moment to start; then assert observable state is
+        // consistent. The cleanup loop's first immediate tick will have run.
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-
-        // Test passes if we get here without panicking
-        assert!(true);
+        let guard = orch.lock().unwrap_or_else(|e| e.into_inner());
+        assert_eq!(
+            guard.executions.len(),
+            0,
+            "cleanup task should run first tick without inserting/leaking executions"
+        );
     }
 
     #[tokio::test]
@@ -1065,5 +1074,84 @@ mod tests {
         // Test passes if cleanup ran without errors
         // (logs are checked manually in real scenarios)
         assert_eq!(orch.lock().unwrap().executions.len(), 0);
+    }
+
+    /// Verify that the background cleanup task continues to run even after the
+    /// mutex has been poisoned by a panicking thread.
+    ///
+    /// This guards against the cascading-failure scenario described in
+    /// `start_cleanup_task`: one panic while holding the lock → mutex poisoned →
+    /// cleanup task panics on next tick → cleanup never runs again → unbounded
+    /// memory growth.
+    #[tokio::test(start_paused = true)]
+    async fn cleanup_task_survives_mutex_poison() {
+        use std::sync::{Arc, Mutex};
+
+        let orch = Arc::new(Mutex::new(make_orchestrator()));
+
+        // --- Poison the mutex by panicking inside a thread that holds the lock ---
+        let orch_for_panic = Arc::clone(&orch);
+        let panicking_thread = std::thread::spawn(move || {
+            let _guard = orch_for_panic.lock().unwrap();
+            panic!("deliberate panic to poison the mutex");
+        });
+        // Confirm the thread panicked (i.e., the mutex is now poisoned).
+        assert!(
+            panicking_thread.join().is_err(),
+            "thread should have panicked"
+        );
+        assert!(
+            orch.is_poisoned(),
+            "mutex should be poisoned after the thread panic"
+        );
+
+        // --- Add an old completed execution AFTER poisoning ---
+        // We must use unwrap_or_else here ourselves because the mutex is poisoned.
+        {
+            let mut guard = orch.lock().unwrap_or_else(|e| e.into_inner());
+            guard.config.execution_ttl_secs = 0; // expire immediately
+            let id = guard.start_task("stale task", "should be cleaned", AgentRole::Coder);
+            if let Some(exec) = guard.executions.get_mut(&id) {
+                exec.completed_at = Some(Utc::now() - chrono::Duration::days(30));
+            }
+        }
+
+        // Confirm the execution is present before cleanup.
+        {
+            let guard = orch.lock().unwrap_or_else(|e| e.into_inner());
+            assert_eq!(
+                guard.executions.len(),
+                1,
+                "execution should exist before cleanup"
+            );
+        }
+
+        // --- Start the cleanup task (this is what we are testing) ---
+        // With the old `.unwrap()`, the spawned task would panic on the next
+        // interval tick and be silently dropped by tokio.  With the fix it
+        // should recover from the poisoned lock and clean up the execution.
+        Orchestrator::start_cleanup_task(Arc::clone(&orch));
+
+        // Yield once to let the spawned task start and hit its first
+        // `interval.tick().await` (the immediate first tick).
+        tokio::task::yield_now().await;
+
+        // Advance simulated time past one cleanup interval (3600 s) so that
+        // the second `interval.tick().await` inside the spawned loop fires.
+        tokio::time::advance(std::time::Duration::from_secs(3601)).await;
+
+        // Yield several times to ensure the cleanup task runs fully through
+        // its tick, cleanup body, and any logging before we inspect state.
+        for _ in 0..10 {
+            tokio::task::yield_now().await;
+        }
+
+        // --- Assert cleanup happened ---
+        let guard = orch.lock().unwrap_or_else(|e| e.into_inner());
+        assert_eq!(
+            guard.executions.len(),
+            0,
+            "cleanup task must have run and removed the expired execution even after mutex poison"
+        );
     }
 }

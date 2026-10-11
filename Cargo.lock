@@ -530,6 +530,7 @@ dependencies = [
  "async-trait",
  "at-core",
  "flume",
+ "libc",
  "portable-pty",
  "serde",
  "serde_json",
@@ -537,6 +538,7 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

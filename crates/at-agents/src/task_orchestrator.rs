@@ -463,7 +463,7 @@ mod tests {
 
     #[async_trait::async_trait]
     impl PtySpawner for MockSpawner {
-        fn spawn(
+        async fn spawn(
             &self,
             _cmd: &str,
             _args: &[&str],

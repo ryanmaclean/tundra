@@ -95,6 +95,8 @@ pub(crate) fn default_kanban_columns() -> KanbanColumnConfig {
     }
 }
 
+type BackgroundTaskSlot = Arc<tokio::sync::Mutex<Option<tokio::task::JoinHandle<()>>>>;
+
 /// Shared application state for all HTTP/WS handlers.
 pub struct ApiState {
     pub event_bus: EventBus,
@@ -117,7 +119,17 @@ pub struct ApiState {
     /// Cached count of tasks for lock-free status queries.
     pub task_count: Arc<AtomicUsize>,
     pub start_time: std::time::Instant,
+    /// Frozen server startup command, never replaced by a terminal HTTP request.
+    pub terminal_command: Option<(String, Vec<String>)>,
     pub pty_pool: Option<Arc<at_session::pty_pool::PtyPool>>,
+    /// Serializes native owner publication and lifecycle metadata changes.
+    background_tasks: std::sync::Mutex<Vec<BackgroundTaskSlot>>,
+    pub terminal_connections: Arc<tokio::sync::Mutex<std::collections::HashMap<Uuid, Vec<(tokio::sync::watch::Sender<bool>, tokio::sync::watch::Receiver<bool>)>>>>,
+    pub terminal_retiring: std::sync::Mutex<std::collections::HashSet<Uuid>>,
+    pub terminal_admission: std::sync::atomic::AtomicBool,
+    /// Grace observers never participate in transport generation handoff.
+    pub(crate) terminal_observers: tokio::sync::Mutex<std::collections::HashMap<Uuid, tokio::task::JoinHandle<()>>>,
+    pub terminal_lifecycle: Arc<tokio::sync::Mutex<()>>,
     pub terminal_registry: Arc<RwLock<TerminalRegistry>>,
     /// Active PTY handles keyed by terminal ID.
     pub pty_handles: Arc<RwLock<std::collections::HashMap<Uuid, at_session::pty_pool::PtyHandle>>>,
@@ -214,7 +226,14 @@ impl ApiState {
             agent_count: Arc::new(AtomicUsize::new(0)),
             task_count: Arc::new(AtomicUsize::new(0)),
             start_time: std::time::Instant::now(),
+            terminal_command: Self::terminal_command_for_target(None, &[], cfg!(windows), cfg!(target_os = "macos")),
             pty_pool: None,
+            background_tasks: std::sync::Mutex::new(Vec::new()),
+            terminal_connections: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+            terminal_retiring: std::sync::Mutex::new(std::collections::HashSet::new()),
+            terminal_admission: std::sync::atomic::AtomicBool::new(true),
+            terminal_observers: tokio::sync::Mutex::new(std::collections::HashMap::new()),
+            terminal_lifecycle: Arc::new(tokio::sync::Mutex::new(())),
             terminal_registry: Arc::new(RwLock::new(TerminalRegistry::new())),
             pty_handles: Arc::new(RwLock::new(std::collections::HashMap::new())),
             settings_manager: Arc::new(SettingsManager::default_path()),
@@ -286,6 +305,78 @@ impl ApiState {
     ///
     /// Used in integration tests to redirect refresh calls to a local mock
     /// server.  Has no effect on production deployments where this is `None`.
+    /// Stop admission and await both websocket task retirement and native owners.
+    /// Pending identities are retained so callers can retry without exiting.
+    pub fn track_background(&self, future: impl std::future::Future<Output = ()> + Send + 'static) {
+        let mut tasks = self.background_tasks.lock().unwrap_or_else(|p| p.into_inner());
+        if !self.terminal_admission.load(Ordering::Acquire) { return; }
+        // Spawn and retain atomically with respect to shutdown's admission fence.
+        tasks.push(Arc::new(tokio::sync::Mutex::new(Some(tokio::spawn(future)))));
+    }
+
+    /// Caller holds terminal_lifecycle; retain the join handle if cancelled.
+    pub(crate) async fn join_terminal_observer(&self, id: Uuid) {
+        let mut observers = self.terminal_observers.lock().await;
+        if let Some(task) = observers.get_mut(&id) {
+            task.abort();
+            let _ = task.await;
+        }
+        observers.remove(&id);
+    }
+
+    pub async fn shutdown_terminals(&self, timeout: std::time::Duration) -> Vec<Uuid> {
+        {
+            let _lifecycle = self.terminal_lifecycle.lock().await;
+            self.terminal_admission.store(false, Ordering::Release);
+            let mut observers = self.terminal_observers.lock().await;
+            for task in observers.values() { task.abort(); }
+            // Await in place: cancellation keeps every unjoined task reachable.
+            let ids: Vec<_> = observers.keys().copied().collect();
+            for id in ids {
+                if let Some(task) = observers.get_mut(&id) { let _ = task.await; }
+                observers.remove(&id);
+            }
+        }
+        let tasks = {
+            let tasks = self.background_tasks.lock().unwrap_or_else(|p| p.into_inner());
+            self.terminal_admission.store(false, Ordering::Release);
+            tasks.clone()
+        };
+        for slot in &tasks {
+            let slot = slot.lock().await;
+            if let Some(task) = slot.as_ref() { task.abort(); }
+        }
+        for slot in tasks {
+            let mut slot = slot.lock().await;
+            if let Some(task) = slot.as_mut() { let _ = task.await; }
+            // Cancellation while awaiting retains the task in the shared slot.
+            *slot = None;
+        }
+        if let Some(pool) = &self.pty_pool { pool.stop_accepting(); }
+        let connections: Vec<_> = {
+            let connections = self.terminal_connections.lock().await;
+            self.terminal_admission.store(false, Ordering::Release);
+            connections.iter().flat_map(|(id, records)| records.iter()
+                .map(move |(cancel, done)| (*id, cancel.clone(), done.clone()))).collect()
+        };
+        for (_, cancel, _) in &connections { let _ = cancel.send(true); }
+        let mut pending = Vec::new();
+        let deadline = tokio::time::Instant::now() + timeout;
+        for (id, _, mut done) in connections {
+            let joined = tokio::time::timeout_at(deadline, async {
+                while !*done.borrow() { if done.changed().await.is_err() { return false; } }
+                true
+            }).await.unwrap_or(false);
+            if !joined { pending.push(id); }
+        }
+        if let Some(pool) = &self.pty_pool {
+            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+            pending.extend(pool.shutdown(remaining).await.into_iter().map(|(id, _)| id));
+        }
+        pending.sort(); pending.dedup();
+        pending
+    }
+
     pub fn with_github_token_url(mut self, url: impl Into<String>) -> Self {
         self.github_token_url_override = Some(url.into());
         self
@@ -305,6 +396,20 @@ impl ApiState {
     }
 
     /// Create a new `ApiState` with a PTY pool for terminal support.
+    fn terminal_command_for_target(program: Option<&str>, args: &[String], windows: bool, macos: bool) -> Option<(String, Vec<String>)> {
+        match program {
+            Some(program) if !program.trim().is_empty() => Some((program.to_owned(), args.to_vec())),
+            Some(_) => None,
+            None if windows => None,
+            None => Some(((if macos { "/bin/zsh" } else { "/bin/bash" }).into(), args.to_vec())),
+        }
+    }
+
+    pub fn with_terminal_command(mut self, program: Option<&str>, args: &[String]) -> Self {
+        self.terminal_command = Self::terminal_command_for_target(program, args, cfg!(windows), cfg!(target_os = "macos"));
+        self
+    }
+
     pub fn with_pty_pool(
         event_bus: EventBus,
         pty_pool: Arc<at_session::pty_pool::PtyPool>,
@@ -400,7 +505,7 @@ impl ApiState {
     pub fn start_cleanup_task(self: &Arc<Self>) {
         let state = Arc::clone(self);
 
-        tokio::spawn(async move {
+        let task = async move {
             // Read the cleanup interval from retention config
             let interval_secs = {
                 let config = state.retention_config.read().await;
@@ -456,7 +561,8 @@ impl ApiState {
                     "Cleanup cycle completed"
                 );
             }
-        });
+        };
+        self.track_background(task);
     }
 
     /// Seed lightweight demo data for local development/web UI previews.
@@ -954,8 +1060,56 @@ mod tests {
         // Give the task a moment to start
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
-        // Test passes if we get here without panicking
-        assert!(true);
+        // The cleanup loop's first tick fires immediately inside start_cleanup_task,
+        // consuming the tokio::time::interval startup tick before entering the real
+        // loop. After 50 ms the spawned task is live. Asserting disconnect_buffers is
+        // still empty proves two things: (a) the task started without panicking, and
+        // (b) the cleanup loop did not insert or leak data into disconnect_buffers on
+        // its first tick.
+        assert!(
+            state.disconnect_buffers.read().await.is_empty(),
+            "cleanup task should run first tick without inserting/leaking data into disconnect_buffers"
+        );
+    }
+
+    #[tokio::test]
+    async fn cleanup_task_actually_cleans_expired_disconnect_buffer() {
+        // Arrange: create state with a 1-second cleanup interval so the test
+        // does not take a full hour.
+        let state = Arc::new(create_test_state());
+        {
+            let mut config = state.retention_config.write().await;
+            config.cleanup_interval_secs = 1;
+            config.disconnect_buffer_ttl_secs = 0; // every buffer is immediately expired
+        }
+
+        // Seed one expired disconnect buffer (disconnected 10 minutes ago).
+        let terminal_id = Uuid::new_v4();
+        let mut buffer = crate::terminal::DisconnectBuffer::new(1024);
+        buffer.disconnected_at = Utc::now() - Duration::minutes(10);
+        state
+            .disconnect_buffers
+            .write()
+            .await
+            .insert(terminal_id, buffer);
+
+        // Pre-condition: the entry is present before cleanup runs.
+        assert_eq!(
+            state.disconnect_buffers.read().await.len(),
+            1,
+            "seeded buffer must be present before cleanup"
+        );
+
+        // Act: start the background task and wait for at least one cleanup tick
+        // (interval = 1 s, plus a comfortable buffer).
+        state.start_cleanup_task();
+        tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+
+        // Assert: the expired buffer must have been removed by the cleanup loop.
+        assert!(
+            state.disconnect_buffers.read().await.is_empty(),
+            "cleanup loop must remove the expired disconnect buffer after one tick"
+        );
     }
 
     #[tokio::test]
@@ -1139,5 +1293,46 @@ mod tests {
         // Test passes if cleanup ran without errors (logs are checked manually)
         // In a real scenario, you could use a tracing subscriber to capture logs
         assert_eq!(state.tasks.read().await.len(), 0);
+    }
+}
+
+#[cfg(test)]
+mod terminal_startup_command_tests {
+    use super::ApiState;
+    #[test]
+    fn windows_requires_explicit_program_without_mutating_environment() {
+        assert!(ApiState::terminal_command_for_target(None, &[], true, false).is_none());
+        let args = vec!["argument with spaces".to_owned(), "literal&value".to_owned()];
+        assert_eq!(ApiState::terminal_command_for_target(Some("approved-fixture"), &args, true, false), Some(("approved-fixture".to_owned(), args)));
+    }
+    #[test]
+    fn unix_defaults_preserved_and_explicit_empty_is_unavailable() {
+        assert_eq!(ApiState::terminal_command_for_target(None, &[], false, true).unwrap().0, "/bin/zsh");
+        assert_eq!(ApiState::terminal_command_for_target(None, &[], false, false).unwrap().0, "/bin/bash");
+        assert!(ApiState::terminal_command_for_target(Some(" "), &[], false, false).is_none());
+    }
+}
+
+#[cfg(test)]
+mod shutdown_background_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn cancelled_shutdown_retains_background_join_and_closes_admission() {
+        let state = ApiState::new(EventBus::new());
+        state.track_background(std::future::pending());
+        let slot = state.background_tasks.lock().unwrap()[0].clone();
+        // Current-thread runtime: the aborted task cannot finish until this
+        // first shutdown poll yields. Dropping the future exercises its actual
+        // cancellation point while the JoinHandle is still pending.
+        let mut shutdown = Box::pin(state.shutdown_terminals(std::time::Duration::from_secs(1)));
+        assert!(matches!(futures_util::poll!(shutdown.as_mut()), std::task::Poll::Pending));
+        drop(shutdown);
+        assert!(slot.lock().await.is_some(), "cancelled shutdown must retain join ownership");
+        let count = state.background_tasks.lock().unwrap().len();
+        state.track_background(async { panic!("closed admission must not spawn this task") });
+        assert_eq!(state.background_tasks.lock().unwrap().len(), count);
+        assert!(state.shutdown_terminals(std::time::Duration::from_secs(1)).await.is_empty());
+        assert!(slot.lock().await.is_none(), "retry clears slot only after join");
     }
 }

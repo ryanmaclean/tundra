@@ -193,7 +193,7 @@ impl CliAdapter for ClaudeAdapter {
         args.push("-p");
         args.push(task);
         let env = [("PWD", workdir)];
-        pool.spawn(self.binary_name(), &args, &env)
+        pool.spawn_async(self.binary_name(), &args, &env).await
     }
 
     fn parse_status_output(&self, output: &str) -> Option<String> {
@@ -252,7 +252,7 @@ impl CliAdapter for CodexAdapter {
         let mut args: Vec<&str> = args_owned.iter().map(|s| s.as_str()).collect();
         args.push(task);
         let env = [("PWD", workdir)];
-        pool.spawn(self.binary_name(), &args, &env)
+        pool.spawn_async(self.binary_name(), &args, &env).await
     }
 
     fn parse_status_output(&self, output: &str) -> Option<String> {
@@ -308,7 +308,7 @@ impl CliAdapter for GeminiAdapter {
     async fn spawn(&self, pool: &PtyPool, task: &str, workdir: &str) -> Result<PtyHandle> {
         let args: Vec<&str> = vec!["-p", task];
         let env = [("PWD", workdir)];
-        pool.spawn(self.binary_name(), &args, &env)
+        pool.spawn_async(self.binary_name(), &args, &env).await
     }
 
     fn parse_status_output(&self, output: &str) -> Option<String> {
@@ -364,7 +364,7 @@ impl CliAdapter for OpenCodeAdapter {
     async fn spawn(&self, pool: &PtyPool, task: &str, workdir: &str) -> Result<PtyHandle> {
         let args: Vec<&str> = vec![task];
         let env = [("PWD", workdir)];
-        pool.spawn(self.binary_name(), &args, &env)
+        pool.spawn_async(self.binary_name(), &args, &env).await
     }
 
     fn parse_status_output(&self, output: &str) -> Option<String> {
