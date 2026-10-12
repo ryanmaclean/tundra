@@ -1282,4 +1282,34 @@ mod tests {
         assert!(manager.path().is_dir());
         std::fs::remove_dir_all(manager.path().parent().unwrap()).unwrap();
     }
+    #[test]
+    fn profile_create_patch_persists_append_without_replacing_other_settings() {
+        let manager = edit_test_manager();
+        let mut config = Config::default();
+        config.api_profiles.profiles.push(at_core::config::ApiProfileEntry {
+            name: "existing".into(), base_url: "https://old.invalid".into(), api_key_env: "OLD_KEY".into(),
+        });
+        config.general.project_name = "unchanged".into();
+        config.display.font_size = 21;
+        manager.save(&config).unwrap();
+        let loaded = settings_for_edit(&manager).unwrap();
+        let mut profiles = serde_json::to_value(&loaded.api_profiles.profiles).unwrap().as_array().unwrap().clone();
+        profiles.push(serde_json::json!({"name":"new","base_url":"https://new.invalid","api_key_env":"NEW_KEY"}));
+        let partial = serde_json::json!({"api_profiles":{"profiles":profiles}});
+        let response = patch_settings_for_edit(&manager, partial.clone()).unwrap();
+        assert_eq!(serde_json::to_value(&response.api_profiles.profiles).unwrap(), partial["api_profiles"]["profiles"]);
+        let disk = manager.load().unwrap();
+        assert_eq!(disk.api_profiles.profiles.len(), 2);
+        assert_eq!(disk.api_profiles.profiles[0].api_key_env, "OLD_KEY");
+        assert_eq!(disk.api_profiles.profiles[1].api_key_env, "NEW_KEY");
+        assert_eq!(disk.general.project_name, "unchanged");
+        assert_eq!(disk.display.font_size, 21);
+        patch_settings_for_edit(&manager, serde_json::json!({"display":{"font_size":23}})).unwrap();
+        assert_eq!(manager.load().unwrap().api_profiles.profiles.len(), 2);
+        let before = std::fs::read(manager.path()).unwrap();
+        assert!(patch_settings_for_edit(&manager, serde_json::json!({"api_profiles":{"profiles":"invalid"}})).is_err());
+        assert_eq!(std::fs::read(manager.path()).unwrap(), before);
+        std::fs::remove_dir_all(manager.path().parent().unwrap()).unwrap();
+    }
+
 }

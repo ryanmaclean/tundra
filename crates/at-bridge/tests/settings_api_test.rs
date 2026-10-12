@@ -411,3 +411,39 @@ async fn editor_http_get_and_patch_refuse_bad_stored_state() {
     assert!(path.is_dir());
     server.finish().await;
 }
+
+#[tokio::test]
+async fn profile_create_http_patch_persists_append_without_replacing_other_settings() {
+    let server = EditTestServer::start().await;
+    let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(5)).build().unwrap();
+    let url = format!("{}/api/settings", server.base);
+    let mut config = Config::default();
+    config.api_profiles.profiles.push(at_core::config::ApiProfileEntry {
+        name: "existing".into(), base_url: "https://old.invalid".into(), api_key_env: "OLD_KEY".into(),
+    });
+    config.general.project_name = "unchanged".into();
+    config.display.font_size = 21;
+    server.state.settings_manager.save(&config).unwrap();
+    let loaded: Value = client.get(&url).send().await.unwrap().json().await.unwrap();
+    let mut profiles = loaded["api_profiles"]["profiles"].as_array().unwrap().clone();
+    profiles.push(json!({"name":"new","base_url":"https://new.invalid","api_key_env":"NEW_KEY"}));
+    let partial = json!({"api_profiles":{"profiles":profiles}});
+    let response = client.patch(&url).json(&partial).send().await.unwrap();
+    assert_eq!(response.status(), 200);
+    let body: Value = response.json().await.unwrap();
+    assert_eq!(body["api_profiles"]["profiles"], partial["api_profiles"]["profiles"]);
+    let disk = server.state.settings_manager.load().unwrap();
+    assert_eq!(disk.api_profiles.profiles.len(), 2);
+    assert_eq!(disk.api_profiles.profiles[0].api_key_env, "OLD_KEY");
+    assert_eq!(disk.api_profiles.profiles[1].api_key_env, "NEW_KEY");
+    assert_eq!(disk.general.project_name, "unchanged");
+    assert_eq!(disk.display.font_size, 21);
+    assert_eq!(client.patch(&url).json(&json!({"display":{"font_size":23}})).send().await.unwrap().status(), 200);
+    let reloaded: Value = client.get(&url).send().await.unwrap().json().await.unwrap();
+    assert_eq!(reloaded["api_profiles"]["profiles"], partial["api_profiles"]["profiles"]);
+    let before = std::fs::read(server.state.settings_manager.path()).unwrap();
+    let invalid = client.patch(&url).json(&json!({"api_profiles":{"profiles":"invalid"}})).send().await.unwrap();
+    assert!(invalid.status().is_client_error());
+    assert_eq!(std::fs::read(server.state.settings_manager.path()).unwrap(), before);
+    server.finish().await;
+}
