@@ -550,7 +550,8 @@ impl ResilientRegistry {
     /// Bootstrap order:
     /// 1. Local provider profile from `providers.*` (priority 0)
     /// 2. Anthropic/OpenAI defaults (with env overrides from providers config)
-    /// 3. Custom entries from `api_profiles.profiles`
+    /// 3. OpenRouter default (OPENROUTER_API_KEY)
+    /// 4. Custom entries from `api_profiles.profiles`
     pub fn from_config(config: &at_core::config::Config) -> Self {
         let mut reg = Self::new();
 
@@ -571,6 +572,10 @@ impl ResilientRegistry {
             openai.api_key_env = env.clone();
         }
         reg.add_profile(openai);
+
+        let mut openrouter = ApiProfile::new("openrouter-primary", ProviderKind::OpenRouter);
+        openrouter.priority = 30;
+        reg.add_profile(openrouter);
 
         for (idx, entry) in config.api_profiles.profiles.iter().enumerate() {
             let name = if entry.name.trim().is_empty() {
@@ -855,7 +860,7 @@ mod tests {
         cfg.providers.openai_key_env = Some("OPENAI_PROD_KEY".into());
 
         let reg = ResilientRegistry::from_config(&cfg);
-        assert!(reg.count() >= 3);
+        assert_eq!(reg.count(), 4);
 
         let local = reg.registry.get_by_name("local-runtime").unwrap();
         assert_eq!(local.provider, ProviderKind::Local);
@@ -867,6 +872,12 @@ mod tests {
         assert_eq!(anthropic.api_key_env, "ANTHROPIC_PROD_KEY");
         let openai = reg.registry.get_by_name("openai-primary").unwrap();
         assert_eq!(openai.api_key_env, "OPENAI_PROD_KEY");
+        let openrouter = reg.registry.get_by_name("openrouter-primary").unwrap();
+        assert_eq!(openrouter.provider, ProviderKind::OpenRouter);
+        assert_eq!(openrouter.base_url, "https://openrouter.ai/api");
+        assert_eq!(openrouter.api_key_env, "OPENROUTER_API_KEY");
+        assert_eq!(openrouter.default_model, "anthropic/claude-sonnet-4-20250514");
+        assert_eq!(openrouter.priority, 30);
     }
 
     #[test]
@@ -895,6 +906,117 @@ mod tests {
         assert_eq!(auto_named.provider, ProviderKind::Custom);
         assert_eq!(auto_named.base_url, "https://fallback.example/v1");
         assert_eq!(auto_named.api_key_env, "FALLBACK_KEY");
+        assert_eq!(reg.registry.list_profiles().iter().map(|p| p.priority).collect::<Vec<_>>(),
+            vec![0, 10, 20, 30, 100, 101]);
+    }
+
+
+    #[tokio::test]
+    async fn bootstrapped_openrouter_reaches_chat_endpoint_and_preserves_errors() {
+        use crate::ideation::{IdeaCategory, IdeationEngine};
+        use std::sync::Arc;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+
+        struct TestKey(String);
+        impl Drop for TestKey {
+            fn drop(&mut self) { std::env::remove_var(&self.0); }
+        }
+        let key = TestKey(format!("TUNDRA_OPENROUTER_TEST_{}", Uuid::new_v4().simple()));
+        std::env::set_var(&key.0, "synthetic-router-key");
+        for status in [200, 401, 403] {
+            let mut registry = ResilientRegistry::from_config(&at_core::config::Config::default());
+            let mut profile = registry.registry.get_by_name("openrouter-primary")
+                .expect("documented OpenRouter default must be reachable").clone();
+            assert_eq!(profile.provider, ProviderKind::OpenRouter);
+            assert_eq!(profile.base_url, "https://openrouter.ai/api");
+            assert_eq!(profile.api_key_env, "OPENROUTER_API_KEY");
+            let model = profile.default_model.clone();
+            // Isolate only transport/credentials and remove unrelated default
+            // providers: never use ambient keys or contact a public endpoint.
+            let ids: Vec<_> = registry.registry.list_profiles().iter().map(|p| p.id).collect();
+            for id in ids { registry.remove_profile(&id); }
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            profile.base_url = format!("http://{}/api", listener.local_addr().unwrap());
+            profile.api_key_env = key.0.clone();
+            registry.add_profile(profile);
+            let response = if status == 200 {
+                serde_json::json!({"choices":[{"message":{"content":
+                    r#"{"ideas":[{"title":"Router idea","description":"Provider reply","impact":"low","effort":"small"}]}"#
+                },"finish_reason":"stop"}],"model":model,
+                    "usage":{"prompt_tokens":1,"completion_tokens":1}})
+            } else { serde_json::json!({"error":"router rejected"}) }.to_string();
+            let server = tokio::spawn(async move {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut data = Vec::new();
+                let mut buf = [0u8; 2048];
+                let (end, length) = loop {
+                    let n = socket.read(&mut buf).await.unwrap();
+                    assert!(n > 0);
+                    data.extend_from_slice(&buf[..n]);
+                    assert!(data.len() <= 65536);
+                    if let Some(end) = data.windows(4).position(|b| b == b"\r\n\r\n") {
+                        let header = std::str::from_utf8(&data[..end]).unwrap();
+                        let length = header.lines().find_map(|line| {
+                            let (name, value) = line.split_once(':')?;
+                            name.eq_ignore_ascii_case("content-length")
+                                .then(|| value.trim().parse::<usize>().unwrap())
+                        }).unwrap();
+                        assert!(length <= 65536);
+                        break (end + 4, length);
+                    }
+                };
+                while data.len() < end + length {
+                    let n = socket.read(&mut buf).await.unwrap();
+                    assert!(n > 0);
+                    data.extend_from_slice(&buf[..n]);
+                    assert!(data.len() <= 131072);
+                }
+                let reply = format!("HTTP/1.1 {status} Test\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{response}", response.len());
+                socket.write_all(reply.as_bytes()).await.unwrap();
+                (String::from_utf8(data[..end].to_vec()).unwrap(),
+                    serde_json::from_slice::<serde_json::Value>(&data[end..end + length]).unwrap())
+            });
+            let mut engine = IdeationEngine::with_registry(Arc::new(registry));
+            let before = engine.generate_ideas(&IdeaCategory::Quality, "prior");
+            let before_ids: Vec<_> = before.ideas.iter().map(|idea| idea.id).collect();
+            let result = tokio::time::timeout(Duration::from_secs(3),
+                engine.generate_ideas_with_ai(&IdeaCategory::Quality, "context")).await;
+            let mut server = server;
+            let observed = tokio::time::timeout(Duration::from_secs(3), &mut server).await;
+            if observed.is_err() { server.abort(); let _ = server.await; }
+            let (headers, body) = observed.expect("configured loopback request").unwrap();
+            let result = result.expect("bounded engine call");
+            assert!(headers.starts_with("POST /api/v1/chat/completions HTTP/1.1\r\n"));
+            assert!(headers.to_ascii_lowercase().contains("authorization: bearer synthetic-router-key\r\n"));
+            assert_eq!(body["model"], model);
+            assert_eq!(body["messages"][0]["role"], "system");
+            if status == 200 {
+                assert_eq!(result.unwrap().ideas[0].title, "Router idea");
+                assert_eq!(engine.list_ideas().len(), before_ids.len() + 1);
+            } else {
+                assert!(result.is_err());
+                assert_eq!(engine.list_ideas().iter().map(|idea| idea.id).collect::<Vec<_>>(), before_ids);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn bootstrapped_openrouter_without_key_is_skipped() {
+        let mut registry = ResilientRegistry::from_config(&at_core::config::Config::default());
+        let mut profile = registry.registry.get_by_name("openrouter-primary").unwrap().clone();
+        let ids: Vec<_> = registry.registry.list_profiles().iter().map(|p| p.id).collect();
+        for id in ids { registry.remove_profile(&id); }
+        // '=' cannot name an environment variable; no ambient key dependency.
+        profile.api_key_env = "=".into();
+        registry.add_profile(profile);
+        let called = std::sync::atomic::AtomicBool::new(false);
+        let result = registry.call_with_failover(|_| {
+            called.store(true, std::sync::atomic::Ordering::SeqCst);
+            async { Ok::<(), RetryDecision<String>>(()) }
+        }).await;
+        assert!(matches!(result, Err(ResilientCallError::AllProvidersExhausted)));
+        assert!(!called.load(std::sync::atomic::Ordering::SeqCst));
     }
 
     #[test]
