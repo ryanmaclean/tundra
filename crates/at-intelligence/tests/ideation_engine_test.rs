@@ -591,3 +591,109 @@ fn test_generated_at_timestamp() {
     assert!(result.generated_at >= before);
     assert!(result.generated_at <= after);
 }
+
+// Exercise the actual resilient engine and provider protocols against an explicit
+// loopback base URL, including a gateway prefix. These controls are authored but
+// have not been executed as part of the source-only review.
+#[tokio::test]
+async fn configured_cloud_profile_urls_preserve_protocol_and_errors() {
+    use at_intelligence::api_profiles::{ApiProfile, ProviderKind, ResilientRegistry};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+    use std::time::Duration;
+
+    struct TestKey(String);
+    impl Drop for TestKey {
+        fn drop(&mut self) { std::env::remove_var(&self.0); }
+    }
+    // Unique, synthetic key: never read or change the user's provider variables.
+    let key = TestKey(format!("TUNDRA_URL_TEST_{}", Uuid::new_v4().simple()));
+    std::env::set_var(&key.0, "synthetic-profile-key");
+
+    for kind in [ProviderKind::Anthropic, ProviderKind::OpenAi] {
+        for status in [200, 401, 403] {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let content = r#"{"ideas":[{"title":"Configured endpoint idea","description":"Actual provider response","impact":"low","effort":"small"}]}"#;
+            let response = if status != 200 {
+                serde_json::json!({"error":"configured provider refused"})
+            } else if kind == ProviderKind::Anthropic {
+                serde_json::json!({"content":[{"type":"text","text":content}],
+                    "model":"configured-model","stop_reason":"end_turn",
+                    "usage":{"input_tokens":1,"output_tokens":1}})
+            } else {
+                serde_json::json!({"choices":[{"message":{"content":content},"finish_reason":"stop"}],
+                    "model":"configured-model","usage":{"prompt_tokens":1,"completion_tokens":1}})
+            }.to_string();
+            let server = tokio::spawn(async move {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut request = Vec::new();
+                let mut chunk = [0u8; 2048];
+                let (header_end, body_len) = loop {
+                    let count = socket.read(&mut chunk).await.unwrap();
+                    assert!(count > 0, "request closed before headers");
+                    request.extend_from_slice(&chunk[..count]);
+                    assert!(request.len() <= 65536, "bounded request");
+                    if let Some(end) = request.windows(4).position(|w| w == b"\r\n\r\n") {
+                        let headers = std::str::from_utf8(&request[..end]).unwrap();
+                        let len = headers.lines().find_map(|line| {
+                            let (name, value) = line.split_once(':')?;
+                            name.eq_ignore_ascii_case("content-length")
+                                .then(|| value.trim().parse::<usize>().unwrap())
+                        }).expect("JSON request content length");
+                        assert!(len <= 65536);
+                        break (end + 4, len);
+                    }
+                };
+                while request.len() < header_end + body_len {
+                    let count = socket.read(&mut chunk).await.unwrap();
+                    assert!(count > 0, "request closed before body");
+                    request.extend_from_slice(&chunk[..count]);
+                    assert!(request.len() <= 131072);
+                }
+                let reply = format!("HTTP/1.1 {status} Test\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{response}", response.len());
+                socket.write_all(reply.as_bytes()).await.unwrap();
+                (String::from_utf8(request[..header_end].to_vec()).unwrap(),
+                    serde_json::from_slice::<serde_json::Value>(&request[header_end..header_end + body_len]).unwrap())
+            });
+            let mut profile = ApiProfile::new("configured-cloud", kind);
+            profile.api_key_env = key.0.clone();
+            profile.base_url = format!("http://{address}/gateway");
+            profile.default_model = "configured-model".into();
+            let mut registry = ResilientRegistry::new();
+            registry.add_profile(profile);
+            let mut engine = IdeationEngine::with_registry(Arc::new(registry));
+            let baseline = engine.generate_ideas(&IdeaCategory::Quality, "existing");
+            let baseline_ids: Vec<_> = baseline.ideas.iter().map(|idea| idea.id).collect();
+            let result = tokio::time::timeout(Duration::from_secs(3),
+                engine.generate_ideas_with_ai(&IdeaCategory::Quality, "context")).await;
+            let mut server = server;
+            let observed = tokio::time::timeout(Duration::from_secs(3), &mut server).await;
+            if observed.is_err() {
+                server.abort();
+                let _ = server.await;
+            }
+            let (headers, body) = observed.expect("configured endpoint must receive request").unwrap();
+            let result = result.expect("bounded ideation request");
+            let path = if kind == ProviderKind::Anthropic { "/gateway/v1/messages" } else { "/gateway/v1/chat/completions" };
+            assert!(headers.starts_with(&format!("POST {path} HTTP/1.1\r\n")));
+            let headers = headers.to_ascii_lowercase();
+            if kind == ProviderKind::Anthropic {
+                assert!(headers.contains("x-api-key: synthetic-profile-key\r\n"));
+                assert!(headers.contains("anthropic-version: 2023-06-01\r\n"));
+                assert!(body["system"].is_string());
+            } else {
+                assert!(headers.contains("authorization: bearer synthetic-profile-key\r\n"));
+                assert_eq!(body["messages"][0]["role"], "system");
+            }
+            assert_eq!(body["model"], "configured-model");
+            if status == 200 {
+                assert_eq!(result.unwrap().ideas[0].title, "Configured endpoint idea");
+                assert_eq!(engine.list_ideas().len(), baseline_ids.len() + 1);
+            } else {
+                assert!(result.is_err(), "configured auth failure must remain visible");
+                assert_eq!(engine.list_ideas().iter().map(|idea| idea.id).collect::<Vec<_>>(), baseline_ids);
+            }
+        }
+    }
+}

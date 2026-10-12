@@ -270,10 +270,16 @@ impl IdeationEngine {
                             Arc::new(LocalProvider::new(&profile.base_url, api_key))
                         }
                         ProviderKind::Anthropic => {
-                            Arc::new(AnthropicProvider::new(api_key.unwrap_or_default()))
+                            Arc::new(
+                                AnthropicProvider::new(api_key.unwrap_or_default())
+                                    .with_base_url(&profile.base_url),
+                            )
                         }
                         ProviderKind::OpenAi => {
-                            Arc::new(OpenAiProvider::new(api_key.unwrap_or_default()))
+                            Arc::new(
+                                OpenAiProvider::new(api_key.unwrap_or_default())
+                                    .with_base_url(&profile.base_url),
+                            )
                         }
                         // OpenRouter and Custom speak OpenAI-compatible protocol;
                         // fall back to LocalProvider-style HTTP call for now.
