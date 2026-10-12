@@ -33,6 +33,19 @@ impl SettingsManager {
         Ok(cfg)
     }
 
+    /// Read settings for interactive GET/PATCH. Only a genuinely absent file
+    /// starts with defaults; corrupt, invalid or unreadable state is an error.
+    pub fn load_for_edit(&self) -> Result<Config, ConfigError> {
+        let text = match std::fs::read_to_string(&self.path) {
+            Ok(text) => text,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Config::default()),
+            Err(error) => return Err(ConfigError::Io(error.to_string())),
+        };
+        let config: Config = toml::from_str(&text).map_err(|e| ConfigError::Parse(e.to_string()))?;
+        config.validate()?;
+        Ok(config)
+    }
+
     /// Save config to the TOML file on disk, creating parent directories if
     /// they don't exist.
     pub fn save(&self, config: &Config) -> Result<(), ConfigError> {
@@ -193,5 +206,23 @@ project_name = "partial"
         assert_eq!(loaded.display.theme, "light");
 
         let _ = fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn editable_load_defaults_only_when_file_is_absent() {
+        let path = tmp_settings_path();
+        let manager = SettingsManager::new(&path);
+        assert_eq!(manager.load_for_edit().unwrap().general.project_name, "auto-tundra");
+        assert!(!path.exists(), "GET must not initialize a settings file");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        for text in ["not valid = [", "[kanban]\ncolumn_mode = \"\"\n"] {
+            fs::write(&path, text).unwrap();
+            assert!(manager.load_for_edit().is_err());
+            assert_eq!(fs::read_to_string(&path).unwrap(), text);
+        }
+        fs::remove_file(&path).unwrap();
+        fs::create_dir(&path).unwrap(); // deterministic read error, including privileged test users
+        assert!(matches!(manager.load_for_edit(), Err(ConfigError::Io(_))));
+        fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
 }

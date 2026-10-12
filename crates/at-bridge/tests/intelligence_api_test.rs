@@ -589,3 +589,131 @@ async fn test_delete_nonexistent_session_returns_404() {
         .unwrap();
     assert_eq!(resp.status(), 404);
 }
+
+
+// Configured AI failures must remain failures at the HTTP boundary. These
+// cases also ensure provider diagnostics never escape into the public response.
+#[tokio::test]
+async fn configured_ideation_errors_do_not_create_placeholders() {
+    use at_intelligence::{ideation::IdeationEngine, LlmError, LlmMockProvider};
+
+    let failures = vec![
+        LlmError::ApiError { status: 401, message: "private-provider-body".into() },
+        LlmError::ApiError { status: 403, message: "private-provider-body".into() },
+        LlmError::RateLimited { retry_after_secs: Some(60) },
+        LlmError::ApiError { status: 503, message: "private-provider-body".into() },
+        LlmError::Timeout,
+        LlmError::HttpError("private-provider-endpoint".into()),
+        LlmError::ParseError("private-provider-body".into()),
+        LlmError::Unsupported("private-provider-capability".into()),
+    ];
+    let (base, state) = start_test_server().await;
+    let client = reqwest::Client::new();
+    for failure in failures {
+        let provider = Arc::new(LlmMockProvider::new().with_error(failure));
+        let mut engine = IdeationEngine::with_provider(provider.clone(), "fixture");
+        let seed = engine.generate_ideas(
+            &at_intelligence::ideation::IdeaCategory::Quality,
+            "existing idea",
+        );
+        let existing_id = seed.ideas[0].id;
+        *state.ideation_engine.write().await = engine;
+
+        let response = client
+            .post(format!("{base}/api/ideation/generate"))
+            .json(&json!({"category": "quality", "context": "new request"}))
+            .send().await.unwrap();
+        assert_eq!(response.status(), 502);
+        assert_eq!(response.json::<Value>().await.unwrap(), json!({
+            "error": "Idea generation failed",
+            "code": "ideation_generation_failed"
+        }));
+        let engine = state.ideation_engine.read().await;
+        assert_eq!(engine.list_ideas().len(), 1);
+        assert_eq!(engine.list_ideas()[0].id, existing_id);
+    }
+}
+
+#[tokio::test]
+async fn configured_empty_registry_is_not_offline_mode() {
+    use at_intelligence::{ideation::IdeationEngine, ResilientRegistry};
+    let (base, state) = start_test_server().await;
+    *state.ideation_engine.write().await =
+        IdeationEngine::with_registry(Arc::new(ResilientRegistry::new()));
+    let response = reqwest::Client::new()
+        .post(format!("{base}/api/ideation/generate"))
+        .json(&json!({"category": "quality", "context": "no eligible providers"}))
+        .send().await.unwrap();
+    assert_eq!(response.status(), 502);
+    assert_eq!(response.json::<Value>().await.unwrap()["code"], "ideation_generation_failed");
+    assert!(state.ideation_engine.read().await.list_ideas().is_empty());
+}
+
+// Exercise the production registry -> LocalProvider -> HTTP path, including a
+// valid provider response. No credentials or external provider are needed.
+#[tokio::test]
+async fn registry_http_generation_preserves_provider_success_and_failure() {
+    use at_intelligence::{ideation::IdeationEngine, ApiProfile, ProviderKind, ResilientRegistry};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let (base, state) = start_test_server().await;
+    let client = reqwest::Client::new();
+    for status in [401u16, 403, 429, 503, 200] {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let seen = calls.clone();
+        let fixture = axum::Router::new().route(
+            "/v1/chat/completions",
+            axum::routing::post(move |axum::Json(request): axum::Json<Value>| {
+                let seen = seen.clone();
+                async move {
+                    assert_eq!(request["model"], "fixture-model");
+                    seen.fetch_add(1, Ordering::SeqCst);
+                    let body = if status == 200 {
+                        json!({"choices": [{"message": {"content":
+                            "{\"ideas\":[{\"title\":\"Provider idea\",\"description\":\"From fixture\",\"impact\":\"high\",\"effort\":\"small\"}]}"
+                        }, "finish_reason": "stop"}]})
+                    } else {
+                        json!({"error": "private-provider-body"})
+                    };
+                    (axum::http::StatusCode::from_u16(status).unwrap(), axum::Json(body))
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, fixture).await.unwrap() });
+        let mut profile = ApiProfile::new("fixture", ProviderKind::Local);
+        profile.base_url = format!("http://{address}");
+        profile.default_model = "fixture-model".into();
+        // An invalid environment-variable name guarantees no ambient credential
+        // can be read by the production optional-key lookup.
+        profile.api_key_env = "=".into();
+        let mut registry = ResilientRegistry::new();
+        registry.add_profile(profile);
+        *state.ideation_engine.write().await = IdeationEngine::with_registry(Arc::new(registry));
+
+        let response = client.post(format!("{base}/api/ideation/generate"))
+            .json(&json!({"category": "quality", "context": "controlled fixture"}))
+            .send().await.unwrap();
+        let observed_status = response.status();
+        let body: Value = response.json().await.unwrap();
+        server.abort();
+        assert!(server.await.unwrap_err().is_cancelled());
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        let engine = state.ideation_engine.read().await;
+        if status == 200 {
+            assert_eq!(observed_status, 201);
+            assert_eq!(body["ideas"][0]["title"], "Provider idea");
+            assert_eq!(body["ideas"][0]["source"], "llm-analysis");
+            assert_eq!(engine.list_ideas().len(), 1);
+            assert_eq!(engine.list_ideas()[0].title, "Provider idea");
+        } else {
+            assert_eq!(observed_status, 502);
+            assert_eq!(body, json!({
+                "error": "Idea generation failed",
+                "code": "ideation_generation_failed"
+            }));
+            assert!(engine.list_ideas().is_empty());
+        }
+    }
+}

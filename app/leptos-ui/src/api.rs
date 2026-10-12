@@ -217,6 +217,42 @@ async fn put_json<T: Serialize, R: for<'de> Deserialize<'de>>(
     serde_wasm_bindgen::from_value(json).map_err(|e| format!("Parse error: {e}"))
 }
 
+async fn patch_json<T: Serialize, R: for<'de> Deserialize<'de>>(
+    url: &str,
+    body: &T,
+) -> Result<R, String> {
+    let body_str = serde_json::to_string(body).map_err(|e| format!("Serialize: {e}"))?;
+
+    let opts = RequestInit::new();
+    opts.set_method("PATCH");
+    opts.set_body(&JsValue::from_str(&body_str));
+
+    let request = Request::new_with_str_and_init(url, &opts).map_err(js_err)?;
+    request
+        .headers()
+        .set("Content-Type", "application/json")
+        .map_err(js_err)?;
+    request
+        .headers()
+        .set("Accept", "application/json")
+        .map_err(js_err)?;
+
+    let window = web_sys::window().ok_or("no global window")?;
+    let resp_value = JsFuture::from(window.fetch_with_request(&request))
+        .await
+        .map_err(|_| format!("Failed to connect to {}", get_api_base()))?;
+
+    let resp: Response = resp_value.dyn_into().map_err(js_err)?;
+    if !resp.ok() {
+        return Err(format!("HTTP {}", resp.status()));
+    }
+    let json = JsFuture::from(resp.json().map_err(js_err)?)
+        .await
+        .map_err(js_err)?;
+
+    serde_wasm_bindgen::from_value(json).map_err(|e| format!("Parse error: {e}"))
+}
+
 // ── Settings types (mirroring backend Config) ──
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -373,7 +409,7 @@ pub struct ApiClaudeAccount {
     pub authenticated: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct ApiApiProfileEntry {
     #[serde(default)]
     pub name: String,
@@ -764,6 +800,140 @@ pub async fn probe_local_provider(base_url: &str) -> Result<ApiLocalProviderProb
     }
 
     Err("Failed to connect to local provider endpoint. Tried /api/tags and /v1/models.".to_string())
+}
+
+
+/// A successful load plus the initial editor projection, not a replacement Config.
+/// Unedited backend fields are omitted even when UI defaults differ from storage.
+#[derive(Clone)]
+pub struct SettingsEditSession {
+    loaded: ApiSettings,
+    initial: ApiSettings,
+}
+
+impl SettingsEditSession {
+    pub fn new(loaded: ApiSettings, initial: ApiSettings) -> Self { Self { loaded, initial } }
+
+    /// Only loaded or acknowledged profiles are displayed and used for appends.
+    pub fn profiles(&self) -> &[ApiApiProfileEntry] { &self.loaded.api_profiles.profiles }
+
+    fn profile_create_patch(&self, profile: &ApiApiProfileEntry) -> Result<serde_json::Value, String> {
+        if profile.name.trim().is_empty() {
+            return Err("A profile name is required".into());
+        }
+        // Existing optional URL/key-env semantics are unchanged. This stores an
+        // environment variable name, never resolves or reads its credential.
+        let mut profiles = self.profiles().to_vec();
+        profiles.push(profile.clone());
+        Ok(serde_json::json!({"api_profiles":{"profiles":profiles}}))
+    }
+
+    fn acknowledge_profile_create(&self, partial: &serde_json::Value, saved: ApiSettings)
+        -> Result<Self, String> {
+        let actual = serde_json::to_value(&saved.api_profiles.profiles).map_err(|e| e.to_string())?;
+        if actual != partial["api_profiles"]["profiles"] {
+            return Err("Profile response did not acknowledge the submitted list; reload before retrying".into());
+        }
+        let mut next = self.clone();
+        next.loaded.api_profiles = saved.api_profiles;
+        // Do not reset initial to the live ordinary editor draft: none of those
+        // edits were submitted. Even dirty fields predating this call stay dirty.
+        Ok(next)
+    }
+
+    pub fn patch(&self, edited: &ApiSettings) -> Result<serde_json::Value, String> {
+        use serde_json::{Map, Value};
+        let before = serde_json::to_value(&self.initial).map_err(|e| e.to_string())?;
+        let after = serde_json::to_value(edited).map_err(|e| e.to_string())?;
+        let mut patch = Map::new();
+        // Only fields actually owned by this editor. In particular, no profiles,
+        // provider configuration, backend security defaults, or version metadata.
+        let fields: &[(&str, &[&str])] = &[
+            ("appearance", &["appearance_mode", "color_theme"]),
+            ("display", &["theme", "font_size"]),
+            ("language", &["interface_language"]),
+            ("dev_tools", &["preferred_ide", "preferred_terminal", "auto_name_terminals", "yolo_mode"]),
+            ("agent_profile", &["default_profile", "agent_framework", "ai_terminal_naming"]),
+            ("paths", &["python_path", "git_path", "github_cli_path", "claude_cli_path"]),
+            ("integrations", &["github_token_env", "github_owner", "github_repo", "gitlab_token_env", "linear_api_key_env", "linear_team_id", "openai_api_key_env"]),
+            ("updates", &["auto_update_projects", "beta_updates"]),
+            ("notifications", &["on_task_complete", "on_task_failed", "on_review_needed", "sound_enabled"]),
+            ("debug", &["anonymous_error_reporting"]),
+            ("memory", &["enable_memory", "enable_agent_memory_access", "graphiti_server_url", "embedding_provider", "embedding_model"]),
+        ];
+        for (section, keys) in fields {
+            let mut changed = Map::new();
+            for key in *keys {
+                if before[*section][*key] != after[*section][*key] {
+                    changed.insert((*key).to_string(), after[*section][*key].clone());
+                }
+            }
+            if !changed.is_empty() { patch.insert((*section).into(), Value::Object(changed)); }
+        }
+        let old_phases = &self.initial.agent_profile.phase_configs;
+        let new_phases = &edited.agent_profile.phase_configs;
+        if serde_json::to_value(old_phases).map_err(|e| e.to_string())?
+            != serde_json::to_value(new_phases).map_err(|e| e.to_string())? {
+            // PATCH replaces arrays. Preserve unknown/unedited stored phases by
+            // identity, not index. Reject ambiguous identities rather than guess.
+            for phases in [old_phases, new_phases, &self.loaded.agent_profile.phase_configs] {
+                let mut names = std::collections::HashSet::new();
+                if phases.iter().any(|p| p.phase.is_empty() || !names.insert(&p.phase)) {
+                    return Err("Cannot edit ambiguous phase identities".into());
+                }
+            }
+            if old_phases.len() != new_phases.len()
+                || old_phases.iter().any(|p| !new_phases.iter().any(|n| n.phase == p.phase)) {
+                return Err("This editor cannot add or remove phase identities".into());
+            }
+            let mut merged = self.loaded.agent_profile.phase_configs.clone();
+            let mut changed = false;
+            for next in new_phases {
+                let prior = old_phases.iter().find(|p| p.phase == next.phase).unwrap();
+                let model_changed = prior.model != next.model;
+                let thinking_changed = prior.thinking_level != next.thinking_level;
+                if !model_changed && !thinking_changed { continue; }
+                changed = true;
+                if let Some(saved) = merged.iter_mut().find(|p| p.phase == next.phase) {
+                    if model_changed { saved.model = next.model.clone(); }
+                    if thinking_changed { saved.thinking_level = next.thinking_level.clone(); }
+                } else { merged.push(next.clone()); }
+            }
+            if changed {
+                let section = patch.entry("agent_profile").or_insert_with(|| Value::Object(Map::new()));
+                section.as_object_mut().unwrap().insert("phase_configs".into(),
+                    serde_json::to_value(merged).map_err(|e| e.to_string())?);
+            }
+        }
+        Ok(Value::Object(patch))
+    }
+}
+
+/// Build the ordinary-save payload only after a successful initial load.
+/// Reset deliberately uses save_settings (full replacement) instead.
+pub fn settings_edit_patch(session: Option<&SettingsEditSession>, edited: &ApiSettings)
+    -> Result<serde_json::Value, String> {
+    session.ok_or_else(|| "Settings have not loaded; reload before saving".to_string())?.patch(edited)
+}
+
+/// Dedicated profile creation shares the real PATCH route but not ordinary-save
+/// acknowledgement. A failed load/request/response cannot fabricate a saved list.
+pub async fn create_api_profile(session: Option<&SettingsEditSession>, profile: &ApiApiProfileEntry)
+    -> Result<SettingsEditSession, String> {
+    let session = session.ok_or_else(|| "Settings have not loaded; reload before creating a profile".to_string())?;
+    let partial = session.profile_create_patch(profile)?;
+    let saved = patch_settings(&partial).await?;
+    session.acknowledge_profile_create(&partial, saved)
+}
+
+pub async fn patch_settings(partial: &serde_json::Value) -> Result<ApiSettings, String> {
+    if is_tauri() {
+        #[derive(Serialize)]
+        struct CmdPatchSettingsArgs<'a> { partial: &'a serde_json::Value }
+        tauri_invoke_with_args("cmd_patch_settings", &CmdPatchSettingsArgs { partial }).await
+    } else {
+        patch_json(&format!("{}/api/settings", get_api_base()), partial).await
+    }
 }
 
 pub async fn save_settings(settings: &ApiSettings) -> Result<ApiSettings, String> {
@@ -1835,3 +2005,286 @@ pub async fn fetch_cli_available() -> Result<ApiCliAvailable, String> {
 }
 
 // (Stacked Diffs API types and functions are defined above near line 186)
+
+#[cfg(test)]
+mod settings_edit_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn settings(value: serde_json::Value) -> ApiSettings {
+        serde_json::from_value(value).unwrap()
+    }
+
+    #[test]
+    fn ordinary_edit_omits_profiles_unloaded_sections_and_projection_defaults() {
+        let loaded = settings(json!({
+            "api_profiles":{"profiles":[{"name":"private", "base_url":"https://example.invalid", "api_key_env":"PRIVATE_KEY"}]},
+            "general":{"project_name":"keep"}, "display":{"font_size":19},
+            "paths":{"auto_claude_path":"/keep"}, "updates":{"version":"9.9"}
+        }));
+        // Represents the existing editor's lossy projection (rounding/defaults).
+        let initial = ApiSettings::default();
+        let session = SettingsEditSession::new(loaded, initial.clone());
+        assert_eq!(session.patch(&initial).unwrap(), json!({}));
+        let mut edited = initial;
+        edited.notifications.sound_enabled = !edited.notifications.sound_enabled;
+        let patch = settings_edit_patch(Some(&session), &edited).unwrap();
+        assert_eq!(patch, json!({"notifications":{"sound_enabled":edited.notifications.sound_enabled}}));
+        for omitted in ["api_profiles", "general", "display", "paths", "updates", "security", "terminal"] {
+            assert!(patch.get(omitted).is_none(), "unexpected replacement: {omitted}");
+        }
+    }
+
+    #[test]
+    fn missing_initial_load_cannot_prepare_a_default_save() {
+        assert!(settings_edit_patch(None, &ApiSettings::default()).is_err());
+    }
+
+    #[test]
+    fn clearing_an_edited_optional_leaf_sends_null() {
+        let initial = settings(json!({"integrations":{"github_owner":"old-org"}}));
+        let session = SettingsEditSession::new(initial.clone(), initial.clone());
+        let mut edited = initial;
+        edited.integrations.github_owner = None;
+        assert_eq!(session.patch(&edited).unwrap(), json!({"integrations":{"github_owner":null}}));
+    }
+
+    #[test]
+    fn phase_edits_use_identity_preserve_unknown_and_omit_unchanged_arrays() {
+        let loaded = settings(json!({"agent_profile":{"phase_configs":[
+            {"phase":"Unknown future phase","model":"keep","thinking_level":"keep"},
+            {"phase":"Ideation","model":"stored-idea","thinking_level":"stored-thinking"},
+            {"phase":"Utility","model":"stored-utility","thinking_level":"stored-low"}
+        ]}}));
+        let initial = settings(json!({"agent_profile":{"phase_configs":[
+            {"phase":"Utility","model":"projection","thinking_level":"default"},
+            {"phase":"Ideation","model":"stored-idea","thinking_level":"stored-thinking"}
+        ]}}));
+        let session = SettingsEditSession::new(loaded.clone(), initial.clone());
+        assert_eq!(session.patch(&initial).unwrap(), json!({}));
+        let mut reordered = initial.clone();
+        reordered.agent_profile.phase_configs.reverse();
+        assert_eq!(session.patch(&reordered).unwrap(), json!({}));
+        reordered.agent_profile.phase_configs[0].model = "edited-idea".into();
+        let patch = session.patch(&reordered).unwrap();
+        let phases = &patch["agent_profile"]["phase_configs"];
+        assert_eq!(phases[0]["phase"], "Unknown future phase");
+        assert_eq!(phases[0]["model"], "keep");
+        assert_eq!(phases[1]["model"], "edited-idea");
+        assert_eq!(phases[1]["thinking_level"], "stored-thinking");
+        assert_eq!(phases[2]["model"], "stored-utility");
+        assert_eq!(phases[2]["thinking_level"], "stored-low");
+        let mut duplicate = loaded;
+        duplicate.agent_profile.phase_configs.push(duplicate.agent_profile.phase_configs[1].clone());
+        assert!(SettingsEditSession::new(duplicate, initial).patch(&reordered).is_err());
+    }
+
+    #[test]
+    fn successful_acknowledgement_does_not_mark_later_unsent_edits_saved() {
+        let initial = ApiSettings::default();
+        let mut submitted = initial.clone();
+        submitted.display.font_size = 18;
+        let mut later = submitted.clone();
+        later.language.interface_language = "fr".into();
+        // Same submitted-draft/returned-snapshot binding as the Save handler.
+        let acknowledged = SettingsEditSession::new(submitted.clone(), submitted);
+        assert_eq!(acknowledged.patch(&later).unwrap(), json!({"language":{"interface_language":"fr"}}));
+        // Failed requests keep the old session, so the original edit remains dirty.
+        let failed = SettingsEditSession::new(initial.clone(), initial);
+        assert_eq!(failed.patch(&later).unwrap()["display"]["font_size"], 18);
+    }
+    #[test]
+    fn profile_creation_preserves_existing_list_and_ordinary_dirty_baseline() {
+        let mut loaded = ApiSettings::default();
+        loaded.api_profiles.profiles.push(ApiApiProfileEntry {
+            name: "existing".into(), base_url: "https://existing.invalid".into(), api_key_env: "EXISTING_KEY".into(),
+        });
+        let initial = ApiSettings::default();
+        let session = SettingsEditSession::new(loaded.clone(), initial.clone());
+        let mut dirty_before = initial.clone();
+        dirty_before.display.font_size = 23;
+        let submitted = ApiApiProfileEntry {
+            name: "new".into(), base_url: "https://new.invalid".into(), api_key_env: "NEW_KEY".into(),
+        };
+        let partial = session.profile_create_patch(&submitted).unwrap();
+        assert_eq!(partial.as_object().unwrap().len(), 1);
+        assert_eq!(partial["api_profiles"]["profiles"][0]["name"], "existing");
+        assert_eq!(partial["api_profiles"]["profiles"][1]["name"], "new");
+        assert_eq!(session.profiles().len(), 1, "preparing is not acknowledgement");
+        let mut response = loaded;
+        response.api_profiles.profiles.push(submitted.clone());
+        // Unrelated fields in a full response must not acknowledge ordinary edits.
+        response.display.font_size = 23;
+        let saved = session.acknowledge_profile_create(&partial, response).unwrap();
+        assert_eq!(saved.profiles(), &[session.profiles()[0].clone(), submitted]);
+        assert_eq!(saved.patch(&dirty_before).unwrap(), json!({"display":{"font_size":23}}));
+        let mut later = dirty_before;
+        later.language.interface_language = "fr".into();
+        assert_eq!(saved.patch(&later).unwrap(), json!({"display":{"font_size":23},"language":{"interface_language":"fr"}}));
+        assert!(saved.patch(&later).unwrap().get("api_profiles").is_none());
+        let second = ApiApiProfileEntry { name: "next".into(), ..Default::default() };
+        assert_eq!(saved.profile_create_patch(&second).unwrap()["api_profiles"]["profiles"].as_array().unwrap().len(), 3);
+    }
+
+    #[test]
+    fn profile_creation_rejects_empty_name_and_unacknowledged_response() {
+        let initial = ApiSettings::default();
+        let session = SettingsEditSession::new(initial.clone(), initial);
+        assert!(session.profile_create_patch(&ApiApiProfileEntry {name: "  ".into(), ..Default::default()}).is_err());
+        let profile = ApiApiProfileEntry { name: "only".into(), ..Default::default() };
+        let partial = session.profile_create_patch(&profile).unwrap();
+        // A success-shaped but missing/wrong persisted list is not an acknowledgement.
+        assert!(session.acknowledge_profile_create(&partial, ApiSettings::default()).is_err());
+        assert!(session.profiles().is_empty());
+        assert_eq!(profile.name, "only", "preparation/response rejection must not mutate form data");
+    }
+
+}
+
+#[cfg(all(test, target_arch = "wasm32"))]
+mod settings_transport_tests {
+    use super::*;
+    use std::{cell::RefCell, rc::Rc};
+    use wasm_bindgen_test::*;
+    wasm_bindgen_test_configure!(run_in_browser);
+
+    struct RestoreProperty { object: js_sys::Object, key: JsValue, had: bool, old: JsValue }
+    impl RestoreProperty {
+        fn new(object: &js_sys::Object, name: &str) -> Self {
+            let key = JsValue::from_str(name);
+            Self { object: object.clone(), had: js_sys::Reflect::has(object, &key).unwrap(),
+                old: js_sys::Reflect::get(object, &key).unwrap(), key }
+        }
+    }
+    impl Drop for RestoreProperty {
+        fn drop(&mut self) {
+            if self.had { let _ = js_sys::Reflect::set(&self.object, &self.key, &self.old); }
+            else { let _ = js_sys::Reflect::delete_property(&self.object, &self.key); }
+        }
+    }
+
+    // Calls the production API entrypoints with controlled browser/IPC boundaries.
+    // Separate backend tests exercise disk persistence; this is not a desktop launch.
+    #[wasm_bindgen_test]
+    async fn ordinary_save_uses_patch_on_http_and_partial_on_tauri_reset_uses_put() {
+        let window: js_sys::Object = web_sys::window().unwrap().unchecked_into();
+        let _restore_tauri = RestoreProperty::new(&window, "__TAURI__");
+        let _restore_fetch = RestoreProperty::new(&window, "fetch");
+        js_sys::Reflect::delete_property(&window, &JsValue::from_str("__TAURI__")).unwrap();
+        let requests = Rc::new(RefCell::new(Vec::<Request>::new()));
+        let captured = requests.clone();
+        let fetch = Closure::wrap(Box::new(move |request: Request| -> js_sys::Promise {
+            captured.borrow_mut().push(request);
+            let response = Response::new_with_opt_str(Some("{}")).unwrap();
+            js_sys::Promise::resolve(response.as_ref())
+        }) as Box<dyn FnMut(Request) -> js_sys::Promise>);
+        js_sys::Reflect::set(&window, &JsValue::from_str("fetch"), fetch.as_ref()).unwrap();
+        let initial = ApiSettings::default();
+        let session = SettingsEditSession::new(initial.clone(), initial.clone());
+        let mut edited = initial;
+        edited.display.font_size = 18;
+        let patch = settings_edit_patch(Some(&session), &edited).unwrap();
+        patch_settings(&patch).await.unwrap();
+        let request = requests.borrow_mut().remove(0);
+        assert_eq!(request.method(), "PATCH");
+        assert!(request.url().ends_with("/api/settings"));
+        let text = JsFuture::from(request.text().unwrap()).await.unwrap().as_string().unwrap();
+        assert_eq!(serde_json::from_str::<serde_json::Value>(&text).unwrap(), patch);
+        save_settings(&ApiSettings::default()).await.unwrap();
+        assert_eq!(requests.borrow_mut().remove(0).method(), "PUT");
+
+        let calls = Rc::new(RefCell::new(Vec::<(String, serde_json::Value)>::new()));
+        let captured = calls.clone();
+        let invoke = Closure::wrap(Box::new(move |command: String, args: JsValue| -> js_sys::Promise {
+            captured.borrow_mut().push((command, serde_wasm_bindgen::from_value(args).unwrap()));
+            js_sys::Promise::resolve(&js_sys::Object::new())
+        }) as Box<dyn FnMut(String, JsValue) -> js_sys::Promise>);
+        let tauri = js_sys::Object::new();
+        let namespace = js_sys::Object::new();
+        js_sys::Reflect::set(&tauri, &JsValue::from_str("invoke"), invoke.as_ref()).unwrap();
+        js_sys::Reflect::set(&namespace, &JsValue::from_str("tauri"), &tauri).unwrap();
+        js_sys::Reflect::set(&window, &JsValue::from_str("__TAURI__"), &namespace).unwrap();
+        patch_settings(&patch).await.unwrap();
+        let (command, args) = calls.borrow_mut().remove(0);
+        assert_eq!(command, "cmd_patch_settings");
+        assert_eq!(args, serde_json::json!({"partial":patch}));
+        assert!(requests.borrow().is_empty(), "Tauri save must not fall back to HTTP");
+        save_settings(&ApiSettings::default()).await.unwrap();
+        let (command, args) = calls.borrow_mut().remove(0);
+        assert_eq!(command, "cmd_put_settings");
+        assert!(args.get("config").is_some());
+        assert!(args.get("partial").is_none());
+    }
+    #[wasm_bindgen_test]
+    async fn profile_create_uses_real_patch_routes_and_requires_acknowledgement() {
+        let window: js_sys::Object = web_sys::window().unwrap().unchecked_into();
+        let _restore_tauri = RestoreProperty::new(&window, "__TAURI__");
+        let _restore_fetch = RestoreProperty::new(&window, "fetch");
+        js_sys::Reflect::delete_property(&window, &JsValue::from_str("__TAURI__")).unwrap();
+        let mut loaded = ApiSettings::default();
+        loaded.api_profiles.profiles.push(ApiApiProfileEntry { name: "existing".into(), ..Default::default() });
+        let session = SettingsEditSession::new(loaded.clone(), ApiSettings::default());
+        let entry = ApiApiProfileEntry { name: "new".into(), base_url: "https://example.invalid".into(), api_key_env: "NEW_KEY".into() };
+        let expected = session.profile_create_patch(&entry).unwrap();
+        let mut response = loaded;
+        response.api_profiles.profiles.push(entry.clone());
+        let response_json = serde_json::to_string(&response).unwrap();
+        let requests = Rc::new(RefCell::new(Vec::<Request>::new()));
+        let fail = Rc::new(RefCell::new(false));
+        let captured = requests.clone();
+        let response_body = response_json.clone();
+        let fail_fetch = fail.clone();
+        let fetch = Closure::wrap(Box::new(move |request: Request| -> js_sys::Promise {
+            captured.borrow_mut().push(request);
+            if *fail_fetch.borrow() {
+                js_sys::Promise::reject(&JsValue::from_str("controlled transport failure"))
+            } else {
+                js_sys::Promise::resolve(Response::new_with_opt_str(Some(&response_body)).unwrap().as_ref())
+            }
+        }) as Box<dyn FnMut(Request) -> js_sys::Promise>);
+        js_sys::Reflect::set(&window, &JsValue::from_str("fetch"), fetch.as_ref()).unwrap();
+        assert!(create_api_profile(None, &entry).await.is_err());
+        assert!(requests.borrow().is_empty(), "failed load must not send a request");
+        let saved = create_api_profile(Some(&session), &entry).await.unwrap();
+        assert_eq!(saved.profiles().len(), 2);
+        let request = requests.borrow_mut().remove(0);
+        assert_eq!(request.method(), "PATCH");
+        assert!(request.url().ends_with("/api/settings"));
+        let text = JsFuture::from(request.text().unwrap()).await.unwrap().as_string().unwrap();
+        assert_eq!(serde_json::from_str::<serde_json::Value>(&text).unwrap(), expected);
+        *fail.borrow_mut() = true;
+        assert!(create_api_profile(Some(&session), &entry).await.is_err());
+        assert_eq!(session.profiles().len(), 1);
+        assert_eq!(entry.name, "new");
+        requests.borrow_mut().clear();
+
+        let calls = Rc::new(RefCell::new(Vec::<(String, serde_json::Value)>::new()));
+        let captured = calls.clone();
+        let fail_invoke = fail.clone();
+        let invoke = Closure::wrap(Box::new(move |command: String, args: JsValue| -> js_sys::Promise {
+            captured.borrow_mut().push((command, serde_wasm_bindgen::from_value(args).unwrap()));
+            if *fail_invoke.borrow() {
+                js_sys::Promise::reject(&JsValue::from_str("controlled IPC failure"))
+            } else {
+                js_sys::Promise::resolve(&js_sys::JSON::parse(&response_json).unwrap())
+            }
+        }) as Box<dyn FnMut(String, JsValue) -> js_sys::Promise>);
+        let tauri = js_sys::Object::new();
+        let namespace = js_sys::Object::new();
+        js_sys::Reflect::set(&tauri, &JsValue::from_str("invoke"), invoke.as_ref()).unwrap();
+        js_sys::Reflect::set(&namespace, &JsValue::from_str("tauri"), &tauri).unwrap();
+        js_sys::Reflect::set(&window, &JsValue::from_str("__TAURI__"), &namespace).unwrap();
+        *fail.borrow_mut() = false;
+        let saved = create_api_profile(Some(&session), &entry).await.unwrap();
+        assert_eq!(saved.profiles().len(), 2);
+        let (command, args) = calls.borrow_mut().remove(0);
+        assert_eq!(command, "cmd_patch_settings");
+        assert_eq!(args, serde_json::json!({"partial":expected}));
+        *fail.borrow_mut() = true;
+        assert!(create_api_profile(Some(&session), &entry).await.is_err());
+        assert_eq!(session.profiles().len(), 1);
+        assert_eq!(entry.name, "new");
+        assert!(requests.borrow().is_empty(), "Tauri must not silently fall back to HTTP");
+    }
+
+}

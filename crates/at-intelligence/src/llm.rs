@@ -57,6 +57,31 @@ impl From<reqwest::Error> for LlmError {
     }
 }
 
+/// Classify an [`LlmError`] for use with
+/// [`crate::api_profiles::ResilientRegistry::call_with_failover`].
+///
+/// Authentication errors (HTTP 401 / 403) are **terminal** — switching to
+/// another provider cannot fix bad credentials, so they become
+/// [`RetryDecision::GiveUp`] and the failover loop short-circuits immediately.
+///
+/// All other errors (rate limits, 5xx, network failures, timeouts) are
+/// **transient** and warrant trying the next provider via
+/// [`RetryDecision::Retry`].
+pub fn lm_error_to_retry_decision(e: LlmError) -> crate::api_profiles::RetryDecision<LlmError> {
+    use crate::api_profiles::RetryDecision;
+    // Use `matches!` to borrow-check safely: the temporary borrow of `e`
+    // ends before we move `e` into the GiveUp/Retry variant.
+    let is_terminal = matches!(
+        &e,
+        LlmError::ApiError { status, .. } if *status == 401 || *status == 403
+    );
+    if is_terminal {
+        RetryDecision::GiveUp(e)
+    } else {
+        RetryDecision::Retry(e)
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Core data types
 // ---------------------------------------------------------------------------
@@ -163,6 +188,32 @@ pub trait LlmProvider: Send + Sync {
     ) -> Result<Pin<Box<dyn Stream<Item = Result<String, LlmError>> + Send>>, LlmError>;
 }
 
+/// Build a completion endpoint from an HTTP(S) service root or a root whose
+/// final path segment is exactly v1. Trailing slashes are ignored; proxy path
+/// prefixes and the parsed query are retained. Fragments are never sent.
+/// Full completion URLs and deployment-specific API routing are not inferred.
+fn completion_endpoint(base: &str, leaf: &str) -> Result<reqwest::Url, LlmError> {
+    let invalid = || LlmError::HttpError(
+        "Invalid provider base URL: expected an HTTP(S) service root or terminal /v1".into(),
+    );
+    // Deliberately omit the configured URL and parse details: they may contain
+    // credentials or proxy query secrets.
+    let mut url = reqwest::Url::parse(base).map_err(|_| invalid())?;
+    if !matches!(url.scheme(), "http" | "https") || !url.has_host() {
+        return Err(invalid());
+    }
+    let prefix = url.path().trim_end_matches('/');
+    let path = if prefix.rsplit('/').next() == Some("v1") {
+        format!("{prefix}/{leaf}")
+    } else {
+        format!("{prefix}/v1/{leaf}")
+    };
+    // Url::set_path preserves already encoded segments and the existing query.
+    url.set_path(&path);
+    url.set_fragment(None);
+    Ok(url)
+}
+
 // ---------------------------------------------------------------------------
 // AnthropicProvider
 // ---------------------------------------------------------------------------
@@ -186,7 +237,8 @@ impl AnthropicProvider {
         }
     }
 
-    /// Override the base URL (useful for testing with a mock server).
+    /// Override the HTTP(S) service root or terminal /v1 root.
+    /// Proxy prefixes/query are preserved; fragments are discarded.
     pub fn with_base_url(mut self, base_url: impl Into<String>) -> Self {
         self.base_url = base_url.into();
         self
@@ -264,11 +316,11 @@ impl LlmProvider for AnthropicProvider {
         config: &LlmConfig,
     ) -> Result<LlmResponse, LlmError> {
         let body = Self::build_request_body(messages, config);
-        let url = format!("{}/v1/messages", self.base_url);
+        let url = completion_endpoint(&self.base_url, "messages")?;
 
         let resp = self
             .client
-            .post(&url)
+            .post(url)
             .header("x-api-key", &self.api_key)
             .header("anthropic-version", "2023-06-01")
             .header("content-type", "application/json")
@@ -350,7 +402,9 @@ impl OpenAiProvider {
         }
     }
 
-    /// Override the base URL (useful for testing or Azure OpenAI).
+    /// Override the HTTP(S) service root or terminal /v1 root.
+    /// Proxy prefixes/query are preserved; fragments are discarded.
+    /// This does not infer Azure deployment-specific routes or full endpoints.
     pub fn with_base_url(mut self, base_url: impl Into<String>) -> Self {
         self.base_url = base_url.into();
         self
@@ -418,11 +472,11 @@ impl LlmProvider for OpenAiProvider {
         config: &LlmConfig,
     ) -> Result<LlmResponse, LlmError> {
         let body = Self::build_request_body(messages, config);
-        let url = format!("{}/v1/chat/completions", self.base_url);
+        let url = completion_endpoint(&self.base_url, "chat/completions")?;
 
         let resp = self
             .client
-            .post(&url)
+            .post(url)
             .header("Authorization", format!("Bearer {}", self.api_key))
             .header("Content-Type", "application/json")
             .json(&body)
@@ -533,7 +587,8 @@ fn local_llm_gate() -> Arc<Semaphore> {
 impl LocalProvider {
     /// Create a new local inference provider.
     ///
-    /// `base_url` is the server address (e.g., `"http://localhost:8000"`).
+    /// `base_url` is an HTTP(S) root or terminal /v1 root (e.g., `"http://localhost:8000/v1"`).
+    /// Proxy prefixes/query are preserved; fragments are discarded.
     /// `api_key` is optional — pass `None` for servers without auth.
     pub fn new(base_url: impl Into<String>, api_key: Option<String>) -> Self {
         let key = api_key.filter(|k| !k.is_empty() && k != "none");
@@ -614,11 +669,11 @@ impl LlmProvider for LocalProvider {
             "messages": api_messages,
         });
 
-        let url = format!("{}/v1/chat/completions", self.base_url);
+        let url = completion_endpoint(&self.base_url, "chat/completions")?;
 
         let mut req = self
             .client
-            .post(&url)
+            .post(url)
             .header("Content-Type", "application/json")
             .json(&body);
 
@@ -1373,4 +1428,374 @@ mod tests {
         assert_eq!(usage.prompt_tokens, Some(42));
         assert_eq!(usage.completion_tokens, Some(10));
     }
+}
+
+// ---------------------------------------------------------------------------
+// lm_error_to_retry_decision tests
+//
+// Style mirrors `fallback_tests` in `api_profiles.rs`: uses Local-kind
+// profiles (has_api_key() is unconditionally true so tests are hermetic) and
+// Arc<AtomicUsize> counters to assert which providers were actually invoked.
+// ---------------------------------------------------------------------------
+#[cfg(test)]
+mod retry_decision_tests {
+    use super::*;
+    use crate::api_profiles::{ApiProfile, ProviderKind, ResilientCallError, ResilientRegistry};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    fn local_profile(name: &str, priority: u32) -> ApiProfile {
+        let mut p = ApiProfile::new(name, ProviderKind::Local);
+        p.priority = priority;
+        p
+    }
+
+    // -----------------------------------------------------------------------
+    // 401 Unauthorized → GiveUp: the second provider must never be invoked.
+    // -----------------------------------------------------------------------
+    #[tokio::test]
+    async fn lm_error_401_gives_up_and_does_not_fan_out() {
+        let mut reg = ResilientRegistry::new();
+        reg.add_profile(local_profile("primary", 0));
+        reg.add_profile(local_profile("secondary", 1));
+
+        let call_count = Arc::new(AtomicUsize::new(0));
+        let count_c = call_count.clone();
+
+        let result = reg
+            .call_with_failover(|_profile| {
+                let cnt = count_c.clone();
+                async move {
+                    cnt.fetch_add(1, Ordering::SeqCst);
+                    let err = LlmError::ApiError {
+                        status: 401,
+                        message: "Unauthorized".into(),
+                    };
+                    // 401 is terminal: GiveUp prevents fan-out to the secondary.
+                    Err::<String, _>(lm_error_to_retry_decision(err))
+                }
+            })
+            .await;
+
+        // The error surfaces as ResilientCallError::Inner (from GiveUp).
+        assert!(
+            matches!(result, Err(ResilientCallError::Inner(_))),
+            "expected Inner error from GiveUp 401, got: {:?}",
+            result
+        );
+        // Only the primary was ever called; secondary must not be invoked.
+        assert_eq!(
+            call_count.load(Ordering::SeqCst),
+            1,
+            "secondary must not be invoked when the first call returns GiveUp"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // 403 Forbidden → GiveUp: same short-circuit guarantee as 401.
+    // -----------------------------------------------------------------------
+    #[tokio::test]
+    async fn lm_error_403_gives_up_and_does_not_fan_out() {
+        let mut reg = ResilientRegistry::new();
+        reg.add_profile(local_profile("primary", 0));
+        reg.add_profile(local_profile("secondary", 1));
+
+        let call_count = Arc::new(AtomicUsize::new(0));
+        let count_c = call_count.clone();
+
+        let result = reg
+            .call_with_failover(|_profile| {
+                let cnt = count_c.clone();
+                async move {
+                    cnt.fetch_add(1, Ordering::SeqCst);
+                    let err = LlmError::ApiError {
+                        status: 403,
+                        message: "Forbidden".into(),
+                    };
+                    Err::<String, _>(lm_error_to_retry_decision(err))
+                }
+            })
+            .await;
+
+        assert!(
+            matches!(result, Err(ResilientCallError::Inner(_))),
+            "expected Inner error from GiveUp 403, got: {:?}",
+            result
+        );
+        assert_eq!(call_count.load(Ordering::SeqCst), 1);
+    }
+
+    // -----------------------------------------------------------------------
+    // 429 Too Many Requests → Retry: falls over to secondary.
+    // -----------------------------------------------------------------------
+    #[tokio::test]
+    async fn lm_error_429_retries_and_fans_out_to_secondary() {
+        let mut reg = ResilientRegistry::new();
+        reg.add_profile(local_profile("primary", 0));
+        let id_secondary = reg.add_profile(local_profile("secondary", 1));
+
+        let call_count = Arc::new(AtomicUsize::new(0));
+        let count_c = call_count.clone();
+
+        let result = reg
+            .call_with_failover(|profile| {
+                let cnt = count_c.clone();
+                let name = profile.name.clone();
+                async move {
+                    cnt.fetch_add(1, Ordering::SeqCst);
+                    if name == "primary" {
+                        let err = LlmError::RateLimited {
+                            retry_after_secs: Some(5),
+                        };
+                        Err(lm_error_to_retry_decision(err))
+                    } else {
+                        Ok::<String, _>("ok:secondary".into())
+                    }
+                }
+            })
+            .await;
+
+        let (used, value) = result.expect("secondary should succeed after primary 429");
+        assert_eq!(used, id_secondary);
+        assert_eq!(value, "ok:secondary");
+        assert_eq!(call_count.load(Ordering::SeqCst), 2);
+    }
+
+    // -----------------------------------------------------------------------
+    // 500 Internal Server Error → Retry: falls over to secondary.
+    // -----------------------------------------------------------------------
+    #[tokio::test]
+    async fn lm_error_5xx_retries_and_fans_out() {
+        let mut reg = ResilientRegistry::new();
+        reg.add_profile(local_profile("primary", 0));
+        let id_secondary = reg.add_profile(local_profile("secondary", 1));
+
+        let result = reg
+            .call_with_failover(|profile| {
+                let name = profile.name.clone();
+                async move {
+                    if name == "primary" {
+                        let err = LlmError::ApiError {
+                            status: 500,
+                            message: "Internal Server Error".into(),
+                        };
+                        Err(lm_error_to_retry_decision(err))
+                    } else {
+                        Ok::<String, _>("ok".into())
+                    }
+                }
+            })
+            .await;
+
+        assert_eq!(result.expect("secondary should succeed").0, id_secondary);
+    }
+
+    // -----------------------------------------------------------------------
+    // Unit tests for lm_error_to_retry_decision itself.
+    // -----------------------------------------------------------------------
+    #[test]
+    fn retry_decision_401_is_give_up() {
+        let e = LlmError::ApiError {
+            status: 401,
+            message: "Unauthorized".into(),
+        };
+        assert!(matches!(
+            lm_error_to_retry_decision(e),
+            crate::api_profiles::RetryDecision::GiveUp(_)
+        ));
+    }
+
+    #[test]
+    fn retry_decision_403_is_give_up() {
+        let e = LlmError::ApiError {
+            status: 403,
+            message: "Forbidden".into(),
+        };
+        assert!(matches!(
+            lm_error_to_retry_decision(e),
+            crate::api_profiles::RetryDecision::GiveUp(_)
+        ));
+    }
+
+    #[test]
+    fn retry_decision_429_is_retry() {
+        let e = LlmError::RateLimited {
+            retry_after_secs: None,
+        };
+        assert!(matches!(
+            lm_error_to_retry_decision(e),
+            crate::api_profiles::RetryDecision::Retry(_)
+        ));
+    }
+
+    #[test]
+    fn retry_decision_500_is_retry() {
+        let e = LlmError::ApiError {
+            status: 500,
+            message: "server error".into(),
+        };
+        assert!(matches!(
+            lm_error_to_retry_decision(e),
+            crate::api_profiles::RetryDecision::Retry(_)
+        ));
+    }
+
+    #[test]
+    fn retry_decision_timeout_is_retry() {
+        assert!(matches!(
+            lm_error_to_retry_decision(LlmError::Timeout),
+            crate::api_profiles::RetryDecision::Retry(_)
+        ));
+    }
+
+    #[test]
+    fn retry_decision_http_error_is_retry() {
+        let e = LlmError::HttpError("connection refused".into());
+        assert!(matches!(
+            lm_error_to_retry_decision(e),
+            crate::api_profiles::RetryDecision::Retry(_)
+        ));
+    }
+    // Actual complete() requests, not helper-only string comparisons. All native
+    // fixtures are authored source and must run only on an admitted remote runner.
+    fn endpoint_test_provider(kind: &str, base: &str) -> Box<dyn LlmProvider> {
+        let client = reqwest::Client::builder().no_proxy()
+            .timeout(Duration::from_secs(3)).build().unwrap();
+        match kind {
+            "anthropic" => {
+                let mut provider = AnthropicProvider::new("test-key").with_base_url(base);
+                provider.client = client;
+                Box::new(provider)
+            }
+            "openai" => {
+                let mut provider = OpenAiProvider::new("test-key").with_base_url(base);
+                provider.client = client;
+                Box::new(provider)
+            }
+            "local" | "local-anonymous" => {
+                let key = (kind == "local").then(|| "test-key".to_string());
+                let mut provider = LocalProvider::new(base, key);
+                provider.client = client;
+                Box::new(provider)
+            }
+            _ => panic!("unknown test provider"),
+        }
+    }
+
+    async fn capture_endpoint_request(listener: tokio::net::TcpListener, anthropic: bool)
+        -> (String, serde_json::Value) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut request = Vec::new();
+        let mut chunk = [0u8; 4096];
+        let (header_end, content_length) = loop {
+            let count = socket.read(&mut chunk).await.unwrap();
+            assert!(count > 0, "request closed before headers");
+            request.extend_from_slice(&chunk[..count]);
+            assert!(request.len() <= 65_536, "request exceeds fixture bound");
+            if let Some(end) = request.windows(4).position(|p| p == b"\r\n\r\n") {
+                let headers = std::str::from_utf8(&request[..end]).unwrap();
+                let length = headers.lines().find_map(|line| {
+                    let (name, value) = line.split_once(':')?;
+                    name.eq_ignore_ascii_case("content-length").then(|| value.trim().parse::<usize>().unwrap())
+                }).expect("JSON request length");
+                assert!(end + 4 + length <= 65_536);
+                break (end + 4, length);
+            }
+        };
+        while request.len() < header_end + content_length {
+            let count = socket.read(&mut chunk).await.unwrap();
+            assert!(count > 0, "request closed before body");
+            request.extend_from_slice(&chunk[..count]);
+            assert!(request.len() <= 65_536);
+        }
+        let body = serde_json::from_slice(&request[header_end..header_end + content_length]).unwrap();
+        let headers = String::from_utf8(request[..header_end].to_vec()).unwrap();
+        let response = if anthropic {
+            serde_json::json!({"content":[{"type":"text","text":"ok"}],"model":"test-model",
+                "stop_reason":"end_turn","usage":{"input_tokens":2,"output_tokens":1}})
+        } else {
+            serde_json::json!({"choices":[{"message":{"content":"ok"},"finish_reason":"stop"}],
+                "model":"test-model","usage":{"prompt_tokens":2,"completion_tokens":1}})
+        }.to_string();
+        socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", response.len(), response).as_bytes()).await.unwrap();
+        socket.shutdown().await.unwrap();
+        (headers, body)
+    }
+
+    #[tokio::test]
+    async fn all_provider_completion_requests_normalize_root_or_terminal_v1() {
+        // Expected version roots are literals, independent of the implementation.
+        let cases = [
+            ("", "/v1", ""), ("/", "/v1", ""),
+            ("/v1", "/v1", ""), ("/v1/", "/v1", ""),
+            ("/api", "/api/v1", ""), ("/api/", "/api/v1", ""),
+            ("/api/v1", "/api/v1", ""), ("/api/v1/", "/api/v1", ""),
+            ("/v1/proxy", "/v1/proxy/v1", ""), ("/v10", "/v10/v1", ""),
+            ("/proxy%2Ftenant/v1/", "/proxy%2Ftenant/v1", ""),
+            ("/api/v1/?route=a%2Fb&key=x%26y#not-on-wire", "/api/v1", "?route=a%2Fb&key=x%26y"),
+            ("/api#fragment?not=query", "/api/v1", ""),
+        ];
+        for kind in ["anthropic", "openai", "local", "local-anonymous"] {
+            for (configured, version_root, query) in cases {
+                let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+                let base = format!("http://{}{configured}", listener.local_addr().unwrap());
+                let mut server = tokio::spawn(capture_endpoint_request(listener, kind == "anthropic"));
+                let provider = endpoint_test_provider(kind, &base);
+                let messages = [LlmMessage::system("system marker"), LlmMessage::user("user marker")];
+                let response = tokio::time::timeout(Duration::from_secs(5),
+                    provider.complete(&messages, &default_config())).await;
+                let captured = tokio::time::timeout(Duration::from_secs(5), &mut server).await;
+                if captured.is_err() {
+                    server.abort();
+                    let _ = server.await;
+                    panic!("fixture did not receive/finish {kind} {configured}");
+                }
+                let (headers, body) = captured.unwrap().unwrap();
+                assert_eq!(response.expect("provider deadline").unwrap().content, "ok");
+                let leaf = if kind == "anthropic" { "messages" } else { "chat/completions" };
+                assert_eq!(headers.lines().next().unwrap(), format!("POST {version_root}/{leaf}{query} HTTP/1.1"));
+                let lower = headers.to_ascii_lowercase();
+                assert!(lower.contains("content-type: application/json\r\n"));
+                if kind == "anthropic" {
+                    assert!(lower.contains("x-api-key: test-key\r\n"));
+                    assert!(lower.contains("anthropic-version: 2023-06-01\r\n"));
+                    assert!(!lower.contains("authorization:"));
+                    assert_eq!(body["system"], "system marker");
+                    assert_eq!(body["messages"][0]["role"], "user");
+                } else {
+                    assert_eq!(lower.contains("authorization: bearer test-key\r\n"), kind != "local-anonymous");
+                    assert_eq!(body["messages"][0]["role"], "system");
+                    assert_eq!(body["messages"][0]["content"], "system marker");
+                    assert_eq!(body["messages"][1]["content"], "user marker");
+                }
+                assert_eq!(body["model"], "test-model");
+                assert_eq!(body["max_tokens"], 512);
+                assert_eq!(body["temperature"], 0.5);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn invalid_completion_base_does_not_send_or_expose_configured_url() {
+        for kind in ["anthropic", "openai", "local"] {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            for base in [format!("ftp://{address}/secret-token"),
+                format!("http://{address}:bad/secret-token"),
+                "relative/secret-token".into()] {
+                let provider = endpoint_test_provider(kind, &base);
+                let error = tokio::time::timeout(Duration::from_secs(5),
+                    provider.complete(&[LlmMessage::user("hello")], &default_config()))
+                    .await.expect("provider deadline").unwrap_err();
+                assert!(matches!(&error, LlmError::HttpError(_)));
+                let message = error.to_string();
+                assert!(message.contains("Invalid provider base URL"));
+                assert!(!message.contains("secret-token"));
+            }
+            assert!(tokio::time::timeout(Duration::from_millis(50), listener.accept()).await.is_err(),
+                "invalid URL must never start transport");
+        }
+    }
+
 }
