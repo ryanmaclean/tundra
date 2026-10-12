@@ -188,6 +188,32 @@ pub trait LlmProvider: Send + Sync {
     ) -> Result<Pin<Box<dyn Stream<Item = Result<String, LlmError>> + Send>>, LlmError>;
 }
 
+/// Build a completion endpoint from an HTTP(S) service root or a root whose
+/// final path segment is exactly v1. Trailing slashes are ignored; proxy path
+/// prefixes and the parsed query are retained. Fragments are never sent.
+/// Full completion URLs and deployment-specific API routing are not inferred.
+fn completion_endpoint(base: &str, leaf: &str) -> Result<reqwest::Url, LlmError> {
+    let invalid = || LlmError::HttpError(
+        "Invalid provider base URL: expected an HTTP(S) service root or terminal /v1".into(),
+    );
+    // Deliberately omit the configured URL and parse details: they may contain
+    // credentials or proxy query secrets.
+    let mut url = reqwest::Url::parse(base).map_err(|_| invalid())?;
+    if !matches!(url.scheme(), "http" | "https") || !url.has_host() {
+        return Err(invalid());
+    }
+    let prefix = url.path().trim_end_matches('/');
+    let path = if prefix.rsplit('/').next() == Some("v1") {
+        format!("{prefix}/{leaf}")
+    } else {
+        format!("{prefix}/v1/{leaf}")
+    };
+    // Url::set_path preserves already encoded segments and the existing query.
+    url.set_path(&path);
+    url.set_fragment(None);
+    Ok(url)
+}
+
 // ---------------------------------------------------------------------------
 // AnthropicProvider
 // ---------------------------------------------------------------------------
@@ -211,7 +237,8 @@ impl AnthropicProvider {
         }
     }
 
-    /// Override the base URL (useful for testing with a mock server).
+    /// Override the HTTP(S) service root or terminal /v1 root.
+    /// Proxy prefixes/query are preserved; fragments are discarded.
     pub fn with_base_url(mut self, base_url: impl Into<String>) -> Self {
         self.base_url = base_url.into();
         self
@@ -289,11 +316,11 @@ impl LlmProvider for AnthropicProvider {
         config: &LlmConfig,
     ) -> Result<LlmResponse, LlmError> {
         let body = Self::build_request_body(messages, config);
-        let url = format!("{}/v1/messages", self.base_url);
+        let url = completion_endpoint(&self.base_url, "messages")?;
 
         let resp = self
             .client
-            .post(&url)
+            .post(url)
             .header("x-api-key", &self.api_key)
             .header("anthropic-version", "2023-06-01")
             .header("content-type", "application/json")
@@ -375,7 +402,9 @@ impl OpenAiProvider {
         }
     }
 
-    /// Override the base URL (useful for testing or Azure OpenAI).
+    /// Override the HTTP(S) service root or terminal /v1 root.
+    /// Proxy prefixes/query are preserved; fragments are discarded.
+    /// This does not infer Azure deployment-specific routes or full endpoints.
     pub fn with_base_url(mut self, base_url: impl Into<String>) -> Self {
         self.base_url = base_url.into();
         self
@@ -443,11 +472,11 @@ impl LlmProvider for OpenAiProvider {
         config: &LlmConfig,
     ) -> Result<LlmResponse, LlmError> {
         let body = Self::build_request_body(messages, config);
-        let url = format!("{}/v1/chat/completions", self.base_url);
+        let url = completion_endpoint(&self.base_url, "chat/completions")?;
 
         let resp = self
             .client
-            .post(&url)
+            .post(url)
             .header("Authorization", format!("Bearer {}", self.api_key))
             .header("Content-Type", "application/json")
             .json(&body)
@@ -558,7 +587,8 @@ fn local_llm_gate() -> Arc<Semaphore> {
 impl LocalProvider {
     /// Create a new local inference provider.
     ///
-    /// `base_url` is the server address (e.g., `"http://localhost:8000"`).
+    /// `base_url` is an HTTP(S) root or terminal /v1 root (e.g., `"http://localhost:8000/v1"`).
+    /// Proxy prefixes/query are preserved; fragments are discarded.
     /// `api_key` is optional — pass `None` for servers without auth.
     pub fn new(base_url: impl Into<String>, api_key: Option<String>) -> Self {
         let key = api_key.filter(|k| !k.is_empty() && k != "none");
@@ -639,11 +669,11 @@ impl LlmProvider for LocalProvider {
             "messages": api_messages,
         });
 
-        let url = format!("{}/v1/chat/completions", self.base_url);
+        let url = completion_endpoint(&self.base_url, "chat/completions")?;
 
         let mut req = self
             .client
-            .post(&url)
+            .post(url)
             .header("Content-Type", "application/json")
             .json(&body);
 
@@ -1626,4 +1656,146 @@ mod retry_decision_tests {
             crate::api_profiles::RetryDecision::Retry(_)
         ));
     }
+    // Actual complete() requests, not helper-only string comparisons. All native
+    // fixtures are authored source and must run only on an admitted remote runner.
+    fn endpoint_test_provider(kind: &str, base: &str) -> Box<dyn LlmProvider> {
+        let client = reqwest::Client::builder().no_proxy()
+            .timeout(Duration::from_secs(3)).build().unwrap();
+        match kind {
+            "anthropic" => {
+                let mut provider = AnthropicProvider::new("test-key").with_base_url(base);
+                provider.client = client;
+                Box::new(provider)
+            }
+            "openai" => {
+                let mut provider = OpenAiProvider::new("test-key").with_base_url(base);
+                provider.client = client;
+                Box::new(provider)
+            }
+            "local" | "local-anonymous" => {
+                let key = (kind == "local").then(|| "test-key".to_string());
+                let mut provider = LocalProvider::new(base, key);
+                provider.client = client;
+                Box::new(provider)
+            }
+            _ => panic!("unknown test provider"),
+        }
+    }
+
+    async fn capture_endpoint_request(listener: tokio::net::TcpListener, anthropic: bool)
+        -> (String, serde_json::Value) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut request = Vec::new();
+        let mut chunk = [0u8; 4096];
+        let (header_end, content_length) = loop {
+            let count = socket.read(&mut chunk).await.unwrap();
+            assert!(count > 0, "request closed before headers");
+            request.extend_from_slice(&chunk[..count]);
+            assert!(request.len() <= 65_536, "request exceeds fixture bound");
+            if let Some(end) = request.windows(4).position(|p| p == b"\r\n\r\n") {
+                let headers = std::str::from_utf8(&request[..end]).unwrap();
+                let length = headers.lines().find_map(|line| {
+                    let (name, value) = line.split_once(':')?;
+                    name.eq_ignore_ascii_case("content-length").then(|| value.trim().parse::<usize>().unwrap())
+                }).expect("JSON request length");
+                assert!(end + 4 + length <= 65_536);
+                break (end + 4, length);
+            }
+        };
+        while request.len() < header_end + content_length {
+            let count = socket.read(&mut chunk).await.unwrap();
+            assert!(count > 0, "request closed before body");
+            request.extend_from_slice(&chunk[..count]);
+            assert!(request.len() <= 65_536);
+        }
+        let body = serde_json::from_slice(&request[header_end..header_end + content_length]).unwrap();
+        let headers = String::from_utf8(request[..header_end].to_vec()).unwrap();
+        let response = if anthropic {
+            serde_json::json!({"content":[{"type":"text","text":"ok"}],"model":"test-model",
+                "stop_reason":"end_turn","usage":{"input_tokens":2,"output_tokens":1}})
+        } else {
+            serde_json::json!({"choices":[{"message":{"content":"ok"},"finish_reason":"stop"}],
+                "model":"test-model","usage":{"prompt_tokens":2,"completion_tokens":1}})
+        }.to_string();
+        socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", response.len(), response).as_bytes()).await.unwrap();
+        socket.shutdown().await.unwrap();
+        (headers, body)
+    }
+
+    #[tokio::test]
+    async fn all_provider_completion_requests_normalize_root_or_terminal_v1() {
+        // Expected version roots are literals, independent of the implementation.
+        let cases = [
+            ("", "/v1", ""), ("/", "/v1", ""),
+            ("/v1", "/v1", ""), ("/v1/", "/v1", ""),
+            ("/api", "/api/v1", ""), ("/api/", "/api/v1", ""),
+            ("/api/v1", "/api/v1", ""), ("/api/v1/", "/api/v1", ""),
+            ("/v1/proxy", "/v1/proxy/v1", ""), ("/v10", "/v10/v1", ""),
+            ("/proxy%2Ftenant/v1/", "/proxy%2Ftenant/v1", ""),
+            ("/api/v1/?route=a%2Fb&key=x%26y#not-on-wire", "/api/v1", "?route=a%2Fb&key=x%26y"),
+            ("/api#fragment?not=query", "/api/v1", ""),
+        ];
+        for kind in ["anthropic", "openai", "local", "local-anonymous"] {
+            for (configured, version_root, query) in cases {
+                let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+                let base = format!("http://{}{configured}", listener.local_addr().unwrap());
+                let mut server = tokio::spawn(capture_endpoint_request(listener, kind == "anthropic"));
+                let provider = endpoint_test_provider(kind, &base);
+                let messages = [LlmMessage::system("system marker"), LlmMessage::user("user marker")];
+                let response = tokio::time::timeout(Duration::from_secs(5),
+                    provider.complete(&messages, &default_config())).await;
+                let captured = tokio::time::timeout(Duration::from_secs(5), &mut server).await;
+                if captured.is_err() {
+                    server.abort();
+                    let _ = server.await;
+                    panic!("fixture did not receive/finish {kind} {configured}");
+                }
+                let (headers, body) = captured.unwrap().unwrap();
+                assert_eq!(response.expect("provider deadline").unwrap().content, "ok");
+                let leaf = if kind == "anthropic" { "messages" } else { "chat/completions" };
+                assert_eq!(headers.lines().next().unwrap(), format!("POST {version_root}/{leaf}{query} HTTP/1.1"));
+                let lower = headers.to_ascii_lowercase();
+                assert!(lower.contains("content-type: application/json\r\n"));
+                if kind == "anthropic" {
+                    assert!(lower.contains("x-api-key: test-key\r\n"));
+                    assert!(lower.contains("anthropic-version: 2023-06-01\r\n"));
+                    assert!(!lower.contains("authorization:"));
+                    assert_eq!(body["system"], "system marker");
+                    assert_eq!(body["messages"][0]["role"], "user");
+                } else {
+                    assert_eq!(lower.contains("authorization: bearer test-key\r\n"), kind != "local-anonymous");
+                    assert_eq!(body["messages"][0]["role"], "system");
+                    assert_eq!(body["messages"][0]["content"], "system marker");
+                    assert_eq!(body["messages"][1]["content"], "user marker");
+                }
+                assert_eq!(body["model"], "test-model");
+                assert_eq!(body["max_tokens"], 512);
+                assert_eq!(body["temperature"], 0.5);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn invalid_completion_base_does_not_send_or_expose_configured_url() {
+        for kind in ["anthropic", "openai", "local"] {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            for base in [format!("ftp://{address}/secret-token"),
+                format!("http://{address}:bad/secret-token"),
+                "relative/secret-token".into()] {
+                let provider = endpoint_test_provider(kind, &base);
+                let error = tokio::time::timeout(Duration::from_secs(5),
+                    provider.complete(&[LlmMessage::user("hello")], &default_config()))
+                    .await.expect("provider deadline").unwrap_err();
+                assert!(matches!(&error, LlmError::HttpError(_)));
+                let message = error.to_string();
+                assert!(message.contains("Invalid provider base URL"));
+                assert!(!message.contains("secret-token"));
+            }
+            assert!(tokio::time::timeout(Duration::from_millis(50), listener.accept()).await.is_err(),
+                "invalid URL must never start transport");
+        }
+    }
+
 }
