@@ -319,3 +319,95 @@ async fn test_update_notification_settings() {
     assert!(titles.contains(&"Task Complete"));
     assert!(titles.contains(&"Task Failed"));
 }
+
+// These new controls retain/join their server task; they exercise the actual router.
+struct EditTestServer {
+    base: String,
+    state: Arc<ApiState>,
+    task: tokio::task::JoinHandle<()>,
+}
+impl Drop for EditTestServer {
+    fn drop(&mut self) { self.task.abort(); }
+}
+impl EditTestServer {
+    async fn start() -> Self {
+        let path = std::env::temp_dir().join(format!("at-settings-edit-http-{}", uuid::Uuid::new_v4())).join("settings.toml");
+        let mut state = ApiState::new(EventBus::new()).with_relaxed_rate_limits();
+        state.settings_manager = Arc::new(SettingsManager::new(path));
+        let state = Arc::new(state);
+        let router = api_router(state.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let task = tokio::spawn(async move { axum::serve(listener, router).await.unwrap(); });
+        Self { base, state, task }
+    }
+    async fn finish(mut self) {
+        self.task.abort();
+        let result = (&mut self.task).await;
+        assert!(result.is_ok() || result.unwrap_err().is_cancelled());
+        if self.state.settings_manager.path().parent().unwrap().exists() {
+            std::fs::remove_dir_all(self.state.settings_manager.path().parent().unwrap()).unwrap();
+        }
+    }
+}
+
+#[tokio::test]
+async fn editor_http_patch_preserves_profiles_and_put_still_resets() {
+    let server = EditTestServer::start().await;
+    let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(5)).build().unwrap();
+    let url = format!("{}/api/settings", server.base);
+    let mut config = Config::default();
+    config.api_profiles.profiles.push(at_core::config::ApiProfileEntry {
+        name: "custom".into(), base_url: "https://example.invalid".into(), api_key_env: "CUSTOM_KEY".into(),
+    });
+    config.general.project_name = "keep-project".into();
+    config.integrations.github_owner = Some("clear-me".into());
+    config.terminal.font_size = 23;
+    server.state.settings_manager.save(&config).unwrap();
+    let response = client.patch(&url).json(&json!({"notifications":{"sound_enabled":false}, "integrations":{"github_owner":null}})).send().await.unwrap();
+    assert_eq!(response.status(), 200);
+    let body: Value = response.json().await.unwrap();
+    assert_eq!(body["api_profiles"]["profiles"][0]["name"], "custom");
+    assert_eq!(body["general"]["project_name"], "keep-project");
+    assert_eq!(body["terminal"]["font_size"], 23);
+    assert!(body["integrations"]["github_owner"].is_null());
+    assert_eq!(server.state.settings_manager.load().unwrap().api_profiles.profiles[0].base_url, "https://example.invalid");
+    // Deliberately clearing an array remains supported by PATCH.
+    let removed = client.patch(&url).json(&json!({"api_profiles":{"profiles":[]}})).send().await.unwrap();
+    assert_eq!(removed.status(), 200);
+    assert!(server.state.settings_manager.load().unwrap().api_profiles.profiles.is_empty());
+    server.state.settings_manager.save(&config).unwrap();
+    let reset = client.put(&url).json(&Config::default()).send().await.unwrap();
+    assert_eq!(reset.status(), 200);
+    let reset_disk = server.state.settings_manager.load().unwrap();
+    assert!(reset_disk.api_profiles.profiles.is_empty());
+    assert_eq!(reset_disk.general.project_name, Config::default().general.project_name);
+    server.finish().await;
+}
+
+#[tokio::test]
+async fn editor_http_get_and_patch_refuse_bad_stored_state() {
+    let server = EditTestServer::start().await;
+    let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(5)).build().unwrap();
+    let url = format!("{}/api/settings", server.base);
+    let path = server.state.settings_manager.path();
+    assert_eq!(client.get(&url).send().await.unwrap().status(), 200);
+    assert!(!path.exists());
+    assert_eq!(client.patch(&url).json(&json!({"display":{"font_size":18}})).send().await.unwrap().status(), 200);
+    assert_eq!(server.state.settings_manager.load().unwrap().display.font_size, 18);
+    for text in ["not valid = [", "[kanban]\ncolumn_mode = \"\"\n"] {
+        std::fs::write(path, text).unwrap();
+        let get = client.get(&url).send().await.unwrap();
+        assert_eq!(get.status(), 500);
+        assert!(get.json::<Value>().await.unwrap()["error"].is_string());
+        let patch = client.patch(&url).json(&json!({"display":{"font_size":20}})).send().await.unwrap();
+        assert_eq!(patch.status(), 500);
+        assert_eq!(std::fs::read_to_string(path).unwrap(), text);
+    }
+    std::fs::remove_file(path).unwrap();
+    std::fs::create_dir(path).unwrap();
+    assert_eq!(client.get(&url).send().await.unwrap().status(), 500);
+    assert_eq!(client.patch(&url).json(&json!({})).send().await.unwrap().status(), 500);
+    assert!(path.is_dir());
+    server.finish().await;
+}

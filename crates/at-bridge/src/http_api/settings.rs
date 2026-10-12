@@ -12,10 +12,13 @@ use super::state::ApiState;
 /// bridge, agents, integrations, kanban, etc.). If no saved configuration exists,
 /// returns the default configuration.
 ///
-/// **Response:** 200 OK with Config JSON object.
-pub(crate) async fn get_settings(State(state): State<Arc<ApiState>>) -> Json<Config> {
-    let cfg = state.settings_manager.load_or_default();
-    Json(cfg)
+/// **Response:** 200 OK with Config JSON object; 500 for unreadable, malformed or invalid saved state.
+pub(crate) async fn get_settings(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
+    match state.settings_manager.load_for_edit() {
+        Ok(config) => (axum::http::StatusCode::OK, Json(serde_json::json!(config))),
+        Err(error) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": error.to_string()}))),
+    }
 }
 
 /// PUT /api/settings -- replace the entire application configuration.
@@ -46,12 +49,16 @@ pub(crate) async fn put_settings(
 /// all other fields retain their current values.
 ///
 /// **Request Body:** Partial Config JSON object with only the fields to update.
-/// **Response:** 200 OK with updated Config, 400 if merge creates invalid config, 500 if save fails.
+/// **Response:** 200 OK with updated Config, 400 for invalid merged shape, 500 if loading or saving fails.
 pub(crate) async fn patch_settings(
     State(state): State<Arc<ApiState>>,
     Json(partial): Json<serde_json::Value>,
 ) -> impl IntoResponse {
-    let mut current = state.settings_manager.load_or_default();
+    let mut current = match state.settings_manager.load_for_edit() {
+        Ok(config) => config,
+        Err(error) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": error.to_string()}))),
+    };
     let mut current_val = match serde_json::to_value(&current) {
         Ok(v) => v,
         Err(e) => {
