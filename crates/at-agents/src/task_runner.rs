@@ -912,7 +912,7 @@ mod pipeline_tests {
     // -----------------------------------------------------------------------
 
     #[tokio::test]
-    async fn run_dead_session_mid_pipeline_returns_error() {
+    async fn run_dead_session_before_first_phase_returns_error() {
         let (session, _read_tx, write_rx) = make_fake_session(FakeChild::dead_from_start());
         let bus = EventBus::new();
         let mut task = make_test_task();
