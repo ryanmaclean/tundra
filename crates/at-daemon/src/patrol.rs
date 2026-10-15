@@ -411,7 +411,7 @@ mod tests {
     /// is an orphan.  The function must call kill() on the handle and remove it
     /// from both maps.
     #[tokio::test]
-    async fn reap_orphan_ptys_kills_orphan_pty_with_no_terminal() {
+    async fn reap_orphan_ptys_kills_dead_pty_and_removes_terminal() {
         let tid = Uuid::new_v4();
 
         let mut registry = TerminalRegistry::new();
