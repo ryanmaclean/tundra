@@ -1027,11 +1027,10 @@ mod pipeline_tests {
 
     #[tokio::test]
     async fn run_session_dies_mid_pipeline_terminates_early() {
-        // FakeChild::alive_for(1): alive for the 1st is_alive() check
-        // (Discovery's pre-check), dead for the 2nd (ContextGathering's
-        // pre-check).  This means Discovery runs to completion but
-        // ContextGathering and later phases are never entered.
-        let (session, read_tx, write_rx) = make_fake_session(FakeChild::alive_for(1));
+        // Each phase checks liveness() and then is_alive(), so Discovery
+        // needs two successful try_wait() calls. The next observation, at
+        // ContextGathering's pre-check, reports exit.
+        let (session, read_tx, write_rx) = make_fake_session(FakeChild::alive_for(2));
         let bus = EventBus::new();
         let mut task = make_test_task();
         let mut runner = TaskRunner::new().with_timeout(Duration::from_millis(50));
