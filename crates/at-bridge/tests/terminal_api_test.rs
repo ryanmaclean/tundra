@@ -1179,14 +1179,8 @@ async fn test_terminal_dead_after_grace_period() {
         );
     }
 
-    // Verify a disconnect buffer exists.
-    {
-        let buffers = state.disconnect_buffers.read().await;
-        assert!(
-            buffers.contains_key(&tid_uuid),
-            "disconnect buffer should exist during grace period"
-        );
-    }
+    // The native PTY owner holds grace-period output; the legacy
+    // state.disconnect_buffers map is not populated by this path.
 
     // Wait for grace period to expire (30s + a little buffer).
     // NOTE: This test takes ~31 seconds to run.

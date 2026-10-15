@@ -12,7 +12,7 @@ use at_core::config::Config;
 use at_daemon::daemon::Daemon;
 use at_tauri::bridge::ipc_handler_from_daemon;
 use at_tauri::sounds::SoundEngine;
-use at_tauri::state::AppState;
+use at_tauri::state::{self, AppState};
 use tracing::info;
 
 fn main() {
@@ -84,7 +84,10 @@ fn main() {
         native_shell_data = if native_shell { "\"1\"" } else { "\"0\"" }
     );
 
-    tauri::Builder::default()
+    let exit_approved = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let exit_started = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let shutdown_runtime = runtime.handle().clone();
+    let app = tauri::Builder::default()
         .manage(state)
         .manage(sound_engine)
         .invoke_handler(tauri::generate_handler![
@@ -165,8 +168,33 @@ fn main() {
                 api.prevent_close();
             }
         })
-        .run(tauri::generate_context!())
-        .expect("error while running auto-tundra");
+        .build(tauri::generate_context!())
+        .expect("error while building auto-tundra");
+    app.run(move |app, event| {
+        use std::sync::atomic::Ordering;
+        use tauri::Manager;
+        if let tauri::RunEvent::ExitRequested { api, .. } = event {
+            if exit_approved.load(Ordering::Acquire) { return; }
+            api.prevent_exit();
+            if exit_started.swap(true, Ordering::AcqRel) { return; }
+            let app = app.clone();
+            let approved = exit_approved.clone();
+            shutdown_runtime.spawn(async move {
+                // Keep the original daemon runtime alive while native ownership
+                // is uncertain. Repeated Quit requests share this one barrier.
+                loop {
+                    let result = app.state::<AppState>().daemon.shutdown_and_wait().await;
+                    match result {
+                        Ok(()) => break,
+                        Err(error) => tracing::warn!(%error, "Quit pending native session retirement"),
+                    }
+                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                }
+                approved.store(true, Ordering::Release);
+                app.exit(0);
+            });
+        }
+    });
 
     info!("UI closed, shutting down daemon");
 }

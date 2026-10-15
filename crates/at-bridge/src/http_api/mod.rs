@@ -633,7 +633,7 @@ mod oauth_monitor {
         // Step 2: acquire the read lock only to check refresh status, then drop it.
         let needs_refresh = {
             let mgr = token_manager.read().await;
-            mgr.should_refresh()
+            mgr.should_refresh().await
         };
 
         if needs_refresh {
@@ -679,7 +679,8 @@ mod oauth_monitor {
     /// # }
     /// ```
     pub fn spawn_oauth_token_refresh_monitor(state: Arc<ApiState>) {
-        tokio::spawn(async move {
+        let owner = state.clone();
+        let task = async move {
             use std::time::Duration;
             use tracing::info;
 
@@ -697,7 +698,8 @@ mod oauth_monitor {
 
                 tracing::debug!("OAuth refresh monitor poll outcome: {:?}", outcome);
             }
-        });
+        };
+        owner.track_background(task);
     }
 
     // ---------------------------------------------------------------------------
