@@ -321,7 +321,11 @@ pub(crate) fn supervise(owner: Arc<Owner>, spec: SpawnSpec, ready: flume::Sender
         // Never replace an overlapped write's front until completion is observed.
         {
             let mut state = owner.lock();
-            if retiring {
+            // A DELETE, patrol, grace timer, or shutdown can request retirement
+            // after the tick's earlier `retiring` snapshot. Recheck under the
+            // same lock that protects input and the native write submission:
+            // no queued bytes may cross a completed retirement request.
+            if state.retire_requested {
                 // The backend retains any submitted buffer through cancellation.
                 state.input.clear(); state.input_bytes = 0;
             } else {
