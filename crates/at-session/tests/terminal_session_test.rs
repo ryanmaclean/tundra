@@ -463,8 +463,8 @@ fn test_pty_handle_debug_format() {
         "debug should contain 'PtyHandle', got: {debug_str}"
     );
     assert!(
-        debug_str.contains("alive"),
-        "debug should contain 'alive', got: {debug_str}"
+        debug_str.contains("liveness: Alive"),
+        "debug should contain the live liveness state, got: {debug_str}"
     );
 
     let _ = handle.kill();
