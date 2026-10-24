@@ -23,10 +23,20 @@ def precedence [operator: string] {
 }
 
 def license_evaluation [expression: string] {
-    # Convert a restricted SPDX boolean expression to reverse Polish notation.
-    # Unknown IDs are syntactically accepted but cannot satisfy policy. WITH is
-    # deliberately unsupported and remains review-required.
-    let tokens = ($expression | str replace --all '(' ' ( ' | str replace --all ')' ' ) ' | str replace --all --regex '\s+' ' ' | str trim | split row ' ' | where $it != '')
+    # A legacy slash is only accepted for a plain list of alternatives.
+    # Mixing it with SPDX operators or grouping has ambiguous precedence;
+    # fail closed rather than turning a mandatory term into an optional one.
+    let legacy_slash = ($expression | str contains '/')
+    if $legacy_slash and (
+        ($expression | str contains '(')
+        or ($expression | str contains ')')
+        or ($expression =~ '\b(AND|OR|WITH)\b')
+    ) {
+        return {valid: false, allowed: false, selected_ids: []}
+    }
+    # Tokenize unambiguous legacy alternatives as OR, then validate the entire
+    # expression. Unknown IDs cannot satisfy policy; WITH stays review-required.
+    let tokens = ($expression | str replace --all '/' ' OR ' | str replace --all '(' ' ( ' | str replace --all ')' ' ) ' | str replace --all --regex '\s+' ' ' | str trim | split row ' ' | where $it != '')
     if ($tokens | is-empty) or ('WITH' in $tokens) {
         return {valid: false, allowed: false, selected_ids: []}
     }
@@ -153,6 +163,7 @@ def main [metadata_path: string, target: string, profile: string, output_path: s
             source: $package.source
             manifest_path: $package.manifest_path
             license: $package.license
+            legacy_slash_alternatives: (if $package.license == null { false } else { $package.license | str contains '/' })
             selected_license_ids: $parsed.selected_ids
             first_party: $first_party
             role: (if $shipped { 'product' } else { 'tool-only-or-unselected' })

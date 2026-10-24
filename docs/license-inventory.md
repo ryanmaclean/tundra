@@ -26,11 +26,25 @@ product gate. The all-target,
 all-feature cargo-deny job remains a nonblocking diagnostic, so its failures
 cannot be mistaken for shipped-product violations.
 
+Cargo packages can declare older slash-separated alternatives. Only a plain
+slash-separated list of license IDs is interpreted as alternatives; it then
+passes through the same complete grammar and policy evaluation. A declaration
+that mixes `/` with `AND`, `OR`, `WITH`, or parentheses is review-required
+because its precedence is ambiguous. The inventory preserves the original
+declaration and marks `legacy_slash_alternatives` in JSON. Empty alternatives,
+unexpected punctuation, and unknown IDs also remain review-required unless a
+well-formed slash-only declaration has another approved choice.
+
 Examples of policy evaluation:
 
 | Declared SPDX expression | Result | Chosen terms / notices |
 | --- | --- | --- |
 | `(Apache-2.0 OR ISC OR MIT-0)` | allowed | `Apache-2.0`; no extra notice |
+| `MIT/Apache-2.0` or `Apache-2.0 / MIT` | allowed | `MIT` or `Apache-2.0`; no extra notice |
+| `Unlicense/MIT` | allowed | `MIT`; Unlicense branch unselected |
+| `MIT//Apache-2.0` | review required | Empty slash alternative is invalid |
+| `MIT/Apache-2.0 AND MPL-2.0` | review required | Mixed slash and SPDX operator |
+| `MIT AND (MPL-2.0/Zlib)` | review required | Mixed slash, operator, and parentheses |
 | `ISC AND (Apache-2.0 OR ISC)` | allowed | `ISC`, `Apache-2.0`; ISC notice |
 | `Apache-2.0 AND MPL-2.0` | review required | No complete approved choice |
 | `Apache-2.0 WITH LLVM-exception` | review required | `WITH` is unsupported |
