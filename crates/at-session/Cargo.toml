@@ -7,7 +7,7 @@ publish = false
 [features]
 # Enables constructors/helpers intended only for test code in dependent crates.
 # Never enable in production builds.
-test-helpers = []
+test-helpers = ["dep:portable-pty"]
 
 [dependencies]
 at-core = { path = "../at-core" }
@@ -17,10 +17,17 @@ flume = { workspace = true }
 tracing = { workspace = true }
 thiserror = { workspace = true }
 uuid = { workspace = true }
-portable-pty = "0.8"
+portable-pty = { version = "0.8", optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }
+portable-pty = "0.8"
+
+[target.'cfg(unix)'.dependencies]
+libc = "=0.2.186"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Globalization", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_IO", "Win32_System_JobObjects", "Win32_System_Pipes", "Win32_System_Threading"] }
