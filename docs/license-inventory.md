@@ -54,7 +54,15 @@ The matrix covers default features on all four targets and the opt-in
 records its target, profile, and exact Cargo feature arguments, and its name
 includes the target and profile. Other release feature combinations need their
 own inventory before shipping. The JSON artifacts bind findings to package
-versions, sources, manifest paths, target, and roots. A passing
+versions, sources, manifest paths, target, and roots. Each hosted artifact also
+retains the exact `cargo-metadata.json` used for that inventory, including
+`resolve.nodes[].features` and each dependency's `dep_kinds`. A reviewer can
+follow a flagged package's ID through `resolve.nodes[].deps` to see whether a
+native dependency such as Termwiz entered via a normal or build edge and which
+Ratatui features were selected. The inventory records SHA-256 hashes for that
+raw metadata file and `Cargo.lock`; artifacts are compressed and retained for
+14 days. No credentials are passed to `cargo metadata`, and the checked
+manifests contain no credential-bearing Git dependency URLs. A passing
 declared-license inventory is not itself a license-file audit or a notice
 bundle; release owners must retain exact license texts for notice-required
 packages.

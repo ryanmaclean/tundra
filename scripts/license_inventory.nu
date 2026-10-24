@@ -116,6 +116,13 @@ def main [metadata_path: string, target: string, profile: string, output_path: s
     if $target == 'wasm32-unknown-unknown' and $profile != 'default' {
         error make {msg: 'The wasm32-unknown-unknown inventory only supports the default feature profile'}
     }
+    # The hosted artifact retains these exact raw bytes. Bind the derived
+    # inventory to both the filtered resolve graph and the workspace lockfile.
+    let metadata_sha256 = (^sha256sum $metadata_path | split row ' ' | first)
+    let cargo_lock_sha256 = (^sha256sum Cargo.lock | split row ' ' | first)
+    if ($metadata_sha256 | str length) != 64 or ($cargo_lock_sha256 | str length) != 64 {
+        error make {msg: 'Could not bind inventory to Cargo metadata and Cargo.lock SHA-256'}
+    }
     let metadata = (open --raw $metadata_path | from json)
     let roots = (roots_for $target)
     let root_ids = ($metadata.packages | where name in $roots | get id)
@@ -177,7 +184,8 @@ def main [metadata_path: string, target: string, profile: string, output_path: s
         roots: $roots
         feature_profile: $profile
         cargo_feature_args: (if $profile == 'tauri-sounds' { ['--features' 'at-tauri/sounds'] } else { [] })
-        cargo_lock_present: ('Cargo.lock' | path exists)
+        cargo_metadata_sha256: $metadata_sha256
+        cargo_lock_sha256: $cargo_lock_sha256
         product_count: ($rows | where role == 'product' | length)
         tool_or_unselected_count: ($rows | where role == 'tool-only-or-unselected' | length)
         review_required_count: ($review | length)

@@ -60,12 +60,22 @@ jobs:
           echo "status=$result" >> "$GITHUB_OUTPUT"
           exit 0
 
-      - name: Retain exact target inventory
+      - name: Require both graph and inventory artifacts
+        shell: bash
+        run: |
+          test -s "$RUNNER_TEMP/license-inventory.json"
+          test -s "$RUNNER_TEMP/cargo-metadata.json"
+
+      - name: Retain inventory and exact Cargo resolve graph
         uses: actions/upload-artifact@v4
         with:
           name: license-inventory-${{ matrix.target }}-${{ matrix.profile }}
-          path: ${{ runner.temp }}/license-inventory.json
+          path: |
+            ${{ runner.temp }}/license-inventory.json
+            ${{ runner.temp }}/cargo-metadata.json
           if-no-files-found: error
+          compression-level: 9
+          retention-days: 14
 
       - name: Enforce shipped product license policy
         if: steps.inventory.outputs.status != '0'
