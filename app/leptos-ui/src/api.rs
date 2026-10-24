@@ -13,7 +13,8 @@ pub use at_api_types::{
 };
 
 use at_api_types::auth::{
-    API_KEY_HEADER, WINDOW_API_KEY_GLOBAL, WINDOW_API_PORT_GLOBAL, WS_API_KEY_QUERY_PARAM,
+    WsTicketRequest, WsTicketResponse, API_KEY_HEADER, WINDOW_API_KEY_GLOBAL,
+    WINDOW_API_PORT_GLOBAL, WS_TICKET_PATH, WS_TICKET_QUERY_PARAM,
 };
 
 /// Default API base when not running in Tauri (standalone web dev).
@@ -63,22 +64,39 @@ pub fn new_request(url: &str, opts: &RequestInit) -> Result<Request, String> {
     Ok(request)
 }
 
-/// Build a WebSocket URL for `path` on the daemon, authenticated with the
-/// `api_key` query parameter (browsers cannot set headers on WS upgrades).
-pub fn ws_url(path: &str) -> String {
-    let key = get_api_key().map(|k| String::from(js_sys::encode_uri_component(&k)));
-    ws_url_for(&get_api_base(), path, key.as_deref())
+/// Build an authenticated WebSocket URL for `path` on the daemon.
+///
+/// Browsers cannot set headers on WS upgrades, and the API key must never
+/// appear in a URL, so this first fetches a single-use, path-bound,
+/// short-lived ticket (`POST /api/v1/ws-tickets`, key in the `X-API-Key`
+/// header) and puts only that ticket in the `ws_ticket` query parameter.
+/// Call it again for every (re)connect: a ticket opens one socket once.
+/// Without a key (development mode) the plain URL is returned.
+pub async fn ws_url(path: &str) -> Result<String, String> {
+    let base = get_api_base();
+    if get_api_key().is_none() {
+        return Ok(ws_url_for(&base, path, None));
+    }
+    let ticket_path = path.split('?').next().unwrap_or(path).to_string();
+    let resp: WsTicketResponse = post_json(
+        &format!("{base}{WS_TICKET_PATH}"),
+        &WsTicketRequest { path: ticket_path },
+    )
+    .await?;
+    let ticket = String::from(js_sys::encode_uri_component(&resp.ticket));
+    Ok(ws_url_for(&base, path, Some(&ticket)))
 }
 
-/// Pure part of [`ws_url`]: `encoded_key` must already be URI-component encoded.
-pub fn ws_url_for(http_base: &str, path: &str, encoded_key: Option<&str>) -> String {
+/// Pure part of [`ws_url`]: `encoded_ticket` must already be URI-component
+/// encoded. It is a WS ticket, never the API key.
+pub fn ws_url_for(http_base: &str, path: &str, encoded_ticket: Option<&str>) -> String {
     let ws_base = http_base
         .replacen("http://", "ws://", 1)
         .replacen("https://", "wss://", 1);
-    match encoded_key {
-        Some(key) => {
+    match encoded_ticket {
+        Some(ticket) => {
             let sep = if path.contains('?') { '&' } else { '?' };
-            format!("{ws_base}{path}{sep}{WS_API_KEY_QUERY_PARAM}={key}")
+            format!("{ws_base}{path}{sep}{WS_TICKET_QUERY_PARAM}={ticket}")
         }
         None => format!("{ws_base}{path}"),
     }
@@ -1759,9 +1777,9 @@ pub async fn send_insights_message_with_model(
     }
 }
 
-/// Return the (authenticated) WebSocket URL for event streaming.
-pub fn events_ws_url() -> String {
-    ws_url("/api/events/ws")
+/// Return a freshly ticketed WebSocket URL for event streaming.
+pub async fn events_ws_url() -> Result<String, String> {
+    ws_url("/api/events/ws").await
 }
 
 // ── Project API types ──
@@ -1928,15 +1946,25 @@ mod auth_url_tests {
     use super::ws_url_for;
 
     #[test]
-    fn ws_url_for_appends_api_key_query_param() {
+    fn ws_url_for_appends_ws_ticket_query_param() {
         assert_eq!(
-            ws_url_for("http://127.0.0.1:4000", "/api/events/ws", Some("k%2B1")),
-            "ws://127.0.0.1:4000/api/events/ws?api_key=k%2B1"
+            ws_url_for("http://127.0.0.1:4000", "/api/events/ws", Some("t%2B1")),
+            "ws://127.0.0.1:4000/api/events/ws?ws_ticket=t%2B1"
         );
         assert_eq!(
-            ws_url_for("https://h:1", "/ws/terminal/x?y=1", Some("k")),
-            "wss://h:1/ws/terminal/x?y=1&api_key=k"
+            ws_url_for("https://h:1", "/ws/terminal/x?y=1", Some("t")),
+            "wss://h:1/ws/terminal/x?y=1&ws_ticket=t"
         );
         assert_eq!(ws_url_for("http://h:2", "/ws", None), "ws://h:2/ws");
+    }
+
+    /// Security invariant (PR #101 review 2026-10-08): a WebSocket URL must
+    /// never carry the master key as `api_key=`.
+    #[test]
+    fn ws_url_never_uses_api_key_query_param() {
+        for path in ["/ws", "/api/events/ws", "/ws/terminal/t-1"] {
+            let url = ws_url_for("http://127.0.0.1:4000", path, Some("SENTINEL"));
+            assert!(!url.contains("api_key="), "{url}");
+        }
     }
 }

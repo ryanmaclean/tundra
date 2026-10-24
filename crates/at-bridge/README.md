@@ -36,7 +36,8 @@ card adds the HTTP fields:
   "source": "at-bridge",
   "service": { "name": "auto-tundra", "version": "0.1.0" },
   "auth": { "scheme": "api_key", "enforced": true, "header": "x-api-key",
-            "bearer": true, "ws_query_param": "api_key", "contract_version": "1.0.0" },
+            "bearer": true, "ws_query_param": "ws_ticket",
+            "ws_ticket_path": "/api/v1/ws-tickets", "contract_version": "2.0.0" },
   "cards": [
     { "id": "get-api-agents", "version": "0.1.0", "title": "GET /api/agents",
       "description": "List agents", "domain": "agents", "method": "GET",

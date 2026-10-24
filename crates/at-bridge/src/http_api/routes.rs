@@ -46,6 +46,7 @@ pub(crate) fn all() -> Vec<Domain> {
         files_router(),
         events_router(),
         websocket_router(),
+        ws_tickets_router(),
         insights_router(),
         ideation_router(),
         roadmap_router(),
@@ -806,6 +807,21 @@ pub(crate) fn events_router() -> Domain {
             "WebSocket stream of event bus messages (origin-checked)",
         ),
         websocket::events_ws_handler,
+    )
+}
+
+/// `/api/v1/ws-tickets` -- single-use WebSocket tickets, so browsers never
+/// put the API key in a WebSocket URL (see `at_api_types::auth`).
+pub(crate) fn ws_tickets_router() -> Domain {
+    Domain::new("ws-tickets", "/api/v1/ws-tickets").route(
+        R::post(
+            "/",
+            "Issue a single-use, path-bound, 30 s WebSocket ticket (?ws_ticket=)",
+        )
+        .req("WsTicketRequest")
+        .res("WsTicketResponse")
+        .limit(SMALL_BODY),
+        crate::auth::issue_ws_ticket,
     )
 }
 

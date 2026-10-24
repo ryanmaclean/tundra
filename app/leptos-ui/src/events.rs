@@ -121,11 +121,40 @@ fn connect_ws(
         return;
     }
 
-    let url = api::events_ws_url();
-
     set_conn_state.set(WsConnectionState::Connecting);
 
-    let ws = match WebSocket::new(&url) {
+    // Each attempt fetches a fresh single-use ticket (the API key itself is
+    // never put in the WebSocket URL), then opens the socket.
+    spawn_local(async move {
+        let url = api::events_ws_url().await;
+        if !mounted.get() {
+            return;
+        }
+        open_ws(
+            url,
+            set_conn_state,
+            set_latest_event,
+            set_toasts,
+            set_unread_count,
+            mounted,
+            ws_handle,
+            failures,
+        );
+    });
+}
+
+#[allow(clippy::too_many_arguments)]
+fn open_ws(
+    url: Result<String, String>,
+    set_conn_state: WriteSignal<WsConnectionState>,
+    set_latest_event: WriteSignal<Option<serde_json::Value>>,
+    set_toasts: WriteSignal<Vec<Toast>>,
+    set_unread_count: WriteSignal<u64>,
+    mounted: Rc<Cell<bool>>,
+    ws_handle: Rc<Cell<Option<WebSocket>>>,
+    failures: Rc<Cell<u32>>,
+) {
+    let ws = match url.and_then(|url| WebSocket::new(&url).map_err(|_| String::new())) {
         Ok(ws) => ws,
         Err(_) => {
             set_conn_state.set(WsConnectionState::Disconnected);

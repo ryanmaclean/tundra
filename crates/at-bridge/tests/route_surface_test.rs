@@ -52,6 +52,9 @@ const ADDED_ROUTES: &[(&str, &str)] = &[
     ("POST", "/api/gitea/pulls"),
     ("GET", "/api/gitea/releases/{tag}/assets"),
     ("POST", "/api/gitea/releases/{tag}/assets"),
+    // PR #101 security review 2026-10-08: single-use WebSocket tickets so
+    // the master key never rides in a WS URL query.
+    ("POST", "/api/v1/ws-tickets"),
 ];
 
 /// Routes added after the `routes.txt` snapshot was taken, from

@@ -615,8 +615,14 @@ mod event_stream {
     use at_leptos_ui::api::events_ws_url;
 
     #[wasm_bindgen_test]
-    fn test_events_ws_url_format() {
-        let url = events_ws_url();
+    async fn test_events_ws_url_format() {
+        // No `window.__TUNDRA_API_KEY__` in the test page: dev-mode URL, no
+        // ticket request. The API key never appears in a WS URL either way.
+        let url = events_ws_url().await.unwrap();
+        assert!(
+            !url.contains("api_key="),
+            "WS URL must not carry api_key: {url}"
+        );
         assert!(
             url.starts_with("ws://"),
             "WS URL should start with ws://, got: {}",
@@ -628,8 +634,8 @@ mod event_stream {
             url
         );
         assert!(
-            url.contains("localhost"),
-            "WS URL should contain localhost, got: {}",
+            url.contains("127.0.0.1"),
+            "WS URL should use the IPv4 loopback default, got: {}",
             url
         );
     }
