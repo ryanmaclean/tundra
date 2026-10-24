@@ -34,11 +34,38 @@ def license_evaluation [expression: string] {
     ) {
         return {valid: false, allowed: false, selected_ids: []}
     }
-    # Tokenize unambiguous legacy alternatives as OR, then validate the entire
-    # expression. Unknown IDs cannot satisfy policy; WITH stays review-required.
-    let tokens = ($expression | str replace --all '/' ' OR ' | str replace --all '(' ' ( ' | str replace --all ')' ' ) ' | str replace --all --regex '\s+' ' ' | str trim | split row ' ' | where $it != '')
-    if ($tokens | is-empty) or ('WITH' in $tokens) {
+    # Tokenize unambiguous legacy alternatives as OR. An adjacent ID WITH
+    # exception-ID becomes one deliberately unapproved atom. Reject malformed
+    # or repeated WITH before evaluating any independent OR alternative.
+    let raw_tokens = ($expression | str replace --all '/' ' OR ' | str replace --all '(' ' ( ' | str replace --all ')' ' ) ' | str replace --all --regex '\s+' ' ' | str trim | split row ' ' | where $it != '')
+    if ($raw_tokens | is-empty) or ('@with' in $raw_tokens) {
         return {valid: false, allowed: false, selected_ids: []}
+    }
+    if ('WITH' in $raw_tokens) and (($expression | str contains '(') or ($expression | str contains ')')) {
+        return {valid: false, allowed: false, selected_ids: []}
+    }
+    mut tokens = []
+    mut token_index = 0
+    while $token_index < ($raw_tokens | length) {
+        let token = ($raw_tokens | get $token_index)
+        let next_index = ($token_index + 1)
+        let next_token = if $next_index < ($raw_tokens | length) { $raw_tokens | get $next_index } else { '' }
+        if $next_token == 'WITH' {
+            let exception_index = ($token_index + 2)
+            if ($token !~ '^[A-Za-z0-9][A-Za-z0-9.+-]*$') or ($token in [AND OR WITH]) or $exception_index >= ($raw_tokens | length) {
+                return {valid: false, allowed: false, selected_ids: []}
+            }
+            let exception_id = ($raw_tokens | get $exception_index)
+            if ($exception_id !~ '^[A-Za-z0-9][A-Za-z0-9.+-]*$') or ($exception_id in [AND OR WITH]) {
+                return {valid: false, allowed: false, selected_ids: []}
+            }
+            $tokens = ($tokens | append '@with')
+            $token_index = ($token_index + 3)
+        } else {
+            if $token == 'WITH' { return {valid: false, allowed: false, selected_ids: []} }
+            $tokens = ($tokens | append $token)
+            $token_index = ($token_index + 1)
+        }
     }
     mut output = []
     mut operators = []
@@ -64,7 +91,7 @@ def license_evaluation [expression: string] {
             $operators = ($operators | append $token)
             $expect_id = true
         } else {
-            if not $expect_id or ($token !~ '^[A-Za-z0-9][A-Za-z0-9.+-]*$') {
+            if not $expect_id or (($token != '@with') and ($token !~ '^[A-Za-z0-9][A-Za-z0-9.+-]*$')) {
                 return {valid: false, allowed: false, selected_ids: []}
             }
             $output = ($output | append $token)
@@ -100,7 +127,7 @@ def license_evaluation [expression: string] {
                 $values = ($values | append $chosen)
             }
         } else {
-            let allowed = ($token in $approved)
+            let allowed = ($token != '@with' and $token in $approved)
             $values = ($values | append {allowed: $allowed, selected_ids: (if $allowed { [$token] } else { [] })})
         }
     }

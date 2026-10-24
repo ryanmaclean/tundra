@@ -20,9 +20,12 @@ BSD-2-Clause, BSD-3-Clause, Apache-2.0, and the Tundra-approved exact terms
 ISC, CDLA-Permissive-2.0, and Unicode-3.0. Parentheses and `AND` precedence
 are honored. The chosen terms appear in `selected_license_ids`; the latter
 three appear in `notice_ids` for release notice assembly. Unknown IDs cannot
-satisfy a branch. `WITH` expressions remain review-required. MPL, CC0, Zlib,
-and BSL-1.0 are not approved product licenses. Tooling licenses are not a
-product gate. The all-target,
+satisfy a branch. A simple `license-ID WITH exception-ID` is parsed as one
+unapproved atom; an independent plain approved `OR` branch may satisfy the
+expression. A mandatory `WITH` atom, grouped `WITH` expression, repeated
+`WITH`, or malformed operand is review-required. This does not approve any
+exception. MPL, CC0, Zlib, and BSL-1.0 are not approved product licenses.
+Tooling licenses are not a product gate. The all-target,
 all-feature cargo-deny job remains a nonblocking diagnostic, so its failures
 cannot be mistaken for shipped-product violations.
 
@@ -47,7 +50,13 @@ Examples of policy evaluation:
 | `MIT AND (MPL-2.0/Zlib)` | review required | Mixed slash, operator, and parentheses |
 | `ISC AND (Apache-2.0 OR ISC)` | allowed | `ISC`, `Apache-2.0`; ISC notice |
 | `Apache-2.0 AND MPL-2.0` | review required | No complete approved choice |
-| `Apache-2.0 WITH LLVM-exception` | review required | `WITH` is unsupported |
+| `Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT` | allowed | Plain `Apache-2.0` branch; no exception approval |
+| `Apache-2.0 WITH LLVM-exception` | review required | Sole branch has unapproved compound license |
+| `MIT AND Apache-2.0 WITH LLVM-exception` | review required | Mandatory compound branch |
+| `MIT OR GPL-2.0-only WITH Classpath-exception-2.0` | allowed | Plain `MIT` branch; no GPL/Classpath approval |
+| `(MIT OR Apache-2.0) WITH LLVM-exception` | review required | Grouped `WITH` is invalid |
+| `MIT WITH LLVM-exception WITH Other-exception OR Apache-2.0` | review required | Repeated `WITH` is invalid |
+| `MIT WITH OR Apache-2.0` | review required | Missing exception ID |
 
 The matrix covers default features on all four targets and the opt-in
 `at-tauri/sounds` feature on the three native targets. Each JSON artifact
