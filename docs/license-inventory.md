@@ -9,8 +9,9 @@ starts at the shipped binary/UI crates and traverses normal and build edges.
 An optional edge is skipped only when its target package and source map to one
 optional manifest declaration and no resolved parent feature activates it.
 Unknown or ambiguous mappings remain included. The JSON records every skipped
-edge and its parent features for review. Paths that enter a build edge are
-reported as `build-only` unless a normal path also reaches that package;
+edge and its parent features for review. Paths that enter a build edge or a
+package whose only production target is a host-executed proc macro are
+reported as `build-only` unless an independent runtime path reaches that package;
 build-only licenses are tooling-approved, while generated or copied build
 output still needs release review. Dev-only dependencies and unselected workspace packages are
 listed separately as `tool-only-or-unselected`; this name deliberately does not
@@ -45,8 +46,10 @@ The staged manifest contains ten exact tuples from the bf3 candidate roster:
 five MPL, four Zlib, and one Boost `BSL-1.0`. It excludes
 `finl_unicode`, `wezterm-bidi`, and `terminfo` because c45 metadata shows the
 Ratatui Termwiz feature inactive, and excludes build-only `target-lexicon`.
-The likely build-only `base16` and `const_format_proc_macros` are also
-deferred until exact WASM profile role readback.
+The 559 hosted WASM graph reaches `base16` only through the
+`wasm_split_macros` proc-macro target, and `const_format_proc_macros` is itself
+a proc-macro target. Neither receives a shipped-product approval; their
+licenses remain visible in the build-only inventory for release review.
 The new traversal and approval use require exact-head hosted readback before
 publication.
 

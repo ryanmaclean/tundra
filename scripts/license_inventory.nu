@@ -251,6 +251,15 @@ def main [metadata_path: string, target: string, profile: string, output_path: s
                     error make {msg: $'Missing or duplicate dependency package metadata: ($dependency.pkg)'}
                 }
                 let target_package = ($target_packages | first)
+                # Cargo reports proc-macro dependencies as normal edges, but
+                # proc-macro crates execute on the build host. Their own
+                # dependencies are host-side as well. Only explicitly known
+                # nonproduct target kinds may accompany proc-macro; an unknown
+                # or runtime target keeps the product role conservatively.
+                let target_kinds = ($target_package.targets | each {|target| $target.kind} | flatten)
+                let has_proc_macro = ('proc-macro' in $target_kinds)
+                let only_host_target_kinds = ($target_kinds | all {|target_kind| $target_kind in ['proc-macro' 'custom-build' 'test' 'bench' 'example']})
+                let host_only_proc_macro = $has_proc_macro and $only_host_target_kinds
                 let declarations = ($parent_package.dependencies | where {|declared|
                     let alias_matches = if $declared.rename == null { true } else { ($declared.rename | str replace --all '-' '_') == $dependency.name }
                     $declared.name == $target_package.name and $declared.source == $target_package.source and $alias_matches and $declared.kind != 'dev'
@@ -275,7 +284,7 @@ def main [metadata_path: string, target: string, profile: string, output_path: s
                 }
                 if $active {
                     for kind in $live_kinds {
-                        let next_role = if $item.role == 'build-only' or $kind.kind == 'build' { 'build-only' } else { 'product' }
+                        let next_role = if $item.role == 'build-only' or $kind.kind == 'build' or $host_only_proc_macro { 'build-only' } else { 'product' }
                         $queue = ($queue | append {id: $dependency.pkg, role: $next_role})
                     }
                 }
