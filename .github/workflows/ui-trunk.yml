@@ -1,0 +1,52 @@
+name: UI Trunk
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/ui-trunk.yml
+      - Cargo.toml
+      - Cargo.lock
+      - app/leptos-ui/**
+      - crates/at-api-types/**
+
+permissions:
+  contents: read
+
+jobs:
+  build-ui:
+    name: Build Leptos UI with Trunk
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Verify one workspace lockfile
+        run: test -f Cargo.lock && test ! -e app/leptos-ui/Cargo.lock
+
+      - name: Install Rust toolchain and WASM target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install pinned Trunk
+        run: cargo install trunk --version 0.21.14 --locked
+
+      - name: Build locked Leptos UI
+        working-directory: app/leptos-ui
+        run: trunk build --release --locked
+
+      - name: Verify generated UI assets
+        working-directory: app/leptos-ui
+        run: |
+          test -s dist/index.html
+          find dist -type f -name '*.wasm' -size +0c | grep -q .
+          find dist -maxdepth 2 -type f -print | sort
+
+      - name: Retain generated UI assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: leptos-ui-dist
+          path: app/leptos-ui/dist/
+          if-no-files-found: error
+          retention-days: 14
