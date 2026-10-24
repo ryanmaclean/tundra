@@ -4,7 +4,18 @@ all-features = true
 no-default-features = false
 
 [licenses]
-allow = ["MIT", "BSD-2-Clause", "BSD-3-Clause", "Apache-2.0"]
+# User-approved Tundra product terms. Keep exact SPDX identifiers; the
+# separate selected-artifact inventory still distinguishes build tools from
+# product dependencies and records notices for these additions.
+allow = [
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "Apache-2.0",
+    "ISC",
+    "CDLA-Permissive-2.0",
+    "Unicode-3.0",
+]
 confidence-threshold = 0.8
 
 [licenses.private]

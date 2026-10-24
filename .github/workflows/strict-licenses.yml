@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - .github/workflows/strict-licenses.yml
+      - scripts/license_inventory.nu
+      - docs/license-inventory.md
       - Cargo.toml
       - Cargo.lock
       - deny-strict.toml
@@ -13,19 +15,76 @@ permissions:
   contents: read
 
 jobs:
-  strict-licenses:
-    name: MIT BSD Apache selected graph
+  shipped-license-inventory:
+    name: Shipped licenses (${{ matrix.target }}, ${{ matrix.profile }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - x86_64-unknown-linux-gnu
+          - aarch64-apple-darwin
+          - x86_64-pc-windows-msvc
+          - wasm32-unknown-unknown
+        profile:
+          - default
+          - tauri-sounds
+        exclude:
+          - target: wasm32-unknown-unknown
+            profile: tauri-sounds
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
 
+      # Runs only on hosted CI. The inventory does not compile the workspace.
+      - name: Install Nushell
+        run: cargo install nu --version 0.108.0 --locked
+
+      - name: Resolve locked target graph
+        shell: bash
+        run: |
+          if [ '${{ matrix.profile }}' = 'tauri-sounds' ]; then
+            cargo metadata --locked --format-version 1 --filter-platform '${{ matrix.target }}' --features at-tauri/sounds > "$RUNNER_TEMP/cargo-metadata.json"
+          else
+            cargo metadata --locked --format-version 1 --filter-platform '${{ matrix.target }}' > "$RUNNER_TEMP/cargo-metadata.json"
+          fi
+
+      - name: Inventory shipped and tool-only dependencies
+        id: inventory
+        shell: bash
+        run: |
+          set +e
+          nu scripts/license_inventory.nu "$RUNNER_TEMP/cargo-metadata.json" '${{ matrix.target }}' '${{ matrix.profile }}' "$RUNNER_TEMP/license-inventory.json"
+          result=$?
+          echo "status=$result" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Retain exact target inventory
+        uses: actions/upload-artifact@v4
+        with:
+          name: license-inventory-${{ matrix.target }}-${{ matrix.profile }}
+          path: ${{ runner.temp }}/license-inventory.json
+          if-no-files-found: error
+
+      - name: Enforce shipped product license policy
+        if: steps.inventory.outputs.status != '0'
+        run: |
+          cat "$RUNNER_TEMP/license-inventory.json"
+          exit 1
+
+  broad-license-diagnostic:
+    name: Broad all-feature diagnostic
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Install cargo-deny
         uses: taiki-e/install-action@v2.87.31
         with:
           tool: cargo-deny@0.20.2
           fallback: none
-
       - name: Check all-feature all-target dependency licenses
         run: cargo deny --workspace --config deny-strict.toml --locked check licenses

@@ -1,0 +1,179 @@
+#!/usr/bin/env nu
+
+# CI-only, locked Cargo metadata classifier. Build dependencies are treated as
+# product dependencies because generated code can be incorporated into output.
+const base_allowed = [MIT BSD-2-Clause BSD-3-Clause Apache-2.0]
+const approved_extra = [ISC CDLA-Permissive-2.0 Unicode-3.0]
+const reviewed_workspace_names = [
+    at-core at-harness at-session at-agents at-daemon at-telemetry
+    at-api-types at-cli at-bridge at-tui at-integrations at-intelligence
+    at-tauri at-leptos-ui
+]
+
+def roots_for [target: string] {
+    if $target == 'wasm32-unknown-unknown' {
+        [at-leptos-ui]
+    } else {
+        [at-cli at-daemon at-tui at-tauri]
+    }
+}
+
+def precedence [operator: string] {
+    if $operator == 'AND' { 2 } else { 1 }
+}
+
+def license_evaluation [expression: string] {
+    # Convert a restricted SPDX boolean expression to reverse Polish notation.
+    # Unknown IDs are syntactically accepted but cannot satisfy policy. WITH is
+    # deliberately unsupported and remains review-required.
+    let tokens = ($expression | str replace --all '(' ' ( ' | str replace --all ')' ' ) ' | str replace --all --regex '\s+' ' ' | str trim | split row ' ' | where $it != '')
+    if ($tokens | is-empty) or ('WITH' in $tokens) {
+        return {valid: false, allowed: false, selected_ids: []}
+    }
+    mut output = []
+    mut operators = []
+    mut expect_id = true
+    for token in $tokens {
+        if $token == '(' {
+            if not $expect_id { return {valid: false, allowed: false, selected_ids: []} }
+            $operators = ($operators | append $token)
+        } else if $token == ')' {
+            if $expect_id { return {valid: false, allowed: false, selected_ids: []} }
+            while not ($operators | is-empty) and (($operators | last) != '(') {
+                $output = ($output | append ($operators | last))
+                $operators = ($operators | drop 1)
+            }
+            if ($operators | is-empty) { return {valid: false, allowed: false, selected_ids: []} }
+            $operators = ($operators | drop 1)
+        } else if $token in [AND OR] {
+            if $expect_id { return {valid: false, allowed: false, selected_ids: []} }
+            while not ($operators | is-empty) and (($operators | last) != '(') and ((precedence ($operators | last)) >= (precedence $token)) {
+                $output = ($output | append ($operators | last))
+                $operators = ($operators | drop 1)
+            }
+            $operators = ($operators | append $token)
+            $expect_id = true
+        } else {
+            if not $expect_id or ($token !~ '^[A-Za-z0-9][A-Za-z0-9.+-]*$') {
+                return {valid: false, allowed: false, selected_ids: []}
+            }
+            $output = ($output | append $token)
+            $expect_id = false
+        }
+    }
+    if $expect_id { return {valid: false, allowed: false, selected_ids: []} }
+    while not ($operators | is-empty) {
+        let operator = ($operators | last)
+        if $operator == '(' { return {valid: false, allowed: false, selected_ids: []} }
+        $output = ($output | append $operator)
+        $operators = ($operators | drop 1)
+    }
+
+    let approved = ($base_allowed | append $approved_extra)
+    mut values = []
+    for token in $output {
+        if $token in [AND OR] {
+            if ($values | length) < 2 { return {valid: false, allowed: false, selected_ids: []} }
+            let right = ($values | last)
+            $values = ($values | drop 1)
+            let left = ($values | last)
+            $values = ($values | drop 1)
+            if $token == 'AND' {
+                $values = ($values | append {
+                    allowed: ($left.allowed and $right.allowed)
+                    selected_ids: (if $left.allowed and $right.allowed { $left.selected_ids | append $right.selected_ids | uniq } else { [] })
+                })
+            } else {
+                let left_notices = ($left.selected_ids | where $it in $approved_extra | length)
+                let right_notices = ($right.selected_ids | where $it in $approved_extra | length)
+                let chosen = if $left.allowed and (not $right.allowed or $left_notices <= $right_notices) { $left } else { $right }
+                $values = ($values | append $chosen)
+            }
+        } else {
+            let allowed = ($token in $approved)
+            $values = ($values | append {allowed: $allowed, selected_ids: (if $allowed { [$token] } else { [] })})
+        }
+    }
+    if ($values | length) != 1 { return {valid: false, allowed: false, selected_ids: []} }
+    let result = ($values | first)
+    {valid: true, allowed: $result.allowed, selected_ids: $result.selected_ids}
+}
+
+def main [metadata_path: string, target: string, profile: string, output_path: string] {
+    if $profile not-in [default tauri-sounds] {
+        error make {msg: $'Unknown feature profile: ($profile)'}
+    }
+    if $target == 'wasm32-unknown-unknown' and $profile != 'default' {
+        error make {msg: 'The wasm32-unknown-unknown inventory only supports the default feature profile'}
+    }
+    let metadata = (open --raw $metadata_path | from json)
+    let roots = (roots_for $target)
+    let root_ids = ($metadata.packages | where name in $roots | get id)
+    if ($root_ids | length) != ($roots | length) {
+        error make {msg: $'Expected exactly ($roots | length) shipped roots for ($target); found ($root_ids | length)'}
+    }
+
+    mut queue = $root_ids
+    mut shipped_ids = []
+    while not ($queue | is-empty) {
+        let id = ($queue | first)
+        $queue = ($queue | skip 1)
+        if $id in $shipped_ids { continue }
+        $shipped_ids = ($shipped_ids | append $id)
+        let matches = ($metadata.resolve.nodes | where id == $id)
+        if ($matches | length) != 1 {
+            error make {msg: $'Missing or duplicate resolve node: ($id)'}
+        }
+        let node = ($matches | first)
+        for dependency in $node.deps {
+            let live_kinds = ($dependency.dep_kinds | where kind != 'dev')
+            if not ($live_kinds | is-empty) {
+                $queue = ($queue | append $dependency.pkg)
+            }
+        }
+    }
+
+    mut rows = []
+    for package in $metadata.packages {
+        let shipped = ($package.id in $shipped_ids)
+        # Only these reviewed workspace members qualify as first-party private.
+        # An arbitrary path dependency cannot bypass the product license gate.
+        let first_party = (
+            $package.id in $metadata.workspace_members
+            and $package.name in $reviewed_workspace_names
+            and $package.source == null
+            and ($package.manifest_path | str starts-with $'($metadata.workspace_root)/')
+        )
+        let parsed = if $package.license == null { {valid: false, allowed: false, selected_ids: []} } else { license_evaluation $package.license }
+        let needs_notice = ($parsed.selected_ids | where $it in $approved_extra | uniq)
+        let accepted = ($parsed.valid and $parsed.allowed)
+        $rows = ($rows | append {
+            name: $package.name
+            version: $package.version
+            source: $package.source
+            manifest_path: $package.manifest_path
+            license: $package.license
+            selected_license_ids: $parsed.selected_ids
+            first_party: $first_party
+            role: (if $shipped { 'product' } else { 'tool-only-or-unselected' })
+            product_policy: (if not $shipped { 'not-applicable' } else if $first_party { 'first-party-private' } else if $accepted { 'allowed' } else { 'review-required' })
+            notice_ids: $needs_notice
+        })
+    }
+    let review = ($rows | where product_policy == 'review-required')
+    let result = {
+        target: $target
+        roots: $roots
+        feature_profile: $profile
+        cargo_feature_args: (if $profile == 'tauri-sounds' { ['--features' 'at-tauri/sounds'] } else { [] })
+        cargo_lock_present: ('Cargo.lock' | path exists)
+        product_count: ($rows | where role == 'product' | length)
+        tool_or_unselected_count: ($rows | where role == 'tool-only-or-unselected' | length)
+        review_required_count: ($review | length)
+        packages: ($rows | sort-by role name version)
+    }
+    $result | to json --indent 2 | save --force $output_path
+    print $'Target ($target): ($result.product_count) product packages, ($result.tool_or_unselected_count) tool-only/unselected; ($result.review_required_count) product license reviews required.'
+    for item in $review { print $'REVIEW ($item.name)@($item.version): ($item.license)' }
+    if not ($review | is-empty) { exit 1 }
+}
