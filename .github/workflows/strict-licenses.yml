@@ -112,6 +112,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
       - name: Verify approval roster, text hashes, and bundle resource
         shell: bash
         run: |
@@ -146,6 +147,85 @@ jobs:
         with:
           name: exact-exception-license-texts
           path: app/tauri/third-party-licenses/
+          if-no-files-found: error
+          retention-days: 14
+
+  linux-deb-notice-resources:
+    name: Linux .deb contains exact exception license texts
+    needs: exact-notice-custody
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Install Linux Tauri prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential curl file libayatana-appindicator3-dev libgtk-3-dev \
+            librsvg2-dev libssl-dev libwebkit2gtk-4.1-dev libxdo-dev \
+            patchelf pkg-config wget
+      - name: Install Rust toolchain and WASM target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Install pinned UI and Tauri build tools
+        run: |
+          cargo install trunk --version 0.21.14 --locked
+          cargo install tauri-cli --version 2.12.4 --locked
+      - name: Build locked UI and Linux .deb
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = '${{ github.event.pull_request.head.sha }}'
+          (cd app/leptos-ui && trunk build --release --locked)
+          test -s app/leptos-ui/dist/index.html
+          (cd app/tauri && cargo tauri build --bundles deb)
+          git diff --exit-code -- Cargo.lock
+      - name: Verify nine license resources inside built .deb
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          debs=(target/release/bundle/deb/*.deb)
+          test "${#debs[@]}" -eq 1
+          manifest=app/tauri/third-party-licenses/manifest.json
+          jq -e '
+            (.entries | length) == 9 and
+            ([.entries[].file] | unique | length) == 9 and
+            all(.entries[];
+              (.file | test("^app/tauri/third-party-licenses/[A-Za-z0-9._/-]+$")) and
+              (.file | contains("/../") | not) and
+              (.text_sha256 | test("^[0-9a-f]{64}$")))
+          ' "$manifest"
+          jq -r '.entries[] | [.file,.text_sha256] | @tsv' "$manifest" > "$RUNNER_TEMP/expected-license-resources.tsv"
+          root="$RUNNER_TEMP/tundra-deb-root"
+          mkdir -p "$root"
+          dpkg-deb -x "${debs[0]}" "$root"
+          receipt="$RUNNER_TEMP/installer-resource-proof.tsv"
+          : > "$receipt"
+          while IFS=$'\t' read -r source expected; do
+            relative="${source#app/tauri/third-party-licenses/}"
+            mapfile -d '' matches < <(find "$root" -type f -path "*/third-party-licenses/$relative" -print0)
+            test "${#matches[@]}" -eq 1
+            printf '%s  %s\n' "$expected" "${matches[0]}" | sha256sum --check --status
+            cmp "$source" "${matches[0]}"
+            printf '%s\t%s\t%s\n' "$relative" "$expected" "${matches[0]#"$root"/}" >> "$receipt"
+          done < "$RUNNER_TEMP/expected-license-resources.tsv"
+          test "$(wc -l < "$receipt")" -eq 9
+          sha256sum "${debs[0]}" | tee "$RUNNER_TEMP/installer-deb.sha256"
+          printf 'head_sha=%s\n' '${{ github.event.pull_request.head.sha }}' > "$RUNNER_TEMP/installer-source.txt"
+      - name: Retain built installer and byte-comparison receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-deb-exception-license-proof
+          path: |
+            target/release/bundle/deb/*.deb
+            ${{ runner.temp }}/installer-deb.sha256
+            ${{ runner.temp }}/installer-resource-proof.tsv
+            ${{ runner.temp }}/installer-source.txt
           if-no-files-found: error
           retention-days: 14
 
