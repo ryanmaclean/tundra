@@ -42,10 +42,14 @@ notice IDs, and target/feature profiles. Duplicate, stale, unused, changed, or
 out-of-profile records fail the gate. An empty approval list grants nothing.
 The inventory records the approval manifest SHA-256 alongside its metadata
 and lockfile hashes.
-The staged manifest contains ten exact tuples from the bf3 candidate roster:
-five MPL, four Zlib, and one Boost `BSL-1.0`. It excludes
+The staged manifest contains nine exact product tuples from the bf3 candidate roster:
+four MPL, four Zlib, and one Boost `BSL-1.0`. It excludes
 `finl_unicode`, `wezterm-bidi`, and `terminfo` because c45 metadata shows the
-Ratatui Termwiz feature inactive, and excludes build-only `target-lexicon`.
+Ratatui Termwiz feature inactive, and excludes build-only `target-lexicon`
+and `cssparser-macros`. The exact-head 311 hosted Apple/default and
+Linux/tauri-sounds inventories put `cssparser-macros@0.6.1` behind a sole
+host proc-macro target; its earlier product approval became unused and was
+removed without relaxing the stale-approval check.
 The 559 hosted WASM graph reaches `base16` only through the
 `wasm_split_macros` proc-macro target, and `const_format_proc_macros` is itself
 a proc-macro target. Neither receives a shipped-product approval; their

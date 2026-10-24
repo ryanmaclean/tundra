@@ -46,30 +46,6 @@
       "package_id": "registry+https://github.com/rust-lang/crates.io-index#cssparser@0.36.0"
     },
     {
-      "id": "tundra-2026-10-24-cssparser-macros-0.6.1",
-      "name": "cssparser-macros",
-      "version": "0.6.1",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "lock_checksum": "13b588ba4ac1a99f7f2964d24b3d896ddc6bf847ee3855dbd4366f058cfcd331",
-      "declared_license": "MPL-2.0",
-      "approved_choice": [
-        "MPL-2.0"
-      ],
-      "profiles": [
-        "aarch64-apple-darwin/default",
-        "aarch64-apple-darwin/tauri-sounds",
-        "x86_64-pc-windows-msvc/default",
-        "x86_64-pc-windows-msvc/tauri-sounds",
-        "x86_64-unknown-linux-gnu/default",
-        "x86_64-unknown-linux-gnu/tauri-sounds"
-      ],
-      "notice_ids": [
-        "MPL-2.0"
-      ],
-      "decision_ref": "user-2026-10-24-tundra-project-licenses-ok",
-      "package_id": "registry+https://github.com/rust-lang/crates.io-index#cssparser-macros@0.6.1"
-    },
-    {
       "id": "tundra-2026-10-24-dtoa-short-0.3.5",
       "name": "dtoa-short",
       "version": "0.3.5",
