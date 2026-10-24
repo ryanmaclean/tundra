@@ -159,7 +159,7 @@ jobs:
       - name: Resolve exact feature-on graph
         run: |
           cargo metadata --locked --format-version 1 --filter-platform x86_64-unknown-linux-gnu --features at-core/file-watcher > "$RUNNER_TEMP/watcher-metadata.json"
-          jq -e '[.resolve.nodes[] | select(.id | contains("#at-core@")) | .features[]] | index("file-watcher") != null' "$RUNNER_TEMP/watcher-metadata.json"
+          jq -e '. as $graph | ($graph.packages[] | select(.name == "at-core") | .id) as $core_id | [$graph.resolve.nodes[] | select(.id == $core_id) | .features[]] | index("file-watcher") != null' "$RUNNER_TEMP/watcher-metadata.json"
           jq -e '[.packages[].name] | index("notify") != null' "$RUNNER_TEMP/watcher-metadata.json"
       - name: Test opt-in watcher module
         run: cargo test -p at-core --locked --features file-watcher --lib file_watcher::tests -- --nocapture
