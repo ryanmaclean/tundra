@@ -25,4 +25,4 @@ jobs:
         uses: taiki-e/install-action@cargo-deny
 
       - name: Check all-feature all-target dependency licenses
-        run: cargo deny --workspace check --config deny-strict.toml licenses
+        run: cargo deny --workspace --config deny-strict.toml --locked check licenses
