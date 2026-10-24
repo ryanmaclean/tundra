@@ -47,11 +47,8 @@ def license_evaluation [expression: string, approved_atoms: list<string>, notice
     # Mixing it with SPDX operators or grouping has ambiguous precedence;
     # fail closed rather than turning a mandatory term into an optional one.
     let legacy_slash = ($expression | str contains '/')
-    if $legacy_slash and (
-        ($expression | str contains '(')
-        or ($expression | str contains ')')
-        or ($expression =~ '\b(AND|OR|WITH)\b')
-    ) {
+    let mixed_slash = (($expression | str contains '(') or ($expression | str contains ')') or ($expression =~ '\b(AND|OR|WITH)\b'))
+    if $legacy_slash and $mixed_slash {
         return {valid: false, allowed: false, selected_ids: []}
     }
     # Tokenize unambiguous legacy alternatives as OR. An adjacent ID WITH
@@ -256,10 +253,7 @@ def main [metadata_path: string, target: string, profile: string, output_path: s
                 let target_package = ($target_packages | first)
                 let declarations = ($parent_package.dependencies | where {|declared|
                     let alias_matches = if $declared.rename == null { true } else { ($declared.rename | str replace --all '-' '_') == $dependency.name }
-                    $declared.name == $target_package.name
-                    and $declared.source == $target_package.source
-                    and $alias_matches
-                    and $declared.kind != 'dev'
+                    $declared.name == $target_package.name and $declared.source == $target_package.source and $alias_matches and $declared.kind != 'dev'
                 })
                 # Only one exact package/source declaration can prove inactivity.
                 # Unknown or ambiguous mappings remain included conservatively.
@@ -296,12 +290,7 @@ def main [metadata_path: string, target: string, profile: string, output_path: s
         let build_only = (($package.id in $build_ids) and (not $shipped))
         # Only these reviewed workspace members qualify as first-party private.
         # An arbitrary path dependency cannot bypass the product license gate.
-        let first_party = (
-            $package.id in $metadata.workspace_members
-            and $package.name in $reviewed_workspace_names
-            and $package.source == null
-            and ($package.manifest_path | str starts-with $'($metadata.workspace_root)/')
-        )
+        let first_party = ($package.id in $metadata.workspace_members and $package.name in $reviewed_workspace_names and $package.source == null and ($package.manifest_path | str starts-with $'($metadata.workspace_root)/'))
         let global_atoms = ($base_allowed | append $approved_extra)
         let global_result = if $package.license == null {
             {valid: false, allowed: false, selected_ids: []}
@@ -309,12 +298,7 @@ def main [metadata_path: string, target: string, profile: string, output_path: s
             license_evaluation $package.license $global_atoms $approved_extra
         }
         let matching = ($approvals | where {|item|
-            $item.name == $package.name
-            and $item.version == $package.version
-            and $item.source == $package.source
-            and $item.package_id == $package.id
-            and $item.declared_license == $package.license
-            and $current_profile in $item.profiles
+            $item.name == $package.name and $item.version == $package.version and $item.source == $package.source and $item.package_id == $package.id and $item.declared_license == $package.license and $current_profile in $item.profiles
         })
         mut parsed = $global_result
         mut approval_id = null
