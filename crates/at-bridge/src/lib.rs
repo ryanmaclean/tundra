@@ -30,3 +30,4 @@ pub mod rate_limit_middleware;
 pub mod terminal;
 pub mod terminal_ws;
 pub mod transport;
+pub mod ws_tickets;

@@ -8,19 +8,27 @@
 //! |----------------------------|--------------------|-------------------------------------------|
 //! | CLI / TUI / scripts        | HTTP               | `X-API-Key: <key>` header                 |
 //! | Browser / webview (fetch)  | HTTP               | `X-API-Key: <key>` header                 |
-//! | Browser / webview (WS)     | WebSocket upgrade  | `?api_key=<key>` query parameter          |
+//! | Browser / webview (WS)     | HTTP then WS       | Protected one-use ticket, then subprotocol |
+//! | Native (WS)                | WebSocket upgrade  | Header/Bearer; legacy query is deprecated  |
 //!
-//! Browsers cannot attach custom headers to a WebSocket upgrade, so the query
-//! parameter is accepted **only** on `GET` requests carrying
-//! `Upgrade: websocket`.
+//! Browsers cannot attach custom headers to a WebSocket upgrade. They first
+//! call protected `POST /api/ws-tickets`, then offer `tundra.v2` and
+//! `tundra.ticket.<uuid>` as subprotocols on the exact route within ten seconds.
+//! The server consumes the ticket before HTTP 101 and selects only `tundra.v2`.
+//! Native `?api_key=` remains accepted only for a WebSocket Upgrade during
+//! migration; it puts the master key in a URL and must not be used by browsers.
 //!
 //! Native clients discover the key from `AUTO_TUNDRA_API_KEY` or
 //! `~/.auto-tundra/daemon.key` (next to the `daemon.lock` port file). Browser
-//! clients receive it from the page that served them through the
-//! [`WINDOW_API_KEY_GLOBAL`] global, which [`browser_bootstrap_script`] sets.
+//! standalone clients enter their own key, held only in page memory. The
+//! native Tauri webview still uses [`WINDOW_API_KEY_GLOBAL`] bootstrap.
 
 /// Wire-format version of this auth contract.
-pub const AUTH_CONTRACT_VERSION: &str = "1.0.0";
+pub const AUTH_CONTRACT_VERSION: &str = "2.0.0";
+
+pub const WS_TICKET_ENDPOINT: &str = "/api/ws-tickets";
+pub const WS_SELECTED_PROTOCOL: &str = "tundra.v2";
+pub const WS_TICKET_TTL_SECONDS: u64 = 10;
 
 /// Header that carries the API key (HTTP header names are case-insensitive).
 pub const API_KEY_HEADER: &str = "x-api-key";

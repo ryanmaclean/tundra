@@ -36,6 +36,7 @@ mod tests;
 pub mod types;
 mod websocket;
 mod worktrees;
+mod ws_ticket_api;
 
 // ---- Re-exports for backward compatibility --------------------------------
 
@@ -116,6 +117,7 @@ mod router {
     use crate::auth::AuthLayer;
     use crate::origin_validation::OriginAllowlist;
     use crate::rate_limit_middleware::RateLimitLayer;
+    use crate::ws_tickets::WsTicketStore;
     use at_telemetry::middleware::metrics_middleware;
     use at_telemetry::tracing_setup::request_id_middleware;
     use axum::Extension;
@@ -186,6 +188,7 @@ mod router {
         // WebSocket handler, so configuring an origin works everywhere.
         let origins = OriginAllowlist::with_configured(&allowed_origins);
         let cors_origins = origins.clone();
+        let ws_tickets = WsTicketStore::default();
 
         // Every route lives in a per-domain sub-router (see `routes.rs`);
         // mounting them also yields the catalog served at /api/catalog.
@@ -203,7 +206,11 @@ mod router {
         // Authenticated routes: auth runs first, then the rate limiter.
         let protected = protected
             .layer(rate_limit.clone())
-            .layer(AuthLayer::new(api_key));
+            .layer(AuthLayer::with_ws_tickets(
+                api_key,
+                ws_tickets.clone(),
+                origins.clone(),
+            ));
         // Unauthenticated routes (the catalog): rate limited only.
         let public = public.layer(rate_limit);
         // `merge` keeps `protected`'s (auth-layered) fallback, so unmatched
@@ -211,6 +218,7 @@ mod router {
         let app = public.merge(protected);
 
         app.layer(Extension(Arc::new(catalog)))
+            .layer(Extension(ws_tickets))
             .layer(Extension(origins))
             .layer(CompressionLayer::new())
             .layer(axum_middleware::from_fn(metrics_middleware))

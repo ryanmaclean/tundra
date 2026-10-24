@@ -438,6 +438,8 @@ pub async fn create_terminal(State(state): State<Arc<ApiState>>) -> impl IntoRes
     // Spawn a shell process.
     let shell = if cfg!(target_os = "macos") {
         "/bin/zsh"
+    } else if cfg!(target_os = "freebsd") {
+        "/bin/sh"
     } else {
         "/bin/bash"
     };
@@ -1034,7 +1036,8 @@ pub async fn terminal_ws(
         }
     }
 
-    ws.on_upgrade(move |socket| handle_terminal_ws(socket, state, terminal_id))
+    ws.protocols([crate::ws_tickets::SELECTED_PROTOCOL])
+        .on_upgrade(move |socket| handle_terminal_ws(socket, state, terminal_id))
         .into_response()
 }
 

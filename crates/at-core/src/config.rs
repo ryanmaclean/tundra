@@ -1251,52 +1251,182 @@ fn usable_daemon_key(raw: Option<String>) -> Option<String> {
     }
 }
 
-/// Read a key file; `None` when missing, unreadable, or blank.
+/// Read a key file; `None` when missing, unsafe, unreadable, or blank.
 fn read_key_file(path: &std::path::Path) -> Option<String> {
-    usable_daemon_key(std::fs::read_to_string(path).ok())
+    let _guard = lock_key_file(path, false).ok()?;
+    read_key_file_unlocked(path)
+}
+
+fn read_key_file_unlocked(path: &std::path::Path) -> Option<String> {
+    use std::io::Read;
+    let mut file = open_existing_key(path, false).ok()?;
+    let mut key = String::new();
+    file.read_to_string(&mut key).ok()?;
+    usable_daemon_key(Some(key))
 }
 
 /// Return the key stored at `path`, generating and persisting a fresh one if
-/// the file is missing or blank.
+/// the file is missing or blank. Unsafe paths fail closed rather than silently
+/// generating a new, potentially exposed key.
 fn ensure_key_file(path: &std::path::Path) -> String {
-    if let Some(key) = read_key_file(path) {
+    use std::io::{Read, Write};
+    let parent = path.parent().expect("daemon key path has no parent");
+    std::fs::create_dir_all(parent).unwrap_or_else(|error| {
+        panic!("cannot create daemon key directory {}: {error}", parent.display())
+    });
+    check_key_parent(parent).unwrap_or_else(|error| unsafe_key_abort(parent, &error));
+    // Serialize before looking for or creating the key. Locking the key itself
+    // is too late: two processes can observe the same blank file, and a new
+    // file is visible before its first write.
+    let _guard = lock_key_file(path, true).unwrap_or_else(|error| unsafe_key_abort(path, &error));
+    if let Some(key) = read_key_file_unlocked(path) {
         return key;
     }
 
-    let new_key = uuid::Uuid::new_v4().to_string();
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
+    let mut file = match open_existing_key(path, true) {
+        Ok(mut file) => {
+            // Another daemon may have filled a blank file after the first
+            // read. Preserve its key instead of rotating it under clients.
+            let mut current = String::new();
+            file.read_to_string(&mut current)
+                .expect("cannot re-read daemon key safely");
+            if let Some(key) = usable_daemon_key(Some(current)) {
+                return key;
+            }
+            file
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            let mut opts = std::fs::OpenOptions::new();
+            opts.write(true).create_new(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                opts.mode(0o600);
+                opts.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
+            }
+            let file = opts.open(path).unwrap_or_else(|error| unsafe_key_abort(path, &error));
+            check_open_key(&file).unwrap_or_else(|error| unsafe_key_abort(path, &error));
+            file
+        }
+        Err(error) => unsafe_key_abort(path, &error),
+    };
 
+    let new_key = uuid::Uuid::new_v4().to_string();
+    file.set_len(0).expect("cannot truncate blank daemon key");
+    file.write_all(new_key.as_bytes())
+        .and_then(|_| file.sync_all())
+        .expect("cannot persist daemon key");
+    new_key
+}
+
+fn unsafe_key_abort(path: &std::path::Path, error: &std::io::Error) -> ! {
+    panic!(
+        "refusing daemon key path {}: {error}; verify current-user ownership, remove symlinks, set daemon.key mode 0600 and its directory owner-only writable, then rotate any previously readable key before restart",
+        path.display()
+    )
+}
+
+fn lock_key_file(path: &std::path::Path, exclusive: bool) -> std::io::Result<std::fs::File> {
+    if let Some(parent) = path.parent() {
+        check_key_parent(parent)?;
+    }
+    let mut name = path.as_os_str().to_os_string();
+    name.push(".lock");
+    let lock_path = std::path::PathBuf::from(name);
     let mut opts = std::fs::OpenOptions::new();
-    opts.write(true).create(true).truncate(true);
+    opts.read(true).write(true).create(true);
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
         opts.mode(0o600);
+        opts.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
     }
-    let written = opts.open(path).and_then(|mut f| {
-        use std::io::Write;
-        f.write_all(new_key.as_bytes())?;
-        f.sync_all()
-    });
-    if let Err(e) = written {
-        eprintln!(
-            "Warning: failed to write daemon key to {}: {}",
-            path.display(),
-            e
-        );
-        return new_key;
-    }
-
-    // `mode` only applies on create; tighten an existing (blank) file too.
+    let lock = opts.open(lock_path)?;
+    check_open_key(&lock)?;
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+        use std::os::fd::AsRawFd;
+        let operation = if exclusive { libc::LOCK_EX } else { libc::LOCK_SH };
+        loop {
+            if unsafe { libc::flock(lock.as_raw_fd(), operation) } == 0 {
+                break;
+            }
+            let error = std::io::Error::last_os_error();
+            if error.kind() != std::io::ErrorKind::Interrupted {
+                return Err(error);
+            }
+        }
     }
+    #[cfg(not(unix))]
+    let _ = exclusive;
+    Ok(lock)
+}
 
-    new_key
+fn open_existing_key(path: &std::path::Path, writable: bool) -> std::io::Result<std::fs::File> {
+    if let Some(parent) = path.parent() {
+        check_key_parent(parent)?;
+    }
+    let mut opts = std::fs::OpenOptions::new();
+    opts.read(true).write(writable);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
+    }
+    let file = opts.open(path)?;
+    check_open_key(&file)?;
+    Ok(file)
+}
+
+fn check_key_parent(parent: &std::path::Path) -> std::io::Result<()> {
+    let metadata = std::fs::symlink_metadata(parent)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if !metadata.is_dir()
+            || metadata.file_type().is_symlink()
+            || metadata.uid() != unsafe { libc::geteuid() }
+            || metadata.mode() & 0o022 != 0
+        {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "daemon key directory must be an owned, non-writable directory",
+            ));
+        }
+    }
+    #[cfg(not(unix))]
+    if !metadata.is_dir() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "daemon key parent is not a directory",
+        ));
+    }
+    Ok(())
+}
+
+fn check_open_key(file: &std::fs::File) -> std::io::Result<()> {
+    let metadata = file.metadata()?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if !metadata.is_file()
+            || metadata.uid() != unsafe { libc::geteuid() }
+            || metadata.mode() & 0o077 != 0
+        {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "daemon key must be an owned, private regular file",
+            ));
+        }
+    }
+    #[cfg(not(unix))]
+    if !metadata.is_file() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "daemon key is not a regular file",
+        ));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1335,11 +1465,81 @@ mod daemon_key_tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("daemon.key");
         std::fs::write(&path, "   \n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        }
         assert_eq!(read_key_file(&path), None);
 
         let key = ensure_key_file(&path);
         assert!(!key.trim().is_empty());
         assert_eq!(read_key_file(&path).as_deref(), Some(key.as_str()));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_public_or_symlinked_existing_key_without_rewriting_it() {
+        use std::os::unix::fs::{symlink, PermissionsExt};
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("daemon.key");
+        std::fs::write(&path, "existing-private-key").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert_eq!(read_key_file(&path), None);
+        assert!(std::panic::catch_unwind(|| ensure_key_file(&path)).is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "existing-private-key");
+
+        std::fs::remove_file(&path).unwrap();
+        let target = dir.path().join("target");
+        std::fs::write(&target, "other-file").unwrap();
+        symlink(&target, &path).unwrap();
+        assert_eq!(read_key_file(&path), None);
+        assert!(std::panic::catch_unwind(|| ensure_key_file(&path)).is_err());
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "other-file");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_other_writable_key_directory() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let parent = dir.path().join("keys");
+        std::fs::create_dir(&parent).unwrap();
+        std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o777)).unwrap();
+        let path = parent.join("daemon.key");
+        assert!(std::panic::catch_unwind(|| ensure_key_file(&path)).is_err());
+        assert!(!path.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn concurrent_startup_agrees_on_missing_and_blank_keys() {
+        use std::os::unix::fs::PermissionsExt;
+        use std::sync::{Arc, Barrier};
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("daemon.key");
+        for blank_existing in [false, true] {
+            if blank_existing {
+                std::fs::write(&path, " \n").unwrap();
+                std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+            }
+            let barrier = Arc::new(Barrier::new(3));
+            let handles: Vec<_> = (0..2)
+                .map(|_| {
+                    let path = path.clone();
+                    let barrier = Arc::clone(&barrier);
+                    std::thread::spawn(move || {
+                        barrier.wait();
+                        ensure_key_file(&path)
+                    })
+                })
+                .collect();
+            barrier.wait();
+            let first = handles.into_iter().map(|h| h.join().unwrap()).collect::<Vec<_>>();
+            assert_eq!(first[0], first[1]);
+            assert_eq!(read_key_file(&path).as_deref(), Some(first[0].as_str()));
+        }
     }
 }
 

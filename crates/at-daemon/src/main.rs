@@ -109,7 +109,7 @@ async fn main() -> Result<()> {
     // --- Make sure the API key exists before any client can discover us ---
     // Clients read the lockfile and then the key file; creating the key first
     // means a client never sees a lockfile without a matching key.
-    let api_key = at_core::config::CredentialProvider::ensure_daemon_api_key();
+    let _api_key = at_core::config::CredentialProvider::ensure_daemon_api_key();
     let api_key_file = at_core::config::CredentialProvider::daemon_api_key()
         .is_none()
         .then(|| {
@@ -122,7 +122,6 @@ async fn main() -> Result<()> {
     let (frontend_port_tx, frontend_port_rx) = tokio::sync::oneshot::channel::<u16>();
     let frontend_handle = tokio::spawn(serve_frontend(
         api_port,
-        api_key,
         config.daemon.host.clone(),
         frontend_port_tx,
     ));
@@ -257,16 +256,14 @@ async fn frontend_isolation_headers_middleware(
 ///
 /// Injects the daemon connection (see
 /// `at_api_types::auth::browser_bootstrap_script`) into index.html so the
-/// WASM frontend discovers the API server and can authenticate to it. The API
-/// key is only injected for loopback peers addressing the server by a
-/// loopback host name (see [`may_receive_api_key`]).
+/// WASM frontend discovers the API server. The unauthenticated HTML never
+/// contains the daemon key; standalone browsers enroll with the owner-held key.
 /// Sends the bound port back to main via the oneshot channel.
 ///
 /// **Hot-reload friendly**: index.html is read from disk on every request so
 /// that `trunk build` takes effect immediately without restarting the daemon.
 async fn serve_frontend(
     api_port: u16,
-    api_key: String,
     host: String,
     port_tx: tokio::sync::oneshot::Sender<u16>,
 ) {
@@ -290,12 +287,10 @@ async fn serve_frontend(
     struct FrontendCtx {
         dist: std::path::PathBuf,
         api_port: u16,
-        api_key: String,
     }
     let ctx = Arc::new(FrontendCtx {
         dist: dist_dir.clone(),
         api_port,
-        api_key,
     });
 
     // Read index.html from disk on each request and inject the connection.
@@ -307,16 +302,19 @@ async fn serve_frontend(
     ) -> Html<String> {
         let host = headers
             .get(axum::http::header::HOST)
-            .and_then(|v| v.to_str().ok());
-        let key = may_receive_api_key(peer.ip(), host).then_some(ctx.api_key.as_str());
+            .and_then(|value| value.to_str().ok());
+        if !may_offer_local_enrollment(peer.ip(), host) {
+            return Html("<html><body>Open Tundra on this computer.</body></html>".into());
+        }
         let raw = std::fs::read_to_string(ctx.dist.join("index.html")).ok();
-        Html(render_index(raw, ctx.api_port, key))
+        Html(render_index(raw, ctx.api_port))
     }
 
     // Serve live index.html for root and SPA fallback; ServeDir for all other assets.
     let index_route = get(index).with_state(ctx.clone());
     let app = Router::new()
         .route("/", index_route.clone())
+        .route("/index.html", index_route.clone())
         .fallback_service(ServeDir::new(&dist_dir).fallback(index_route))
         .layer(axum::middleware::from_fn(
             frontend_isolation_headers_middleware,
@@ -353,20 +351,15 @@ async fn serve_frontend(
     }
 }
 
-/// Whether an index.html request may receive the API key.
-///
-/// Only a loopback peer that addresses us by a loopback host name gets it:
-/// the peer check keeps the key off the LAN when `daemon.host` is not
-/// loopback, and the Host check defeats DNS-rebinding pages (their Host is
-/// the attacker's domain even though the TCP peer is local).
-fn may_receive_api_key(peer: std::net::IpAddr, host_header: Option<&str>) -> bool {
+/// Local browser enrollment is offered only to a loopback TCP peer using a
+/// loopback Host. This is a page-admission check, never user authentication.
+fn may_offer_local_enrollment(peer: std::net::IpAddr, host_header: Option<&str>) -> bool {
     if !peer.is_loopback() {
         return false;
     }
     let Some(host) = host_header else {
         return false;
     };
-    // Strip the port: "[::1]:8080" -> "[::1]", "localhost:80" -> "localhost".
     let name = if host.starts_with('[') {
         host.split_once(']')
             .map(|(h, _)| &host[..h.len() + 1])
@@ -379,10 +372,10 @@ fn may_receive_api_key(peer: std::net::IpAddr, host_header: Option<&str>) -> boo
 
 /// Inject the browser bootstrap script into index.html (or a placeholder page
 /// when the frontend has not been built).
-fn render_index(raw: Option<String>, api_port: u16, api_key: Option<&str>) -> String {
+fn render_index(raw: Option<String>, api_port: u16) -> String {
     let script = format!(
         "<script>{}</script>",
-        at_bridge::http_api::at_api_types::auth::browser_bootstrap_script(api_port, api_key)
+        at_bridge::http_api::at_api_types::auth::browser_bootstrap_script(api_port, None)
     );
     match raw {
         Some(raw) => raw.replacen("</head>", &format!("{script}</head>"), 1),
@@ -434,33 +427,26 @@ mod frontend_tests {
     const V6_LO: IpAddr = IpAddr::V6(std::net::Ipv6Addr::LOCALHOST);
 
     #[test]
-    fn key_only_for_loopback_peer_and_loopback_host() {
-        assert!(may_receive_api_key(V4_LO, Some("127.0.0.1:5173")));
-        assert!(may_receive_api_key(V4_LO, Some("localhost:5173")));
-        assert!(may_receive_api_key(V4_LO, Some("localhost")));
-        assert!(may_receive_api_key(V6_LO, Some("[::1]:5173")));
-
-        // DNS rebinding: local TCP peer, attacker Host.
-        assert!(!may_receive_api_key(V4_LO, Some("evil.example:5173")));
-        assert!(!may_receive_api_key(V4_LO, Some("localhost.evil.example")));
-        assert!(!may_receive_api_key(V4_LO, None));
-        // LAN peer.
+    fn enrollment_page_requires_loopback_peer_and_host() {
+        assert!(may_offer_local_enrollment(V4_LO, Some("127.0.0.1:5173")));
+        assert!(may_offer_local_enrollment(V4_LO, Some("localhost:5173")));
+        assert!(may_offer_local_enrollment(V6_LO, Some("[::1]:5173")));
+        assert!(!may_offer_local_enrollment(V4_LO, Some("evil.example:5173")));
+        assert!(!may_offer_local_enrollment(V4_LO, None));
         let lan: IpAddr = "192.168.1.20".parse().unwrap();
-        assert!(!may_receive_api_key(lan, Some("127.0.0.1:5173")));
+        assert!(!may_offer_local_enrollment(lan, Some("127.0.0.1:5173")));
     }
 
     #[test]
-    fn render_index_injects_port_and_key_into_head() {
+    fn render_index_injects_only_port_into_head() {
         let html = render_index(
             Some("<html><head><title>t</title></head><body></body></html>".into()),
             4242,
-            Some("k-1"),
         );
-        assert!(html.contains(
-            "<script>window.__TUNDRA_API_PORT__=4242;window.__TUNDRA_API_KEY__=\"k-1\";</script></head>"
-        ));
+        assert!(html.contains("<script>window.__TUNDRA_API_PORT__=4242;</script></head>"));
+        assert!(!html.contains("__TUNDRA_API_KEY__"));
 
-        let no_key = render_index(None, 4242, None);
+        let no_key = render_index(None, 4242);
         assert!(no_key.contains("window.__TUNDRA_API_PORT__=4242;"));
         assert!(!no_key.contains("__TUNDRA_API_KEY__"));
     }

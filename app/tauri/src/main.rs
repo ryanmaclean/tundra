@@ -62,8 +62,9 @@ fn main() {
     // Registered as an *initialization script*, which the webview re-runs on
     // every navigation. (A one-shot `eval` in setup was lost on reload, e.g.
     // after switching projects, sending the UI to 127.0.0.1:9090.)
-    // Only trusted values are injected: the bound port, the daemon API key
-    // (JSON/HTML-escaped by at-api-types) and static mode flags.
+    // The bound port is injected into bundled content and the configured
+    // loopback dev origin. Only bundled app content receives the daemon API
+    // key (JSON/HTML-escaped by at-api-types) and static mode flags.
     //
     // Native-shell prototype mode (macOS only) can be enabled via:
     //   AT_NATIVE_SHELL_MACOS=1
@@ -81,7 +82,6 @@ fn main() {
 
     // Same key the embedded daemon enforces (env var or ~/.auto-tundra/daemon.key).
     let api_key = at_core::config::CredentialProvider::ensure_daemon_api_key();
-    let init_script = build_init_script(api_port, &api_key, native_shell, titlebar_inset);
 
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
@@ -152,7 +152,29 @@ fn main() {
                 .find(|w| w.label == "main")
                 .cloned()
                 .ok_or("tauri.conf.json has no window labelled \"main\"")?;
+            if !matches!(&window_config.url, tauri::utils::config::WebviewUrl::App(_)) {
+                return Err("main webview must load bundled app content".into());
+            }
+            // The dev server is trusted only when it is loopback. Production
+            // navigations must stay on Tauri's app protocol origin.
+            let dev_origin = app.config().build.dev_url.as_ref().filter(|url| {
+                tauri::is_dev()
+                    && matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"))
+                    && matches!(url.scheme(), "http" | "https")
+            });
+            // A loopback dev server is a separate process: it receives the
+            // actual dynamic API port but not the daemon master key. Its page
+            // uses manual enrollment; bundled app pages retain normal login.
+            let init_script = build_init_script(
+                api_port,
+                &api_key,
+                native_shell,
+                titlebar_inset,
+                dev_origin,
+            );
+            let navigation_dev_origin = dev_origin.cloned();
             tauri::WebviewWindowBuilder::from_config(app.handle(), &window_config)?
+                .on_navigation(move |url| trusted_webview_origin(url, navigation_dev_origin.as_ref()))
                 .initialization_script(init_script.as_str())
                 .build()?;
 
@@ -189,20 +211,102 @@ fn build_init_script(
     api_key: &str,
     native_shell: bool,
     titlebar_inset: u16,
+    dev_origin: Option<&tauri::Url>,
 ) -> String {
+    let dev_origin = dev_origin
+        .map(|url| serde_json::to_string(&url.origin().ascii_serialization()).unwrap())
+        .unwrap_or_else(|| "null".to_string());
     format!(
-        "{connection}\
+        "(function() {{\
+         var topLevel = window.top === window.self;\
+         var appOrigin = topLevel && location.port === '' && \
+           location.username === '' && location.password === '' && \
+           ((location.protocol === 'tauri:' && location.hostname === 'localhost') || \
+           (location.protocol === 'http:' && location.hostname === 'tauri.localhost'));\
+         var devOrigin = topLevel && location.username === '' && location.password === '' && \
+           location.origin === {dev_origin};\
+         if (!appOrigin && !devOrigin) return;\
+         {public_connection}\
+         if (!appOrigin) return;\
+         {connection}\
          window.__TUNDRA_NATIVE_SHELL__ = {native_shell};\
          document.documentElement.style.setProperty('--titlebar-inset', '{titlebar_inset}px');\
-         document.documentElement.dataset.nativeShell = {native_shell_data};",
+         document.documentElement.dataset.nativeShell = {native_shell_data};\
+         }})();",
+        dev_origin = dev_origin,
+        public_connection =
+            at_bridge::http_api::at_api_types::auth::browser_bootstrap_script(api_port, None),
         connection = at_bridge::http_api::at_api_types::auth::browser_bootstrap_script(
             api_port,
             Some(api_key)
         ),
         native_shell = native_shell,
         titlebar_inset = titlebar_inset,
-        native_shell_data = if native_shell { "\"1\"" } else { "\"0\"" }
+        native_shell_data = if native_shell { "\"1\"" } else { "\"0\"" },
     )
+}
+
+fn trusted_webview_origin(url: &tauri::Url, dev_origin: Option<&tauri::Url>) -> bool {
+    if !url.username().is_empty() || url.password().is_some() {
+        return false;
+    }
+    let app_origin = match (url.scheme(), url.host_str(), url.port()) {
+        ("tauri", Some("localhost"), None) => true,
+        ("http", Some("tauri.localhost"), None) => true,
+        _ => false,
+    };
+    app_origin || dev_origin.is_some_and(|dev| url.origin() == dev.origin())
+}
+
+#[cfg(test)]
+mod bootstrap_security_tests {
+    use super::*;
+
+    #[test]
+    fn only_bundled_app_origins_get_automatic_bootstrap() {
+        for origin in ["tauri://localhost/", "http://tauri.localhost/"] {
+            assert!(trusted_webview_origin(&tauri::Url::parse(origin).unwrap(), None));
+        }
+        for origin in [
+            "https://tauri.localhost/",
+            "http://tauri.localhost:8080/",
+            "https://example.com/",
+            "http://localhost:1420/",
+            "http://attacker@tauri.localhost/",
+        ] {
+            assert!(!trusted_webview_origin(&tauri::Url::parse(origin).unwrap(), None));
+        }
+        let dev = tauri::Url::parse("http://localhost:1420/").unwrap();
+        assert!(trusted_webview_origin(&dev, Some(&dev)));
+        assert!(!trusted_webview_origin(
+            &tauri::Url::parse("http://localhost:1421/").unwrap(),
+            Some(&dev)
+        ));
+    }
+
+    #[test]
+    fn initialization_script_guards_key_before_setting_browser_globals() {
+        let script = build_init_script(9000, "private-test-key", false, 28, None);
+        let guard = script.find("if (!appOrigin) return").unwrap();
+        let key = script.find("private-test-key").unwrap();
+        assert!(guard < key);
+        assert!(script.contains("location.port === ''"));
+    }
+
+    #[test]
+    fn dev_origin_gets_dynamic_port_before_manual_enrollment_but_no_key() {
+        let dev = tauri::Url::parse("http://localhost:1420/").unwrap();
+        let script = build_init_script(51234, "private-test-key", false, 28, Some(&dev));
+        assert!(script.contains("location.origin === \"http://localhost:1420\""));
+        let admission = script.find("if (!appOrigin && !devOrigin) return;").unwrap();
+        let port = script.find("window.__TUNDRA_API_PORT__=51234;").unwrap();
+        let dev_stop = script.find("if (!appOrigin) return;").unwrap();
+        let key = script.find("private-test-key").unwrap();
+        assert!(admission < port && port < dev_stop && dev_stop < key);
+        // api::get_api_base reads this public port global, so a manual
+        // enrollment POST targets the embedded daemon's actual bound port.
+        assert!(!script[..dev_stop].contains("private-test-key"));
+    }
 }
 
 fn env_flag(name: &str) -> bool {
@@ -254,10 +358,13 @@ mod tests {
 
     #[test]
     fn init_script_carries_port_key_and_flags() {
-        let s = build_init_script(51234, "key-1", false, 28);
-        assert!(
-            s.starts_with("window.__TUNDRA_API_PORT__=51234;window.__TUNDRA_API_KEY__=\"key-1\";")
-        );
+        let s = build_init_script(51234, "key-1", false, 28, None);
+        assert!(s.starts_with("(function() {var topLevel = "));
+        let guard = s.find("if (!appOrigin) return;").unwrap();
+        let bootstrap = s
+            .find("window.__TUNDRA_API_PORT__=51234;window.__TUNDRA_API_KEY__=\"key-1\";")
+            .unwrap();
+        assert!(guard < bootstrap, "the app-origin guard must precede key injection");
         assert!(s.contains("window.__TUNDRA_NATIVE_SHELL__ = false;"));
         assert!(s.contains("'--titlebar-inset', '28px'"));
         assert!(s.contains("dataset.nativeShell = \"0\";"));

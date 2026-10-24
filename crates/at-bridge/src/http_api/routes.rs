@@ -11,7 +11,8 @@
 use crate::intelligence_api as intel;
 use crate::terminal_ws;
 
-use super::catalog::{get_catalog, get_schema, list_schemas, Domain, RouteSpec as R, SMALL_BODY};
+use super::catalog::{get_catalog, get_catalog_v1, get_schema, list_schemas, Domain, RouteSpec as R, SMALL_BODY};
+use super::ws_ticket_api;
 use super::{
     agents, beads, bootstrap, gate_flow, gitea, github, integrations, kanban, mcp, mcp_sse,
     metrics, misc, notifications, pipeline, projects, queue, sessions, settings, stacks, tasks,
@@ -72,7 +73,7 @@ pub(crate) fn catalog_router() -> Domain {
         )
         .route(
             R::get("/v1/catalog", "Route catalog pinned to schema v1").res("ApiCatalog"),
-            get_catalog,
+            get_catalog_v1,
         )
         .route(
             R::get(
@@ -93,6 +94,14 @@ pub(crate) fn catalog_router() -> Domain {
 /// Single-route status/diagnostic endpoints directly under `/api`.
 pub(crate) fn system_router() -> Domain {
     Domain::new("system", "/api")
+        .route(
+            R::post(
+                "/ws-tickets",
+                "Issue one short-lived, route-bound browser WebSocket ticket",
+            )
+            .limit(SMALL_BODY),
+            ws_ticket_api::issue_ws_ticket,
+        )
         .route(
             R::get(
                 "/bootstrap",

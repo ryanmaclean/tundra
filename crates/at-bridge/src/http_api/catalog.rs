@@ -252,6 +252,10 @@ pub(crate) fn mount_all(domains: Vec<Domain>, auth_enforced: bool) -> Mounted {
             header: API_KEY_HEADER.to_string(),
             bearer: true,
             ws_query_param: WS_API_KEY_QUERY_PARAM.to_string(),
+            ws_ticket_endpoint: Some(at_api_types::auth::WS_TICKET_ENDPOINT.to_string()),
+            ws_selected_protocol: Some(at_api_types::auth::WS_SELECTED_PROTOCOL.to_string()),
+            ws_ticket_ttl_seconds: Some(at_api_types::auth::WS_TICKET_TTL_SECONDS),
+            ws_query_deprecated: true,
             contract_version: AUTH_CONTRACT_VERSION.to_string(),
         },
         cards,
@@ -307,4 +311,21 @@ pub(crate) async fn get_catalog(
     Extension(catalog): Extension<Arc<ApiCatalog>>,
 ) -> Json<ApiCatalog> {
     Json((*catalog).clone())
+}
+
+/// Keep the pinned v1 response shape exact for older strict catalog parsers.
+/// The unversioned catalog exposes the current ticket-aware v2 auth fields.
+pub(crate) async fn get_catalog_v1(
+    Extension(catalog): Extension<Arc<ApiCatalog>>,
+) -> Json<serde_json::Value> {
+    let mut value = serde_json::to_value(catalog.as_ref()).expect("catalog serializes");
+    value["auth"] = serde_json::json!({
+        "scheme": catalog.auth.scheme.clone(),
+        "enforced": catalog.auth.enforced,
+        "header": catalog.auth.header.clone(),
+        "bearer": catalog.auth.bearer,
+        "ws_query_param": catalog.auth.ws_query_param.clone(),
+        "contract_version": "1.0.0",
+    });
+    Json(value)
 }

@@ -22,7 +22,8 @@ pub(crate) async fn ws_handler(
         return status.into_response();
     }
 
-    ws.on_upgrade(move |socket| handle_ws(socket, state))
+    ws.protocols([crate::ws_tickets::SELECTED_PROTOCOL])
+        .on_upgrade(move |socket| handle_ws(socket, state))
 }
 
 /// Internal handler that processes the upgraded WebSocket connection.
@@ -49,7 +50,8 @@ pub(crate) async fn events_ws_handler(
         return status.into_response();
     }
 
-    ws.on_upgrade(move |socket| handle_events_ws(socket, state))
+    ws.protocols([crate::ws_tickets::SELECTED_PROTOCOL])
+        .on_upgrade(move |socket| handle_events_ws(socket, state))
 }
 
 /// Internal handler that processes the upgraded WebSocket connection with heartbeat support.

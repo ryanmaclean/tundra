@@ -57,8 +57,20 @@ pub struct ApiCatalogAuth {
     pub header: String,
     /// `Authorization: Bearer <key>` is accepted as an alternative.
     pub bearer: bool,
-    /// Query parameter accepted on WebSocket upgrades only.
+    /// Deprecated native-only query parameter accepted on WebSocket upgrades.
     pub ws_query_param: String,
+    /// Protected HTTP issuer for browser WebSocket tickets (v2+).
+    #[serde(default)]
+    pub ws_ticket_endpoint: Option<String>,
+    /// The only WebSocket protocol value selected and echoed (v2+).
+    #[serde(default)]
+    pub ws_selected_protocol: Option<String>,
+    /// Ticket expiry from issue time (v2+).
+    #[serde(default)]
+    pub ws_ticket_ttl_seconds: Option<u64>,
+    /// Native query-key compatibility is deprecated (v2+).
+    #[serde(default)]
+    pub ws_query_deprecated: bool,
     /// [`crate::auth::AUTH_CONTRACT_VERSION`].
     pub contract_version: String,
 }
@@ -131,6 +143,19 @@ pub fn route_id(method: &str, path: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn v1_auth_catalog_still_deserializes() {
+        let old = serde_json::json!({
+            "scheme": "api_key", "enforced": true, "header": "x-api-key",
+            "bearer": true, "ws_query_param": "api_key", "contract_version": "1.0.0"
+        });
+        let parsed: ApiCatalogAuth = serde_json::from_value(old).unwrap();
+        assert_eq!(parsed.ws_ticket_endpoint, None);
+        assert_eq!(parsed.ws_selected_protocol, None);
+        assert_eq!(parsed.ws_ticket_ttl_seconds, None);
+        assert!(!parsed.ws_query_deprecated);
+    }
 
     #[test]
     fn route_id_is_kebab_case() {

@@ -1,16 +1,17 @@
 //! API key authentication middleware for the auto-tundra HTTP API.
 //!
-//! When a configured API key is present, every request must carry it via
-//! either the `X-API-Key` header or the `Authorization: Bearer <token>` header.
-//! WebSocket upgrade requests (`GET` + `Upgrade: websocket`) may instead pass
-//! it as the `?api_key=` query parameter, because browsers cannot set custom
-//! headers on a WebSocket handshake. See [`at_api_types::auth`] for the wire
-//! contract. When no API key is configured (the `Option` is `None`), all
-//! requests are allowed through (development mode).
+//! When a configured API key is present, HTTP requests carry `X-API-Key` or
+//! `Authorization: Bearer <token>`. Native WebSocket clients can do the same;
+//! the legacy `?api_key=` WebSocket-only query path remains deprecated. Browser
+//! clients issue a protected, one-use route-bound ticket and present it in a
+//! WebSocket subprotocol offer, which this middleware consumes before 101.
+//! See [`at_api_types::auth`] for the wire contract. With no configured key,
+//! requests pass through (development mode).
 //!
 //! Empty keys never authenticate: an empty configured key rejects everything
 //! and an empty presented key is treated as missing.
 
+use crate::{origin_validation::OriginAllowlist, ws_tickets::WsTicketStore};
 use at_api_types::auth::{API_KEY_HEADER, WS_API_KEY_QUERY_PARAM};
 use axum::{
     body::Body,
@@ -32,6 +33,8 @@ use tower::{Layer, Service};
 pub struct AuthLayer {
     /// `None` = development mode (all requests pass through).
     api_key: Option<Arc<String>>,
+    ws_tickets: Option<WsTicketStore>,
+    origins: Option<OriginAllowlist>,
 }
 
 impl AuthLayer {
@@ -44,7 +47,22 @@ impl AuthLayer {
         }
         Self {
             api_key: api_key.map(Arc::new),
+            ws_tickets: None,
+            origins: None,
         }
+    }
+
+    /// Protected API router's browser-ticket path. Ordinary native clients
+    /// continue to authenticate with header, Bearer, or legacy WS query key.
+    pub fn with_ws_tickets(
+        api_key: Option<String>,
+        ws_tickets: WsTicketStore,
+        origins: OriginAllowlist,
+    ) -> Self {
+        let mut layer = Self::new(api_key);
+        layer.ws_tickets = Some(ws_tickets);
+        layer.origins = Some(origins);
+        layer
     }
 }
 
@@ -55,6 +73,8 @@ impl<S> Layer<S> for AuthLayer {
         AuthMiddleware {
             inner,
             api_key: self.api_key.clone(),
+            ws_tickets: self.ws_tickets.clone(),
+            origins: self.origins.clone(),
         }
     }
 }
@@ -68,6 +88,8 @@ impl<S> Layer<S> for AuthLayer {
 pub struct AuthMiddleware<S> {
     inner: S,
     api_key: Option<Arc<String>>,
+    ws_tickets: Option<WsTicketStore>,
+    origins: Option<OriginAllowlist>,
 }
 
 impl<S> Service<Request<Body>> for AuthMiddleware<S>
@@ -87,6 +109,8 @@ where
 
     fn call(&mut self, req: Request<Body>) -> Self::Future {
         let api_key = self.api_key.clone();
+        let ws_tickets = self.ws_tickets.clone();
+        let origins = self.origins.clone();
         let mut inner = self.inner.clone();
 
         Box::pin(async move {
@@ -98,51 +122,74 @@ where
 
             let provided = presented_api_key(&req);
 
+            // A supplied but wrong master key has precedence. It cannot fall
+            // through to a valid ticket on the same request.
             match provided {
-                Some(ref token)
+                PresentedCredential::Key(token) => {
                     if !token.is_empty()
                         && !expected.is_empty()
-                        && bool::from(token.as_bytes().ct_eq(expected.as_bytes())) =>
-                {
-                    inner.call(req).await
+                        && bool::from(token.as_bytes().ct_eq(expected.as_bytes()))
+                    {
+                        return inner.call(req).await;
+                    }
                 }
-                _ => {
-                    let resp = (
-                        StatusCode::UNAUTHORIZED,
-                        axum::Json(serde_json::json!({"error": "unauthorized"})),
-                    )
-                        .into_response();
-                    Ok(resp)
+                PresentedCredential::Rejected => {}
+                PresentedCredential::Absent => {
+                    if is_ticket_websocket_upgrade(&req) {
+                        if let (Some(store), Some(origins)) = (ws_tickets, origins) {
+                            if origins.validate(req.headers()).is_ok()
+                                && store.consume(req.headers(), req.uri().path()).await
+                            {
+                                return inner.call(req).await;
+                            }
+                        }
+                    }
                 }
             }
+            let resp = (
+                StatusCode::UNAUTHORIZED,
+                axum::Json(serde_json::json!({"error": "unauthorized"})),
+            )
+                .into_response();
+            Ok(resp)
         })
     }
+}
+
+/// A present credential is never equivalent to an absent credential, even if
+/// its bytes cannot be decoded or its authorization scheme is unsupported.
+enum PresentedCredential {
+    Absent,
+    Key(String),
+    Rejected,
 }
 
 /// Extract the API key a request presents.
 ///
 /// Order: `X-API-Key` header, `Authorization: Bearer <key>`, then (for
 /// WebSocket upgrades only) the `api_key` query parameter.
-fn presented_api_key(req: &Request<Body>) -> Option<String> {
+fn presented_api_key(req: &Request<Body>) -> PresentedCredential {
     let headers = req.headers();
-    headers
-        .get(API_KEY_HEADER)
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string())
-        .or_else(|| {
-            headers
-                .get(axum::http::header::AUTHORIZATION)
-                .and_then(|v| v.to_str().ok())
-                .and_then(|v| v.strip_prefix("Bearer "))
-                .map(|s| s.to_string())
-        })
-        .or_else(|| {
-            if is_websocket_upgrade(req) {
-                ws_query_api_key(req.uri())
-            } else {
-                None
-            }
-        })
+    let mut keys = headers.get_all(API_KEY_HEADER).iter();
+    if let Some(raw) = keys.next() {
+        if keys.next().is_some() { return PresentedCredential::Rejected; }
+        return raw.to_str().map(|s| PresentedCredential::Key(s.to_owned()))
+            .unwrap_or(PresentedCredential::Rejected);
+    }
+    let mut authorizations = headers.get_all(axum::http::header::AUTHORIZATION).iter();
+    if let Some(raw) = authorizations.next() {
+        if authorizations.next().is_some() { return PresentedCredential::Rejected; }
+        return raw.to_str().ok()
+            .and_then(|s| s.strip_prefix("Bearer "))
+            .map(|s| PresentedCredential::Key(s.to_owned()))
+            .unwrap_or(PresentedCredential::Rejected);
+    }
+    if is_websocket_upgrade(req) {
+        if let Some(key) = ws_query_api_key(req.uri()) {
+            return PresentedCredential::Key(key);
+        }
+    }
+    PresentedCredential::Absent
 }
 
 /// `true` for a WebSocket handshake: `GET` with `Upgrade: websocket`.
@@ -153,6 +200,26 @@ fn is_websocket_upgrade(req: &Request<Body>) -> bool {
             .get(axum::http::header::UPGRADE)
             .and_then(|v| v.to_str().ok())
             .is_some_and(|v| v.eq_ignore_ascii_case("websocket"))
+}
+
+/// The ticket branch demands a complete-looking WebSocket handshake before
+/// consuming a one-use value. Axum performs the final protocol validation.
+fn is_ticket_websocket_upgrade(req: &Request<Body>) -> bool {
+    if !is_websocket_upgrade(req) || req.uri().query().is_some() {
+        return false;
+    }
+    let headers = req.headers();
+    headers
+        .get(axum::http::header::CONNECTION)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|s| {
+            s.split(',')
+                .any(|part| part.trim().eq_ignore_ascii_case("upgrade"))
+        })
+        && headers
+            .get("sec-websocket-version")
+            .is_some_and(|v| v == "13")
+        && headers.contains_key("sec-websocket-key")
 }
 
 /// Percent-decoded value of the `api_key` query parameter, if present.
@@ -317,5 +384,134 @@ mod tests {
             app.oneshot(req).await.unwrap().status(),
             StatusCode::UNAUTHORIZED
         );
+    }
+
+    fn ticket_request(path: &str, ticket: uuid::Uuid) -> Request<Body> {
+        Request::builder()
+            .uri(path)
+            .header("Connection", "Upgrade")
+            .header("Upgrade", "websocket")
+            .header("Sec-WebSocket-Version", "13")
+            .header("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+            .header("Origin", "http://localhost:3000")
+            .header(
+                "Sec-WebSocket-Protocol",
+                format!("tundra.v2, tundra.ticket.{ticket}"),
+            )
+            .body(Body::empty())
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn ticket_is_one_use_and_native_without_protocol_still_works() {
+        let store = WsTicketStore::default();
+        let app = Router::new()
+            .route("/ws", get(|| async { "authorized" }))
+            .route("/api/events/ws", get(|| async { "authorized" }))
+            .layer(AuthLayer::with_ws_tickets(
+                Some("secret123".into()),
+                store.clone(),
+                OriginAllowlist::default(),
+            ));
+        let ticket = store.issue("/ws", "http://localhost:3000").await.unwrap();
+        assert_eq!(
+            app.clone()
+                .oneshot(ticket_request("/api/events/ws", ticket))
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::UNAUTHORIZED
+        );
+        let mut no_origin = ticket_request("/ws", ticket);
+        no_origin.headers_mut().remove("Origin");
+        assert_eq!(
+            app.clone().oneshot(no_origin).await.unwrap().status(),
+            StatusCode::UNAUTHORIZED
+        );
+        let mut wrong_key = ticket_request("/ws", ticket);
+        wrong_key
+            .headers_mut()
+            .insert("X-API-Key", "wrong".parse().unwrap());
+        assert_eq!(
+            app.clone().oneshot(wrong_key).await.unwrap().status(),
+            StatusCode::UNAUTHORIZED
+        );
+        let non_ascii = axum::http::HeaderValue::from_bytes(b"hello\xfa").unwrap();
+        let mut malformed_key = ticket_request("/ws", ticket);
+        malformed_key.headers_mut().insert("X-API-Key", non_ascii.clone());
+        assert_eq!(
+            app.clone().oneshot(malformed_key).await.unwrap().status(),
+            StatusCode::UNAUTHORIZED
+        );
+        let mut malformed_authorization = ticket_request("/ws", ticket);
+        malformed_authorization.headers_mut().insert("Authorization", non_ascii);
+        assert_eq!(
+            app.clone().oneshot(malformed_authorization).await.unwrap().status(),
+            StatusCode::UNAUTHORIZED
+        );
+        let mut unsupported_scheme = ticket_request("/ws", ticket);
+        unsupported_scheme.headers_mut().insert("Authorization", "Basic abc".parse().unwrap());
+        assert_eq!(
+            app.clone().oneshot(unsupported_scheme).await.unwrap().status(),
+            StatusCode::UNAUTHORIZED
+        );
+        let mut duplicate_key = ticket_request("/ws", ticket);
+        duplicate_key.headers_mut().append("X-API-Key", "secret123".parse().unwrap());
+        duplicate_key.headers_mut().append("X-API-Key", "secret123".parse().unwrap());
+        assert_eq!(
+            app.clone().oneshot(duplicate_key).await.unwrap().status(),
+            StatusCode::UNAUTHORIZED
+        );
+        let mut duplicate_authorization = ticket_request("/ws", ticket);
+        duplicate_authorization.headers_mut().append("Authorization", "Bearer secret123".parse().unwrap());
+        duplicate_authorization.headers_mut().append("Authorization", "Bearer secret123".parse().unwrap());
+        assert_eq!(
+            app.clone().oneshot(duplicate_authorization).await.unwrap().status(),
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            app.clone()
+                .oneshot(ticket_request("/ws", ticket))
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::OK
+        );
+        assert_eq!(
+            app.clone()
+                .oneshot(ticket_request("/ws", ticket))
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::UNAUTHORIZED
+        );
+        let native = Request::builder()
+            .uri("/ws")
+            .header("X-API-Key", "secret123")
+            .header("Origin", "http://localhost:3000")
+            .header("Connection", "Upgrade")
+            .header("Upgrade", "websocket")
+            .header("Sec-WebSocket-Version", "13")
+            .header("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+            .body(Body::empty())
+            .unwrap();
+        assert_eq!(
+            app.clone().oneshot(native).await.unwrap().status(),
+            StatusCode::OK
+        );
+        let bearer = Request::builder()
+            .uri("/ws")
+            .header("Authorization", "Bearer secret123")
+            .header("Origin", "http://localhost:3000")
+            .header("Connection", "Upgrade")
+            .header("Upgrade", "websocket")
+            .body(Body::empty())
+            .unwrap();
+        assert_eq!(
+            app.clone().oneshot(bearer).await.unwrap().status(),
+            StatusCode::OK
+        );
+        let query = ws_upgrade("/ws?api_key=secret123");
+        assert_eq!(app.oneshot(query).await.unwrap().status(), StatusCode::OK);
     }
 }

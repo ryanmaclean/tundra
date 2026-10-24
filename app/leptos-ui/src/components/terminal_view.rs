@@ -245,8 +245,8 @@ async fn api_patch_terminal_settings(
     }
 }
 
-fn send_ws_json(ws: &WebSocket, value: serde_json::Value) {
-    let _ = ws.send_with_str(&value.to_string());
+fn send_ws_json(ws: &WebSocket, value: serde_json::Value) -> Result<(), JsValue> {
+    ws.send_with_str(&value.to_string())
 }
 
 fn send_resize_if_available(ws: &WebSocket, term_handle: &str) {
@@ -262,14 +262,18 @@ fn send_resize_if_available(ws: &WebSocket, term_handle: &str) {
         .ok()
         .and_then(|v| v.as_f64())
         .unwrap_or(24.0) as u16;
-    send_ws_json(
+    if send_ws_json(
         ws,
         serde_json::json!({
             "type": "resize",
             "cols": cols,
             "rows": rows,
         }),
-    );
+    )
+    .is_err()
+    {
+        web_sys::console::warn_1(&"terminal resize send failed".into());
+    }
 }
 
 /// Live WebSocket plus the JS callbacks bound to it. Callbacks are owned here
@@ -299,6 +303,10 @@ struct TerminalWs {
     term_handle: Rc<RefCell<Option<String>>>,
     /// Current socket, read by the xterm input/resize callbacks.
     ws: Rc<RefCell<Option<WebSocket>>>,
+    /// True only after the current preauthorized WebSocket opens.
+    authenticated: Rc<Cell<bool>>,
+    generation: Cell<u64>,
+    enrollment: Option<crate::EnrollmentControl>,
     bound: RefCell<Option<BoundSocket>>,
     backoff: RefCell<ReconnectBackoff>,
     mounted: Cell<bool>,
@@ -307,6 +315,8 @@ struct TerminalWs {
 
 impl TerminalWs {
     fn detach(&self) {
+        self.authenticated.set(false);
+        self.generation.set(self.generation.get().wrapping_add(1));
         *self.ws.borrow_mut() = None;
         if let Some(bound) = self.bound.borrow_mut().take() {
             bound.shutdown();
@@ -319,8 +329,8 @@ fn terminal_ws_path(terminal_id: &str) -> String {
     format!("/ws/terminal/{terminal_id}")
 }
 
-/// Open (or re-open) the terminal WebSocket. The URL is rebuilt on every
-/// attempt via [`api::ws_url`], so the `api_key` query param is re-sent.
+/// Open (or re-open) after obtaining a fresh, one-use ticket. A no-key
+/// development router is freshly probed on each attempt.
 fn connect_terminal_ws(ctx: &Rc<TerminalWs>) {
     if !ctx.mounted.get() {
         return;
@@ -329,58 +339,88 @@ fn connect_terminal_ws(ctx: &Rc<TerminalWs>) {
         return;
     };
     ctx.detach();
-
-    let ws_url = api::ws_url(&terminal_ws_path(&ctx.terminal_id));
-    let ws = match WebSocket::new(&ws_url) {
-        Ok(ws) => ws,
-        Err(e) => {
-            web_sys::console::warn_1(&format!("[terminal] failed to open websocket: {e:?}").into());
-            schedule_terminal_reconnect(ctx);
-            return;
-        }
-    };
-
-    let ctx_open = Rc::downgrade(ctx);
-    let term_handle_open = term_handle.clone();
-    let on_open = Closure::<dyn FnMut()>::new(move || {
-        let Some(ctx) = ctx_open.upgrade() else {
+    let generation = ctx.generation.get();
+    let weak = Rc::downgrade(ctx);
+    let path = terminal_ws_path(&ctx.terminal_id);
+    wasm_bindgen_futures::spawn_local(async move {
+        let ticket = api::issue_ws_ticket(&path).await;
+        let Some(ctx) = weak.upgrade() else {
             return;
         };
-        ctx.backoff.borrow_mut().on_open();
-        ctx.set_state.set(TerminalConnState::Connected);
-        let ws = ctx.ws.borrow().clone();
-        if let Some(ws) = ws {
-            send_resize_if_available(&ws, &term_handle_open);
-        }
-    });
-    ws.set_onopen(Some(on_open.as_ref().unchecked_ref()));
-
-    let term_handle_msg = term_handle;
-    let on_message = Closure::<dyn FnMut(MessageEvent)>::new(move |e: MessageEvent| {
-        if let Ok(text) = e.data().dyn_into::<js_sys::JsString>() {
-            let _ = js_write_terminal(&term_handle_msg, &String::from(text));
-        }
-    });
-    ws.set_onmessage(Some(on_message.as_ref().unchecked_ref()));
-
-    // A close before `open` (e.g. 404/410 on upgrade) also lands here and
-    // counts as a failure, so the delay grows instead of hammering the daemon.
-    let ctx_close = Rc::downgrade(ctx);
-    let on_close = Closure::<dyn FnMut(CloseEvent)>::new(move |_: CloseEvent| {
-        let Some(ctx) = ctx_close.upgrade() else {
+        if !ctx.mounted.get() || ctx.generation.get() != generation {
             return;
+        }
+        if ticket == Err(api::WsTicketError::Unauthorized) {
+            api::clear_browser_key();
+            if let Some(enrollment) = ctx.enrollment {
+                enrollment.0.set(false);
+            }
+            return;
+        }
+        let ws = match ticket.and_then(|ticket| api::open_ws(&path, ticket.as_deref())) {
+            Ok(ws) => ws,
+            Err(_) => {
+                web_sys::console::warn_1(&"[terminal] WebSocket ticket or open failed".into());
+                schedule_terminal_reconnect(&ctx);
+                return;
+            }
         };
-        *ctx.ws.borrow_mut() = None;
-        schedule_terminal_reconnect(&ctx);
-    });
-    ws.set_onclose(Some(on_close.as_ref().unchecked_ref()));
 
-    *ctx.ws.borrow_mut() = Some(ws.clone());
-    *ctx.bound.borrow_mut() = Some(BoundSocket {
-        ws,
-        _on_open: on_open,
-        _on_message: on_message,
-        _on_close: on_close,
+        let ctx_open = Rc::downgrade(&ctx);
+        let term_handle_open = term_handle.clone();
+        let on_open = Closure::<dyn FnMut()>::new(move || {
+            let Some(ctx) = ctx_open.upgrade() else {
+                return;
+            };
+            if !ctx.mounted.get() || ctx.generation.get() != generation {
+                return;
+            }
+            if let Some(ws) = ctx.ws.borrow().clone() {
+                ctx.authenticated.set(true);
+                ctx.backoff.borrow_mut().on_open();
+                ctx.set_state.set(TerminalConnState::Connected);
+                send_resize_if_available(&ws, &term_handle_open);
+            }
+        });
+        ws.set_onopen(Some(on_open.as_ref().unchecked_ref()));
+
+        let term_handle_msg = term_handle;
+        let ctx_msg = Rc::downgrade(&ctx);
+        let on_message = Closure::<dyn FnMut(MessageEvent)>::new(move |e: MessageEvent| {
+            let Some(ctx) = ctx_msg.upgrade() else {
+                return;
+            };
+            if !ctx.mounted.get() || ctx.generation.get() != generation || !ctx.authenticated.get()
+            {
+                return;
+            }
+            if let Ok(text) = e.data().dyn_into::<js_sys::JsString>() {
+                let _ = js_write_terminal(&term_handle_msg, &String::from(text));
+            }
+        });
+        ws.set_onmessage(Some(on_message.as_ref().unchecked_ref()));
+
+        let ctx_close = Rc::downgrade(&ctx);
+        let on_close = Closure::<dyn FnMut(CloseEvent)>::new(move |_: CloseEvent| {
+            let Some(ctx) = ctx_close.upgrade() else {
+                return;
+            };
+            if !ctx.mounted.get() || ctx.generation.get() != generation {
+                return;
+            }
+            ctx.authenticated.set(false);
+            *ctx.ws.borrow_mut() = None;
+            schedule_terminal_reconnect(&ctx);
+        });
+        ws.set_onclose(Some(on_close.as_ref().unchecked_ref()));
+
+        *ctx.ws.borrow_mut() = Some(ws.clone());
+        *ctx.bound.borrow_mut() = Some(BoundSocket {
+            ws,
+            _on_open: on_open,
+            _on_message: on_message,
+            _on_close: on_close,
+        });
     });
 }
 
@@ -406,11 +446,14 @@ fn schedule_terminal_reconnect(ctx: &Rc<TerminalWs>) {
         attempt,
         max_attempts: ctx.backoff.borrow().max_attempts(),
     });
+    let scheduled_generation = ctx.generation.get();
     let ctx = Rc::downgrade(ctx);
     wasm_bindgen_futures::spawn_local(async move {
         gloo_timers::future::TimeoutFuture::new(delay_secs.saturating_mul(1000)).await;
         if let Some(ctx) = ctx.upgrade() {
-            connect_terminal_ws(&ctx);
+            if ctx.mounted.get() && ctx.generation.get() == scheduled_generation {
+                connect_terminal_ws(&ctx);
+            }
         }
     });
 }
@@ -440,6 +483,8 @@ pub fn TerminalView(
 
     let term_handle_ref: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
     let ws_ref: Rc<RefCell<Option<WebSocket>>> = Rc::new(RefCell::new(None));
+    let authenticated_ref = Rc::new(Cell::new(false));
+    let enrollment = use_context::<crate::EnrollmentControl>();
     let on_data_ref: Rc<RefCell<Option<Closure<dyn FnMut(String)>>>> = Rc::new(RefCell::new(None));
     let on_resize_ref: Rc<RefCell<Option<Closure<dyn FnMut(u16, u16)>>>> =
         Rc::new(RefCell::new(None));
@@ -448,6 +493,9 @@ pub fn TerminalView(
         terminal_id: terminal_id.clone(),
         term_handle: term_handle_ref.clone(),
         ws: ws_ref.clone(),
+        authenticated: authenticated_ref.clone(),
+        generation: Cell::new(0),
+        enrollment,
         bound: RefCell::new(None),
         backoff: RefCell::new(ReconnectBackoff::default()),
         mounted: Cell::new(true),
@@ -530,15 +578,23 @@ pub fn TerminalView(
 
             // Attach keyboard input callback (xterm -> websocket input).
             let ws_ref_input = ws_ref.clone();
+            let authenticated_input = authenticated_ref.clone();
             let on_data = Closure::<dyn FnMut(String)>::new(move |data: String| {
+                if !authenticated_input.get() {
+                    return;
+                }
                 if let Some(ws) = ws_ref_input.borrow().as_ref() {
-                    send_ws_json(
+                    if send_ws_json(
                         ws,
                         serde_json::json!({
                             "type": "input",
                             "data": data,
                         }),
-                    );
+                    )
+                    .is_err()
+                    {
+                        web_sys::console::warn_1(&"terminal input send failed".into());
+                    }
                 }
             });
             let _ = js_attach_on_data(&term_handle, on_data.as_ref().unchecked_ref());
@@ -546,16 +602,24 @@ pub fn TerminalView(
 
             // Attach resize callback (xterm fit -> websocket resize).
             let ws_ref_resize = ws_ref.clone();
+            let authenticated_resize = authenticated_ref.clone();
             let on_resize = Closure::<dyn FnMut(u16, u16)>::new(move |cols: u16, rows: u16| {
+                if !authenticated_resize.get() {
+                    return;
+                }
                 if let Some(ws) = ws_ref_resize.borrow().as_ref() {
-                    send_ws_json(
+                    if send_ws_json(
                         ws,
                         serde_json::json!({
                             "type": "resize",
                             "cols": cols,
                             "rows": rows,
                         }),
-                    );
+                    )
+                    .is_err()
+                    {
+                        web_sys::console::warn_1(&"terminal resize send failed".into());
+                    }
                 }
             });
             let _ = js_attach_on_resize(&term_handle, on_resize.as_ref().unchecked_ref());
@@ -661,13 +725,13 @@ mod reconnect_tests {
     use crate::api::ws_url_for;
 
     #[test]
-    fn reconnect_url_carries_api_key_every_attempt() {
+    fn reconnect_url_never_carries_api_key() {
         // connect_terminal_ws rebuilds the URL per attempt from this path.
         let path = terminal_ws_path("t-1");
         assert_eq!(path, "/ws/terminal/t-1");
         assert_eq!(
-            ws_url_for("http://127.0.0.1:9090", &path, Some("k%2B1")),
-            "ws://127.0.0.1:9090/ws/terminal/t-1?api_key=k%2B1"
+            ws_url_for("http://127.0.0.1:9090", &path),
+            "ws://127.0.0.1:9090/ws/terminal/t-1"
         );
     }
 

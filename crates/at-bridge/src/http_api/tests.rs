@@ -1285,6 +1285,397 @@ async fn json_of(resp: axum::response::Response) -> serde_json::Value {
 }
 
 #[tokio::test]
+async fn pinned_v1_catalog_keeps_legacy_auth_shape() {
+    let (app, _state) = test_app();
+    let current = app.clone().oneshot(Request::get("/api/catalog").body(Body::empty()).unwrap())
+        .await.unwrap();
+    assert_eq!(current.status(), StatusCode::OK);
+    let current = json_of(current).await;
+    assert_eq!(current["auth"]["contract_version"], "2.0.0");
+    assert_eq!(current["auth"]["ws_ticket_endpoint"], "/api/ws-tickets");
+
+    let pinned = app.oneshot(Request::get("/api/v1/catalog").body(Body::empty()).unwrap())
+        .await.unwrap();
+    assert_eq!(pinned.status(), StatusCode::OK);
+    let pinned = json_of(pinned).await;
+    assert_eq!(pinned["auth"]["contract_version"], "1.0.0");
+    let keys: std::collections::BTreeSet<&str> = pinned["auth"].as_object().unwrap()
+        .keys().map(String::as_str).collect();
+    assert_eq!(keys, ["bearer", "contract_version", "enforced", "header", "scheme", "ws_query_param"].into_iter().collect());
+}
+
+#[tokio::test]
+async fn ticket_issuer_is_on_the_protected_real_router() {
+    let app = gitea_app(at_core::config::IntegrationConfig::default(), Some("secret123"));
+    let body = r#"{"path":"/ws"}"#;
+    let unauthorized = Request::post("/api/ws-tickets")
+        .header("Content-Type", "application/json")
+        .body(Body::from(body)).unwrap();
+    assert_eq!(app.clone().oneshot(unauthorized).await.unwrap().status(), StatusCode::UNAUTHORIZED);
+
+    let missing_origin = Request::post("/api/ws-tickets")
+        .header("Content-Type", "application/json")
+        .header("X-API-Key", "secret123")
+        .body(Body::from(body)).unwrap();
+    assert_eq!(app.clone().oneshot(missing_origin).await.unwrap().status(), StatusCode::FORBIDDEN);
+    let duplicate_origin = Request::post("/api/ws-tickets")
+        .header("Content-Type", "application/json")
+        .header("X-API-Key", "secret123")
+        .header("Origin", "http://127.0.0.1:4000")
+        .header("Origin", "http://127.0.0.1:4000")
+        .body(Body::from(body)).unwrap();
+    assert_eq!(app.clone().oneshot(duplicate_origin).await.unwrap().status(), StatusCode::FORBIDDEN);
+
+    let authorized = Request::post("/api/ws-tickets")
+        .header("Content-Type", "application/json")
+        .header("X-API-Key", "secret123")
+        .header("Origin", "http://127.0.0.1:4000")
+        .body(Body::from(body)).unwrap();
+    let response = app.clone().oneshot(authorized).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(response.headers().get("Cache-Control").unwrap().to_str().unwrap().contains("no-store"));
+    let issued = json_of(response).await;
+    assert!(issued["ticket"].as_str().is_some_and(|s| !s.is_empty()));
+    assert_eq!(issued["expires_in_seconds"], 10);
+
+    let invalid = Request::post("/api/ws-tickets")
+        .header("Content-Type", "application/json")
+        .header("X-API-Key", "secret123")
+        .header("Origin", "http://127.0.0.1:4000")
+        .body(Body::from(r#"{"path":"/ws/terminal/not-a-uuid"}"#)).unwrap();
+    assert_eq!(app.oneshot(invalid).await.unwrap().status(), StatusCode::BAD_REQUEST);
+}
+
+/// Build the same two subprotocol offers as the browser, without putting the
+/// reusable daemon key in the URL or the WebSocket upgrade headers.
+fn browser_ticket_upgrade(
+    addr: std::net::SocketAddr,
+    path: &str,
+    ticket: &str,
+    origin: &str,
+) -> tokio_tungstenite::tungstenite::http::Request<()> {
+    use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+
+    let mut request = format!("ws://{addr}{path}")
+        .into_client_request()
+        .expect("WebSocket request");
+    request
+        .headers_mut()
+        .insert("origin", origin.parse().expect("Origin header"));
+    request.headers_mut().insert(
+        "sec-websocket-protocol",
+        format!("tundra.v2, tundra.ticket.{ticket}")
+            .parse()
+            .expect("protocol offers"),
+    );
+    request
+}
+
+async fn issue_real_router_ticket(addr: std::net::SocketAddr, path: &str) -> String {
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .build()
+        .expect("loopback HTTP client");
+    let issued = client
+        .post(format!("http://{addr}/api/ws-tickets"))
+        .header("X-API-Key", "PR101_MASTER_KEY_SENTINEL_7c8d9e")
+        .header("Origin", "http://127.0.0.1:4000")
+        .json(&serde_json::json!({ "path": path }))
+        .send()
+        .await
+        .expect("ticket issuer request");
+    assert_eq!(issued.status().as_u16(), 200);
+    assert!(issued
+        .headers()
+        .get("cache-control")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .contains("no-store"));
+    issued.json::<serde_json::Value>().await.unwrap()["ticket"]
+        .as_str()
+        .expect("issued ticket")
+        .to_owned()
+}
+
+async fn assert_rejected_upgrade(
+    request: tokio_tungstenite::tungstenite::http::Request<()>,
+    status: u16,
+) {
+    match tokio_tungstenite::connect_async(request).await {
+        Err(tokio_tungstenite::tungstenite::Error::Http(response)) => {
+            assert_eq!(response.status().as_u16(), status);
+        }
+        Ok(_) => panic!("rejected ticket reached HTTP 101"),
+        Err(error) => panic!("unexpected WebSocket handshake error: {error}"),
+    }
+}
+
+#[tokio::test]
+async fn browser_ticket_reaches_real_http_101_without_master_key_in_upgrade() {
+    const MASTER: &str = "PR101_MASTER_KEY_SENTINEL_7c8d9e";
+    let app = gitea_app(at_core::config::IntegrationConfig::default(), Some(MASTER));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .unwrap();
+    let addr = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .build()
+        .unwrap();
+    let status_url = format!("http://{addr}/api/status");
+    assert_eq!(
+        client.get(&status_url).send().await.unwrap().status().as_u16(),
+        401
+    );
+    assert_eq!(
+        client
+            .get(&status_url)
+            .header("X-API-Key", MASTER)
+            .send()
+            .await
+            .unwrap()
+            .status()
+            .as_u16(),
+        200
+    );
+    let legacy_ticket = issue_real_router_ticket(addr, "/ws").await;
+
+    let wrong_route = browser_ticket_upgrade(
+        addr,
+        "/api/events/ws",
+        &legacy_ticket,
+        "http://127.0.0.1:4000",
+    );
+    assert_rejected_upgrade(wrong_route, 401).await;
+    let wrong_origin = browser_ticket_upgrade(
+        addr,
+        "/ws",
+        &legacy_ticket,
+        "http://evil.example",
+    );
+    assert_rejected_upgrade(wrong_origin, 401).await;
+    let other_allowed_origin = browser_ticket_upgrade(
+        addr,
+        "/ws",
+        &legacy_ticket,
+        "http://localhost:4000",
+    );
+    assert_rejected_upgrade(other_allowed_origin, 401).await;
+    let mut duplicate_origin = browser_ticket_upgrade(
+        addr,
+        "/ws",
+        &legacy_ticket,
+        "http://127.0.0.1:4000",
+    );
+    duplicate_origin.headers_mut().append(
+        "origin",
+        "http://127.0.0.1:4000".parse().unwrap(),
+    );
+    assert_rejected_upgrade(duplicate_origin, 401).await;
+
+    let events_ticket = issue_real_router_ticket(addr, "/api/events/ws").await;
+
+    for (path, ticket) in [
+        ("/ws", &legacy_ticket),
+        ("/api/events/ws", &events_ticket),
+    ] {
+        let request = browser_ticket_upgrade(addr, path, ticket, "http://127.0.0.1:4000");
+        assert!(request.uri().query().is_none());
+        assert!(!request.uri().to_string().contains(MASTER));
+        assert!(request.headers().values().all(|value| {
+            value.to_str().is_ok_and(|text| !text.contains(MASTER))
+        }));
+        let (socket, response) = tokio_tungstenite::connect_async(request)
+            .await
+            .expect("first ticket handshake");
+        assert_eq!(response.status().as_u16(), 101);
+        assert_eq!(
+            response
+                .headers()
+                .get("sec-websocket-protocol")
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            "tundra.v2"
+        );
+        assert!(response.headers().values().all(|value| {
+            value.to_str().is_ok_and(|text| !text.contains(MASTER) && !text.contains(ticket))
+        }));
+        drop(socket);
+        let replay = browser_ticket_upgrade(addr, path, ticket, "http://127.0.0.1:4000");
+        assert_rejected_upgrade(replay, 401).await;
+    }
+
+    // A canonical terminal path must reach the real terminal handler. The
+    // unknown ID is rejected before HTTP 101; a registered PTY needs a separate
+    // native fixture to exercise successful terminal input and resize.
+    let missing_terminal = format!("/ws/terminal/{}", Uuid::new_v4());
+    let terminal_ticket = issue_real_router_ticket(addr, &missing_terminal).await;
+    let missing = browser_ticket_upgrade(
+        addr,
+        &missing_terminal,
+        &terminal_ticket,
+        "http://127.0.0.1:4000",
+    );
+    assert!(missing.uri().query().is_none());
+    assert!(!missing.uri().to_string().contains(MASTER));
+    assert!(missing.headers().values().all(|value| {
+        value.to_str().is_ok_and(|text| !text.contains(MASTER))
+    }));
+    assert_rejected_upgrade(missing, 404).await;
+    server.abort();
+}
+
+#[cfg(target_os = "freebsd")]
+#[tokio::test]
+async fn browser_ticket_drives_active_terminal_over_real_websocket() {
+    use futures_util::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::Message;
+
+    const MASTER: &str = "PR101_MASTER_KEY_SENTINEL_7c8d9e";
+    const ORIGIN: &str = "http://127.0.0.1:4000";
+
+    let pool = Arc::new(at_session::pty_pool::PtyPool::new(1));
+    let mut state = ApiState::with_pty_pool(EventBus::new(), pool).with_relaxed_rate_limits();
+    state.terminal_ws.reconnect_grace = std::time::Duration::from_millis(100);
+    let state = Arc::new(state);
+    let app = router::api_router_with_auth(state.clone(), Some(MASTER.to_owned()), vec![]);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+
+    let created = client
+        .post(format!("http://{addr}/api/terminals"))
+        .header("X-API-Key", MASTER)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(created.status().as_u16(), 201);
+    let created: serde_json::Value = created.json().await.unwrap();
+    let terminal_id = Uuid::parse_str(created["id"].as_str().unwrap()).unwrap();
+    let path = format!("/ws/terminal/{terminal_id}");
+    let ticket = issue_real_router_ticket(addr, &path).await;
+
+    // Failed route and Origin matches must leave the one-use ticket available.
+    assert_rejected_upgrade(browser_ticket_upgrade(addr, "/ws", &ticket, ORIGIN), 401).await;
+    assert_rejected_upgrade(
+        browser_ticket_upgrade(addr, &path, &ticket, "http://localhost:4000"),
+        401,
+    )
+    .await;
+
+    let request = browser_ticket_upgrade(addr, &path, &ticket, ORIGIN);
+    assert_eq!(request.uri().path(), path.as_str());
+    assert!(request.uri().query().is_none());
+    assert!(!request.uri().to_string().contains(MASTER));
+    assert!(request.headers().values().all(|value| {
+        value.to_str().is_ok_and(|text| !text.contains(MASTER))
+    }));
+    let (mut socket, response) = tokio_tungstenite::connect_async(request)
+        .await
+        .expect("active terminal ticket handshake");
+    assert_eq!(response.status().as_u16(), 101);
+    assert_eq!(
+        response.headers().get("sec-websocket-protocol").unwrap().to_str().unwrap(),
+        "tundra.v2"
+    );
+    assert!(response.headers().values().all(|value| {
+        value.to_str().is_ok_and(|text| !text.contains(MASTER) && !text.contains(&ticket))
+    }));
+    assert_rejected_upgrade(browser_ticket_upgrade(addr, &path, &ticket, ORIGIN), 401).await;
+
+    socket
+        .send(Message::Text(r#"{"type":"resize","cols":97,"rows":31}"#.into()))
+        .await
+        .unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            let registry = state.terminal_registry.read().await;
+            let resized = registry
+                .get(&terminal_id)
+                .is_some_and(|info| info.cols == 97 && info.rows == 31);
+            drop(registry);
+            if resized {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("terminal resize reached registry");
+
+    let input = serde_json::json!({
+        "type": "input",
+        "data": "printf 'PR101_IO_%s\\n' \"$((20+22))\"; printf 'PR101_SIZE_%s_END\\n' \"$(/bin/stty size)\"\n"
+    });
+    socket.send(Message::Text(input.to_string().into())).await.unwrap();
+    let output = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        let mut output = String::new();
+        loop {
+            match socket.next().await {
+                Some(Ok(Message::Text(text))) => output.push_str(&text),
+                Some(Ok(Message::Binary(bytes))) => {
+                    output.push_str(&String::from_utf8_lossy(&bytes));
+                }
+                Some(Ok(_)) => {}
+                other => panic!("terminal closed before command output: {other:?}"),
+            }
+            if output.contains("PR101_IO_42") && output.contains("PR101_SIZE_31 97_END") {
+                break output;
+            }
+        }
+    })
+    .await
+    .expect("terminal input and PTY size observation");
+    assert!(output.contains("PR101_IO_42"));
+    // The command echo contains the literal substitution, not these dimensions.
+    // /bin/stty reads the PTY's actual winsize independently of the registry.
+    assert!(output.contains("PR101_SIZE_31 97_END"));
+
+    socket.close(None).await.unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            let registry = state.terminal_registry.read().await;
+            let dead = registry.get(&terminal_id).is_some_and(|info| {
+                info.status == crate::terminal::TerminalStatus::Dead
+            });
+            drop(registry);
+            if dead {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("terminal reconnect grace expired and marked it Dead");
+
+    let dead_ticket = issue_real_router_ticket(addr, &path).await;
+    assert_rejected_upgrade(browser_ticket_upgrade(addr, &path, &dead_ticket, ORIGIN), 410).await;
+
+    let unknown_path = format!("/ws/terminal/{}", Uuid::new_v4());
+    let unknown_ticket = issue_real_router_ticket(addr, &unknown_path).await;
+    assert_rejected_upgrade(
+        browser_ticket_upgrade(addr, &unknown_path, &unknown_ticket, ORIGIN),
+        404,
+    )
+    .await;
+
+    let deleted = client
+        .delete(format!("http://{addr}/api/terminals/{terminal_id}"))
+        .header("X-API-Key", MASTER)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(deleted.status().as_u16(), 200);
+    server.abort();
+}
+
+#[tokio::test]
 async fn test_catalog_lists_gitea_routes() {
     let (app, _state) = test_app();
     let resp = app

@@ -23,11 +23,15 @@ curl -s http://localhost:$PORT/api/catalog \
   | jq '.cards[] | {method, path, description, request, response}'
 ```
 
-`GET /api/catalog` (alias pinned to the schema: `GET /api/v1/catalog`) returns
+`GET /api/catalog` returns
 an `at_api_types::catalog::ApiCatalog`. The top level follows bop's
 `schema/catalog.v1.json` (`schema_version`, `generated_at`, `source`,
 `cards[]` with `id` + `version`), so `bop-catalog` recipes work unchanged; each
 card adds the HTTP fields:
+
+`GET /api/v1/catalog` keeps the original six-field auth object and reports
+auth contract `1.0.0` for strict legacy catalog readers; use the unversioned
+endpoint to discover the browser ticket contract `2.0.0`.
 
 ```json
 {
@@ -36,7 +40,10 @@ card adds the HTTP fields:
   "source": "at-bridge",
   "service": { "name": "auto-tundra", "version": "0.1.0" },
   "auth": { "scheme": "api_key", "enforced": true, "header": "x-api-key",
-            "bearer": true, "ws_query_param": "api_key", "contract_version": "1.0.0" },
+            "bearer": true, "ws_query_param": "api_key",
+            "ws_query_deprecated": true, "ws_ticket_endpoint": "/api/ws-tickets",
+            "ws_selected_protocol": "tundra.v2", "ws_ticket_ttl_seconds": 10,
+            "contract_version": "2.0.0" },
   "cards": [
     { "id": "get-api-agents", "version": "0.1.0", "title": "GET /api/agents",
       "description": "List agents", "domain": "agents", "method": "GET",
@@ -530,6 +537,11 @@ The WebSocket endpoint validates the `Origin` header to prevent unauthorized cro
 - `tauri://localhost`
 
 WebSocket upgrade requests from other origins are rejected with `403 Forbidden`.
+For browser tickets, the protected `POST /api/ws-tickets` additionally requires
+exactly one allowed `Origin` header. The one-use ticket is bound to that exact
+issuing origin and canonical route; a different origin cannot redeem it even
+when both origins are on the allowlist. A ticket upgrade with a missing,
+duplicate, or different origin is denied by authentication before HTTP 101.
 
 ## Usage Examples
 

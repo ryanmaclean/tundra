@@ -18,8 +18,96 @@ pub use themed::{themed, Prompt};
 
 use wasm_bindgen::prelude::*;
 
+/// Root transition back to owner enrollment after ticket issuance returns 401.
+#[derive(Clone, Copy)]
+pub struct EnrollmentControl(pub WriteSignal<bool>);
+
+/// The browser must enroll before mounting components that issue API or
+/// WebSocket requests. The native Tauri webview keeps its existing bootstrap.
 #[component]
 pub fn App() -> impl IntoView {
+    let has_key = api::get_api_key().is_some();
+    let (enrolled, set_enrolled) = signal(has_key);
+    provide_context(EnrollmentControl(set_enrolled));
+    let (checking_anonymous, set_checking_anonymous) = signal(!has_key);
+    if !has_key {
+        leptos::task::spawn_local(async move {
+            if api::probe_anonymous_daemon().await {
+                set_enrolled.set(true);
+            }
+            set_checking_anonymous.set(false);
+        });
+    }
+    view! {
+        {move || if checking_anonymous.get() {
+            view! { <main><p>"Checking daemon authentication…"</p></main> }.into_any()
+        } else if enrolled.get() {
+            view! { <AuthenticatedApp /> }.into_any()
+        } else {
+            view! {
+                <BrowserEnrollment
+                    on_enrolled=Callback::new(move |_| set_enrolled.set(true))
+                />
+            }.into_any()
+        }}
+    }
+}
+
+#[component]
+fn BrowserEnrollment(on_enrolled: Callback<()>) -> impl IntoView {
+    let (key, set_key) = signal(String::new());
+    let (pending, set_pending) = signal(false);
+    let (error, set_error) = signal(None::<String>);
+
+    view! {
+        <main class="browser-enrollment">
+            <h1>"Connect to auto-tundra"</h1>
+            <p>
+                "Read the daemon key from your own ~/.auto-tundra/daemon.key "
+                "or AUTO_TUNDRA_API_KEY and enter it here. The key stays in "
+                "this page's memory; you will enter it again after a reload."
+            </p>
+            <form on:submit=move |ev| {
+                ev.prevent_default();
+                if pending.get_untracked() {
+                    return;
+                }
+                let candidate = key.get_untracked();
+                set_key.set(String::new());
+                set_error.set(None);
+                set_pending.set(true);
+                let on_enrolled = on_enrolled.clone();
+                leptos::task::spawn_local(async move {
+                    match api::enroll_browser_key(candidate).await {
+                        Ok(()) => on_enrolled.run(()),
+                        Err(message) => set_error.set(Some(message)),
+                    }
+                    set_pending.set(false);
+                });
+            }>
+                <label for="daemon-key">"Daemon API key"</label>
+                <input
+                    id="daemon-key"
+                    name="daemon-key"
+                    type="password"
+                    autocomplete="off"
+                    spellcheck="false"
+                    prop:value=move || key.get()
+                    on:input=move |ev| set_key.set(event_target_value(&ev))
+                />
+                <button type="submit" disabled=move || pending.get()>
+                    {move || if pending.get() { "Connecting…" } else { "Connect" }}
+                </button>
+            </form>
+            {move || error.get().map(|message| view! {
+                <p role="alert">{message}</p>
+            })}
+        </main>
+    }
+}
+
+#[component]
+fn AuthenticatedApp() -> impl IntoView {
     state::provide_app_state();
     i18n::provide_i18n();
 
@@ -50,16 +138,6 @@ pub fn App() -> impl IntoView {
     // Start the event WebSocket stream
     let (conn_state, _latest_event, toasts, set_toasts, unread_count, set_unread_count) =
         events::use_event_stream();
-
-    // Fetch notification count on startup so the bell shows the real unread count.
-    {
-        let set_unread = set_unread_count;
-        leptos::task::spawn_local(async move {
-            if let Ok(count) = api::fetch_notification_count().await {
-                set_unread.set(count.unread);
-            }
-        });
-    }
 
     let page_label = move || components::nav_bar::tab_label(current_tab.get());
 

@@ -12,9 +12,7 @@ pub use at_api_types::{
     SendInsightsMessageWithModelRequest, UpdateStatusRequest,
 };
 
-use at_api_types::auth::{
-    API_KEY_HEADER, WINDOW_API_KEY_GLOBAL, WINDOW_API_PORT_GLOBAL, WS_API_KEY_QUERY_PARAM,
-};
+use at_api_types::auth::{API_KEY_HEADER, WINDOW_API_KEY_GLOBAL, WINDOW_API_PORT_GLOBAL};
 
 /// Default API base when not running in Tauri (standalone web dev).
 // Use IPv4 loopback by default to avoid localhost IPv6 resolution mismatches in browsers.
@@ -48,6 +46,71 @@ pub fn get_api_key() -> Option<String> {
         .filter(|k| !k.is_empty())
 }
 
+/// Forget a stale owner key after the protected ticket issuer returns 401.
+/// The root enrollment signal is reset by the caller in the same transition.
+pub fn clear_browser_key() {
+    if let Some(window) = web_sys::window() {
+        let _ =
+            js_sys::Reflect::delete_property(&window, &JsValue::from_str(WINDOW_API_KEY_GLOBAL));
+    }
+}
+
+/// Enroll the standalone browser by checking an owner-supplied key against
+/// the protected status endpoint. The key is kept in page memory only, after a
+/// successful response. Reloading requires the owner to enroll again.
+///
+/// The owner obtains this key from their 0600 daemon.key file or configured
+/// AUTO_TUNDRA_API_KEY. It is never placed in a URL or persisted by this app.
+pub async fn enroll_browser_key(raw: String) -> Result<(), String> {
+    let key = raw.trim_end_matches(['\r', '\n']);
+    if key.is_empty() {
+        return Err("Enter the daemon API key.".to_string());
+    }
+    let window = web_sys::window().ok_or("no global window")?;
+    let opts = RequestInit::new();
+    opts.set_method("GET");
+    let request = Request::new_with_str_and_init(&format!("{}/api/status", get_api_base()), &opts)
+        .map_err(js_err)?;
+    request.headers().set(API_KEY_HEADER, key).map_err(js_err)?;
+    let response: Response = JsFuture::from(window.fetch_with_request(&request))
+        .await
+        .map_err(|_| "Could not reach the daemon.".to_string())?
+        .dyn_into()
+        .map_err(js_err)?;
+    if !response.ok() {
+        return Err("The daemon rejected this key.".to_string());
+    }
+    // A development router accepts any supplied key. Do not retain that
+    // unverified candidate as a master key when anonymous status also works.
+    if probe_anonymous_daemon().await {
+        return Ok(());
+    }
+    js_sys::Reflect::set(
+        &window,
+        &JsValue::from_str(WINDOW_API_KEY_GLOBAL),
+        &JsValue::from_str(key),
+    )
+    .map_err(js_err)?;
+    Ok(())
+}
+
+/// Development routers alone return 200 to a protected status call without
+/// a key. This initial enrollment probe is repeated by issue_ws_ticket.
+pub async fn probe_anonymous_daemon() -> bool {
+    let Some(window) = web_sys::window() else {
+        return false;
+    };
+    let Ok(request) = Request::new_with_str(&format!("{}/api/status", get_api_base())) else {
+        return false;
+    };
+    let Ok(value) = JsFuture::from(window.fetch_with_request(&request)).await else {
+        return false;
+    };
+    value
+        .dyn_into::<Response>()
+        .is_ok_and(|response| response.ok())
+}
+
 /// Create a fetch `Request` that carries the daemon API key.
 ///
 /// Every HTTP call to the daemon must go through this so it authenticates;
@@ -63,24 +126,99 @@ pub fn new_request(url: &str, opts: &RequestInit) -> Result<Request, String> {
     Ok(request)
 }
 
-/// Build a WebSocket URL for `path` on the daemon, authenticated with the
-/// `api_key` query parameter (browsers cannot set headers on WS upgrades).
+/// Build a key-free WebSocket URL. Browser authentication is a separate,
+/// protected HTTP ticket request before the upgrade.
 pub fn ws_url(path: &str) -> String {
-    let key = get_api_key().map(|k| String::from(js_sys::encode_uri_component(&k)));
-    ws_url_for(&get_api_base(), path, key.as_deref())
+    ws_url_for(&get_api_base(), path)
 }
 
-/// Pure part of [`ws_url`]: `encoded_key` must already be URI-component encoded.
-pub fn ws_url_for(http_base: &str, path: &str, encoded_key: Option<&str>) -> String {
+/// Pure part of [`ws_url`].
+pub fn ws_url_for(http_base: &str, path: &str) -> String {
     let ws_base = http_base
         .replacen("http://", "ws://", 1)
         .replacen("https://", "wss://", 1);
-    match encoded_key {
-        Some(key) => {
-            let sep = if path.contains('?') { '&' } else { '?' };
-            format!("{ws_base}{path}{sep}{WS_API_KEY_QUERY_PARAM}={key}")
+    format!("{ws_base}{path}")
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WsTicketError {
+    Unauthorized,
+    Unavailable,
+}
+
+#[derive(Deserialize)]
+struct WsTicketResponse {
+    ticket: String,
+}
+
+/// Request a fresh ticket on every connection attempt. A no-key development
+/// router is re-probed on each attempt so a keyed restart cannot be mistaken
+/// for an authenticated open. Never log a key, ticket, or request header.
+pub async fn issue_ws_ticket(path: &str) -> Result<Option<String>, WsTicketError> {
+    let window = web_sys::window().ok_or(WsTicketError::Unavailable)?;
+    let Some(key) = get_api_key() else {
+        let request = Request::new_with_str(&format!("{}/api/status", get_api_base()))
+            .map_err(|_| WsTicketError::Unavailable)?;
+        let value = JsFuture::from(window.fetch_with_request(&request))
+            .await
+            .map_err(|_| WsTicketError::Unavailable)?;
+        let response: Response = value.dyn_into().map_err(|_| WsTicketError::Unavailable)?;
+        return match response.status() {
+            200 => Ok(None),
+            401 => Err(WsTicketError::Unauthorized),
+            _ => Err(WsTicketError::Unavailable),
+        };
+    };
+
+    let opts = RequestInit::new();
+    opts.set_method("POST");
+    let body = serde_json::json!({"path": path}).to_string();
+    opts.set_body(&JsValue::from_str(&body));
+    let request =
+        Request::new_with_str_and_init(&format!("{}/api/ws-tickets", get_api_base()), &opts)
+            .map_err(|_| WsTicketError::Unavailable)?;
+    request
+        .headers()
+        .set(API_KEY_HEADER, &key)
+        .map_err(|_| WsTicketError::Unavailable)?;
+    request
+        .headers()
+        .set("Content-Type", "application/json")
+        .map_err(|_| WsTicketError::Unavailable)?;
+    let value = JsFuture::from(window.fetch_with_request(&request))
+        .await
+        .map_err(|_| WsTicketError::Unavailable)?;
+    let response: Response = value.dyn_into().map_err(|_| WsTicketError::Unavailable)?;
+    if response.status() == 401 {
+        return Err(WsTicketError::Unauthorized);
+    }
+    if !response.ok() {
+        return Err(WsTicketError::Unavailable);
+    }
+    let value = JsFuture::from(response.json().map_err(|_| WsTicketError::Unavailable)?)
+        .await
+        .map_err(|_| WsTicketError::Unavailable)?;
+    let ticket: WsTicketResponse =
+        serde_wasm_bindgen::from_value(value).map_err(|_| WsTicketError::Unavailable)?;
+    if ticket.ticket.is_empty() {
+        return Err(WsTicketError::Unavailable);
+    }
+    Ok(Some(ticket.ticket))
+}
+
+/// Select a fixed subprotocol while offering the one-use bearer ticket in a
+/// separate value. The daemon must never echo the ticket-bearing value.
+pub fn open_ws(path: &str, ticket: Option<&str>) -> Result<web_sys::WebSocket, WsTicketError> {
+    let url = ws_url(path);
+    match ticket {
+        Some(ticket) => {
+            let protocols = js_sys::Array::new();
+            protocols.push(&JsValue::from_str("tundra.v2"));
+            protocols.push(&JsValue::from_str(&format!("tundra.ticket.{ticket}")));
+            web_sys::WebSocket::new_with_str_sequence(&url, &protocols.into())
+                .map_err(|_| WsTicketError::Unavailable)
         }
-        None => format!("{ws_base}{path}"),
+        None => web_sys::WebSocket::new(&url).map_err(|_| WsTicketError::Unavailable),
     }
 }
 
@@ -1928,15 +2066,15 @@ mod auth_url_tests {
     use super::ws_url_for;
 
     #[test]
-    fn ws_url_for_appends_api_key_query_param() {
+    fn ws_url_never_contains_auth_material() {
         assert_eq!(
-            ws_url_for("http://127.0.0.1:4000", "/api/events/ws", Some("k%2B1")),
-            "ws://127.0.0.1:4000/api/events/ws?api_key=k%2B1"
+            ws_url_for("http://127.0.0.1:4000", "/api/events/ws"),
+            "ws://127.0.0.1:4000/api/events/ws"
         );
         assert_eq!(
-            ws_url_for("https://h:1", "/ws/terminal/x?y=1", Some("k")),
-            "wss://h:1/ws/terminal/x?y=1&api_key=k"
+            ws_url_for("https://h:1", "/ws/terminal/x"),
+            "wss://h:1/ws/terminal/x"
         );
-        assert_eq!(ws_url_for("http://h:2", "/ws", None), "ws://h:2/ws");
+        assert_eq!(ws_url_for("http://h:2", "/ws"), "ws://h:2/ws");
     }
 }
