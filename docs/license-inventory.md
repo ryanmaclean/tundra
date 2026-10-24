@@ -6,8 +6,13 @@
 These are the declared inventory targets; other architectures are not
 implicitly covered. `scripts/license_inventory.nu`
 starts at the shipped binary/UI crates and traverses normal and build edges.
-Build dependencies stay in the product set because generated code can enter a
-shipped artifact. Dev-only dependencies and unselected workspace packages are
+An optional edge is skipped only when its target package and source map to one
+optional manifest declaration and no resolved parent feature activates it.
+Unknown or ambiguous mappings remain included. The JSON records every skipped
+edge and its parent features for review. Paths that enter a build edge are
+reported as `build-only` unless a normal path also reaches that package;
+build-only licenses are tooling-approved, while generated or copied build
+output still needs release review. Dev-only dependencies and unselected workspace packages are
 listed separately as `tool-only-or-unselected`; this name deliberately does not
 assert that every unselected package is a tool on every release target. Only
 the fourteen reviewed workspace package names listed in the script and present
@@ -28,6 +33,22 @@ exception. MPL, CC0, Zlib, and BSL-1.0 are not approved product licenses.
 Tooling licenses are not a product gate. The all-target,
 all-feature cargo-deny job remains a nonblocking diagnostic, so its failures
 cannot be mistaken for shipped-product violations.
+
+Current additional product approvals are in `scripts/license_approvals.json`.
+Each record binds a decision reference to one exact Cargo package ID, version,
+source, `Cargo.lock` checksum, declared expression, selected satisfying choice,
+notice IDs, and target/feature profiles. Duplicate, stale, unused, changed, or
+out-of-profile records fail the gate. An empty approval list grants nothing.
+The inventory records the approval manifest SHA-256 alongside its metadata
+and lockfile hashes.
+The staged manifest contains ten exact tuples from the bf3 candidate roster:
+five MPL, four Zlib, and one Boost `BSL-1.0`. It excludes
+`finl_unicode`, `wezterm-bidi`, and `terminfo` because c45 metadata shows the
+Ratatui Termwiz feature inactive, and excludes build-only `target-lexicon`.
+The likely build-only `base16` and `const_format_proc_macros` are also
+deferred until exact WASM profile role readback.
+The new traversal and approval use require exact-head hosted readback before
+publication.
 
 Cargo packages can declare older slash-separated alternatives. Only a plain
 slash-separated list of license IDs is interpreted as alternatives; it then

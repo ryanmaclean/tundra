@@ -5,6 +5,7 @@ on:
     paths:
       - .github/workflows/strict-licenses.yml
       - scripts/license_inventory.nu
+      - scripts/license_approvals.json
       - docs/license-inventory.md
       - Cargo.toml
       - Cargo.lock
