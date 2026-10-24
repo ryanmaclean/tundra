@@ -22,3 +22,10 @@ app/leptos-ui/dist/
 .claude/worktrees/
 .security-key
 logs/security/
+
+# misplaced-1024 cleanup
+*.log
+/ddprof
+*.tar.xz
+/run.json
+/flamegraph.svg
