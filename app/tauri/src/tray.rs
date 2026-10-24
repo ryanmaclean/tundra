@@ -3,7 +3,7 @@
 //! Provides a persistent system tray icon with a context menu for quick
 //! access to core features:
 //! - Status indicator (shows app state)
-//! - New Task action (opens bead creation dialog)
+//! - New Task action (opens the existing task wizard)
 //! - Quit action (gracefully exits the app)
 //!
 //! # Architecture
@@ -11,7 +11,7 @@
 //! ```text
 //! System Tray Icon
 //!     ├─ Status (label, non-clickable)
-//!     ├─ New Task (opens main window + triggers bead creation)
+//!     ├─ New Task (opens main window + task wizard)
 //!     ├─ Separator
 //!     └─ Quit (exits app)
 //! ```
@@ -26,10 +26,7 @@ use tauri::{
     AppHandle, Emitter, Manager,
 };
 use tracing::{error, info};
-
-use at_bridge::protocol::BridgeMessage;
-use at_tauri::state::AppState;
-use at_core::types::{Bead, Lane};
+use std::sync::Mutex;
 
 // Re-export image crate for icon loading.
 use image;
@@ -39,6 +36,77 @@ mod menu_ids {
     pub const STATUS: &str = "status";
     pub const NEW_TASK: &str = "new_task";
     pub const QUIT: &str = "quit";
+}
+
+#[derive(Default)]
+pub struct PendingNewTask(Mutex<PendingNewTaskState>);
+
+#[derive(Default)]
+struct PendingNewTaskState {
+    next_id: u32,
+    pending: Option<u32>,
+}
+
+impl PendingNewTask {
+    fn request(&self) -> Result<u32, String> {
+        let mut state = self.0.lock().map_err(|_| "tray intent lock poisoned")?;
+        if let Some(id) = state.pending {
+            return Ok(id);
+        }
+        state.next_id = state.next_id.checked_add(1).ok_or("tray intent IDs exhausted")?;
+        state.pending = Some(state.next_id);
+        Ok(state.next_id)
+    }
+
+    fn pending(&self) -> Result<Option<u32>, String> {
+        let state = self.0.lock().map_err(|_| "tray intent lock poisoned")?;
+        Ok(state.pending)
+    }
+
+    fn claim(&self, id: u32) -> Result<bool, String> {
+        let mut state = self.0.lock().map_err(|_| "tray intent lock poisoned")?;
+        if state.pending == Some(id) {
+            state.pending = None;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+}
+
+#[cfg(test)]
+mod pending_intent_tests {
+    use super::PendingNewTask;
+
+    #[test]
+    fn coalesces_unclaimed_clicks_and_rejects_stale_claim() {
+        let intents = PendingNewTask::default();
+        let first = intents.request().unwrap();
+        assert_eq!(intents.request().unwrap(), first);
+        assert_eq!(intents.pending().unwrap(), Some(first));
+        assert!(!intents.claim(first + 1).unwrap());
+        assert_eq!(intents.pending().unwrap(), Some(first));
+        assert!(intents.claim(first).unwrap());
+        assert_eq!(intents.pending().unwrap(), None);
+        assert!(!intents.claim(first).unwrap());
+        assert!(intents.request().unwrap() > first);
+    }
+}
+
+/// Called only after the webview has successfully installed its event listener.
+#[tauri::command]
+pub fn cmd_pending_tray_new_task(
+    state: tauri::State<'_, PendingNewTask>,
+) -> Result<Option<u32>, String> {
+    state.pending()
+}
+
+#[tauri::command]
+pub fn cmd_claim_tray_new_task(
+    state: tauri::State<'_, PendingNewTask>,
+    id: u32,
+) -> Result<bool, String> {
+    state.claim(id)
 }
 
 /// Initialize the system tray with icon and menu.
@@ -169,53 +237,29 @@ fn handle_menu_event(app: &AppHandle<tauri::Wry>, menu_id: &str) {
     match menu_id {
         menu_ids::NEW_TASK => {
             info!("tray: new task requested");
-
-            // Clone app handle for async task.
-            let app_handle = app.clone();
-
-            // Create a new bead via the daemon in an async task.
-            tauri::async_runtime::spawn(async move {
-                // Access the app state to get the daemon.
-                let state = app_handle.state::<AppState>();
-
-                // Create a new bead with default title.
-                let title = "New Task from Tray".to_string();
-                let lane = Lane::Standard;
-                let mut bead = Bead::new(title, lane);
-                bead.description = Some("Created from system tray menu".to_string());
-
-                // Insert the bead into the daemon's bead list.
-                let bead_id = bead.id;
-                {
-                    let mut beads = state.daemon.api_state().beads.write().await;
-                    beads.insert(bead.id, bead.clone());
+            // Retain one intent until the webview claims it. Pre-listener
+            // clicks survive startup/reload; completed wizards cannot replay.
+            let id = match app.state::<PendingNewTask>().request() {
+                Ok(id) => id,
+                Err(e) => {
+                    error!(error = %e, "could not record tray intent");
+                    return;
                 }
-
-                // Publish event via event bus.
-                state
-                    .daemon
-                    .event_bus()
-                    .publish(BridgeMessage::BeadCreated(bead.clone()));
-
-                info!(bead_id = %bead_id, "tray: created new bead");
-
-                // Show the main window and emit event to navigate to the new bead.
-                if let Some(window) = app_handle.get_webview_window("main") {
-                    if let Err(e) = window.show() {
-                        error!(error = %e, "failed to show main window");
-                        return;
-                    }
-                    if let Err(e) = window.set_focus() {
-                        error!(error = %e, "failed to focus main window");
-                        return;
-                    }
-
-                    // Emit event with the new bead ID so the frontend can navigate to it.
-                    if let Err(e) = window.emit("tray:new-task", bead_id.to_string()) {
-                        error!(error = %e, "failed to emit tray:new-task event");
-                    }
+            };
+            // Open the existing task wizard; creation happens only after user input.
+            if let Some(window) = app.get_webview_window("main") {
+                if let Err(e) = window.show() {
+                    error!(error = %e, "failed to show main window");
+                    return;
                 }
-            });
+                if let Err(e) = window.set_focus() {
+                    error!(error = %e, "failed to focus main window");
+                    return;
+                }
+                if let Err(e) = window.emit("tray:new-task", id) {
+                    error!(error = %e, "failed to emit tray:new-task event");
+                }
+            }
         }
         menu_ids::QUIT => {
             info!("tray: quit requested");

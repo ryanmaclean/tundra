@@ -17,6 +17,46 @@ pub mod types;
 pub use themed::{themed, Prompt};
 
 use wasm_bindgen::prelude::*;
+use std::cell::{Cell, RefCell};
+use std::rc::Rc;
+
+#[wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(js_namespace = ["window", "__TAURI__", "event"], js_name = listen, catch)]
+    async fn listen_tauri_event(
+        event: &str,
+        handler: &js_sys::Function,
+    ) -> Result<js_sys::Function, JsValue>;
+}
+
+fn claim_pending_tray_task(
+    id: u32,
+    set_show_new_task: WriteSignal<bool>,
+    seen: Rc<Cell<Option<u32>>>,
+    alive: Rc<Cell<bool>>,
+) {
+    if !alive.get() || seen.get().is_some_and(|last| id <= last) {
+        return;
+    }
+    seen.set(Some(id));
+    leptos::task::spawn_local(async move {
+        let args = serde_json::json!({"id": id});
+        match api::tauri_invoke_with_args::<_, bool>("cmd_claim_tray_new_task", &args).await {
+            Ok(true) if alive.get() => set_show_new_task.set(true),
+            Ok(true) => web_sys::console::error_1(&"tray intent claimed after view cleanup".into()),
+            Ok(false) => {}, // Already claimed or replaced; do not reopen a stale wizard.
+            Err(e) => {
+                // Native still retains the intent. Another click or remount can retry.
+                // A newer event may have advanced the view while this IPC call
+                // was in flight; only release the failed ID's retry guard.
+                if seen.get() == Some(id) {
+                    seen.set(None);
+                }
+                web_sys::console::error_1(&format!("tray intent claim failed: {e}").into());
+            }
+        }
+    });
+}
 
 #[component]
 pub fn App() -> impl IntoView {
@@ -46,6 +86,62 @@ pub fn App() -> impl IntoView {
     let (show_help, set_show_help) = signal(false);
     let (show_new_task, set_show_new_task) = signal(false);
     let (show_settings, set_show_settings) = signal(false);
+
+    // Register before pulling the native pending intent. Claiming happens
+    // before opening the wizard, so completed/cancelled wizards do not replay.
+    if api::is_tauri() {
+        let alive = Rc::new(Cell::new(true));
+        let seen = Rc::new(Cell::new(None::<u32>));
+        let event_alive = alive.clone();
+        let event_seen = seen.clone();
+        let handler = Rc::new(wasm_bindgen::closure::Closure::<dyn Fn(JsValue)>::new(move |event| {
+            let id = js_sys::Reflect::get(&event, &JsValue::from_str("payload"))
+                .ok()
+                .and_then(|value| value.as_f64())
+                .filter(|value| *value >= 1.0 && *value <= u32::MAX as f64 && value.fract() == 0.0)
+                .map(|value| value as u32);
+            if let Some(id) = id {
+                claim_pending_tray_task(id, set_show_new_task, event_seen.clone(), event_alive.clone());
+            } else {
+                web_sys::console::error_1(&"tray:new-task had invalid intent ID".into());
+            }
+        }));
+        let retained_handler = Rc::new(RefCell::new(Some(handler.clone())));
+        let unlisten = Rc::new(RefCell::new(None::<js_sys::Function>));
+        let cleanup_alive = alive.clone();
+        let cleanup_handler = retained_handler.clone();
+        let cleanup_unlisten = unlisten.clone();
+        on_cleanup(move || {
+            cleanup_alive.set(false);
+            if let Some(unlisten) = cleanup_unlisten.borrow_mut().take() {
+                if let Err(e) = unlisten.call0(&JsValue::NULL) {
+                    web_sys::console::error_1(&e);
+                }
+            }
+            cleanup_handler.borrow_mut().take();
+        });
+        leptos::task::spawn_local(async move {
+            match listen_tauri_event("tray:new-task", handler.as_ref().as_ref().unchecked_ref()).await {
+                Ok(stop_listening) if alive.get() => {
+                    *unlisten.borrow_mut() = Some(stop_listening);
+                    match api::tauri_invoke::<Option<u32>>("cmd_pending_tray_new_task").await {
+                        Ok(Some(id)) => claim_pending_tray_task(id, set_show_new_task, seen.clone(), alive.clone()),
+                        Ok(None) => {},
+                        Err(e) => web_sys::console::error_1(&format!("tray intent readiness failed: {e}").into()),
+                    }
+                }
+                Ok(stop_listening) => {
+                    if let Err(e) = stop_listening.call0(&JsValue::NULL) {
+                        web_sys::console::error_1(&e);
+                    }
+                }
+                Err(e) => {
+                    web_sys::console::error_1(&e);
+                    retained_handler.borrow_mut().take();
+                }
+            }
+        });
+    }
 
     // Start the event WebSocket stream
     let (conn_state, _latest_event, toasts, set_toasts, unread_count, set_unread_count) =

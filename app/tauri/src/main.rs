@@ -87,7 +87,10 @@ fn main() {
         .plugin(tauri_plugin_notification::init())
         .manage(state)
         .manage(sound_engine)
+        .manage(tray::PendingNewTask::default())
         .invoke_handler(tauri::generate_handler![
+            tray::cmd_pending_tray_new_task,
+            tray::cmd_claim_tray_new_task,
             at_tauri::commands::cmd_get_api_port,
             at_tauri::commands::cmd_play_sound,
             at_tauri::commands::cmd_set_sound_enabled,
