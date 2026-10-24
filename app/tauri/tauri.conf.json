@@ -47,6 +47,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "resources": ["third-party-licenses/"],
     "icon": [
       "icons/icon.png"
     ],

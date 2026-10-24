@@ -7,6 +7,11 @@ on:
       - scripts/license_inventory.nu
       - scripts/license_approvals.json
       - docs/license-inventory.md
+      - docs/file-watcher-feature.md
+      - app/tauri/tauri.conf.json
+      - app/tauri/third-party-licenses/**
+      - crates/at-core/src/file_watcher.rs
+      - crates/at-core/src/lib.rs
       - Cargo.toml
       - Cargo.lock
       - deny-strict.toml
@@ -99,3 +104,69 @@ jobs:
           fallback: none
       - name: Check all-feature all-target dependency licenses
         run: cargo deny --workspace --config deny-strict.toml --locked check licenses
+
+  exact-notice-custody:
+    name: Exact exception license texts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify approval roster, text hashes, and bundle resource
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifest=app/tauri/third-party-licenses/manifest.json
+          diff -u \
+            <(jq -r '.approvals[] | [.id,.name,.version,.approved_choice[0],.lock_checksum] | @tsv' scripts/license_approvals.json | sort) \
+            <(jq -r '.entries[] | [.approval_id,.name,.version,.license_id,.crate_sha256] | @tsv' "$manifest" | sort)
+          jq -e '.bundle.resources | index("third-party-licenses/") != null' app/tauri/tauri.conf.json
+          while IFS=$'\t' read -r digest file; do
+            test -s "$file"
+            printf '%s  %s\n' "$digest" "$file" | sha256sum --check --status
+          done < <(jq -r '.entries[] | [.text_sha256,.file] | @tsv' "$manifest")
+      - name: Verify source archives and exact license text bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifest=app/tauri/third-party-licenses/manifest.json
+          while IFS=$'\t' read -r name version checksum file source; do
+            archive="$RUNNER_TEMP/$name-$version.crate"
+            curl --fail --silent --show-error --location --max-time 45 \
+              "https://static.crates.io/crates/$name/$name-$version.crate" -o "$archive"
+            printf '%s  %s\n' "$checksum" "$archive" | sha256sum --check --status
+            if [[ "$source" == crate:* ]]; then
+              tar -xOzf "$archive" "${source#crate:}" | cmp - "$file"
+            else
+              curl --fail --silent --show-error --location --max-time 45 "$source" | cmp - "$file"
+            fi
+          done < <(jq -r '.entries[] | [.name,.version,.crate_sha256,.file,.source] | @tsv' "$manifest")
+      - name: Retain verified exception license texts
+        uses: actions/upload-artifact@v4
+        with:
+          name: exact-exception-license-texts
+          path: app/tauri/third-party-licenses/
+          if-no-files-found: error
+          retention-days: 14
+
+  optional-watcher:
+    name: Optional file watcher on Linux
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Resolve exact feature-on graph
+        run: |
+          cargo metadata --locked --format-version 1 --filter-platform x86_64-unknown-linux-gnu --features at-core/file-watcher > "$RUNNER_TEMP/watcher-metadata.json"
+          jq -e '[.resolve.nodes[] | select(.id | contains("#at-core@")) | .features[]] | index("file-watcher") != null' "$RUNNER_TEMP/watcher-metadata.json"
+          jq -e '[.packages[].name] | index("notify") != null' "$RUNNER_TEMP/watcher-metadata.json"
+      - name: Test opt-in watcher module
+        run: cargo test -p at-core --locked --features file-watcher --lib file_watcher::tests -- --nocapture
+      - name: Retain feature-on graph
+        uses: actions/upload-artifact@v4
+        with:
+          name: optional-file-watcher-linux-graph
+          path: ${{ runner.temp }}/watcher-metadata.json
+          if-no-files-found: error
+          retention-days: 14

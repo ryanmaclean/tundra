@@ -100,6 +100,14 @@ Ratatui features were selected. The inventory records SHA-256 hashes for that
 raw metadata file and `Cargo.lock`; artifacts are compressed and retained for
 14 days. No credentials are passed to `cargo metadata`, and the checked
 manifests contain no credential-bearing Git dependency URLs. A passing
-declared-license inventory is not itself a license-file audit or a notice
-bundle; release owners must retain exact license texts for notice-required
-packages.
+declared-license inventory is not itself a license-file audit. The nine exact
+exception approvals have source-bound license texts in
+`app/tauri/third-party-licenses/`, with crate archive checksums and text
+hashes in its manifest. The strict workflow checks the approval roster,
+downloads the pinned crate archives, compares source text bytes (or Mozilla's
+official MPL-2.0 text for `selectors`, whose crate archive has no license
+file), and retains the files as a hosted artifact. Tauri lists that directory
+as a bundle resource. A built installer/package still needs direct readback
+to prove those resource bytes are present. This directory covers the nine
+exception approvals, not every third-party dependency or generated/copied
+build output; release owners must complete those reviews before distribution.
