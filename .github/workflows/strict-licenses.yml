@@ -1,0 +1,28 @@
+name: Strict dependency licenses
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/strict-licenses.yml
+      - Cargo.toml
+      - Cargo.lock
+      - deny-strict.toml
+      - '**/Cargo.toml'
+
+permissions:
+  contents: read
+
+jobs:
+  strict-licenses:
+    name: MIT BSD Apache selected graph
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@cargo-deny
+
+      - name: Check all-feature all-target dependency licenses
+        run: cargo deny --workspace check licenses --config deny-strict.toml
