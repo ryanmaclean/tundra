@@ -61,7 +61,15 @@ impl Daemon {
             ..DaemonIntervals::default()
         };
         let event_bus = EventBus::new();
-        let api_state = Arc::new(ApiState::new(event_bus.clone()));
+        // Configure the shared engine before exposing API state in any mode.
+        // Startup must not replace it: callers may already hold state or ideas.
+        let registry = Arc::new(ResilientRegistry::from_config(&config));
+        Self::log_profile_bootstrap(&registry);
+        let mut api_state = ApiState::new(event_bus.clone());
+        api_state.ideation_engine = Arc::new(tokio::sync::RwLock::new(
+            at_intelligence::ideation::IdeationEngine::with_registry(registry),
+        ));
+        let api_state = Arc::new(api_state);
         Self {
             config,
             cache,
@@ -112,8 +120,7 @@ impl Daemon {
     }
 
     /// Log the LLM profile bootstrap info.
-    fn log_profile_bootstrap(&self) {
-        let reg = ResilientRegistry::from_config(&self.config);
+    fn log_profile_bootstrap(reg: &ResilientRegistry) {
         let total_count = reg.count();
         let best_profile = reg
             .registry
@@ -138,8 +145,6 @@ impl Daemon {
     /// spawns background loops, and returns the bound port immediately.
     /// The caller owns the `Daemon` and can call `shutdown()` to stop.
     pub async fn start_embedded(&self) -> Result<u16> {
-        self.log_profile_bootstrap();
-
         let api_key = CredentialProvider::ensure_daemon_api_key();
         info!("daemon API key ready — authentication enabled");
 
@@ -318,32 +323,6 @@ impl Daemon {
     /// The caller is responsible for binding the `TcpListener` (e.g. to port 0
     /// for OS-assigned ports). This enables dynamic port allocation in `main.rs`.
     pub async fn run_with_listener(&self, listener: tokio::net::TcpListener) -> Result<()> {
-        self.log_profile_bootstrap();
-        let reg = at_intelligence::ResilientRegistry::from_config(&self.config);
-        if let Some(p) = reg.registry.best_available() {
-            let api_key = std::env::var(&p.api_key_env).ok().filter(|s| !s.is_empty());
-            let provider: Arc<dyn at_intelligence::llm::LlmProvider> = match p.provider {
-                at_intelligence::ProviderKind::Local => Arc::new(
-                    at_intelligence::llm::LocalProvider::new(&p.base_url, api_key),
-                ),
-                at_intelligence::ProviderKind::Anthropic => Arc::new(
-                    at_intelligence::llm::AnthropicProvider::new(api_key.unwrap_or_default()),
-                ),
-                at_intelligence::ProviderKind::OpenAi => Arc::new(
-                    at_intelligence::llm::OpenAiProvider::new(api_key.unwrap_or_default()),
-                ),
-                _ => Arc::new(at_intelligence::llm::LocalProvider::new(
-                    &p.base_url,
-                    api_key,
-                )),
-            };
-            let mut engine = self.api_state.ideation_engine.write().await;
-            *engine = at_intelligence::ideation::IdeationEngine::with_provider(
-                provider,
-                p.default_model.clone(),
-            );
-        }
-
         info!(
             patrol_secs = self.intervals.patrol_secs,
             heartbeat_secs = self.intervals.heartbeat_secs,
@@ -395,32 +374,6 @@ impl Daemon {
     pub async fn run(&self) -> Result<()> {
         let port = self.config.daemon.port;
         let bind_addr = format!("{}:{}", self.config.daemon.host, port);
-
-        self.log_profile_bootstrap();
-        let reg = at_intelligence::ResilientRegistry::from_config(&self.config);
-        if let Some(p) = reg.registry.best_available() {
-            let api_key = std::env::var(&p.api_key_env).ok().filter(|s| !s.is_empty());
-            let provider: Arc<dyn at_intelligence::llm::LlmProvider> = match p.provider {
-                at_intelligence::ProviderKind::Local => Arc::new(
-                    at_intelligence::llm::LocalProvider::new(&p.base_url, api_key),
-                ),
-                at_intelligence::ProviderKind::Anthropic => Arc::new(
-                    at_intelligence::llm::AnthropicProvider::new(api_key.unwrap_or_default()),
-                ),
-                at_intelligence::ProviderKind::OpenAi => Arc::new(
-                    at_intelligence::llm::OpenAiProvider::new(api_key.unwrap_or_default()),
-                ),
-                _ => Arc::new(at_intelligence::llm::LocalProvider::new(
-                    &p.base_url,
-                    api_key,
-                )),
-            };
-            let mut engine = self.api_state.ideation_engine.write().await;
-            *engine = at_intelligence::ideation::IdeationEngine::with_provider(
-                provider,
-                p.default_model.clone(),
-            );
-        }
 
         info!(
             patrol_secs = self.intervals.patrol_secs,

@@ -489,13 +489,15 @@ async fn list_ideas(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
 /// POST /api/ideation/generate -- generate new ideas using AI.
 ///
 /// Generates ideas based on a category and optional context. Uses AI-powered
-/// generation when an LLM provider is configured, falls back to deterministic
-/// generation in offline mode or tests.
+/// generation when an LLM provider or registry is configured. Deterministic
+/// generation is available only when neither is configured. Configured-provider
+/// failures return a sanitized 502 response and never create placeholder ideas.
 ///
 /// **Request:** Optional JSON body with category and context. Defaults to
 /// CodeImprovement category with empty context if not provided.
 ///
-/// **Response:** 201 Created with generated ideas.
+/// **Response:** 201 Created with generated ideas, or 502 Bad Gateway with
+/// `code: ideation_generation_failed` when configured AI generation fails.
 ///
 /// **Example Request:**
 /// ```json
@@ -530,11 +532,25 @@ async fn generate_ideas(
         None => (IdeaCategory::CodeImprovement, String::new()),
     };
     let mut engine = state.ideation_engine.write().await;
-    // Try AI-powered ideation first; fall back to deterministic generation
-    // when no LLM provider is configured (e.g. in tests or offline mode).
-    let result = match engine.generate_ideas_with_ai(&category, &context).await {
-        Ok(result) => result,
-        Err(_) => engine.generate_ideas(&category, &context),
+    // Offline placeholders are allowed only when no AI configuration exists.
+    // Keep this decision and generation under the same engine write guard.
+    let result = if engine.has_ai_configuration() {
+        match engine.generate_ideas_with_ai(&category, &context).await {
+            Ok(result) => result,
+            Err(_) => {
+                // Provider errors can contain response bodies or endpoint details.
+                // Do not expose them or turn them into successful placeholder ideas.
+                return (
+                    axum::http::StatusCode::BAD_GATEWAY,
+                    Json(serde_json::json!({
+                        "error": "Idea generation failed",
+                        "code": "ideation_generation_failed"
+                    })),
+                );
+            }
+        }
+    } else {
+        engine.generate_ideas(&category, &context)
     };
     (
         axum::http::StatusCode::CREATED,
