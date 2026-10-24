@@ -22,7 +22,10 @@ jobs:
           persist-credentials: false
 
       - name: Install cargo-deny
-        uses: taiki-e/install-action@cargo-deny
+        uses: taiki-e/install-action@v2.87.31
+        with:
+          tool: cargo-deny@0.20.2
+          fallback: none
 
       - name: Check all-feature all-target dependency licenses
         run: cargo deny --workspace --config deny-strict.toml --locked check licenses
