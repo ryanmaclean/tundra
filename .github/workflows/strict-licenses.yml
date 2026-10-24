@@ -42,6 +42,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
 
       # Runs only on hosted CI. The inventory does not compile the workspace.
       - name: Install Nushell
@@ -50,6 +51,9 @@ jobs:
       - name: Resolve locked target graph
         shell: bash
         run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = '${{ github.event.pull_request.head.sha }}'
+          printf 'head_sha=%s\n' '${{ github.event.pull_request.head.sha }}' > "$RUNNER_TEMP/license-source-head.txt"
           if [ '${{ matrix.profile }}' = 'tauri-sounds' ]; then
             cargo metadata --locked --format-version 1 --filter-platform '${{ matrix.target }}' --features at-tauri/sounds > "$RUNNER_TEMP/cargo-metadata.json"
           else
@@ -79,6 +83,7 @@ jobs:
           path: |
             ${{ runner.temp }}/license-inventory.json
             ${{ runner.temp }}/cargo-metadata.json
+            ${{ runner.temp }}/license-source-head.txt
           if-no-files-found: error
           compression-level: 9
           retention-days: 14
@@ -151,10 +156,14 @@ jobs:
           retention-days: 14
 
   linux-deb-notice-resources:
-    name: Linux .deb contains exact exception license texts
-    needs: exact-notice-custody
+    name: Linux .deb contains exact exception license texts (${{ matrix.profile }})
+    needs: [exact-notice-custody, shipped-license-inventory]
     runs-on: ubuntu-24.04
     timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [default, sounds]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -182,8 +191,30 @@ jobs:
           test "$(git rev-parse HEAD)" = '${{ github.event.pull_request.head.sha }}'
           (cd app/leptos-ui && trunk build --release --locked)
           test -s app/leptos-ui/dist/index.html
-          (cd app/tauri && cargo tauri build --bundles deb)
+          if [[ '${{ matrix.profile }}' == sounds ]]; then
+            cargo metadata --locked --format-version 1 --filter-platform x86_64-unknown-linux-gnu \
+              --features at-tauri/sounds > "$RUNNER_TEMP/profile-metadata.json"
+            jq -e '. as $g | ($g.packages[] | select(.name == "at-tauri") | .id) as $id | [$g.resolve.nodes[] | select(.id == $id) | .features[]] | index("sounds") != null' \
+              "$RUNNER_TEMP/profile-metadata.json"
+            (cd app/tauri && cargo tauri build --help | grep -F -- '--features')
+            (cd app/tauri && cargo tauri build --bundles deb --features sounds)
+          else
+            cargo metadata --locked --format-version 1 --filter-platform x86_64-unknown-linux-gnu > "$RUNNER_TEMP/profile-metadata.json"
+            jq -e '. as $g | ($g.packages[] | select(.name == "at-tauri") | .id) as $id | [$g.resolve.nodes[] | select(.id == $id) | .features[]] | index("sounds") == null' \
+              "$RUNNER_TEMP/profile-metadata.json"
+            (cd app/tauri && cargo tauri build --bundles deb)
+          fi
           git diff --exit-code -- Cargo.lock
+          shopt -s nullglob
+          fingerprints=(target/release/.fingerprint/at-tauri-*/bin-auto-tundra.json)
+          test "${#fingerprints[@]}" -eq 1
+          cp "${fingerprints[0]}" "$RUNNER_TEMP/installer-bin-fingerprint.json"
+          if [[ '${{ matrix.profile }}' == sounds ]]; then
+            jq -e '(.features | fromjson | index("sounds")) != null' "$RUNNER_TEMP/installer-bin-fingerprint.json"
+          else
+            jq -e '(.features | fromjson | index("sounds")) == null' "$RUNNER_TEMP/installer-bin-fingerprint.json"
+          fi
+          test -s target/release/auto-tundra
       - name: Verify nine license resources inside built .deb
         shell: bash
         run: |
@@ -204,6 +235,10 @@ jobs:
           root="$RUNNER_TEMP/tundra-deb-root"
           mkdir -p "$root"
           dpkg-deb -x "${debs[0]}" "$root"
+          mapfile -d '' installed_bins < <(find "$root" -type f -name auto-tundra -print0)
+          test "${#installed_bins[@]}" -eq 1
+          cmp target/release/auto-tundra "${installed_bins[0]}"
+          sha256sum target/release/auto-tundra "${installed_bins[0]}" > "$RUNNER_TEMP/installer-binary.sha256"
           receipt="$RUNNER_TEMP/installer-resource-proof.tsv"
           : > "$receipt"
           while IFS=$'\t' read -r source expected; do
@@ -216,16 +251,58 @@ jobs:
           done < "$RUNNER_TEMP/expected-license-resources.tsv"
           test "$(wc -l < "$receipt")" -eq 9
           sha256sum "${debs[0]}" | tee "$RUNNER_TEMP/installer-deb.sha256"
-          printf 'head_sha=%s\n' '${{ github.event.pull_request.head.sha }}' > "$RUNNER_TEMP/installer-source.txt"
+          sha256sum "$RUNNER_TEMP/profile-metadata.json" > "$RUNNER_TEMP/installer-profile-metadata.sha256"
+          if [[ '${{ matrix.profile }}' == sounds ]]; then tauri_features=sounds; else tauri_features=default; fi
+          printf 'head_sha=%s\nprofile=%s\ntauri_features=%s\n' \
+            '${{ github.event.pull_request.head.sha }}' '${{ matrix.profile }}' "$tauri_features" > "$RUNNER_TEMP/installer-source.txt"
       - name: Retain built installer and byte-comparison receipt
         uses: actions/upload-artifact@v4
         with:
-          name: linux-deb-exception-license-proof
+          name: linux-deb-exception-license-proof-${{ matrix.profile }}
           path: |
             target/release/bundle/deb/*.deb
             ${{ runner.temp }}/installer-deb.sha256
             ${{ runner.temp }}/installer-resource-proof.tsv
             ${{ runner.temp }}/installer-source.txt
+            ${{ runner.temp }}/profile-metadata.json
+            ${{ runner.temp }}/installer-profile-metadata.sha256
+            ${{ runner.temp }}/installer-bin-fingerprint.json
+            ${{ runner.temp }}/installer-binary.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+  linux-deb-profile-distinction:
+    name: Linux default and sounds installers have distinct binaries
+    needs: linux-deb-notice-resources
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: linux-deb-exception-license-proof-*
+          path: ${{ runner.temp }}/variant-artifacts
+      - name: Compare extracted installer binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          default_debs=("$RUNNER_TEMP"/variant-artifacts/linux-deb-exception-license-proof-default/*.deb)
+          sounds_debs=("$RUNNER_TEMP"/variant-artifacts/linux-deb-exception-license-proof-sounds/*.deb)
+          test "${#default_debs[@]}" -eq 1 && test "${#sounds_debs[@]}" -eq 1
+          mkdir -p "$RUNNER_TEMP/default-root" "$RUNNER_TEMP/sounds-root"
+          dpkg-deb -x "${default_debs[0]}" "$RUNNER_TEMP/default-root"
+          dpkg-deb -x "${sounds_debs[0]}" "$RUNNER_TEMP/sounds-root"
+          mapfile -d '' default_bins < <(find "$RUNNER_TEMP/default-root" -type f -name auto-tundra -print0)
+          mapfile -d '' sounds_bins < <(find "$RUNNER_TEMP/sounds-root" -type f -name auto-tundra -print0)
+          test "${#default_bins[@]}" -eq 1 && test "${#sounds_bins[@]}" -eq 1
+          if cmp -s "${default_bins[0]}" "${sounds_bins[0]}"; then
+            echo 'Default and sounds installer binaries are byte-identical; feature-on package proof is unresolved.' >&2
+            exit 1
+          fi
+          sha256sum "${default_bins[0]}" "${sounds_bins[0]}" > "$RUNNER_TEMP/variant-binary-sha256.txt"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-deb-profile-distinction-proof
+          path: ${{ runner.temp }}/variant-binary-sha256.txt
           if-no-files-found: error
           retention-days: 14
 
