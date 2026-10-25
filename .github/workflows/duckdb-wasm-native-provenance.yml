@@ -40,6 +40,16 @@ jobs:
           submodules: recursive
           persist-credentials: false
 
+      - name: Trust these checked-out paths inside the ephemeral container
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE/duckdb-upstream"
+          while IFS= read -r -d '' directory; do
+            git config --global --add safe.directory "$directory"
+          done < <(find "$GITHUB_WORKSPACE/duckdb-upstream" -type f -name .git -printf '%h\0')
+
       - name: Record and require pinned source and toolchain
         shell: bash
         run: |
