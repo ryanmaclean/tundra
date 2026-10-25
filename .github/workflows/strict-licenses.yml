@@ -349,10 +349,26 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          shopt -s nullglob
-          default_debs=("$RUNNER_TEMP"/variant-artifacts/linux-deb-exception-license-proof-default/*.deb)
-          sounds_debs=("$RUNNER_TEMP"/variant-artifacts/linux-deb-exception-license-proof-sounds/*.deb)
-          test "${#default_debs[@]}" -eq 1 && test "${#sounds_debs[@]}" -eq 1
+          artifact_root="$RUNNER_TEMP/variant-artifacts"
+          default_dir="$artifact_root/linux-deb-exception-license-proof-default"
+          sounds_dir="$artifact_root/linux-deb-exception-license-proof-sounds"
+          for profile in default sounds; do
+            dir="$artifact_root/linux-deb-exception-license-proof-$profile"
+            if ! cmp -s "$dir/_temp/installer-source.txt" \
+              <(printf 'head_sha=%s\nprofile=%s\ntauri_features=%s\n' \
+                '${{ github.event.pull_request.head.sha }}' "$profile" "$profile"); then
+              echo "Missing or mismatched $profile installer source receipt" >&2
+              exit 1
+            fi
+          done
+          mapfile -d '' default_debs < <(find "$default_dir" -type f -name '*.deb' -print0)
+          mapfile -d '' sounds_debs < <(find "$sounds_dir" -type f -name '*.deb' -print0)
+          if (( ${#default_debs[@]} != 1 || ${#sounds_debs[@]} != 1 )); then
+            echo 'Expected exactly one .deb in each approved profile artifact' >&2
+            exit 1
+          fi
+          test "${default_debs[0]}" = "$default_dir/tundra/tundra/target/release/bundle/deb/auto-tundra_0.1.0_amd64.deb"
+          test "${sounds_debs[0]}" = "$sounds_dir/tundra/tundra/target/release/bundle/deb/auto-tundra_0.1.0_amd64.deb"
           mkdir -p "$RUNNER_TEMP/default-root" "$RUNNER_TEMP/sounds-root"
           dpkg-deb -x "${default_debs[0]}" "$RUNNER_TEMP/default-root"
           dpkg-deb -x "${sounds_debs[0]}" "$RUNNER_TEMP/sounds-root"
