@@ -153,6 +153,26 @@ jobs:
           done < "$RUNNER_TEMP/native-receipt/selected-sdk-archives.txt" \
             > "$RUNNER_TEMP/native-receipt/selected-sdk-archives.sha256"
           test -s "$RUNNER_TEMP/native-receipt/selected-sdk-archives.sha256"
+          # Keep the selected archive bytes so a separate reader can rehash
+          # them instead of trusting only this runner's checksum lines.
+          sdk_bytes="$RUNNER_TEMP/native-receipt/selected-sdk-archive-bytes"
+          mkdir "$sdk_bytes"
+          while IFS= read -r archive; do
+            name="${archive##*/}"
+            test -n "$name"
+            test ! -e "$sdk_bytes/$name"
+            cp -- "$archive" "$sdk_bytes/$name"
+            cmp -s "$archive" "$sdk_bytes/$name"
+            expected="$(awk -v file="$archive" '$2 == file { print $1 }' \
+              "$RUNNER_TEMP/native-receipt/selected-sdk-archives.sha256")"
+            actual="$(sha256sum "$sdk_bytes/$name" | cut -d ' ' -f 1)"
+            test -n "$expected"
+            test "$actual" = "$expected"
+          done < "$RUNNER_TEMP/native-receipt/selected-sdk-archives.txt"
+          test "$(find "$sdk_bytes" -maxdepth 1 -type f -name '*.a' | wc -l)" \
+            -eq "$(wc -l < "$RUNNER_TEMP/native-receipt/selected-sdk-archives.txt")"
+          (cd "$sdk_bytes" && sha256sum ./*.a) \
+            > "$RUNNER_TEMP/native-receipt/selected-sdk-archive-bytes.sha256"
           sha256sum "$RUNNER_TEMP/native-receipt/objects1.rsp" \
             "$RUNNER_TEMP/native-receipt/linklibs.rsp" \
             > "$RUNNER_TEMP/native-receipt/link-response-files.sha256"
