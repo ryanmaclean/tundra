@@ -276,23 +276,16 @@ jobs:
           dpkg-deb -x "${debs[0]}" "$root"
           mapfile -d '' installed_bins < <(find "$root" -type f -name auto-tundra -print0)
           test "${#installed_bins[@]}" -eq 1
-          # Tauri 2.12.4 changes exactly the embedded bundle marker from UNK
-          # to DEB when packaging. The current-head diagnostics prove the
-          # unique marker offsets for both feature profiles. Require that
-          # source marker and then compare every byte of the expected patched
-          # workspace binary against the installed package binary.
-          case '${{ matrix.profile }}' in
-            default) expected_marker_offset=3665847 ;;
-            sounds) expected_marker_offset=3677775 ;;
-            *) echo 'Unknown installer profile' >&2; exit 1 ;;
-          esac
+          # Tauri 2.12.4 changes the unique embedded bundle marker from UNK
+          # to DEB when packaging. Font bytes can move its offset, so require
+          # exactly one source marker and compare every byte of the expected
+          # patched workspace binary against the installed package binary.
           workspace_bin=target/release/auto-tundra
           marker_prefix='__TAURI_BUNDLE_TYPE_VAR_'
           mapfile -t marker_hits < <(LC_ALL=C grep -aobF "${marker_prefix}UNK" "$workspace_bin")
           test "${#marker_hits[@]}" -eq 1
           marker_offset="${marker_hits[0]%%:*}"
           [[ "$marker_offset" =~ ^[0-9]+$ ]]
-          test "$marker_offset" -eq "$expected_marker_offset"
           expected_bin="$RUNNER_TEMP/expected-bundle-auto-tundra"
           cp "$workspace_bin" "$expected_bin"
           printf 'DEB' | dd of="$expected_bin" bs=1 seek="$((marker_offset + ${#marker_prefix}))" conv=notrunc status=none
@@ -361,8 +354,73 @@ jobs:
             <(jq -r '.entries[].texts[].file | select(startswith("app/tauri/third-party-licenses/selected/")) | sub("^app/tauri/third-party-licenses/"; "")' "$selected_manifest" | sort -u) \
             <(find "$root" -type f -path '*/third-party-licenses/selected/*' -print | sed 's#^.*/third-party-licenses/##' | sort -u)
           sha256sum "$bill" "${installed_bills[0]}" > "$RUNNER_TEMP/selected-bill-sha256.txt"
+      - name: Verify Inter source, generated UI, and installed OFL notice
+        id: verify_inter_ui
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = '${{ github.event.pull_request.head.sha }}'
+          test "$(git hash-object app/leptos-ui/style.css)" = '71fe560a6ab8fb51a1e462f05b649f7c81e4a80b'
+          jq -e '.build.frontendDist == "../leptos-ui/dist" and (.bundle.resources | index("third-party-licenses/") != null)' app/tauri/tauri.conf.json
+          declare -A font_hashes=(
+            [400]=b6f9db9e45be20f3c1312c97fbee7ec36b7d8280f8caa4d53c9ba0408cc9997a
+            [500]=8458f8afa67b5691c1fcbe51607a2dafb53a9839e48131c608a186b65415d96d
+            [600]=8e52a861dc26ff4608c50bd7ff89b65d0d6216a2afe7b47ce5d84544811ca400
+            [700]=220976705fbec109f43c5cfdceca639e99ace7e51f3eb67292b105d3575eb39b
+          )
+          dist=app/leptos-ui/dist
+          test -s "$dist/index.html"
+          dist_hashes="$RUNNER_TEMP/inter-dist-sha256.tsv"
+          : > "$dist_hashes"
+          while IFS= read -r -d '' file; do
+            digest="$(sha256sum "$file")"
+            printf '%s\t%s\n' "${digest%% *}" "$file" >> "$dist_hashes"
+          done < <(find "$dist" -type f -print0)
+          mapfile -d '' css_files < <(find "$dist" -type f -name '*.css' -print0)
+          test "${#css_files[@]}" -ge 1
+          receipt="$RUNNER_TEMP/inter-dist-source-proof.tsv"
+          : > "$receipt"
+          for weight in 400 500 600 700; do
+            source="app/leptos-ui/fonts/inter-${weight}.woff2"
+            expected="${font_hashes[$weight]}"
+            printf '%s  %s\n' "$expected" "$source" | sha256sum --check --status
+            mapfile -t matches < <(awk -F '\t' -v h="$expected" '$1 == h {print $2}' "$dist_hashes")
+            test "${#matches[@]}" -eq 1
+            generated="${matches[0]}"
+            test "$generated" != "$source"
+            test -s "$generated"
+            basename="${generated##*/}"
+            css_ref=0
+            for css in "${css_files[@]}"; do
+              if grep -aFq -- "$basename" "$css"; then
+                css_ref=1
+              fi
+            done
+            test "$css_ref" -eq 1
+            printf '%s\t%s\t%s\t%s\n' "$weight" "$source" "$expected" "${generated#"$dist"/}" >> "$receipt"
+          done
+          test "$(wc -l < "$receipt")" -eq 4
+          source_notice=app/tauri/third-party-licenses/ui/Inter-OFL-1.1.txt
+          expected_notice=262481e844521b326f5ecd053e59b98c8b2da78c8ee1bdbb6e8174305e54935a
+          printf '%s  %s\n' "$expected_notice" "$source_notice" | sha256sum --check --status
+          root="$RUNNER_TEMP/tundra-deb-root"
+          test -d "$root"
+          mapfile -d '' installed_notices < <(find "$root" -type f -path '*/third-party-licenses/ui/Inter-OFL-1.1.txt' -print0)
+          test "${#installed_notices[@]}" -eq 1
+          printf '%s  %s\n' "$expected_notice" "${installed_notices[0]}" | sha256sum --check --status
+          cmp "$source_notice" "${installed_notices[0]}"
+          mapfile -d '' installed_bins < <(find "$root" -type f -name auto-tundra -print0)
+          test "${#installed_bins[@]}" -eq 1
+          cmp "$RUNNER_TEMP/expected-bundle-auto-tundra" "${installed_bins[0]}"
+          shopt -s nullglob
+          debs=(target/release/bundle/deb/*.deb)
+          test "${#debs[@]}" -eq 1
+          printf 'head_sha=%s\nprofile=%s\nsource_notice_sha256=%s\ninstalled_notice=%s\n' \
+            '${{ github.event.pull_request.head.sha }}' '${{ matrix.profile }}' "$expected_notice" "${installed_notices[0]#"$root"/}" \
+            > "$RUNNER_TEMP/inter-installed-notice.txt"
+          sha256sum "${installed_bins[0]}" "${debs[0]}" >> "$RUNNER_TEMP/inter-installed-notice.txt"
       - name: Capture unapproved bundle-byte diagnostic after failed verification
-        if: ${{ failure() && (steps.verify_deb_resources.outcome == 'failure' || steps.verify_selected_bill.outcome == 'failure') }}
+        if: ${{ failure() && (steps.verify_deb_resources.outcome == 'failure' || steps.verify_selected_bill.outcome == 'failure' || steps.verify_inter_ui.outcome == 'failure') }}
         shell: bash
         run: |
           set -euo pipefail
@@ -390,7 +448,7 @@ jobs:
           printf 'head_sha=%s\nprofile=%s\nverification=FAILED_UNAPPROVED\n' \
             '${{ github.event.pull_request.head.sha }}' '${{ matrix.profile }}' > "$out/source.txt"
       - name: Upload unapproved bundle-byte diagnostic
-        if: ${{ failure() && (steps.verify_deb_resources.outcome == 'failure' || steps.verify_selected_bill.outcome == 'failure') }}
+        if: ${{ failure() && (steps.verify_deb_resources.outcome == 'failure' || steps.verify_selected_bill.outcome == 'failure' || steps.verify_inter_ui.outcome == 'failure') }}
         uses: actions/upload-artifact@v4
         with:
           name: UNAPPROVED-bundle-byte-diagnostic-${{ matrix.profile }}
@@ -415,6 +473,9 @@ jobs:
             ${{ runner.temp }}/peer-license-inventory.json
             ${{ runner.temp }}/selected-installed-texts.tsv
             ${{ runner.temp }}/selected-bill-sha256.txt
+            ${{ runner.temp }}/inter-dist-sha256.tsv
+            ${{ runner.temp }}/inter-dist-source-proof.tsv
+            ${{ runner.temp }}/inter-installed-notice.txt
             app/tauri/third-party-licenses/selected-notice-bill.json
           if-no-files-found: error
           retention-days: 14
