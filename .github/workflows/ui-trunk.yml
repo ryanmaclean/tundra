@@ -21,6 +21,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Verify one workspace lockfile
         run: test -f Cargo.lock && test ! -e app/leptos-ui/Cargo.lock
