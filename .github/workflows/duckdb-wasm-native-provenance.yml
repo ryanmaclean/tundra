@@ -67,6 +67,8 @@ jobs:
           emcc --version | grep -Fq '3.1.48'
           em++ --version | grep -Fq '3.1.48'
           test -n "${EMSDK:-}"
+          wasm_ld="$EMSDK/upstream/bin/wasm-ld"
+          test -x "$wasm_ld"
           config="${EM_CONFIG:-${EMSDK}/.emscripten}"
           test -s "$config"
           {
@@ -79,7 +81,8 @@ jobs:
             command -v emcc em++ emcmake cmake make
             emcc --version
             em++ --version
-            wasm-ld --version
+            printf 'wasm_ld=%s\n' "$wasm_ld"
+            "$wasm_ld" --version
             cmake --version
             printf 'EMSDK=%s\nEM_CONFIG=%s\n' "$EMSDK" "$config"
             sha256sum "$config"
