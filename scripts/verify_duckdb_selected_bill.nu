@@ -20,7 +20,7 @@ def main [scratch_dir: string, installed_root?: string] {
     let prefix = "third-party-licenses/ui/duckdb-runtime/"
     let names = ($bill.texts | get file | sort)
     if ($names | uniq | length) != 36 { error make {msg: "Duplicate DuckDB legal text path"} }
-    let actual_files = (glob "app/tauri/third-party-licenses/ui/duckdb-runtime/*" | sort)
+    let actual_files = (glob "app/tauri/third-party-licenses/ui/duckdb-runtime/*" | each {|file| $file | path basename} | sort)
     if ($actual_files | length) != 36 { error make {msg: "DuckDB legal directory has missing/extra files"} }
     mkdir $scratch_dir
     for text in $bill.texts {
@@ -41,7 +41,7 @@ def main [scratch_dir: string, installed_root?: string] {
             if $env.LAST_EXIT_CODE != 0 { error make {msg: $"DuckDB installed legal text differs: ($text.file)"} }
         }
     }
-    let expected_files = ($bill.texts | each {|x| $"app/tauri/($x.file)"} | sort)
+    let expected_files = ($bill.texts | each {|x| $x.file | path basename} | sort)
     if $actual_files != $expected_files { error make {msg: "DuckDB legal directory name set mismatch"} }
     let attribution_keys = ($bill.attributions | each {|x| $"($x.surface)|($x.component)|($x.source_url)|($x.file)"})
     if ($attribution_keys | uniq | length) != 38 { error make {msg: "Duplicate DuckDB attribution"} }
