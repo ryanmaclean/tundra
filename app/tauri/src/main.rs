@@ -36,6 +36,10 @@ struct DuckDbSmokeResult {
     aggregate_ok: bool,
     aggregate_observed: Option<String>,
     exception_ok: bool,
+    exception_error_class: Option<String>,
+    exception_error_fragment: Option<String>,
+    recovery_row: Option<String>,
+    recovery_ok: bool,
     smoke_error: Option<String>,
     csp_denied: bool,
     csp_violations: Vec<String>,
@@ -94,6 +98,10 @@ fn cmd_smoke_result(app: tauri::AppHandle, result: DuckDbSmokeResult) -> Result<
             "aggregateOk": result.aggregate_ok,
             "aggregateObserved": result.aggregate_observed.as_deref().unwrap_or("").chars().take(512).collect::<String>(),
             "exceptionOk": result.exception_ok,
+            "exceptionErrorClass": result.exception_error_class.as_deref().unwrap_or("").chars().take(32).collect::<String>(),
+            "exceptionErrorFragment": result.exception_error_fragment.as_deref().unwrap_or("").chars().take(160).collect::<String>(),
+            "recoveryRow": result.recovery_row.as_deref().unwrap_or("").chars().take(96).collect::<String>(),
+            "recoveryOk": result.recovery_ok,
             "smokeError": result.smoke_error.as_deref().unwrap_or("").chars().take(512).collect::<String>(),
             "cspDenied": result.csp_denied,
             "cspViolations": csp_directives,
@@ -121,7 +129,9 @@ const DUCKDB_SMOKE_INIT_SCRIPT: &str = r#"
   window.addEventListener('load', () => setTimeout(async () => {
     const result = {
       ok: false, variant: null, rowCount: 0, answer: null, absentIsNull: false,
-      aggregateOk: false, aggregateObserved: null, exceptionOk: false, smokeError: null,
+      aggregateOk: false, aggregateObserved: null, exceptionOk: false,
+      exceptionErrorClass: 'not-run', exceptionErrorFragment: '',
+      recoveryRow: 'not-run', recoveryOk: false, smokeError: null,
       cspDenied: false, cspViolations: [], localRuntime: false,
       remoteRequests: 0
     };
@@ -169,12 +179,26 @@ const DUCKDB_SMOKE_INIT_SCRIPT: &str = r#"
       const rejected = JSON.parse(await bridge.query_duckdb(
         "SELECT CAST('tundra_invalid_i32' AS INTEGER) AS impossible"
       ));
+      const rejectedError = rejected && !Array.isArray(rejected) &&
+        typeof rejected.error === 'string' ? rejected.error : '';
+      const errorClassMatch = rejectedError.match(
+        /(?:Conversion|Catalog|Binder|Parser|Invalid Input|Internal) Error/
+      );
+      result.exceptionErrorClass = errorClassMatch ? errorClassMatch[0]
+        : (rejectedError ? 'other-error' : 'no-error');
+      result.exceptionErrorFragment = rejectedError.split(/\r?\n/, 1)[0]
+        .replace(/[^\x20-\x7e]/g, '?').slice(0, 160);
       const recovered = await checkedQuery('SELECT CAST(42 AS INTEGER) AS alive');
+      const recoveryRow = Array.isArray(recovered) && recovered.length > 0
+        ? recovered[0] : null;
+      result.recoveryRow = JSON.stringify(recoveryRow).slice(0, 96);
+      result.recoveryOk = Array.isArray(recovered) && recovered.length === 1 &&
+        !!recoveryRow && recoveryRow.alive === 42;
       result.exceptionOk = !!rejected && !Array.isArray(rejected) &&
         typeof rejected.error === 'string' &&
         rejected.error.includes('Conversion Error') &&
         rejected.error.includes('tundra_invalid_i32') &&
-        recovered.length === 1 && recovered[0].alive === 42;
+        result.recoveryOk;
       result.ok = result.ok && result.exceptionOk;
       await new Promise(resolve => setTimeout(resolve, 100));
       result.remoteRequests = performance.getEntriesByType('resource').filter(entry => {
