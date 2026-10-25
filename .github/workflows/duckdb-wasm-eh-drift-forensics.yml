@@ -1,0 +1,217 @@
+name: DuckDB Wasm EH archive member forensic trial
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/duckdb-wasm-eh-drift-forensics.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pinned-eh-rebuild:
+    name: Pinned EH rebuild (${{ matrix.repeat }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    container:
+      image: emscripten/emsdk:3.1.48@sha256:c952f592577a428698cb990c9656f395ae34424740f9c40bed4c3ee6d4850d29
+    env:
+      DUCKDB_EXCEL: "0"
+      DUCKDB_JSON: "0"
+      CCACHE_DISABLE: "1"
+    strategy:
+      fail-fast: false
+      # Green jobs prove receipt generation; compare the two artifacts before claiming reproducibility.
+      matrix:
+        repeat: [a, b]
+    steps:
+      - name: Check out exact Tundra head
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Check out pinned DuckDB Wasm source and submodules
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: duckdb/duckdb-wasm
+          ref: f955138e5218942fb3fb097a8fdcb725222406ff
+          path: duckdb-upstream
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Trust these checked-out paths inside the ephemeral container
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE/duckdb-upstream"
+          while IFS= read -r -d '' directory; do
+            git config --global --add safe.directory "$directory"
+          done < <(find "$GITHUB_WORKSPACE/duckdb-upstream" -type f -name .git -printf '%h\0')
+
+      - name: Record and require pinned source and toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/native-receipt"
+          test "$(git rev-parse HEAD)" = '${{ github.event.pull_request.head.sha || github.sha }}'
+          test "$(git -C duckdb-upstream rev-parse HEAD)" = 'f955138e5218942fb3fb097a8fdcb725222406ff'
+          test "$(git -C duckdb-upstream/submodules/duckdb rev-parse HEAD)" = '401c8061c6ece35949cac58c7770cc755710ca86'
+          test "$(git -C duckdb-upstream/submodules/arrow rev-parse HEAD)" = 'ca1c30f60d6419849dbc2a533bd0bcaff310185f'
+          test "$(git -C duckdb-upstream/submodules/rapidjson rev-parse HEAD)" = '973dc9c06dcd3d035ebd039cfb9ea457721ec213'
+          test -z "$(git -C duckdb-upstream status --porcelain)"
+          git -C duckdb-upstream submodule status --recursive > "$RUNNER_TEMP/native-receipt/submodules.txt"
+          test -z "$(grep '^[+-U]' "$RUNNER_TEMP/native-receipt/submodules.txt" || true)"
+          sha256sum duckdb-upstream/duckdb.patch > "$RUNNER_TEMP/native-receipt/patch.sha256"
+          emcc --version | grep -Fq '3.1.48'
+          em++ --version | grep -Fq '3.1.48'
+          test -n "${EMSDK:-}"
+          wasm_ld="$EMSDK/upstream/bin/wasm-ld"
+          test -x "$wasm_ld"
+          config="${EM_CONFIG:-${EMSDK}/.emscripten}"
+          test -s "$config"
+          {
+            printf 'tundra_head=%s\nupstream_head=%s\nvariant=eh\nrepeat=%s\n' \
+              "$(git rev-parse HEAD)" "$(git -C duckdb-upstream rev-parse HEAD)" '${{ matrix.repeat }}'
+            printf 'container=emscripten/emsdk:3.1.48@sha256:c952f592577a428698cb990c9656f395ae34424740f9c40bed4c3ee6d4850d29\n'
+            printf 'DUCKDB_EXCEL=%s\nDUCKDB_JSON=%s\nCCACHE_DISABLE=%s\n' \
+              "$DUCKDB_EXCEL" "$DUCKDB_JSON" "$CCACHE_DISABLE"
+            uname -a
+            command -v emcc em++ emcmake cmake make
+            emcc --version
+            em++ --version
+            printf 'wasm_ld=%s\n' "$wasm_ld"
+            "$wasm_ld" --version
+            cmake --version
+            printf 'EMSDK=%s\nEM_CONFIG=%s\n' "$EMSDK" "$config"
+            sha256sum "$config"
+          } > "$RUNNER_TEMP/native-receipt/toolchain.txt"
+          test ! -e duckdb-upstream/.ccache/extension/json
+          test ! -e duckdb-upstream/.ccache/extension/excel
+          git -C duckdb-upstream/submodules/duckdb apply --check ../../duckdb.patch
+          git -C duckdb-upstream/submodules/duckdb apply ../../duckdb.patch
+          git -C duckdb-upstream/submodules/duckdb diff --binary \
+            > "$RUNNER_TEMP/native-receipt/duckdb-applied.patch"
+          test -s "$RUNNER_TEMP/native-receipt/duckdb-applied.patch"
+
+      - name: Build EH once and retain native member receipts
+        shell: bash
+        run: |
+          set -euo pipefail
+          variant=eh
+          build="$GITHUB_WORKSPACE/duckdb-upstream/build/relperf/$variant"
+          map="$RUNNER_TEMP/native-receipt/duckdb-$variant.map"
+          mkdir -p "$build"
+          flags=(
+            -DCMAKE_BUILD_TYPE=Release
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+            -DDUCKDB_WASM_VERSION=v1.28.0
+            "-DDUCKDB_LOCATION=$GITHUB_WORKSPACE/duckdb-upstream/submodules/duckdb"
+            "-DCMAKE_EXE_LINKER_FLAGS=-Wl,-Map,$map"
+          )
+          flags+=(-DWITH_WASM_EXCEPTIONS=1 -DDUCKDB_CUSTOM_PLATFORM=wasm_eh)
+          emcmake cmake -S duckdb-upstream/lib -B "$build" "${flags[@]}"
+          emmake make -C "$build" -j4 duckdb_wasm
+          test -s "$build/duckdb_wasm.wasm"
+          test -s "$build/duckdb_wasm.js"
+          test -s "$map"
+          test -s "$build/compile_commands.json"
+          test -s "$build/CMakeCache.txt"
+          test -s "$build/CMakeFiles/duckdb_wasm.dir/link.txt"
+          grep -Fq '@CMakeFiles/duckdb_wasm.dir/objects1.rsp' "$build/CMakeFiles/duckdb_wasm.dir/link.txt"
+          grep -Fq '@CMakeFiles/duckdb_wasm.dir/linklibs.rsp' "$build/CMakeFiles/duckdb_wasm.dir/link.txt"
+          objects_rsp="$build/CMakeFiles/duckdb_wasm.dir/objects1.rsp"
+          linklibs_rsp="$build/CMakeFiles/duckdb_wasm.dir/linklibs.rsp"
+          test -s "$objects_rsp"
+          test -s "$linklibs_rsp"
+          grep -Eq '(^|/).*\.o([):[:space:]]|$)' "$map"
+          cp "$build/compile_commands.json" "$RUNNER_TEMP/native-receipt/compile_commands.json"
+          cp "$build/CMakeCache.txt" "$RUNNER_TEMP/native-receipt/CMakeCache.txt"
+          cp "$build/CMakeFiles/duckdb_wasm.dir/link.txt" "$RUNNER_TEMP/native-receipt/link.txt"
+          cp "$objects_rsp" "$RUNNER_TEMP/native-receipt/objects1.rsp"
+          cp "$linklibs_rsp" "$RUNNER_TEMP/native-receipt/linklibs.rsp"
+          cp "$build/duckdb_wasm.wasm" "$RUNNER_TEMP/native-receipt/duckdb-$variant.wasm"
+          cp "$build/duckdb_wasm.js" "$RUNNER_TEMP/native-receipt/duckdb-$variant.js"
+          find "$build" -type f -name '*.a' -print0 | sort -z | xargs -0 -r sha256sum \
+            > "$RUNNER_TEMP/native-receipt/static-archives.sha256"
+          find "$build" -type f -name '*.d' -printf '%P\0' | sort -z \
+            | tar -C "$build" --null -czf "$RUNNER_TEMP/native-receipt/depfiles.tar.gz" -T -
+          test -s "$RUNNER_TEMP/native-receipt/static-archives.sha256"
+          test -s "$RUNNER_TEMP/native-receipt/depfiles.tar.gz"
+          # Hash every member so a whole-archive change can be separated from
+          # a change to one of the members actually selected by the link map.
+          duckdb_archive="$build/third_party/duckdb/install/lib/libduckdb_static.a"
+          duckdb_alias="$build/third_party/duckdb/install/lib/libduckdb.a"
+          test -s "$duckdb_archive"
+          test -s "$duckdb_alias"
+          command -v emar
+          emar --version > "$RUNNER_TEMP/native-receipt/emar-version.txt"
+          stat -c '%n size=%s inode=%i links=%h' "$duckdb_archive" "$duckdb_alias" \
+            > "$RUNNER_TEMP/native-receipt/duckdb-archive-stat.txt"
+          readlink -f "$duckdb_archive" "$duckdb_alias" \
+            > "$RUNNER_TEMP/native-receipt/duckdb-archive-paths.txt"
+          sha256sum "$duckdb_archive" "$duckdb_alias" \
+            > "$RUNNER_TEMP/native-receipt/duckdb-archive.sha256"
+          emar t "$duckdb_archive" > "$RUNNER_TEMP/native-receipt/duckdb-members.txt"
+          test -s "$RUNNER_TEMP/native-receipt/duckdb-members.txt"
+          LC_ALL=C sort "$RUNNER_TEMP/native-receipt/duckdb-members.txt" \
+            > "$RUNNER_TEMP/native-receipt/duckdb-members.sorted.txt"
+          uniq -d "$RUNNER_TEMP/native-receipt/duckdb-members.sorted.txt" \
+            > "$RUNNER_TEMP/native-receipt/duckdb-members.duplicates.txt"
+          if test -s "$RUNNER_TEMP/native-receipt/duckdb-members.duplicates.txt"; then
+            echo 'Duplicate DuckDB archive member names need index-aware extraction' >&2
+            exit 1
+          fi
+          if grep -Eq '[[:space:]]' "$RUNNER_TEMP/native-receipt/duckdb-members.txt"; then
+            echo 'Unexpected whitespace in DuckDB archive member name' >&2
+            exit 1
+          fi
+          member_extract="$RUNNER_TEMP/duckdb-member-extract"
+          mkdir -p "$member_extract"
+          (cd "$member_extract" && emar x "$duckdb_archive")
+          (cd "$member_extract" && find . -type f -printf '%P\n' | LC_ALL=C sort) \
+            > "$RUNNER_TEMP/native-receipt/duckdb-members.extracted.txt"
+          diff -u "$RUNNER_TEMP/native-receipt/duckdb-members.sorted.txt" \
+            "$RUNNER_TEMP/native-receipt/duckdb-members.extracted.txt"
+          (cd "$member_extract" && find . -type f -printf '%P\0' | LC_ALL=C sort -z \
+            | xargs -0 -r sha256sum) \
+            > "$RUNNER_TEMP/native-receipt/duckdb-members.sha256"
+          cut -c 67- "$RUNNER_TEMP/native-receipt/duckdb-members.sha256" \
+            | diff -u "$RUNNER_TEMP/native-receipt/duckdb-members.sorted.txt" -
+          grep -oE 'libduckdb_static\.a\([^)]+' "$map" | sed 's/.*(//' \
+            | LC_ALL=C sort -u > "$RUNNER_TEMP/native-receipt/duckdb-map-selected-members.txt"
+          test -s "$RUNNER_TEMP/native-receipt/duckdb-map-selected-members.txt"
+          awk 'NR==FNR { wanted[$0]=1; next } { name=substr($0,67); if (name in wanted) { print; seen[name]=1 } } END { for (name in wanted) if (!(name in seen)) exit 1 }' \
+            "$RUNNER_TEMP/native-receipt/duckdb-map-selected-members.txt" \
+            "$RUNNER_TEMP/native-receipt/duckdb-members.sha256" \
+            > "$RUNNER_TEMP/native-receipt/duckdb-map-selected-members.sha256"
+          test "$(wc -l < "$RUNNER_TEMP/native-receipt/duckdb-map-selected-members.txt")" \
+            -eq "$(wc -l < "$RUNNER_TEMP/native-receipt/duckdb-map-selected-members.sha256")"
+          # Hash the SDK archives actually selected by wasm-ld, not every cached SDK archive.
+          grep -oE '/emsdk/upstream/emscripten/cache/sysroot/[^[:space:]():]+\.a' "$map" \
+            | LC_ALL=C sort -u > "$RUNNER_TEMP/native-receipt/selected-sdk-archives.txt"
+          test -s "$RUNNER_TEMP/native-receipt/selected-sdk-archives.txt"
+          while IFS= read -r archive; do
+            test -f "$archive"
+            sha256sum "$archive"
+          done < "$RUNNER_TEMP/native-receipt/selected-sdk-archives.txt" \
+            > "$RUNNER_TEMP/native-receipt/selected-sdk-archives.sha256"
+          test -s "$RUNNER_TEMP/native-receipt/selected-sdk-archives.sha256"
+          sha256sum "$RUNNER_TEMP/native-receipt/objects1.rsp" \
+            "$RUNNER_TEMP/native-receipt/linklibs.rsp" \
+            > "$RUNNER_TEMP/native-receipt/link-response-files.sha256"
+          sha256sum "$RUNNER_TEMP/native-receipt/duckdb-$variant.wasm" "$map" \
+            > "$RUNNER_TEMP/native-receipt/output.sha256"
+          test ! -e duckdb-upstream/.ccache/extension/json
+          test ! -e duckdb-upstream/.ccache/extension/excel
+
+      - name: Retain EH forensic trial
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: duckdb-eh-forensic-${{ matrix.repeat }}
+          path: ${{ runner.temp }}/native-receipt/
+          if-no-files-found: warn
+          retention-days: 14
