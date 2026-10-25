@@ -61,9 +61,7 @@ def package_id [row: record] {
 }
 
 def safe_resource [file: string] {
-    ($file | str starts-with 'app/tauri/third-party-licenses/selected/') and
-    (not ($file | str contains '/../')) and
-    ($file =~ '^app/tauri/third-party-licenses/selected/[A-Za-z0-9._/-]+$')
+    ($file | str starts-with 'app/tauri/third-party-licenses/selected/') and (not ($file | str contains '/../')) and ($file =~ '^app/tauri/third-party-licenses/selected/[A-Za-z0-9._/-]+$')
 }
 
 def main [
@@ -160,10 +158,7 @@ def main [
             if ($item.source_kind in ['crate' 'vcs-root' 'vcs-tag' 'standard-apache']) and (not (safe_resource $item.file)) {
                 fail $'Unsafe selected legal-text resource path: ($id)'
             }
-            if $item.source_kind == 'verified-exception' and (
-                not ($item.file | str starts-with 'app/tauri/third-party-licenses/') or
-                ($item.file | str contains '/../')
-            ) { fail $'Unsafe exception legal-text resource path: ($id)' }
+            if $item.source_kind == 'verified-exception' and (not ($item.file | str starts-with 'app/tauri/third-party-licenses/') or ($item.file | str contains '/../')) { fail $'Unsafe exception legal-text resource path: ($id)' }
             if not ($item.text_sha256 =~ '^[0-9a-f]{64}$') { fail $'Invalid legal-text digest: ($id)' }
             if (sha256 $item.file) != $item.text_sha256 { fail $'Legal-text digest mismatch: ($id)' }
             if $item.source_kind == 'crate' {
@@ -175,18 +170,11 @@ def main [
                     fail $'Crate member extraction or source/text byte mismatch: ($id)'
                 }
             } else if $item.source_kind == 'verified-exception' {
-                let exact = ($exception_manifest.entries | where {|e|
-                    $e.name == $row.name and $e.version == $row.version and
-                    $e.crate_sha256 == $entry.lock_checksum and $e.text_sha256 == $item.text_sha256 and
-                    $e.file == $item.file
-                })
+                let exact = ($exception_manifest.entries | where {|e| $e.name == $row.name and $e.version == $row.version and $e.crate_sha256 == $entry.lock_checksum and $e.text_sha256 == $item.text_sha256 and $e.file == $item.file })
                 if ($exact | length) != 1 { fail $'Existing exception custody mismatch: ($id)' }
                 # The separate exact-notice-custody job verifies its official/crate bytes.
             } else if $item.source_kind in ['vcs-root' 'vcs-tag'] {
-                if not ($item.vcs_repo =~ '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$') or
-                    not ($item.vcs_commit =~ '^[0-9a-f]{40}$') or
-                    not ($item.vcs_license_path =~ '^[A-Za-z0-9._/-]+$') or
-                    ($item.vcs_license_path | str contains '/../') {
+                if not ($item.vcs_repo =~ '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$') or not ($item.vcs_commit =~ '^[0-9a-f]{40}$') or not ($item.vcs_license_path =~ '^[A-Za-z0-9._/-]+$') or ($item.vcs_license_path | str contains '/../') {
                     fail $'Unsafe upstream legal-text identity: ($id)'
                 }
                 if $item.source_kind == 'vcs-root' {
@@ -238,27 +226,9 @@ def main [
                 let text_url = $'https://raw.githubusercontent.com/($item.vcs_repo)/($item.vcs_commit)/($item.vcs_license_path)'
                 if not (fetch_matches_file $text_url $item.file) { fail $'Pinned upstream legal-text byte mismatch: ($id)' }
             } else if $item.source_kind == 'standard-apache' {
-                let exact_eventsource = (
-                    $row.name == 'eventsource-stream' and
-                    $row.version == '0.2.3' and
-                    $row.source == 'registry+https://github.com/rust-lang/crates.io-index' and
-                    $entry.lock_checksum == '74fef4569247a5f429d9156b9d0a2599914385dd189c539334c625d8099d90ab' and
-                    $row.license == 'MIT OR Apache-2.0'
-                )
-                let exact_http_serde = (
-                    $row.name == 'http-serde' and
-                    $row.version == '2.1.1' and
-                    $row.source == 'registry+https://github.com/rust-lang/crates.io-index' and
-                    $entry.lock_checksum == '0f056c8559e3757392c8d091e796416e4649d8e49e88b8d76df6c002f05027fd' and
-                    $row.license == 'Apache-2.0 OR MIT'
-                )
-                if $item.official_url != 'https://www.apache.org/licenses/LICENSE-2.0.txt' or
-                    $item.file != 'app/tauri/third-party-licenses/selected/standard/Apache-2.0.txt' or
-                    $item.text_sha256 != 'cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30' or
-                    $entry.selected_license_ids != ['Apache-2.0'] or
-                    $item.declared_license != $row.license or
-                    $item.crate_manifest_member != $'($row.name)-($row.version)/Cargo.toml' or
-                    not ($exact_eventsource or $exact_http_serde) {
+                let exact_eventsource = ($row.name == 'eventsource-stream' and $row.version == '0.2.3' and $row.source == 'registry+https://github.com/rust-lang/crates.io-index' and $entry.lock_checksum == '74fef4569247a5f429d9156b9d0a2599914385dd189c539334c625d8099d90ab' and $row.license == 'MIT OR Apache-2.0')
+                let exact_http_serde = ($row.name == 'http-serde' and $row.version == '2.1.1' and $row.source == 'registry+https://github.com/rust-lang/crates.io-index' and $entry.lock_checksum == '0f056c8559e3757392c8d091e796416e4649d8e49e88b8d76df6c002f05027fd' and $row.license == 'Apache-2.0 OR MIT')
+                if $item.official_url != 'https://www.apache.org/licenses/LICENSE-2.0.txt' or $item.file != 'app/tauri/third-party-licenses/selected/standard/Apache-2.0.txt' or $item.text_sha256 != 'cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30' or $entry.selected_license_ids != ['Apache-2.0'] or $item.declared_license != $row.license or $item.crate_manifest_member != $'($row.name)-($row.version)/Cargo.toml' or not ($exact_eventsource or $exact_http_serde) {
                     fail $'Unreviewed standard Apache-2.0 treatment: ($id)'
                 }
                 let manifest_file = (new_temp)
@@ -272,15 +242,11 @@ def main [
                 }
                 let crate_manifest = (open --raw $manifest_file | from toml)
                 ^rm --force -- $manifest_file
-                if $crate_manifest.package.name != $row.name or
-                    $crate_manifest.package.version != $row.version or
-                    $crate_manifest.package.license != $item.declared_license or
-                    $crate_manifest.package.authors != $item.declared_authors {
+                if $crate_manifest.package.name != $row.name or $crate_manifest.package.version != $row.version or $crate_manifest.package.license != $item.declared_license or $crate_manifest.package.authors != $item.declared_authors {
                     fail $'Crate license declaration mismatch for standard text: ($id)'
                 }
                 if $row.name == 'eventsource-stream' {
-                    if $item.crate_readme_member != 'eventsource-stream-0.2.3/README.md' or
-                        $item.readme_license_statement != 'License: MIT OR Apache-2.0' {
+                    if $item.crate_readme_member != 'eventsource-stream-0.2.3/README.md' or $item.readme_license_statement != 'License: MIT OR Apache-2.0' {
                         fail $'Wrong eventsource README custody selector: ($id)'
                     }
                     let readme_file = (new_temp)
