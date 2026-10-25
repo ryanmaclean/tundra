@@ -41,6 +41,11 @@ jobs:
         run: |
           test -s dist/index.html
           find dist -type f -name '*.wasm' -size +0c | grep -q .
+          test "$(find fonts -maxdepth 1 -type f -name '*.woff2' | wc -l)" -eq 6
+          while IFS= read -r -d '' font; do
+            test -s "dist/$font"
+            cmp "$font" "dist/$font"
+          done < <(find fonts -maxdepth 1 -type f -name '*.woff2' -print0)
           find dist -maxdepth 2 -type f -print | sort
 
       - name: Retain generated UI assets
