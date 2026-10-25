@@ -176,6 +176,11 @@ jobs:
             build-essential curl file libayatana-appindicator3-dev libgtk-3-dev \
             librsvg2-dev libssl-dev libwebkit2gtk-4.1-dev libxdo-dev \
             patchelf pkg-config wget
+      - name: Install ALSA development files for sounds build
+        if: matrix.profile == 'sounds'
+        run: |
+          sudo apt-get install -y --no-install-recommends libasound2-dev
+          pkg-config --modversion alsa
       - name: Install Rust toolchain and WASM target
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -216,6 +221,7 @@ jobs:
           fi
           test -s target/release/auto-tundra
       - name: Verify nine license resources inside built .deb
+        id: verify_deb_resources
         shell: bash
         run: |
           set -euo pipefail
@@ -255,6 +261,42 @@ jobs:
           if [[ '${{ matrix.profile }}' == sounds ]]; then tauri_features=sounds; else tauri_features=default; fi
           printf 'head_sha=%s\nprofile=%s\ntauri_features=%s\n' \
             '${{ github.event.pull_request.head.sha }}' '${{ matrix.profile }}' "$tauri_features" > "$RUNNER_TEMP/installer-source.txt"
+      - name: Capture unapproved bundle-byte diagnostic after failed verification
+        if: ${{ failure() && steps.verify_deb_resources.outcome == 'failure' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          out="$RUNNER_TEMP/unapproved-bundle-byte-${{ matrix.profile }}"
+          mkdir -p "$out/extracted"
+          debs=(target/release/bundle/deb/*.deb)
+          test "${#debs[@]}" -eq 1
+          test -s target/release/auto-tundra
+          cp "${debs[0]}" "$out/installer.deb"
+          cp target/release/auto-tundra "$out/workspace-auto-tundra"
+          dpkg-deb -x "$out/installer.deb" "$out/extracted"
+          mapfile -d '' bins < <(find "$out/extracted" -type f -name auto-tundra -print0)
+          test "${#bins[@]}" -eq 1
+          cp "${bins[0]}" "$out/installed-auto-tundra"
+          rm -rf "$out/extracted"
+          (cd "$out" && sha256sum installer.deb workspace-auto-tundra installed-auto-tundra > SHA256SUMS)
+          if cmp "$out/workspace-auto-tundra" "$out/installed-auto-tundra" > "$out/cmp.txt" 2>&1; then
+            printf 'cmp_exit=0\n' >> "$out/cmp.txt"
+          else
+            printf 'cmp_exit=%s\n' "$?" >> "$out/cmp.txt"
+          fi
+          file "$out/workspace-auto-tundra" "$out/installed-auto-tundra" > "$out/file.txt"
+          dpkg-deb -f "$out/installer.deb" > "$out/control-fields.txt"
+          printf 'head_sha=%s\nprofile=%s\nverification=FAILED_UNAPPROVED\n' \
+            '${{ github.event.pull_request.head.sha }}' '${{ matrix.profile }}' > "$out/source.txt"
+      - name: Upload unapproved bundle-byte diagnostic
+        if: ${{ failure() && steps.verify_deb_resources.outcome == 'failure' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: UNAPPROVED-bundle-byte-diagnostic-${{ matrix.profile }}
+          path: ${{ runner.temp }}/unapproved-bundle-byte-${{ matrix.profile }}/*
+          if-no-files-found: error
+          retention-days: 14
       - name: Retain built installer and byte-comparison receipt
         uses: actions/upload-artifact@v4
         with:
