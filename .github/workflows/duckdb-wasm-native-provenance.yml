@@ -104,6 +104,28 @@ jobs:
             > "$RUNNER_TEMP/native-receipt/duckdb-applied.patch"
           test -s "$RUNNER_TEMP/native-receipt/duckdb-applied.patch"
 
+      - name: Smoke pinned compiler checkout with pinned SDK config
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdk_source="$GITHUB_WORKSPACE/emscripten-source"
+          test "$(git -C "$sdk_source" rev-parse HEAD)" = 'e967e20b4727956a30592165a3c1cde5c67fa0a8'
+          config="${EM_CONFIG:-$EMSDK/.emscripten}"
+          test -s "$config"
+          export EM_CONFIG="$config"
+          export PATH="$sdk_source:$PATH"
+          test "$(command -v emcc)" = "$sdk_source/emcc"
+          test "$(command -v em++)" = "$sdk_source/em++"
+          test "$(command -v emcmake)" = "$sdk_source/emcmake"
+          test "$(command -v emmake)" = "$sdk_source/emmake"
+          emcc --version > "$RUNNER_TEMP/native-receipt/sdk-source-emcc-version.txt"
+          grep -Fq '3.1.48' "$RUNNER_TEMP/native-receipt/sdk-source-emcc-version.txt"
+          em++ --version > "$RUNNER_TEMP/native-receipt/sdk-source-empp-version.txt"
+          grep -Fq '3.1.48' "$RUNNER_TEMP/native-receipt/sdk-source-empp-version.txt"
+          printf 'EM_CONFIG=%s\nsource_emcc=%s/emcc\n' "$config" "$sdk_source" \
+            > "$RUNNER_TEMP/native-receipt/sdk-source-config.txt"
+          sha256sum "$config" > "$RUNNER_TEMP/native-receipt/sdk-source-config.sha256"
+
       - name: Build one ordinary relperf variant with retained link map
         shell: bash
         run: |
@@ -201,6 +223,8 @@ jobs:
           test "$(git -C "$sdk_source" rev-parse HEAD)" = "$source_commit"
           git -C "$sdk_source" diff --quiet
           git -C "$sdk_source" diff --cached --quiet
+          export EM_CONFIG="${EM_CONFIG:-$EMSDK/.emscripten}"
+          sha256sum -c "$receipt/sdk-source-config.sha256"
           export PATH="$sdk_source:$PATH"
           test "$(command -v emcc)" = "$sdk_source/emcc"
           test "$(command -v em++)" = "$sdk_source/em++"
