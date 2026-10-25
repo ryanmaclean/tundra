@@ -419,8 +419,138 @@ jobs:
             '${{ github.event.pull_request.head.sha }}' '${{ matrix.profile }}' "$expected_notice" "${installed_notices[0]#"$root"/}" \
             > "$RUNNER_TEMP/inter-installed-notice.txt"
           sha256sum "${installed_bins[0]}" "${debs[0]}" >> "$RUNNER_TEMP/inter-installed-notice.txt"
+      - name: Verify copied UI sources and installed legal notices
+        id: verify_other_ui_notices
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = '${{ github.event.pull_request.head.sha }}'
+          manifest=app/tauri/third-party-licenses/ui/verified-source-manifest.json
+          # Constants below bind this review to exact source/legal bytes, not to
+          # editable expectations read from the manifest itself. A later source
+          # change must receive a new provenance review and updated pins.
+          printf '%s  %s\n' 'e2bdd6e199cdb6f5c392f58aa3c6db20fb70417f7e2ded93c84e6ab356d75940' "$manifest" | sha256sum --check --status
+          diff -u \
+            <(printf '%s\n' \
+              'app/leptos-ui/vendor/xterm/xterm.js' \
+              'app/leptos-ui/vendor/xterm/xterm.css' \
+              'app/leptos-ui/vendor/xterm/addon-fit.js' \
+              'app/leptos-ui/fonts/jetbrains-mono-400.woff2' \
+              'app/leptos-ui/fonts/jetbrains-mono-500.woff2' | sort) \
+            <(jq -r '.verified_copied_inputs[].path' "$manifest" | sort)
+          diff -u \
+            <(printf '%s\n' \
+              'app/tauri/third-party-licenses/ui/Xterm-Core-MIT.txt' \
+              'app/tauri/third-party-licenses/ui/Xterm-Fit-MIT.txt' \
+              'app/tauri/third-party-licenses/ui/JetBrains-Mono-OFL-1.1.txt' | sort) \
+            <(jq -r '.legal_texts[].path' "$manifest" | sort)
+          diff -u \
+            <(printf '%s\n' \
+              'app/leptos-ui/duckdb-bridge.js' \
+              'app/leptos-ui/public/js/duckdb.js' | sort) \
+            <(jq -r '.unresolved[].path' "$manifest" | sort)
+          printf '%s  %s\n' \
+            'b569f629d00f2626a8100df2a1798210535621e42164dfd426a6fe5aac7b0ccd' 'app/tauri/third-party-licenses/ui/Xterm-Core-MIT.txt' \
+            'e256f01188af527e4d06d21d06fbf785ae9c50d4b328bf03cbe0ba7f0aa4228f' 'app/tauri/third-party-licenses/ui/Xterm-Fit-MIT.txt' \
+            'b2fe5e8987594e9ffd1d2ca52a2f5d73eb8335243893c5d6254b5ad69269591d' 'app/tauri/third-party-licenses/ui/JetBrains-Mono-OFL-1.1.txt' \
+            | sha256sum --check --status
+          test "$(git hash-object app/leptos-ui/vendor/xterm/xterm.js)" = '7ca75f8e5ec2a0741333130fd63fb9c79d9c2023'
+          test "$(git hash-object app/leptos-ui/vendor/xterm/xterm.css)" = 'e97b6439055da076119d8ce42225944623b80e9b'
+          test "$(git hash-object app/leptos-ui/vendor/xterm/addon-fit.js)" = '038897193db54dd0f09783d53e602755b93a2eaf'
+          test "$(git hash-object app/leptos-ui/fonts/jetbrains-mono-400.woff2)" = '2ca6ac605954ee884442db8ea1d61093000bcc29'
+          test "$(git hash-object app/leptos-ui/fonts/jetbrains-mono-500.woff2)" = '2ca6ac605954ee884442db8ea1d61093000bcc29'
+          test "$(git hash-object app/leptos-ui/index.html)" = '8a3f8e905e7c69bbabfb31db81ab11b53109ad83'
+          printf '%s  %s\n' '74649fe2b64c8a7b92be6fd2492d4e6978e3526224f227efd7f3efad80017d86' 'app/leptos-ui/index.html' | sha256sum --check --status
+          test "$(git hash-object app/leptos-ui/duckdb-bridge.js)" = '2050a25f228d63aded0f6d54104997637d9432b4'
+          test "$(git hash-object app/leptos-ui/public/js/duckdb.js)" = 'c055941d2465ab22826e1446369927a33f6bc422'
+          jq -e '
+            (.unresolved | length) == 2 and
+            (.unresolved[0] == {
+              path: "app/leptos-ui/duckdb-bridge.js",
+              git_blob: "2050a25f228d63aded0f6d54104997637d9432b4",
+              reason: "The hardcoded duckdb-browser-blocking.js URL is absent from official @duckdb/duckdb-wasm@1.28.0 tarball; runtime CDN bytes and transitive notices are not proved."
+            }) and
+            (.unresolved[1] == {
+              path: "app/leptos-ui/public/js/duckdb.js",
+              git_blob: "c055941d2465ab22826e1446369927a33f6bc422",
+              reason: "Not referenced by index.html; Trunk inclusion and generated CDN +esm byte custody are unproved."
+            })
+          ' "$manifest"
+          jq -e '
+            .schema == "tundra-ui-source-notice/v1" and
+            .trunk_entrypoint.path == "app/leptos-ui/index.html" and
+            .trunk_entrypoint.git_blob == "8a3f8e905e7c69bbabfb31db81ab11b53109ad83" and
+            .trunk_entrypoint.sha256 == "74649fe2b64c8a7b92be6fd2492d4e6978e3526224f227efd7f3efad80017d86" and
+            (.verified_copied_inputs | length) == 5 and
+            (.legal_texts | length) == 3 and
+            ([.verified_copied_inputs[].path] | unique | length) == 5 and
+            ([.legal_texts[].path] | unique | length) == 3 and
+            all(.verified_copied_inputs[]; (.git_blob | test("^[0-9a-f]{40}$")) and (.sha256 | test("^[0-9a-f]{64}$"))) and
+            all(.legal_texts[]; (.sha256 | test("^[0-9a-f]{64}$")))
+          ' "$manifest"
+          jq -e '.build.frontendDist == "../leptos-ui/dist" and (.bundle.resources | index("third-party-licenses/") != null)' app/tauri/tauri.conf.json
+          source_receipt="$RUNNER_TEMP/ui-copied-source-proof.tsv"
+          : > "$source_receipt"
+          while IFS=$'\t' read -r source expected_blob expected_sha; do
+            case "$source" in
+              app/leptos-ui/vendor/xterm/*|app/leptos-ui/fonts/jetbrains-mono-*.woff2) ;;
+              *) echo "Unexpected copied UI source: $source" >&2; exit 1 ;;
+            esac
+            test "$(git hash-object "$source")" = "$expected_blob"
+            printf '%s  %s\n' "$expected_sha" "$source" | sha256sum --check --status
+            printf '%s\t%s\t%s\n' "$source" "$expected_blob" "$expected_sha" >> "$source_receipt"
+          done < <(jq -r '.verified_copied_inputs[] | [.path,.git_blob,.sha256] | @tsv' "$manifest")
+          test "$(wc -l < "$source_receipt")" -eq 5
+          root="$RUNNER_TEMP/tundra-deb-root"
+          test -d "$root"
+          notice_receipt="$RUNNER_TEMP/ui-installed-notices.tsv"
+          : > "$notice_receipt"
+          while IFS=$'\t' read -r source expected; do
+            case "$source" in
+              app/tauri/third-party-licenses/ui/*) ;;
+              *) echo "Unexpected UI legal path: $source" >&2; exit 1 ;;
+            esac
+            printf '%s  %s\n' "$expected" "$source" | sha256sum --check --status
+            relative="${source#app/tauri/third-party-licenses/}"
+            mapfile -d '' matches < <(find "$root" -type f -path "*/third-party-licenses/$relative" -print0)
+            test "${#matches[@]}" -eq 1
+            printf '%s  %s\n' "$expected" "${matches[0]}" | sha256sum --check --status
+            cmp "$source" "${matches[0]}"
+            printf '%s\t%s\t%s\n' "$relative" "$expected" "${matches[0]#"$root"/}" >> "$notice_receipt"
+          done < <(jq -r '.legal_texts[] | [.path,.sha256] | @tsv' "$manifest")
+          test "$(wc -l < "$notice_receipt")" -eq 3
+          mapfile -d '' installed_manifests < <(find "$root" -type f -path '*/third-party-licenses/ui/verified-source-manifest.json' -print0)
+          test "${#installed_manifests[@]}" -eq 1
+          cmp "$manifest" "${installed_manifests[0]}"
+          printf '%s  %s\n' "$(sha256sum "$manifest" | cut -d ' ' -f 1)" "${installed_manifests[0]}" | sha256sum --check --status
+          shopt -s nullglob
+          debs=(target/release/bundle/deb/*.deb)
+          test "${#debs[@]}" -eq 1
+          dist=app/leptos-ui/dist
+          test -s "$dist/index.html"
+          mapfile -d '' css_files < <(find "$dist" -type f -name '*.css' -print0)
+          test "${#css_files[@]}" -ge 1
+          generated="$RUNNER_TEMP/ui-jetbrains-generated.tsv"
+          : > "$generated"
+          while IFS=$'\t' read -r source expected; do
+            mapfile -t hits < <(awk -F '\t' -v hash="$expected" '$1 == hash { print $2 }' "$RUNNER_TEMP/inter-dist-sha256.tsv")
+            test "${#hits[@]}" -ge 1
+            css_ref=0
+            for asset in "${hits[@]}"; do
+              basename="${asset##*/}"
+              for css in "${css_files[@]}"; do
+                if grep -aFq -- "$basename" "$css"; then css_ref=1; fi
+              done
+            done
+            test "$css_ref" -eq 1
+            printf '%s\t%s\t%s\n' "$source" "$expected" "${hits[0]#"$dist"/}" >> "$generated"
+          done < <(jq -r '.verified_copied_inputs[] | select(.path | contains("jetbrains-mono")) | [.path,.sha256] | @tsv' "$manifest")
+          test "$(wc -l < "$generated")" -eq 2
+          printf 'head_sha=%s\nprofile=%s\ncoverage=source-and-legal-readback-only\n' \
+            '${{ github.event.pull_request.head.sha }}' '${{ matrix.profile }}' > "$RUNNER_TEMP/ui-notice-source.txt"
+          sha256sum "$manifest" "${installed_manifests[0]}" "${debs[0]}" >> "$RUNNER_TEMP/ui-notice-source.txt"
       - name: Capture unapproved bundle-byte diagnostic after failed verification
-        if: ${{ failure() && (steps.verify_deb_resources.outcome == 'failure' || steps.verify_selected_bill.outcome == 'failure' || steps.verify_inter_ui.outcome == 'failure') }}
+        if: ${{ failure() && (steps.verify_deb_resources.outcome == 'failure' || steps.verify_selected_bill.outcome == 'failure' || steps.verify_inter_ui.outcome == 'failure' || steps.verify_other_ui_notices.outcome == 'failure') }}
         shell: bash
         run: |
           set -euo pipefail
@@ -448,7 +578,7 @@ jobs:
           printf 'head_sha=%s\nprofile=%s\nverification=FAILED_UNAPPROVED\n' \
             '${{ github.event.pull_request.head.sha }}' '${{ matrix.profile }}' > "$out/source.txt"
       - name: Upload unapproved bundle-byte diagnostic
-        if: ${{ failure() && (steps.verify_deb_resources.outcome == 'failure' || steps.verify_selected_bill.outcome == 'failure' || steps.verify_inter_ui.outcome == 'failure') }}
+        if: ${{ failure() && (steps.verify_deb_resources.outcome == 'failure' || steps.verify_selected_bill.outcome == 'failure' || steps.verify_inter_ui.outcome == 'failure' || steps.verify_other_ui_notices.outcome == 'failure') }}
         uses: actions/upload-artifact@v4
         with:
           name: UNAPPROVED-bundle-byte-diagnostic-${{ matrix.profile }}
@@ -476,6 +606,11 @@ jobs:
             ${{ runner.temp }}/inter-dist-sha256.tsv
             ${{ runner.temp }}/inter-dist-source-proof.tsv
             ${{ runner.temp }}/inter-installed-notice.txt
+            ${{ runner.temp }}/ui-copied-source-proof.tsv
+            ${{ runner.temp }}/ui-installed-notices.tsv
+            ${{ runner.temp }}/ui-jetbrains-generated.tsv
+            ${{ runner.temp }}/ui-notice-source.txt
+            app/tauri/third-party-licenses/ui/verified-source-manifest.json
             app/tauri/third-party-licenses/selected-notice-bill.json
           if-no-files-found: error
           retention-days: 14
