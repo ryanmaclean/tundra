@@ -1,7 +1,7 @@
 name: DuckDB replacement installed WebKit trial
 
-# Technical-only trial. The legacy strict-licenses job retains PR115's bridge
-# blob and npm runtime bill pins; its expected failure is not product acceptance.
+# Technical-only trial retained for comparison. The selected notice bill keeps
+# admission NO while generated-glue and SDK source provenance remain unresolved.
 
 on:
   pull_request:
@@ -210,14 +210,14 @@ jobs:
               >> "$RUNNER_TEMP/replacement-receipt/five-joins.tsv"
           done < "$RUNNER_TEMP/replacement-receipt/five-assets.sha256"
           test "$(wc -l < "$RUNNER_TEMP/replacement-receipt/five-joins.tsv")" -eq 5
-          printf 'trial_head=%s\nprofile=%s\nadmission=NO\nold_duckdb_bill=INAPPLICABLE\nlegacy_strict_gate=EXPECTED_RED_OLD_BRIDGE_PIN\n' \
+          printf 'trial_head=%s\nprofile=%s\nadmission=NO\nselected_duckdb_bill=ADMISSION_NO\n' \
             "$TRIAL_HEAD" '${{ matrix.profile }}' \
             > "$RUNNER_TEMP/replacement-receipt/installer-source.txt"
           sha256sum "$workspace_bin" "$expected_bin" "${installed_bins[0]}" "${debs[0]}" "$proof" \
             >> "$RUNNER_TEMP/replacement-receipt/installer-source.txt"
-          mapfile -d '' installed_bills < <(find "$root" -type f -path '*/third-party-licenses/ui/duckdb-runtime-bill.json' -print0)
+          mapfile -d '' installed_bills < <(find "$root" -type f -path '*/third-party-licenses/ui/duckdb-runtime-selected-bill.json' -print0)
           test "${#installed_bills[@]}" -eq 1
-          cmp app/tauri/third-party-licenses/ui/duckdb-runtime-bill.json "${installed_bills[0]}"
+          cmp app/tauri/third-party-licenses/ui/duckdb-runtime-selected-bill.json "${installed_bills[0]}"
           sha256sum "${installed_bills[0]}" \
             >> "$RUNNER_TEMP/replacement-receipt/installer-source.txt"
       - name: Smoke installed MVP and EH in WebKitGTK

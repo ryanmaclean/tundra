@@ -19,6 +19,8 @@ on:
       - app/leptos-ui/duckdb-bridge.js
       - app/leptos-ui/src/duckdb.rs
       - scripts/stage_duckdb_runtime.nu
+      - scripts/fetch_duckdb_replacement.nu
+      - scripts/verify_duckdb_selected_bill.nu
       - scripts/build-tool-licenses/**
       - crates/at-core/src/file_watcher.rs
       - crates/at-core/src/lib.rs
@@ -29,6 +31,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   shipped-license-inventory:
@@ -200,62 +203,32 @@ jobs:
           cargo install trunk --version 0.21.14 --locked
           cargo install tauri-cli --version 2.12.4 --locked
           cargo install nu --version 0.108.0 --locked
-      - name: Stage pinned same-origin DuckDB runtime
+      - name: Authenticate replacement DuckDB artifact and stage exact assets
         id: stage_duckdb
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = '${{ github.event.pull_request.head.sha }}'
-          nu scripts/stage_duckdb_runtime.nu app/leptos-ui/duckdb-runtime "$RUNNER_TEMP"
-          jq -e '
-            (.inputs | keys) as $inputs |
-            ([$inputs[] | select(test("node_modules/(command-line|json-bignum|pad-left|@types/)"))] | length == 0) and
-            any($inputs[]; contains("node_modules/@duckdb/duckdb-wasm/")) and
-            any($inputs[]; contains("node_modules/apache-arrow/")) and
-            any($inputs[]; contains("node_modules/flatbuffers/")) and
-            any($inputs[]; contains("node_modules/tslib/"))
-          ' "$RUNNER_TEMP/duckdb-bundle-metafile.json"
-          printf 'head_sha=%s\nprofile=%s\n' '${{ github.event.pull_request.head.sha }}' '${{ matrix.profile }}' \
-            > "$RUNNER_TEMP/duckdb-source-head.txt"
-      - name: Verify DuckDB upstream legal sources
-        shell: bash
-        run: |
-          set -euo pipefail
-          stage="$RUNNER_TEMP/duckdb-stage"
-          legal=app/tauri/third-party-licenses/ui
-          printf '%s  %s\n' \
-            '452c75ac07fe4059843b44d792074ab9a424fb7d6af3275b7e6a7150d012c08f' \
-            "$legal/duckdb-runtime-bill.json" | sha256sum --check --status
-          jq -e '.schema == "tundra-duckdb-runtime-bill/v1" and (.selected_assets | length) == 4' \
-            "$legal/duckdb-runtime-bill.json"
-          while IFS= read -r notice; do
-            test -s "$legal/$notice"
-          done < <(jq -r '.generated_browser_entry.legal_texts[], .selected_assets[].legal_texts[]' \
-            "$legal/duckdb-runtime-bill.json" | sort -u)
-          cmp "$stage/node_modules/apache-arrow/LICENSE.txt" "$legal/Apache-Arrow-13-LICENSE.txt"
-          cmp "$stage/node_modules/apache-arrow/NOTICE.txt" "$legal/Apache-Arrow-13-NOTICE.txt"
-          cmp "$stage/node_modules/tslib/LICENSE.txt" "$legal/tslib-0BSD.txt"
-          cmp "$stage/node_modules/tslib/CopyrightNotice.txt" "$legal/tslib-CopyrightNotice.txt"
-          cmp "$stage/node_modules/flatbuffers/LICENSE" "$legal/FlatBuffers-LICENSE.txt"
-          printf '%s  %s\n' \
-            'b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681' \
+          bill=app/tauri/third-party-licenses/ui/duckdb-runtime-selected-bill.json
+          printf '%s  %s\n' '34381cba60c8922a159f578753b55531460792372f2d72b22769da205fe97790' "$bill" | sha256sum --check --status
+          jq -e '.schema == "tundra-duckdb-selected-notice-bill/v2" and .admission == "NO" and (.assets | length) == 5 and (.texts | length) == 36 and (.attributions | length) == 38' "$bill"
+          printf '%s  %s\n' 'b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681' \
             scripts/build-tool-licenses/esbuild-0.19.12-MIT.txt | sha256sum --check --status
           curl --fail --silent --show-error --location --max-time 45 \
             https://raw.githubusercontent.com/evanw/esbuild/v0.19.12/LICENSE.md \
             | cmp - scripts/build-tool-licenses/esbuild-0.19.12-MIT.txt
-          curl --fail --silent --show-error --location --max-time 45 \
-            https://raw.githubusercontent.com/duckdb/duckdb-wasm/f955138e5218942fb3fb097a8fdcb725222406ff/LICENSE \
-            | cmp - "$legal/DuckDB-Wasm-MIT.txt"
-          curl --fail --silent --show-error --location --max-time 45 \
-            https://registry.npmjs.org/js-sha256/-/js-sha256-0.9.0.tgz -o "$stage/js-sha256-0.9.0.tgz"
-          printf '%s  %s\n' \
-            'b206b730787db2040ddbea49f55619fb52cfc173b1b812410399eb479fe87cf7ee889044da19e3b1a37cb1ef09ce73a618b376a78f4f7b953fb6d69f72cfdaa4' \
-            "$stage/js-sha256-0.9.0.tgz" | sha512sum --check --status
-          printf '%s  %s\n' \
-            'b206b730787db2040ddbea49f55619fb52cfc173b1b812410399eb479fe87cf7ee889044da19e3b1a37cb1ef09ce73a618b376a78f4f7b953fb6d69f72cfdaa4' \
-            'js-sha256-0.9.0' >> "$RUNNER_TEMP/duckdb-source-archives.sha512"
-          tar -xOzf "$stage/js-sha256-0.9.0.tgz" package/LICENSE.txt \
-            | cmp - "$legal/js-sha256-MIT.txt"
+          nu scripts/fetch_duckdb_replacement.nu "$RUNNER_TEMP/duckdb-replacement" "$RUNNER_TEMP/duckdb-fetch"
+          nu scripts/stage_duckdb_runtime.nu app/leptos-ui/duckdb-runtime "$RUNNER_TEMP" \
+            "$RUNNER_TEMP/duckdb-replacement/matching-output"
+          jq -e '[.outputs | to_entries[] | .value.imports[]? | select(.external == true)] | length == 0' \
+            "$RUNNER_TEMP/duckdb-replacement/matching-receipt/browser-metafile.json"
+          for variant in mvp eh; do
+            jq -e '[.outputs | to_entries[] | .value.imports[]? | select(.external == true) | [.path,.kind]] == [["crypto","require-call"]]' \
+              "$RUNNER_TEMP/duckdb-replacement/matching-receipt/worker-$variant-metafile.json"
+          done
+          printf 'head_sha=%s\nprofile=%s\nadmission=NO\n' '${{ github.event.pull_request.head.sha }}' '${{ matrix.profile }}' > "$RUNNER_TEMP/duckdb-source-head.txt"
       - name: Build locked UI and Linux .deb
         shell: bash
         run: |
@@ -489,7 +462,7 @@ jobs:
           # Constants below bind this review to exact source/legal bytes, not to
           # editable expectations read from the manifest itself. A later source
           # change must receive a new provenance review and updated pins.
-          printf '%s  %s\n' '5e8e8fd6643a1d266d0abc6bc0db20ea6361c247b315da286ffe8a7318293a48' "$manifest" | sha256sum --check --status
+          printf '%s  %s\n' 'e928bd1b58413b97c15641771a5c75be9a5f5a6f68aad36ed37f7ceae579e7e9' "$manifest" | sha256sum --check --status
           diff -u \
             <(printf '%s\n' \
               'app/leptos-ui/vendor/xterm/xterm.js' \
@@ -502,14 +475,7 @@ jobs:
             <(printf '%s\n' \
               'app/tauri/third-party-licenses/ui/Xterm-Core-MIT.txt' \
               'app/tauri/third-party-licenses/ui/Xterm-Fit-MIT.txt' \
-              'app/tauri/third-party-licenses/ui/JetBrains-Mono-OFL-1.1.txt' \
-              'app/tauri/third-party-licenses/ui/DuckDB-Wasm-MIT.txt' \
-              'app/tauri/third-party-licenses/ui/Apache-Arrow-13-LICENSE.txt' \
-              'app/tauri/third-party-licenses/ui/Apache-Arrow-13-NOTICE.txt' \
-              'app/tauri/third-party-licenses/ui/tslib-0BSD.txt' \
-              'app/tauri/third-party-licenses/ui/tslib-CopyrightNotice.txt' \
-              'app/tauri/third-party-licenses/ui/FlatBuffers-LICENSE.txt' \
-              'app/tauri/third-party-licenses/ui/js-sha256-MIT.txt' | sort) \
+              'app/tauri/third-party-licenses/ui/JetBrains-Mono-OFL-1.1.txt' | sort) \
             <(jq -r '.legal_texts[].path' "$manifest" | sort)
           test "$(jq -r '.unresolved | length' "$manifest")" -eq 0
           printf '%s  %s\n' \
@@ -524,18 +490,21 @@ jobs:
           test "$(git hash-object app/leptos-ui/fonts/jetbrains-mono-500.woff2)" = '2ca6ac605954ee884442db8ea1d61093000bcc29'
           test "$(git hash-object app/leptos-ui/index.html)" = 'e7f71c98b5454a001a38794f51eaa3e895d965b0'
           printf '%s  %s\n' 'd7fbf126caae42e829fbe68687420ec04d26f9ef996133876b242998f46ce914' 'app/leptos-ui/index.html' | sha256sum --check --status
-          test "$(git hash-object app/leptos-ui/duckdb-bridge.js)" = '8a09585cb23dcca1d8095c0f198989403578d925'
+          test "$(git hash-object app/leptos-ui/duckdb-bridge.js)" = '7751fe733eb8b4e5fd6130092932a791bb30f060'
           test ! -e app/leptos-ui/public/js/duckdb.js
-          ! grep -Fq 'cdn.jsdelivr.net' app/leptos-ui/duckdb-bridge.js
+          if grep -Fq 'cdn.jsdelivr.net' app/leptos-ui/duckdb-bridge.js; then
+            echo 'DuckDB bridge may not load from a CDN' >&2
+            exit 1
+          fi
           jq -e '
             .schema == "tundra-ui-source-notice/v1" and
             .trunk_entrypoint.path == "app/leptos-ui/index.html" and
             .trunk_entrypoint.git_blob == "e7f71c98b5454a001a38794f51eaa3e895d965b0" and
             .trunk_entrypoint.sha256 == "d7fbf126caae42e829fbe68687420ec04d26f9ef996133876b242998f46ce914" and
             (.verified_copied_inputs | length) == 5 and
-            (.legal_texts | length) == 10 and
+            (.legal_texts | length) == 3 and
             ([.verified_copied_inputs[].path] | unique | length) == 5 and
-            ([.legal_texts[].path] | unique | length) == 10 and
+            ([.legal_texts[].path] | unique | length) == 3 and
             all(.verified_copied_inputs[]; (.git_blob | test("^[0-9a-f]{40}$")) and (.sha256 | test("^[0-9a-f]{64}$"))) and
             all(.legal_texts[]; (.sha256 | test("^[0-9a-f]{64}$")))
           ' "$manifest"
@@ -569,7 +538,7 @@ jobs:
             cmp "$source" "${matches[0]}"
             printf '%s\t%s\t%s\n' "$relative" "$expected" "${matches[0]#"$root"/}" >> "$notice_receipt"
           done < <(jq -r '.legal_texts[] | [.path,.sha256] | @tsv' "$manifest")
-          test "$(wc -l < "$notice_receipt")" -eq 10
+          test "$(wc -l < "$notice_receipt")" -eq 3
           mapfile -d '' installed_manifests < <(find "$root" -type f -path '*/third-party-licenses/ui/verified-source-manifest.json' -print0)
           test "${#installed_manifests[@]}" -eq 1
           cmp "$manifest" "${installed_manifests[0]}"
@@ -600,6 +569,31 @@ jobs:
           printf 'head_sha=%s\nprofile=%s\ncoverage=source-and-legal-readback-only\n' \
             '${{ github.event.pull_request.head.sha }}' '${{ matrix.profile }}' > "$RUNNER_TEMP/ui-notice-source.txt"
           sha256sum "$manifest" "${installed_manifests[0]}" "${debs[0]}" >> "$RUNNER_TEMP/ui-notice-source.txt"
+      - name: Verify DuckDB selected source texts and installed notices
+        id: verify_duckdb_notices
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = '${{ github.event.pull_request.head.sha }}'
+          root="$RUNNER_TEMP/tundra-deb-root"
+          test -d "$root"
+          nu scripts/verify_duckdb_selected_bill.nu "$RUNNER_TEMP/duckdb-legal-sources" "$root"
+          test "$(find "$root" -type f -path '*/third-party-licenses/ui/duckdb-runtime/*' | wc -l)" -eq 36
+          for old in DuckDB-Wasm-MIT.txt Apache-Arrow-13-LICENSE.txt Apache-Arrow-13-NOTICE.txt tslib-0BSD.txt tslib-CopyrightNotice.txt FlatBuffers-LICENSE.txt js-sha256-MIT.txt duckdb-runtime-bill.json; do
+            test ! -e "app/tauri/third-party-licenses/ui/$old"
+            test "$(find "$root" -type f -path "*/third-party-licenses/ui/$old" | wc -l)" -eq 0
+          done
+          bill=app/tauri/third-party-licenses/ui/duckdb-runtime-selected-bill.json
+          printf 'head_sha=%s\nprofile=%s\nattributions=38\ntexts=36\nadmission=NO\n' \
+            '${{ github.event.pull_request.head.sha }}' '${{ matrix.profile }}' > "$RUNNER_TEMP/duckdb-installed-notices.txt"
+          sha256sum "$bill" >> "$RUNNER_TEMP/duckdb-installed-notices.txt"
+          shopt -s nullglob
+          debs=(target/release/bundle/deb/*.deb)
+          test "${#debs[@]}" -eq 1
+          sha256sum "${debs[0]}" >> "$RUNNER_TEMP/duckdb-installed-notices.txt"
+          mapfile -d '' installed_bins < <(find "$root" -type f -name auto-tundra -print0)
+          test "${#installed_bins[@]}" -eq 1
+          sha256sum "${installed_bins[0]}" >> "$RUNNER_TEMP/duckdb-installed-notices.txt"
       - name: Verify generated frontend bytes in packaged executable
         id: verify_embedded_ui
         shell: bash
@@ -657,8 +651,8 @@ jobs:
           proof="$RUNNER_TEMP/embedded-asset-proof.json"
           root="$RUNNER_TEMP/tundra-deb-root"
           test -d "$source_dir" && test -d "$dist_dir" && test -s "$proof"
-          bill=app/tauri/third-party-licenses/ui/duckdb-runtime-bill.json
-          mapfile -d '' installed_bills < <(find "$root" -type f -path '*/third-party-licenses/ui/duckdb-runtime-bill.json' -print0)
+          bill=app/tauri/third-party-licenses/ui/duckdb-runtime-selected-bill.json
+          mapfile -d '' installed_bills < <(find "$root" -type f -path '*/third-party-licenses/ui/duckdb-runtime-selected-bill.json' -print0)
           test "${#installed_bills[@]}" -eq 1
           cmp "$bill" "${installed_bills[0]}"
           test "$(find "$source_dir" -type f | wc -l)" -eq 5
@@ -667,6 +661,8 @@ jobs:
           for asset in duckdb-browser.mjs duckdb-browser-mvp.worker.js duckdb-browser-eh.worker.js duckdb-mvp.wasm duckdb-eh.wasm; do
             cmp "$source_dir/$asset" "$dist_dir/$asset"
             digest="$(sha256sum "$source_dir/$asset" | cut -d ' ' -f 1)"
+            jq -e --arg path "duckdb-runtime/$asset" --arg digest "$digest" \
+              '[.assets[] | select(.path == $path and .sha256 == $digest)] | length == 1' "$bill"
             key="duckdb-runtime/$asset"
             jq -e --arg key "$key" --arg digest "$digest" '
               [.assets[] | select(.key == $key and .transform == "identity" and
@@ -740,6 +736,7 @@ jobs:
         with:
           name: duckdb-webkit-smoke-${{ matrix.profile }}
           path: |
+            ${{ runner.temp }}/duckdb-installed-notices.txt
             ${{ runner.temp }}/duckdb-webkit-smoke.json
             ${{ runner.temp }}/duckdb-webkit-smoke.stdout
             ${{ runner.temp }}/duckdb-webkit-smoke.stderr
@@ -747,7 +744,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
       - name: Capture unapproved bundle-byte diagnostic after failed verification
-        if: ${{ failure() && (steps.verify_deb_resources.outcome == 'failure' || steps.verify_selected_bill.outcome == 'failure' || steps.verify_inter_ui.outcome == 'failure' || steps.verify_other_ui_notices.outcome == 'failure' || steps.verify_embedded_ui.outcome == 'failure' || steps.verify_duckdb_runtime.outcome == 'failure' || steps.smoke_duckdb.outcome == 'failure') }}
+        if: ${{ failure() && (steps.verify_deb_resources.outcome == 'failure' || steps.verify_selected_bill.outcome == 'failure' || steps.verify_inter_ui.outcome == 'failure' || steps.verify_other_ui_notices.outcome == 'failure' || steps.verify_duckdb_notices.outcome == 'failure' || steps.verify_embedded_ui.outcome == 'failure' || steps.verify_duckdb_runtime.outcome == 'failure' || steps.smoke_duckdb.outcome == 'failure') }}
         shell: bash
         run: |
           set -euo pipefail
@@ -779,7 +776,7 @@ jobs:
           printf 'head_sha=%s\nprofile=%s\nverification=FAILED_UNAPPROVED\n' \
             '${{ github.event.pull_request.head.sha }}' '${{ matrix.profile }}' > "$out/source.txt"
       - name: Upload unapproved bundle-byte diagnostic
-        if: ${{ failure() && (steps.verify_deb_resources.outcome == 'failure' || steps.verify_selected_bill.outcome == 'failure' || steps.verify_inter_ui.outcome == 'failure' || steps.verify_other_ui_notices.outcome == 'failure' || steps.verify_embedded_ui.outcome == 'failure' || steps.verify_duckdb_runtime.outcome == 'failure' || steps.smoke_duckdb.outcome == 'failure') }}
+        if: ${{ failure() && (steps.verify_deb_resources.outcome == 'failure' || steps.verify_selected_bill.outcome == 'failure' || steps.verify_inter_ui.outcome == 'failure' || steps.verify_other_ui_notices.outcome == 'failure' || steps.verify_duckdb_notices.outcome == 'failure' || steps.verify_embedded_ui.outcome == 'failure' || steps.verify_duckdb_runtime.outcome == 'failure' || steps.smoke_duckdb.outcome == 'failure') }}
         uses: actions/upload-artifact@v4
         with:
           name: UNAPPROVED-bundle-byte-diagnostic-${{ matrix.profile }}
@@ -814,12 +811,11 @@ jobs:
             ${{ runner.temp }}/embedded-asset-proof.json
             ${{ runner.temp }}/embedded-asset-source.txt
             ${{ runner.temp }}/generated-dist-sha256.txt
-            ${{ runner.temp }}/duckdb-source-archives.sha512
             ${{ runner.temp }}/duckdb-source-head.txt
-            ${{ runner.temp }}/duckdb-bundle-metafile.json
             ${{ runner.temp }}/duckdb-generated-assets.sha256
             ${{ runner.temp }}/duckdb-installed-runtime.tsv
             ${{ runner.temp }}/duckdb-runtime-source.txt
+            ${{ runner.temp }}/duckdb-installed-notices.txt
             ${{ runner.temp }}/duckdb-webkit-smoke.json
             ${{ runner.temp }}/duckdb-webkit-smoke-source.txt
             app/leptos-ui/dist/**

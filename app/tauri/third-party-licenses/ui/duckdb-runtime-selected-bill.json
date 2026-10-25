@@ -1,0 +1,553 @@
+{
+  "schema": "tundra-duckdb-selected-notice-bill/v2",
+  "admission": "NO",
+  "profiles": [
+    "default",
+    "sounds"
+  ],
+  "asset_source": {
+    "repo": "ryanmaclean/tundra",
+    "head": "7182d3f1b51cf643f73d40f15b576006accddd7d",
+    "run_id": 40217360882,
+    "artifact_id": 12607318747,
+    "artifact_digest": "sha256:be8fade74d4dda4b5eae20fc3f906370f6fd9fc82e606810a469b24affa5e7b5"
+  },
+  "assets": [
+    {
+      "path": "duckdb-runtime/duckdb-browser-eh.worker.js",
+      "sha256": "feec83f39202c08eb93e89df8c181bac32d4fb9ffb83a18bc277953e4d2945c4"
+    },
+    {
+      "path": "duckdb-runtime/duckdb-browser-mvp.worker.js",
+      "sha256": "d7920b73954d99ffa59175db35fe24e7936f8a003144386686b53c853c46eaef"
+    },
+    {
+      "path": "duckdb-runtime/duckdb-browser.mjs",
+      "sha256": "8ccf3fe3c6bd87d5c3e397f01d40cc11ea6373b016a9cf5e954d39ee22c3aa49"
+    },
+    {
+      "path": "duckdb-runtime/duckdb-eh.wasm",
+      "sha256": "d71b7e4575c98b87e09ac799c574d770aa5ee4df5e6c6cf36b6e277d92b8d2c2"
+    },
+    {
+      "path": "duckdb-runtime/duckdb-mvp.wasm",
+      "sha256": "7cf852dcc3c399f34330072a422679f2a5b7fc58c5839d3de0035fc68d9b7791"
+    }
+  ],
+  "attributions": [
+    {
+      "surface": "native",
+      "component": "duckdb-wasm",
+      "source_url": "https://raw.githubusercontent.com/duckdb/duckdb-wasm/f955138e5218942fb3fb097a8fdcb725222406ff/LICENSE",
+      "source_sha256": "3ad73e53243c374756dfc2eb5e780abd462ce99e89c84f9e46ada745db934107",
+      "file": "third-party-licenses/ui/duckdb-runtime/native-duckdb-wasm.txt",
+      "selection_evidence": "MVP/EH selected maps and depfiles",
+      "license_or_role": "MIT"
+    },
+    {
+      "surface": "native",
+      "component": "duckdb-core",
+      "source_url": "https://raw.githubusercontent.com/duckdb/duckdb/401c8061c6ece35949cac58c7770cc755710ca86/LICENSE",
+      "source_sha256": "2db1b1e3e6a8ed8e7d2607e8f762fa41111b868790274710ae97013dfe8584ee",
+      "file": "third-party-licenses/ui/duckdb-runtime/native-duckdb-core.txt",
+      "selection_evidence": "MVP/EH selected maps and depfiles",
+      "license_or_role": "MIT"
+    },
+    {
+      "surface": "native",
+      "component": "arrow-license",
+      "source_url": "https://raw.githubusercontent.com/apache/arrow/ca1c30f60d6419849dbc2a533bd0bcaff310185f/LICENSE.txt",
+      "source_sha256": "6d26daef86611d1ea2fdf74d900886aa27c46249f018417a993449eb4a414eac",
+      "file": "third-party-licenses/ui/duckdb-runtime/native-arrow-license.txt",
+      "selection_evidence": "MVP/EH selected maps and depfiles",
+      "license_or_role": "Apache-2.0"
+    },
+    {
+      "surface": "native",
+      "component": "arrow-notice",
+      "source_url": "https://raw.githubusercontent.com/apache/arrow/ca1c30f60d6419849dbc2a533bd0bcaff310185f/NOTICE.txt",
+      "source_sha256": "f5b6a58f5d2082e403c49663d87566328d40cf03f16abb01f52632a09b97c55e",
+      "file": "third-party-licenses/ui/duckdb-runtime/native-arrow-notice.txt",
+      "selection_evidence": "MVP/EH selected maps and depfiles",
+      "license_or_role": "Apache-2.0 NOTICE"
+    },
+    {
+      "surface": "native",
+      "component": "rapidjson",
+      "source_url": "https://raw.githubusercontent.com/Tencent/rapidjson/973dc9c06dcd3d035ebd039cfb9ea457721ec213/license.txt",
+      "source_sha256": "a140e5d46fe734a1c78f1a3c3ef207871dd75648be71fdda8e309b23ab8b1f32",
+      "file": "third-party-licenses/ui/duckdb-runtime/native-rapidjson.txt",
+      "selection_evidence": "MVP/EH selected maps and depfiles",
+      "license_or_role": "MIT/BSD source file; JSON utility excluded"
+    },
+    {
+      "surface": "native",
+      "component": "fmt",
+      "source_url": "https://raw.githubusercontent.com/duckdb/duckdb/401c8061c6ece35949cac58c7770cc755710ca86/third_party/fmt/LICENSE",
+      "source_sha256": "825c9324e70f8c839c8ba910543dd4a7daee243b86ef960594c11381a19980b8",
+      "file": "third-party-licenses/ui/duckdb-runtime/native-fmt.txt",
+      "selection_evidence": "MVP/EH selected maps and depfiles",
+      "license_or_role": "MIT"
+    },
+    {
+      "surface": "native",
+      "component": "libpg-query",
+      "source_url": "https://raw.githubusercontent.com/duckdb/duckdb/401c8061c6ece35949cac58c7770cc755710ca86/third_party/libpg_query/LICENSE",
+      "source_sha256": "2780b6375a5ab1901472b7694958dd0c8c1381a21f0765cbb64e1923d94c6717",
+      "file": "third-party-licenses/ui/duckdb-runtime/native-libpg-query.txt",
+      "selection_evidence": "MVP/EH selected maps and depfiles",
+      "license_or_role": "BSD-style"
+    },
+    {
+      "surface": "native",
+      "component": "re2",
+      "source_url": "https://raw.githubusercontent.com/duckdb/duckdb/401c8061c6ece35949cac58c7770cc755710ca86/third_party/re2/LICENSE",
+      "source_sha256": "6040cda75d90b1738292a631d89934c411ef7ffd543c4d6a1b7edfc8edf29449",
+      "file": "third-party-licenses/ui/duckdb-runtime/native-re2.txt",
+      "selection_evidence": "MVP/EH selected maps and depfiles",
+      "license_or_role": "BSD-style"
+    },
+    {
+      "surface": "native",
+      "component": "miniz",
+      "source_url": "https://raw.githubusercontent.com/duckdb/duckdb/401c8061c6ece35949cac58c7770cc755710ca86/third_party/miniz/LICENSE",
+      "source_sha256": "0115478d567121238cf6cc1c0c361926cf07a49d9e4c9e66da97fac6a01646b3",
+      "file": "third-party-licenses/ui/duckdb-runtime/native-miniz.txt",
+      "selection_evidence": "MVP/EH selected maps and depfiles",
+      "license_or_role": "MIT"
+    },
+    {
+      "surface": "native",
+      "component": "utf8proc",
+      "source_url": "https://raw.githubusercontent.com/duckdb/duckdb/401c8061c6ece35949cac58c7770cc755710ca86/third_party/utf8proc/LICENSE",
+      "source_sha256": "fbc720fcc90fb44396985646f67e4d19be03e0c0539f7138ed9dc6efba49dc49",
+      "file": "third-party-licenses/ui/duckdb-runtime/native-utf8proc.txt",
+      "selection_evidence": "MVP/EH selected maps and depfiles",
+      "license_or_role": "MIT"
+    },
+    {
+      "surface": "native",
+      "component": "hyperloglog",
+      "source_url": "https://raw.githubusercontent.com/duckdb/duckdb/401c8061c6ece35949cac58c7770cc755710ca86/third_party/hyperloglog/LICENSE",
+      "source_sha256": "3a3fcdbaecbeb1e7dea97843961100c637766e59de4674fed809760283b716e1",
+      "file": "third-party-licenses/ui/duckdb-runtime/native-hyperloglog.txt",
+      "selection_evidence": "MVP/EH selected maps and depfiles",
+      "license_or_role": "MIT"
+    },
+    {
+      "surface": "native",
+      "component": "fastpforlib",
+      "source_url": "https://raw.githubusercontent.com/duckdb/duckdb/401c8061c6ece35949cac58c7770cc755710ca86/third_party/fastpforlib/LICENSE",
+      "source_sha256": "9ff562631a04b8cb1030c53fdf461bd749c9af0655d86e4f17eb270e935a7fe2",
+      "file": "third-party-licenses/ui/duckdb-runtime/native-fastpforlib.txt",
+      "selection_evidence": "MVP/EH selected maps and depfiles",
+      "license_or_role": "Apache-2.0"
+    },
+    {
+      "surface": "native",
+      "component": "mbedtls",
+      "source_url": "https://raw.githubusercontent.com/duckdb/duckdb/401c8061c6ece35949cac58c7770cc755710ca86/third_party/mbedtls/LICENSE",
+      "source_sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "file": "third-party-licenses/ui/duckdb-runtime/native-mbedtls.txt",
+      "selection_evidence": "MVP/EH selected maps and depfiles",
+      "license_or_role": "Apache-2.0"
+    },
+    {
+      "surface": "native",
+      "component": "fsst",
+      "source_url": "https://raw.githubusercontent.com/duckdb/duckdb/401c8061c6ece35949cac58c7770cc755710ca86/third_party/fsst/LICENSE",
+      "source_sha256": "20e9c14ff437a73a6e2b105f1b5aaf9ef24a84d962741c0ab01d04b4910294ab",
+      "file": "third-party-licenses/ui/duckdb-runtime/native-fsst.txt",
+      "selection_evidence": "MVP/EH selected maps and depfiles",
+      "license_or_role": "MIT"
+    },
+    {
+      "surface": "native",
+      "component": "parquet",
+      "source_url": "https://raw.githubusercontent.com/duckdb/duckdb/401c8061c6ece35949cac58c7770cc755710ca86/third_party/parquet/LICENSE",
+      "source_sha256": "70b6a7d630fae9f49643f9b16bee42a2feda68301f9c14470e7fb5ad0599bb9f",
+      "file": "third-party-licenses/ui/duckdb-runtime/native-parquet.txt",
+      "selection_evidence": "MVP/EH selected maps and depfiles",
+      "license_or_role": "Apache-2.0"
+    },
+    {
+      "surface": "native",
+      "component": "thrift",
+      "source_url": "https://raw.githubusercontent.com/duckdb/duckdb/401c8061c6ece35949cac58c7770cc755710ca86/third_party/thrift/thrift/LICENSE",
+      "source_sha256": "23df881cec3192d1f4474633c14eb2ec30a45b84f8daeb82b9de5d2bd3ac8218",
+      "file": "third-party-licenses/ui/duckdb-runtime/native-thrift.txt",
+      "selection_evidence": "MVP/EH selected maps and depfiles",
+      "license_or_role": "Apache-2.0"
+    },
+    {
+      "surface": "native",
+      "component": "snappy",
+      "source_url": "https://raw.githubusercontent.com/duckdb/duckdb/401c8061c6ece35949cac58c7770cc755710ca86/third_party/snappy/LICENSE",
+      "source_sha256": "55172044f7e241207117448a4d9d6ba1d0925c8ad66b5d4c08c70adfa9cc3de6",
+      "file": "third-party-licenses/ui/duckdb-runtime/native-snappy.txt",
+      "selection_evidence": "MVP/EH selected maps and depfiles",
+      "license_or_role": "BSD-style"
+    },
+    {
+      "surface": "native",
+      "component": "zstd",
+      "source_url": "https://raw.githubusercontent.com/duckdb/duckdb/401c8061c6ece35949cac58c7770cc755710ca86/third_party/zstd/LICENSE",
+      "source_sha256": "8b7bc50ec3ecee27224e17d4d316a939fa2ddda9c88e0ddc2f059ce432edbfb9",
+      "file": "third-party-licenses/ui/duckdb-runtime/native-zstd.txt",
+      "selection_evidence": "MVP/EH selected maps and depfiles",
+      "license_or_role": "BSD"
+    },
+    {
+      "surface": "native",
+      "component": "snowball",
+      "source_url": "https://raw.githubusercontent.com/duckdb/duckdb/401c8061c6ece35949cac58c7770cc755710ca86/third_party/snowball/LICENSE",
+      "source_sha256": "f6f9e4c0e737728ca980de8595ded046d5e077017c1bb0ee05dc794a01434dae",
+      "file": "third-party-licenses/ui/duckdb-runtime/native-snowball.txt",
+      "selection_evidence": "MVP/EH selected maps and depfiles",
+      "license_or_role": "BSD-style"
+    },
+    {
+      "surface": "native",
+      "component": "emscripten:LICENSE",
+      "source_url": "https://raw.githubusercontent.com/emscripten-core/emscripten/e967e20b4727956a30592165a3c1cde5c67fa0a8/LICENSE",
+      "source_sha256": "620a78084fc7ca97c0b5dea9abf891f3ffcadfdbf305276f099c9c4e12fc1d86",
+      "file": "third-party-licenses/ui/duckdb-runtime/native-emscripten-LICENSE",
+      "selection_evidence": "MVP/EH selected maps and depfiles",
+      "license_or_role": "MIT and NCSA alternative"
+    },
+    {
+      "surface": "native",
+      "component": "emscripten:system/lib/compiler-rt/LICENSE.TXT",
+      "source_url": "https://raw.githubusercontent.com/emscripten-core/emscripten/e967e20b4727956a30592165a3c1cde5c67fa0a8/system/lib/compiler-rt/LICENSE.TXT",
+      "source_sha256": "1a8f1058753f1ba890de984e48f0242a3a5c29a6a8f2ed9fd813f36985387e8d",
+      "file": "third-party-licenses/ui/duckdb-runtime/native-emscripten-system-lib-compiler-rt-LICENSE.TXT",
+      "selection_evidence": "MVP/EH selected maps and depfiles",
+      "license_or_role": "Apache-2.0 WITH LLVM-exception"
+    },
+    {
+      "surface": "native",
+      "component": "emscripten:system/lib/libc/musl/COPYRIGHT",
+      "source_url": "https://raw.githubusercontent.com/emscripten-core/emscripten/e967e20b4727956a30592165a3c1cde5c67fa0a8/system/lib/libc/musl/COPYRIGHT",
+      "source_sha256": "f9bc4423732350eb0b3f7ed7e91d530298476f8fec0c6c427a1c04ade22655af",
+      "file": "third-party-licenses/ui/duckdb-runtime/native-emscripten-system-lib-libc-musl-COPYRIGHT",
+      "selection_evidence": "MVP/EH selected maps and depfiles",
+      "license_or_role": "MIT with enumerated terms"
+    },
+    {
+      "surface": "native",
+      "component": "emscripten:system/lib/libcxx/LICENSE.TXT",
+      "source_url": "https://raw.githubusercontent.com/emscripten-core/emscripten/e967e20b4727956a30592165a3c1cde5c67fa0a8/system/lib/libcxx/LICENSE.TXT",
+      "source_sha256": "539dd7aed86e8a4f12cbdd0e6c50c189c7d74847e4fecc64ce2c6ee3a01da38b",
+      "file": "third-party-licenses/ui/duckdb-runtime/native-emscripten-system-lib-libcxx-LICENSE.TXT",
+      "selection_evidence": "MVP/EH selected maps and depfiles",
+      "license_or_role": "Apache-2.0 WITH LLVM-exception"
+    },
+    {
+      "surface": "native",
+      "component": "emscripten:system/lib/libcxxabi/LICENSE.TXT",
+      "source_url": "https://raw.githubusercontent.com/emscripten-core/emscripten/e967e20b4727956a30592165a3c1cde5c67fa0a8/system/lib/libcxxabi/LICENSE.TXT",
+      "source_sha256": "e2b35be49f7284a45b7baca8fc7b3ab7440e7902392b2528a457816b5bb2a15c",
+      "file": "third-party-licenses/ui/duckdb-runtime/native-emscripten-system-lib-libcxxabi-LICENSE.TXT",
+      "selection_evidence": "MVP/EH selected maps and depfiles",
+      "license_or_role": "Apache-2.0 WITH LLVM-exception"
+    },
+    {
+      "surface": "native",
+      "component": "emscripten:system/lib/libunwind/LICENSE.TXT",
+      "source_url": "https://raw.githubusercontent.com/emscripten-core/emscripten/e967e20b4727956a30592165a3c1cde5c67fa0a8/system/lib/libunwind/LICENSE.TXT",
+      "source_sha256": "b5efebcaca80879234098e52d1725e6d9eb8fb96a19fce625d39184b705f7b6d",
+      "file": "third-party-licenses/ui/duckdb-runtime/native-emscripten-system-lib-libunwind-LICENSE.TXT",
+      "selection_evidence": "MVP/EH selected maps and depfiles",
+      "license_or_role": "Apache-2.0 WITH LLVM-exception"
+    },
+    {
+      "surface": "native",
+      "component": "duckdb:third_party/fast_float/LICENSE",
+      "source_url": "https://raw.githubusercontent.com/duckdb/duckdb/401c8061c6ece35949cac58c7770cc755710ca86/third_party/fast_float/LICENSE",
+      "source_sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+      "file": "third-party-licenses/ui/duckdb-runtime/native-fast_float-LICENSE",
+      "selection_evidence": "MVP/EH selected maps and depfiles",
+      "license_or_role": "MIT"
+    },
+    {
+      "surface": "native",
+      "component": "duckdb:third_party/httplib/LICENSE",
+      "source_url": "https://raw.githubusercontent.com/duckdb/duckdb/401c8061c6ece35949cac58c7770cc755710ca86/third_party/httplib/LICENSE",
+      "source_sha256": "4b45cbe16d7b71b89ae6127e26e0d90a029198ca5e958ad8e3d0b8bbed364d8b",
+      "file": "third-party-licenses/ui/duckdb-runtime/native-httplib-LICENSE",
+      "selection_evidence": "MVP/EH selected maps and depfiles",
+      "license_or_role": "MIT"
+    },
+    {
+      "surface": "native",
+      "component": "duckdb:third_party/jaro_winkler/LICENSE",
+      "source_url": "https://raw.githubusercontent.com/duckdb/duckdb/401c8061c6ece35949cac58c7770cc755710ca86/third_party/jaro_winkler/LICENSE",
+      "source_sha256": "077815ffd10f0677d060e9d5c0059592d28c41d1e9985c848435e0ea17ea06c3",
+      "file": "third-party-licenses/ui/duckdb-runtime/native-jaro_winkler-LICENSE",
+      "selection_evidence": "MVP/EH selected maps and depfiles",
+      "license_or_role": "MIT"
+    },
+    {
+      "surface": "native",
+      "component": "duckdb:third_party/pcg/LICENSE",
+      "source_url": "https://raw.githubusercontent.com/duckdb/duckdb/401c8061c6ece35949cac58c7770cc755710ca86/third_party/pcg/LICENSE",
+      "source_sha256": "3febf788fd814bf1f350db169bdc51b28ff7e7596ff1f09cc0181e4fde42b480",
+      "file": "third-party-licenses/ui/duckdb-runtime/native-pcg-LICENSE",
+      "selection_evidence": "MVP/EH selected maps and depfiles",
+      "license_or_role": "MIT"
+    },
+    {
+      "surface": "native",
+      "component": "duckdb:third_party/tdigest/LICENSE",
+      "source_url": "https://raw.githubusercontent.com/duckdb/duckdb/401c8061c6ece35949cac58c7770cc755710ca86/third_party/tdigest/LICENSE",
+      "source_sha256": "43070e2d4e532684de521b885f385d0841030efa2b1a20bafb76133a5e1379c1",
+      "file": "third-party-licenses/ui/duckdb-runtime/native-tdigest-LICENSE",
+      "selection_evidence": "MVP/EH selected maps and depfiles",
+      "license_or_role": "Apache-2.0"
+    },
+    {
+      "surface": "native",
+      "component": "duckdb:third_party/tdigest/NOTICES",
+      "source_url": "https://raw.githubusercontent.com/duckdb/duckdb/401c8061c6ece35949cac58c7770cc755710ca86/third_party/tdigest/NOTICES",
+      "source_sha256": "5ded9726da6c5360c0b0ba0725455f57b367dc9b4954bed7ca8f235d26cee33b",
+      "file": "third-party-licenses/ui/duckdb-runtime/native-tdigest-NOTICES",
+      "selection_evidence": "MVP/EH selected maps and depfiles",
+      "license_or_role": "Apache-2.0 NOTICE"
+    },
+    {
+      "surface": "browser",
+      "component": "apache-arrow-13.0.0:LICENSE.txt",
+      "source_url": "https://registry.npmjs.org/apache-arrow/-/apache-arrow-13.0.0.tgz#package/LICENSE.txt",
+      "source_sha256": "6d26daef86611d1ea2fdf74d900886aa27c46249f018417a993449eb4a414eac",
+      "file": "third-party-licenses/ui/duckdb-runtime/native-arrow-license.txt",
+      "selection_evidence": "PR117 esbuild input/output metafiles",
+      "license_or_role": "Apache-2.0"
+    },
+    {
+      "surface": "browser",
+      "component": "apache-arrow-13.0.0:NOTICE.txt",
+      "source_url": "https://registry.npmjs.org/apache-arrow/-/apache-arrow-13.0.0.tgz#package/NOTICE.txt",
+      "source_sha256": "f5b6a58f5d2082e403c49663d87566328d40cf03f16abb01f52632a09b97c55e",
+      "file": "third-party-licenses/ui/duckdb-runtime/native-arrow-notice.txt",
+      "selection_evidence": "PR117 esbuild input/output metafiles",
+      "license_or_role": "Apache-2.0 NOTICE"
+    },
+    {
+      "surface": "browser",
+      "component": "flatbuffers-23.5.26:LICENSE",
+      "source_url": "https://registry.npmjs.org/flatbuffers/-/flatbuffers-23.5.26.tgz#package/LICENSE",
+      "source_sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "file": "third-party-licenses/ui/duckdb-runtime/browser-flatbuffers-23.5.26-LICENSE",
+      "selection_evidence": "PR117 esbuild input/output metafiles",
+      "license_or_role": "Apache-2.0"
+    },
+    {
+      "surface": "browser",
+      "component": "tslib-2.6.2:LICENSE.txt",
+      "source_url": "https://registry.npmjs.org/tslib/-/tslib-2.6.2.tgz#package/LICENSE.txt",
+      "source_sha256": "210b19e543130388c68654b7497e967119ce17145f66ab7d85688fbd70f08751",
+      "file": "third-party-licenses/ui/duckdb-runtime/browser-tslib-2.6.2-LICENSE.txt",
+      "selection_evidence": "PR117 esbuild input/output metafiles",
+      "license_or_role": "0BSD"
+    },
+    {
+      "surface": "browser",
+      "component": "tslib-2.6.2:CopyrightNotice.txt",
+      "source_url": "https://registry.npmjs.org/tslib/-/tslib-2.6.2.tgz#package/CopyrightNotice.txt",
+      "source_sha256": "da16ddb65f8ca390998fb99223d0112498b56b45784d00afd77ff8ce1ac4de8b",
+      "file": "third-party-licenses/ui/duckdb-runtime/browser-tslib-2.6.2-CopyrightNotice.txt",
+      "selection_evidence": "PR117 esbuild input/output metafiles",
+      "license_or_role": "0BSD copyright"
+    },
+    {
+      "surface": "browser",
+      "component": "js-sha256-0.9.0:LICENSE.txt",
+      "source_url": "https://registry.npmjs.org/js-sha256/-/js-sha256-0.9.0.tgz#package/LICENSE.txt",
+      "source_sha256": "03e598437c73d8eae2b341910d42df85860405ed879264f3fd37dfaa5a63fee6",
+      "file": "third-party-licenses/ui/duckdb-runtime/browser-js-sha256-0.9.0-LICENSE.txt",
+      "selection_evidence": "PR117 esbuild input/output metafiles",
+      "license_or_role": "MIT"
+    },
+    {
+      "surface": "browser",
+      "component": "wasm-feature-detect-1.5.1:LICENSE",
+      "source_url": "https://registry.npmjs.org/wasm-feature-detect/-/wasm-feature-detect-1.5.1.tgz#package/LICENSE",
+      "source_sha256": "bcf29b4fd3ec2cb5f9d40a0866da446f6da62170d2ccedf4aeca9cf9406dd20c",
+      "file": "third-party-licenses/ui/duckdb-runtime/browser-wasm-feature-detect-1.5.1-LICENSE",
+      "selection_evidence": "PR117 esbuild input/output metafiles",
+      "license_or_role": "Apache-2.0"
+    }
+  ],
+  "texts": [
+    {
+      "file": "third-party-licenses/ui/duckdb-runtime/browser-flatbuffers-23.5.26-LICENSE",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    },
+    {
+      "file": "third-party-licenses/ui/duckdb-runtime/browser-js-sha256-0.9.0-LICENSE.txt",
+      "sha256": "03e598437c73d8eae2b341910d42df85860405ed879264f3fd37dfaa5a63fee6"
+    },
+    {
+      "file": "third-party-licenses/ui/duckdb-runtime/browser-tslib-2.6.2-CopyrightNotice.txt",
+      "sha256": "da16ddb65f8ca390998fb99223d0112498b56b45784d00afd77ff8ce1ac4de8b"
+    },
+    {
+      "file": "third-party-licenses/ui/duckdb-runtime/browser-tslib-2.6.2-LICENSE.txt",
+      "sha256": "210b19e543130388c68654b7497e967119ce17145f66ab7d85688fbd70f08751"
+    },
+    {
+      "file": "third-party-licenses/ui/duckdb-runtime/browser-wasm-feature-detect-1.5.1-LICENSE",
+      "sha256": "bcf29b4fd3ec2cb5f9d40a0866da446f6da62170d2ccedf4aeca9cf9406dd20c"
+    },
+    {
+      "file": "third-party-licenses/ui/duckdb-runtime/native-arrow-license.txt",
+      "sha256": "6d26daef86611d1ea2fdf74d900886aa27c46249f018417a993449eb4a414eac"
+    },
+    {
+      "file": "third-party-licenses/ui/duckdb-runtime/native-arrow-notice.txt",
+      "sha256": "f5b6a58f5d2082e403c49663d87566328d40cf03f16abb01f52632a09b97c55e"
+    },
+    {
+      "file": "third-party-licenses/ui/duckdb-runtime/native-duckdb-core.txt",
+      "sha256": "2db1b1e3e6a8ed8e7d2607e8f762fa41111b868790274710ae97013dfe8584ee"
+    },
+    {
+      "file": "third-party-licenses/ui/duckdb-runtime/native-duckdb-wasm.txt",
+      "sha256": "3ad73e53243c374756dfc2eb5e780abd462ce99e89c84f9e46ada745db934107"
+    },
+    {
+      "file": "third-party-licenses/ui/duckdb-runtime/native-emscripten-LICENSE",
+      "sha256": "620a78084fc7ca97c0b5dea9abf891f3ffcadfdbf305276f099c9c4e12fc1d86"
+    },
+    {
+      "file": "third-party-licenses/ui/duckdb-runtime/native-emscripten-system-lib-compiler-rt-LICENSE.TXT",
+      "sha256": "1a8f1058753f1ba890de984e48f0242a3a5c29a6a8f2ed9fd813f36985387e8d"
+    },
+    {
+      "file": "third-party-licenses/ui/duckdb-runtime/native-emscripten-system-lib-libc-musl-COPYRIGHT",
+      "sha256": "f9bc4423732350eb0b3f7ed7e91d530298476f8fec0c6c427a1c04ade22655af"
+    },
+    {
+      "file": "third-party-licenses/ui/duckdb-runtime/native-emscripten-system-lib-libcxx-LICENSE.TXT",
+      "sha256": "539dd7aed86e8a4f12cbdd0e6c50c189c7d74847e4fecc64ce2c6ee3a01da38b"
+    },
+    {
+      "file": "third-party-licenses/ui/duckdb-runtime/native-emscripten-system-lib-libcxxabi-LICENSE.TXT",
+      "sha256": "e2b35be49f7284a45b7baca8fc7b3ab7440e7902392b2528a457816b5bb2a15c"
+    },
+    {
+      "file": "third-party-licenses/ui/duckdb-runtime/native-emscripten-system-lib-libunwind-LICENSE.TXT",
+      "sha256": "b5efebcaca80879234098e52d1725e6d9eb8fb96a19fce625d39184b705f7b6d"
+    },
+    {
+      "file": "third-party-licenses/ui/duckdb-runtime/native-fast_float-LICENSE",
+      "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3"
+    },
+    {
+      "file": "third-party-licenses/ui/duckdb-runtime/native-fastpforlib.txt",
+      "sha256": "9ff562631a04b8cb1030c53fdf461bd749c9af0655d86e4f17eb270e935a7fe2"
+    },
+    {
+      "file": "third-party-licenses/ui/duckdb-runtime/native-fmt.txt",
+      "sha256": "825c9324e70f8c839c8ba910543dd4a7daee243b86ef960594c11381a19980b8"
+    },
+    {
+      "file": "third-party-licenses/ui/duckdb-runtime/native-fsst.txt",
+      "sha256": "20e9c14ff437a73a6e2b105f1b5aaf9ef24a84d962741c0ab01d04b4910294ab"
+    },
+    {
+      "file": "third-party-licenses/ui/duckdb-runtime/native-httplib-LICENSE",
+      "sha256": "4b45cbe16d7b71b89ae6127e26e0d90a029198ca5e958ad8e3d0b8bbed364d8b"
+    },
+    {
+      "file": "third-party-licenses/ui/duckdb-runtime/native-hyperloglog.txt",
+      "sha256": "3a3fcdbaecbeb1e7dea97843961100c637766e59de4674fed809760283b716e1"
+    },
+    {
+      "file": "third-party-licenses/ui/duckdb-runtime/native-jaro_winkler-LICENSE",
+      "sha256": "077815ffd10f0677d060e9d5c0059592d28c41d1e9985c848435e0ea17ea06c3"
+    },
+    {
+      "file": "third-party-licenses/ui/duckdb-runtime/native-libpg-query.txt",
+      "sha256": "2780b6375a5ab1901472b7694958dd0c8c1381a21f0765cbb64e1923d94c6717"
+    },
+    {
+      "file": "third-party-licenses/ui/duckdb-runtime/native-mbedtls.txt",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    },
+    {
+      "file": "third-party-licenses/ui/duckdb-runtime/native-miniz.txt",
+      "sha256": "0115478d567121238cf6cc1c0c361926cf07a49d9e4c9e66da97fac6a01646b3"
+    },
+    {
+      "file": "third-party-licenses/ui/duckdb-runtime/native-parquet.txt",
+      "sha256": "70b6a7d630fae9f49643f9b16bee42a2feda68301f9c14470e7fb5ad0599bb9f"
+    },
+    {
+      "file": "third-party-licenses/ui/duckdb-runtime/native-pcg-LICENSE",
+      "sha256": "3febf788fd814bf1f350db169bdc51b28ff7e7596ff1f09cc0181e4fde42b480"
+    },
+    {
+      "file": "third-party-licenses/ui/duckdb-runtime/native-rapidjson.txt",
+      "sha256": "a140e5d46fe734a1c78f1a3c3ef207871dd75648be71fdda8e309b23ab8b1f32"
+    },
+    {
+      "file": "third-party-licenses/ui/duckdb-runtime/native-re2.txt",
+      "sha256": "6040cda75d90b1738292a631d89934c411ef7ffd543c4d6a1b7edfc8edf29449"
+    },
+    {
+      "file": "third-party-licenses/ui/duckdb-runtime/native-snappy.txt",
+      "sha256": "55172044f7e241207117448a4d9d6ba1d0925c8ad66b5d4c08c70adfa9cc3de6"
+    },
+    {
+      "file": "third-party-licenses/ui/duckdb-runtime/native-snowball.txt",
+      "sha256": "f6f9e4c0e737728ca980de8595ded046d5e077017c1bb0ee05dc794a01434dae"
+    },
+    {
+      "file": "third-party-licenses/ui/duckdb-runtime/native-tdigest-LICENSE",
+      "sha256": "43070e2d4e532684de521b885f385d0841030efa2b1a20bafb76133a5e1379c1"
+    },
+    {
+      "file": "third-party-licenses/ui/duckdb-runtime/native-tdigest-NOTICES",
+      "sha256": "5ded9726da6c5360c0b0ba0725455f57b367dc9b4954bed7ca8f235d26cee33b"
+    },
+    {
+      "file": "third-party-licenses/ui/duckdb-runtime/native-thrift.txt",
+      "sha256": "23df881cec3192d1f4474633c14eb2ec30a45b84f8daeb82b9de5d2bd3ac8218"
+    },
+    {
+      "file": "third-party-licenses/ui/duckdb-runtime/native-utf8proc.txt",
+      "sha256": "fbc720fcc90fb44396985646f67e4d19be03e0c0539f7138ed9dc6efba49dc49"
+    },
+    {
+      "file": "third-party-licenses/ui/duckdb-runtime/native-zstd.txt",
+      "sha256": "8b7bc50ec3ecee27224e17d4d316a939fa2ddda9c88e0ddc2f059ce432edbfb9"
+    }
+  ],
+  "unresolved": [
+    "Exact Emscripten generated glue lacks complete selected JS source-to-notice mapping",
+    "Selected Emscripten SDK archive bytes and source-build provenance not independently reverified",
+    "Worker external crypto require-call requires PR118 installed WebKit/CSP disposition"
+  ],
+  "native_evidence": {
+    "mvp_map_sha256": "39c6cee5a5b7179a0e6b4914d165fe964c18396f35b8186366cb4e20b90b9f09",
+    "eh_map_sha256": "35c1871633953ef60cb540a7a13caea4b781f259b8253c93017b36daaa134499",
+    "mvp_selected_sdk_archive_receipt_sha256": "e4530402dd2b52934ffb680c390459dafb2bb0a02e0855c8485368fa6bc9baaf",
+    "eh_selected_sdk_archive_receipt_sha256": "32926b721b48c1bc775c9d31cf6956f08227007eb634603d93638731a5b7f5c5",
+    "source_build_attested": false
+  },
+  "browser_evidence": {
+    "artifact_id": 12607318747,
+    "browser_metafile": "matching-receipt/browser-metafile.json",
+    "worker_mvp_metafile": "matching-receipt/worker-mvp-metafile.json",
+    "worker_eh_metafile": "matching-receipt/worker-eh-metafile.json",
+    "external_worker_import": "crypto require-call"
+  },
+  "excluded_on_retained_graphs": [
+    "web-worker@1.2.0",
+    "Excel/numformat",
+    "Boost",
+    "yyjson",
+    "RapidJSON bin/jsonchecker"
+  ]
+}
