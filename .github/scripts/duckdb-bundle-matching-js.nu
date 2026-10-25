@@ -54,13 +54,13 @@ def main [source_root: string, mvp_receipt: string, eh_receipt: string, output_d
     let bindings = $"($source)/packages/duckdb-wasm/src/bindings"
     for variant in [mvp eh] {
         let native = if $variant == "mvp" { $mvp } else { $eh }
-        let expected = if $variant == "mvp" { "7cf852dcc3c399f34330072a422679f2a5b7fc58c5839d3de0035fc68d9b7791" } else { "11994d2ec1a2703219a5d0e26eb764d8a19a9b413889739e914f776f8c71bb6c" }
+        let expected = if $variant == "mvp" { "7cf852dcc3c399f34330072a422679f2a5b7fc58c5839d3de0035fc68d9b7791" } else { "d71b7e4575c98b87e09ac799c574d770aa5ee4df5e6c6cf36b6e277d92b8d2c2" }
         let expected_glue = if $variant == "mvp" { "169608644b833fef6b1b9d1c3a9bf21e927c7439f54acf10379259012a2ea9dc" } else { "fd610ecd2c58944726dc473ef8babc400581ae07df2a805b67f29a14b38695d3" }
         let wasm = $"($native)/duckdb-($variant).wasm"
         let glue = $"($native)/duckdb-($variant).js"
         if not ($wasm | path exists) or not ($glue | path exists) { error make {msg: $"Missing PR116 native output: ($variant)"} }
         let toolchain = (open --raw $"($native)/toolchain.txt")
-        if not ($toolchain | str contains "tundra_head=214fbae44466fb854cdebfa54e5d6e47ee5088de") { error make {msg: $"PR116 Tundra head mismatch: ($variant)"} }
+        if not ($toolchain | str contains "tundra_head=a7d43e055ad33f73bb7cd4333b80ebd70ea940ea") { error make {msg: $"PR116 Tundra head mismatch: ($variant)"} }
         if not ($toolchain | str contains "upstream_head=f955138e5218942fb3fb097a8fdcb725222406ff") { error make {msg: $"PR116 upstream head mismatch: ($variant)"} }
         let actual = (^sha256sum $wasm | split row " " | first)
         if $actual != $expected { error make {msg: $"PR116 Wasm hash mismatch: ($variant)"} }
@@ -97,5 +97,5 @@ def main [source_root: string, mvp_receipt: string, eh_receipt: string, output_d
     }
     ^sha256sum ...$files | save $"($receipt)/five-output.sha256"
     if $env.LAST_EXIT_CODE != 0 { error make {msg: "Output hashing failed"} }
-    {source_commit: $commit, tagged_package_version: $package.version, native_wasm_mvp_sha256: "7cf852dcc3c399f34330072a422679f2a5b7fc58c5839d3de0035fc68d9b7791", native_wasm_eh_sha256: "11994d2ec1a2703219a5d0e26eb764d8a19a9b413889739e914f776f8c71bb6c", coi_built: false, admission: "NO"} | to json | save $"($receipt)/candidate.json"
+    {source_commit: $commit, tagged_package_version: $package.version, native_wasm_mvp_sha256: "7cf852dcc3c399f34330072a422679f2a5b7fc58c5839d3de0035fc68d9b7791", native_wasm_eh_sha256: "d71b7e4575c98b87e09ac799c574d770aa5ee4df5e6c6cf36b6e277d92b8d2c2", coi_built: false, admission: "NO"} | to json | save $"($receipt)/candidate.json"
 }

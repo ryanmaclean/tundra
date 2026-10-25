@@ -43,7 +43,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/native/mvp" "$RUNNER_TEMP/native/eh" "$RUNNER_TEMP/input-receipt"
           printf 'tundra_trial_head=%s\nsource_head=%s\nnative_tundra_head=%s\nnative_run=%s\n' \
             "$(git rev-parse HEAD)" "$(git -C duckdb-upstream rev-parse HEAD)" \
-            '214fbae44466fb854cdebfa54e5d6e47ee5088de' '40206602924' \
+            'a7d43e055ad33f73bb7cd4333b80ebd70ea940ea' '40216203853' \
             > "$RUNNER_TEMP/input-receipt/heads.txt"
           sha256sum .github/scripts/duckdb-bundle-matching-js.nu \
             > "$RUNNER_TEMP/input-receipt/script.sha256"
@@ -58,8 +58,8 @@ jobs:
             jq -e --argjson id "$id" --arg digest "sha256:$expected" \
               --arg name "duckdb-native-map-$variant" \
               '.id == $id and .name == $name and .digest == $digest and
-               .expired == false and .workflow_run.id == 40206602924 and
-               .workflow_run.head_sha == "214fbae44466fb854cdebfa54e5d6e47ee5088de"' \
+               .expired == false and .workflow_run.id == 40216203853 and
+               .workflow_run.head_sha == "a7d43e055ad33f73bb7cd4333b80ebd70ea940ea"' \
               "$metadata" > /dev/null
             curl --fail --silent --show-error --location --retry 3 \
               --header "Authorization: Bearer $GH_TOKEN" \
@@ -73,8 +73,8 @@ jobs:
             test -s "$RUNNER_TEMP/native/$variant/duckdb-$variant.wasm"
             test -s "$RUNNER_TEMP/native/$variant/duckdb-$variant.js"
           done <<'NATIVE_ARTIFACTS'
-          mvp 12604950177 7395ef668b7a962d0e3a581936d9fe80e9219fa8d4e7aee7bc12f82013b22b26
-          eh 12604325936 22988c687cfe59d77b4f8fd3f10b30525807a5062c2d72056956f270bc09a76b
+          mvp 12608056954 4c16a3b818a2d56ed4ddfe2ef3d37d7a46e3f8914bc83964642f962decc8d777
+          eh 12607937550 b56961834539456cff75f8202ad7a0f2a02817356113624ac85633923c516417
           NATIVE_ARTIFACTS
 
       - name: Install checksum-pinned Nushell tooling
