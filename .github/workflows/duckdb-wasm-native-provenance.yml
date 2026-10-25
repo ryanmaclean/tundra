@@ -123,10 +123,18 @@ jobs:
           test -s "$build/compile_commands.json"
           test -s "$build/CMakeCache.txt"
           test -s "$build/CMakeFiles/duckdb_wasm.dir/link.txt"
+          grep -Fq '@CMakeFiles/duckdb_wasm.dir/objects1.rsp' "$build/CMakeFiles/duckdb_wasm.dir/link.txt"
+          grep -Fq '@CMakeFiles/duckdb_wasm.dir/linklibs.rsp' "$build/CMakeFiles/duckdb_wasm.dir/link.txt"
+          objects_rsp="$build/CMakeFiles/duckdb_wasm.dir/objects1.rsp"
+          linklibs_rsp="$build/CMakeFiles/duckdb_wasm.dir/linklibs.rsp"
+          test -s "$objects_rsp"
+          test -s "$linklibs_rsp"
           grep -Eq '(^|/).*\.o([):[:space:]]|$)' "$map"
           cp "$build/compile_commands.json" "$RUNNER_TEMP/native-receipt/compile_commands.json"
           cp "$build/CMakeCache.txt" "$RUNNER_TEMP/native-receipt/CMakeCache.txt"
           cp "$build/CMakeFiles/duckdb_wasm.dir/link.txt" "$RUNNER_TEMP/native-receipt/link.txt"
+          cp "$objects_rsp" "$RUNNER_TEMP/native-receipt/objects1.rsp"
+          cp "$linklibs_rsp" "$RUNNER_TEMP/native-receipt/linklibs.rsp"
           cp "$build/duckdb_wasm.wasm" "$RUNNER_TEMP/native-receipt/duckdb-$variant.wasm"
           cp "$build/duckdb_wasm.js" "$RUNNER_TEMP/native-receipt/duckdb-$variant.js"
           find "$build" -type f -name '*.a' -print0 | sort -z | xargs -0 -r sha256sum \
@@ -135,6 +143,19 @@ jobs:
             | tar -C "$build" --null -czf "$RUNNER_TEMP/native-receipt/depfiles.tar.gz" -T -
           test -s "$RUNNER_TEMP/native-receipt/static-archives.sha256"
           test -s "$RUNNER_TEMP/native-receipt/depfiles.tar.gz"
+          # Hash the SDK archives actually selected by wasm-ld, not every cached SDK archive.
+          grep -oE '/emsdk/upstream/emscripten/cache/sysroot/[^[:space:]():]+\.a' "$map" \
+            | LC_ALL=C sort -u > "$RUNNER_TEMP/native-receipt/selected-sdk-archives.txt"
+          test -s "$RUNNER_TEMP/native-receipt/selected-sdk-archives.txt"
+          while IFS= read -r archive; do
+            test -f "$archive"
+            sha256sum "$archive"
+          done < "$RUNNER_TEMP/native-receipt/selected-sdk-archives.txt" \
+            > "$RUNNER_TEMP/native-receipt/selected-sdk-archives.sha256"
+          test -s "$RUNNER_TEMP/native-receipt/selected-sdk-archives.sha256"
+          sha256sum "$RUNNER_TEMP/native-receipt/objects1.rsp" \
+            "$RUNNER_TEMP/native-receipt/linklibs.rsp" \
+            > "$RUNNER_TEMP/native-receipt/link-response-files.sha256"
           sha256sum "$RUNNER_TEMP/native-receipt/duckdb-$variant.wasm" "$map" \
             > "$RUNNER_TEMP/native-receipt/output.sha256"
           test ! -e duckdb-upstream/.ccache/extension/json
