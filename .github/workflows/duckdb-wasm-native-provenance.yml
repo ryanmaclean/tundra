@@ -40,12 +40,21 @@ jobs:
           submodules: recursive
           persist-credentials: false
 
+      - name: Check out exact Emscripten compiler source for rebuild
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: emscripten-core/emscripten
+          ref: e967e20b4727956a30592165a3c1cde5c67fa0a8
+          path: emscripten-source
+          persist-credentials: false
+
       - name: Trust these checked-out paths inside the ephemeral container
         shell: bash
         run: |
           set -euo pipefail
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           git config --global --add safe.directory "$GITHUB_WORKSPACE/duckdb-upstream"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE/emscripten-source"
           while IFS= read -r -d '' directory; do
             git config --global --add safe.directory "$directory"
           done < <(find "$GITHUB_WORKSPACE/duckdb-upstream" -type f -name .git -printf '%h\0')
@@ -187,11 +196,17 @@ jobs:
           set -euo pipefail
           variant='${{ matrix.variant }}'
           receipt="$RUNNER_TEMP/native-receipt"
-          sdk_source="$EMSDK/upstream/emscripten"
+          sdk_source="$GITHUB_WORKSPACE/emscripten-source"
           source_commit='e967e20b4727956a30592165a3c1cde5c67fa0a8'
           test "$(git -C "$sdk_source" rev-parse HEAD)" = "$source_commit"
           git -C "$sdk_source" diff --quiet
           git -C "$sdk_source" diff --cached --quiet
+          export PATH="$sdk_source:$PATH"
+          test "$(command -v emcc)" = "$sdk_source/emcc"
+          test "$(command -v em++)" = "$sdk_source/em++"
+          test "$(command -v emcmake)" = "$sdk_source/emcmake"
+          test "$(command -v emmake)" = "$sdk_source/emmake"
+          emcc --version | grep -Fq '3.1.48'
           {
             printf 'emscripten_source=%s\n' "$source_commit"
             printf 'source_tree=%s\n' "$(git -C "$sdk_source" rev-parse HEAD^{tree})"
@@ -212,6 +227,8 @@ jobs:
             -DDUCKDB_WASM_VERSION=v1.28.0
             "-DDUCKDB_LOCATION=$GITHUB_WORKSPACE/duckdb-upstream/submodules/duckdb"
             "-DCMAKE_EXE_LINKER_FLAGS=-Wl,-Map,$map"
+            "-DCMAKE_C_COMPILER=$sdk_source/emcc"
+            "-DCMAKE_CXX_COMPILER=$sdk_source/em++"
           )
           if [ "$variant" = eh ]; then
             flags+=(-DWITH_WASM_EXCEPTIONS=1 -DDUCKDB_CUSTOM_PLATFORM=wasm_eh)
@@ -225,10 +242,14 @@ jobs:
           } > "$receipt/sdk-rebuild-commands.txt"
           EM_CACHE="$cache" emcmake cmake -S duckdb-upstream/lib -B "$build" \
             "${flags[@]}" 2>&1 | tee "$receipt/sdk-rebuild-configure.log"
+          grep -Fq "$sdk_source/em++" "$build/CMakeFiles/duckdb_wasm.dir/link.txt"
           EM_CACHE="$cache" EMCC_DEBUG=1 emmake make -C "$build" -j4 duckdb_wasm \
             2>&1 | tee "$receipt/sdk-rebuild-make.log"
           test -s "$build/duckdb_wasm.wasm"
           test -s "$map"
+          grep -Fq "$sdk_source/em++" "$build/compile_commands.json"
+          cp "$build/compile_commands.json" "$receipt/sdk-rebuild-compile_commands.json"
+          cp "$build/CMakeFiles/duckdb_wasm.dir/link.txt" "$receipt/sdk-rebuild-link.txt"
           rebuilt="$receipt/selected-sdk-rebuilt-archive-bytes"
           mkdir "$rebuilt"
           : > "$receipt/selected-sdk-rebuilt-archives.sha256"
