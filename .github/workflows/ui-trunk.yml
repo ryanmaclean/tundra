@@ -7,6 +7,7 @@ on:
       - Cargo.toml
       - Cargo.lock
       - app/leptos-ui/**
+      - scripts/stage_duckdb_runtime.nu
       - crates/at-api-types/**
 
 permissions:
@@ -32,6 +33,14 @@ jobs:
       - name: Install pinned Trunk
         run: cargo install trunk --version 0.21.14 --locked
 
+      - name: Install pinned Nushell
+        run: cargo install nu --version 0.108.0 --locked
+
+      - name: Stage pinned same-origin DuckDB runtime
+        run: |
+          test "$(git rev-parse HEAD)" = '${{ github.event.pull_request.head.sha }}'
+          nu scripts/stage_duckdb_runtime.nu app/leptos-ui/duckdb-runtime "$RUNNER_TEMP"
+
       - name: Build locked Leptos UI
         working-directory: app/leptos-ui
         run: trunk build --release --locked
@@ -46,6 +55,11 @@ jobs:
             test -s "dist/$font"
             cmp "$font" "dist/$font"
           done < <(find fonts -maxdepth 1 -type f -name '*.woff2' -print0)
+          test "$(find duckdb-runtime -type f | wc -l)" -eq 5
+          test "$(find dist/duckdb-runtime -type f | wc -l)" -eq 5
+          for asset in duckdb-browser.mjs duckdb-browser-mvp.worker.js duckdb-browser-eh.worker.js duckdb-mvp.wasm duckdb-eh.wasm; do
+            cmp "duckdb-runtime/$asset" "dist/duckdb-runtime/$asset"
+          done
           find dist -maxdepth 2 -type f -print | sort
 
       - name: Retain generated UI assets
