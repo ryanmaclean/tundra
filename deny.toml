@@ -39,6 +39,23 @@ ignore = [
     # expires: 2026-07-26
     # owner: TBD
     "RUSTSEC-2026-0097",
+    # h2 0.3.27 is reachable only via reqwest 0.11 / hyper 0.14 inside datadog-tracing
+    # -> opentelemetry-datadog (client-side telemetry export to the local agent); the
+    # fix (h2 >=0.4.16) needs those crates to move off hyper 0.14. h2 0.4 is updated.
+    # expires: 2027-01-24
+    # owner: tundra maintainers
+    "RUSTSEC-2026-0258",
+    # lru 0.12.5 is pulled by ratatui 0.29 (at-tui, tachyonfx); at-core already uses
+    # lru 0.18.5. Fix lands with the ratatui 0.30 upgrade; we never call LruCache::pop.
+    # expires: 2027-01-24
+    # owner: tundra maintainers
+    "RUSTSEC-2026-0253",
+    # quick-xml 0.38.4 via tauri-utils -> plist (build-time/own Info.plist only, no
+    # untrusted XML). Fix needs a plist release on quick-xml >=0.41.
+    # expires: 2027-01-24
+    # owner: tundra maintainers
+    "RUSTSEC-2026-0194",
+    "RUSTSEC-2026-0195",
 ]
 
 # ---------------------------------------------------------------------------
