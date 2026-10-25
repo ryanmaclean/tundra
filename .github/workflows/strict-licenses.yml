@@ -5,11 +5,17 @@ on:
     paths:
       - .github/workflows/strict-licenses.yml
       - scripts/license_inventory.nu
+      - scripts/selected_notice_bill.nu
       - scripts/license_approvals.json
       - docs/license-inventory.md
       - docs/file-watcher-feature.md
       - app/tauri/tauri.conf.json
       - app/tauri/third-party-licenses/**
+      - app/leptos-ui/index.html
+      - app/leptos-ui/style.css
+      - app/leptos-ui/fonts/**
+      - app/leptos-ui/vendor/**
+      - app/leptos-ui/public/**
       - crates/at-core/src/file_watcher.rs
       - crates/at-core/src/lib.rs
       - Cargo.toml
@@ -189,6 +195,7 @@ jobs:
         run: |
           cargo install trunk --version 0.21.14 --locked
           cargo install tauri-cli --version 2.12.4 --locked
+          cargo install nu --version 0.108.0 --locked
       - name: Build locked UI and Linux .deb
         shell: bash
         run: |
@@ -202,11 +209,37 @@ jobs:
             jq -e '. as $g | ($g.packages[] | select(.name == "at-tauri") | .id) as $id | [$g.resolve.nodes[] | select(.id == $id) | .features[]] | index("sounds") != null' \
               "$RUNNER_TEMP/profile-metadata.json"
             (cd app/tauri && cargo tauri build --help | grep -F -- '--features')
-            (cd app/tauri && cargo tauri build --bundles deb --features sounds)
+            inventory_profile=tauri-sounds
           else
             cargo metadata --locked --format-version 1 --filter-platform x86_64-unknown-linux-gnu > "$RUNNER_TEMP/profile-metadata.json"
             jq -e '. as $g | ($g.packages[] | select(.name == "at-tauri") | .id) as $id | [$g.resolve.nodes[] | select(.id == $id) | .features[]] | index("sounds") == null' \
               "$RUNNER_TEMP/profile-metadata.json"
+            inventory_profile=default
+          fi
+          nu scripts/license_inventory.nu "$RUNNER_TEMP/profile-metadata.json" \
+            x86_64-unknown-linux-gnu "$inventory_profile" "$RUNNER_TEMP/license-inventory.json"
+          if [[ "$inventory_profile" == default ]]; then
+            peer_profile=tauri-sounds
+            cargo metadata --locked --format-version 1 --filter-platform x86_64-unknown-linux-gnu \
+              --features at-tauri/sounds > "$RUNNER_TEMP/peer-profile-metadata.json"
+          else
+            peer_profile=default
+            cargo metadata --locked --format-version 1 --filter-platform x86_64-unknown-linux-gnu \
+              > "$RUNNER_TEMP/peer-profile-metadata.json"
+          fi
+          nu scripts/license_inventory.nu "$RUNNER_TEMP/peer-profile-metadata.json" \
+            x86_64-unknown-linux-gnu "$peer_profile" "$RUNNER_TEMP/peer-license-inventory.json"
+          cargo fetch --locked --target x86_64-unknown-linux-gnu
+          nu scripts/selected_notice_bill.nu \
+            "$RUNNER_TEMP/license-inventory.json" "$RUNNER_TEMP/peer-license-inventory.json" \
+            "$RUNNER_TEMP/profile-metadata.json" "$RUNNER_TEMP/peer-profile-metadata.json" Cargo.lock \
+            app/tauri/third-party-licenses/selected-manifest.json \
+            app/tauri/third-party-licenses/manifest.json \
+            "${CARGO_HOME:-$HOME/.cargo}/registry/cache" \
+            app/tauri/third-party-licenses/selected-notice-bill.json
+          if [[ '${{ matrix.profile }}' == sounds ]]; then
+            (cd app/tauri && cargo tauri build --bundles deb --features sounds)
+          else
             (cd app/tauri && cargo tauri build --bundles deb)
           fi
           git diff --exit-code -- Cargo.lock
@@ -283,8 +316,53 @@ jobs:
           if [[ '${{ matrix.profile }}' == sounds ]]; then tauri_features=sounds; else tauri_features=default; fi
           printf 'head_sha=%s\nprofile=%s\ntauri_features=%s\n' \
             '${{ github.event.pull_request.head.sha }}' '${{ matrix.profile }}' "$tauri_features" > "$RUNNER_TEMP/installer-source.txt"
+      - name: Verify complete selected-source bill inside built .deb
+        id: verify_selected_bill
+        shell: bash
+        run: |
+          set -euo pipefail
+          bill=app/tauri/third-party-licenses/selected-notice-bill.json
+          selected_manifest=app/tauri/third-party-licenses/selected-manifest.json
+          inventory="$RUNNER_TEMP/license-inventory.json"
+          root="$RUNNER_TEMP/tundra-deb-root"
+          test -s "$bill"
+          jq -e --slurpfile inv "$inventory" '
+            .schema_version == 1 and
+            .cargo_lock_sha256 == $inv[0].cargo_lock_sha256 and
+            .cargo_metadata_sha256 == $inv[0].cargo_metadata_sha256 and
+            .target == $inv[0].target and
+            .feature_profile == $inv[0].feature_profile and
+            .selected_third_party_count == ([ $inv[0].packages[] | select(.role == "product" and .first_party == false) ] | length) and
+            (.packages | length) == .selected_third_party_count
+          ' "$bill"
+          mapfile -d '' installed_bills < <(find "$root" -type f -path '*/third-party-licenses/selected-notice-bill.json' -print0)
+          test "${#installed_bills[@]}" -eq 1
+          cmp "$bill" "${installed_bills[0]}"
+          mapfile -d '' installed_selected_manifests < <(find "$root" -type f -path '*/third-party-licenses/selected-manifest.json' -print0)
+          test "${#installed_selected_manifests[@]}" -eq 1
+          cmp "$selected_manifest" "${installed_selected_manifests[0]}"
+          jq -e '[.entries[].texts[]] | group_by(.file) | all(.[]; ([.[].text_sha256] | unique | length) == 1)' "$selected_manifest"
+          receipt="$RUNNER_TEMP/selected-installed-texts.tsv"
+          : > "$receipt"
+          while IFS=$'\t' read -r source expected; do
+            case "$source" in
+              app/tauri/third-party-licenses/*) ;;
+              *) echo "Unexpected selected legal-text path: $source" >&2; exit 1 ;;
+            esac
+            relative="${source#app/tauri/third-party-licenses/}"
+            mapfile -d '' matches < <(find "$root" -type f -path "*/third-party-licenses/$relative" -print0)
+            test "${#matches[@]}" -eq 1
+            printf '%s  %s\n' "$expected" "${matches[0]}" | sha256sum --check --status
+            cmp "$source" "${matches[0]}"
+            printf '%s\t%s\t%s\n' "$relative" "$expected" "${matches[0]#"$root"/}" >> "$receipt"
+          done < <(jq -r '.entries[].texts[] | [.file,.text_sha256] | @tsv' "$selected_manifest" | sort -u)
+          test "$(wc -l < "$receipt")" -eq "$(jq -r '.entries[].texts[].file' "$selected_manifest" | sort -u | wc -l)"
+          diff -u \
+            <(jq -r '.entries[].texts[].file | select(startswith("app/tauri/third-party-licenses/selected/")) | sub("^app/tauri/third-party-licenses/"; "")' "$selected_manifest" | sort -u) \
+            <(find "$root" -type f -path '*/third-party-licenses/selected/*' -print | sed 's#^.*/third-party-licenses/##' | sort -u)
+          sha256sum "$bill" "${installed_bills[0]}" > "$RUNNER_TEMP/selected-bill-sha256.txt"
       - name: Capture unapproved bundle-byte diagnostic after failed verification
-        if: ${{ failure() && steps.verify_deb_resources.outcome == 'failure' }}
+        if: ${{ failure() && (steps.verify_deb_resources.outcome == 'failure' || steps.verify_selected_bill.outcome == 'failure') }}
         shell: bash
         run: |
           set -euo pipefail
@@ -312,7 +390,7 @@ jobs:
           printf 'head_sha=%s\nprofile=%s\nverification=FAILED_UNAPPROVED\n' \
             '${{ github.event.pull_request.head.sha }}' '${{ matrix.profile }}' > "$out/source.txt"
       - name: Upload unapproved bundle-byte diagnostic
-        if: ${{ failure() && steps.verify_deb_resources.outcome == 'failure' }}
+        if: ${{ failure() && (steps.verify_deb_resources.outcome == 'failure' || steps.verify_selected_bill.outcome == 'failure') }}
         uses: actions/upload-artifact@v4
         with:
           name: UNAPPROVED-bundle-byte-diagnostic-${{ matrix.profile }}
@@ -333,6 +411,11 @@ jobs:
             ${{ runner.temp }}/installer-bin-fingerprint.json
             ${{ runner.temp }}/installer-binary.sha256
             ${{ runner.temp }}/installer-bundle-patch.txt
+            ${{ runner.temp }}/license-inventory.json
+            ${{ runner.temp }}/peer-license-inventory.json
+            ${{ runner.temp }}/selected-installed-texts.tsv
+            ${{ runner.temp }}/selected-bill-sha256.txt
+            app/tauri/third-party-licenses/selected-notice-bill.json
           if-no-files-found: error
           retention-days: 14
 

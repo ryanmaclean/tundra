@@ -323,6 +323,22 @@ def main [metadata_path: string, target: string, profile: string, output_path: s
                 $used_approval_ids = ($used_approval_ids | append $approval.id)
             }
         }
+        # Source-only candidate: select the declared Apache-2.0 OR branch for
+        # this exact crate archive so the standard-text bill and inventory agree.
+        if $shipped and $package.name == 'eventsource-stream' and $package.version == '0.2.3' and
+            $package.source == 'registry+https://github.com/rust-lang/crates.io-index' {
+            let locked_choice = ($lock_packages | where {|item|
+                $item.name == $package.name and $item.version == $package.version and $item.source == $package.source
+            })
+            if $package.license != 'MIT OR Apache-2.0' or ($locked_choice | length) != 1 or
+                (($locked_choice | first).checksum != '74fef4569247a5f429d9156b9d0a2599914385dd189c539334c625d8099d90ab') {
+                error make {msg: 'Exact eventsource-stream Apache choice source changed'}
+            }
+            $parsed = (license_evaluation 'Apache-2.0' $global_atoms $approved_extra)
+            if not $parsed.allowed or $parsed.selected_ids != ['Apache-2.0'] {
+                error make {msg: 'Exact eventsource-stream Apache choice unavailable'}
+            }
+        }
         let needs_notice = ($parsed.selected_ids | where $it not-in $base_allowed | uniq)
         let policy = if not $shipped { 'not-applicable' } else if $first_party { 'first-party-private' } else if $approval_id != null { 'approved-exact' } else if $global_result.allowed { 'allowed' } else { 'review-required' }
         $rows = ($rows | append {
