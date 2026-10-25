@@ -15,9 +15,30 @@ use at_daemon::daemon::Daemon;
 use at_tauri::bridge::ipc_handler_from_daemon;
 use at_tauri::sounds::SoundEngine;
 use at_tauri::state::AppState;
+use sha2::{Digest, Sha256};
+use std::collections::BTreeMap;
+use std::io;
+use std::path::{Path, PathBuf};
 use tracing::info;
 
 fn main() {
+    let args: Vec<_> = std::env::args_os().skip(1).collect();
+    let proof_flag = std::ffi::OsStr::new("--verify-embedded-assets");
+    let proof_requested = args.iter().any(|arg| arg.as_os_str() == proof_flag);
+    if proof_requested && (args.len() != 2 || args[0].as_os_str() != proof_flag) {
+        eprintln!("usage: auto-tundra --verify-embedded-assets <generated-dist-directory>");
+        std::process::exit(2);
+    }
+
+    // This is the same context passed to the running app. The package proof
+    // reads it before logging, credentials, the daemon, or a webview starts.
+    let context = tauri::generate_context!();
+    if proof_requested {
+        let dist = Path::new(&args[1]);
+        verify_embedded_assets(&context, dist).expect("packaged frontend asset proof failed");
+        return;
+    }
+
     // Before any TLS client is built: aws-lc-rs provider, X25519MLKEM768 first.
     at_core::tls::install_default_crypto_provider();
     at_telemetry::logging::init_logging("auto-tundra", "info");
@@ -177,10 +198,166 @@ fn main() {
                 api.prevent_close();
             }
         })
-        .run(tauri::generate_context!())
+        .run(context)
         .expect("error while running auto-tundra");
 
     info!("UI closed, shutting down daemon");
+}
+
+#[derive(serde::Serialize)]
+struct AssetProofRow {
+    key: String,
+    dist_bytes: usize,
+    dist_sha256: String,
+    embedded_bytes: usize,
+    embedded_sha256: String,
+    transform: &'static str,
+}
+
+#[derive(serde::Serialize)]
+struct AssetProof {
+    schema: &'static str,
+    asset_count: usize,
+    assets: Vec<AssetProofRow>,
+}
+
+fn asset_proof_error(message: impl Into<String>) -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidData, message.into())
+}
+
+fn collect_dist_files(
+    root: &Path,
+    dir: &Path,
+    files: &mut BTreeMap<String, PathBuf>,
+) -> io::Result<()> {
+    let mut entries = std::fs::read_dir(dir)?.collect::<io::Result<Vec<_>>>()?;
+    entries.sort_by_key(|entry| entry.file_name());
+    for entry in entries {
+        let path = entry.path();
+        let metadata = std::fs::symlink_metadata(&path)?;
+        if metadata.file_type().is_symlink() {
+            return Err(asset_proof_error(format!(
+                "symlink in generated frontend: {}",
+                path.display()
+            )));
+        }
+        if metadata.is_dir() {
+            collect_dist_files(root, &path, files)?;
+        } else if metadata.is_file() {
+            let relative = path
+                .strip_prefix(root)
+                .map_err(|_| asset_proof_error("frontend path escaped dist"))?;
+            let key = relative
+                .to_str()
+                .ok_or_else(|| asset_proof_error("non-UTF-8 frontend asset path"))?
+                .replace(std::path::MAIN_SEPARATOR, "/");
+            if files.insert(key.clone(), path).is_some() {
+                return Err(asset_proof_error(format!(
+                    "duplicate generated frontend key: {key}"
+                )));
+            }
+        } else {
+            return Err(asset_proof_error(format!(
+                "non-file frontend entry: {}",
+                path.display()
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn verify_embedded_assets(context: &tauri::Context, dist: &Path) -> io::Result<()> {
+    if !dist.is_dir() {
+        return Err(asset_proof_error(format!(
+            "missing generated frontend: {}",
+            dist.display()
+        )));
+    }
+    let mut files = BTreeMap::new();
+    collect_dist_files(dist, dist, &mut files)?;
+    if !files.contains_key("index.html") || !files.keys().any(|key| key.ends_with(".wasm")) {
+        return Err(asset_proof_error(
+            "generated frontend is missing index.html or WASM",
+        ));
+    }
+
+    let mut embedded = BTreeMap::new();
+    for (asset_key, _) in context.assets().iter() {
+        let key = asset_key.trim_start_matches('/').to_owned();
+        if key.is_empty() || key.split('/').any(|segment| segment == "..") {
+            return Err(asset_proof_error(format!(
+                "unexpected embedded asset key: {key}"
+            )));
+        }
+        // The iterator exposes Tauri's Brotli-compressed storage bytes.
+        // Fetching by key decodes what the application serves at runtime.
+        let decoded = context
+            .assets()
+            .get(&tauri::utils::assets::AssetKey::from(asset_key.as_ref()))
+            .ok_or_else(|| asset_proof_error(format!("embedded asset cannot be fetched: {key}")))?;
+        if embedded.insert(key.clone(), decoded.into_owned()).is_some() {
+            return Err(asset_proof_error(format!(
+                "duplicate embedded asset key: {key}"
+            )));
+        }
+    }
+    if files.keys().collect::<Vec<_>>() != embedded.keys().collect::<Vec<_>>() {
+        return Err(asset_proof_error(
+            "generated and embedded frontend asset key sets differ",
+        ));
+    }
+
+    let mut rows = Vec::with_capacity(files.len());
+    for (key, source_path) in files {
+        let source = std::fs::read(&source_path)?;
+        let mut expected = source.clone();
+        let transform = if source_path.extension().is_some_and(|ext| ext == "html")
+            && context.config().app.security.csp.is_some()
+        {
+            // tauri-codegen 2.6.3 map_core_assets: parse, inject CSP nonce
+            // tokens, then serialize. It only changes HTML assets.
+            let document =
+                tauri_utils::html2::parse_doc(String::from_utf8_lossy(&source).into_owned());
+            tauri_utils::html2::inject_nonce_token(
+                &document,
+                &context
+                    .config()
+                    .app
+                    .security
+                    .dangerous_disable_asset_csp_modification,
+            );
+            expected = tauri_utils::html2::serialize_doc(&document);
+            "tauri-csp-html"
+        } else {
+            "identity"
+        };
+        let actual = embedded
+            .get(&key)
+            .ok_or_else(|| asset_proof_error(format!("missing embedded asset: {key}")))?;
+        if expected != *actual {
+            return Err(asset_proof_error(format!(
+                "generated and embedded bytes differ: {key}"
+            )));
+        }
+        rows.push(AssetProofRow {
+            key,
+            dist_bytes: source.len(),
+            dist_sha256: format!("{:x}", Sha256::digest(&source)),
+            embedded_bytes: actual.len(),
+            embedded_sha256: format!("{:x}", Sha256::digest(actual)),
+            transform,
+        });
+    }
+    let proof = AssetProof {
+        schema: "tundra-embedded-assets/v1",
+        asset_count: rows.len(),
+        assets: rows,
+    };
+    let mut stdout = io::stdout().lock();
+    serde_json::to_writer(&mut stdout, &proof).map_err(io::Error::other)?;
+    use io::Write;
+    writeln!(stdout)?;
+    Ok(())
 }
 
 /// JavaScript run in the webview before page scripts on every navigation.

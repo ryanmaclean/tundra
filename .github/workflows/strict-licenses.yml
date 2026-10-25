@@ -549,8 +549,54 @@ jobs:
           printf 'head_sha=%s\nprofile=%s\ncoverage=source-and-legal-readback-only\n' \
             '${{ github.event.pull_request.head.sha }}' '${{ matrix.profile }}' > "$RUNNER_TEMP/ui-notice-source.txt"
           sha256sum "$manifest" "${installed_manifests[0]}" "${debs[0]}" >> "$RUNNER_TEMP/ui-notice-source.txt"
+      - name: Verify generated frontend bytes in packaged executable
+        id: verify_embedded_ui
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = '${{ github.event.pull_request.head.sha }}'
+          dist=app/leptos-ui/dist
+          root="$RUNNER_TEMP/tundra-deb-root"
+          test -s "$dist/index.html" && test -d "$root"
+          mapfile -d '' installed_bins < <(find "$root" -type f -name auto-tundra -print0)
+          test "${#installed_bins[@]}" -eq 1
+          cmp "$RUNNER_TEMP/expected-bundle-auto-tundra" "${installed_bins[0]}"
+          proof="$RUNNER_TEMP/embedded-asset-proof.json"
+          "${installed_bins[0]}" --verify-embedded-assets "$dist" > "$proof"
+          jq -e '
+            .schema == "tundra-embedded-assets/v1" and
+            .asset_count == (.assets | length) and
+            .asset_count >= 18 and
+            ([.assets[].key] | length) == ([.assets[].key] | unique | length) and
+            all(.assets[]; (.dist_sha256 | test("^[0-9a-f]{64}$")) and
+              (.embedded_sha256 | test("^[0-9a-f]{64}$")) and .dist_bytes > 0 and .embedded_bytes > 0 and
+              (if .key == "index.html" then .transform == "tauri-csp-html"
+               else .transform == "identity" and .dist_bytes == .embedded_bytes and .dist_sha256 == .embedded_sha256 end)) and
+            ([.assets[].key] | index("index.html") != null and
+              index("fonts/inter-400.woff2") != null and
+              index("fonts/inter-500.woff2") != null and
+              index("fonts/inter-600.woff2") != null and
+              index("fonts/inter-700.woff2") != null and
+              index("fonts/jetbrains-mono-400.woff2") != null and
+              index("fonts/jetbrains-mono-500.woff2") != null and
+              any(.[]; test("^xterm-[0-9a-f]+\\.js$")) and
+              any(.[]; test("^xterm-[0-9a-f]+\\.css$")) and
+              any(.[]; test("^addon-fit-[0-9a-f]+\\.js$")) and
+              any(.[]; endswith(".wasm")))
+          ' "$proof"
+          (cd "$dist" && find . -type f -print0 | sort -z | xargs -0 sha256sum) \
+            > "$RUNNER_TEMP/generated-dist-sha256.txt"
+          test "$(wc -l < "$RUNNER_TEMP/generated-dist-sha256.txt")" -eq "$(jq -r '.asset_count' "$proof")"
+          shopt -s nullglob
+          debs=(target/release/bundle/deb/*.deb)
+          test "${#debs[@]}" -eq 1
+          printf 'head_sha=%s\nprofile=%s\nasset_count=%s\nverification=packaged-executable-readback\n' \
+            '${{ github.event.pull_request.head.sha }}' '${{ matrix.profile }}' \
+            "$(jq -r '.asset_count' "$proof")" > "$RUNNER_TEMP/embedded-asset-source.txt"
+          sha256sum "${installed_bins[0]}" "${debs[0]}" "$proof" \
+            "$RUNNER_TEMP/generated-dist-sha256.txt" >> "$RUNNER_TEMP/embedded-asset-source.txt"
       - name: Capture unapproved bundle-byte diagnostic after failed verification
-        if: ${{ failure() && (steps.verify_deb_resources.outcome == 'failure' || steps.verify_selected_bill.outcome == 'failure' || steps.verify_inter_ui.outcome == 'failure' || steps.verify_other_ui_notices.outcome == 'failure') }}
+        if: ${{ failure() && (steps.verify_deb_resources.outcome == 'failure' || steps.verify_selected_bill.outcome == 'failure' || steps.verify_inter_ui.outcome == 'failure' || steps.verify_other_ui_notices.outcome == 'failure' || steps.verify_embedded_ui.outcome == 'failure') }}
         shell: bash
         run: |
           set -euo pipefail
@@ -575,10 +621,14 @@ jobs:
           fi
           file "$out/workspace-auto-tundra" "$out/installed-auto-tundra" > "$out/file.txt"
           dpkg-deb -f "$out/installer.deb" > "$out/control-fields.txt"
+          for receipt in embedded-asset-proof.json embedded-asset-source.txt generated-dist-sha256.txt; do
+            if [[ -f "$RUNNER_TEMP/$receipt" ]]; then cp "$RUNNER_TEMP/$receipt" "$out/$receipt"; fi
+          done
+          if [[ -d app/leptos-ui/dist ]]; then cp -R app/leptos-ui/dist "$out/generated-dist"; fi
           printf 'head_sha=%s\nprofile=%s\nverification=FAILED_UNAPPROVED\n' \
             '${{ github.event.pull_request.head.sha }}' '${{ matrix.profile }}' > "$out/source.txt"
       - name: Upload unapproved bundle-byte diagnostic
-        if: ${{ failure() && (steps.verify_deb_resources.outcome == 'failure' || steps.verify_selected_bill.outcome == 'failure' || steps.verify_inter_ui.outcome == 'failure' || steps.verify_other_ui_notices.outcome == 'failure') }}
+        if: ${{ failure() && (steps.verify_deb_resources.outcome == 'failure' || steps.verify_selected_bill.outcome == 'failure' || steps.verify_inter_ui.outcome == 'failure' || steps.verify_other_ui_notices.outcome == 'failure' || steps.verify_embedded_ui.outcome == 'failure') }}
         uses: actions/upload-artifact@v4
         with:
           name: UNAPPROVED-bundle-byte-diagnostic-${{ matrix.profile }}
@@ -610,6 +660,10 @@ jobs:
             ${{ runner.temp }}/ui-installed-notices.tsv
             ${{ runner.temp }}/ui-jetbrains-generated.tsv
             ${{ runner.temp }}/ui-notice-source.txt
+            ${{ runner.temp }}/embedded-asset-proof.json
+            ${{ runner.temp }}/embedded-asset-source.txt
+            ${{ runner.temp }}/generated-dist-sha256.txt
+            app/leptos-ui/dist/**
             app/tauri/third-party-licenses/ui/verified-source-manifest.json
             app/tauri/third-party-licenses/selected-notice-bill.json
           if-no-files-found: error
