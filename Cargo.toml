@@ -47,7 +47,7 @@ ahash = { version = "0.8", features = ["serde"] }
 mimalloc = "0.1"
 notify = { version = "7", default-features = false, features = ["macos_fsevent"] }
 crossbeam-channel = "0.5"
-git2 = "0.20"
+git2 = "0.21"
 subtle = "2"
 tauri = { version = "2", features = ["devtools", "tray-icon", "image-png"] }
 tauri-build = "2"
