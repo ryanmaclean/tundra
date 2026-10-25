@@ -243,8 +243,30 @@ jobs:
           dpkg-deb -x "${debs[0]}" "$root"
           mapfile -d '' installed_bins < <(find "$root" -type f -name auto-tundra -print0)
           test "${#installed_bins[@]}" -eq 1
-          cmp target/release/auto-tundra "${installed_bins[0]}"
-          sha256sum target/release/auto-tundra "${installed_bins[0]}" > "$RUNNER_TEMP/installer-binary.sha256"
+          # Tauri 2.12.4 changes exactly the embedded bundle marker from UNK
+          # to DEB when packaging. The current-head diagnostics prove the
+          # unique marker offsets for both feature profiles. Require that
+          # source marker and then compare every byte of the expected patched
+          # workspace binary against the installed package binary.
+          case '${{ matrix.profile }}' in
+            default) expected_marker_offset=3665847 ;;
+            sounds) expected_marker_offset=3677775 ;;
+            *) echo 'Unknown installer profile' >&2; exit 1 ;;
+          esac
+          workspace_bin=target/release/auto-tundra
+          marker_prefix='__TAURI_BUNDLE_TYPE_VAR_'
+          mapfile -t marker_hits < <(LC_ALL=C grep -aobF "${marker_prefix}UNK" "$workspace_bin")
+          test "${#marker_hits[@]}" -eq 1
+          marker_offset="${marker_hits[0]%%:*}"
+          [[ "$marker_offset" =~ ^[0-9]+$ ]]
+          test "$marker_offset" -eq "$expected_marker_offset"
+          expected_bin="$RUNNER_TEMP/expected-bundle-auto-tundra"
+          cp "$workspace_bin" "$expected_bin"
+          printf 'DEB' | dd of="$expected_bin" bs=1 seek="$((marker_offset + ${#marker_prefix}))" conv=notrunc status=none
+          cmp "$expected_bin" "${installed_bins[0]}"
+          sha256sum "$workspace_bin" "$expected_bin" "${installed_bins[0]}" > "$RUNNER_TEMP/installer-binary.sha256"
+          printf 'profile=%s\nmarker_offset=%s\npatch=UNK-to-DEB\n' \
+            '${{ matrix.profile }}' "$marker_offset" > "$RUNNER_TEMP/installer-bundle-patch.txt"
           receipt="$RUNNER_TEMP/installer-resource-proof.tsv"
           : > "$receipt"
           while IFS=$'\t' read -r source expected; do
@@ -310,6 +332,7 @@ jobs:
             ${{ runner.temp }}/installer-profile-metadata.sha256
             ${{ runner.temp }}/installer-bin-fingerprint.json
             ${{ runner.temp }}/installer-binary.sha256
+            ${{ runner.temp }}/installer-bundle-patch.txt
           if-no-files-found: error
           retention-days: 14
 
