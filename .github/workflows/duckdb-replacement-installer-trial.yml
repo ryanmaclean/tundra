@@ -262,6 +262,7 @@ jobs:
               .ok == true and .result.ok == true and
               .result.rowCount == 1 and .result.answer == 42 and
               .result.absentIsNull == true and .result.aggregateOk == true and
+              .result.exceptionOk == true and
               .result.cspDenied == true and .result.cspViolations == [] and
               .result.localRuntime == true and .result.remoteRequests == 0
             ' "$RUNNER_TEMP/replacement-receipt/webkit-$variant.json" > /dev/null

@@ -35,6 +35,7 @@ struct DuckDbSmokeResult {
     absent_is_null: bool,
     aggregate_ok: bool,
     aggregate_observed: Option<String>,
+    exception_ok: bool,
     smoke_error: Option<String>,
     csp_denied: bool,
     csp_violations: Vec<String>,
@@ -56,6 +57,7 @@ fn cmd_smoke_result(app: tauri::AppHandle, result: DuckDbSmokeResult) -> Result<
         && result.answer == Some(42)
         && result.absent_is_null
         && result.aggregate_ok
+        && result.exception_ok
         && result.csp_denied
         && result.csp_violations.is_empty()
         && result.local_runtime
@@ -91,6 +93,7 @@ fn cmd_smoke_result(app: tauri::AppHandle, result: DuckDbSmokeResult) -> Result<
             "absentIsNull": result.absent_is_null,
             "aggregateOk": result.aggregate_ok,
             "aggregateObserved": result.aggregate_observed.as_deref().unwrap_or("").chars().take(512).collect::<String>(),
+            "exceptionOk": result.exception_ok,
             "smokeError": result.smoke_error.as_deref().unwrap_or("").chars().take(512).collect::<String>(),
             "cspDenied": result.csp_denied,
             "cspViolations": csp_directives,
@@ -118,7 +121,7 @@ const DUCKDB_SMOKE_INIT_SCRIPT: &str = r#"
   window.addEventListener('load', () => setTimeout(async () => {
     const result = {
       ok: false, variant: null, rowCount: 0, answer: null, absentIsNull: false,
-      aggregateOk: false, aggregateObserved: null, smokeError: null,
+      aggregateOk: false, aggregateObserved: null, exceptionOk: false, smokeError: null,
       cspDenied: false, cspViolations: [], localRuntime: false,
       remoteRequests: 0
     };
@@ -163,6 +166,16 @@ const DUCKDB_SMOKE_INIT_SCRIPT: &str = r#"
         aggregate[0].n === 2 && aggregate[0].total === 3 &&
         aggregate[0].nonnull === 1;
       result.ok = result.ok && result.aggregateOk;
+      const rejected = JSON.parse(await bridge.query_duckdb(
+        "SELECT CAST('tundra_invalid_i32' AS INTEGER) AS impossible"
+      ));
+      const recovered = await checkedQuery('SELECT CAST(42 AS INTEGER) AS alive');
+      result.exceptionOk = !!rejected && !Array.isArray(rejected) &&
+        typeof rejected.error === 'string' &&
+        rejected.error.includes('Conversion Error') &&
+        rejected.error.includes('tundra_invalid_i32') &&
+        recovered.length === 1 && recovered[0].alive === 42;
+      result.ok = result.ok && result.exceptionOk;
       await new Promise(resolve => setTimeout(resolve, 100));
       result.remoteRequests = performance.getEntriesByType('resource').filter(entry => {
         const url = new URL(entry.name);
