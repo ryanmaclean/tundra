@@ -128,6 +128,7 @@ jobs:
           sha256sum "$config" > "$receipt/sdk-source-config.sha256"
           : > "$receipt/sdk-installed-source.sha256"
           : > "$receipt/sdk-source-differences.tsv"
+          : > "$receipt/sdk-source-gitlinks.txt"
           regular=0
           symlinks=0
           gitlinks=0
@@ -138,6 +139,7 @@ jobs:
             installed_file="$installed/$relative"
             if [ "$mode" = 160000 ]; then
               gitlinks=$((gitlinks + 1))
+              printf '%s\n' "$relative" >> "$receipt/sdk-source-gitlinks.txt"
             elif [ "$mode" = 120000 ]; then
               symlinks=$((symlinks + 1))
               if [ ! -L "$installed_file" ] \
@@ -174,11 +176,58 @@ jobs:
           grep -E '(^|/)([^/]+\.(py|js|mjs|c|cc|cpp|h|hpp|sh)|emcc|em\+\+|emcmake|emmake)$' \
             "$receipt/sdk-installed-extra-files.txt" \
             > "$receipt/sdk-installed-extra-source-files.txt" || true
-          printf 'regular=%s\nsymlinks=%s\ngitlinks_excluded=%s\nmismatches=%s\nextra_source_files=%s\n' \
+          metadata="$receipt/sdk-release-metadata"
+          mkdir "$metadata"
+          : > "$receipt/sdk-release-metadata.sha256"
+          for name in emscripten-version.txt package.json package-lock.json; do
+            test -f "$pinned/$name"
+            test -f "$installed/$name"
+            cp "$pinned/$name" "$metadata/pinned-$name"
+            cp "$installed/$name" "$metadata/installed-$name"
+            sha256sum "$metadata/pinned-$name" "$metadata/installed-$name" \
+              >> "$receipt/sdk-release-metadata.sha256"
+          done
+          test -f "$installed/emscripten-revision.txt"
+          cp "$installed/emscripten-revision.txt" "$metadata/installed-emscripten-revision.txt"
+          sha256sum "$metadata/installed-emscripten-revision.txt" \
+            >> "$receipt/sdk-release-metadata.sha256"
+          : > "$receipt/sdk-source-excluded-differences.tsv"
+          : > "$receipt/sdk-source-runtime-differences.tsv"
+          omissions=0
+          metadata_differences=0
+          runtime_differences=0
+          while IFS=$'\t' read -r kind relative; do
+            reason=''
+            case "$kind:$relative" in
+              MISSING_OR_TYPE:test/third_party/*|MISSING_OR_TYPE:site/*|MISSING_OR_TYPE:tools/maint/*|MISSING_OR_TYPE:.*|MISSING_OR_TYPE:Makefile|MISSING_OR_TYPE:bootstrap.py|MISSING_OR_TYPE:system/lib/libcxxabi/src/demangle/.clang-format|MISSING_OR_TYPE:system/lib/libunwind/.clang-format)
+                reason=release_dev_or_formatting_omission
+                omissions=$((omissions + 1)) ;;
+              BYTE_DIFF:emscripten-version.txt|BYTE_DIFF:package.json|BYTE_DIFF:package-lock.json)
+                reason=release_manifest_or_version_difference
+                metadata_differences=$((metadata_differences + 1)) ;;
+            esac
+            if [ -n "$reason" ]; then
+              printf '%s\t%s\t%s\n' "$kind" "$relative" "$reason" \
+                >> "$receipt/sdk-source-excluded-differences.tsv"
+            else
+              printf '%s\t%s\n' "$kind" "$relative" \
+                >> "$receipt/sdk-source-runtime-differences.tsv"
+              runtime_differences=$((runtime_differences + 1))
+            fi
+          done < "$receipt/sdk-source-differences.tsv"
+          while IFS= read -r gitlink; do
+            case "$gitlink" in test/third_party/*) ;; *) exit 1 ;; esac
+          done < "$receipt/sdk-source-gitlinks.txt"
+          printf 'scope=compiler_source_subset_excluding_manifests\nfull_tree_equal=false\nsource_build_admission=NO\nregular=%s\nsymlinks=%s\ngitlinks_excluded=%s\nall_mismatches=%s\nrelease_omissions=%s\nruntime_affecting_manifest_or_version_differences=%s\nother_source_differences=%s\nextra_source_files=%s\n' \
             "$regular" "$symlinks" "$gitlinks" "$mismatches" \
+            "$omissions" "$metadata_differences" "$runtime_differences" \
             "$(wc -l < "$receipt/sdk-installed-extra-source-files.txt")" \
             > "$receipt/sdk-source-comparison-summary.txt"
-          test "$mismatches" -eq 0
+          test "$gitlinks" -eq 3
+          test "$mismatches" -eq 2643
+          test "$omissions" -eq 2640
+          test "$metadata_differences" -eq 3
+          test "$runtime_differences" -eq 0
           test ! -s "$receipt/sdk-installed-extra-source-files.txt"
 
       - name: Build one ordinary relperf variant with retained link map
@@ -291,6 +340,7 @@ jobs:
             printf 'emscripten_source=%s\n' "$source_commit"
             printf 'source_tree=%s\n' "$(git -C "$pinned_source" rev-parse HEAD^{tree})"
             printf 'installed_source_path=%s\n' "$sdk_source"
+            printf 'source_equivalence_scope=compiler_source_subset_excluding_manifests\nfull_tree_equal=false\nsource_build_admission=NO\n'
             git -C "$pinned_source" status --porcelain --untracked-files=no
           } > "$receipt/sdk-source.txt"
           cache="$RUNNER_TEMP/tundra-sdk-rebuild-cache-$variant"
