@@ -72,11 +72,11 @@ jobs:
           jq -e '.admission == "NO" and .coi_built == false and
             .source_commit == "f955138e5218942fb3fb097a8fdcb725222406ff"' \
             "$receipt/matching-receipt/candidate.json" > /dev/null
-          jq -e '[.inputs | to_entries[] | .value.imports[]? |
+          jq -e '[.outputs | to_entries[] | .value.imports[]? |
             select(.external == true)] | length == 0' \
             "$receipt/matching-receipt/browser-metafile.json" > /dev/null
           for variant in mvp eh; do
-            jq -e '[.inputs | to_entries[] | .value.imports[]? |
+            jq -e '[.outputs | to_entries[] | .value.imports[]? |
               select(.external == true) | [.path,.kind]] ==
               [["crypto","require-call"]]' \
               "$receipt/matching-receipt/worker-$variant-metafile.json" > /dev/null
