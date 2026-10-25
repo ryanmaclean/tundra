@@ -16,6 +16,10 @@ on:
       - app/leptos-ui/fonts/**
       - app/leptos-ui/vendor/**
       - app/leptos-ui/public/**
+      - app/leptos-ui/duckdb-bridge.js
+      - app/leptos-ui/src/duckdb.rs
+      - scripts/stage_duckdb_runtime.nu
+      - scripts/build-tool-licenses/**
       - crates/at-core/src/file_watcher.rs
       - crates/at-core/src/lib.rs
       - Cargo.toml
@@ -181,7 +185,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             build-essential curl file libayatana-appindicator3-dev libgtk-3-dev \
             librsvg2-dev libssl-dev libwebkit2gtk-4.1-dev libxdo-dev \
-            patchelf pkg-config wget
+            patchelf pkg-config wget xvfb dbus-x11
       - name: Install ALSA development files for sounds build
         if: matrix.profile == 'sounds'
         run: |
@@ -196,6 +200,62 @@ jobs:
           cargo install trunk --version 0.21.14 --locked
           cargo install tauri-cli --version 2.12.4 --locked
           cargo install nu --version 0.108.0 --locked
+      - name: Stage pinned same-origin DuckDB runtime
+        id: stage_duckdb
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = '${{ github.event.pull_request.head.sha }}'
+          nu scripts/stage_duckdb_runtime.nu app/leptos-ui/duckdb-runtime "$RUNNER_TEMP"
+          jq -e '
+            (.inputs | keys) as $inputs |
+            ([$inputs[] | select(test("node_modules/(command-line|json-bignum|pad-left|@types/)"))] | length == 0) and
+            any($inputs[]; contains("node_modules/@duckdb/duckdb-wasm/")) and
+            any($inputs[]; contains("node_modules/apache-arrow/")) and
+            any($inputs[]; contains("node_modules/flatbuffers/")) and
+            any($inputs[]; contains("node_modules/tslib/"))
+          ' "$RUNNER_TEMP/duckdb-bundle-metafile.json"
+          printf 'head_sha=%s\nprofile=%s\n' '${{ github.event.pull_request.head.sha }}' '${{ matrix.profile }}' \
+            > "$RUNNER_TEMP/duckdb-source-head.txt"
+      - name: Verify DuckDB upstream legal sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          stage="$RUNNER_TEMP/duckdb-stage"
+          legal=app/tauri/third-party-licenses/ui
+          printf '%s  %s\n' \
+            '452c75ac07fe4059843b44d792074ab9a424fb7d6af3275b7e6a7150d012c08f' \
+            "$legal/duckdb-runtime-bill.json" | sha256sum --check --status
+          jq -e '.schema == "tundra-duckdb-runtime-bill/v1" and (.selected_assets | length) == 4' \
+            "$legal/duckdb-runtime-bill.json"
+          while IFS= read -r notice; do
+            test -s "$legal/$notice"
+          done < <(jq -r '.generated_browser_entry.legal_texts[], .selected_assets[].legal_texts[]' \
+            "$legal/duckdb-runtime-bill.json" | sort -u)
+          cmp "$stage/node_modules/apache-arrow/LICENSE.txt" "$legal/Apache-Arrow-13-LICENSE.txt"
+          cmp "$stage/node_modules/apache-arrow/NOTICE.txt" "$legal/Apache-Arrow-13-NOTICE.txt"
+          cmp "$stage/node_modules/tslib/LICENSE.txt" "$legal/tslib-0BSD.txt"
+          cmp "$stage/node_modules/tslib/CopyrightNotice.txt" "$legal/tslib-CopyrightNotice.txt"
+          cmp "$stage/node_modules/flatbuffers/LICENSE" "$legal/FlatBuffers-LICENSE.txt"
+          printf '%s  %s\n' \
+            'b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681' \
+            scripts/build-tool-licenses/esbuild-0.19.12-MIT.txt | sha256sum --check --status
+          curl --fail --silent --show-error --location --max-time 45 \
+            https://raw.githubusercontent.com/evanw/esbuild/v0.19.12/LICENSE.md \
+            | cmp - scripts/build-tool-licenses/esbuild-0.19.12-MIT.txt
+          curl --fail --silent --show-error --location --max-time 45 \
+            https://raw.githubusercontent.com/duckdb/duckdb-wasm/f955138e5218942fb3fb097a8fdcb725222406ff/LICENSE \
+            | cmp - "$legal/DuckDB-Wasm-MIT.txt"
+          curl --fail --silent --show-error --location --max-time 45 \
+            https://registry.npmjs.org/js-sha256/-/js-sha256-0.9.0.tgz -o "$stage/js-sha256-0.9.0.tgz"
+          printf '%s  %s\n' \
+            'b206b730787db2040ddbea49f55619fb52cfc173b1b812410399eb479fe87cf7ee889044da19e3b1a37cb1ef09ce73a618b376a78f4f7b953fb6d69f72cfdaa4' \
+            "$stage/js-sha256-0.9.0.tgz" | sha512sum --check --status
+          printf '%s  %s\n' \
+            'b206b730787db2040ddbea49f55619fb52cfc173b1b812410399eb479fe87cf7ee889044da19e3b1a37cb1ef09ce73a618b376a78f4f7b953fb6d69f72cfdaa4' \
+            'js-sha256-0.9.0' >> "$RUNNER_TEMP/duckdb-source-archives.sha512"
+          tar -xOzf "$stage/js-sha256-0.9.0.tgz" package/LICENSE.txt \
+            | cmp - "$legal/js-sha256-MIT.txt"
       - name: Build locked UI and Linux .deb
         shell: bash
         run: |
@@ -429,7 +489,7 @@ jobs:
           # Constants below bind this review to exact source/legal bytes, not to
           # editable expectations read from the manifest itself. A later source
           # change must receive a new provenance review and updated pins.
-          printf '%s  %s\n' 'e2bdd6e199cdb6f5c392f58aa3c6db20fb70417f7e2ded93c84e6ab356d75940' "$manifest" | sha256sum --check --status
+          printf '%s  %s\n' '5e8e8fd6643a1d266d0abc6bc0db20ea6361c247b315da286ffe8a7318293a48' "$manifest" | sha256sum --check --status
           diff -u \
             <(printf '%s\n' \
               'app/leptos-ui/vendor/xterm/xterm.js' \
@@ -442,13 +502,16 @@ jobs:
             <(printf '%s\n' \
               'app/tauri/third-party-licenses/ui/Xterm-Core-MIT.txt' \
               'app/tauri/third-party-licenses/ui/Xterm-Fit-MIT.txt' \
-              'app/tauri/third-party-licenses/ui/JetBrains-Mono-OFL-1.1.txt' | sort) \
+              'app/tauri/third-party-licenses/ui/JetBrains-Mono-OFL-1.1.txt' \
+              'app/tauri/third-party-licenses/ui/DuckDB-Wasm-MIT.txt' \
+              'app/tauri/third-party-licenses/ui/Apache-Arrow-13-LICENSE.txt' \
+              'app/tauri/third-party-licenses/ui/Apache-Arrow-13-NOTICE.txt' \
+              'app/tauri/third-party-licenses/ui/tslib-0BSD.txt' \
+              'app/tauri/third-party-licenses/ui/tslib-CopyrightNotice.txt' \
+              'app/tauri/third-party-licenses/ui/FlatBuffers-LICENSE.txt' \
+              'app/tauri/third-party-licenses/ui/js-sha256-MIT.txt' | sort) \
             <(jq -r '.legal_texts[].path' "$manifest" | sort)
-          diff -u \
-            <(printf '%s\n' \
-              'app/leptos-ui/duckdb-bridge.js' \
-              'app/leptos-ui/public/js/duckdb.js' | sort) \
-            <(jq -r '.unresolved[].path' "$manifest" | sort)
+          test "$(jq -r '.unresolved | length' "$manifest")" -eq 0
           printf '%s  %s\n' \
             'b569f629d00f2626a8100df2a1798210535621e42164dfd426a6fe5aac7b0ccd' 'app/tauri/third-party-licenses/ui/Xterm-Core-MIT.txt' \
             'e256f01188af527e4d06d21d06fbf785ae9c50d4b328bf03cbe0ba7f0aa4228f' 'app/tauri/third-party-licenses/ui/Xterm-Fit-MIT.txt' \
@@ -459,32 +522,20 @@ jobs:
           test "$(git hash-object app/leptos-ui/vendor/xterm/addon-fit.js)" = '038897193db54dd0f09783d53e602755b93a2eaf'
           test "$(git hash-object app/leptos-ui/fonts/jetbrains-mono-400.woff2)" = '2ca6ac605954ee884442db8ea1d61093000bcc29'
           test "$(git hash-object app/leptos-ui/fonts/jetbrains-mono-500.woff2)" = '2ca6ac605954ee884442db8ea1d61093000bcc29'
-          test "$(git hash-object app/leptos-ui/index.html)" = '8a3f8e905e7c69bbabfb31db81ab11b53109ad83'
-          printf '%s  %s\n' '74649fe2b64c8a7b92be6fd2492d4e6978e3526224f227efd7f3efad80017d86' 'app/leptos-ui/index.html' | sha256sum --check --status
-          test "$(git hash-object app/leptos-ui/duckdb-bridge.js)" = '2050a25f228d63aded0f6d54104997637d9432b4'
-          test "$(git hash-object app/leptos-ui/public/js/duckdb.js)" = 'c055941d2465ab22826e1446369927a33f6bc422'
-          jq -e '
-            (.unresolved | length) == 2 and
-            (.unresolved[0] == {
-              path: "app/leptos-ui/duckdb-bridge.js",
-              git_blob: "2050a25f228d63aded0f6d54104997637d9432b4",
-              reason: "The hardcoded duckdb-browser-blocking.js URL is absent from official @duckdb/duckdb-wasm@1.28.0 tarball; runtime CDN bytes and transitive notices are not proved."
-            }) and
-            (.unresolved[1] == {
-              path: "app/leptos-ui/public/js/duckdb.js",
-              git_blob: "c055941d2465ab22826e1446369927a33f6bc422",
-              reason: "Not referenced by index.html; Trunk inclusion and generated CDN +esm byte custody are unproved."
-            })
-          ' "$manifest"
+          test "$(git hash-object app/leptos-ui/index.html)" = 'e7f71c98b5454a001a38794f51eaa3e895d965b0'
+          printf '%s  %s\n' 'd7fbf126caae42e829fbe68687420ec04d26f9ef996133876b242998f46ce914' 'app/leptos-ui/index.html' | sha256sum --check --status
+          test "$(git hash-object app/leptos-ui/duckdb-bridge.js)" = '8a09585cb23dcca1d8095c0f198989403578d925'
+          test ! -e app/leptos-ui/public/js/duckdb.js
+          ! grep -Fq 'cdn.jsdelivr.net' app/leptos-ui/duckdb-bridge.js
           jq -e '
             .schema == "tundra-ui-source-notice/v1" and
             .trunk_entrypoint.path == "app/leptos-ui/index.html" and
-            .trunk_entrypoint.git_blob == "8a3f8e905e7c69bbabfb31db81ab11b53109ad83" and
-            .trunk_entrypoint.sha256 == "74649fe2b64c8a7b92be6fd2492d4e6978e3526224f227efd7f3efad80017d86" and
+            .trunk_entrypoint.git_blob == "e7f71c98b5454a001a38794f51eaa3e895d965b0" and
+            .trunk_entrypoint.sha256 == "d7fbf126caae42e829fbe68687420ec04d26f9ef996133876b242998f46ce914" and
             (.verified_copied_inputs | length) == 5 and
-            (.legal_texts | length) == 3 and
+            (.legal_texts | length) == 10 and
             ([.verified_copied_inputs[].path] | unique | length) == 5 and
-            ([.legal_texts[].path] | unique | length) == 3 and
+            ([.legal_texts[].path] | unique | length) == 10 and
             all(.verified_copied_inputs[]; (.git_blob | test("^[0-9a-f]{40}$")) and (.sha256 | test("^[0-9a-f]{64}$"))) and
             all(.legal_texts[]; (.sha256 | test("^[0-9a-f]{64}$")))
           ' "$manifest"
@@ -518,7 +569,7 @@ jobs:
             cmp "$source" "${matches[0]}"
             printf '%s\t%s\t%s\n' "$relative" "$expected" "${matches[0]#"$root"/}" >> "$notice_receipt"
           done < <(jq -r '.legal_texts[] | [.path,.sha256] | @tsv' "$manifest")
-          test "$(wc -l < "$notice_receipt")" -eq 3
+          test "$(wc -l < "$notice_receipt")" -eq 10
           mapfile -d '' installed_manifests < <(find "$root" -type f -path '*/third-party-licenses/ui/verified-source-manifest.json' -print0)
           test "${#installed_manifests[@]}" -eq 1
           cmp "$manifest" "${installed_manifests[0]}"
@@ -595,8 +646,108 @@ jobs:
             "$(jq -r '.asset_count' "$proof")" > "$RUNNER_TEMP/embedded-asset-source.txt"
           sha256sum "${installed_bins[0]}" "${debs[0]}" "$proof" \
             "$RUNNER_TEMP/generated-dist-sha256.txt" >> "$RUNNER_TEMP/embedded-asset-source.txt"
+      - name: Verify same-origin DuckDB source, dist, and installed executable
+        id: verify_duckdb_runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = '${{ github.event.pull_request.head.sha }}'
+          source_dir=app/leptos-ui/duckdb-runtime
+          dist_dir=app/leptos-ui/dist/duckdb-runtime
+          proof="$RUNNER_TEMP/embedded-asset-proof.json"
+          root="$RUNNER_TEMP/tundra-deb-root"
+          test -d "$source_dir" && test -d "$dist_dir" && test -s "$proof"
+          bill=app/tauri/third-party-licenses/ui/duckdb-runtime-bill.json
+          mapfile -d '' installed_bills < <(find "$root" -type f -path '*/third-party-licenses/ui/duckdb-runtime-bill.json' -print0)
+          test "${#installed_bills[@]}" -eq 1
+          cmp "$bill" "${installed_bills[0]}"
+          test "$(find "$source_dir" -type f | wc -l)" -eq 5
+          test "$(find "$dist_dir" -type f | wc -l)" -eq 5
+          : > "$RUNNER_TEMP/duckdb-installed-runtime.tsv"
+          for asset in duckdb-browser.mjs duckdb-browser-mvp.worker.js duckdb-browser-eh.worker.js duckdb-mvp.wasm duckdb-eh.wasm; do
+            cmp "$source_dir/$asset" "$dist_dir/$asset"
+            digest="$(sha256sum "$source_dir/$asset" | cut -d ' ' -f 1)"
+            key="duckdb-runtime/$asset"
+            jq -e --arg key "$key" --arg digest "$digest" '
+              [.assets[] | select(.key == $key and .transform == "identity" and
+                .dist_sha256 == $digest and .embedded_sha256 == $digest)] | length == 1
+            ' "$proof"
+            printf '%s\t%s\t%s\n' "$key" "$digest" '${{ matrix.profile }}' \
+              >> "$RUNNER_TEMP/duckdb-installed-runtime.tsv"
+          done
+          test "$(wc -l < "$RUNNER_TEMP/duckdb-installed-runtime.tsv")" -eq 5
+          mapfile -d '' installed_bins < <(find "$root" -type f -name auto-tundra -print0)
+          test "${#installed_bins[@]}" -eq 1
+          cmp "$RUNNER_TEMP/expected-bundle-auto-tundra" "${installed_bins[0]}"
+          printf 'head_sha=%s\nprofile=%s\nvalidation=installed-executable-asset-readback\n' \
+            '${{ github.event.pull_request.head.sha }}' '${{ matrix.profile }}' \
+            > "$RUNNER_TEMP/duckdb-runtime-source.txt"
+          sha256sum "${installed_bins[0]}" "$proof" \
+            >> "$RUNNER_TEMP/duckdb-runtime-source.txt"
+      - name: Smoke installed DuckDB in native WebKitGTK
+        id: smoke_duckdb
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = '${{ github.event.pull_request.head.sha }}'
+          root="$RUNNER_TEMP/tundra-deb-root"
+          mapfile -d '' installed_bins < <(find "$root" -type f -name auto-tundra -print0)
+          test "${#installed_bins[@]}" -eq 1
+          cmp "$RUNNER_TEMP/expected-bundle-auto-tundra" "${installed_bins[0]}"
+          elf_sha="$(sha256sum "${installed_bins[0]}" | cut -d ' ' -f 1)"
+          mkdir -p "$RUNNER_TEMP/smoke-home" "$RUNNER_TEMP/smoke-config" \
+            "$RUNNER_TEMP/smoke-data" "$RUNNER_TEMP/smoke-cache"
+          set +e
+          dbus-run-session -- xvfb-run -a -s '-screen 0 1280x800x24' \
+            env HOME="$RUNNER_TEMP/smoke-home" \
+              XDG_CONFIG_HOME="$RUNNER_TEMP/smoke-config" \
+              XDG_DATA_HOME="$RUNNER_TEMP/smoke-data" \
+              XDG_CACHE_HOME="$RUNNER_TEMP/smoke-cache" \
+              TUNDRA_SMOKE_HEAD_SHA='${{ github.event.pull_request.head.sha }}' \
+              TUNDRA_SMOKE_PROFILE='${{ matrix.profile }}' \
+              TUNDRA_SMOKE_ELF_SHA256="$elf_sha" \
+              http_proxy=http://127.0.0.1:9 https_proxy=http://127.0.0.1:9 \
+              HTTP_PROXY=http://127.0.0.1:9 HTTPS_PROXY=http://127.0.0.1:9 \
+              NO_PROXY=localhost,127.0.0.1,tauri.localhost \
+            timeout 120s "${installed_bins[0]}" --smoke-duckdb \
+            > "$RUNNER_TEMP/duckdb-webkit-smoke.stdout" \
+            2> "$RUNNER_TEMP/duckdb-webkit-smoke.stderr"
+          status=$?
+          set -e
+          printf 'head_sha=%s\nprofile=%s\ninstalled_elf_sha256=%s\nexit_status=%s\n' \
+            '${{ github.event.pull_request.head.sha }}' '${{ matrix.profile }}' "$elf_sha" "$status" \
+            > "$RUNNER_TEMP/duckdb-webkit-smoke-source.txt"
+          awk 'index($0, "TUNDRA_DUCKDB_SMOKE:") == 1 {
+            print substr($0, length("TUNDRA_DUCKDB_SMOKE:") + 1)
+          }' "$RUNNER_TEMP/duckdb-webkit-smoke.stdout" \
+            > "$RUNNER_TEMP/duckdb-webkit-smoke.json"
+          test "$(wc -l < "$RUNNER_TEMP/duckdb-webkit-smoke.json")" -eq 1
+          jq -e --arg head '${{ github.event.pull_request.head.sha }}' \
+            --arg profile '${{ matrix.profile }}' --arg elf "$elf_sha" '
+            .schema == "tundra-duckdb-webkit-smoke/v1" and
+            .head_sha == $head and .profile == $profile and
+            .installed_elf_sha256 == $elf and .ok == true and
+            .result.ok == true and .result.rowCount == 1 and
+            .result.answer == 42 and .result.absentIsNull == true and
+            .result.aggregateOk == true and
+            .result.cspDenied == true and .result.cspViolations == [] and
+            .result.localRuntime == true and .result.remoteRequests == 0
+          ' "$RUNNER_TEMP/duckdb-webkit-smoke.json"
+          test "$status" -eq 0
+      - name: Retain native DuckDB smoke receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: duckdb-webkit-smoke-${{ matrix.profile }}
+          path: |
+            ${{ runner.temp }}/duckdb-webkit-smoke.json
+            ${{ runner.temp }}/duckdb-webkit-smoke.stdout
+            ${{ runner.temp }}/duckdb-webkit-smoke.stderr
+            ${{ runner.temp }}/duckdb-webkit-smoke-source.txt
+          if-no-files-found: ignore
+          retention-days: 14
       - name: Capture unapproved bundle-byte diagnostic after failed verification
-        if: ${{ failure() && (steps.verify_deb_resources.outcome == 'failure' || steps.verify_selected_bill.outcome == 'failure' || steps.verify_inter_ui.outcome == 'failure' || steps.verify_other_ui_notices.outcome == 'failure' || steps.verify_embedded_ui.outcome == 'failure') }}
+        if: ${{ failure() && (steps.verify_deb_resources.outcome == 'failure' || steps.verify_selected_bill.outcome == 'failure' || steps.verify_inter_ui.outcome == 'failure' || steps.verify_other_ui_notices.outcome == 'failure' || steps.verify_embedded_ui.outcome == 'failure' || steps.verify_duckdb_runtime.outcome == 'failure' || steps.smoke_duckdb.outcome == 'failure') }}
         shell: bash
         run: |
           set -euo pipefail
@@ -628,7 +779,7 @@ jobs:
           printf 'head_sha=%s\nprofile=%s\nverification=FAILED_UNAPPROVED\n' \
             '${{ github.event.pull_request.head.sha }}' '${{ matrix.profile }}' > "$out/source.txt"
       - name: Upload unapproved bundle-byte diagnostic
-        if: ${{ failure() && (steps.verify_deb_resources.outcome == 'failure' || steps.verify_selected_bill.outcome == 'failure' || steps.verify_inter_ui.outcome == 'failure' || steps.verify_other_ui_notices.outcome == 'failure' || steps.verify_embedded_ui.outcome == 'failure') }}
+        if: ${{ failure() && (steps.verify_deb_resources.outcome == 'failure' || steps.verify_selected_bill.outcome == 'failure' || steps.verify_inter_ui.outcome == 'failure' || steps.verify_other_ui_notices.outcome == 'failure' || steps.verify_embedded_ui.outcome == 'failure' || steps.verify_duckdb_runtime.outcome == 'failure' || steps.smoke_duckdb.outcome == 'failure') }}
         uses: actions/upload-artifact@v4
         with:
           name: UNAPPROVED-bundle-byte-diagnostic-${{ matrix.profile }}
@@ -663,6 +814,14 @@ jobs:
             ${{ runner.temp }}/embedded-asset-proof.json
             ${{ runner.temp }}/embedded-asset-source.txt
             ${{ runner.temp }}/generated-dist-sha256.txt
+            ${{ runner.temp }}/duckdb-source-archives.sha512
+            ${{ runner.temp }}/duckdb-source-head.txt
+            ${{ runner.temp }}/duckdb-bundle-metafile.json
+            ${{ runner.temp }}/duckdb-generated-assets.sha256
+            ${{ runner.temp }}/duckdb-installed-runtime.tsv
+            ${{ runner.temp }}/duckdb-runtime-source.txt
+            ${{ runner.temp }}/duckdb-webkit-smoke.json
+            ${{ runner.temp }}/duckdb-webkit-smoke-source.txt
             app/leptos-ui/dist/**
             app/tauri/third-party-licenses/ui/verified-source-manifest.json
             app/tauri/third-party-licenses/selected-notice-bill.json

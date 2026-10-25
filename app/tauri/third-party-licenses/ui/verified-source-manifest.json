@@ -53,26 +53,64 @@
       "sha256": "b2fe5e8987594e9ffd1d2ca52a2f5d73eb8335243893c5d6254b5ad69269591d",
       "upstream": "JetBrains/JetBrainsMono git tag v2.210 commit 40e4dea999d21eb6d5d84f5d754e087ae332f018 OFL.txt",
       "scope": "Exact copied source package or font family legal text; no claim of generated frontend custody."
-    }
-  ],
-  "unresolved": [
-    {
-      "path": "app/leptos-ui/duckdb-bridge.js",
-      "git_blob": "2050a25f228d63aded0f6d54104997637d9432b4",
-      "reason": "The hardcoded duckdb-browser-blocking.js URL is absent from official @duckdb/duckdb-wasm@1.28.0 tarball; runtime CDN bytes and transitive notices are not proved."
     },
     {
-      "path": "app/leptos-ui/public/js/duckdb.js",
-      "git_blob": "c055941d2465ab22826e1446369927a33f6bc422",
-      "reason": "Not referenced by index.html; Trunk inclusion and generated CDN +esm byte custody are unproved."
+      "path": "app/tauri/third-party-licenses/ui/DuckDB-Wasm-MIT.txt",
+      "license": "MIT",
+      "sha256": "3ad73e53243c374756dfc2eb5e780abd462ce99e89c84f9e46ada745db934107",
+      "upstream": "duckdb/duckdb-wasm v1.28.0 commit f955138e5218942fb3fb097a8fdcb725222406ff LICENSE",
+      "scope": "Pinned same-origin DuckDB runtime legal text."
+    },
+    {
+      "path": "app/tauri/third-party-licenses/ui/Apache-Arrow-13-LICENSE.txt",
+      "license": "Apache-2.0",
+      "sha256": "6d26daef86611d1ea2fdf74d900886aa27c46249f018417a993449eb4a414eac",
+      "upstream": "apache-arrow@13.0.0 package/LICENSE.txt",
+      "scope": "Pinned same-origin DuckDB runtime legal text."
+    },
+    {
+      "path": "app/tauri/third-party-licenses/ui/Apache-Arrow-13-NOTICE.txt",
+      "license": "Apache-2.0-NOTICE",
+      "sha256": "f5b6a58f5d2082e403c49663d87566328d40cf03f16abb01f52632a09b97c55e",
+      "upstream": "apache-arrow@13.0.0 package/NOTICE.txt",
+      "scope": "Pinned same-origin DuckDB runtime legal text."
+    },
+    {
+      "path": "app/tauri/third-party-licenses/ui/tslib-0BSD.txt",
+      "license": "0BSD",
+      "sha256": "210b19e543130388c68654b7497e967119ce17145f66ab7d85688fbd70f08751",
+      "upstream": "tslib@2.6.2 package/LICENSE.txt",
+      "scope": "Pinned same-origin DuckDB runtime legal text."
+    },
+    {
+      "path": "app/tauri/third-party-licenses/ui/tslib-CopyrightNotice.txt",
+      "license": "0BSD-CopyrightNotice",
+      "sha256": "da16ddb65f8ca390998fb99223d0112498b56b45784d00afd77ff8ce1ac4de8b",
+      "upstream": "tslib@2.6.2 package/CopyrightNotice.txt",
+      "scope": "Pinned same-origin DuckDB runtime copyright notice."
+    },
+    {
+      "path": "app/tauri/third-party-licenses/ui/FlatBuffers-LICENSE.txt",
+      "license": "Apache-2.0",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "upstream": "flatbuffers@23.5.26 package/LICENSE",
+      "scope": "Pinned same-origin DuckDB runtime legal text."
+    },
+    {
+      "path": "app/tauri/third-party-licenses/ui/js-sha256-MIT.txt",
+      "license": "MIT",
+      "sha256": "03e598437c73d8eae2b341910d42df85860405ed879264f3fd37dfaa5a63fee6",
+      "upstream": "js-sha256@0.9.0 package/LICENSE.txt; bundled in DuckDB worker bytes",
+      "scope": "Pinned same-origin DuckDB worker bundled third-party legal text."
     }
   ],
-  "coverage": "Copied source-byte identity and upstream legal-text custody only; excludes generated Tauri-embedded bytes and DuckDB CDN/runtime dependencies.",
+  "unresolved": [],
+  "coverage": "Copied UI source and legal-text custody; hosted DuckDB archive, generated runtime, installed package, and executable checks are enforced by strict-licenses.yml. Native WebKitGTK execution remains separately unverified.",
   "source_binding": "Exact copied source Git blobs and SHA-256s; no claim that a later PR head equals the review head.",
   "trunk_entrypoint": {
     "path": "app/leptos-ui/index.html",
-    "git_blob": "8a3f8e905e7c69bbabfb31db81ab11b53109ad83",
-    "sha256": "74649fe2b64c8a7b92be6fd2492d4e6978e3526224f227efd7f3efad80017d86",
-    "source_contract": "data-trunk copy-dir fonts; xterm copied inputs; duckdb-bridge.js remains referenced, public/js/duckdb.js remains unreferenced"
+    "git_blob": "e7f71c98b5454a001a38794f51eaa3e895d965b0",
+    "sha256": "d7fbf126caae42e829fbe68687420ec04d26f9ef996133876b242998f46ce914",
+    "source_contract": "data-trunk copy-dir fonts and duckdb-runtime; xterm copied inputs; local duckdb-bridge.js remains referenced"
   }
 }

@@ -18,15 +18,168 @@ use at_tauri::state::AppState;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::io;
+use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use tracing::info;
+
+static SMOKE_RECEIVED: AtomicBool = AtomicBool::new(false);
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DuckDbSmokeResult {
+    ok: bool,
+    row_count: usize,
+    answer: Option<i64>,
+    absent_is_null: bool,
+    aggregate_ok: bool,
+    aggregate_observed: Option<String>,
+    smoke_error: Option<String>,
+    csp_denied: bool,
+    csp_violations: Vec<String>,
+    local_runtime: bool,
+    remote_requests: usize,
+}
+
+#[tauri::command]
+fn cmd_smoke_result(app: tauri::AppHandle, result: DuckDbSmokeResult) -> Result<(), String> {
+    if SMOKE_RECEIVED.swap(true, Ordering::SeqCst) {
+        return Err("duplicate DuckDB smoke result".into());
+    }
+    let pass = result.ok
+        && result.row_count == 1
+        && result.answer == Some(42)
+        && result.absent_is_null
+        && result.aggregate_ok
+        && result.csp_denied
+        && result.csp_violations.is_empty()
+        && result.local_runtime
+        && result.remote_requests == 0;
+    let csp_directives: Vec<String> = result
+        .csp_violations
+        .iter()
+        .take(16)
+        .map(|directive| {
+            if directive.len() <= 64
+                && directive
+                    .chars()
+                    .all(|character| character.is_ascii_alphanumeric() || character == '-')
+            {
+                directive.clone()
+            } else {
+                "invalid-directive".to_string()
+            }
+        })
+        .collect();
+    let receipt = serde_json::json!({
+        "schema": "tundra-duckdb-webkit-smoke/v1",
+        "head_sha": std::env::var("TUNDRA_SMOKE_HEAD_SHA").unwrap_or_default(),
+        "profile": std::env::var("TUNDRA_SMOKE_PROFILE").unwrap_or_default(),
+        "installed_elf_sha256": std::env::var("TUNDRA_SMOKE_ELF_SHA256").unwrap_or_default(),
+        "ok": pass,
+        "result": {
+            "ok": result.ok,
+            "rowCount": result.row_count,
+            "answer": result.answer,
+            "absentIsNull": result.absent_is_null,
+            "aggregateOk": result.aggregate_ok,
+            "aggregateObserved": result.aggregate_observed.as_deref().unwrap_or("").chars().take(512).collect::<String>(),
+            "smokeError": result.smoke_error.as_deref().unwrap_or("").chars().take(512).collect::<String>(),
+            "cspDenied": result.csp_denied,
+            "cspViolations": csp_directives,
+            "localRuntime": result.local_runtime,
+            "remoteRequests": result.remote_requests,
+        },
+    });
+    println!("TUNDRA_DUCKDB_SMOKE:{receipt}");
+    std::io::stdout()
+        .flush()
+        .map_err(|error| error.to_string())?;
+    app.exit(if pass { 0 } else { 1 });
+    Ok(())
+}
+
+// Runs before page scripts in the actual packaged WebKitGTK view. The bridge
+// itself performs the CSP negative control, so privileged injection execution
+// is not taken as evidence that page JavaScript may use dynamic compilation.
+const DUCKDB_SMOKE_INIT_SCRIPT: &str = r#"
+(() => {
+  const violations = [];
+  window.addEventListener('securitypolicyviolation', event => {
+    if (violations.length < 16) violations.push(event.effectiveDirective);
+  });
+  window.addEventListener('load', () => setTimeout(async () => {
+    const result = {
+      ok: false, rowCount: 0, answer: null, absentIsNull: false,
+      aggregateOk: false, aggregateObserved: null, smokeError: null,
+      cspDenied: false, cspViolations: [], localRuntime: false,
+      remoteRequests: 0
+    };
+    try {
+      const bridge = window.duckdb;
+      result.cspDenied = bridge.csp_denial_probe();
+      await new Promise(resolve => setTimeout(resolve, 100));
+      violations.length = 0;
+      await bridge.init_duckdb();
+      const runtime = bridge.get_runtime_info();
+      result.localRuntime = !!runtime &&
+        [runtime.workerUrl, runtime.wasmUrl].every(value => {
+          const url = new URL(value);
+          return url.origin === location.origin && url.pathname.includes('/duckdb-runtime/');
+        });
+      const rows = JSON.parse(await bridge.query_duckdb(
+        'SELECT CAST(6*7 AS INTEGER) AS answer, CAST(NULL AS INTEGER) AS absent'
+      ));
+      result.rowCount = rows.length;
+      result.answer = rows.length === 1 ? rows[0].answer : null;
+      result.absentIsNull = rows.length === 1 && rows[0].absent === null;
+      result.ok = result.rowCount === 1 && result.answer === 42 && result.absentIsNull;
+      const checkedQuery = async sql => {
+        const response = JSON.parse(await bridge.query_duckdb(sql));
+        if (response && !Array.isArray(response) && response.error)
+          throw new Error(String(response.error));
+        return response;
+      };
+      await checkedQuery('CREATE TABLE csp_probe (i INTEGER, label VARCHAR)');
+      await checkedQuery("INSERT INTO csp_probe VALUES (1, 'ok'), (2, NULL)");
+      const aggregate = await checkedQuery(
+        'SELECT CAST(count(*) AS INTEGER) AS n, CAST(sum(i) AS INTEGER) AS total, CAST(count(label) AS INTEGER) AS nonnull FROM csp_probe'
+      );
+      result.aggregateObserved = JSON.stringify(aggregate).slice(0, 512);
+      result.aggregateOk = aggregate.length === 1 &&
+        aggregate[0].n === 2 && aggregate[0].total === 3 &&
+        aggregate[0].nonnull === 1;
+      result.ok = result.ok && result.aggregateOk;
+      await new Promise(resolve => setTimeout(resolve, 100));
+      result.remoteRequests = performance.getEntriesByType('resource').filter(entry => {
+        const url = new URL(entry.name);
+        return ['http:', 'https:'].includes(url.protocol) &&
+          url.origin !== location.origin &&
+          !['localhost', '127.0.0.1'].includes(url.hostname);
+      }).length;
+    } catch (error) {
+      result.ok = false;
+      result.smokeError = String(error).slice(0, 512);
+    }
+    result.cspViolations = violations;
+    try { await window.__TAURI__.core.invoke('cmd_smoke_result', { result }); }
+    catch (_) { /* hosted timeout will fail if IPC is unavailable */ }
+  }, 0), { once: true });
+})();
+"#;
 
 fn main() {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
     let proof_flag = std::ffi::OsStr::new("--verify-embedded-assets");
     let proof_requested = args.iter().any(|arg| arg.as_os_str() == proof_flag);
+    let smoke_flag = std::ffi::OsStr::new("--smoke-duckdb");
+    let smoke_requested = args.iter().any(|arg| arg.as_os_str() == smoke_flag);
     if proof_requested && (args.len() != 2 || args[0].as_os_str() != proof_flag) {
         eprintln!("usage: auto-tundra --verify-embedded-assets <generated-dist-directory>");
+        std::process::exit(2);
+    }
+    if smoke_requested && (args.len() != 1 || args[0].as_os_str() != smoke_flag) {
+        eprintln!("usage: auto-tundra --smoke-duckdb");
         std::process::exit(2);
     }
 
@@ -36,6 +189,28 @@ fn main() {
     if proof_requested {
         let dist = Path::new(&args[1]);
         verify_embedded_assets(&context, dist).expect("packaged frontend asset proof failed");
+        return;
+    }
+    if smoke_requested {
+        tauri::Builder::default()
+            .invoke_handler(tauri::generate_handler![cmd_smoke_result])
+            .setup(|app| {
+                use tauri::Manager;
+                let window_config = app
+                    .config()
+                    .app
+                    .windows
+                    .iter()
+                    .find(|window| window.label == "main")
+                    .cloned()
+                    .ok_or("tauri.conf.json has no main window")?;
+                tauri::WebviewWindowBuilder::from_config(app.handle(), &window_config)?
+                    .initialization_script(DUCKDB_SMOKE_INIT_SCRIPT)
+                    .build()?;
+                Ok(())
+            })
+            .run(context)
+            .expect("DuckDB WebKit smoke runner failed");
         return;
     }
 
