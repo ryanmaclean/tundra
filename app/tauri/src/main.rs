@@ -33,6 +33,8 @@ struct DuckDbSmokeResult {
     answer: Option<i64>,
     absent_is_null: bool,
     aggregate_ok: bool,
+    aggregate_observed: Option<String>,
+    smoke_error: Option<String>,
     csp_denied: bool,
     csp_violations: Vec<String>,
     local_runtime: bool,
@@ -81,13 +83,15 @@ fn cmd_smoke_result(app: tauri::AppHandle, result: DuckDbSmokeResult) -> Result<
             "answer": result.answer,
             "absentIsNull": result.absent_is_null,
             "aggregateOk": result.aggregate_ok,
+            "aggregateObserved": result.aggregate_observed.as_deref().unwrap_or("").chars().take(512).collect::<String>(),
+            "smokeError": result.smoke_error.as_deref().unwrap_or("").chars().take(512).collect::<String>(),
             "cspDenied": result.csp_denied,
             "cspViolations": csp_directives,
             "localRuntime": result.local_runtime,
             "remoteRequests": result.remote_requests,
         },
     });
-    println!("{receipt}");
+    println!("TUNDRA_DUCKDB_SMOKE:{receipt}");
     std::io::stdout()
         .flush()
         .map_err(|error| error.to_string())?;
@@ -107,7 +111,7 @@ const DUCKDB_SMOKE_INIT_SCRIPT: &str = r#"
   window.addEventListener('load', () => setTimeout(async () => {
     const result = {
       ok: false, rowCount: 0, answer: null, absentIsNull: false,
-      aggregateOk: false,
+      aggregateOk: false, aggregateObserved: null, smokeError: null,
       cspDenied: false, cspViolations: [], localRuntime: false,
       remoteRequests: 0
     };
@@ -130,11 +134,18 @@ const DUCKDB_SMOKE_INIT_SCRIPT: &str = r#"
       result.answer = rows.length === 1 ? rows[0].answer : null;
       result.absentIsNull = rows.length === 1 && rows[0].absent === null;
       result.ok = result.rowCount === 1 && result.answer === 42 && result.absentIsNull;
-      await bridge.query_duckdb('CREATE TABLE csp_probe (i INTEGER, label VARCHAR)');
-      await bridge.query_duckdb("INSERT INTO csp_probe VALUES (1, 'ok'), (2, NULL)");
-      const aggregate = JSON.parse(await bridge.query_duckdb(
-        'SELECT count(*) AS n, sum(i) AS total, count(label) AS nonnull FROM csp_probe'
-      ));
+      const checkedQuery = async sql => {
+        const response = JSON.parse(await bridge.query_duckdb(sql));
+        if (response && !Array.isArray(response) && response.error)
+          throw new Error(String(response.error));
+        return response;
+      };
+      await checkedQuery('CREATE TABLE csp_probe (i INTEGER, label VARCHAR)');
+      await checkedQuery("INSERT INTO csp_probe VALUES (1, 'ok'), (2, NULL)");
+      const aggregate = await checkedQuery(
+        'SELECT CAST(count(*) AS INTEGER) AS n, CAST(sum(i) AS INTEGER) AS total, CAST(count(label) AS INTEGER) AS nonnull FROM csp_probe'
+      );
+      result.aggregateObserved = JSON.stringify(aggregate).slice(0, 512);
       result.aggregateOk = aggregate.length === 1 &&
         aggregate[0].n === 2 && aggregate[0].total === 3 &&
         aggregate[0].nonnull === 1;
@@ -146,7 +157,10 @@ const DUCKDB_SMOKE_INIT_SCRIPT: &str = r#"
           url.origin !== location.origin &&
           !['localhost', '127.0.0.1'].includes(url.hostname);
       }).length;
-    } catch (_) { result.ok = false; }
+    } catch (error) {
+      result.ok = false;
+      result.smokeError = String(error).slice(0, 512);
+    }
     result.cspViolations = violations;
     try { await window.__TAURI__.core.invoke('cmd_smoke_result', { result }); }
     catch (_) { /* hosted timeout will fail if IPC is unavailable */ }

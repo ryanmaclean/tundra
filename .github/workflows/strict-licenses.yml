@@ -710,14 +710,18 @@ jobs:
               HTTP_PROXY=http://127.0.0.1:9 HTTPS_PROXY=http://127.0.0.1:9 \
               NO_PROXY=localhost,127.0.0.1,tauri.localhost \
             timeout 120s "${installed_bins[0]}" --smoke-duckdb \
-            > "$RUNNER_TEMP/duckdb-webkit-smoke.json" \
+            > "$RUNNER_TEMP/duckdb-webkit-smoke.stdout" \
             2> "$RUNNER_TEMP/duckdb-webkit-smoke.stderr"
           status=$?
           set -e
           printf 'head_sha=%s\nprofile=%s\ninstalled_elf_sha256=%s\nexit_status=%s\n' \
             '${{ github.event.pull_request.head.sha }}' '${{ matrix.profile }}' "$elf_sha" "$status" \
             > "$RUNNER_TEMP/duckdb-webkit-smoke-source.txt"
-          test "$status" -eq 0
+          awk 'index($0, "TUNDRA_DUCKDB_SMOKE:") == 1 {
+            print substr($0, length("TUNDRA_DUCKDB_SMOKE:") + 1)
+          }' "$RUNNER_TEMP/duckdb-webkit-smoke.stdout" \
+            > "$RUNNER_TEMP/duckdb-webkit-smoke.json"
+          test "$(wc -l < "$RUNNER_TEMP/duckdb-webkit-smoke.json")" -eq 1
           jq -e --arg head '${{ github.event.pull_request.head.sha }}' \
             --arg profile '${{ matrix.profile }}' --arg elf "$elf_sha" '
             .schema == "tundra-duckdb-webkit-smoke/v1" and
@@ -729,6 +733,7 @@ jobs:
             .result.cspDenied == true and .result.cspViolations == [] and
             .result.localRuntime == true and .result.remoteRequests == 0
           ' "$RUNNER_TEMP/duckdb-webkit-smoke.json"
+          test "$status" -eq 0
       - name: Retain native DuckDB smoke receipt
         if: always()
         uses: actions/upload-artifact@v4
@@ -736,6 +741,8 @@ jobs:
           name: duckdb-webkit-smoke-${{ matrix.profile }}
           path: |
             ${{ runner.temp }}/duckdb-webkit-smoke.json
+            ${{ runner.temp }}/duckdb-webkit-smoke.stdout
+            ${{ runner.temp }}/duckdb-webkit-smoke.stderr
             ${{ runner.temp }}/duckdb-webkit-smoke-source.txt
           if-no-files-found: ignore
           retention-days: 14
