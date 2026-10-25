@@ -181,6 +181,79 @@ jobs:
           test ! -e duckdb-upstream/.ccache/extension/json
           test ! -e duckdb-upstream/.ccache/extension/excel
 
+      - name: Rebuild selected SDK archives from an empty cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          variant='${{ matrix.variant }}'
+          receipt="$RUNNER_TEMP/native-receipt"
+          sdk_source="$EMSDK/upstream/emscripten"
+          source_commit='e967e20b4727956a30592165a3c1cde5c67fa0a8'
+          test "$(git -C "$sdk_source" rev-parse HEAD)" = "$source_commit"
+          git -C "$sdk_source" diff --quiet
+          git -C "$sdk_source" diff --cached --quiet
+          {
+            printf 'emscripten_source=%s\n' "$source_commit"
+            printf 'source_tree=%s\n' "$(git -C "$sdk_source" rev-parse HEAD^{tree})"
+            printf 'source_path=%s\n' "$sdk_source"
+            git -C "$sdk_source" status --porcelain --untracked-files=no
+          } > "$receipt/sdk-source.txt"
+          cache="$RUNNER_TEMP/tundra-sdk-rebuild-cache-$variant"
+          test ! -e "$cache"
+          mkdir "$cache"
+          test -z "$(find "$cache" -mindepth 1 -print -quit)"
+          printf 'EM_CACHE=%s\nempty_before_build=true\n' "$cache" \
+            > "$receipt/sdk-rebuild-cache.txt"
+          build="$GITHUB_WORKSPACE/duckdb-upstream/build/sdk-rebuild-$variant"
+          map="$receipt/duckdb-$variant-sdk-rebuild.map"
+          flags=(
+            -DCMAKE_BUILD_TYPE=Release
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+            -DDUCKDB_WASM_VERSION=v1.28.0
+            "-DDUCKDB_LOCATION=$GITHUB_WORKSPACE/duckdb-upstream/submodules/duckdb"
+            "-DCMAKE_EXE_LINKER_FLAGS=-Wl,-Map,$map"
+          )
+          if [ "$variant" = eh ]; then
+            flags+=(-DWITH_WASM_EXCEPTIONS=1 -DDUCKDB_CUSTOM_PLATFORM=wasm_eh)
+          else
+            flags+=(-DDUCKDB_CUSTOM_PLATFORM=wasm_mvp)
+          fi
+          {
+            printf 'emcmake cmake -S duckdb-upstream/lib -B %s' "$build"
+            printf ' %q' "${flags[@]}"
+            printf '\nEM_CACHE=%s emmake make -C %s -j4 duckdb_wasm\n' "$cache" "$build"
+          } > "$receipt/sdk-rebuild-commands.txt"
+          EM_CACHE="$cache" emcmake cmake -S duckdb-upstream/lib -B "$build" \
+            "${flags[@]}" 2>&1 | tee "$receipt/sdk-rebuild-configure.log"
+          EM_CACHE="$cache" EMCC_DEBUG=1 emmake make -C "$build" -j4 duckdb_wasm \
+            2>&1 | tee "$receipt/sdk-rebuild-make.log"
+          test -s "$build/duckdb_wasm.wasm"
+          test -s "$map"
+          rebuilt="$receipt/selected-sdk-rebuilt-archive-bytes"
+          mkdir "$rebuilt"
+          : > "$receipt/selected-sdk-rebuilt-archives.sha256"
+          : > "$receipt/selected-sdk-archive-comparison.tsv"
+          while IFS= read -r original; do
+            name="${original##*/}"
+            test -n "$name"
+            candidate="$cache/sysroot/lib/wasm32-emscripten/$name"
+            test -f "$candidate"
+            cp -- "$candidate" "$rebuilt/$name"
+            cmp -s "$candidate" "$rebuilt/$name"
+            old_hash="$(sha256sum "$receipt/selected-sdk-archive-bytes/$name" | cut -d ' ' -f 1)"
+            new_hash="$(sha256sum "$rebuilt/$name" | cut -d ' ' -f 1)"
+            sha256sum "$candidate" >> "$receipt/selected-sdk-rebuilt-archives.sha256"
+            if [ "$old_hash" = "$new_hash" ]; then result=MATCH; else result=DIFF; fi
+            printf '%s\t%s\t%s\t%s\n' "$name" "$old_hash" "$new_hash" "$result" \
+              >> "$receipt/selected-sdk-archive-comparison.tsv"
+            "$EMSDK/upstream/bin/llvm-ar" t "$candidate" \
+              > "$receipt/sdk-rebuilt-members-$name.txt"
+          done < "$receipt/selected-sdk-archives.txt"
+          test "$(find "$rebuilt" -maxdepth 1 -type f -name '*.a' | wc -l)" \
+            -eq "$(wc -l < "$receipt/selected-sdk-archives.txt")"
+          sha256sum "$build/duckdb_wasm.wasm" "$map" \
+            > "$receipt/sdk-rebuild-output.sha256"
+
       - name: Retain pinned native provenance trial
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
