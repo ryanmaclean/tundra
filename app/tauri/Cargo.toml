@@ -21,10 +21,12 @@ at-bridge = { path = "../../crates/at-bridge" }
 at-integrations = { path = "../../crates/at-integrations" }
 at-intelligence = { path = "../../crates/at-intelligence" }
 tauri = { workspace = true }
+tauri-utils = { version = "2.9.3", features = ["html-manipulation-2"] }
 tauri-plugin-notification = "2"
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+sha2 = "0.10"
 tracing = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
