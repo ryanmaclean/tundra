@@ -316,6 +316,138 @@ jobs:
           test ! -e duckdb-upstream/.ccache/extension/json
           test ! -e duckdb-upstream/.ccache/extension/excel
 
+      - name: Replay exact native link with generated JS source tracing
+        shell: bash
+        run: |
+          set -euo pipefail
+          variant='${{ matrix.variant }}'
+          build="$GITHUB_WORKSPACE/duckdb-upstream/build/relperf/$variant"
+          native="$RUNNER_TEMP/native-receipt"
+          receipt="$native/js-glue-diagnostic"
+          pinned="$GITHUB_WORKSPACE/emscripten-source"
+          installed="$EMSDK/upstream/emscripten"
+          pinned_src="$(realpath "$pinned/src")"
+          installed_src="$(realpath "$installed/src")"
+          mkdir -p "$receipt" "$RUNNER_TEMP/js-link-debug"
+          printf 'source_build_admission=NO\nglue_legal_admission=NO\nmanifest_effects=unresolved\n' \
+            > "$receipt/admission.txt"
+          test "$(git -C "$pinned" rev-parse HEAD)" = 'e967e20b4727956a30592165a3c1cde5c67fa0a8'
+          git -C "$pinned" diff --quiet
+          git -C "$pinned" diff --cached --quiet
+          test "$(command -v em++)" = "$installed/em++"
+          export EM_CONFIG="${EM_CONFIG:-$EMSDK/.emscripten}"
+          test -s "$EM_CONFIG"
+          sha256sum "$EM_CONFIG" > "$receipt/em-config.sha256"
+          cmp -s "$build/duckdb_wasm.js" "$native/duckdb-$variant.js"
+          cmp -s "$build/duckdb_wasm.wasm" "$native/duckdb-$variant.wasm"
+          cp "$native/duckdb-$variant.map" "$receipt/original-map"
+          restore_original_outputs() {
+            cp "$receipt/original-map" "$native/duckdb-$variant.map"
+            cp "$native/duckdb-$variant.js" "$build/duckdb_wasm.js"
+            cp "$native/duckdb-$variant.wasm" "$build/duckdb_wasm.wasm"
+          }
+          trap restore_original_outputs EXIT
+          cp "$native/link.txt" "$receipt/original-link.txt"
+          sha256sum "$receipt/original-link.txt" "$native/objects1.rsp" \
+            "$native/linklibs.rsp" > "$receipt/original-link-inputs.sha256"
+          original="$(cat "$receipt/original-link.txt")"
+          test "$(wc -l < "$receipt/original-link.txt")" -eq 1
+          [[ "$original" == *' --js-library='* ]]
+          [[ "$original" != *' -sVERBOSE=1 '* ]]
+          instrumented="${original/ --js-library=/ -sVERBOSE=1 --js-library=}"
+          test "$instrumented" != "$original"
+          printf '%s\n' "$instrumented" > "$receipt/instrumented-link.txt"
+          # Only VERBOSE is added to the recorded link command. The debug
+          # environment retains pre-minified JS stages without changing flags.
+          (cd "$build" && EMCC_DEBUG=1 EMCC_DEBUG_SAVE=1 \
+            EMCC_TEMP_DIR="$RUNNER_TEMP/js-link-debug" EMCC_VERBOSE=1 \
+            bash -euo pipefail -c "$instrumented") \
+            > "$receipt/instrumented-link.log" 2>&1
+          test -s "$build/duckdb_wasm.js"
+          test -s "$build/duckdb_wasm.wasm"
+          cp "$native/duckdb-$variant.map" "$receipt/instrumented-map"
+          cp "$build/duckdb_wasm.js" "$receipt/instrumented-duckdb.js"
+          cp "$build/duckdb_wasm.wasm" "$receipt/instrumented-duckdb.wasm"
+          if cmp -s "$native/duckdb-$variant.js" "$receipt/instrumented-duckdb.js"; then
+            printf 'js_byte_comparison=MATCH\n' > "$receipt/output-comparison.txt"
+          else
+            printf 'js_byte_comparison=DIFF\n' > "$receipt/output-comparison.txt"
+          fi
+          if cmp -s "$native/duckdb-$variant.wasm" "$receipt/instrumented-duckdb.wasm"; then
+            printf 'wasm_byte_comparison=MATCH\n' >> "$receipt/output-comparison.txt"
+          else
+            printf 'wasm_byte_comparison=DIFF\n' >> "$receipt/output-comparison.txt"
+          fi
+          sha256sum "$native/duckdb-$variant.js" "$native/duckdb-$variant.wasm" \
+            "$receipt/instrumented-duckdb.js" "$receipt/instrumented-duckdb.wasm" \
+            > "$receipt/output-bytes.sha256"
+          grep -E '^processing (system|user) library: ' \
+            "$receipt/instrumented-link.log" > "$receipt/processed-js-libraries.txt"
+          test -s "$receipt/processed-js-libraries.txt"
+          grep -Fq "processing user library: $GITHUB_WORKSPACE/duckdb-upstream/lib/js-stubs.js" \
+            "$receipt/processed-js-libraries.txt"
+          : > "$receipt/processed-js-source-hashes.tsv"
+          : > "$receipt/processed-js-installed-paths.txt"
+          while IFS= read -r entry; do
+            case "$entry" in
+              'processing system library: '*)
+                name="${entry#processing system library: }"
+                [[ "$name" != /* && "$name" != *..* ]]
+                source="$installed/src/$name"
+                pinned_file="$pinned/src/$name"
+                [[ "$(realpath "$source")" == "$installed_src/"* ]]
+                [[ "$(realpath "$pinned_file")" == "$pinned_src/"* ]]
+                class=emscripten-system
+                ;;
+              'processing user library: '*)
+                source="${entry#processing user library: }"
+                test "$source" = "$GITHUB_WORKSPACE/duckdb-upstream/lib/js-stubs.js"
+                pinned_file="$source"
+                class=duckdb-user
+                ;;
+              *) exit 1 ;;
+            esac
+            test -s "$source" && test -s "$pinned_file"
+            source_hash="$(sha256sum "$source" | cut -d ' ' -f 1)"
+            pinned_hash="$(sha256sum "$pinned_file" | cut -d ' ' -f 1)"
+            test "$source_hash" = "$pinned_hash"
+            printf '%s\t%s\t%s\t%s\n' "$class" "$source" "$source_hash" "$pinned_hash" \
+              >> "$receipt/processed-js-source-hashes.tsv"
+            printf '%s\n' "$source" >> "$receipt/processed-js-installed-paths.txt"
+          done < "$receipt/processed-js-libraries.txt"
+          test "$(wc -l < "$receipt/processed-js-source-hashes.tsv")" \
+            -eq "$(wc -l < "$receipt/processed-js-libraries.txt")"
+          # Preserve exact library text and notices, plus every saved JS stage.
+          tar -czf "$receipt/processed-js-source-bytes.tar.gz" \
+            -T "$receipt/processed-js-installed-paths.txt"
+          cp "$pinned/LICENSE" "$receipt/emscripten-LICENSE"
+          cp "$GITHUB_WORKSPACE/duckdb-upstream/LICENSE" "$receipt/duckdb-wasm-LICENSE"
+          sha256sum "$receipt/emscripten-LICENSE" "$receipt/duckdb-wasm-LICENSE" \
+            > "$receipt/legal-texts.sha256"
+          debug="$RUNNER_TEMP/js-link-debug/emscripten_temp"
+          test -d "$debug"
+          grep -Fq "saving debug copy $debug/" "$receipt/instrumented-link.log"
+          printf 'EMCC_TEMP_DIR=%s\nactual_saved_debug_root=%s\n' \
+            "$RUNNER_TEMP/js-link-debug" "$(realpath "$debug")" \
+            > "$receipt/debug-root.txt"
+          find "$debug" -type f -name '*.js' -printf '%P\n' | LC_ALL=C sort \
+            > "$receipt/saved-js-stages.txt"
+          test -s "$receipt/saved-js-stages.txt"
+          (cd "$debug" && tar -czf "$receipt/saved-js-stages.tar.gz" \
+            -T "$receipt/saved-js-stages.txt")
+          while IFS= read -r stage; do sha256sum "$debug/$stage"; done \
+            < "$receipt/saved-js-stages.txt" > "$receipt/saved-js-stages.sha256"
+          mkdir "$receipt/manifest-bytes"
+          for file in emscripten-version.txt package.json package-lock.json; do
+            cp "$pinned/$file" "$receipt/manifest-bytes/pinned-$file"
+            cp "$installed/$file" "$receipt/manifest-bytes/installed-$file"
+            printf '%s\t%s\t%s\n' "$file" \
+              "$(sha256sum "$pinned/$file" | cut -d ' ' -f 1)" \
+              "$(sha256sum "$installed/$file" | cut -d ' ' -f 1)"
+          done > "$receipt/runtime-affecting-manifests.tsv"
+          grep -E 'acorn-optimizer|closure|Running subprocess' \
+            "$receipt/instrumented-link.log" > "$receipt/js-tool-invocations.txt" || true
+
       - name: Rebuild selected SDK archives from an empty cache
         shell: bash
         run: |
