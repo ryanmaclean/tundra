@@ -1,0 +1,208 @@
+{
+  "schema_version": 1,
+  "roster_evidence_head": "bf3eed899873929fdf77fed23d82024d9bee1fed",
+  "approvals": [
+    {
+      "id": "tundra-2026-10-24-const_format-0.2.35",
+      "name": "const_format",
+      "version": "0.2.35",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "lock_checksum": "7faa7469a93a566e9ccc1c73fe783b4a65c274c5ace346038dca9c39fe0030ad",
+      "declared_license": "Zlib",
+      "approved_choice": [
+        "Zlib"
+      ],
+      "profiles": [
+        "wasm32-unknown-unknown/default"
+      ],
+      "notice_ids": [
+        "Zlib"
+      ],
+      "decision_ref": "user-2026-10-24-tundra-project-licenses-ok",
+      "package_id": "registry+https://github.com/rust-lang/crates.io-index#const_format@0.2.35"
+    },
+    {
+      "id": "tundra-2026-10-24-cssparser-0.36.0",
+      "name": "cssparser",
+      "version": "0.36.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "lock_checksum": "dae61cf9c0abb83bd659dab65b7e4e38d8236824c85f0f804f173567bda257d2",
+      "declared_license": "MPL-2.0",
+      "approved_choice": [
+        "MPL-2.0"
+      ],
+      "profiles": [
+        "aarch64-apple-darwin/default",
+        "aarch64-apple-darwin/tauri-sounds",
+        "x86_64-pc-windows-msvc/default",
+        "x86_64-pc-windows-msvc/tauri-sounds",
+        "x86_64-unknown-linux-gnu/default",
+        "x86_64-unknown-linux-gnu/tauri-sounds"
+      ],
+      "notice_ids": [
+        "MPL-2.0"
+      ],
+      "decision_ref": "user-2026-10-24-tundra-project-licenses-ok",
+      "package_id": "registry+https://github.com/rust-lang/crates.io-index#cssparser@0.36.0"
+    },
+    {
+      "id": "tundra-2026-10-24-dtoa-short-0.3.5",
+      "name": "dtoa-short",
+      "version": "0.3.5",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "lock_checksum": "cd1511a7b6a56299bd043a9c167a6d2bfb37bf84a6dfceaba651168adfb43c87",
+      "declared_license": "MPL-2.0",
+      "approved_choice": [
+        "MPL-2.0"
+      ],
+      "profiles": [
+        "aarch64-apple-darwin/default",
+        "aarch64-apple-darwin/tauri-sounds",
+        "x86_64-pc-windows-msvc/default",
+        "x86_64-pc-windows-msvc/tauri-sounds",
+        "x86_64-unknown-linux-gnu/default",
+        "x86_64-unknown-linux-gnu/tauri-sounds"
+      ],
+      "notice_ids": [
+        "MPL-2.0"
+      ],
+      "decision_ref": "user-2026-10-24-tundra-project-licenses-ok",
+      "package_id": "registry+https://github.com/rust-lang/crates.io-index#dtoa-short@0.3.5"
+    },
+    {
+      "id": "tundra-2026-10-24-foldhash-0.2.0",
+      "name": "foldhash",
+      "version": "0.2.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "lock_checksum": "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb",
+      "declared_license": "Zlib",
+      "approved_choice": [
+        "Zlib"
+      ],
+      "profiles": [
+        "aarch64-apple-darwin/default",
+        "aarch64-apple-darwin/tauri-sounds",
+        "wasm32-unknown-unknown/default",
+        "x86_64-pc-windows-msvc/default",
+        "x86_64-pc-windows-msvc/tauri-sounds",
+        "x86_64-unknown-linux-gnu/default",
+        "x86_64-unknown-linux-gnu/tauri-sounds"
+      ],
+      "notice_ids": [
+        "Zlib"
+      ],
+      "decision_ref": "user-2026-10-24-tundra-project-licenses-ok",
+      "package_id": "registry+https://github.com/rust-lang/crates.io-index#foldhash@0.2.0"
+    },
+    {
+      "id": "tundra-2026-10-24-nanorand-0.7.0",
+      "name": "nanorand",
+      "version": "0.7.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "lock_checksum": "6a51313c5820b0b02bd422f4b44776fbf47961755c74ce64afc73bfad10226c3",
+      "declared_license": "Zlib",
+      "approved_choice": [
+        "Zlib"
+      ],
+      "profiles": [
+        "aarch64-apple-darwin/default",
+        "aarch64-apple-darwin/tauri-sounds",
+        "x86_64-pc-windows-msvc/default",
+        "x86_64-pc-windows-msvc/tauri-sounds",
+        "x86_64-unknown-linux-gnu/default",
+        "x86_64-unknown-linux-gnu/tauri-sounds"
+      ],
+      "notice_ids": [
+        "Zlib"
+      ],
+      "decision_ref": "user-2026-10-24-tundra-project-licenses-ok",
+      "package_id": "registry+https://github.com/rust-lang/crates.io-index#nanorand@0.7.0"
+    },
+    {
+      "id": "tundra-2026-10-24-option-ext-0.2.0",
+      "name": "option-ext",
+      "version": "0.2.0",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "lock_checksum": "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d",
+      "declared_license": "MPL-2.0",
+      "approved_choice": [
+        "MPL-2.0"
+      ],
+      "profiles": [
+        "aarch64-apple-darwin/default",
+        "aarch64-apple-darwin/tauri-sounds",
+        "x86_64-pc-windows-msvc/default",
+        "x86_64-pc-windows-msvc/tauri-sounds",
+        "x86_64-unknown-linux-gnu/default",
+        "x86_64-unknown-linux-gnu/tauri-sounds"
+      ],
+      "notice_ids": [
+        "MPL-2.0"
+      ],
+      "decision_ref": "user-2026-10-24-tundra-project-licenses-ok",
+      "package_id": "registry+https://github.com/rust-lang/crates.io-index#option-ext@0.2.0"
+    },
+    {
+      "id": "tundra-2026-10-24-selectors-0.36.1",
+      "name": "selectors",
+      "version": "0.36.1",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "lock_checksum": "c5d9c0c92a92d33f08817311cf3f2c29a3538a8240e94a6a3c622ce652d7e00c",
+      "declared_license": "MPL-2.0",
+      "approved_choice": [
+        "MPL-2.0"
+      ],
+      "profiles": [
+        "aarch64-apple-darwin/default",
+        "aarch64-apple-darwin/tauri-sounds",
+        "x86_64-pc-windows-msvc/default",
+        "x86_64-pc-windows-msvc/tauri-sounds",
+        "x86_64-unknown-linux-gnu/default",
+        "x86_64-unknown-linux-gnu/tauri-sounds"
+      ],
+      "notice_ids": [
+        "MPL-2.0"
+      ],
+      "decision_ref": "user-2026-10-24-tundra-project-licenses-ok",
+      "package_id": "registry+https://github.com/rust-lang/crates.io-index#selectors@0.36.1"
+    },
+    {
+      "id": "tundra-2026-10-24-slotmap-1.1.1",
+      "name": "slotmap",
+      "version": "1.1.1",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "lock_checksum": "bdd58c3c93c3d278ca835519292445cb4b0d4dc59ccfdf7ceadaab3f8aeb4038",
+      "declared_license": "Zlib",
+      "approved_choice": [
+        "Zlib"
+      ],
+      "profiles": [
+        "wasm32-unknown-unknown/default"
+      ],
+      "notice_ids": [
+        "Zlib"
+      ],
+      "decision_ref": "user-2026-10-24-tundra-project-licenses-ok",
+      "package_id": "registry+https://github.com/rust-lang/crates.io-index#slotmap@1.1.1"
+    },
+    {
+      "id": "tundra-2026-10-24-xxhash-rust-0.8.15",
+      "name": "xxhash-rust",
+      "version": "0.8.15",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "lock_checksum": "fdd20c5420375476fbd4394763288da7eb0cc0b8c11deed431a91562af7335d3",
+      "declared_license": "BSL-1.0",
+      "approved_choice": [
+        "BSL-1.0"
+      ],
+      "profiles": [
+        "wasm32-unknown-unknown/default"
+      ],
+      "notice_ids": [
+        "BSL-1.0"
+      ],
+      "decision_ref": "user-2026-10-24-tundra-project-licenses-ok",
+      "package_id": "registry+https://github.com/rust-lang/crates.io-index#xxhash-rust@0.8.15"
+    }
+  ]
+}

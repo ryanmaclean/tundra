@@ -7,13 +7,14 @@
 //! - RLM (Recursive Language Model) decomposition and refinement
 //! - Session and cache management
 //! - Configuration and settings infrastructure
-//! - File watching and change detection
+//! - Optional file watching and change detection (`file-watcher` feature)
 
 pub mod cache;
 pub mod config;
 pub mod context_engine;
 pub mod context_steering;
 pub mod crypto;
+#[cfg(feature = "file-watcher")]
 pub mod file_watcher;
 pub mod git_read_adapter;
 pub mod lockfile;
