@@ -250,6 +250,61 @@ jobs:
           test ! -e duckdb-upstream/.ccache/extension/json
           test ! -e duckdb-upstream/.ccache/extension/excel
 
+      - name: Replay the changing unity object serially on this runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          nested="$GITHUB_WORKSPACE/duckdb-upstream/build/relperf/eh/third_party/duckdb/src/duckdb_ep-build"
+          rel=src/function/table/system
+          target=duckdb_table_func_system
+          member=ub_duckdb_table_func_system.cpp.o
+          unity=ub_duckdb_table_func_system.cpp
+          object="$nested/$rel/CMakeFiles/$target.dir/$member"
+          preprocessed="$nested/$rel/CMakeFiles/$target.dir/$unity.i"
+          recipe="$rel/CMakeFiles/$target.dir/build.make"
+          preprocess_target="$rel/$unity.i"
+          object_target="$rel/CMakeFiles/$target.dir/$member"
+          out="$RUNNER_TEMP/native-receipt/system-object-replay"
+          mkdir -p "$out"
+          test -s "$object"
+          cmp -s "$object" "$RUNNER_TEMP/native-receipt/changed-objects/system/$member"
+          cp "$object" "$out/initial.o"
+          sha256sum "$nested/$rel/$unity" \
+            "$nested/$rel/CMakeFiles/$target.dir/flags.make" \
+            "$nested/$rel/CMakeFiles/$target.dir/includes_CXX.rsp" \
+            "$nested/$recipe" > "$out/recipe-inputs.sha256"
+          for pass in first second; do
+            emmake make -C "$nested" -f "$recipe" "$preprocess_target"
+            test -s "$preprocessed"
+            sha256sum "$preprocessed" > "$out/$pass.preprocessed.sha256"
+            stat -c '%s' "$preprocessed" > "$out/$pass.preprocessed.size"
+            rm "$preprocessed"
+            rm "$object"
+            emmake make -C "$nested" -j1 -f "$recipe" "$object_target"
+            test -s "$object"
+            cp "$object" "$out/$pass.o"
+            sha256sum "$object" > "$out/$pass.object.sha256"
+            cmp -s "$nested/$rel/$unity" \
+              "$RUNNER_TEMP/native-receipt/changed-objects/system/$unity"
+          done
+          sha256sum "$nested/$rel/$unity" \
+            "$nested/$rel/CMakeFiles/$target.dir/flags.make" \
+            "$nested/$rel/CMakeFiles/$target.dir/includes_CXX.rsp" \
+            "$nested/$recipe" > "$out/recipe-inputs-after.sha256"
+          cmp -s "$out/recipe-inputs.sha256" "$out/recipe-inputs-after.sha256"
+          for pass in first second; do
+            if cmp -s "$out/initial.o" "$out/$pass.o"; then
+              printf '%s=identical-to-initial\n' "$pass"
+            else
+              printf '%s=differs-from-initial\n' "$pass"
+            fi
+          done > "$out/observed-equality.txt"
+          if cmp -s "$out/first.o" "$out/second.o"; then
+            printf 'first_vs_second=identical\n' >> "$out/observed-equality.txt"
+          else
+            printf 'first_vs_second=differs\n' >> "$out/observed-equality.txt"
+          fi
+
       - name: Retain EH forensic trial
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
