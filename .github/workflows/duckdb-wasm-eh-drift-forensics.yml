@@ -189,6 +189,49 @@ jobs:
             > "$RUNNER_TEMP/native-receipt/duckdb-map-selected-members.sha256"
           test "$(wc -l < "$RUNNER_TEMP/native-receipt/duckdb-map-selected-members.txt")" \
             -eq "$(wc -l < "$RUNNER_TEMP/native-receipt/duckdb-map-selected-members.sha256")"
+          # Keep only the two differing unity objects and their exact nested
+          # CMake inputs; the full 42 MB DuckDB archive stays on the runner.
+          nested="$build/third_party/duckdb/src/duckdb_ep-build"
+          readobj="$EMSDK/upstream/bin/llvm-readobj"
+          objdump="$EMSDK/upstream/bin/llvm-objdump"
+          test -x "$readobj"
+          test -x "$objdump"
+          "$readobj" --version > "$RUNNER_TEMP/native-receipt/llvm-readobj-version.txt"
+          "$objdump" --version > "$RUNNER_TEMP/native-receipt/llvm-objdump-version.txt"
+          retain_changed_object() {
+            local label="$1" member="$2" target_rel="$3" unity_rel="$4"
+            local target="$nested/$target_rel"
+            local out="$RUNNER_TEMP/native-receipt/changed-objects/$label"
+            grep -Fxq "$member" "$RUNNER_TEMP/native-receipt/duckdb-map-selected-members.txt"
+            test -s "$member_extract/$member"
+            test -s "$target/$member"
+            cmp -s "$member_extract/$member" "$target/$member"
+            test -s "$target/$member.d"
+            test -s "$target/flags.make"
+            test -s "$target/build.make"
+            test -s "$nested/$unity_rel"
+            mkdir -p "$out"
+            cp "$member_extract/$member" "$out/$member"
+            cp "$target/$member.d" "$out/$member.d"
+            cp "$target/flags.make" "$out/flags.make"
+            cp "$target/build.make" "$out/build.make"
+            cp "$nested/$unity_rel" "$out/${unity_rel##*/}"
+            "$readobj" --sections "$out/$member" > "$out/llvm-readobj-sections.txt"
+            "$objdump" -h "$out/$member" > "$out/llvm-objdump-headers.txt"
+            "$objdump" -d "$out/$member" > "$out/llvm-objdump-disassembly.txt"
+            test -s "$out/llvm-readobj-sections.txt"
+            test -s "$out/llvm-objdump-headers.txt"
+            test -s "$out/llvm-objdump-disassembly.txt"
+            sha256sum "$out/$member" "$out/$member.d" "$out/flags.make" \
+              "$out/build.make" "$out/${unity_rel##*/}" \
+              > "$out/inputs.sha256"
+          }
+          retain_changed_object aggregate ub_duckdb_operator_aggregate.cpp.o \
+            src/execution/operator/aggregate/CMakeFiles/duckdb_operator_aggregate.dir \
+            src/execution/operator/aggregate/ub_duckdb_operator_aggregate.cpp
+          retain_changed_object system ub_duckdb_table_func_system.cpp.o \
+            src/function/table/system/CMakeFiles/duckdb_table_func_system.dir \
+            src/function/table/system/ub_duckdb_table_func_system.cpp
           # Hash the SDK archives actually selected by wasm-ld, not every cached SDK archive.
           grep -oE '/emsdk/upstream/emscripten/cache/sysroot/[^[:space:]():]+\.a' "$map" \
             | LC_ALL=C sort -u > "$RUNNER_TEMP/native-receipt/selected-sdk-archives.txt"
