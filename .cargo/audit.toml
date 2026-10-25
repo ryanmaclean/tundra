@@ -24,4 +24,12 @@ ignore = [
     # expires: 2026-07-26
     # owner: TBD
     "RUSTSEC-2026-0097",
+    # Mirrors deny.toml (2026-10-24): h2 0.3 via reqwest 0.11 (datadog-tracing),
+    # lru 0.12 via ratatui 0.29, quick-xml 0.38 via tauri-utils -> plist.
+    # expires: 2027-01-24
+    # owner: tundra maintainers
+    "RUSTSEC-2026-0258",
+    "RUSTSEC-2026-0253",
+    "RUSTSEC-2026-0194",
+    "RUSTSEC-2026-0195",
 ]
