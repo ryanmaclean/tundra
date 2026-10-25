@@ -32,6 +32,7 @@ struct RejectionProbe {
     shape: String,
     error_class: String,
     observed: String,
+    matched: bool,
 }
 
 #[derive(serde::Deserialize)]
@@ -100,6 +101,7 @@ fn cmd_smoke_result(app: tauri::AppHandle, result: DuckDbSmokeResult) -> Result<
             "shape": probe.shape.chars().take(24).collect::<String>(),
             "errorClass": probe.error_class.chars().take(32).collect::<String>(),
             "observed": probe.observed.chars().take(96).collect::<String>(),
+            "matched": probe.matched,
         })).collect();
     let receipt = serde_json::json!({
         "schema": "tundra-duckdb-webkit-smoke/v1",
@@ -117,6 +119,7 @@ fn cmd_smoke_result(app: tauri::AppHandle, result: DuckDbSmokeResult) -> Result<
             "aggregateOk": result.aggregate_ok,
             "aggregateObserved": result.aggregate_observed.as_deref().unwrap_or("").chars().take(512).collect::<String>(),
             "exceptionOk": result.exception_ok,
+            "exceptionGate": "parser-catalog-recovery",
             "exceptionErrorClass": result.exception_error_class.as_deref().unwrap_or("").chars().take(32).collect::<String>(),
             "exceptionErrorFragment": result.exception_error_fragment.as_deref().unwrap_or("").chars().take(160).collect::<String>(),
             "rejectedShape": result.rejected_shape.as_deref().unwrap_or("").chars().take(24).collect::<String>(),
@@ -219,19 +222,7 @@ const DUCKDB_SMOKE_INIT_SCRIPT: &str = r#"
         : (rejectedError ? 'other-error' : 'no-error');
       result.exceptionErrorFragment = rejectedError.split(/\r?\n/, 1)[0]
         .replace(/[^\x20-\x7e]/g, '?').slice(0, 160);
-      const recovered = await checkedQuery('SELECT CAST(42 AS INTEGER) AS alive');
-      const recoveryRow = Array.isArray(recovered) && recovered.length > 0
-        ? recovered[0] : null;
-      result.recoveryRow = JSON.stringify(recoveryRow).slice(0, 96);
-      result.recoveryOk = Array.isArray(recovered) && recovered.length === 1 &&
-        !!recoveryRow && recoveryRow.alive === 42;
-      result.exceptionOk = !!rejected && !Array.isArray(rejected) &&
-        typeof rejected.error === 'string' &&
-        rejected.error.includes('Conversion Error') &&
-        rejected.error.includes('tundra_invalid_i32') &&
-        result.recoveryOk;
-      result.ok = result.ok && result.exceptionOk;
-      const probeRejection = async (name, sql) => {
+      const probeRejection = async (name, sql, expectedClass, marker) => {
         try {
           const value = JSON.parse(await bridge.query_duckdb(sql));
           const shape = Array.isArray(value)
@@ -248,21 +239,37 @@ const DUCKDB_SMOKE_INIT_SCRIPT: &str = r#"
             name, shape,
             errorClass: match ? match[0] : (error ? 'other-error' : 'no-error'),
             observed: (JSON.stringify(first) || 'undefined')
-              .replace(/[^\x20-\x7e]/g, '?').slice(0, 96)
+              .replace(/[^\x20-\x7e]/g, '?').slice(0, 96),
+            matched: !!value && !Array.isArray(value) &&
+              typeof value.error === 'string' &&
+              error.startsWith('Error: ' + expectedClass + ':') &&
+              error.includes(marker)
           };
         } catch (error) {
           return {
             name, shape: 'throw', errorClass: 'probe-throw',
             observed: String(error).split(/\r?\n/, 1)[0]
-              .replace(/[^\x20-\x7e]/g, '?').slice(0, 96)
+              .replace(/[^\x20-\x7e]/g, '?').slice(0, 96),
+            matched: false
           };
         }
       };
       result.rejectionProbes = [
-        await probeRejection('parser', 'SELECT )'),
+        await probeRejection('parser', 'SELECT )', 'Parser Error', 'SELECT )'),
         await probeRejection('missing-table',
-          'SELECT * FROM tundra_missing_smoke_table_6f86d081')
+          'SELECT * FROM tundra_missing_smoke_table_6f86d081',
+          'Catalog Error', 'tundra_missing_smoke_table_6f86d081')
       ];
+      const recovered = await checkedQuery('SELECT CAST(42 AS INTEGER) AS alive');
+      const recoveryRow = Array.isArray(recovered) && recovered.length > 0
+        ? recovered[0] : null;
+      result.recoveryRow = JSON.stringify(recoveryRow).slice(0, 96);
+      result.recoveryOk = Array.isArray(recovered) && recovered.length === 1 &&
+        !!recoveryRow && recoveryRow.alive === 42;
+      result.exceptionOk = result.rejectionProbes.length === 2 &&
+        result.rejectionProbes[0].matched && result.rejectionProbes[1].matched &&
+        result.recoveryOk;
+      result.ok = result.ok && result.exceptionOk;
       await new Promise(resolve => setTimeout(resolve, 100));
       result.remoteRequests = performance.getEntriesByType('resource').filter(entry => {
         const url = new URL(entry.name);
