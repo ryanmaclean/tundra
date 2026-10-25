@@ -34,7 +34,13 @@
         mainWorker: local("duckdb-browser-eh.worker.js"),
       },
     };
-    const bundle = await duckdbLib.selectBundle(bundles);
+    // The installed WebKit trial sets this before page scripts. Normal app
+    // startup leaves it absent and still uses feature-based selection.
+    const requestedVariant = globalThis.__TUNDRA_DUCKDB_SMOKE_VARIANT__;
+    if (requestedVariant !== undefined && requestedVariant !== "mvp" && requestedVariant !== "eh") {
+      throw new Error("Invalid DuckDB smoke variant");
+    }
+    const bundle = requestedVariant ? bundles[requestedVariant] : await duckdbLib.selectBundle(bundles);
     if (!bundle || !bundle.mainWorker || !bundle.mainModule) {
       throw new Error("No supported local DuckDB WASM bundle");
     }
@@ -46,7 +52,11 @@
       const connection = await candidate.connect();
       db = candidate;
       conn = connection;
-      runtimeInfo = { workerUrl: bundle.mainWorker, wasmUrl: bundle.mainModule };
+      runtimeInfo = {
+        variant: bundle.mainWorker === bundles.mvp.mainWorker ? "mvp" : "eh",
+        workerUrl: bundle.mainWorker,
+        wasmUrl: bundle.mainModule,
+      };
     } catch (error) {
       worker.terminate();
       throw error;
