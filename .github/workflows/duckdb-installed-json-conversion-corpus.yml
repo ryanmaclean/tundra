@@ -237,28 +237,55 @@ jobs:
           apt-cache madison libwebkit2gtk-4.1-0 > "$RUNNER_TEMP/eh-semantic/apt-webkit-madison.txt"
           apt-cache policy > "$RUNNER_TEMP/eh-semantic/apt-source-policy.txt"
           python3 - "$webkit_candidate" "$RUNNER_TEMP/eh-semantic" <<'PYAPT'
+          from hashlib import sha256
           from pathlib import Path
           from urllib.parse import urlparse
           import re, sys
           version, root = sys.argv[1], Path(sys.argv[2])
           policy = (root / 'apt-source-policy.txt').read_text().splitlines()
+          hosts = {'azure.archive.ubuntu.com', 'archive.ubuntu.com',
+                   'security.ubuntu.com'}
+          def official_url(value):
+              parsed = urlparse(value)
+              return (parsed.scheme in ('http', 'https') and
+                      parsed.hostname in hosts and parsed.port is None and
+                      parsed.username is None and parsed.password is None and
+                      parsed.path.rstrip('/') == '/ubuntu' and
+                      not parsed.query and not parsed.fragment)
+          mirror_token = 'mirror+file:/etc/apt/apt-mirrors.txt'
+          mirror_sha = None
+          def official_source(value):
+              global mirror_sha
+              if official_url(value):
+                  return True
+              if value != mirror_token:
+                  return False
+              path = Path('/etc/apt/apt-mirrors.txt')
+              assert path.is_file() and not path.is_symlink()
+              data = path.read_bytes()
+              assert 0 < len(data) <= 4096 and b'\x00' not in data
+              urls = [line.strip() for line in data.decode('utf-8').splitlines()
+                      if line.strip() and not line.lstrip().startswith('#')]
+              assert 1 <= len(urls) <= 8 and all(official_url(url) for url in urls)
+              mirror_sha = sha256(data).hexdigest()
+              (root / 'apt-mirrors.txt').write_bytes(data)
+              assert (root / 'apt-mirrors.txt').read_bytes() == data
+              (root / 'apt-mirrors.sha256').write_text(mirror_sha + '\n')
+              return True
           selected = []
           for row in (root / 'apt-webkit-madison.txt').read_text().splitlines():
               fields = [part.strip() for part in row.split('|')]
-              if len(fields) != 3 or fields[:2] != ['libwebkit2gtk-4.1-0', version]:
+              if fields[:2] != ['libwebkit2gtk-4.1-0', version]:
                   continue
+              assert len(fields) == 3, 'malformed candidate source row'
               source = fields[2]
               parts = source.split()
-              if len(parts) != 4 or parts[-1] != 'Packages':
-                  continue
-              parsed = urlparse(parts[0])
-              if (parsed.scheme not in ('http', 'https') or
-                  parsed.hostname not in ('azure.archive.ubuntu.com',
-                                          'archive.ubuntu.com',
-                                          'security.ubuntu.com') or
-                  parsed.path.rstrip('/') != '/ubuntu' or
-                  not parts[1].startswith('noble')):
-                  continue
+              assert (len(parts) == 4 and parts[-1] == 'Packages' and
+                      parts[1] in ('noble/main', 'noble-updates/main',
+                                   'noble-security/main') and
+                      parts[2] == 'amd64' and official_source(parts[0])), \
+                  'unapproved candidate WebKit source'
+              matched = False
               for index, line in enumerate(policy[:-1]):
                   if not re.fullmatch(r'\s*\d+\s+' + re.escape(source), line):
                       continue
@@ -267,9 +294,12 @@ jobs:
                       re.search(r'(?:^|,)o=Ubuntu(?:,|$)', release[8:]) and
                       re.search(r'(?:^|,)l=Ubuntu(?:,|$)', release[8:])):
                       selected.append((source, release))
+                      matched = True
+              assert matched, 'candidate WebKit source lacks Ubuntu Release join'
           assert selected, 'candidate WebKit version lacks authenticated Ubuntu archive origin'
           (root / 'apt-webkit-origin.txt').write_text(
               'candidate_version=' + version + '\n' +
+              ('mirror_sha256=' + mirror_sha + '\n' if mirror_sha else '') +
               ''.join('source=' + source + '\n' + 'release=' + release + '\n'
                       for source, release in sorted(set(selected))))
           PYAPT
@@ -1437,28 +1467,55 @@ jobs:
           apt-cache madison libwebkit2gtk-4.1-0 > "$RUNNER_TEMP/eh-semantic/apt-webkit-madison.txt"
           apt-cache policy > "$RUNNER_TEMP/eh-semantic/apt-source-policy.txt"
           python3 - "$webkit_candidate" "$RUNNER_TEMP/eh-semantic" <<'PYAPT'
+          from hashlib import sha256
           from pathlib import Path
           from urllib.parse import urlparse
           import re, sys
           version, root = sys.argv[1], Path(sys.argv[2])
           policy = (root / 'apt-source-policy.txt').read_text().splitlines()
+          hosts = {'azure.archive.ubuntu.com', 'archive.ubuntu.com',
+                   'security.ubuntu.com'}
+          def official_url(value):
+              parsed = urlparse(value)
+              return (parsed.scheme in ('http', 'https') and
+                      parsed.hostname in hosts and parsed.port is None and
+                      parsed.username is None and parsed.password is None and
+                      parsed.path.rstrip('/') == '/ubuntu' and
+                      not parsed.query and not parsed.fragment)
+          mirror_token = 'mirror+file:/etc/apt/apt-mirrors.txt'
+          mirror_sha = None
+          def official_source(value):
+              global mirror_sha
+              if official_url(value):
+                  return True
+              if value != mirror_token:
+                  return False
+              path = Path('/etc/apt/apt-mirrors.txt')
+              assert path.is_file() and not path.is_symlink()
+              data = path.read_bytes()
+              assert 0 < len(data) <= 4096 and b'\x00' not in data
+              urls = [line.strip() for line in data.decode('utf-8').splitlines()
+                      if line.strip() and not line.lstrip().startswith('#')]
+              assert 1 <= len(urls) <= 8 and all(official_url(url) for url in urls)
+              mirror_sha = sha256(data).hexdigest()
+              (root / 'apt-mirrors.txt').write_bytes(data)
+              assert (root / 'apt-mirrors.txt').read_bytes() == data
+              (root / 'apt-mirrors.sha256').write_text(mirror_sha + '\n')
+              return True
           selected = []
           for row in (root / 'apt-webkit-madison.txt').read_text().splitlines():
               fields = [part.strip() for part in row.split('|')]
-              if len(fields) != 3 or fields[:2] != ['libwebkit2gtk-4.1-0', version]:
+              if fields[:2] != ['libwebkit2gtk-4.1-0', version]:
                   continue
+              assert len(fields) == 3, 'malformed candidate source row'
               source = fields[2]
               parts = source.split()
-              if len(parts) != 4 or parts[-1] != 'Packages':
-                  continue
-              parsed = urlparse(parts[0])
-              if (parsed.scheme not in ('http', 'https') or
-                  parsed.hostname not in ('azure.archive.ubuntu.com',
-                                          'archive.ubuntu.com',
-                                          'security.ubuntu.com') or
-                  parsed.path.rstrip('/') != '/ubuntu' or
-                  not parts[1].startswith('noble')):
-                  continue
+              assert (len(parts) == 4 and parts[-1] == 'Packages' and
+                      parts[1] in ('noble/main', 'noble-updates/main',
+                                   'noble-security/main') and
+                      parts[2] == 'amd64' and official_source(parts[0])), \
+                  'unapproved candidate WebKit source'
+              matched = False
               for index, line in enumerate(policy[:-1]):
                   if not re.fullmatch(r'\s*\d+\s+' + re.escape(source), line):
                       continue
@@ -1467,9 +1524,12 @@ jobs:
                       re.search(r'(?:^|,)o=Ubuntu(?:,|$)', release[8:]) and
                       re.search(r'(?:^|,)l=Ubuntu(?:,|$)', release[8:])):
                       selected.append((source, release))
+                      matched = True
+              assert matched, 'candidate WebKit source lacks Ubuntu Release join'
           assert selected, 'candidate WebKit version lacks authenticated Ubuntu archive origin'
           (root / 'apt-webkit-origin.txt').write_text(
               'candidate_version=' + version + '\n' +
+              ('mirror_sha256=' + mirror_sha + '\n' if mirror_sha else '') +
               ''.join('source=' + source + '\n' + 'release=' + release + '\n'
                       for source, release in sorted(set(selected))))
           PYAPT
