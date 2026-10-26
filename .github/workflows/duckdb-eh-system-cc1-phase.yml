@@ -1,0 +1,378 @@
+name: DuckDB EH system cc1 phase diagnostic
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/duckdb-eh-system-cc1-phase.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  paired-eh:
+    name: Pinned system cc1 phase trial
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    container:
+      image: emscripten/emsdk:3.1.48@sha256:c952f592577a428698cb990c9656f395ae34424740f9c40bed4c3ee6d4850d29
+    env:
+      DUCKDB_EXCEL: "0"
+      DUCKDB_JSON: "0"
+      CCACHE_DISABLE: "1"
+      SOURCE_HEAD: adfdd3ee95a3054a14d3faa9baaf25edb9e38ddb
+    steps:
+      - name: Check out exact diagnostic source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: adfdd3ee95a3054a14d3faa9baaf25edb9e38ddb
+          persist-credentials: false
+      - name: Check out pinned DuckDB Wasm source and submodules
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: duckdb/duckdb-wasm
+          ref: f955138e5218942fb3fb097a8fdcb725222406ff
+          path: duckdb-upstream
+          submodules: recursive
+          persist-credentials: false
+      - name: Trust ephemeral checkout paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE/duckdb-upstream"
+          while IFS= read -r -d '' directory; do
+            git config --global --add safe.directory "$directory"
+          done < <(find "$GITHUB_WORKSPACE/duckdb-upstream" -type f -name .git -printf '%h\0')
+      - name: Require pinned inputs and apply exact DuckDB patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/eh-compiler-boundary/evidence"
+          mkdir -p "$out"
+          test "$(git rev-parse HEAD)" = "$SOURCE_HEAD"
+          test "$(git -C duckdb-upstream rev-parse HEAD)" = f955138e5218942fb3fb097a8fdcb725222406ff
+          test "$(git -C duckdb-upstream/submodules/duckdb rev-parse HEAD)" = 401c8061c6ece35949cac58c7770cc755710ca86
+          test "$(git -C duckdb-upstream/submodules/arrow rev-parse HEAD)" = ca1c30f60d6419849dbc2a533bd0bcaff310185f
+          test "$(git -C duckdb-upstream/submodules/rapidjson rev-parse HEAD)" = 973dc9c06dcd3d035ebd039cfb9ea457721ec213
+          test -z "$(git -C duckdb-upstream status --porcelain)"
+          git -C duckdb-upstream submodule status --recursive > "$out/submodules.txt"
+          test -z "$(grep '^[+-U]' "$out/submodules.txt" || true)"
+          emcc --version | grep -Fq '3.1.48'
+          em++ --version | grep -Fq '3.1.48'
+          test -x "$EMSDK/upstream/bin/wasm-ld"
+          test -x "$EMSDK/upstream/bin/llvm-readobj"
+          test -x "$EMSDK/upstream/bin/llvm-objdump"
+          test -s "${EM_CONFIG:-$EMSDK/.emscripten}"
+          sha256sum duckdb-upstream/duckdb.patch > "$out/patch.sha256"
+          git -C duckdb-upstream/submodules/duckdb apply --check ../../duckdb.patch
+          git -C duckdb-upstream/submodules/duckdb apply ../../duckdb.patch
+          git -C duckdb-upstream/submodules/duckdb diff --binary > "$out/applied.patch"
+          test -s "$out/applied.patch"
+          {
+            printf 'source_head=%s\nupstream_head=%s\nvariant=eh\n' "$SOURCE_HEAD" f955138e5218942fb3fb097a8fdcb725222406ff
+            printf 'container=emscripten/emsdk:3.1.48@sha256:c952f592577a428698cb990c9656f395ae34424740f9c40bed4c3ee6d4850d29\n'
+            printf 'admission=NO\ntrial=system-compiler-boundary-only\n'
+            emcc --version
+            "$EMSDK/upstream/bin/wasm-ld" --version
+            "$EMSDK/upstream/bin/wasm-opt" --version
+          } > "$out/toolchain.txt"
+          sha256sum "$EMSDK/upstream/emscripten/em++" "$EMSDK/upstream/bin/wasm-ld" \
+            "$EMSDK/upstream/bin/wasm-opt" "${EM_CONFIG:-$EMSDK/.emscripten}" \
+            > "$out/tools.sha256"
+      - name: Build EH and save the system unity preprocessor input
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/eh-compiler-boundary"
+          out="$root/evidence"
+          build="$GITHUB_WORKSPACE/duckdb-upstream/build/relperf/eh"
+          export EM_CACHE="$root/cache"
+          mkdir -p "$EM_CACHE" "$out"
+          test -z "$(ls -A "$EM_CACHE")"
+          flags=(
+            -DCMAKE_BUILD_TYPE=Release
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+            -DDUCKDB_WASM_VERSION=v1.28.0
+            "-DDUCKDB_LOCATION=$GITHUB_WORKSPACE/duckdb-upstream/submodules/duckdb"
+            -DWITH_WASM_EXCEPTIONS=1
+            -DDUCKDB_CUSTOM_PLATFORM=wasm_eh
+          )
+          emcmake cmake -S duckdb-upstream/lib -B "$build" "${flags[@]}" > "$root/configure.log" 2>&1
+          emmake make -C "$build" -j4 duckdb_wasm > "$root/build.log" 2>&1
+          nested="$build/third_party/duckdb/src/duckdb_ep-build"
+          rel=src/function/table/system
+          target=duckdb_table_func_system
+          member=ub_duckdb_table_func_system.cpp.o
+          unity=ub_duckdb_table_func_system.cpp
+          recipe="$rel/CMakeFiles/$target.dir/build.make"
+          object_target="$rel/CMakeFiles/$target.dir/$member"
+          preprocess_target="$rel/CMakeFiles/$target.dir/$unity.i"
+          dir="$nested/$rel"
+          object="$dir/CMakeFiles/$target.dir/$member"
+          test -s "$object"
+          emmake make -C "$nested" -f "$recipe" "$preprocess_target" > "$root/preprocess.log" 2>&1
+          test -s "$nested/$preprocess_target"
+          cp "$nested/$preprocess_target" "$out/input.i"
+          cp "$dir/CMakeFiles/$target.dir/includes_CXX.rsp" "$out/includes_CXX.rsp"
+          cp "$dir/CMakeFiles/$target.dir/flags.make" "$out/flags.make"
+          cp "$nested/$recipe" "$out/build.make"
+          sha256sum "$out/input.i" "$out/includes_CXX.rsp" "$out/flags.make" "$out/build.make" > "$out/inputs.sha256"
+          rm "$object"
+          mapfile -t lines < <(emmake make -C "$nested" -f "$recipe" -n "$object_target" | grep -F " -c $dir/$unity")
+          test "${#lines[@]}" -eq 1
+          printf '%s\n' "${lines[0]}" > "$out/generated-command.txt"
+          printf '%s\n' "$dir" > "$out/compiler-cwd.txt"
+          sha256sum "$EMSDK/upstream/emscripten/em++" "$EMSDK/upstream/bin/clang++" \
+            "$EMSDK/upstream/bin/clang-18" \
+            "$EMSDK/upstream/bin/llvm-readobj" "$EMSDK/upstream/bin/llvm-objdump" \
+            "${EM_CONFIG:-$EMSDK/.emscripten}" > "$out/compiler-tools.sha256"
+          printf 'admission=NO\nproduct_gate=NOT_RUN\n' > "$out/admission.txt"
+      - name: Six direct cc1 object and bitcode compiles
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYCODE'
+          import hashlib, json, os, pathlib, re, shlex, shutil, subprocess, time
+          root=pathlib.Path(os.environ['RUNNER_TEMP'])/'eh-compiler-boundary'
+          out=root/'evidence'
+          cwd=pathlib.Path((out/'compiler-cwd.txt').read_text().strip())
+          obj=cwd/'CMakeFiles/duckdb_table_func_system.dir/ub_duckdb_table_func_system.cpp.o'
+          emsdk=pathlib.Path(os.environ['EMSDK'])
+          wrapper=emsdk/'upstream/emscripten/em++'
+          driver=emsdk/'upstream/bin/clang++'
+          cc1=emsdk/'upstream/bin/clang-18'
+          readobj=emsdk/'upstream/bin/llvm-readobj'
+          llvm_dis=emsdk/'upstream/bin/llvm-dis'
+          inp=out/'input.i'
+          response=cwd/'CMakeFiles/duckdb_table_func_system.dir/includes_CXX.rsp'
+          command=(out/'generated-command.txt').read_text().strip()
+          prefix=f'cd {cwd} && '
+          if not command.startswith(prefix): raise SystemExit('recipe cwd mismatch')
+          original=shlex.split(command[len(prefix):])
+          if pathlib.Path(original[0])!=wrapper or original[-1]!=str(cwd/'ub_duckdb_table_func_system.cpp'):
+              raise SystemExit('recipe compiler/source mismatch')
+          replay=original[:-1]+['-x','c++-cpp-output',str(inp)]
+          env={'PATH':'/emsdk/upstream/bin:/usr/local/bin:/usr/bin:/bin',
+               'HOME':str(root/'fixed-home'),'TMPDIR':str(root/'fixed-temp'),
+               'TMP':str(root/'fixed-temp'),'TEMP':str(root/'fixed-temp'),
+               'LC_ALL':'C','TZ':'UTC','PWD':str(cwd),'EMSDK':str(emsdk),
+               'EM_CONFIG':str(emsdk/'.emscripten'),'EM_CACHE':str(root/'cache'),
+               'CCACHE_DISABLE':'1'}
+          for key in ('HOME','TMPDIR','EM_CACHE'): pathlib.Path(env[key]).mkdir(parents=True,exist_ok=True)
+          (out/'cc1-env-i.json').write_text(json.dumps(env,sort_keys=True,indent=2)+'\n')
+          def sha(path): return hashlib.sha256(path.read_bytes()).hexdigest()
+          inputs={str(p):sha(p) for p in (inp,response,out/'includes_CXX.rsp',
+                  out/'flags.make',out/'build.make',out/'generated-command.txt')}
+          if inputs[str(response)]!=inputs[str(out/'includes_CXX.rsp')]:
+              raise SystemExit('response mismatch')
+          resource=emsdk/'upstream/lib/clang/18'
+          # llvm-dis is an executed parser; pin it just like cc1/readobj.
+          tool_paths=[wrapper,driver,cc1,readobj,llvm_dis,emsdk/'.emscripten']
+          if not resource.is_dir() or any(not p.is_file() for p in tool_paths):
+              raise SystemExit('tool/resource missing')
+          tools={str(p):sha(p) for p in tool_paths}
+          resources={str(p.relative_to(resource)):sha(p) for p in resource.rglob('*') if p.is_file()}
+          def run(argv,label,environment=env):
+              start=time.monotonic()
+              p=subprocess.run(argv,cwd=cwd,env=environment,stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE,timeout=300)
+              (out/f'{label}.stdout').write_bytes(p.stdout[-1048576:])
+              (out/f'{label}.stderr').write_bytes(p.stderr[-1048576:])
+              (out/f'{label}.seconds').write_text(f'{time.monotonic()-start:.6f}\n')
+              return p
+          ldd=run(['/usr/bin/ldd',str(cc1)],'cc1-ldd')
+          if ldd.returncode or b'not found' in ldd.stdout: raise SystemExit('ldd failed')
+          libs=set()
+          for line in ldd.stdout.decode().splitlines():
+              for path in re.findall(r'(?<!\S)/[^\s()]+',line):
+                  p=pathlib.Path(path).resolve()
+                  if not p.is_file(): raise SystemExit('library missing '+path)
+                  libs.add(p)
+          if not libs: raise SystemExit('no loaded libraries')
+          libs={str(p):sha(p) for p in libs}
+          (out/'cc1-link-time-library-hashes.json').write_text(json.dumps(libs,sort_keys=True,indent=2)+'\n')
+          (out/'cc1-library-scope.txt').write_text(
+              'ldd captures link-time resolved libraries only; later dlopen modules are unobserved.\n')
+          (out/'cc1-resource-hashes.json').write_text(json.dumps(resources,sort_keys=True)+'\n')
+          env_digest=hashlib.sha256(json.dumps(env,sort_keys=True).encode()).hexdigest()
+          def check():
+              for group in (inputs,tools,libs):
+                  for path,digest in group.items():
+                      if sha(pathlib.Path(path))!=digest: raise SystemExit('pinned file changed '+path)
+              current_resources={str(p.relative_to(resource)) for p in resource.rglob('*') if p.is_file()}
+              if current_resources!=set(resources):
+                  raise SystemExit('resource file set changed')
+              for path,digest in resources.items():
+                  if sha(resource/path)!=digest: raise SystemExit('resource changed '+path)
+              if hashlib.sha256(json.dumps(env,sort_keys=True).encode()).hexdigest()!=env_digest:
+                  raise SystemExit('env changed')
+          expected=str(obj.relative_to(cwd))
+          def capture(label):
+              p=run(replay+['-###'],label+'-wrapper',os.environ.copy())
+              if p.returncode: raise SystemExit('wrapper expansion failed')
+              cmds=[]
+              for line in p.stderr.decode(errors='replace').splitlines():
+                  try: parts=shlex.split(line)
+                  except ValueError: continue
+                  if parts and pathlib.Path(parts[0])==driver: cmds.append(parts)
+              if len(cmds)!=1 or cmds[0].count('-###')!=1: raise SystemExit('driver expansion ambiguous')
+              forwarded=[x for x in cmds[0] if x!='-###']
+              p=run(forwarded+['-###'],label+'-driver',os.environ.copy())
+              if p.returncode: raise SystemExit('cc1 expansion failed')
+              cmds=[]
+              for line in p.stderr.decode(errors='replace').splitlines():
+                  try: parts=shlex.split(line)
+                  except ValueError: continue
+                  if len(parts)>1 and pathlib.Path(parts[0])==cc1 and parts[1]=='-cc1': cmds.append(parts)
+              if len(cmds)!=1: raise SystemExit('cc1 expansion ambiguous')
+              a=cmds[0]
+              if (a.count('-cc1')!=1 or a.count('-emit-obj')!=1 or a.count('-o')!=1
+                  or a[a.index('-o')+1] not in (expected,str(obj))
+                  or a.count(str(inp))!=1 or a.count('-x')!=1
+                  or a[a.index('-x')+1]!='c++-cpp-output'):
+                  raise SystemExit('cc1 argv unexpected')
+              check()
+              return a
+          argv=capture('before')
+          (out/'cc1-argv.json').write_text(json.dumps(argv,indent=2)+'\n')
+          argv_bytes=b'\0'.join(x.encode() for x in argv)+b'\0'
+          (out/'cc1-argv.nul').write_bytes(argv_bytes)
+          def leb(data,pos,end):
+              value=0
+              for shift in range(0,35,7):
+                  if pos>=end: raise ValueError('truncated LEB')
+                  b=data[pos];pos+=1
+                  if shift==28 and b>15: raise ValueError('overflow LEB')
+                  value|=(b&127)<<shift
+                  if not b&128: return value,pos
+              raise ValueError('overlong LEB')
+          def bodies(data,relocations):
+              if data[:8]!=b'\0asm\1\0\0\0': raise ValueError('not Wasm v1')
+              pos=8;code=None;reloc=None
+              while pos<len(data):
+                  sid=data[pos];pos+=1
+                  size,pos=leb(data,pos,len(data));end=pos+size
+                  if end>len(data): raise ValueError('truncated section')
+                  if sid==10:
+                      if code is not None: raise ValueError('duplicate CODE')
+                      code=data[pos:end]
+                  elif sid==0:
+                      length,q=leb(data,pos,end);name=data[q:q+length]
+                      if name==b'reloc.CODE':
+                          if reloc is not None: raise ValueError('duplicate reloc.CODE')
+                          reloc=data[pos:end]
+                  pos=end
+              if code is None or reloc is None: raise ValueError('missing CODE/reloc.CODE')
+              count,p=leb(code,0,len(code));rows=[]
+              if not count: raise ValueError('empty CODE')
+              for index in range(count):
+                  size,p=leb(code,p,len(code));start=p;p+=size
+                  if p>len(code): raise ValueError('truncated body')
+                  rows.append({'index':index,'start':start,'end':p,'size':size,
+                      'code_sha256':hashlib.sha256(code[start:p]).hexdigest(),'relocs':[]})
+              if p!=len(code): raise ValueError('CODE trailing bytes')
+              within=False;seen=False
+              for line in relocations.splitlines():
+                  if re.match(r'^\s+Section \(\d+\) CODE \{$',line):
+                      if seen: raise ValueError('duplicate CODE relocation listing')
+                      within=True;seen=True;continue
+                  if within and line.strip()=='}': within=False;continue
+                  if not within: continue
+                  match=re.match(r'^\s+0x([0-9A-Fa-f]+) (R_WASM_\S+.*)$',line)
+                  if not match: raise ValueError('bad CODE relocation line')
+                  offset=int(match.group(1),16)
+                  target=[r for r in rows if r['start']<=offset<r['end']]
+                  if len(target)!=1: raise ValueError('relocation outside body')
+                  target[0]['relocs'].append(f'{offset-target[0]["start"]:x} {match.group(2)}')
+              if not seen: raise ValueError('no CODE relocation listing')
+              for row in rows:
+                  row['reloc_code_sha256']=hashlib.sha256(('\n'.join(row.pop('relocs'))+'\n').encode()).hexdigest()
+              return rows,hashlib.sha256(code).hexdigest(),hashlib.sha256(reloc).hexdigest()
+          records=[];errors=[]
+          for n in range(1,7):
+              check()
+              temp=pathlib.Path(env['TMPDIR']);shutil.rmtree(temp);temp.mkdir()
+              obj.unlink(missing_ok=True)
+              p=run(argv,f'cc1-object-{n}')
+              if p.returncode or not obj.is_file(): errors.append(f'object_{n}_failed');break
+              if obj.stat().st_size>16777216: raise SystemExit('object over 16 MiB')
+              data=obj.read_bytes();(out/f'cc1-object-{n}.o').write_bytes(data)
+              rel=run([str(readobj),'--relocations',str(obj)],f'cc1-object-{n}-relocations')
+              if rel.returncode or len(rel.stdout)>8388608: errors.append(f'relocations_{n}_failed');break
+              (out/f'cc1-object-{n}-relocations.txt').write_bytes(rel.stdout)
+              try: per_body,code_hash,reloc_hash=bodies(data,rel.stdout.decode())
+              except (ValueError,UnicodeDecodeError) as exc: errors.append(f'parse_{n}_{exc}');break
+              (out/f'cc1-object-{n}-bodies.json').write_text(json.dumps(per_body,indent=2)+'\n')
+              record={'round':n,'object_sha256':hashlib.sha256(data).hexdigest(),
+                      'code_sha256':code_hash,'reloc_code_sha256':reloc_hash,
+                      'body_count':len(per_body),'input_sha256':inputs[str(inp)],
+                      'argv_sha256':hashlib.sha256(argv_bytes).hexdigest(),'env_sha256':env_digest}
+              records.append(record)
+              bc_argv=argv.copy();bc_argv[bc_argv.index('-emit-obj')]='-emit-llvm-bc'
+              obj.unlink(missing_ok=True)
+              p=run(bc_argv,f'cc1-bitcode-{n}')
+              if p.returncode or not obj.is_file(): errors.append(f'bitcode_{n}_failed');break
+              if obj.stat().st_size>16777216: raise SystemExit('bitcode over 16 MiB')
+              bc=obj.read_bytes();(out/f'cc1-bitcode-{n}.bc').write_bytes(bc)
+              record['bitcode_sha256']=hashlib.sha256(bc).hexdigest()
+              check()
+              dis=run([str(llvm_dis),str(obj),'-o','-'],f'cc1-bitcode-{n}-dis')
+              if dis.returncode or len(dis.stdout)>16777216: errors.append(f'IR_{n}_failed');break
+              (out/f'cc1-bitcode-{n}.ll').write_bytes(dis.stdout)
+              record['ir_sha256']=hashlib.sha256(dis.stdout).hexdigest()
+              check()
+          try: stable=capture('after')==argv
+          except SystemExit as exc: errors.append('after_'+str(exc));stable=False
+          if not stable: errors.append('argv_unstable')
+          (out/'cc1-phase-records.json').write_text(json.dumps(records,indent=2)+'\n')
+          code_forms={r['code_sha256'] for r in records}
+          ir_forms={r.get('ir_sha256') for r in records}
+          result='INCOMPARABLE' if errors or len(records)!=6 else (
+              'NOT_REPRODUCED' if len(code_forms)==1 else 'CC1_OR_HIDDEN_INPUT')
+          gate={'admission':'NO','product_gate':'NOT_RUN','phase_result':result,
+                'cc1_argv_stable':stable,'rounds':len(records),'code_forms':len(code_forms),
+                'ir_forms':len(ir_forms),'errors':errors,
+                'interpretation':'Object and bitcode are separate compiles; IR drift does not prove its cause.'}
+          (out/'cc1-phase-gate.json').write_text(json.dumps(gate,indent=2)+'\n')
+          if errors: raise SystemExit('phase incomplete: '+','.join(errors))
+          PYCODE
+      - name: Enforce evidence budget on every outcome
+        id: evidence_budget
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/eh-compiler-boundary/evidence"
+          summary="$RUNNER_TEMP/eh-compiler-boundary/over-budget"
+          cap=125829120
+          mkdir -p "$evidence"
+          printf 'admission=NO\nevidence_budget_bytes=%s\n' "$cap" > "$evidence/budget.txt"
+          bytes="$(du -sb "$evidence" | cut -f1)"
+          printf 'candidate_bytes=%s\n' "$bytes" >> "$evidence/budget.txt"
+          bytes="$(du -sb "$evidence" | cut -f1)"
+          if test "$bytes" -le "$cap"; then
+            printf 'upload=true\n' >> "$GITHUB_OUTPUT"
+          else
+            mkdir -p "$summary"
+            printf 'evidence_upload=NO\nobserved_bytes=%s\nbudget_bytes=%s\nadmission=NO\n' \
+              "$bytes" "$cap" > "$summary/budget.txt"
+            printf 'over_budget=true\n' >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+      - name: Retain bounded cc1 phase evidence
+        if: ${{ always() && steps.evidence_budget.outputs.upload == 'true' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: duckdb-eh-system-cc1-phase
+          path: ${{ runner.temp }}/eh-compiler-boundary/evidence/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Retain bounded over-budget receipt
+        if: ${{ always() && steps.evidence_budget.outputs.over_budget == 'true' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: duckdb-eh-system-cc1-phase-over-budget
+          path: ${{ runner.temp }}/eh-compiler-boundary/over-budget/
+          if-no-files-found: error
+          retention-days: 14
