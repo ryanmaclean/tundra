@@ -316,21 +316,36 @@ jobs:
               else:
                   if any(char in '@?#' for char in mirror_text):
                       safety = 'SENSITIVE_DELIMITER'
-                  elif any(char != '\n' and not 32 <= ord(char) <= 126
-                           for char in mirror_text):
+                  elif any(char not in ('\n', '\t') and
+                           not 32 <= ord(char) <= 126 for char in mirror_text):
                       safety = 'CONTROL_OR_NONASCII'
                   else:
-                      safety = 'SAFE_ASCII_URL_TEXT'
+                      safety = 'SAFE_ASCII_MIRROR_TEXT'
               (root / 'apt-mirrors-safety.txt').write_text(
-                  f'bytes={len(data)}\nsha256={mirror_sha}\nraw_retained=' +
-                  ('YES' if safety == 'SAFE_ASCII_URL_TEXT' else 'NO') +
+                  f'bytes={len(data)}\nsha256={mirror_sha}\nraw_retained=NO'
                   f'\nreason={safety}\n')
-              assert safety == 'SAFE_ASCII_URL_TEXT', 'unsafe mirror list; raw bytes withheld'
+              assert safety == 'SAFE_ASCII_MIRROR_TEXT', \
+                  'unsafe mirror list; raw bytes withheld'
+              entries = []
+              for line in mirror_text.splitlines():
+                  assert line, 'empty mirror line'
+                  if '\t' in line:
+                      assert line.count('\t') == 1, 'multiple mirror metadata tabs'
+                      url, metadata = line.split('\t')
+                      assert re.fullmatch(r'priority:[0-9]', metadata), \
+                          'unapproved mirror metadata'
+                      entries.append((url, True))
+                  else:
+                      entries.append((line, False))
+                  assert official_url(entries[-1][0]), 'unapproved mirror URL'
+              assert 1 <= len(entries) <= 8, 'mirror entry count drift'
+              assert len({with_metadata for _, with_metadata in entries}) == 1, \
+                  'mixed mirror metadata forms'
               (root / 'apt-mirrors.txt').write_bytes(data)
               assert (root / 'apt-mirrors.txt').read_bytes() == data
-              urls = [line.strip() for line in mirror_text.splitlines()
-                      if line.strip() and not line.lstrip().startswith('#')]
-              assert 1 <= len(urls) <= 8 and all(official_url(url) for url in urls)
+              (root / 'apt-mirrors-safety.txt').write_text(
+                  f'bytes={len(data)}\nsha256={mirror_sha}\nraw_retained=YES'
+                  '\nreason=APPROVED_CANONICAL_MIRROR_LIST\n')
               return True
           selected = []
           for row in (root / 'apt-webkit-madison.txt').read_text().splitlines():
@@ -1606,21 +1621,36 @@ jobs:
               else:
                   if any(char in '@?#' for char in mirror_text):
                       safety = 'SENSITIVE_DELIMITER'
-                  elif any(char != '\n' and not 32 <= ord(char) <= 126
-                           for char in mirror_text):
+                  elif any(char not in ('\n', '\t') and
+                           not 32 <= ord(char) <= 126 for char in mirror_text):
                       safety = 'CONTROL_OR_NONASCII'
                   else:
-                      safety = 'SAFE_ASCII_URL_TEXT'
+                      safety = 'SAFE_ASCII_MIRROR_TEXT'
               (root / 'apt-mirrors-safety.txt').write_text(
-                  f'bytes={len(data)}\nsha256={mirror_sha}\nraw_retained=' +
-                  ('YES' if safety == 'SAFE_ASCII_URL_TEXT' else 'NO') +
+                  f'bytes={len(data)}\nsha256={mirror_sha}\nraw_retained=NO'
                   f'\nreason={safety}\n')
-              assert safety == 'SAFE_ASCII_URL_TEXT', 'unsafe mirror list; raw bytes withheld'
+              assert safety == 'SAFE_ASCII_MIRROR_TEXT', \
+                  'unsafe mirror list; raw bytes withheld'
+              entries = []
+              for line in mirror_text.splitlines():
+                  assert line, 'empty mirror line'
+                  if '\t' in line:
+                      assert line.count('\t') == 1, 'multiple mirror metadata tabs'
+                      url, metadata = line.split('\t')
+                      assert re.fullmatch(r'priority:[0-9]', metadata), \
+                          'unapproved mirror metadata'
+                      entries.append((url, True))
+                  else:
+                      entries.append((line, False))
+                  assert official_url(entries[-1][0]), 'unapproved mirror URL'
+              assert 1 <= len(entries) <= 8, 'mirror entry count drift'
+              assert len({with_metadata for _, with_metadata in entries}) == 1, \
+                  'mixed mirror metadata forms'
               (root / 'apt-mirrors.txt').write_bytes(data)
               assert (root / 'apt-mirrors.txt').read_bytes() == data
-              urls = [line.strip() for line in mirror_text.splitlines()
-                      if line.strip() and not line.lstrip().startswith('#')]
-              assert 1 <= len(urls) <= 8 and all(official_url(url) for url in urls)
+              (root / 'apt-mirrors-safety.txt').write_text(
+                  f'bytes={len(data)}\nsha256={mirror_sha}\nraw_retained=YES'
+                  '\nreason=APPROVED_CANONICAL_MIRROR_LIST\n')
               return True
           selected = []
           for row in (root / 'apt-webkit-madison.txt').read_text().splitlines():
