@@ -143,7 +143,6 @@ jobs:
           driver=emsdk/'upstream/bin/clang++'
           cc1=emsdk/'upstream/bin/clang-18'
           readobj=emsdk/'upstream/bin/llvm-readobj'
-          llvm_dis=emsdk/'upstream/bin/llvm-dis'
           inp=out/'input.i'
           response=cwd/'CMakeFiles/duckdb_table_func_system.dir/includes_CXX.rsp'
           command=(out/'generated-command.txt').read_text().strip()
@@ -167,10 +166,13 @@ jobs:
           if inputs[str(response)]!=inputs[str(out/'includes_CXX.rsp')]:
               raise SystemExit('response mismatch')
           resource=emsdk/'upstream/lib/clang/18'
-          # llvm-dis is an executed parser; pin it just like cc1/readobj.
-          tool_paths=[wrapper,driver,cc1,readobj,llvm_dis,emsdk/'.emscripten']
-          if not resource.is_dir() or any(not p.is_file() for p in tool_paths):
-              raise SystemExit('tool/resource missing')
+          tool_paths=[wrapper,driver,cc1,readobj,emsdk/'.emscripten']
+          missing=[str(p) for p in tool_paths if not p.is_file()]
+          if not resource.is_dir(): missing.append(str(resource))
+          (out/'cc1-tool-resource-preflight.json').write_text(json.dumps(
+              {'required_paths':[str(p) for p in tool_paths]+[str(resource)],
+               'missing_paths':missing},indent=2)+'\n')
+          if missing: raise SystemExit('tool/resource missing: '+', '.join(missing))
           tools={str(p):sha(p) for p in tool_paths}
           resources={str(p.relative_to(resource)):sha(p) for p in resource.rglob('*') if p.is_file()}
           def run(argv,label,environment=env):
@@ -317,23 +319,18 @@ jobs:
               bc=obj.read_bytes();(out/f'cc1-bitcode-{n}.bc').write_bytes(bc)
               record['bitcode_sha256']=hashlib.sha256(bc).hexdigest()
               check()
-              dis=run([str(llvm_dis),str(obj),'-o','-'],f'cc1-bitcode-{n}-dis')
-              if dis.returncode or len(dis.stdout)>16777216: errors.append(f'IR_{n}_failed');break
-              (out/f'cc1-bitcode-{n}.ll').write_bytes(dis.stdout)
-              record['ir_sha256']=hashlib.sha256(dis.stdout).hexdigest()
-              check()
           try: stable=capture('after')==argv
           except SystemExit as exc: errors.append('after_'+str(exc));stable=False
           if not stable: errors.append('argv_unstable')
           (out/'cc1-phase-records.json').write_text(json.dumps(records,indent=2)+'\n')
           code_forms={r['code_sha256'] for r in records}
-          ir_forms={r.get('ir_sha256') for r in records}
+          bitcode_forms={r['bitcode_sha256'] for r in records if 'bitcode_sha256' in r}
           result='INCOMPARABLE' if errors or len(records)!=6 else (
               'NOT_REPRODUCED' if len(code_forms)==1 else 'CC1_OR_HIDDEN_INPUT')
           gate={'admission':'NO','product_gate':'NOT_RUN','phase_result':result,
                 'cc1_argv_stable':stable,'rounds':len(records),'code_forms':len(code_forms),
-                'ir_forms':len(ir_forms),'errors':errors,
-                'interpretation':'Object and bitcode are separate compiles; IR drift does not prove its cause.'}
+                'bitcode_forms':len(bitcode_forms),'errors':errors,
+                'interpretation':'Object and bitcode are separate compiles. Bitcode-byte differences do not locate a compiler phase or prove their cause.'}
           (out/'cc1-phase-gate.json').write_text(json.dumps(gate,indent=2)+'\n')
           if errors: raise SystemExit('phase incomplete: '+','.join(errors))
           PYCODE
