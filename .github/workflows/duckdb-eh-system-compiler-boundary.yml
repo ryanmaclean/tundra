@@ -124,6 +124,7 @@ jobs:
           printf '%s\n' "${lines[0]}" > "$out/generated-command.txt"
           printf '%s\n' "$dir" > "$out/compiler-cwd.txt"
           sha256sum "$EMSDK/upstream/emscripten/em++" "$EMSDK/upstream/bin/clang++" \
+            "$EMSDK/upstream/bin/clang-18" \
             "$EMSDK/upstream/bin/llvm-readobj" "$EMSDK/upstream/bin/llvm-objdump" \
             "${EM_CONFIG:-$EMSDK/.emscripten}" > "$out/compiler-tools.sha256"
           printf 'admission=NO\nproduct_gate=NOT_RUN\n' > "$out/admission.txt"
@@ -140,6 +141,7 @@ jobs:
           object_path = directory / 'CMakeFiles/duckdb_table_func_system.dir/ub_duckdb_table_func_system.cpp.o'
           em = pathlib.Path(os.environ['EMSDK']) / 'upstream/emscripten/em++'
           clang = pathlib.Path(os.environ['EMSDK']) / 'upstream/bin/clang++'
+          clang_cc1 = pathlib.Path(os.environ['EMSDK']) / 'upstream/bin/clang-18'
           objdump = pathlib.Path(os.environ['EMSDK']) / 'upstream/bin/llvm-objdump'
           readobj = pathlib.Path(os.environ['EMSDK']) / 'upstream/bin/llvm-readobj'
           command = (out / 'generated-command.txt').read_text().strip()
@@ -174,7 +176,7 @@ jobs:
           pinned = {p:hashlib.sha256((out/p).read_bytes()).hexdigest()
                     for p in ('input.i','includes_CXX.rsp','flags.make','build.make')}
           response = directory / 'CMakeFiles/duckdb_table_func_system.dir/includes_CXX.rsp'
-          tool_files = [em, clang, objdump, readobj, pathlib.Path(env['EM_CONFIG'])]
+          tool_files = [em, clang, clang_cc1, objdump, readobj, pathlib.Path(env['EM_CONFIG'])]
           pinned_tools = {str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in tool_files}
           def check_inputs():
               for p,h in pinned.items():
@@ -239,7 +241,47 @@ jobs:
               (out/f'{label}.stdout').write_bytes(proc.stdout[-1048576:])
               (out/f'{label}.stderr').write_bytes(proc.stderr[-1048576:])
               return proc
+          expected_output = 'CMakeFiles/duckdb_table_func_system.dir/ub_duckdb_table_func_system.cpp.o'
+          input_path = str(out/'input.i')
+          def valid_compile_argv(parts, executable):
+              if not parts or pathlib.Path(parts[0]) != executable:
+                  return False
+              if parts.count('-o') != 1 or parts.index('-o') + 1 >= len(parts):
+                  return False
+              if parts[parts.index('-o') + 1] not in (expected_output, str(object_path)):
+                  return False
+              if parts.count(input_path) != 1 or parts.count('-x') != 1:
+                  return False
+              if parts[parts.index('-x') + 1:parts.index('-x') + 2] != ['c++-cpp-output']:
+                  return False
+              return True
+          def forwarded_driver(label):
+              check_inputs()
+              p = command_run(replay + ['-###'], label)
+              if p.returncode:
+                  return None
+              matches = []
+              for line in p.stderr.decode('utf-8', 'replace').splitlines():
+                  try: parts = shlex.split(line, posix=True)
+                  except ValueError: continue
+                  if parts and pathlib.Path(parts[0]) == clang:
+                      matches.append(parts)
+              if len(matches) != 1:
+                  return None
+              parts = matches[0]
+              if (parts.count('-###') != 1 or parts.count('-c') != 1 or
+                      not valid_compile_argv(parts, clang)):
+                  return None
+              # The wrapper's single dry-run token is the only translation.
+              driver = [part for part in parts if part != '-###']
+              if not valid_compile_argv(driver, clang):
+                  return None
+              check_inputs()
+              return driver
           def cc1_expansion(argv, label):
+              if argv is None:
+                  return None
+              check_inputs()
               p = command_run(argv + ['-###'], label)
               if p.returncode:
                   return None
@@ -247,35 +289,31 @@ jobs:
               for line in p.stderr.decode('utf-8', 'replace').splitlines():
                   try: parts = shlex.split(line, posix=True)
                   except ValueError: continue
-                  if len(parts) > 2 and parts[1] == '-cc1' and pathlib.Path(parts[0]).resolve() == clang.resolve():
+                  if len(parts) > 2 and parts[1] == '-cc1' and pathlib.Path(parts[0]) == clang_cc1:
                       matches.append(parts)
               if len(matches) != 1:
                   return None
               parts = matches[0]
-              if parts.count('-o') != 1:
+              if parts.count('-###') or parts.count('-cc1') != 1:
                   return None
-              output = parts[parts.index('-o') + 1]
-              expected_output = 'CMakeFiles/duckdb_table_func_system.dir/ub_duckdb_table_func_system.cpp.o'
-              if output not in (expected_output, str(object_path)) or str(out/'input.i') not in parts:
+              if not valid_compile_argv(parts, clang_cc1):
                   return None
+              check_inputs()
               return parts
-          wrapper_cc1 = cc1_expansion(replay, 'wrapper-expansion-before')
-          driver = [str(clang)] + [x for x in replay[1:] if not x.startswith('-sUSE_PTHREADS=')]
-          driver += ['--target=wasm32-unknown-emscripten',
-                     '--sysroot=' + str(pathlib.Path(os.environ['EMSDK'])/'upstream/emscripten/cache/sysroot')]
-          (out/'driver-argv.json').write_text(json.dumps(driver, indent=2) + '\n')
+          driver = forwarded_driver('wrapper-expansion-before')
+          if driver:
+              (out/'driver-argv.json').write_text(json.dumps(driver, indent=2) + '\n')
           driver_cc1 = cc1_expansion(driver, 'driver-expansion-before')
-          if wrapper_cc1:
-              (out/'wrapper-cc1-argv.json').write_text(json.dumps(wrapper_cc1, indent=2) + '\n')
           if driver_cc1:
               (out/'driver-cc1-argv.json').write_text(json.dumps(driver_cc1, indent=2) + '\n')
-          equivalent_expansion = wrapper_cc1 is not None and wrapper_cc1 == driver_cc1
           rows = []
           failures = []
-          if wrapper_cc1 is None:
-              failures.append('wrapper_cc1_expansion_unavailable')
+          if driver is None:
+              failures.append('wrapper_forwarded_driver_unavailable')
+          if driver_cc1 is None:
+              failures.append('forwarded_driver_cc1_expansion_unavailable')
           for round_no in range(1,4):
-              for arm,argv in (('wrapper',replay),('driver',driver),('cc1',wrapper_cc1)):
+              for arm,argv in (('wrapper',replay),('driver',driver),('cc1',driver_cc1)):
                   label = f'{arm}-{round_no}'
                   if argv is None:
                       failures.append(label + '_argv_unavailable')
@@ -307,10 +345,12 @@ jobs:
                                    sections_sha256=hashlib.sha256(sections.stdout).hexdigest(),
                                    input_sha256=pinned['input.i'], environment_sha256=env_digest))
                   check_inputs()
-          wrapper_after = cc1_expansion(replay, 'wrapper-expansion-after')
-          driver_after = cc1_expansion(driver, 'driver-expansion-after')
-          expansion_stable = (wrapper_cc1 is not None and wrapper_cc1 == wrapper_after and
-                              driver_cc1 is not None and driver_cc1 == driver_after)
+          driver_after = forwarded_driver('wrapper-expansion-after')
+          cc1_after = cc1_expansion(driver_after, 'driver-expansion-after')
+          expansion_stable = (driver is not None and driver == driver_after and
+                              driver_cc1 is not None and driver_cc1 == cc1_after)
+          if not expansion_stable:
+              failures.append('forwarded_driver_or_cc1_expansion_unstable')
           with (out/'compiler-results.tsv').open('w', newline='') as f:
               writer=csv.DictWriter(f, fieldnames=('arm','round','object_sha256','code_sha256',
                    'disassembly_sha256','sections_sha256','input_sha256','environment_sha256'), delimiter='\t')
@@ -318,9 +358,9 @@ jobs:
           forms = {arm:{r['code_sha256'] for r in rows if r['arm']==arm}
                    for arm in ('wrapper','driver','cc1')}
           reproduced = len(forms['wrapper']) >= 2
-          comparable = (equivalent_expansion and expansion_stable and not failures and
-                        len(rows) == 9 and bool(forms['wrapper'] & forms['driver']) and
-                        bool(forms['wrapper'] & forms['cc1']))
+          comparable = (expansion_stable and not failures and len(rows) == 9 and
+                        bool(forms['wrapper'] & forms['driver'] & forms['cc1']))
+          common_forms = forms['wrapper'] & forms['driver'] & forms['cc1']
           if failures: result = 'INCOMPARABLE'
           elif not reproduced: result = 'NOT_REPRODUCED'
           elif not comparable: result = 'INCOMPARABLE'
@@ -331,7 +371,10 @@ jobs:
           receipt = dict(admission='NO',product_gate='NOT_RUN',compiler_cause=result,
               wrapper_code_forms=len(forms['wrapper']),driver_code_forms=len(forms['driver']),
               cc1_code_forms=len(forms['cc1']),wrapper_drift_reproduced=reproduced,
-              expanded_argv_equivalent=equivalent_expansion,expanded_argv_stable=expansion_stable,
+              forwarded_driver_captured=driver is not None,
+              expanded_argv_equivalent=expansion_stable,
+              expanded_argv_stable=expansion_stable,
+              common_code_forms=len(common_forms),
               failures=failures)
           (out/'compiler-gate.json').write_text(json.dumps(receipt,indent=2)+'\n')
           PYCODE
@@ -356,6 +399,7 @@ jobs:
             printf 'evidence_upload=NO\nobserved_bytes=%s\nbudget_bytes=%s\nadmission=NO\n' \
               "$bytes" "$cap" > "$summary/budget.txt"
             printf 'over_budget=true\n' >> "$GITHUB_OUTPUT"
+            exit 1
           fi
       - name: Retain bounded compiler-boundary evidence
         if: ${{ always() && steps.evidence_budget.outputs.upload == 'true' }}
