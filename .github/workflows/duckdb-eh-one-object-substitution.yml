@@ -1,0 +1,380 @@
+name: DuckDB EH reciprocal one-object substitution diagnostic
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/duckdb-eh-one-object-substitution.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  paired-eh:
+    name: Serial pinned EH builds and reciprocal object substitution
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    container:
+      image: emscripten/emsdk:3.1.48@sha256:c952f592577a428698cb990c9656f395ae34424740f9c40bed4c3ee6d4850d29
+    env:
+      DUCKDB_EXCEL: "0"
+      DUCKDB_JSON: "0"
+      CCACHE_DISABLE: "1"
+      SOURCE_HEAD: adfdd3ee95a3054a14d3faa9baaf25edb9e38ddb
+    steps:
+      - name: Check out exact diagnostic source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: adfdd3ee95a3054a14d3faa9baaf25edb9e38ddb
+          persist-credentials: false
+      - name: Check out pinned DuckDB Wasm source and submodules
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: duckdb/duckdb-wasm
+          ref: f955138e5218942fb3fb097a8fdcb725222406ff
+          path: duckdb-upstream
+          submodules: recursive
+          persist-credentials: false
+      - name: Trust ephemeral checkout paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE/duckdb-upstream"
+          while IFS= read -r -d '' directory; do
+            git config --global --add safe.directory "$directory"
+          done < <(find "$GITHUB_WORKSPACE/duckdb-upstream" -type f -name .git -printf '%h\0')
+      - name: Require pinned inputs and apply exact DuckDB patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/eh-causality/evidence"
+          mkdir -p "$out"
+          test "$(git rev-parse HEAD)" = "$SOURCE_HEAD"
+          test "$(git -C duckdb-upstream rev-parse HEAD)" = f955138e5218942fb3fb097a8fdcb725222406ff
+          test "$(git -C duckdb-upstream/submodules/duckdb rev-parse HEAD)" = 401c8061c6ece35949cac58c7770cc755710ca86
+          test "$(git -C duckdb-upstream/submodules/arrow rev-parse HEAD)" = ca1c30f60d6419849dbc2a533bd0bcaff310185f
+          test "$(git -C duckdb-upstream/submodules/rapidjson rev-parse HEAD)" = 973dc9c06dcd3d035ebd039cfb9ea457721ec213
+          test -z "$(git -C duckdb-upstream status --porcelain)"
+          git -C duckdb-upstream submodule status --recursive > "$out/submodules.txt"
+          test -z "$(grep '^[+-U]' "$out/submodules.txt" || true)"
+          emcc --version | grep -Fq '3.1.48'
+          em++ --version | grep -Fq '3.1.48'
+          test -x "$EMSDK/upstream/bin/wasm-ld"
+          test -x "$EMSDK/upstream/bin/llvm-readobj"
+          test -x "$EMSDK/upstream/bin/llvm-objdump"
+          test -s "${EM_CONFIG:-$EMSDK/.emscripten}"
+          sha256sum duckdb-upstream/duckdb.patch > "$out/patch.sha256"
+          git -C duckdb-upstream/submodules/duckdb apply --check ../../duckdb.patch
+          git -C duckdb-upstream/submodules/duckdb apply ../../duckdb.patch
+          git -C duckdb-upstream/submodules/duckdb diff --binary > "$out/applied.patch"
+          test -s "$out/applied.patch"
+          {
+            printf 'source_head=%s\nupstream_head=%s\nvariant=eh\n' "$SOURCE_HEAD" f955138e5218942fb3fb097a8fdcb725222406ff
+            printf 'container=emscripten/emsdk:3.1.48@sha256:c952f592577a428698cb990c9656f395ae34424740f9c40bed4c3ee6d4850d29\n'
+            printf 'admission=NO\ntrial=reciprocal-system-object-substitution-only\n'
+            emcc --version
+            "$EMSDK/upstream/bin/wasm-ld" --version
+            "$EMSDK/upstream/bin/wasm-opt" --version
+          } > "$out/toolchain.txt"
+          sha256sum "$EMSDK/upstream/emscripten/em++" "$EMSDK/upstream/bin/wasm-ld" \
+            "$EMSDK/upstream/bin/wasm-opt" "${EM_CONFIG:-$EMSDK/.emscripten}" \
+            > "$out/tools.sha256"
+      - name: Build twice at one native path and retain bounded link stages
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/eh-causality"
+          evidence="$root/evidence"
+          build="$GITHUB_WORKSPACE/duckdb-upstream/build/relperf/eh"
+          export EM_CACHE="$root/cache"
+          mkdir -p "$EM_CACHE"
+          test -z "$(ls -A "$EM_CACHE")"
+          for pass in a b; do
+            out="$evidence/$pass"
+            mkdir -p "$out"
+            if test "$pass" = b; then
+              test "$build" = "$GITHUB_WORKSPACE/duckdb-upstream/build/relperf/eh"
+              rm -rf -- "$build"
+              test "$EM_CACHE" = "$root/cache"
+              rm -rf -- "$EM_CACHE"
+              mkdir -p "$EM_CACHE"
+            fi
+            test -z "$(ls -A "$EM_CACHE")"
+            mkdir -p "$build"
+            map="$root/duckdb-eh.map"
+            flags=(
+              -DCMAKE_BUILD_TYPE=Release
+              -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+              -DDUCKDB_WASM_VERSION=v1.28.0
+              "-DDUCKDB_LOCATION=$GITHUB_WORKSPACE/duckdb-upstream/submodules/duckdb"
+              "-DCMAKE_EXE_LINKER_FLAGS=-Wl,-Map,$map"
+              -DWITH_WASM_EXCEPTIONS=1
+              -DDUCKDB_CUSTOM_PLATFORM=wasm_eh
+            )
+            emcmake cmake -S duckdb-upstream/lib -B "$build" "${flags[@]}" > "$out/configure.log" 2>&1
+            emmake make -C "$build" -j4 duckdb_wasm > "$out/build.log" 2>&1
+            test -s "$build/duckdb_wasm.wasm"
+            test -s "$build/duckdb_wasm.js"
+            test -s "$map"
+            archive="$build/third_party/duckdb/install/lib/libduckdb_static.a"
+            test -s "$archive"
+            test "$(stat -c %s "$archive")" -le 83886080
+            cp "$archive" "$out/libduckdb_static.a"
+            cp "$build/duckdb_wasm.wasm" "$out/standard.wasm"
+            cp "$build/duckdb_wasm.js" "$out/standard.js"
+            cp "$map" "$out/standard.map"
+            cp "$build/CMakeFiles/duckdb_wasm.dir/link.txt" "$out/link.txt"
+            cp "$build/CMakeFiles/duckdb_wasm.dir/objects1.rsp" "$out/objects1.rsp"
+            cp "$build/CMakeFiles/duckdb_wasm.dir/linklibs.rsp" "$out/linklibs.rsp"
+            read -r -a direct_objects <<< "$(cat "$out/objects1.rsp")"
+            test "${#direct_objects[@]}" -ge 1
+            for object in "${direct_objects[@]}"; do
+              test -s "$build/$object"
+              sha256sum "$build/$object"
+            done > "$out/direct-objects.sha256"
+            grep -Fq '@CMakeFiles/duckdb_wasm.dir/objects1.rsp' "$out/link.txt"
+            grep -Fq '@CMakeFiles/duckdb_wasm.dir/linklibs.rsp' "$out/link.txt"
+            sha256sum "$out/libduckdb_static.a" "$out/standard.wasm" \
+              "$out/standard.js" "$out/standard.map" "$out/link.txt" \
+              "$out/objects1.rsp" "$out/linklibs.rsp" > "$out/standard.sha256"
+            find "$build" -type f -name '*.a' -print0 | LC_ALL=C sort -z \
+              | xargs -0 -r sha256sum > "$out/static-archives.sha256"
+            emar t "$archive" | LC_ALL=C sort > "$out/members.txt"
+            test -s "$out/members.txt"
+            test -z "$(uniq -d "$out/members.txt")"
+            test -z "$(grep -E '[[:space:]/]' "$out/members.txt" || true)"
+            extracted="$root/members-$pass"
+            mkdir -p "$extracted"
+            (cd "$extracted" && emar x "$archive")
+            (cd "$extracted" && find . -type f -printf '%P\n' | LC_ALL=C sort) \
+              | cmp - "$out/members.txt"
+            (cd "$extracted" && find . -type f -printf '%P\0' | LC_ALL=C sort -z \
+              | xargs -0 -r sha256sum) > "$out/members.sha256"
+            cut -c 67- "$out/members.sha256" | sed 's#^./##' | cmp - "$out/members.txt"
+            grep -oE 'libduckdb_static\.a\([^)]+' "$map" | sed 's/.*(//' \
+              | LC_ALL=C sort -u > "$out/map-selected-members.txt"
+            test -s "$out/map-selected-members.txt"
+            grep -Fxq ub_duckdb_operator_aggregate.cpp.o "$out/map-selected-members.txt"
+            grep -Fxq ub_duckdb_table_func_system.cpp.o "$out/map-selected-members.txt"
+            grep -oE "$EM_CACHE/sysroot/[^[:space:]():]+\.a" "$map" \
+              | LC_ALL=C sort -u > "$out/selected-sdk-archives.txt"
+            test -s "$out/selected-sdk-archives.txt"
+            while IFS= read -r selected; do sha256sum "$selected"; done \
+              < "$out/selected-sdk-archives.txt" > "$out/selected-sdk-archives.sha256"
+            # Emscripten 3.1.48 keeps wasm-emscripten-finalize and wasm-opt
+            # intermediates under EMCC_TEMP_DIR/emscripten_temp when EMCC_DEBUG=1.
+            debug="$root/debug-$pass"
+            mkdir -p "$debug"
+            (cd "$build" && EMCC_DEBUG=1 EMCC_TEMP_DIR="$debug" \
+              bash -e CMakeFiles/duckdb_wasm.dir/link.txt) > "$root/debug-$pass.log" 2>&1
+            # Gate sampled stages on the ordinary link without retaining duplicate full Wasm.
+            cmp "$build/duckdb_wasm.wasm" "$out/standard.wasm"
+            cmp "$build/duckdb_wasm.js" "$out/standard.js"
+            debug_wasm="$debug/emscripten_temp"
+            test -d "$debug_wasm"
+            mapfile -t pre < <(find "$debug_wasm" -maxdepth 1 -name 'emcc-*-wasm-emscripten-finalize.wasm' | sort -V)
+            mapfile -t post < <(find "$debug_wasm" -maxdepth 1 -name 'emcc-*-wasm-opt.wasm' | sort -V)
+            test "${#pre[@]}" -ge 1
+            test "${#post[@]}" -ge 1
+            cp "${pre[0]}" "$out/pre-wasm-opt.wasm"
+            cmp "${post[${#post[@]}-1]}" "$out/standard.wasm"
+            test "$(stat -c %s "$out/pre-wasm-opt.wasm")" -le 41943040
+            sha256sum "$out/pre-wasm-opt.wasm" "$out/standard.wasm" > "$out/intermediate.sha256"
+            printf '%s\n' "${pre[@]}" "${post[@]}" > "$out/intermediate-source-paths.txt"
+            printf 'debug_replay_byte_match=YES\npost_opt_matches_final=YES\n' > "$out/debug-gate.txt"
+            test ! -e duckdb-upstream/.ccache/extension/json
+            test ! -e duckdb-upstream/.ccache/extension/excel
+          done
+      - name: Prove one-member premise and perform reciprocal serial relinks
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/eh-causality"
+          evidence="$root/evidence"
+          export EM_CACHE="$root/cache"
+          test -d "$EM_CACHE"
+          sha256sum -c "$evidence/tools.sha256"
+          sha256sum -c "$evidence/b/selected-sdk-archives.sha256"
+          target=ub_duckdb_table_func_system.cpp.o
+          build="$GITHUB_WORKSPACE/duckdb-upstream/build/relperf/eh"
+          archive="$build/third_party/duckdb/install/lib/libduckdb_static.a"
+          installed_original="$root/installed-original.a"
+          cp "$archive" "$installed_original"
+          restore() { cp "$installed_original" "$archive"; cmp "$installed_original" "$archive"; }
+          trap restore EXIT
+          cmp "$installed_original" "$evidence/b/libduckdb_static.a"
+          cmp "$evidence/a/link.txt" "$evidence/b/link.txt"
+          cmp "$evidence/a/objects1.rsp" "$evidence/b/objects1.rsp"
+          cmp "$evidence/a/direct-objects.sha256" "$evidence/b/direct-objects.sha256"
+          cmp "$evidence/a/linklibs.rsp" "$evidence/b/linklibs.rsp"
+          cmp "$evidence/a/selected-sdk-archives.sha256" "$evidence/b/selected-sdk-archives.sha256"
+          cmp "$evidence/a/standard.js" "$evidence/b/standard.js"
+          cmp "$evidence/a/standard.map" "$evidence/b/standard.map"
+          paste "$evidence/a/static-archives.sha256" "$evidence/b/static-archives.sha256" \
+            | awk '$2 != $4 { exit 1 } $1 != $3 && $2 !~ /libduckdb(_static)?\.a$/ { exit 1 }'
+          emar t "$evidence/a/libduckdb_static.a" > "$evidence/archive-order.txt"
+          emar t "$evidence/b/libduckdb_static.a" | cmp - "$evidence/archive-order.txt"
+          test "$(grep -Fxc "$target" "$evidence/archive-order.txt")" -eq 1
+          test -z "$(LC_ALL=C sort "$evidence/archive-order.txt" | uniq -d)"
+          paste "$evidence/a/members.sha256" "$evidence/b/members.sha256" \
+            | awk '$2 != $4 { exit 1 } $1 != $3 { sub(/^\.\//, "", $2); print $2 }' \
+            > "$evidence/changed-members.txt"
+          test "$(cat "$evidence/changed-members.txt")" = "$target"
+          grep -Fxq "$target" "$evidence/a/map-selected-members.txt"
+          grep -Fxq "$target" "$evidence/b/map-selected-members.txt"
+          test "$(stat -c %s "$evidence/a/libduckdb_static.a")" -le 83886080
+          test "$(stat -c %s "$evidence/b/libduckdb_static.a")" -le 83886080
+          work="$root/substitution"
+          mkdir -p "$work"
+          cp "$evidence/a/libduckdb_static.a" "$work/sham-a.a"
+          cp "$evidence/b/libduckdb_static.a" "$work/sham-b.a"
+          cp "$evidence/a/libduckdb_static.a" "$work/hybrid-a-b.a"
+          cp "$evidence/b/libduckdb_static.a" "$work/hybrid-b-a.a"
+          emar r "$work/sham-a.a" "$root/members-a/$target"
+          emar r "$work/sham-b.a" "$root/members-b/$target"
+          emar r "$work/hybrid-a-b.a" "$root/members-b/$target"
+          emar r "$work/hybrid-b-a.a" "$root/members-a/$target"
+          for label in sham-a sham-b hybrid-a-b hybrid-b-a; do
+            emar s "$work/$label.a"
+            emar t "$work/$label.a" | cmp - "$evidence/archive-order.txt"
+            extracted="$work/extract-$label"
+            mkdir -p "$extracted"
+            (cd "$extracted" && emar x "$work/$label.a")
+            test "$(find "$extracted" -type f | wc -l)" -eq "$(wc -l < "$evidence/archive-order.txt")"
+            base="${label##*-}"
+            if [[ "$label" == hybrid-* ]]; then base="${label#hybrid-}"; base="${base%%-*}"; fi
+            donor="$base"
+            if [[ "$label" == hybrid-a-b ]]; then donor=b; fi
+            if [[ "$label" == hybrid-b-a ]]; then donor=a; fi
+            while IFS= read -r member; do
+              source_pass="$base"
+              if [[ "$member" == "$target" ]]; then source_pass="$donor"; fi
+              cmp "$extracted/$member" "$root/members-$source_pass/$member"
+            done < "$evidence/archive-order.txt"
+            sha256sum "$work/$label.a" > "$evidence/$label-archive.sha256"
+          done
+          # Every replay uses the generated command and response files at the original path.
+          printf 'label\tstage\tsha256\tmatch_a\tmatch_b\n' > "$evidence/substitution-results.tsv"
+          compare_stage() {
+            local label="$1" stage="$2" actual="$3" expected_a="$4" expected_b="$5"
+            local a_match=NO b_match=NO hash
+            hash="$(sha256sum "$actual" | cut -d ' ' -f 1)"
+            if cmp -s "$actual" "$expected_a"; then a_match=YES; fi
+            if cmp -s "$actual" "$expected_b"; then b_match=YES; fi
+            printf '%s\t%s\t%s\t%s\t%s\n' "$label" "$stage" "$hash" "$a_match" "$b_match" \
+              >> "$evidence/substitution-results.tsv"
+          }
+          run_link() {
+            local label="$1" candidate="$2" expected="$3" debug="$root/debug-sub-$1"
+            local pre post log="$root/link-$1.log"
+            cp "$candidate" "$archive"
+            cmp "$candidate" "$archive"
+            mkdir -p "$debug"
+            if ! (cd "$build" && EMCC_DEBUG=1 EMCC_TEMP_DIR="$debug" \
+              bash -e CMakeFiles/duckdb_wasm.dir/link.txt) > "$log" 2>&1; then
+              tail -c 1048576 "$log" > "$evidence/$label-link.log"
+              return 1
+            fi
+            tail -c 1048576 "$log" > "$evidence/$label-link.log"
+            mapfile -t pre < <(find "$debug/emscripten_temp" -maxdepth 1 -name 'emcc-*-wasm-emscripten-finalize.wasm' | sort -V)
+            mapfile -t post < <(find "$debug/emscripten_temp" -maxdepth 1 -name 'emcc-*-wasm-opt.wasm' | sort -V)
+            test "${#pre[@]}" -ge 1
+            test "${#post[@]}" -ge 1
+            test "$(stat -c %s "${pre[0]}")" -le 41943040
+            cmp "${post[${#post[@]}-1]}" "$build/duckdb_wasm.wasm"
+            compare_stage "$label" pre "${pre[0]}" "$evidence/a/pre-wasm-opt.wasm" "$evidence/b/pre-wasm-opt.wasm"
+            compare_stage "$label" final "$build/duckdb_wasm.wasm" "$evidence/a/standard.wasm" "$evidence/b/standard.wasm"
+            compare_stage "$label" js "$build/duckdb_wasm.js" "$evidence/a/standard.js" "$evidence/b/standard.js"
+            compare_stage "$label" map "$root/duckdb-eh.map" "$evidence/a/standard.map" "$evidence/b/standard.map"
+            if [[ -n "$expected" ]]; then
+              cmp "${pre[0]}" "$evidence/$expected/pre-wasm-opt.wasm"
+              cmp "$build/duckdb_wasm.wasm" "$evidence/$expected/standard.wasm"
+              cmp "$build/duckdb_wasm.js" "$evidence/$expected/standard.js"
+              cmp "$root/duckdb-eh.map" "$evidence/$expected/standard.map"
+            fi
+            rm -rf -- "$debug"
+          }
+          run_link original-b-before "$installed_original" b
+          run_link original-a-before "$evidence/a/libduckdb_static.a" a
+          run_link sham-a "$work/sham-a.a" a
+          run_link sham-b "$work/sham-b.a" b
+          run_link hybrid-a-b "$work/hybrid-a-b.a" ''
+          run_link hybrid-b-a "$work/hybrid-b-a.a" ''
+          run_link original-a-after "$evidence/a/libduckdb_static.a" a
+          run_link original-b-after "$installed_original" b
+          restore
+          trap - EXIT
+          baseline_pre_divergent=NO
+          baseline_final_divergent=NO
+          if ! cmp -s "$evidence/a/pre-wasm-opt.wasm" "$evidence/b/pre-wasm-opt.wasm"; then
+            baseline_pre_divergent=YES
+          fi
+          if ! cmp -s "$evidence/a/standard.wasm" "$evidence/b/standard.wasm"; then
+            baseline_final_divergent=YES
+          fi
+          printf 'baseline_pre_divergent=%s\nbaseline_final_divergent=%s\n' \
+            "$baseline_pre_divergent" "$baseline_final_divergent" \
+            > "$evidence/baseline-divergence.txt"
+          python3 - "$evidence/substitution-results.tsv" "$evidence/baseline-divergence.txt" \
+            "$evidence/substitution-gate.txt" <<'PYCODE'
+          import csv, sys
+          with open(sys.argv[1], newline='') as stream:
+              rows = {(r['label'], r['stage']): r for r in csv.DictReader(stream, delimiter='\t')}
+          baseline = dict(line.rstrip('\n').split('=', 1) for line in open(sys.argv[2]))
+          checks = [('hybrid-a-b', 'b'), ('hybrid-b-a', 'a')]
+          lines = ['admission=NO', 'product_gate=NOT_RUN', 'compiler_cause=UNPROVEN']
+          lines.extend(f'{key}={value}' for key, value in baseline.items())
+          all_match = (baseline['baseline_pre_divergent'] == 'YES' and
+                       baseline['baseline_final_divergent'] == 'YES')
+          for label, donor in checks:
+              recipient = 'a' if donor == 'b' else 'b'
+              for stage in ('pre', 'final', 'js', 'map'):
+                  matched = rows[(label, stage)]['match_' + donor] == 'YES'
+                  lines.append(f'{label}_{stage}_matches_{donor}={"YES" if matched else "NO"}')
+                  all_match &= matched
+                  if stage in ('pre', 'final'):
+                      differs = rows[(label, stage)]['match_' + recipient] == 'NO'
+                      lines.append(f'{label}_{stage}_differs_from_{recipient}={"YES" if differs else "NO"}')
+                      all_match &= differs
+          lines.append('reciprocal_one_object_sufficiency=' + ('YES_THIS_RUN_ONLY' if all_match else 'UNPROVEN'))
+          open(sys.argv[3], 'w').write('\n'.join(lines) + '\n')
+          PYCODE
+      - name: Enforce evidence budget on every outcome
+        id: evidence_budget
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/eh-causality/evidence"
+          summary="$RUNNER_TEMP/eh-causality/over-budget"
+          cap=419430400
+          mkdir -p "$evidence"
+          printf 'admission=NO\nevidence_budget_bytes=%s\n' "$cap" > "$evidence/budget.txt"
+          bytes="$(du -sb "$evidence" | cut -f1)"
+          printf 'candidate_bytes=%s\n' "$bytes" >> "$evidence/budget.txt"
+          bytes="$(du -sb "$evidence" | cut -f1)"
+          if test "$bytes" -le "$cap"; then
+            printf 'upload=true\n' >> "$GITHUB_OUTPUT"
+          else
+            mkdir -p "$summary"
+            printf 'evidence_upload=NO\nobserved_bytes=%s\nbudget_bytes=%s\nadmission=NO\n' \
+              "$bytes" "$cap" > "$summary/budget.txt"
+            printf 'over_budget=true\n' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Retain bounded substitution evidence
+        if: ${{ always() && steps.evidence_budget.outputs.upload == 'true' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: duckdb-eh-one-object-substitution
+          path: ${{ runner.temp }}/eh-causality/evidence/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Retain bounded over-budget receipt
+        if: ${{ always() && steps.evidence_budget.outputs.over_budget == 'true' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: duckdb-eh-one-object-over-budget
+          path: ${{ runner.temp }}/eh-causality/over-budget/
+          if-no-files-found: error
+          retention-days: 14
