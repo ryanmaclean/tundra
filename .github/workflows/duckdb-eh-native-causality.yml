@@ -250,7 +250,7 @@ jobs:
           fi
           printf 'admission=NO\nproduct_gate=NOT_RUN\nhistorical_function_attribution=UNPROVEN\n' \
             >> "$evidence/paired-result.txt"
-          test "$(du -sb "$evidence" | cut -f1)" -le 335544320
+          test "$(du -sb "$evidence" | cut -f1)" -le 419430400
       - name: Retain bounded causality evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
