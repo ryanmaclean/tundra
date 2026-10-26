@@ -300,7 +300,15 @@ jobs:
           # Hash the SDK archives actually selected by wasm-ld, not every cached SDK archive.
           grep -oE "$EM_CACHE/sysroot/[^[:space:]():]+\.a" "$map" \
             | LC_ALL=C sort -u > "$RUNNER_TEMP/native-receipt/selected-sdk-archives.txt"
-          test "$(wc -l < "$RUNNER_TEMP/native-receipt/selected-sdk-archives.txt")" -eq 12
+          case "$variant" in
+            mvp) expected_archives=8 ;;
+            eh) expected_archives=9 ;;
+            *) exit 1 ;;
+          esac
+          test "$(wc -l < "$RUNNER_TEMP/native-receipt/selected-sdk-archives.txt")" \
+            -eq "$expected_archives"
+          printf 'selected_sdk_archive_count=%s\n' "$expected_archives" \
+            >> "$RUNNER_TEMP/native-receipt/candidate-admission.txt"
           while IFS= read -r archive; do
             test -f "$archive"
             sha256sum "$archive"
