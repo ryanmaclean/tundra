@@ -25,22 +25,41 @@ function canonicalRows(table) {
 }
 
 async function probeMalformedArrowIpc(conn) {
-  let stage = 'registration';
+  const bytes = new Uint8Array([255, 255, 255, 255, 255, 255, 255, 255]);
+  const fixture = await digest(bytes);
+  const fixturePinned = fixture.sha256 ===
+    '12a3ae445661ce5dee78d0650d33362dec29c4f82af05e7e57fb595bbbacf0ca' &&
+    fixture.bytes === 8;
   let message = '';
   try {
-    await conn.insertArrowFromIPCStream(new Uint8Array([0, 1, 2, 3]),
+    await conn.insertArrowFromIPCStream(bytes,
       { name: 'eh_corpus_bad_arrow' });
-    stage = 'consumption';
-    const table = await conn.query('SELECT * FROM eh_corpus_bad_arrow LIMIT 1');
-    table.toArray();
   } catch (error) {
     message = String(error);
   }
+  let absentMessage = '';
+  try {
+    const table = await conn.query('SELECT * FROM eh_corpus_bad_arrow LIMIT 1');
+    table.toArray();
+  } catch (error) {
+    absentMessage = String(error);
+  }
+  let recovered = false;
+  try {
+    const table = await conn.query('SELECT 42 AS alive');
+    recovered = stable(canonicalRows(table)) === '[{"alive":42}]';
+  } catch (_error) { /* Recovery remains false. */ }
   const errorClass = classify(message);
   const marker = message.split(/\r?\n/, 1)[0].slice(0, 120);
+  const rejectedHeader = message.includes('Invalid IPC message: negative metadata length');
+  const absent = classify(absentMessage) === 'Catalog Error' &&
+    /Table with name eh_corpus_bad_arrow does not exist/i.test(absentMessage);
   return { id: 'direct-arrow-invalid-ipc', phase: 'direct',
-    passed: errorClass === 'Invalid Input Error' && /\b(?:arrow|ipc|stream)\b/i.test(marker),
-    errorClass, marker, rejectionStage: message ? stage : 'NONE' };
+    passed: fixturePinned && errorClass === 'IO Error' && rejectedHeader &&
+      absent && recovered,
+    errorClass, marker, rejectionStage: message ? 'registration' : 'NONE',
+    fixtureSha256: fixture.sha256, fixtureBytes: fixture.bytes,
+    absent, absenceClass: classify(absentMessage), recovered };
 }
 
 export async function runInstalledEhCorpus(bridge) {
@@ -118,7 +137,8 @@ export async function runInstalledEhCorpus(bridge) {
   await expectBridgeError('bridge-binder-error',
     'SELECT eh_corpus_missing_column FROM eh_corpus_bridge', 'Binder');
   await expectBridgeError('bridge-conversion-error',
-    "SELECT CAST('eh_bad_integer' AS INTEGER)", 'Conversion');
+    'SELECT CAST(s AS INTEGER) AS rejected FROM eh_corpus_bridge WHERE i = 7',
+    'Conversion');
   await record('bridge-after-errors', 'bridge', () => query(
     'SELECT 42 AS alive'), v => stable(v) === '[{"alive":42}]');
   await record('bridge-arrow-json-types', 'bridge', () => query(

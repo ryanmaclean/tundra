@@ -81,14 +81,26 @@ def inspect_corpus [file: path, expected_ids: list<string>] {
   }
   let error_classes = {bridge-parser-error: 'Parser', bridge-catalog-error: 'Catalog',
     bridge-binder-error: 'Binder', bridge-conversion-error: 'Conversion',
-    direct-file-error: 'IO', direct-arrow-invalid-ipc: 'Invalid Input'}
+    direct-file-error: 'IO'}
   let canonical = ($corpus.cases | each {|case|
     if (($case.passed != true and $case.passed != false) or
        (($case.skipped? | default false) != false) or
        (($case.unsupported? | default false) != false)) {
       error make {msg: $"invalid/skipped case ($case.id) in ($file)"}
     }
-    if $case.id in ($error_classes | columns) {
+    if $case.id == 'direct-arrow-invalid-ipc' and $case.passed == true {
+      if (($case.errorClass? | default '') != 'IO Error' or
+          not (($case.marker? | default '') | str ends-with 'Invalid IPC message: negative metadata length') or
+          (($case.marker? | default '') | str length) > 120 or
+          ($case.fixtureSha256? | default '') != '12a3ae445661ce5dee78d0650d33362dec29c4f82af05e7e57fb595bbbacf0ca' or
+          ($case.fixtureBytes? | default 0) != 8 or
+          ($case.rejectionStage? | default '') != 'registration' or
+          ($case.absent? | default false) != true or
+          ($case.absenceClass? | default '') != 'Catalog Error' or
+          ($case.recovered? | default false) != true) {
+        error make {msg: $"invalid pinned Arrow rejection/absence/recovery: ($file)"}
+      }
+    } else if $case.id in ($error_classes | columns) {
       let wanted = ($error_classes | get $case.id)
       if ($case.passed == true and
           not (($case.errorClass | str contains $wanted) and (($case.marker | str length) > 0))) {
@@ -111,7 +123,12 @@ def inspect_corpus [file: path, expected_ids: list<string>] {
       responseShape: ($case.responseShape? | default ''),
       responseDigest: ($case.responseDigest? | default null),
       responseLength: ($case.responseLength? | default null),
-      rejectionStage: ($case.rejectionStage? | default '')}
+      rejectionStage: ($case.rejectionStage? | default ''),
+      fixtureSha256: ($case.fixtureSha256? | default ''),
+      fixtureBytes: ($case.fixtureBytes? | default 0),
+      absent: ($case.absent? | default false),
+      absenceClass: ($case.absenceClass? | default ''),
+      recovered: ($case.recovered? | default false)}
   })
   let selected = $corpus.selected
   if not (($selected.moduleUrl | str ends-with '/duckdb-runtime/duckdb-browser.mjs') and
@@ -147,10 +164,20 @@ def case_signature [row: record] {
       canonicalSha256: $row.canonicalSha256, canonicalBytes: $row.canonicalBytes,
       errorClass: $row.errorClass, marker: $row.marker, error: $row.error,
       responseShape: $row.responseShape, responseDigest: $row.responseDigest,
-      responseLength: $row.responseLength, rejectionStage: $row.rejectionStage}
+      responseLength: $row.responseLength, rejectionStage: $row.rejectionStage,
+      fixtureSha256: $row.fixtureSha256, fixtureBytes: $row.fixtureBytes,
+      absent: $row.absent, absenceClass: $row.absenceClass,
+      recovered: $row.recovered}
   }
   if $row.id in $nonsemantic {
     {phase: $row.phase, passed: $row.passed}
+  } else if $row.id == 'direct-arrow-invalid-ipc' {
+    {phase: $row.phase, passed: $row.passed,
+      errorClass: $row.errorClass, marker: $row.marker,
+      rejectionStage: $row.rejectionStage,
+      fixtureSha256: $row.fixtureSha256, fixtureBytes: $row.fixtureBytes,
+      absent: $row.absent, absenceClass: $row.absenceClass,
+      recovered: $row.recovered}
   } else {
     {phase: $row.phase, passed: $row.passed,
       canonicalSha256: $row.canonicalSha256, canonicalBytes: $row.canonicalBytes,
