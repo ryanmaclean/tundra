@@ -291,7 +291,7 @@ export async function runInstalledEhCorpus(bridge) {
       db.registerFileBuffer('eh_corpus_input.json', json).then(() => json.length),
     v => v === json.length);
     await record('direct-json-scan', 'direct', () => direct(
-      "SELECT i,s FROM read_json_auto('eh_corpus_input.json') ORDER BY i"),
+      "SELECT i::INTEGER AS i,s FROM read_json_auto('eh_corpus_input.json') ORDER BY i"),
     v => stable(v) === stable([{ i: 2, s: 'j' }, { i: 3, s: null }]));
     await record('direct-json-insert', 'direct', async () => {
       await conn.insertJSONFromPath('eh_corpus_input.json', { name: 'eh_corpus_json' });
