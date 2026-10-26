@@ -1,0 +1,135 @@
+name: DuckDB compiler-rt selected-object diagnostic
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/duckdb-compiler-rt-object-probe.yml
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  selected-object:
+    name: Probe pinned MVP absvdi2.o
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    container:
+      image: emscripten/emsdk:3.1.48@sha256:c952f592577a428698cb990c9656f395ae34424740f9c40bed4c3ee6d4850d29
+    steps:
+      - name: Check out exact diagnostic head
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Check out exact Emscripten source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: emscripten-core/emscripten
+          ref: e967e20b4727956a30592165a3c1cde5c67fa0a8
+          path: emscripten-source
+          persist-credentials: false
+
+      - name: Download both map-selected MVP archive copies from exact-head trial
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: duckdb-native-map-mvp
+          run-id: 40243016204
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/prior-native-receipt
+
+      - name: Probe one compiler-rt member with a fresh SDK cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          receipt="$RUNNER_TEMP/compiler-rt-object-probe"
+          mkdir -p "$receipt/objects"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          test "$(git rev-parse HEAD)" = '${{ github.event.pull_request.head.sha }}'
+          pinned="$GITHUB_WORKSPACE/emscripten-source"
+          installed="$EMSDK/upstream/emscripten"
+          source_commit='e967e20b4727956a30592165a3c1cde5c67fa0a8'
+          git config --global --add safe.directory "$pinned"
+          test "$(git -C "$pinned" rev-parse HEAD)" = "$source_commit"
+          git -C "$pinned" diff --quiet
+          git -C "$pinned" diff --cached --quiet
+          source_relative='system/lib/compiler-rt/lib/builtins/absvdi2.c'
+          for relative in "$source_relative" tools/system_libs.py embuilder.py system/lib/compiler-rt/LICENSE.TXT; do
+            test -f "$pinned/$relative"
+            cmp -s "$pinned/$relative" "$installed/$relative"
+            sha256sum "$pinned/$relative" "$installed/$relative"
+          done > "$receipt/source-and-recipe.sha256"
+          cp -- "$pinned/$source_relative" "$receipt/absvdi2.c"
+          cp -- "$pinned/system/lib/compiler-rt/LICENSE.TXT" "$receipt/compiler-rt-LICENSE.TXT"
+          export EM_CONFIG="${EM_CONFIG:-$EMSDK/.emscripten}"
+          test -s "$EM_CONFIG"
+          sha256sum "$EM_CONFIG" > "$receipt/em-config.sha256"
+          {
+            printf 'diagnostic_head=%s\nemscripten_source_commit=%s\n' "$(git rev-parse HEAD)" "$source_commit"
+            printf 'container=emscripten/emsdk:3.1.48@sha256:c952f592577a428698cb990c9656f395ae34424740f9c40bed4c3ee6d4850d29\n'
+            printf 'selected_source=%s\nEM_CONFIG=%s\n' "$source_relative" "$EM_CONFIG"
+            command -v emcc embuilder
+            emcc --version
+            "$EMSDK/upstream/bin/clang" --version
+          } > "$receipt/environment.txt"
+
+          prior="$RUNNER_TEMP/prior-native-receipt"
+          original="$prior/selected-sdk-archive-bytes/libcompiler_rt.a"
+          rebuilt="$prior/selected-sdk-rebuilt-archive-bytes/libcompiler_rt.a"
+          test -s "$original"
+          test -s "$rebuilt"
+          printf '%s  %s\n' '6c6dc176c816faa8e942e9839b4d7df4b94af071489657ac1585f8891c8fcb18' "$original" \
+            'f6cd0ed1a15983d8b1994d734fc365fa69af9f601f975afc3160febd20d9e1db' "$rebuilt" \
+            | sha256sum -c - > "$receipt/prior-archive-hash-check.txt"
+          cp -- "$original" "$receipt/objects/original-libcompiler_rt.a"
+          cp -- "$rebuilt" "$receipt/objects/rebuilt-libcompiler_rt.a"
+
+          cache="$RUNNER_TEMP/compiler-rt-object-empty-cache"
+          test ! -e "$cache"
+          mkdir "$cache"
+          test -z "$(find "$cache" -mindepth 1 -print -quit)"
+          printf 'EM_CACHE=%s\nempty_before_build=true\n' "$cache" > "$receipt/cache.txt"
+          printf 'EM_CACHE=%s EM_FORCE_RESPONSE_FILES=0 EMCC_DEBUG=1 %s --verbose build libcompiler_rt\n' \
+            "$cache" "$installed/embuilder" > "$receipt/probe-command.txt"
+          EM_CACHE="$cache" EM_FORCE_RESPONSE_FILES=0 EMCC_DEBUG=1 \
+            "$installed/embuilder" --verbose build libcompiler_rt \
+            > "$receipt/embuilder.log" 2>&1
+          grep -F 'absvdi2.c' "$receipt/embuilder.log" > "$receipt/absvdi2-compile-command.txt"
+          test -s "$receipt/absvdi2-compile-command.txt"
+          generated="$cache/sysroot/lib/wasm32-emscripten/libcompiler_rt.a"
+          test -s "$generated"
+          cp -- "$generated" "$receipt/objects/probe-libcompiler_rt.a"
+          sha256sum "$original" "$rebuilt" "$generated" > "$receipt/archive-hashes.sha256"
+
+          ar="$EMSDK/upstream/bin/llvm-ar"
+          objdump="$EMSDK/upstream/bin/llvm-objdump"
+          dwarfdump="$EMSDK/upstream/bin/llvm-dwarfdump"
+          readobj="$EMSDK/upstream/bin/llvm-readobj"
+          test -x "$ar" && test -x "$objdump" && test -x "$dwarfdump" && test -x "$readobj"
+          for label in original rebuilt probe; do
+            archive="$receipt/objects/$label-libcompiler_rt.a"
+            object="$receipt/objects/$label-absvdi2.o"
+            "$ar" p "$archive" absvdi2.o > "$object"
+            test -s "$object"
+            "$objdump" --disassemble "$object" > "$receipt/$label-disassembly.txt"
+            "$dwarfdump" --debug-info "$object" > "$receipt/$label-dwarf.txt"
+            grep -E 'DW_AT_(producer|comp_dir)' "$receipt/$label-dwarf.txt" \
+              > "$receipt/$label-producer-and-comp-dir.txt"
+            grep -Fq 'DW_AT_producer' "$receipt/$label-producer-and-comp-dir.txt"
+            "$readobj" --sections --symbols "$object" > "$receipt/$label-sections-and-symbols.txt"
+            test -s "$receipt/$label-disassembly.txt"
+            test -s "$receipt/$label-sections-and-symbols.txt"
+            sha256sum "$object" >> "$receipt/object-hashes.sha256"
+          done
+          sha256sum "$objdump" "$dwarfdump" "$readobj" "$ar" > "$receipt/inspection-tools.sha256"
+          printf 'source_build_admission=NO\nprobe_scope=single_compiler_rt_member\n' > "$receipt/admission.txt"
+
+      - name: Retain selected-object diagnostic
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: compiler-rt-absvdi2-probe
+          path: ${{ runner.temp }}/compiler-rt-object-probe/
+          if-no-files-found: warn
+          retention-days: 14
