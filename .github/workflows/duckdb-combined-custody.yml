@@ -139,6 +139,20 @@ jobs:
           git -C duckdb-upstream/submodules/duckdb apply ../../duckdb.patch
           git -C duckdb-upstream/submodules/duckdb diff --binary > "$out/duckdb-applied.patch"
           test -s "$out/duckdb-applied.patch"
+      - name: Produce paired warm and empty-cache native bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/combined-custody"
+          image_cache="$EMSDK/upstream/emscripten/cache"
+          clean_cache="$RUNNER_TEMP/empty-sdk-cache-${{ matrix.variant }}"
+          variant='${{ matrix.variant }}'
+          case "$variant" in
+            mvp) expected=8; names=(libc++.a libc++abi.a libc.a libcompiler_rt.a libdlmalloc.a libnoexit.a libsockets.a libstubs.a) ;;
+            eh) expected=9; names=(libc++-except.a libc++abi-except.a libc.a libcompiler_rt-wasm-sjlj.a libdlmalloc.a libnoexit.a libsockets.a libstubs.a libunwind-except.a) ;;
+            *) exit 1 ;;
+          esac
+          test -s "$out/image-prebuild.tsv" && test -s "$out/duckdb-applied.patch"
           for condition in image clean; do
             case "$condition" in
               image) cache="$image_cache" ;;
@@ -342,6 +356,20 @@ jobs:
             sha256sum "$out/$condition-js-glue-source-bytes.tar.gz" \
               > "$out/$condition-js-glue-source-bytes.sha256"
           done
+      - name: Classify same-run bytes and immutable custody
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/combined-custody"
+          image_cache="$EMSDK/upstream/emscripten/cache"
+          variant='${{ matrix.variant }}'
+          case "$variant" in
+            mvp) expected=8; names=(libc++.a libc++abi.a libc.a libcompiler_rt.a libdlmalloc.a libnoexit.a libsockets.a libstubs.a) ;;
+            eh) expected=9; names=(libc++-except.a libc++abi-except.a libc.a libcompiler_rt-wasm-sjlj.a libdlmalloc.a libnoexit.a libsockets.a libstubs.a libunwind-except.a) ;;
+            *) exit 1 ;;
+          esac
+          test -s "$out/image.js" && test -s "$out/clean.js"
+          test -s "$out/image.wasm" && test -s "$out/clean.wasm"
           find "$image_cache" -type f -name '*.a' -print0 | sort -z | xargs -0 -r sha256sum > "$out/image-cache-after.sha256"
           if cmp -s "$out/image-cache-before.sha256" "$out/image-cache-after.sha256"; then
             printf 'image_cache_archive_inventory_stable=YES\n' >> "$out/cache-source.txt"
