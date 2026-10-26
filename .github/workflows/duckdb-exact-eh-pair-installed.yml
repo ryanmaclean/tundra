@@ -5,6 +5,7 @@ on:
     paths:
       - .github/workflows/duckdb-exact-eh-pair-installed.yml
       - .github/scripts/duckdb-bundle-selected-eh-pair.nu
+      - .github/scripts/duckdb-package-selected-bill.nu
   workflow_dispatch:
 
 permissions:
@@ -260,6 +261,25 @@ jobs:
             "$(sed -n 's/^wasm_sha256=//p' "$RUNNER_TEMP/eh-semantic/source.txt")"
           echo 'Diagnostic replacement of EH worker and Wasm as one generated pair; original selected bill is inapplicable to the changed Wasm.' \
             >> "$RUNNER_TEMP/eh-semantic/source.txt"
+      - name: Generate exact installed selected bill before bundling
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_bill=app/tauri/third-party-licenses/ui/duckdb-runtime-selected-bill.json
+          pinned_bill="$RUNNER_TEMP/eh-semantic/pinned-pr119-selected-bill.json"
+          cp "$source_bill" "$pinned_bill"
+          printf '34381cba60c8922a159f578753b55531460792372f2d72b22769da205fe97790  %s\n' \
+            "$pinned_bill" | sha256sum -c -
+          condition='${{ matrix.condition }}'
+          expected_wasm="$(sha256sum "$RUNNER_TEMP/eh-input/input/$condition.wasm" | cut -d ' ' -f1)"
+          expected_worker="$(sha256sum "$RUNNER_TEMP/eh-pair-worker/duckdb-browser-eh.worker.js" | cut -d ' ' -f1)"
+          nu gate-source/.github/scripts/duckdb-package-selected-bill.nu \
+            "$pinned_bill" app/leptos-ui/duckdb-runtime "$source_bill" \
+            "$condition" '${{ matrix.profile }}' "$CONSUMER_HEAD" \
+            "$PRODUCER_HEAD" "$PRODUCER_RUN" "$expected_wasm" "$expected_worker"
+          sha256sum "$source_bill" > "$RUNNER_TEMP/eh-semantic/prebundle-selected-bill.sha256"
+          sha256sum gate-source/.github/scripts/duckdb-package-selected-bill.nu \
+            > "$RUNNER_TEMP/eh-semantic/package-bill-script.sha256"
       - name: Extend the existing forced-EH smoke with targeted SQL paths
         shell: bash
         run: |
@@ -420,20 +440,46 @@ jobs:
           assert len(recorded) == 2
           assert recorded == [[sha(deb), str(deb)], [sha(binary), str(binary)]]
 
-          bill_source = source_ui / 'duckdb-runtime-selected-bill.json'
+          bill_source = receipt / 'pinned-pr119-selected-bill.json'
+          package_source = source_ui / 'duckdb-runtime-selected-bill.json'
           bill_matches = list(root.rglob('duckdb-runtime-selected-bill.json'))
           assert len(bill_matches) == 1
           bill_installed = bill_matches[0]
           assert bill_installed.is_file() and not bill_installed.is_symlink()
-          assert bill_installed.read_bytes() == bill_source.read_bytes()
+          resource_suffix = ('third-party-licenses', 'ui',
+                             'duckdb-runtime-selected-bill.json')
+          relative_bill = bill_installed.relative_to(root)
+          assert relative_bill.parts[-len(resource_suffix):] == resource_suffix
+          assert bill_installed.parent.is_dir() and not bill_installed.parent.is_symlink()
+          assert bill_installed.read_bytes() == package_source.read_bytes()
+          prebundle = (receipt / 'prebundle-selected-bill.sha256').read_text().splitlines()
+          assert len(prebundle) == 1
+          assert prebundle[0].split(maxsplit=1)[0] == sha(bill_installed)
+          assert prebundle[0].split(maxsplit=1)[1] == str(package_source)
+          package_bill = json.loads(bill_installed.read_bytes(), object_pairs_hook=unique_object)
+          assert package_bill['schema'] == 'tundra-duckdb-installed-package-selected-bill/v3'
+          assert package_bill['admission'] == package_bill['full_EH_semantics'] == 'NO'
+          assert package_bill['selected_dependency_inventory_admission'] == 'NO'
+          assert package_bill['source_texts_upstream_reverified_this_run'] == 'NO'
+          assert package_bill['source_build_admission'] == package_bill['glue_legal_admission'] == 'NO'
+          assert package_bill['product_fleet_admission'] == 'NO'
+          assert package_bill['arrow_original_member_instance'] == 'AMBIGUOUS'
+          assert package_bill['condition'] == os.environ['EH_CONDITION']
+          assert package_bill['profile'] == os.environ['EH_PROFILE']
+          assert package_bill['consumer_head'] == os.environ['CONSUMER_HEAD']
+          assert package_bill['producer_head'] == os.environ['PRODUCER_HEAD']
+          assert package_bill['producer_run'] == int(os.environ['PRODUCER_RUN'])
           bill_hash = sha(bill_source)
           assert bill_hash == '34381cba60c8922a159f578753b55531460792372f2d72b22769da205fe97790'
-          bill = json.loads(bill_installed.read_bytes(), object_pairs_hook=unique_object)
+          bill = json.loads(bill_source.read_bytes(), object_pairs_hook=unique_object)
           assert bill['schema'] == 'tundra-duckdb-selected-notice-bill/v2'
           assert bill['admission'] == 'NO' and bill['profiles'] == ['default', 'sounds']
           assert len(bill['assets']) == 5 and len(bill['attributions']) == 38
           assert len(bill['texts']) == 36
           assert len(bill['unresolved']) >= 2
+          assert package_bill['pinned_pr119_input_bill_sha256'] == bill_hash
+          assert package_bill['attributions'] == bill['attributions']
+          assert package_bill['texts'] == bill['texts']
           text_prefix = 'third-party-licenses/ui/duckdb-runtime/'
           text_names = []
           text_digests = {}
@@ -514,6 +560,9 @@ jobs:
               assert entry['dist_sha256'] == entry['embedded_sha256'] == digest
               assert entry['dist_bytes'] == entry['embedded_bytes'] == src.stat().st_size
               assets[key] = digest
+          assert len(package_bill['assets']) == 5
+          assert {item['path']: item['sha256'] for item in package_bill['assets']} == assets
+          assert len({item['path'] for item in package_bill['assets']}) == 5
           (receipt / 'installed-five-assets.tsv').write_text(''.join(
               f'{digest}\t{key}\n' for key, digest in sorted(assets.items())))
           producer = temp / 'eh-input/input'
@@ -605,7 +654,8 @@ jobs:
               'producer_head': os.environ['PRODUCER_HEAD'],
               'producer_run': int(os.environ['PRODUCER_RUN']),
               'installer_sha256': sha(deb), 'installed_elf_sha256': sha(binary),
-              'installed_bill_sha256': bill_hash,
+              'installed_bill_sha256': sha(bill_installed),
+              'pinned_pr119_bill_sha256': bill_hash,
               'exact_package_selected_bill_sha256': sha(receipt / 'exact-package-selected-bill.json'),
               'installed_attributions': 38, 'installed_texts': text_digests,
               'installed_assets': assets,
@@ -770,11 +820,28 @@ jobs:
                             (directory / 'installer.sha256').read_text().splitlines()]
                   assert len(hashes) == 2
                   assert hashes == [custody['installer_sha256'], custody['installed_elf_sha256']]
-                  bill_bytes = (directory / 'installed-selected-bill.json').read_bytes()
-                  assert hashlib.sha256(bill_bytes).hexdigest() == custody['installed_bill_sha256']
-                  assert custody['installed_bill_sha256'] == '34381cba60c8922a159f578753b55531460792372f2d72b22769da205fe97790'
-                  bill = json.loads(bill_bytes, object_pairs_hook=unique_object)
+                  pinned_bytes = (directory / 'pinned-pr119-selected-bill.json').read_bytes()
+                  assert hashlib.sha256(pinned_bytes).hexdigest() == custody['pinned_pr119_bill_sha256']
+                  assert custody['pinned_pr119_bill_sha256'] == '34381cba60c8922a159f578753b55531460792372f2d72b22769da205fe97790'
+                  bill = json.loads(pinned_bytes, object_pairs_hook=unique_object)
                   assert bill['schema'] == 'tundra-duckdb-selected-notice-bill/v2'
+                  installed_bytes = (directory / 'installed-selected-bill.json').read_bytes()
+                  assert hashlib.sha256(installed_bytes).hexdigest() == custody['installed_bill_sha256']
+                  generated = json.loads(installed_bytes, object_pairs_hook=unique_object)
+                  assert generated['schema'] == 'tundra-duckdb-installed-package-selected-bill/v3'
+                  assert generated['admission'] == generated['full_EH_semantics'] == 'NO'
+                  assert generated['selected_dependency_inventory_admission'] == 'NO'
+                  assert generated['source_texts_upstream_reverified_this_run'] == 'NO'
+                  assert generated['source_build_admission'] == generated['glue_legal_admission'] == 'NO'
+                  assert generated['product_fleet_admission'] == 'NO'
+                  assert generated['arrow_original_member_instance'] == 'AMBIGUOUS'
+                  assert generated['condition'] == condition and generated['profile'] == profile
+                  assert generated['consumer_head'] == custody['consumer_head']
+                  assert generated['producer_head'] == custody['producer_head']
+                  assert generated['producer_run'] == custody['producer_run']
+                  assert generated['pinned_pr119_input_bill_sha256'] == custody['pinned_pr119_bill_sha256']
+                  assert generated['attributions'] == bill['attributions']
+                  assert generated['texts'] == bill['texts']
                   assert len(bill['attributions']) == custody['installed_attributions'] == 38
                   assert len(bill['texts']) == len(custody['installed_texts']) == 36
                   assert {item['file']: item['sha256'] for item in bill['texts']} == custody['installed_texts']
@@ -801,6 +868,8 @@ jobs:
                              if key != 'duckdb-runtime/duckdb-eh.wasm')
                   assert assets['duckdb-runtime/duckdb-eh.wasm'] == expected_wasm
                   assert assets['duckdb-runtime/duckdb-browser-eh.worker.js'] == pair['worker_sha256']
+                  assert len(generated['assets']) == 5
+                  assert {item['path']: item['sha256'] for item in generated['assets']} == assets
                   embedded = json.loads((directory / 'embedded-assets.json').read_text(),
                                         object_pairs_hook=unique_object)
                   assert all(len([item for item in embedded['assets'] if item['key'] == key and
@@ -824,7 +893,7 @@ jobs:
                   assert exact['producer_run'] == custody['producer_run']
                   assert exact['installer_sha256'] == custody['installer_sha256']
                   assert exact['installed_elf_sha256'] == custody['installed_elf_sha256']
-                  assert exact['installed_pr119_bill_sha256'] == custody['installed_bill_sha256']
+                  assert exact['installed_pr119_bill_sha256'] == custody['pinned_pr119_bill_sha256']
                   assert exact['attributions'] == bill['attributions'] and exact['texts'] == bill['texts']
                   assert len(exact['assets']) == 5
                   assert {item['path']: item['sha256'] for item in exact['assets']} == assets
