@@ -692,6 +692,7 @@ jobs:
           ar="$EMSDK/upstream/bin/llvm-ar"
           "$EMSDK/upstream/bin/wasm-ld" --help > "$out/arrow-wasm-ld-help.txt"
           grep -Fq -- '--why-extract' "$out/arrow-wasm-ld-help.txt"
+          test -s "$out/cache-source.txt"
           restore_arrow_link() {
             cp "$saved_rsp" "$linklibs"
             cp "$saved_map" "$map"
@@ -699,6 +700,14 @@ jobs:
             cp "$out/$condition.wasm" "$build/duckdb_wasm.wasm"
           }
           for condition in image clean; do
+            case "$condition" in
+              image) cache="$EMSDK/upstream/emscripten/cache" ;;
+              clean) cache="$RUNNER_TEMP/empty-sdk-cache-eh" ;;
+            esac
+            test -d "$cache"
+            grep -Fqx "${condition}_cache=$cache" "$out/cache-source.txt"
+            printf 'condition=%s\nEM_CACHE=%s\nsource=cache-source.txt\n' \
+              "$condition" "$cache" > "$out/$condition-arrow-relink-cache.txt"
             build="$GITHUB_WORKSPACE/duckdb-upstream/build/integrated-eh-$condition"
             map="$out/$condition.map"
             linklibs="$build/CMakeFiles/duckdb_wasm.dir/linklibs.rsp"
@@ -778,7 +787,7 @@ jobs:
           PY
             original_link="$(cat "$out/$condition-link.txt")"
             test "$(wc -l < "$out/$condition-link.txt")" -eq 1
-            (cd "$build" && bash -euo pipefail -c \
+            (cd "$build" && EM_CACHE="$cache" bash -euo pipefail -c \
               "$original_link -Wl,--why-extract=$out/$condition-arrow-original-why-extract.tsv") \
               > "$out/$condition-arrow-original-relink.log" 2>&1
             # Preserve the replay map before a failed comparison or the EXIT trap
@@ -918,7 +927,7 @@ jobs:
           assert data.split().count(replacement) == 1
           path.write_text(data)
           PY
-            (cd "$build" && bash -euo pipefail -c \
+            (cd "$build" && EM_CACHE="$cache" bash -euo pipefail -c \
               "$original_link -Wl,--why-extract=$out/$condition-arrow-renamed-why-extract.tsv") \
               > "$out/$condition-arrow-renamed-relink.log" 2>&1
             test -s "$out/$condition-arrow-renamed-why-extract.tsv"
