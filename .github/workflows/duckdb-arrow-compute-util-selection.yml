@@ -1,0 +1,272 @@
+name: DuckDB Arrow compute util selection diagnostic
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/duckdb-arrow-compute-util-selection.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  arrow-selection:
+    name: Arrow duplicate selection (${{ matrix.variant }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    container:
+      image: emscripten/emsdk:3.1.48@sha256:c952f592577a428698cb990c9656f395ae34424740f9c40bed4c3ee6d4850d29
+    env:
+      DUCKDB_EXCEL: "0"
+      DUCKDB_JSON: "0"
+      CCACHE_DISABLE: "1"
+      SOURCE_HEAD: 37f6a9883a744df2210236c36bad08073a7d5de8
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [mvp, eh]
+    steps:
+      - name: Check out exact pinned source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: 37f6a9883a744df2210236c36bad08073a7d5de8
+          persist-credentials: false
+      - name: Check out pinned DuckDB Wasm source and submodules
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: duckdb/duckdb-wasm
+          ref: f955138e5218942fb3fb097a8fdcb725222406ff
+          path: duckdb-upstream
+          submodules: recursive
+          persist-credentials: false
+      - name: Require source and build the ordinary variant
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE/duckdb-upstream"
+          while IFS= read -r -d '' directory; do
+            git config --global --add safe.directory "$directory"
+          done < <(find "$GITHUB_WORKSPACE/duckdb-upstream" -type f -name .git -printf '%h\0')
+          out="$RUNNER_TEMP/arrow-compute-selection"
+          mkdir -p "$out"
+          printf 'product_admission=NO\nsource_build_admission=NO\nselection_admission=UNRESOLVED\n' \
+            > "$out/admission.txt"
+          test "$(git rev-parse HEAD)" = "$SOURCE_HEAD"
+          test "$(git -C duckdb-upstream rev-parse HEAD)" = f955138e5218942fb3fb097a8fdcb725222406ff
+          test "$(git -C duckdb-upstream/submodules/duckdb rev-parse HEAD)" = 401c8061c6ece35949cac58c7770cc755710ca86
+          test "$(git -C duckdb-upstream/submodules/arrow rev-parse HEAD)" = ca1c30f60d6419849dbc2a533bd0bcaff310185f
+          test -z "$(git -C duckdb-upstream status --porcelain)"
+          git -C duckdb-upstream submodule status --recursive > "$out/submodules.txt"
+          test -z "$(grep '^[+-U]' "$out/submodules.txt" || true)"
+          emcc --version | grep -Fq '3.1.48'
+          test -x "$EMSDK/upstream/bin/llvm-ar"
+          test -x "$EMSDK/upstream/bin/wasm-ld"
+          sha256sum duckdb-upstream/duckdb.patch > "$out/patch.sha256"
+          git -C duckdb-upstream/submodules/duckdb apply --check ../../duckdb.patch
+          git -C duckdb-upstream/submodules/duckdb apply ../../duckdb.patch
+          git -C duckdb-upstream/submodules/duckdb diff --binary > "$out/applied.patch"
+          test -s "$out/applied.patch"
+          variant='${{ matrix.variant }}'
+          build="$GITHUB_WORKSPACE/duckdb-upstream/build/relperf/$variant"
+          map="$out/original.map"
+          flags=(
+            -DCMAKE_BUILD_TYPE=Release
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+            -DDUCKDB_WASM_VERSION=v1.28.0
+            "-DDUCKDB_LOCATION=$GITHUB_WORKSPACE/duckdb-upstream/submodules/duckdb"
+            "-DCMAKE_EXE_LINKER_FLAGS=-Wl,-Map,$map"
+          )
+          if test "$variant" = eh; then
+            flags+=(-DWITH_WASM_EXCEPTIONS=1 -DDUCKDB_CUSTOM_PLATFORM=wasm_eh)
+          else
+            flags+=(-DDUCKDB_CUSTOM_PLATFORM=wasm_mvp)
+          fi
+          emcmake cmake -S duckdb-upstream/lib -B "$build" "${flags[@]}" > "$out/configure.log" 2>&1
+          emmake make -C "$build" -j4 duckdb_wasm > "$out/build.log" 2>&1
+          test -s "$build/duckdb_wasm.js"
+          test -s "$build/duckdb_wasm.wasm"
+          test -s "$map"
+          cp "$build/duckdb_wasm.js" "$out/original.js"
+          cp "$build/duckdb_wasm.wasm" "$out/original.wasm"
+          cp "$map" "$out/baseline.map"
+          cp "$build/CMakeFiles/duckdb_wasm.dir/link.txt" "$out/link.txt"
+          cp "$build/CMakeFiles/duckdb_wasm.dir/linklibs.rsp" "$out/linklibs.rsp"
+          grep -Fq '@CMakeFiles/duckdb_wasm.dir/linklibs.rsp' "$out/link.txt"
+          grep -Fq '@CMakeFiles/duckdb_wasm.dir/objects1.rsp' "$out/link.txt"
+          sha256sum "$out/original.js" "$out/original.wasm" "$out/link.txt" \
+            "$out/linklibs.rsp" "$map" > "$out/original.sha256"
+          printf 'source_head=%s\nupstream_head=%s\narrow_head=%s\nvariant=%s\n' \
+            "$SOURCE_HEAD" f955138e5218942fb3fb097a8fdcb725222406ff \
+            ca1c30f60d6419849dbc2a533bd0bcaff310185f "$variant" > "$out/source.txt"
+          printf 'container=emscripten/emsdk:3.1.48@sha256:c952f592577a428698cb990c9656f395ae34424740f9c40bed4c3ee6d4850d29\n' \
+            >> "$out/source.txt"
+      - name: Replay exact link and trace archive extraction
+        shell: bash
+        run: |
+          set -euo pipefail
+          variant='${{ matrix.variant }}'
+          build="$GITHUB_WORKSPACE/duckdb-upstream/build/relperf/$variant"
+          out="$RUNNER_TEMP/arrow-compute-selection"
+          linklibs="$build/CMakeFiles/duckdb_wasm.dir/linklibs.rsp"
+          cmp "$linklibs" "$out/linklibs.rsp"
+          mapfile -t names < <(grep -oE "[^[:space:]\"']*libarrow\.a" "$linklibs" | LC_ALL=C sort -u)
+          test "${#names[@]}" -eq 1
+          token="${names[0]}"
+          archive="$token"
+          if [[ "$archive" != /* ]]; then archive="$build/$archive"; fi
+          archive="$(realpath "$archive")"
+          test -s "$archive"
+          test "$(stat -c %s "$archive")" -le 83886080
+          printf 'selected_archive_token=%s\nselected_archive_path=%s\n' "$token" "$archive" \
+            > "$out/selected-archive.txt"
+          sha256sum "$archive" > "$out/selected-archive.sha256"
+          ar="$EMSDK/upstream/bin/llvm-ar"
+          "$ar" t "$archive" > "$out/original-members.txt"
+          test "$(grep -Fxc util.cc.o "$out/original-members.txt")" -eq 2
+          "$EMSDK/upstream/bin/wasm-ld" --help > "$out/wasm-ld-help.txt"
+          grep -Fq -- '--why-extract' "$out/wasm-ld-help.txt"
+          (cd "$build" && bash -e -c "$(cat CMakeFiles/duckdb_wasm.dir/link.txt) -Wl,--why-extract=$out/original-why-extract.tsv") \
+            > "$out/original-relink.log" 2>&1
+          test -s "$out/original-why-extract.tsv"
+          cmp "$build/duckdb_wasm.js" "$out/original.js"
+          cmp "$build/duckdb_wasm.wasm" "$out/original.wasm"
+          cmp "$out/original.map" "$out/baseline.map"
+          printf 'original_trace_relink_byte_match=YES\n' > "$out/replay-gate.txt"
+          # A basename-only extraction record cannot distinguish the two
+          # util.cc.o instances. The renamed copy below is needed only then.
+          grep -Fq 'util.cc.o' "$out/original-why-extract.tsv"
+          printf 'duplicate_original_trace=AMBIGUOUS\n' >> "$out/replay-gate.txt"
+          awk -F '\t' 'NR == 1 || /util\.cc\.o/' \
+            "$out/original-why-extract.tsv" > "$out/util-original-why-extract.tsv"
+          # Preserve archive order and every payload byte; rename only the two
+          # util.cc.o member headers so map and extraction rows are unambiguous.
+          cloned="$out/renamed-libarrow.a"
+          staging="$RUNNER_TEMP/arrow-compute-staging"
+          mkdir -p "$staging"
+          printf 'row\toriginal_name\tnew_name\tsha256\tsource_object\n' > "$out/member-rename-ledger.tsv"
+          declare -A occurrence=()
+          row=0
+          while IFS= read -r member; do
+            row=$((row + 1))
+            test -n "$member"
+            test "${member##*/}" = "$member"
+            test -z "$(printf '%s' "$member" | grep '[[:space:]]' || true)"
+            count="${occurrence[$member]:-0}"
+            count=$((count + 1))
+            occurrence[$member]="$count"
+            slot="$staging/$row"
+            mkdir "$slot"
+            (cd "$slot" && "$ar" xN "$count" "$archive" "$member")
+            test -s "$slot/$member"
+            new_name="$member"
+            source_object=''
+            if test "$member" = util.cc.o; then
+              case "$count" in
+                1) new_name=arrow-array-util-instance-1.o
+                   source_object="$build/third_party/arrow/src/arrow_ep-build/src/arrow/CMakeFiles/arrow_objlib.dir/array/util.cc.o" ;;
+                2) new_name=arrow-compute-util-instance-2.o
+                   source_object="$build/third_party/arrow/src/arrow_ep-build/src/arrow/CMakeFiles/arrow_objlib.dir/compute/util.cc.o" ;;
+                *) exit 1 ;;
+              esac
+              test -s "$source_object"
+              cmp "$slot/$member" "$source_object"
+              mv "$slot/$member" "$slot/$new_name"
+            fi
+            object="$slot/$new_name"
+            sha="$(sha256sum "$object" | cut -d ' ' -f 1)"
+            printf '%s\t%s\t%s\t%s\t%s\n' "$row" "$member" "$new_name" "$sha" "$source_object" \
+              >> "$out/member-rename-ledger.tsv"
+            "$ar" qc "$cloned" "$object"
+          done < "$out/original-members.txt"
+          "$ar" s "$cloned"
+          test "$(stat -c %s "$cloned")" -le 83886080
+          "$ar" t "$cloned" > "$out/renamed-members.txt"
+          test "$(wc -l < "$out/renamed-members.txt")" -eq "$(wc -l < "$out/original-members.txt")"
+          test "$(grep -Fxc arrow-array-util-instance-1.o "$out/renamed-members.txt")" -eq 1
+          test "$(grep -Fxc arrow-compute-util-instance-2.o "$out/renamed-members.txt")" -eq 1
+          test "$(grep -Fxc util.cc.o "$out/renamed-members.txt" || true)" -eq 0
+          sha256sum "$cloned" > "$out/renamed-archive.sha256"
+          # Substitute exactly one response-file token; restore it after link.
+          test "$(grep -oF "$token" "$linklibs" | wc -l)" -eq 1
+          test "$token" != "$cloned"
+          original_rsp="$(cat "$linklibs")"
+          printf '%s\n' "${original_rsp//$token/$cloned}" > "$linklibs"
+          trap 'cp "$out/linklibs.rsp" "$linklibs"' EXIT
+          grep -Fq "$cloned" "$linklibs"
+          (cd "$build" && bash -e -c "$(cat CMakeFiles/duckdb_wasm.dir/link.txt) -Wl,--why-extract=$out/renamed-why-extract.tsv") \
+            > "$out/renamed-relink.log" 2>&1
+          test -s "$out/renamed-why-extract.tsv"
+          cp "$build/duckdb_wasm.js" "$out/renamed.js"
+          cp "$build/duckdb_wasm.wasm" "$out/renamed.wasm"
+          cp "$out/original.map" "$out/renamed.map"
+          cp "$out/baseline.map" "$out/original.map"
+          sha256sum "$out/renamed.js" "$out/renamed.wasm" "$out/renamed.map" \
+            "$out/renamed-why-extract.tsv" > "$out/renamed-output.sha256"
+          cp "$out/linklibs.rsp" "$linklibs"
+          trap - EXIT
+          if ! cmp -s "$out/original.js" "$out/renamed.js" || \
+             ! cmp -s "$out/original.wasm" "$out/renamed.wasm"; then
+            printf 'renamed_relink_byte_match=NO\nselection_inference=NO\n' >> "$out/replay-gate.txt"
+            exit 1
+          fi
+          printf 'renamed_relink_byte_match=YES\n' >> "$out/replay-gate.txt"
+          array=arrow-array-util-instance-1.o
+          compute=arrow-compute-util-instance-2.o
+          grep -Fq "$array" "$out/renamed-why-extract.tsv"
+          grep -Fq "renamed-libarrow.a($array)" "$out/renamed.map"
+          if grep -Fq "$compute" "$out/renamed-why-extract.tsv"; then
+            if grep -Fq "renamed-libarrow.a($compute)" "$out/renamed.map"; then
+              printf 'compute_instance=extracted_and_live\n' >> "$out/replay-gate.txt"
+            else
+              printf 'compute_instance=extracted_then_not_live\n' >> "$out/replay-gate.txt"
+            fi
+          else
+            if grep -Fq "renamed-libarrow.a($compute)" "$out/renamed.map"; then
+              printf 'selection_inference=INCONSISTENT\n' >> "$out/replay-gate.txt"
+              exit 1
+            fi
+            printf 'compute_instance=not_extracted\n' >> "$out/replay-gate.txt"
+          fi
+          printf 'selection_inference=diagnostic_current_variant_only\nproduct_admission=NO\n' \
+            >> "$out/replay-gate.txt"
+          test "$(du -sb "$out" | cut -f1)" -le 167772160
+      - name: Enforce receipt budget on every outcome
+        id: receipt_budget
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/arrow-compute-selection"
+          summary="$RUNNER_TEMP/arrow-compute-over-budget"
+          cap=167772160
+          mkdir -p "$out"
+          # Include this receipt in the measured directory before permitting upload.
+          printf 'receipt_budget_bytes=%s\nproduct_admission=NO\n' "$cap" > "$out/budget.txt"
+          candidate_bytes="$(du -sb "$out" | cut -f1)"
+          printf 'candidate_bytes=%s\n' "$candidate_bytes" >> "$out/budget.txt"
+          bytes="$(du -sb "$out" | cut -f1)"
+          if test "$bytes" -le "$cap"; then
+            printf 'upload=true\n' >> "$GITHUB_OUTPUT"
+          else
+            mkdir -p "$summary"
+            printf 'receipt_upload=NO\nobserved_bytes=%s\nreceipt_budget_bytes=%s\nselection_inference=NO\nproduct_admission=NO\n' \
+              "$bytes" "$cap" > "$summary/budget.txt"
+            printf 'over_budget=true\n' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Retain selection receipts
+        if: ${{ always() && steps.receipt_budget.outputs.upload == 'true' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: duckdb-arrow-compute-selection-${{ matrix.variant }}
+          path: ${{ runner.temp }}/arrow-compute-selection/
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Retain bounded over-budget receipt
+        if: ${{ always() && steps.receipt_budget.outputs.over_budget == 'true' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: duckdb-arrow-compute-over-budget-${{ matrix.variant }}
+          path: ${{ runner.temp }}/arrow-compute-over-budget/
+          if-no-files-found: error
+          retention-days: 14
