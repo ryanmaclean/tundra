@@ -128,8 +128,35 @@ jobs:
             cp "$build/duckdb_wasm.wasm" "$out/$condition.wasm"
             cp "$build/compile_commands.json" "$out/$condition-compile_commands.json"
             cp "$build/CMakeCache.txt" "$out/$condition-CMakeCache.txt"
+            arrow_build="$build/third_party/arrow/src/arrow_ep-build"
+            arrow_commands="$arrow_build/src/arrow/CMakeFiles/arrow_objlib.dir"
+            test -s "$arrow_commands/build.make" && test -s "$arrow_commands/flags.make"
+            cp "$arrow_commands/build.make" "$out/$condition-arrow-build.make"
+            cp "$arrow_commands/flags.make" "$out/$condition-arrow-flags.make"
+            if test -s "$arrow_build/compile_commands.json"; then
+              cp "$arrow_build/compile_commands.json" "$out/$condition-arrow-compile_commands.json"
+              arrow_db="$out/$condition-arrow-compile_commands.json"
+              printf 'arrow_compile_commands=external_project_database\n' > "$out/$condition-arrow-command-source.txt"
+            else
+              arrow_db=''
+              python3 - "$out/$condition-arrow-build.make" <<'PY'
+          from pathlib import Path
+          import re, sys
+          recipe = Path(sys.argv[1]).read_text(encoding='utf-8')
+          for source in ('array', 'compute'):
+              rule = (r'(?m)^[^\n]*/' + re.escape(source) +
+                      r'/util\.cc\.o:[ \t]+[^\n]*/' + re.escape(source) +
+                      r'/util\.cc(?:[ \t]|$)')
+              if len(re.findall(rule, recipe)) != 1:
+                  raise SystemExit(f'missing or ambiguous Arrow {source}/util.cc source prerequisite')
+          PY
+              printf 'arrow_compile_commands=verified_make_fragments_only\n' > "$out/$condition-arrow-command-source.txt"
+            fi
             for source in array compute; do
-              python3 - "$out/$condition-compile_commands.json" "/$source/util.cc" > "$out/$condition-arrow-$source-command.json" <<'PY'
+              if test -z "$arrow_db"; then
+                continue
+              fi
+              python3 - "$arrow_db" "/$source/util.cc" > "$out/$condition-arrow-$source-command.json" <<'PY'
           import json, sys
           with open(sys.argv[1], encoding='utf-8') as f:
               matches = [row for row in json.load(f) if row['file'].endswith(sys.argv[2])]
