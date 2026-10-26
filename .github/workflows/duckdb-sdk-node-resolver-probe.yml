@@ -1,0 +1,102 @@
+name: DuckDB pinned Emscripten JS module resolver diagnostic
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/duckdb-sdk-node-resolver-probe.yml
+
+permissions:
+  contents: read
+
+jobs:
+  pinned-node-modules:
+    name: Resolve pinned Acorn and vendored Terser inputs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    container:
+      image: emscripten/emsdk:3.1.48@sha256:c952f592577a428698cb990c9656f395ae34424740f9c40bed4c3ee6d4850d29
+    steps:
+      - name: Check out exact diagnostic head
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Check out exact Emscripten compiler source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: emscripten-core/emscripten
+          ref: e967e20b4727956a30592165a3c1cde5c67fa0a8
+          path: emscripten-source
+          persist-credentials: false
+
+      - name: Resolve and retain exact Node optimizer inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          receipt="$RUNNER_TEMP/js-module-resolver"
+          mkdir -p "$receipt"
+          printf 'source_build_admission=NO\nglue_legal_admission=NO\nmanifest_effects=unresolved\n' \
+            > "$receipt/admission.txt"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE/emscripten-source"
+          test "$(git rev-parse HEAD)" = '${{ github.event.pull_request.head.sha }}'
+          pinned="$GITHUB_WORKSPACE/emscripten-source"
+          installed="$EMSDK/upstream/emscripten"
+          test "$(git -C "$pinned" rev-parse HEAD)" = 'e967e20b4727956a30592165a3c1cde5c67fa0a8'
+          git -C "$pinned" diff --quiet
+          git -C "$pinned" diff --cached --quiet
+          optimizer="$installed/tools/acorn-optimizer.js"
+          test -s "$optimizer"
+          cmp -s "$optimizer" "$pinned/tools/acorn-optimizer.js"
+          node_path="$(command -v node)"
+          test "$(realpath "$node_path")" = '/emsdk/node/16.20.0_64bit/bin/node'
+          node --version > "$receipt/node-version.txt"
+          sha256sum "$node_path" "$optimizer" > "$receipt/optimizer-toolchain.sha256"
+          # Resolve as if require() were executed by the exact optimizer file.
+          acorn_entry="$(node -e 'const r=require("module").createRequire(process.argv[1]);console.log(r.resolve("acorn"))' "$optimizer")"
+          acorn_package="$(node -e 'const r=require("module").createRequire(process.argv[1]);console.log(r.resolve("acorn/package.json"))' "$optimizer")"
+          terser_entry="$(node -e 'const r=require("module").createRequire(process.argv[1]);console.log(r.resolve("../third_party/terser/terser"))' "$optimizer")"
+          acorn_entry="$(realpath "$acorn_entry")"
+          acorn_package="$(realpath "$acorn_package")"
+          terser_entry="$(realpath "$terser_entry")"
+          acorn_root="$(dirname "$acorn_package")"
+          test "$acorn_root" = "$(realpath "$installed/node_modules/acorn")"
+          [[ "$acorn_entry" == "$acorn_root/"* ]]
+          test "$terser_entry" = "$(realpath "$installed/third_party/terser/terser.js")"
+          test -s "$acorn_root/LICENSE"
+          test -s "$installed/third_party/terser/LICENSE"
+          cmp -s "$terser_entry" "$pinned/third_party/terser/terser.js"
+          cmp -s "$installed/third_party/terser/LICENSE" "$pinned/third_party/terser/LICENSE"
+          printf 'node=%s\noptimizer=%s\nacorn_entry=%s\nacorn_package=%s\nterser_entry=%s\n' \
+            "$node_path" "$optimizer" "$acorn_entry" "$acorn_package" "$terser_entry" \
+            > "$receipt/resolved-paths.txt"
+          node -e 'const r=require("module").createRequire(process.argv[1]);console.log(r("acorn/package.json").version)' \
+            "$optimizer" > "$receipt/acorn-version.txt"
+          find "$acorn_root" -type l -print > "$receipt/acorn-symlinks.txt"
+          test ! -s "$receipt/acorn-symlinks.txt"
+          find "$acorn_root" -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum \
+            > "$receipt/acorn-package-files.sha256"
+          test -s "$receipt/acorn-package-files.sha256"
+          tar -C "$acorn_root" -czf "$receipt/acorn-package-bytes.tar.gz" .
+          cp "$acorn_root/LICENSE" "$receipt/acorn-LICENSE"
+          cp "$installed/third_party/terser/LICENSE" "$receipt/terser-LICENSE"
+          cp "$terser_entry" "$receipt/terser.js"
+          sha256sum "$acorn_entry" "$acorn_package" "$receipt/acorn-LICENSE" \
+            "$receipt/terser.js" "$receipt/terser-LICENSE" \
+            > "$receipt/resolved-source-and-license.sha256"
+          sha256sum "$pinned/third_party/terser/terser.js" \
+            "$pinned/third_party/terser/LICENSE" \
+            > "$receipt/pinned-terser-source-and-license.sha256"
+          for file in emscripten-version.txt package.json package-lock.json; do
+            sha256sum "$pinned/$file" "$installed/$file"
+          done > "$receipt/runtime-affecting-manifests.sha256"
+
+      - name: Retain pinned module resolution diagnostic
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: duckdb-pinned-node-module-resolver
+          path: ${{ runner.temp }}/js-module-resolver/
+          if-no-files-found: warn
+          retention-days: 14
