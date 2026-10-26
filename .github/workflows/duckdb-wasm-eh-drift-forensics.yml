@@ -309,6 +309,107 @@ jobs:
           replay_object aggregate src/execution/operator/aggregate duckdb_operator_aggregate \
             ub_duckdb_operator_aggregate.cpp.o ub_duckdb_operator_aggregate.cpp
 
+      - name: Compile retained EH preprocessed inputs at one output path
+        shell: bash
+        run: |
+          set -euo pipefail
+          nested="$GITHUB_WORKSPACE/duckdb-upstream/build/relperf/eh/third_party/duckdb/src/duckdb_ep-build"
+          compiler="$EMSDK/upstream/emscripten/em++"
+          clang="$EMSDK/upstream/bin/clang++"
+          readobj="$EMSDK/upstream/bin/llvm-readobj"
+          objdump="$EMSDK/upstream/bin/llvm-objdump"
+          for tool in "$compiler" "$clang" "$readobj" "$objdump"; do
+            test -x "$tool"
+          done
+          replay_saved_input() {
+            local label="$1" rel="$2" target="$3" member="$4" unity="$5"
+            local dir="$nested/$rel" object="$nested/$rel/CMakeFiles/$target.dir/$member"
+            local recipe="$rel/CMakeFiles/$target.dir/build.make"
+            local object_target="$rel/CMakeFiles/$target.dir/$member"
+            local preprocess_target="$rel/CMakeFiles/$target.dir/$unity.i"
+            local generated_i="$nested/$preprocess_target"
+            local out="$RUNNER_TEMP/native-receipt/$label-saved-input-trial"
+            local command_line prefix args_text pass argument
+            local -a lines original_argv replay_argv
+            mkdir -p "$out"
+            test -s "$object"
+            cmp -s "$object" "$RUNNER_TEMP/native-receipt/$label-object-replay/second.o"
+            cp "$object" "$out/before.o"
+            emmake make -C "$nested" -f "$recipe" "$preprocess_target"
+            test -s "$generated_i"
+            cp "$generated_i" "$out/input.i"
+            sha256sum "$out/input.i" > "$out/input.sha256"
+            cp "$dir/CMakeFiles/$target.dir/includes_CXX.rsp" "$out/includes_CXX.rsp"
+            sha256sum "$dir/CMakeFiles/$target.dir/flags.make" \
+              "$out/includes_CXX.rsp" "$nested/$recipe" \
+              "$dir/$unity" > "$out/generated-inputs.sha256"
+            # CMake's expanded recipe is the source of the original argument vector.
+            # Dry-run only after removing the object, and require exactly one compile line.
+            rm "$object"
+            mapfile -t lines < <(emmake make -C "$nested" -f "$recipe" -n "$object_target" \
+              | grep -F " -c $dir/$unity")
+            test "${#lines[@]}" -eq 1
+            command_line="${lines[0]}"
+            prefix="cd $dir && $compiler"
+            test "${command_line#"$prefix"}" != "$command_line"
+            args_text="${command_line#"$prefix"}"
+            printf '%s\n' "$command_line" > "$out/generated-compile-command.txt"
+            # This eval expands only the pinned CMake-generated argument text into
+            # an argv array; it does not execute the compiler command.
+            cd "$dir"
+            eval "set -- \"$compiler\" $args_text"
+            original_argv=("$@")
+            test "${original_argv[${#original_argv[@]}-1]}" = "$dir/$unity"
+            test "${original_argv[0]}" = "$compiler"
+            printf '%s\0' "${original_argv[@]}" > "$out/original-argv.nul"
+            printf '%q ' "${original_argv[@]}" > "$out/original-argv.shell.txt"
+            printf '\n' >> "$out/original-argv.shell.txt"
+            replay_argv=("${original_argv[@]:0:${#original_argv[@]}-1}" -x c++-cpp-output "$out/input.i")
+            printf '%s\0' "${replay_argv[@]}" > "$out/replay-argv.nul"
+            printf '%q ' "${replay_argv[@]}" > "$out/replay-argv.shell.txt"
+            printf '\n' >> "$out/replay-argv.shell.txt"
+            pwd -P > "$out/compiler-cwd.txt"
+            env -0 | sha256sum > "$out/full-environment.sha256"
+            env | cut -d= -f1 | LC_ALL=C sort > "$out/environment-names.txt"
+            for argument in EMSDK EM_CONFIG PATH CCACHE_DISABLE DUCKDB_EXCEL DUCKDB_JSON \
+              CMAKE_PREFIX_PATH CC CXX LD TMPDIR; do
+              if test "${!argument+x}"; then
+                printf '%s=%q\n' "$argument" "${!argument}"
+              fi
+            done > "$out/compiler-environment.txt"
+            sha256sum "$compiler" "$clang" "$readobj" "$objdump" \
+              > "$out/compiler-tools.sha256"
+            "$compiler" --version > "$out/compiler-version.txt"
+            "$clang" --version > "$out/clang-version.txt"
+            for pass in 1 2 3; do
+              env -0 | sha256sum > "$out/pass-$pass.environment.sha256"
+              cmp -s "$out/full-environment.sha256" "$out/pass-$pass.environment.sha256"
+              "${replay_argv[@]}"
+              test -s "$object"
+              cp "$object" "$out/pass-$pass.o"
+              sha256sum "$object" > "$out/pass-$pass.object.sha256"
+              "$readobj" --sections "$object" > "$out/pass-$pass.sections.txt"
+              "$objdump" -d "$object" > "$out/pass-$pass.disassembly.txt"
+              test -s "$out/pass-$pass.sections.txt"
+              test -s "$out/pass-$pass.disassembly.txt"
+              sha256sum "$out/input.i" > "$out/pass-$pass.input.sha256"
+              cmp -s "$out/input.sha256" "$out/pass-$pass.input.sha256"
+            done
+            for pass in 2 3; do
+              if cmp -s "$out/pass-1.o" "$out/pass-$pass.o"; then
+                printf 'pass_1_vs_%s=identical\n' "$pass"
+              else
+                printf 'pass_1_vs_%s=differs\n' "$pass"
+              fi
+            done > "$out/observed-equality.txt"
+            printf 'admission=NO\ntrial=preprocessed-compiler-replay-only\n' \
+              > "$out/admission.txt"
+          }
+          replay_saved_input system src/function/table/system duckdb_table_func_system \
+            ub_duckdb_table_func_system.cpp.o ub_duckdb_table_func_system.cpp
+          replay_saved_input aggregate src/execution/operator/aggregate duckdb_operator_aggregate \
+            ub_duckdb_operator_aggregate.cpp.o ub_duckdb_operator_aggregate.cpp
+
       - name: Retain EH forensic trial
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
