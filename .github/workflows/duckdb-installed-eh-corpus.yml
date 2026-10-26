@@ -339,7 +339,7 @@ jobs:
           git -C gate-source merge-base --is-ancestor 5aac42f054e25ca0cee69ca341aa67dbdbcbc649 HEAD
           helper=gate-source/.github/scripts/duckdb-eh-corpus
           printf '%s  %s\n' \
-            'b06c24b47e5097c7c55876ef330b7eb31b31e481b0ea5d37f17bf1d80ec70de3' "$helper/eh-corpus.mjs" \
+            '12a161817ff494fee852553e975b92262b50a3d2c0d7ee1394ca5bf9c9efd529' "$helper/eh-corpus.mjs" \
             '7895597e2417426c141dcbc7c5e002269fb5f7f3c3381a6612bdfba33af3acf4' "$helper/apply-eh-corpus.nu" \
             | sha256sum --check --status
           nu "$helper/apply-eh-corpus.nu" app/tauri/src/main.rs "$helper/eh-corpus.mjs"
@@ -818,7 +818,7 @@ jobs:
           helper=gate-source/.github/scripts/duckdb-eh-corpus
           printf '%s  %s\n' \
             '95206f742c58dda13fb9640bc0c90dfd7b43a96206fea2773015f2ac630386c6' "$helper/authenticate-eh-artifacts.nu" \
-            '6a8c7722292dfc6f10c3103712f01de64ac666592e5856086d74fc688061ab78' "$helper/compare-eh-corpus.nu" \
+            'a63adf666d5477ca89f6e7f6111e4e3c9b2ae442c360fd097b58d8ab6ec0fd35' "$helper/compare-eh-corpus.nu" \
             | sha256sum --check --status
           mkdir -p "$RUNNER_TEMP/eh-compare"
           case "$GITHUB_EVENT_NAME" in
@@ -1299,7 +1299,7 @@ jobs:
           git -C gate-source merge-base --is-ancestor 5aac42f054e25ca0cee69ca341aa67dbdbcbc649 HEAD
           helper=gate-source/.github/scripts/duckdb-eh-corpus
           printf '%s  %s\n' \
-            'b06c24b47e5097c7c55876ef330b7eb31b31e481b0ea5d37f17bf1d80ec70de3' "$helper/eh-corpus.mjs" \
+            '12a161817ff494fee852553e975b92262b50a3d2c0d7ee1394ca5bf9c9efd529' "$helper/eh-corpus.mjs" \
             '7895597e2417426c141dcbc7c5e002269fb5f7f3c3381a6612bdfba33af3acf4' "$helper/apply-eh-corpus.nu" \
             | sha256sum --check --status
           nu "$helper/apply-eh-corpus.nu" app/tauri/src/main.rs "$helper/eh-corpus.mjs"

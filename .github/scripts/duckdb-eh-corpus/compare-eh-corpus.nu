@@ -89,8 +89,8 @@ def inspect_corpus [file: path, expected_ids: list<string>] {
       error make {msg: $"invalid/skipped case ($case.id) in ($file)"}
     }
     if $case.id == 'direct-arrow-invalid-ipc' and $case.passed == true {
-      if (($case.errorClass? | default '') != 'IO Error' or
-          not (($case.marker? | default '') | str ends-with 'Invalid IPC message: negative metadata length') or
+      if (($case.errorClass? | default '') != 'Error' or
+          ($case.marker? | default '') != 'Error: Invalid IPC message: negative metadata length' or
           (($case.marker? | default '') | str length) > 120 or
           ($case.fixtureSha256? | default '') != '12a3ae445661ce5dee78d0650d33362dec29c4f82af05e7e57fb595bbbacf0ca' or
           ($case.fixtureBytes? | default 0) != 8 or

@@ -51,20 +51,90 @@ async function probeMalformedArrowIpc(conn) {
   } catch (_error) { /* Recovery remains false. */ }
   const errorClass = classify(message);
   const marker = message.split(/\r?\n/, 1)[0].slice(0, 120);
-  const rejectedHeader = message.includes('Invalid IPC message: negative metadata length');
+  const rejectedHeader = marker === 'Error: Invalid IPC message: negative metadata length';
   const absent = classify(absentMessage) === 'Catalog Error' &&
     /Table with name eh_corpus_bad_arrow does not exist/i.test(absentMessage);
   return { id: 'direct-arrow-invalid-ipc', phase: 'direct',
-    passed: fixturePinned && errorClass === 'IO Error' && rejectedHeader &&
+    passed: fixturePinned && errorClass === 'Error' && rejectedHeader &&
       absent && recovered,
     errorClass, marker, rejectionStage: message ? 'registration' : 'NONE',
     fixtureSha256: fixture.sha256, fixtureBytes: fixture.bytes,
     absent, absenceClass: classify(absentMessage), recovered };
 }
 
+async function probeDirectConversion(conn) {
+  const tableName = 'eh_corpus_direct_conversion';
+  const sql = `SELECT CAST(s AS INTEGER) AS rejected FROM ${tableName} WHERE i = 7`;
+  const failure = error => {
+    const message = String(error);
+    return { errorClass: classify(message), marker: message.split(/\r?\n/, 1)[0].slice(0, 120) };
+  };
+  const diagnostic = { status: 'SETUP', readback: null, query: null,
+    rawRunQuery: null, recovered: false };
+  try {
+    await conn.query(`CREATE TABLE ${tableName} (i INTEGER, s VARCHAR)`);
+    await conn.query(`INSERT INTO ${tableName} VALUES (7, 'O''Reilly')`);
+    const rows = canonicalRows(await conn.query(
+      `SELECT i,s FROM ${tableName} ORDER BY i`));
+    diagnostic.readback = { matches: stable(rows) === stable([{ i: 7, s: "O'Reilly" }]),
+      digest: await digest(rows) };
+    if (!diagnostic.readback.matches) {
+      diagnostic.status = 'READBACK_MISMATCH';
+      return diagnostic;
+    }
+  } catch (error) {
+    diagnostic.status = 'SETUP_ERROR';
+    diagnostic.setupError = failure(error);
+    return diagnostic;
+  }
+  diagnostic.status = 'PROBED';
+  let table;
+  try {
+    table = await conn.query(sql);
+  } catch (error) {
+    diagnostic.query = { stage: 'query-rejected', ...failure(error) };
+  }
+  if (table) {
+    const numRows = table.numRows;
+    const fields = table.schema?.fields?.slice(0, 8).map(field =>
+      String(field.name).slice(0, 40)) || [];
+    diagnostic.query = { stage: 'query-resolved', numRows, fields };
+    try {
+      if (!Number.isSafeInteger(numRows) || numRows < 0 || numRows > 8) {
+        diagnostic.query.rows = 'BOUNDED_REFUSAL';
+      } else {
+        const rows = canonicalRows(table);
+        diagnostic.query.rowsDigest = await digest(rows);
+        diagnostic.query.rowsLength = rows.length;
+      }
+    } catch (error) {
+      diagnostic.query.rows = 'materialization-rejected';
+      diagnostic.query.materializationError = failure(error);
+    }
+  } else if (!diagnostic.query) {
+    diagnostic.query = { stage: 'query-falsy' };
+  }
+  try {
+    const bytes = await conn.useUnsafe((bindings, id) => bindings.runQuery(id, sql));
+    diagnostic.rawRunQuery = bytes instanceof Uint8Array ?
+      { stage: 'raw-resolved', digest: await digest(bytes) } :
+      { stage: 'raw-nonbytes', type: typeof bytes };
+  } catch (error) {
+    diagnostic.rawRunQuery = { stage: 'raw-rejected', ...failure(error) };
+  }
+  try {
+    diagnostic.recovered = stable(canonicalRows(await conn.query('SELECT 42 AS alive'))) ===
+      '[{"alive":42}]';
+  } catch (error) {
+    diagnostic.recoveryError = failure(error);
+  }
+  return diagnostic;
+}
+
 export async function runInstalledEhCorpus(bridge) {
   const cases = [];
   const fixtures = {};
+  const conversionDiagnostics = { bridge: null, direct: { status: 'NOT_STARTED' } };
   const record = async (id, phase, operation, check) => {
     try {
       const observed = await operation();
@@ -96,6 +166,10 @@ export async function runInstalledEhCorpus(bridge) {
       classify(message).toLowerCase().includes(expectedClass.toLowerCase()),
       errorClass: classify(message), marker: message.split(/\r?\n/, 1)[0].slice(0, 120),
       ...diagnostic });
+    if (id === 'bridge-conversion-error') {
+      conversionDiagnostics.bridge = { errorClass: classify(message),
+        marker: message.split(/\r?\n/, 1)[0].slice(0, 120), ...diagnostic };
+    }
   };
   const expectDirectError = async (id, operation, expectedClass) => {
     let message = '';
@@ -164,7 +238,7 @@ export async function runInstalledEhCorpus(bridge) {
     ...selected });
   if (!local) return { schema: 'tundra-installed-eh-corpus/v1', cases,
     passed: false, directConnection: 'NOT_STARTED', selected,
-    fixtures,
+    fixtures, conversionDiagnostics,
     unsupported: ['arrow-positive-ipc', 'multibatch-stream', 'upstream-full-suite'],
     skipped: ['direct-adapter'] };
 
@@ -251,6 +325,13 @@ export async function runInstalledEhCorpus(bridge) {
     cases.push(await probeMalformedArrowIpc(conn));
     await record('direct-after-arrow-error', 'direct', () => direct('SELECT 42 AS alive'),
       v => stable(v) === '[{"alive":42}]');
+    try {
+      conversionDiagnostics.direct = await probeDirectConversion(conn);
+    } catch (error) {
+      const message = String(error);
+      conversionDiagnostics.direct = { status: 'PROBE_ERROR',
+        errorClass: classify(message), marker: message.split(/\r?\n/, 1)[0].slice(0, 120) };
+    }
   } catch (error) {
     cases.push({ id: 'direct-adapter-init', phase: 'direct', passed: false,
       errorClass: classify(String(error)), error: String(error).slice(0, 160) });
@@ -261,6 +342,6 @@ export async function runInstalledEhCorpus(bridge) {
   return { schema: 'tundra-installed-eh-corpus/v1',
     cases, passed: cases.every(item => item.passed),
     directConnection: 'SEPARATE_SAME_INSTALLED_PAIR',
-    selected, fixtures, skipped: [],
+    selected, fixtures, conversionDiagnostics, skipped: [],
     unsupported: ['arrow-positive-ipc', 'multibatch-stream', 'upstream-full-suite'] };
 }
