@@ -1268,8 +1268,12 @@ jobs:
           source=json.loads((receipt/'old-source.json').read_text())
           expected=source['selected_assets']
           root=temp/'deb-root'; debs=list(pathlib.Path('target/release/bundle/deb').glob('*.deb'))
-          bins=list(root.rglob('auto-tundra'))
-          assert len(debs)==len(bins)==1
+          bin_candidates=list(root.rglob('auto-tundra'))
+          bins=[path for path in bin_candidates if path.is_file() and not path.is_symlink()]
+          assert len(debs)==1, f'expected one old-baseline installer, found {len(debs)}'
+          assert len(bins)==1, (
+              f'expected one regular non-symlink old-baseline binary; '
+              f'found {len(bins)} among {len(bin_candidates)} named paths')
           sha=lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
           proof=json.loads((receipt/'embedded-assets.json').read_text())
           rows={r['key']:r for r in proof['assets']}
