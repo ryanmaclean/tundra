@@ -33,38 +33,100 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - name: Authenticate pinned PR117 artifact and inspect closure
+      - name: Fetch immutable PR117 custody and inspect closure
         shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$TRIAL_HEAD"
-          mkdir -p "$RUNNER_TEMP/replacement-input" "$RUNNER_TEMP/replacement-receipt"
-          metadata="$RUNNER_TEMP/replacement-receipt/artifact.json"
-          zip="$RUNNER_TEMP/replacement-candidate.zip"
-          curl --fail --silent --show-error --location --retry 3 \
-            --header "Authorization: Bearer $GH_TOKEN" \
-            --header 'Accept: application/vnd.github+json' \
-            'https://api.github.com/repos/ryanmaclean/tundra/actions/artifacts/12607318747' \
-            --output "$metadata"
-          jq -e '.id == 12607318747 and
-            .name == "duckdb-matching-browser-candidate" and
-            .digest == "sha256:be8fade74d4dda4b5eae20fc3f906370f6fd9fc82e606810a469b24affa5e7b5" and
-            .expired == false and .workflow_run.id == 40217360882 and
-            .workflow_run.head_sha == "7182d3f1b51cf643f73d40f15b576006accddd7d"' \
-            "$metadata" > /dev/null
-          curl --fail --silent --show-error --location --retry 3 \
-            --header "Authorization: Bearer $GH_TOKEN" \
-            --header 'Accept: application/vnd.github+json' \
-            'https://api.github.com/repos/ryanmaclean/tundra/actions/artifacts/12607318747/zip' \
-            --output "$zip"
-          printf '%s  %s\n' \
-            'be8fade74d4dda4b5eae20fc3f906370f6fd9fc82e606810a469b24affa5e7b5' "$zip" \
-            | sha256sum --check --status
-          unzip -tq "$zip"
-          unzip -q "$zip" -d "$RUNNER_TEMP/replacement-input"
+          custody_commit=1d77df7776dca44731ae8267092e480a78f9f735
+          custody="$RUNNER_TEMP/duckdb-browser-custody"
           receipt="$RUNNER_TEMP/replacement-input"
+          evidence="$RUNNER_TEMP/replacement-receipt"
+          test ! -e "$custody" && test ! -e "$receipt"
+          mkdir -p "$custody" "$receipt/matching-output" \
+            "$receipt/matching-receipt" "$receipt/input-receipt" "$evidence"
+          git -C "$custody" init -q
+          git -C "$custody" fetch --quiet --no-tags --depth=1 \
+            https://github.com/ryanmaclean/tundra.git "$custody_commit"
+          test "$(git -C "$custody" rev-parse FETCH_HEAD)" = "$custody_commit"
+          git -C "$custody" checkout --quiet --detach "$custody_commit"
+          test "$(git -C "$custody" rev-parse HEAD)" = "$custody_commit"
+          test "$(git -C "$custody" rev-list --parents -n 1 HEAD)" = "$custody_commit"
+          manifest="$custody/custody/manifest.json"
+          test -f "$manifest" && test ! -L "$manifest"
+          jq -e '
+            .schema == "tundra-diagnostic-browser-asset-custody/v1" and
+            .admission == "NO" and .artifact.repo == "ryanmaclean/tundra" and
+            .artifact.artifact_id == 12607318747 and
+            .artifact.run_id == 40217360882 and
+            .artifact.producer_head == "7182d3f1b51cf643f73d40f15b576006accddd7d" and
+            .artifact.zip_sha256 == "be8fade74d4dda4b5eae20fc3f906370f6fd9fc82e606810a469b24affa5e7b5" and
+            .artifact.zip_entries == 35 and .artifact.zip_crc == "all_passed" and
+            .native_inputs.duckdb_wasm_source_head == "f955138e5218942fb3fb097a8fdcb725222406ff" and
+            .native_inputs.native_run_id == 40216203853 and
+            .native_inputs.tundra_native_head == "a7d43e055ad33f73bb7cd4333b80ebd70ea940ea" and
+            .legal.source_pr == 119 and
+            .legal.source_head == "1ccac98a3cfe7a7b1e28b900761d81b94fa5f64f" and
+            .legal.attribution_count == 38 and .legal.text_count == 36 and
+            (.assets | length) == 5 and (.receipts | length) == 6 and
+            (.legal.texts | length) == 36 and
+            .receipts["matching-receipt/browser-metafile.json"] != null and
+            .receipts["matching-receipt/worker-mvp-metafile.json"] != null and
+            .receipts["matching-receipt/worker-eh-metafile.json"] != null and
+            .legal.bill_path == "third-party-licenses/ui/duckdb-runtime-selected-bill.json" and
+            .legal.bill_git_blob == "56922b9dd3ac6f961891949f1962c307064431df" and
+            .legal.bill_sha256 == "34381cba60c8922a159f578753b55531460792372f2d72b22769da205fe97790"
+          ' "$manifest" > /dev/null
+          jq -r '(.assets | keys) + (.receipts | keys) +
+            (.legal.texts | keys) + [.legal.bill_path, "custody/manifest.json"] |
+            sort | .[]' "$manifest" > "$RUNNER_TEMP/custody-expected-paths"
+          test "$(wc -l < "$RUNNER_TEMP/custody-expected-paths")" -eq 49
+          git -C "$custody" ls-files | LC_ALL=C sort > "$RUNNER_TEMP/custody-actual-paths"
+          diff -u "$RUNNER_TEMP/custody-expected-paths" "$RUNNER_TEMP/custody-actual-paths"
+          test "$(git -C "$custody" ls-tree -r --format='%(objectmode)' HEAD | sort -u)" = 100644
+          test -z "$(git -C "$custody" status --porcelain)"
+          jq -e -r '(.assets + .receipts + .legal.texts) |
+            to_entries[] | [.key, .value.git_blob, .value.sha256, .value.size] |
+            @tsv' "$manifest" > "$RUNNER_TEMP/custody-file-claims.tsv"
+          test "$(wc -l < "$RUNNER_TEMP/custody-file-claims.tsv")" -eq 47
+          while IFS=$'\t' read -r path blob digest size; do
+            file="$custody/$path"
+            test -f "$file" && test ! -L "$file"
+            test "$(git -C "$custody" rev-parse "HEAD:$path")" = "$blob"
+            test "$(stat -c %s "$file")" = "$size"
+            printf '%s  %s\n' "$digest" "$file" | sha256sum --check --status
+          done < "$RUNNER_TEMP/custody-file-claims.tsv"
+          bill="$custody/third-party-licenses/ui/duckdb-runtime-selected-bill.json"
+          test -f "$bill" && test ! -L "$bill"
+          test "$(git -C "$custody" rev-parse HEAD:third-party-licenses/ui/duckdb-runtime-selected-bill.json)" = \
+            56922b9dd3ac6f961891949f1962c307064431df
+          test "$(stat -c %s "$bill")" -eq 27795
+          printf '%s  %s\n' \
+            '34381cba60c8922a159f578753b55531460792372f2d72b22769da205fe97790' "$bill" \
+            | sha256sum --check --status
+          for path in "$custody"/duckdb-runtime/*; do
+            cp "$path" "$receipt/matching-output/${path##*/}"
+          done
+          cp "$custody"/input-receipt/* "$receipt/input-receipt/"
+          cp "$custody"/matching-receipt/* "$receipt/matching-receipt/"
+          jq -r '.assets | keys[] | split("/") | last' "$manifest" | LC_ALL=C sort \
+            > "$RUNNER_TEMP/custody-expected-assets"
+          find "$receipt/matching-output" -maxdepth 1 -type f -printf '%f\n' | LC_ALL=C sort \
+            > "$RUNNER_TEMP/custody-staged-assets"
+          diff -u "$RUNNER_TEMP/custody-expected-assets" "$RUNNER_TEMP/custody-staged-assets"
+          test "$(wc -l < "$receipt/matching-receipt/five-output.sha256")" -eq 5
+          : > "$RUNNER_TEMP/custody-receipt-assets"
+          while read -r digest path; do
+            [[ "$path" == /home/runner/work/_temp/matching-output/* ]]
+            asset="${path##*/}"
+            printf '%s\n' "$asset" >> "$RUNNER_TEMP/custody-receipt-assets"
+            printf '%s  %s\n' "$digest" "$receipt/matching-output/$asset" \
+              | sha256sum --check --status
+          done < "$receipt/matching-receipt/five-output.sha256"
+          LC_ALL=C sort "$RUNNER_TEMP/custody-receipt-assets" \
+            > "$RUNNER_TEMP/custody-receipt-assets-sorted"
+          diff -u "$RUNNER_TEMP/custody-expected-assets" \
+            "$RUNNER_TEMP/custody-receipt-assets-sorted"
           grep -Fxq 'tundra_trial_head=7182d3f1b51cf643f73d40f15b576006accddd7d' "$receipt/input-receipt/heads.txt"
           grep -Fxq 'source_head=f955138e5218942fb3fb097a8fdcb725222406ff' "$receipt/input-receipt/heads.txt"
           grep -Fxq 'native_tundra_head=a7d43e055ad33f73bb7cd4333b80ebd70ea940ea' "$receipt/input-receipt/heads.txt"
@@ -81,11 +143,13 @@ jobs:
               [["crypto","require-call"]]' \
               "$receipt/matching-receipt/worker-$variant-metafile.json" > /dev/null
           done
-          sha256sum "$zip" .github/scripts/duckdb-stage-replacement-trial.nu \
-            > "$RUNNER_TEMP/replacement-receipt/input.sha256"
-          printf 'trial_head=%s\nprofile=%s\nadmission=NO\n' \
-            "$TRIAL_HEAD" '${{ matrix.profile }}' \
-            > "$RUNNER_TEMP/replacement-receipt/trial-source.txt"
+          cp "$manifest" "$evidence/custody-manifest.json"
+          sha256sum "$manifest" "$bill" .github/scripts/duckdb-stage-replacement-trial.nu \
+            "$receipt"/matching-output/* > "$evidence/input.sha256"
+          printf 'trial_head=%s\nprofile=%s\ncustody_commit=%s\ncustody_manifest_sha256=%s\nsource_run=40217360882\nsource_head=7182d3f1b51cf643f73d40f15b576006accddd7d\nartifact_id=12607318747\nartifact_digest=sha256:be8fade74d4dda4b5eae20fc3f906370f6fd9fc82e606810a469b24affa5e7b5\nadmission=NO\n' \
+            "$TRIAL_HEAD" '${{ matrix.profile }}' "$custody_commit" \
+            "$(sha256sum "$manifest" | cut -d ' ' -f 1)" \
+            > "$evidence/trial-source.txt"
       - name: Install Linux Tauri prerequisites
         run: |
           sudo apt-get update
