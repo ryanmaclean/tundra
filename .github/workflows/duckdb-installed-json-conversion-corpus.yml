@@ -240,7 +240,7 @@ jobs:
           from hashlib import sha256
           from pathlib import Path
           from urllib.parse import urlparse
-          import re, sys
+          import json, re, sys
           version, root = sys.argv[1], Path(sys.argv[2])
           policy = (root / 'apt-source-policy.txt').read_text().splitlines()
           hosts = {'azure.archive.ubuntu.com', 'archive.ubuntu.com',
@@ -266,6 +266,49 @@ jobs:
               assert 0 < len(data) <= 4096
               mirror_sha = sha256(data).hexdigest()
               (root / 'apt-mirrors.sha256').write_text(mirror_sha + '\n')
+              classes = {'cr': [], 'tab': [], 'non_ascii': [],
+                         'other_control': [], 'lf': []}
+              for offset, byte in enumerate(data):
+                  if byte == 13: classes['cr'].append(offset)
+                  elif byte == 9: classes['tab'].append(offset)
+                  elif byte == 10: classes['lf'].append(offset)
+                  elif byte >= 128: classes['non_ascii'].append(offset)
+                  elif byte < 32 or byte == 127:
+                      classes['other_control'].append(offset)
+              lines = data.split(b'\n')
+              shapes = []
+              for raw_line in lines[:32]:
+                  shape = {'bytes': len(raw_line),
+                           'ends_cr': raw_line.endswith(b'\r'),
+                           'has_non_ascii': any(byte >= 128 for byte in raw_line)}
+                  if not shape['has_non_ascii']:
+                      line = raw_line.decode('ascii').strip(' \t\r')
+                      try:
+                          parsed = urlparse(line)
+                          host = parsed.hostname
+                      except ValueError:
+                          parsed, host = None, None
+                      shape.update({
+                          'scheme': (parsed.scheme if parsed and
+                                     parsed.scheme in ('http', 'https') else 'OTHER'),
+                          'host_class': ('APPROVED' if host in hosts else
+                                         'OTHER' if host else 'NONE'),
+                          'path_class': ('UBUNTU_ROOT' if parsed and
+                                         parsed.path.rstrip('/') == '/ubuntu'
+                                         else 'OTHER'),
+                          'has_userinfo': b'@' in raw_line,
+                          'has_query': b'?' in raw_line,
+                          'has_fragment': b'#' in raw_line})
+                  shapes.append(shape)
+              (root / 'apt-mirrors-shape.json').write_text(json.dumps({
+                  'schema': 'tundra-apt-mirror-shape/v1', 'bytes': len(data),
+                  'sha256': mirror_sha,
+                  'byte_classes': {name: {'count': len(offsets),
+                                          'positions_zero_based': offsets}
+                                   for name, offsets in classes.items()},
+                  'line_lengths': [len(line) for line in lines],
+                  'lines_reported': len(shapes), 'line_shapes': shapes,
+              }, sort_keys=True) + '\n')
               try:
                   mirror_text = data.decode('utf-8')
               except UnicodeDecodeError:
@@ -1487,7 +1530,7 @@ jobs:
           from hashlib import sha256
           from pathlib import Path
           from urllib.parse import urlparse
-          import re, sys
+          import json, re, sys
           version, root = sys.argv[1], Path(sys.argv[2])
           policy = (root / 'apt-source-policy.txt').read_text().splitlines()
           hosts = {'azure.archive.ubuntu.com', 'archive.ubuntu.com',
@@ -1513,6 +1556,49 @@ jobs:
               assert 0 < len(data) <= 4096
               mirror_sha = sha256(data).hexdigest()
               (root / 'apt-mirrors.sha256').write_text(mirror_sha + '\n')
+              classes = {'cr': [], 'tab': [], 'non_ascii': [],
+                         'other_control': [], 'lf': []}
+              for offset, byte in enumerate(data):
+                  if byte == 13: classes['cr'].append(offset)
+                  elif byte == 9: classes['tab'].append(offset)
+                  elif byte == 10: classes['lf'].append(offset)
+                  elif byte >= 128: classes['non_ascii'].append(offset)
+                  elif byte < 32 or byte == 127:
+                      classes['other_control'].append(offset)
+              lines = data.split(b'\n')
+              shapes = []
+              for raw_line in lines[:32]:
+                  shape = {'bytes': len(raw_line),
+                           'ends_cr': raw_line.endswith(b'\r'),
+                           'has_non_ascii': any(byte >= 128 for byte in raw_line)}
+                  if not shape['has_non_ascii']:
+                      line = raw_line.decode('ascii').strip(' \t\r')
+                      try:
+                          parsed = urlparse(line)
+                          host = parsed.hostname
+                      except ValueError:
+                          parsed, host = None, None
+                      shape.update({
+                          'scheme': (parsed.scheme if parsed and
+                                     parsed.scheme in ('http', 'https') else 'OTHER'),
+                          'host_class': ('APPROVED' if host in hosts else
+                                         'OTHER' if host else 'NONE'),
+                          'path_class': ('UBUNTU_ROOT' if parsed and
+                                         parsed.path.rstrip('/') == '/ubuntu'
+                                         else 'OTHER'),
+                          'has_userinfo': b'@' in raw_line,
+                          'has_query': b'?' in raw_line,
+                          'has_fragment': b'#' in raw_line})
+                  shapes.append(shape)
+              (root / 'apt-mirrors-shape.json').write_text(json.dumps({
+                  'schema': 'tundra-apt-mirror-shape/v1', 'bytes': len(data),
+                  'sha256': mirror_sha,
+                  'byte_classes': {name: {'count': len(offsets),
+                                          'positions_zero_based': offsets}
+                                   for name, offsets in classes.items()},
+                  'line_lengths': [len(line) for line in lines],
+                  'lines_reported': len(shapes), 'line_shapes': shapes,
+              }, sort_keys=True) + '\n')
               try:
                   mirror_text = data.decode('utf-8')
               except UnicodeDecodeError:
