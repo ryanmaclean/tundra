@@ -68,12 +68,24 @@ jobs:
           git -C duckdb-upstream submodule status --recursive > "$out/submodules.txt"
           test -z "$(grep '^[+-U]' "$out/submodules.txt" || true)"
           emcc --version | grep -Fq '3.1.48'
+          python3 --version > "$out/python-version.txt"
           sha256sum custody/custody/manifest.json > "$out/custody-manifest.sha256"
           test "$(cut -d ' ' -f 1 "$out/custody-manifest.sha256")" = 5ec157dc96c54326970029900129b044365c2e330a46fa5d9f3ea66741fb2d14
-          jq -e '.admission == "NO" and (.assets | length) == 5' custody/custody/manifest.json
+          python3 - <<'PY'
+          import json
+          with open('custody/custody/manifest.json', encoding='utf-8') as f:
+              manifest = json.load(f)
+          if manifest['admission'] != 'NO' or len(manifest['assets']) != 5:
+              raise SystemExit('custody manifest admission/assets mismatch')
+          PY
           : > "$out/five-custody-assets.tsv"
           for asset in duckdb-browser.mjs duckdb-browser-mvp.worker.js duckdb-browser-eh.worker.js duckdb-mvp.wasm duckdb-eh.wasm; do
-            expected="$(jq -er --arg key "duckdb-runtime/$asset" '.assets[$key].sha256' custody/custody/manifest.json)"
+            expected="$(python3 - "$asset" <<'PY'
+          import json, sys
+          with open('custody/custody/manifest.json', encoding='utf-8') as f:
+              print(json.load(f)['assets']['duckdb-runtime/' + sys.argv[1]]['sha256'])
+          PY
+          )"
             actual="$(sha256sum "custody/duckdb-runtime/$asset" | cut -d ' ' -f 1)"
             test "$expected" = "$actual"
             printf '%s\t%s\t%s\n' "$asset" "$actual" CUSTODY_BYTE_MATCH >> "$out/five-custody-assets.tsv"
@@ -117,9 +129,14 @@ jobs:
             cp "$build/compile_commands.json" "$out/$condition-compile_commands.json"
             cp "$build/CMakeCache.txt" "$out/$condition-CMakeCache.txt"
             for source in array compute; do
-              jq -e --arg suffix "/$source/util.cc" \
-                '[.[] | select(.file | endswith($suffix))] | if length == 1 then .[0] else error("missing or ambiguous util compile command") end' \
-                "$out/$condition-compile_commands.json" > "$out/$condition-arrow-$source-command.json"
+              python3 - "$out/$condition-compile_commands.json" "/$source/util.cc" > "$out/$condition-arrow-$source-command.json" <<'PY'
+          import json, sys
+          with open(sys.argv[1], encoding='utf-8') as f:
+              matches = [row for row in json.load(f) if row['file'].endswith(sys.argv[2])]
+          if len(matches) != 1:
+              raise SystemExit(f'expected one util compile command, got {len(matches)}')
+          print(json.dumps(matches[0], sort_keys=True))
+          PY
             done
             cp "$build/CMakeFiles/duckdb_wasm.dir/link.txt" "$out/$condition-link.txt"
             cp "$build/CMakeFiles/duckdb_wasm.dir/objects1.rsp" "$out/$condition-objects1.rsp"
