@@ -1,0 +1,261 @@
+name: DuckDB EH native to Wasm causality diagnostic
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/duckdb-eh-native-causality.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  paired-eh:
+    name: Serial pinned EH builds and link stages
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    container:
+      image: emscripten/emsdk:3.1.48@sha256:c952f592577a428698cb990c9656f395ae34424740f9c40bed4c3ee6d4850d29
+    env:
+      DUCKDB_EXCEL: "0"
+      DUCKDB_JSON: "0"
+      CCACHE_DISABLE: "1"
+      SOURCE_HEAD: adfdd3ee95a3054a14d3faa9baaf25edb9e38ddb
+    steps:
+      - name: Check out exact diagnostic source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: adfdd3ee95a3054a14d3faa9baaf25edb9e38ddb
+          persist-credentials: false
+      - name: Check out pinned DuckDB Wasm source and submodules
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: duckdb/duckdb-wasm
+          ref: f955138e5218942fb3fb097a8fdcb725222406ff
+          path: duckdb-upstream
+          submodules: recursive
+          persist-credentials: false
+      - name: Trust ephemeral checkout paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE/duckdb-upstream"
+          while IFS= read -r -d '' directory; do
+            git config --global --add safe.directory "$directory"
+          done < <(find "$GITHUB_WORKSPACE/duckdb-upstream" -type f -name .git -printf '%h\0')
+      - name: Require pinned inputs and apply exact DuckDB patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/eh-causality/evidence"
+          mkdir -p "$out"
+          test "$(git rev-parse HEAD)" = "$SOURCE_HEAD"
+          test "$(git -C duckdb-upstream rev-parse HEAD)" = f955138e5218942fb3fb097a8fdcb725222406ff
+          test "$(git -C duckdb-upstream/submodules/duckdb rev-parse HEAD)" = 401c8061c6ece35949cac58c7770cc755710ca86
+          test "$(git -C duckdb-upstream/submodules/arrow rev-parse HEAD)" = ca1c30f60d6419849dbc2a533bd0bcaff310185f
+          test "$(git -C duckdb-upstream/submodules/rapidjson rev-parse HEAD)" = 973dc9c06dcd3d035ebd039cfb9ea457721ec213
+          test -z "$(git -C duckdb-upstream status --porcelain)"
+          git -C duckdb-upstream submodule status --recursive > "$out/submodules.txt"
+          test -z "$(grep '^[+-U]' "$out/submodules.txt" || true)"
+          emcc --version | grep -Fq '3.1.48'
+          em++ --version | grep -Fq '3.1.48'
+          test -x "$EMSDK/upstream/bin/wasm-ld"
+          test -x "$EMSDK/upstream/bin/llvm-readobj"
+          test -x "$EMSDK/upstream/bin/llvm-objdump"
+          test -s "${EM_CONFIG:-$EMSDK/.emscripten}"
+          sha256sum duckdb-upstream/duckdb.patch > "$out/patch.sha256"
+          git -C duckdb-upstream/submodules/duckdb apply --check ../../duckdb.patch
+          git -C duckdb-upstream/submodules/duckdb apply ../../duckdb.patch
+          git -C duckdb-upstream/submodules/duckdb diff --binary > "$out/applied.patch"
+          test -s "$out/applied.patch"
+          {
+            printf 'source_head=%s\nupstream_head=%s\nvariant=eh\n' "$SOURCE_HEAD" f955138e5218942fb3fb097a8fdcb725222406ff
+            printf 'container=emscripten/emsdk:3.1.48@sha256:c952f592577a428698cb990c9656f395ae34424740f9c40bed4c3ee6d4850d29\n'
+            printf 'admission=NO\ntrial=paired-native-to-wasm-causality-only\n'
+            emcc --version
+            "$EMSDK/upstream/bin/wasm-ld" --version
+            "$EMSDK/upstream/bin/wasm-opt" --version
+          } > "$out/toolchain.txt"
+          sha256sum "$EMSDK/upstream/emscripten/em++" "$EMSDK/upstream/bin/wasm-ld" \
+            "$EMSDK/upstream/bin/wasm-opt" "${EM_CONFIG:-$EMSDK/.emscripten}" \
+            > "$out/tools.sha256"
+      - name: Build twice at one native path and retain bounded link stages
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/eh-causality"
+          evidence="$root/evidence"
+          build="$GITHUB_WORKSPACE/duckdb-upstream/build/relperf/eh"
+          export EM_CACHE="$root/cache"
+          mkdir -p "$EM_CACHE"
+          test -z "$(ls -A "$EM_CACHE")"
+          for pass in a b; do
+            out="$evidence/$pass"
+            mkdir -p "$out"
+            if test "$pass" = b; then
+              test "$build" = "$GITHUB_WORKSPACE/duckdb-upstream/build/relperf/eh"
+              rm -rf -- "$build"
+              test "$EM_CACHE" = "$root/cache"
+              rm -rf -- "$EM_CACHE"
+              mkdir -p "$EM_CACHE"
+            fi
+            test -z "$(ls -A "$EM_CACHE")"
+            mkdir -p "$build"
+            map="$root/duckdb-eh.map"
+            flags=(
+              -DCMAKE_BUILD_TYPE=Release
+              -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+              -DDUCKDB_WASM_VERSION=v1.28.0
+              "-DDUCKDB_LOCATION=$GITHUB_WORKSPACE/duckdb-upstream/submodules/duckdb"
+              "-DCMAKE_EXE_LINKER_FLAGS=-Wl,-Map,$map"
+              -DWITH_WASM_EXCEPTIONS=1
+              -DDUCKDB_CUSTOM_PLATFORM=wasm_eh
+            )
+            emcmake cmake -S duckdb-upstream/lib -B "$build" "${flags[@]}" > "$out/configure.log" 2>&1
+            emmake make -C "$build" -j4 duckdb_wasm > "$out/build.log" 2>&1
+            test -s "$build/duckdb_wasm.wasm"
+            test -s "$build/duckdb_wasm.js"
+            test -s "$map"
+            archive="$build/third_party/duckdb/install/lib/libduckdb_static.a"
+            test -s "$archive"
+            test "$(stat -c %s "$archive")" -le 83886080
+            cp "$archive" "$out/libduckdb_static.a"
+            cp "$build/duckdb_wasm.wasm" "$out/standard.wasm"
+            cp "$build/duckdb_wasm.js" "$out/standard.js"
+            cp "$map" "$out/standard.map"
+            cp "$build/CMakeFiles/duckdb_wasm.dir/link.txt" "$out/link.txt"
+            cp "$build/CMakeFiles/duckdb_wasm.dir/objects1.rsp" "$out/objects1.rsp"
+            cp "$build/CMakeFiles/duckdb_wasm.dir/linklibs.rsp" "$out/linklibs.rsp"
+            grep -Fq '@CMakeFiles/duckdb_wasm.dir/objects1.rsp' "$out/link.txt"
+            grep -Fq '@CMakeFiles/duckdb_wasm.dir/linklibs.rsp' "$out/link.txt"
+            sha256sum "$out/libduckdb_static.a" "$out/standard.wasm" \
+              "$out/standard.js" "$out/standard.map" "$out/link.txt" \
+              "$out/objects1.rsp" "$out/linklibs.rsp" > "$out/standard.sha256"
+            find "$build" -type f -name '*.a' -print0 | LC_ALL=C sort -z \
+              | xargs -0 -r sha256sum > "$out/static-archives.sha256"
+            emar t "$archive" | LC_ALL=C sort > "$out/members.txt"
+            test -s "$out/members.txt"
+            test -z "$(uniq -d "$out/members.txt")"
+            test -z "$(grep -E '[[:space:]/]' "$out/members.txt" || true)"
+            extracted="$root/members-$pass"
+            mkdir -p "$extracted"
+            (cd "$extracted" && emar x "$archive")
+            (cd "$extracted" && find . -type f -printf '%P\n' | LC_ALL=C sort) \
+              | cmp - "$out/members.txt"
+            (cd "$extracted" && find . -type f -printf '%P\0' | LC_ALL=C sort -z \
+              | xargs -0 -r sha256sum) > "$out/members.sha256"
+            cut -c 67- "$out/members.sha256" | sed 's#^./##' | cmp - "$out/members.txt"
+            grep -oE 'libduckdb_static\.a\([^)]+' "$map" | sed 's/.*(//' \
+              | LC_ALL=C sort -u > "$out/map-selected-members.txt"
+            test -s "$out/map-selected-members.txt"
+            grep -Fxq ub_duckdb_operator_aggregate.cpp.o "$out/map-selected-members.txt"
+            grep -Fxq ub_duckdb_table_func_system.cpp.o "$out/map-selected-members.txt"
+            grep -oE "$EM_CACHE/sysroot/[^[:space:]():]+\.a" "$map" \
+              | LC_ALL=C sort -u > "$out/selected-sdk-archives.txt"
+            test -s "$out/selected-sdk-archives.txt"
+            while IFS= read -r selected; do sha256sum "$selected"; done \
+              < "$out/selected-sdk-archives.txt" > "$out/selected-sdk-archives.sha256"
+            # Emscripten 3.1.48 keeps wasm-emscripten-finalize and wasm-opt
+            # intermediates under EMCC_TEMP_DIR/emscripten_temp when EMCC_DEBUG=1.
+            debug="$root/debug-$pass"
+            mkdir -p "$debug"
+            (cd "$build" && EMCC_DEBUG=1 EMCC_TEMP_DIR="$debug" \
+              bash -e CMakeFiles/duckdb_wasm.dir/link.txt) > "$root/debug-$pass.log" 2>&1
+            cp "$build/duckdb_wasm.wasm" "$out/debug-replay.wasm"
+            cp "$build/duckdb_wasm.js" "$out/debug-replay.js"
+            sha256sum "$out/debug-replay.wasm" "$out/debug-replay.js" \
+              > "$out/debug-replay.sha256"
+            if ! cmp -s "$out/standard.wasm" "$out/debug-replay.wasm" || \
+               ! cmp -s "$out/standard.js" "$out/debug-replay.js"; then
+              printf 'debug_replay_byte_match=NO\nintermediate_interpretation=NO\n' > "$out/debug-gate.txt"
+              exit 1
+            fi
+            printf 'debug_replay_byte_match=YES\nintermediate_interpretation=stage-only\n' > "$out/debug-gate.txt"
+            debug_wasm="$debug/emscripten_temp"
+            test -d "$debug_wasm"
+            mapfile -t pre < <(find "$debug_wasm" -maxdepth 1 -name 'emcc-*-wasm-emscripten-finalize.wasm' | sort -V)
+            mapfile -t post < <(find "$debug_wasm" -maxdepth 1 -name 'emcc-*-wasm-opt.wasm' | sort -V)
+            test "${#pre[@]}" -ge 1
+            test "${#post[@]}" -ge 1
+            cp "${pre[0]}" "$out/pre-wasm-opt.wasm"
+            cp "${post[${#post[@]}-1]}" "$out/post-wasm-opt.wasm"
+            test "$(stat -c %s "$out/pre-wasm-opt.wasm")" -le 41943040
+            test "$(stat -c %s "$out/post-wasm-opt.wasm")" -le 41943040
+            sha256sum "$out/pre-wasm-opt.wasm" "$out/post-wasm-opt.wasm" \
+              > "$out/intermediate.sha256"
+            printf '%s\n' "${pre[@]}" "${post[@]}" > "$out/intermediate-source-paths.txt"
+            # A symbol-map replay changes Binaryen's debug-info retention.
+            # Its mapping is authoritative only if final Wasm bytes still match.
+            (cd "$build" && bash -e -c "$(cat CMakeFiles/duckdb_wasm.dir/link.txt) --emit-symbol-map") \
+              > "$root/symbol-$pass.log" 2>&1
+            symbol_file="$build/duckdb_wasm.js.symbols"
+            test -s "$symbol_file"
+            test "$(stat -c %s "$symbol_file")" -le 20971520
+            cp "$symbol_file" "$out/symbols.txt"
+            cp "$build/duckdb_wasm.wasm" "$out/symbol-replay.wasm"
+            sha256sum "$out/symbols.txt" "$out/symbol-replay.wasm" \
+              > "$out/symbol-replay.sha256"
+            if cmp -s "$out/standard.wasm" "$out/symbol-replay.wasm"; then
+              printf 'symbol_replay_byte_match=YES\nsymbol_mapping_authoritative=current-build-only\n' \
+                > "$out/symbol-gate.txt"
+            else
+              printf 'symbol_replay_byte_match=NO\nsymbol_mapping_authoritative=NO\n' \
+                > "$out/symbol-gate.txt"
+            fi
+            test ! -e duckdb-upstream/.ccache/extension/json
+            test ! -e duckdb-upstream/.ccache/extension/excel
+          done
+      - name: Compare native archive members and final Wasm
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/eh-causality"
+          evidence="$root/evidence"
+          cmp "$evidence/a/members.txt" "$evidence/b/members.txt"
+          cmp "$evidence/a/objects1.rsp" "$evidence/b/objects1.rsp"
+          cmp "$evidence/a/linklibs.rsp" "$evidence/b/linklibs.rsp"
+          cmp "$evidence/a/selected-sdk-archives.sha256" "$evidence/b/selected-sdk-archives.sha256"
+          paste "$evidence/a/members.sha256" "$evidence/b/members.sha256" \
+            | awk '$2 != $4 { exit 1 } $1 != $3 { sub(/^\.\//, "", $2); print $2 }' \
+            > "$evidence/changed-members.txt"
+          test "$(wc -l < "$evidence/changed-members.txt")" -le 64
+          printf '%s\n' ub_duckdb_operator_aggregate.cpp.o ub_duckdb_table_func_system.cpp.o \
+            | cat - "$evidence/changed-members.txt" | LC_ALL=C sort -u \
+            > "$evidence/inspected-members.txt"
+          while IFS= read -r member; do
+            test -s "$root/members-a/$member"
+            test -s "$root/members-b/$member"
+            for pass in a b; do
+              out="$evidence/$pass/object-code/$member"
+              mkdir -p "$out"
+              object="$root/members-$pass/$member"
+              sha256sum "$object" > "$out/object.sha256"
+              "$EMSDK/upstream/bin/llvm-readobj" --sections "$object" > "$out/sections.txt"
+              "$EMSDK/upstream/bin/llvm-objdump" -d "$object" > "$out/disassembly.txt"
+              test -s "$out/sections.txt"
+              test -s "$out/disassembly.txt"
+              sha256sum "$out/sections.txt" "$out/disassembly.txt" > "$out/code-receipts.sha256"
+            done
+          done < "$evidence/inspected-members.txt"
+          if cmp -s "$evidence/a/standard.wasm" "$evidence/b/standard.wasm"; then
+            printf 'final_wasm_byte_match=YES\n' > "$evidence/paired-result.txt"
+          else
+            printf 'final_wasm_byte_match=NO\n' > "$evidence/paired-result.txt"
+          fi
+          if cmp -s "$evidence/a/pre-wasm-opt.wasm" "$evidence/b/pre-wasm-opt.wasm"; then
+            printf 'pre_wasm_opt_byte_match=YES\n' >> "$evidence/paired-result.txt"
+          else
+            printf 'pre_wasm_opt_byte_match=NO\n' >> "$evidence/paired-result.txt"
+          fi
+          printf 'admission=NO\nproduct_gate=NOT_RUN\nhistorical_function_attribution=UNPROVEN\n' \
+            >> "$evidence/paired-result.txt"
+          test "$(du -sb "$evidence" | cut -f1)" -le 419430400
+      - name: Retain bounded causality evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: duckdb-eh-native-causality
+          path: ${{ runner.temp }}/eh-causality/evidence/
+          if-no-files-found: warn
+          retention-days: 14

@@ -1,0 +1,904 @@
+name: DuckDB exact same-run EH JS-Wasm installed pair diagnostic
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/duckdb-exact-eh-pair-installed.yml
+      - .github/scripts/duckdb-bundle-selected-eh-pair.nu
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  selected-eh-webkit-semantic-trial:
+    name: Installed EH semantics (${{ matrix.condition }}, ${{ matrix.profile }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        condition: [image, clean]
+        profile: [default, sounds]
+    env:
+      # Exact PR119 consumer source, including its forced-EH smoke path.
+      CONSUMER_HEAD: ad0df7182cd4c9ea4a83bac04e5901de0218d9d0
+      PRODUCER_HEAD: fbcc2be993b9d47fd062d7833cf52f4a630649f8
+      PRODUCER_RUN: "40294462862"
+    steps:
+      - name: Check out exact installed-consumer source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ad0df7182cd4c9ea4a83bac04e5901de0218d9d0
+          persist-credentials: false
+      - name: Check out exact diagnostic helper source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: gate-source
+          persist-credentials: false
+      - name: Check out exact upstream worker source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: duckdb/duckdb-wasm
+          ref: f955138e5218942fb3fb097a8fdcb725222406ff
+          path: duckdb-upstream
+          persist-credentials: false
+      - name: Bind exact producer run, API, safe ZIP and both output pairs
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$CONSUMER_HEAD"
+          mkdir -p "$RUNNER_TEMP/eh-semantic" "$RUNNER_TEMP/eh-input/input"
+          base=https://api.github.com/repos/ryanmaclean/tundra
+          headers=(--header "Authorization: Bearer $GH_TOKEN" --header 'Accept: application/vnd.github+json')
+          curl --fail --silent --show-error --location --retry 3 "${headers[@]}" \
+            "$base/actions/runs/$PRODUCER_RUN" -o "$RUNNER_TEMP/eh-semantic/producer-run.json"
+          jq -e --arg head "$PRODUCER_HEAD" --argjson run "$PRODUCER_RUN" \
+            '.id == $run and .head_sha == $head and .status == "completed" and .conclusion == "success"' \
+            "$RUNNER_TEMP/eh-semantic/producer-run.json"
+          artifact=12638297806
+          zip_digest=21b7db5bdbee90431c8c17c341faa823f213efb1d1bcfab66f18d0c18e6ac166
+          curl --fail --silent --show-error --location --retry 3 "${headers[@]}" \
+            "$base/actions/artifacts/$artifact" -o "$RUNNER_TEMP/eh-semantic/artifact.json"
+          jq -e --argjson id "$artifact" --argjson run "$PRODUCER_RUN" \
+            --arg head "$PRODUCER_HEAD" --arg digest "sha256:$zip_digest" \
+            '.id == $id and .name == "duckdb-combined-custody-eh" and .digest == $digest and
+             .expired == false and .workflow_run.id == $run and
+             .workflow_run.head_sha == $head' "$RUNNER_TEMP/eh-semantic/artifact.json"
+          curl --fail --silent --show-error --location --retry 3 "${headers[@]}" \
+            "$base/actions/artifacts/$artifact/zip" -o "$RUNNER_TEMP/eh-input/artifact.zip"
+          printf '%s  %s\n' "$zip_digest" "$RUNNER_TEMP/eh-input/artifact.zip" | sha256sum -c -
+          python3 - <<'PYZIP'
+          import hashlib, os, pathlib, zipfile
+          root = pathlib.Path(os.environ['RUNNER_TEMP']) / 'eh-input'
+          with zipfile.ZipFile(root / 'artifact.zip') as z:
+              members = z.infolist()
+              names = [i.filename for i in members]
+              assert len(names) == len(set(names)) and len(names) > 100
+              for i in members:
+                  p = pathlib.PurePosixPath(i.filename)
+                  assert not p.is_absolute() and '..' not in p.parts and '\\' not in i.filename
+                  assert (i.external_attr >> 16) & 0o170000 not in (0o120000, 0o060000)
+              assert z.testzip() is None
+              required = {'image.js','image.wasm','clean.js','clean.wasm',
+                          'image-output.sha256','clean-output.sha256','environment.txt',
+                          'admission.txt','budget.txt','cache-source.txt',
+                          'image-command.txt','clean-command.txt',
+                          'image-sdk-selected.txt','clean-sdk-selected.txt',
+                          'image-sdk-archives.tsv','clean-sdk-archives.tsv',
+                          'image.map','clean.map','five-custody-assets.tsv'}
+              assert required <= set(names)
+              z.extractall(root / 'input')
+          inp = root / 'input'
+          env = (inp / 'environment.txt').read_text()
+          for line in ('diagnostic_head=fbcc2be993b9d47fd062d7833cf52f4a630649f8',
+                       'source_head=0bb7c5237dc1b047de488d67ba30b5ed05c37383',
+                       'custody_head=1d77df7776dca44731ae8267092e480a78f9f735',
+                       'upstream_head=f955138e5218942fb3fb097a8fdcb725222406ff',
+                       'variant=eh'):
+              assert line in env.splitlines(), line
+          adm = (inp / 'admission.txt').read_text()
+          for line in ('product_admission=NO','source_build_admission=NO',
+                       'glue_legal_admission=NO'):
+              assert line in adm.splitlines(), line
+          budget = dict(line.split('=',1) for line in (inp / 'budget.txt').read_text().splitlines())
+          assert budget['receipt_budget_bytes'] == '419430400'
+          assert 0 < int(budget['candidate_bytes']) <= 419430400
+          cache = (inp / 'cache-source.txt').read_text()
+          assert 'clean_cache_empty_before_configure=YES' in cache
+          assert 'image_selected_cache_classification=WARM_EXACT' in cache
+          for cond, expected in [('image','3691935bf26fb246441d968c64352d1204faff11637766fc38653d0bb9217884'),
+                                 ('clean','d1899ce095b7431e8711ac10ead50a0229aac0aae2cc88f209b8d28ab0b1163e')]:
+              lines = (inp / f'{cond}-output.sha256').read_text().splitlines()
+              outputs = {pathlib.PurePosixPath(line.split('  ',1)[1]).name: line.split('  ',1)[0]
+                         for line in lines}
+              assert outputs[f'{cond}.wasm'] == expected
+              assert outputs[f'{cond}.js'] == 'fd610ecd2c58944726dc473ef8babc400581ae07df2a805b67f29a14b38695d3'
+              for name in (f'{cond}.js', f'{cond}.wasm'):
+                  assert hashlib.sha256((inp / name).read_bytes()).hexdigest() == outputs[name]
+              assert 'EM_CACHE=' in (inp / f'{cond}-command.txt').read_text()
+              selected = (inp / f'{cond}-sdk-selected.txt').read_text().splitlines()
+              archives = (inp / f'{cond}-sdk-archives.tsv').read_text().splitlines()
+              assert len(selected) == len(archives) == 9
+              assert len({line.split('\t',1)[0] for line in archives}) == 9
+              for line in archives:
+                  name, digest, members = line.split('\t')
+                  archive = inp / f'{cond}-bytes' / name
+                  listing = inp / 'member-lists' / f'{cond}-{name}.txt'
+                  assert hashlib.sha256(archive.read_bytes()).hexdigest() == digest
+                  assert hashlib.sha256(listing.read_bytes()).hexdigest() == members
+              assert (inp / f'{cond}.map').stat().st_size > 0
+          assert len((inp / 'five-custody-assets.tsv').read_text().splitlines()) == 5
+          PYZIP
+          condition='${{ matrix.condition }}'
+          wasm_digest="$(sha256sum "$RUNNER_TEMP/eh-input/input/$condition.wasm" | cut -d ' ' -f1)"
+          js_digest="$(sha256sum "$RUNNER_TEMP/eh-input/input/$condition.js" | cut -d ' ' -f1)"
+          {
+            printf 'schema=tundra-selected-eh-installed-semantic/v1\n'
+            printf 'admission=NO\nfull_EH_semantics=NO\ngenerated_JS_pair_admission=NO\n'
+            printf 'legal_source_build_admission=NO\nproduct_fleet_admission=NO\ninstalled_native_js_pair=AWAITING_SAME_RUN_BUILD\n'
+            printf 'consumer_head=%s\nproducer_head=%s\nproducer_run=%s\n' \
+              "$CONSUMER_HEAD" "$PRODUCER_HEAD" "$PRODUCER_RUN"
+            printf 'artifact_id=%s\nartifact_zip_sha256=%s\n' "$artifact" "$zip_digest"
+            printf 'condition=%s\nprofile=%s\nwasm_sha256=%s\ngenerated_js_sha256=%s\n' \
+              "$condition" '${{ matrix.profile }}' "$wasm_digest" "$js_digest"
+          } > "$RUNNER_TEMP/eh-semantic/source.txt"
+          cp "$RUNNER_TEMP/eh-input/input/"{image,clean}-output.sha256 "$RUNNER_TEMP/eh-semantic/"
+          cp "$RUNNER_TEMP/eh-input/input/"{environment,admission,budget,cache-source}.txt "$RUNNER_TEMP/eh-semantic/"
+      - name: Install Linux WebKitGTK and Tauri build prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          apt_bounded() {
+            local label="$1" limit="$2" attempt rc
+            shift 2
+            for attempt in 1 2; do
+              if timeout --signal=TERM --kill-after=20s "${limit}s" \
+                sudo -n env DEBIAN_FRONTEND=noninteractive apt-get \
+                -o DPkg::Lock::Timeout=60 -o Acquire::Retries=2 \
+                -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 "$@"; then
+                printf 'prereq=%s attempt=%s result=PASS\n' "$label" "$attempt" \
+                  >> "$RUNNER_TEMP/eh-semantic/prereq.txt"
+                return 0
+              else
+                rc=$?
+              fi
+              printf 'prereq=%s attempt=%s exit=%s\n' "$label" "$attempt" "$rc" \
+                >> "$RUNNER_TEMP/eh-semantic/prereq.txt"
+              if [[ "$attempt" -eq 2 || ( "$rc" -ne 100 && "$rc" -ne 124 ) ]]; then
+                return "$rc"
+              fi
+              sleep 10
+            done
+          }
+          apt_bounded update 180 update
+          apt_bounded base-install 300 install -y --no-install-recommends \
+            build-essential curl file libayatana-appindicator3-dev libgtk-3-dev \
+            librsvg2-dev libssl-dev libwebkit2gtk-4.1-dev libxdo-dev \
+            patchelf pkg-config wget xvfb dbus-x11
+          if [[ '${{ matrix.profile }}' == sounds ]]; then
+            apt_bounded sounds-install 180 install -y --no-install-recommends libasound2-dev
+          fi
+      - name: Install pinned build tools
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Install pinned UI and Tauri tools
+        shell: bash
+        run: |
+          cargo install trunk --version 0.21.14 --locked
+          cargo install tauri-cli --version 2.12.4 --locked
+          cargo install nu --version 0.108.0 --locked
+      - name: Rebuild EH worker from exact PR116 JS in this run
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C duckdb-upstream rev-parse HEAD)" = f955138e5218942fb3fb097a8fdcb725222406ff
+          test "$(git -C gate-source rev-parse HEAD)" = '${{ github.event.pull_request.head.sha || github.sha }}'
+          test "$(git -C gate-source hash-object .github/scripts/duckdb-bundle-selected-eh-pair.nu)" = \
+            38462643ec2d079202846447adda4bee302b5288
+          condition='${{ matrix.condition }}'
+          nu gate-source/.github/scripts/duckdb-bundle-selected-eh-pair.nu \
+            "$GITHUB_WORKSPACE/duckdb-upstream" \
+            "$RUNNER_TEMP/eh-input/input/$condition.js" "$condition" \
+            "$RUNNER_TEMP/eh-pair-worker" "$RUNNER_TEMP/eh-pair-receipt"
+          python3 - <<'PYPAIR'
+          import hashlib, json, os, pathlib
+          root = pathlib.Path(os.environ['RUNNER_TEMP'])
+          receipt = root / 'eh-pair-receipt'
+          source_map = json.loads((receipt / 'duckdb-browser-eh.worker.js.map').read_text())
+          matches = [content for path, content in zip(source_map['sources'], source_map['sourcesContent'])
+                     if path.endswith('/src/bindings/duckdb-eh.js')]
+          assert len(matches) == 1
+          assert hashlib.sha256(matches[0].encode()).hexdigest() == '2a45ebf0fbb2113f6bdf6fcd7c61c7d1f14d8edca6fe871831b295132fefa397'
+          meta = json.loads((receipt / 'worker-metafile.json').read_text())
+          inputs = [path for path in meta['inputs'] if path.endswith('/src/bindings/duckdb-eh.js')]
+          assert len(inputs) == 1 and meta['inputs'][inputs[0]]['bytes'] == len(matches[0].encode())
+          worker_outputs = [value for path, value in meta['outputs'].items()
+                            if path.endswith('/duckdb-browser-eh.worker.js')]
+          assert len(worker_outputs) == 1
+          assert worker_outputs[0]['inputs'][inputs[0]]['bytesInOutput'] > 0
+          PYPAIR
+          printf 'same_run_worker_built=YES\n' >> "$RUNNER_TEMP/eh-semantic/source.txt"
+          cp "$RUNNER_TEMP/eh-pair-receipt/"{pair.json,pair-worker.sha256,worker-metafile.json,duckdb-browser-eh.worker.js.map,archives.sha512} \
+            "$RUNNER_TEMP/eh-semantic/"
+          cp "$RUNNER_TEMP/eh-pair-worker/duckdb-browser-eh.worker.js" \
+            "$RUNNER_TEMP/eh-semantic/rebuilt-worker.js"
+          cp "$RUNNER_TEMP/eh-input/input/$condition.js" \
+            "$RUNNER_TEMP/eh-semantic/native-$condition.js"
+          cp "duckdb-upstream/packages/duckdb-wasm/src/bindings/duckdb-eh.js" \
+            "$RUNNER_TEMP/eh-semantic/rewritten-binding.js"
+          sha256sum gate-source/.github/scripts/duckdb-bundle-selected-eh-pair.nu \
+            > "$RUNNER_TEMP/eh-semantic/pair-script.sha256"
+      - name: Stage original runtime and install same-run EH worker and Wasm
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          nu scripts/fetch_duckdb_replacement.nu \
+            "$RUNNER_TEMP/duckdb-replacement" "$RUNNER_TEMP/duckdb-fetch"
+          nu scripts/stage_duckdb_runtime.nu app/leptos-ui/duckdb-runtime "$RUNNER_TEMP" \
+            "$RUNNER_TEMP/duckdb-replacement/matching-output"
+          cmp "$RUNNER_TEMP/duckdb-replacement/matching-output/duckdb-browser-eh.worker.js" \
+            app/leptos-ui/duckdb-runtime/duckdb-browser-eh.worker.js
+          cp "$RUNNER_TEMP/eh-pair-worker/duckdb-browser-eh.worker.js" \
+            app/leptos-ui/duckdb-runtime/duckdb-browser-eh.worker.js
+          sha256sum app/leptos-ui/duckdb-runtime/duckdb-browser-eh.worker.js \
+            > "$RUNNER_TEMP/eh-semantic/pinned-worker.sha256"
+          cmp "$RUNNER_TEMP/eh-pair-worker/duckdb-browser-eh.worker.js" \
+            app/leptos-ui/duckdb-runtime/duckdb-browser-eh.worker.js
+          cp "$RUNNER_TEMP/eh-input/input/${{ matrix.condition }}.wasm" \
+            app/leptos-ui/duckdb-runtime/duckdb-eh.wasm
+          sha256sum app/leptos-ui/duckdb-runtime/* \
+            > "$RUNNER_TEMP/eh-semantic/overlaid-assets.sha256"
+          test "$(sha256sum app/leptos-ui/duckdb-runtime/duckdb-eh.wasm | cut -d ' ' -f1)" = \
+            "$(sed -n 's/^wasm_sha256=//p' "$RUNNER_TEMP/eh-semantic/source.txt")"
+          echo 'Diagnostic replacement of EH worker and Wasm as one generated pair; original selected bill is inapplicable to the changed Wasm.' \
+            >> "$RUNNER_TEMP/eh-semantic/source.txt"
+      - name: Extend the existing forced-EH smoke with targeted SQL paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('app/tauri/src/main.rs')
+          source = path.read_text()
+          old = '    recovery_ok: bool,\n    smoke_error: Option<String>,'
+          new = '    recovery_ok: bool,\n    semantic_observed: Option<String>,\n    smoke_error: Option<String>,'
+          assert source.count(old) == 1
+          source = source.replace(old, new)
+          old = '            "recoveryOk": result.recovery_ok,\n'
+          new = old + '            "semanticObserved": result.semantic_observed.as_deref().unwrap_or("").chars().take(4096).collect::<String>(),\n'
+          assert source.count(old) == 1
+          source = source.replace(old, new)
+          old = '      result.ok = result.ok && result.exceptionOk;\n'
+          new = '''      // Test-only extension: every query uses the bridge's one retained connection.
+          const semantic = { cases: [], sameConnection: false,
+            recovery: false, targetedPathsOk: false };
+          const inspect = async (name, sql) => {
+            const value = JSON.parse(await bridge.query_duckdb(sql));
+            const error = value && !Array.isArray(value) &&
+              typeof value.error === 'string' ? value.error : '';
+            semantic.cases.push({ name, shape: Array.isArray(value) ? 'rows' :
+              (error ? 'error' : typeof value),
+              errorClass: (error.match(/(?:Parser|Catalog|Binder|Conversion|Invalid Input|Internal) Error/) || [])[0] || '',
+              rows: Array.isArray(value) ? value : [],
+              marker: error ? error.split(/\\r?\\n/, 1)[0].slice(0, 120) : '' });
+          };
+          await inspect('create-macro',
+            'CREATE MACRO eh_probe(x) AS TABLE SELECT x AS v');
+          await inspect('table-macro-ok', 'SELECT * FROM eh_probe(7)');
+          await inspect('table-macro-arity-error', 'SELECT * FROM eh_probe()');
+          await inspect('pragma-ok', 'PRAGMA version');
+          await inspect('pragma-error', 'PRAGMA eh_missing_pragma_6f86d081');
+          await inspect('aggregate-ok', 'SELECT sum(i) AS total FROM csp_probe');
+          await inspect('aggregate-error', "SELECT sum('eh_bad_number') FROM csp_probe");
+          await inspect('same-connection', 'SELECT * FROM eh_probe(11)');
+          await inspect('post-error-recovery', 'SELECT 42 AS alive');
+          semantic.sameConnection = JSON.stringify(semantic.cases.find(c =>
+            c.name === 'same-connection')?.rows) === JSON.stringify([{v:11}]);
+          semantic.recovery = JSON.stringify(semantic.cases.find(c =>
+            c.name === 'post-error-recovery')?.rows) === JSON.stringify([{alive:42}]);
+          const byName = name => semantic.cases.find(c => c.name === name);
+          semantic.targetedPathsOk =
+            byName('create-macro')?.shape === 'rows' &&
+            JSON.stringify(byName('table-macro-ok')?.rows) === JSON.stringify([{v:7}]) &&
+            byName('table-macro-arity-error')?.shape === 'error' &&
+            !!byName('table-macro-arity-error')?.errorClass &&
+            byName('pragma-ok')?.shape === 'rows' &&
+            byName('pragma-error')?.shape === 'error' &&
+            !!byName('pragma-error')?.errorClass &&
+            byName('aggregate-ok')?.shape === 'rows' &&
+            [3, '3', '"3"'].includes(byName('aggregate-ok')?.rows?.[0]?.total) &&
+            byName('aggregate-error')?.shape === 'error' &&
+            !!byName('aggregate-error')?.errorClass;
+          result.semanticObserved = JSON.stringify(semantic);
+          result.ok = result.ok && result.exceptionOk &&
+            semantic.sameConnection && semantic.recovery && semantic.targetedPathsOk;
+          '''
+          assert source.count(old) == 1
+          path.write_text(source.replace(old, new))
+          PY
+          sha256sum app/tauri/src/main.rs > "$RUNNER_TEMP/eh-semantic/test-harness.sha256"
+      - name: Build test-only default or sounds installer with EH candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd app/leptos-ui && trunk build --release --locked)
+          cmp app/leptos-ui/duckdb-runtime/duckdb-eh.wasm \
+            app/leptos-ui/dist/duckdb-runtime/duckdb-eh.wasm
+          cmp "$RUNNER_TEMP/eh-pair-worker/duckdb-browser-eh.worker.js" \
+            app/leptos-ui/duckdb-runtime/duckdb-browser-eh.worker.js
+          cmp app/leptos-ui/duckdb-runtime/duckdb-browser-eh.worker.js \
+            app/leptos-ui/dist/duckdb-runtime/duckdb-browser-eh.worker.js
+          if [[ '${{ matrix.profile }}' == sounds ]]; then
+            (cd app/tauri && cargo tauri build --bundles deb --features sounds)
+          else
+            (cd app/tauri && cargo tauri build --bundles deb)
+          fi
+          git diff --exit-code -- Cargo.lock
+          shopt -s nullglob
+          fingerprints=(target/release/.fingerprint/at-tauri-*/bin-auto-tundra.json)
+          test "${#fingerprints[@]}" -eq 1
+          cp "${fingerprints[0]}" "$RUNNER_TEMP/eh-semantic/profile-fingerprint.json"
+          if [[ '${{ matrix.profile }}' == sounds ]]; then
+            jq -e '(.features | fromjson | index("sounds")) != null' \
+              "$RUNNER_TEMP/eh-semantic/profile-fingerprint.json"
+          else
+            jq -e '(.features | fromjson | index("sounds")) == null' \
+              "$RUNNER_TEMP/eh-semantic/profile-fingerprint.json"
+          fi
+          debs=(target/release/bundle/deb/*.deb)
+          test "${#debs[@]}" -eq 1
+          mkdir -p "$RUNNER_TEMP/deb-root"
+          dpkg-deb -x "${debs[0]}" "$RUNNER_TEMP/deb-root"
+          mapfile -d '' bins < <(find "$RUNNER_TEMP/deb-root" -type f -name auto-tundra -print0)
+          test "${#bins[@]}" -eq 1
+          "${bins[0]}" --verify-embedded-assets app/leptos-ui/dist \
+            > "$RUNNER_TEMP/eh-semantic/embedded-assets.json"
+          candidate="$(sha256sum app/leptos-ui/duckdb-runtime/duckdb-eh.wasm | cut -d ' ' -f1)"
+          jq -e --arg digest "$candidate" \
+            '[.assets[] | select(.key == "duckdb-runtime/duckdb-eh.wasm" and
+              .dist_sha256 == $digest and .embedded_sha256 == $digest)] | length == 1' \
+            "$RUNNER_TEMP/eh-semantic/embedded-assets.json"
+          worker_digest="$(sha256sum "$RUNNER_TEMP/eh-pair-worker/duckdb-browser-eh.worker.js" | cut -d ' ' -f1)"
+          test "$worker_digest" = feec83f39202c08eb93e89df8c181bac32d4fb9ffb83a18bc277953e4d2945c4
+          test "$(sha256sum app/leptos-ui/duckdb-runtime/duckdb-browser-eh.worker.js | cut -d ' ' -f1)" = "$worker_digest"
+          test "$(sha256sum app/leptos-ui/dist/duckdb-runtime/duckdb-browser-eh.worker.js | cut -d ' ' -f1)" = "$worker_digest"
+          jq -e --arg digest "$worker_digest" \
+            '[.assets[] | select(.key == "duckdb-runtime/duckdb-browser-eh.worker.js" and
+              .dist_sha256 == $digest and .embedded_sha256 == $digest)] | length == 1' \
+            "$RUNNER_TEMP/eh-semantic/embedded-assets.json"
+          printf 'worker_source_dist_embedded_sha256=%s\n' "$worker_digest" \
+            >> "$RUNNER_TEMP/eh-semantic/source.txt"
+          sha256sum "${debs[0]}" "${bins[0]}" \
+            > "$RUNNER_TEMP/eh-semantic/installer.sha256"
+      - name: Retain same-build installed DuckDB notice and asset custody
+        shell: bash
+        env:
+          EH_CONDITION: ${{ matrix.condition }}
+          EH_PROFILE: ${{ matrix.profile }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PYNOTICE'
+          import hashlib, json, os, shutil
+          from pathlib import Path, PurePosixPath
+
+          def sha(path):
+              return hashlib.sha256(path.read_bytes()).hexdigest()
+
+          def unique_object(pairs):
+              result = {}
+              for key, value in pairs:
+                  assert key not in result, f'duplicate JSON key: {key}'
+                  result[key] = value
+              return result
+
+          temp = Path(os.environ['RUNNER_TEMP'])
+          receipt = temp / 'eh-semantic'
+          root = temp / 'deb-root'
+          source_ui = Path('app/tauri/third-party-licenses/ui')
+          source_assets = Path('app/leptos-ui/duckdb-runtime')
+          dist_assets = Path('app/leptos-ui/dist/duckdb-runtime')
+          debs = list(Path('target/release/bundle/deb').glob('*.deb'))
+          bin_candidates = list(root.rglob('auto-tundra'))
+          bins = [path for path in bin_candidates
+                  if path.is_file() and not path.is_symlink()]
+          assert len(debs) == 1, f'expected one built installer; found {len(debs)}'
+          assert len(bins) == 1, (
+              f'expected one regular non-symlink installed auto-tundra binary; '
+              f'found {len(bins)} among {len(bin_candidates)} named paths')
+          deb, binary = debs[0], bins[0]
+          assert binary.is_file() and not binary.is_symlink()
+          recorded = [line.split(maxsplit=1) for line in
+                      (receipt / 'installer.sha256').read_text().splitlines()]
+          assert len(recorded) == 2
+          assert recorded == [[sha(deb), str(deb)], [sha(binary), str(binary)]]
+
+          bill_source = source_ui / 'duckdb-runtime-selected-bill.json'
+          bill_matches = list(root.rglob('duckdb-runtime-selected-bill.json'))
+          assert len(bill_matches) == 1
+          bill_installed = bill_matches[0]
+          assert bill_installed.is_file() and not bill_installed.is_symlink()
+          assert bill_installed.read_bytes() == bill_source.read_bytes()
+          bill_hash = sha(bill_source)
+          assert bill_hash == '34381cba60c8922a159f578753b55531460792372f2d72b22769da205fe97790'
+          bill = json.loads(bill_installed.read_bytes(), object_pairs_hook=unique_object)
+          assert bill['schema'] == 'tundra-duckdb-selected-notice-bill/v2'
+          assert bill['admission'] == 'NO' and bill['profiles'] == ['default', 'sounds']
+          assert len(bill['assets']) == 5 and len(bill['attributions']) == 38
+          assert len(bill['texts']) == 36
+          assert len(bill['unresolved']) >= 2
+          text_prefix = 'third-party-licenses/ui/duckdb-runtime/'
+          text_names = []
+          text_digests = {}
+          raw = receipt / 'installed-notice-bytes'
+          raw.mkdir()
+          for entry in bill['texts']:
+              path = entry['file']
+              relative = PurePosixPath(path)
+              assert path.startswith(text_prefix) and len(relative.parts) == 4
+              assert relative.name not in ('', '.', '..') and '\\' not in path
+              assert path not in text_digests
+              src = Path('app/tauri') / path
+              installed = bill_installed.parent / 'duckdb-runtime' / relative.name
+              assert src.is_file() and not src.is_symlink()
+              assert installed.is_file() and not installed.is_symlink()
+              assert src.read_bytes() == installed.read_bytes()
+              assert sha(src) == entry['sha256']
+              shutil.copyfile(installed, raw / relative.name)
+              text_names.append(relative.name)
+              text_digests[path] = entry['sha256']
+          assert len(set(text_names)) == 36
+          expected = set(text_names)
+          for directory in (source_ui / 'duckdb-runtime',
+                            bill_installed.parent / 'duckdb-runtime', raw):
+              assert directory.is_dir() and not directory.is_symlink()
+              assert {p.name for p in directory.iterdir()} == expected
+              assert all(p.is_file() and not p.is_symlink() for p in directory.iterdir())
+          seen_attributions = set()
+          for attribution in bill['attributions']:
+              key = tuple(attribution[k] for k in
+                          ('surface', 'component', 'source_url', 'file'))
+              assert key not in seen_attributions
+              seen_attributions.add(key)
+              assert attribution['license_or_role'].strip()
+              assert text_digests[attribution['file']] == attribution['source_sha256']
+          assert len(seen_attributions) == 38
+          for old in ('DuckDB-Wasm-MIT.txt', 'Apache-Arrow-13-LICENSE.txt',
+                      'Apache-Arrow-13-NOTICE.txt', 'tslib-0BSD.txt',
+                      'tslib-CopyrightNotice.txt', 'FlatBuffers-LICENSE.txt',
+                      'js-sha256-MIT.txt', 'duckdb-runtime-bill.json'):
+              assert not (source_ui / old).exists()
+              assert not (bill_installed.parent / old).exists()
+          shutil.copyfile(bill_installed, receipt / 'installed-selected-bill.json')
+          (receipt / 'installed-notices.tsv').write_text(''.join(
+              f'{text_digests[path]}\t{path}\n' for path in sorted(text_digests)))
+
+          embedded = json.loads((receipt / 'embedded-assets.json').read_bytes(),
+                                object_pairs_hook=unique_object)
+          assert embedded['schema'] == 'tundra-embedded-assets/v1'
+          embedded_by_key = {item['key']: item for item in embedded['assets']}
+          assert len(embedded_by_key) == len(embedded['assets'])
+          bill_assets = {item['path']: item['sha256'] for item in bill['assets']}
+          assert len(bill_assets) == 5
+          expected_assets = {'duckdb-browser.mjs', 'duckdb-browser-mvp.worker.js',
+                             'duckdb-browser-eh.worker.js', 'duckdb-mvp.wasm',
+                             'duckdb-eh.wasm'}
+          assert set(p.name for p in source_assets.iterdir()) == expected_assets
+          assert set(p.name for p in dist_assets.iterdir()) == expected_assets
+          assert set(bill_assets) == {f'duckdb-runtime/{name}' for name in expected_assets}
+          expected_wasm = {
+              'image': '3691935bf26fb246441d968c64352d1204faff11637766fc38653d0bb9217884',
+              'clean': 'd1899ce095b7431e8711ac10ead50a0229aac0aae2cc88f209b8d28ab0b1163e',
+          }[os.environ['EH_CONDITION']]
+          assets = {}
+          for name in sorted(expected_assets):
+              key = f'duckdb-runtime/{name}'
+              src, dist = source_assets / name, dist_assets / name
+              assert src.is_file() and dist.is_file()
+              assert not src.is_symlink() and not dist.is_symlink()
+              assert src.read_bytes() == dist.read_bytes()
+              digest = sha(src)
+              if name == 'duckdb-eh.wasm':
+                  assert digest == expected_wasm
+              else:
+                  assert digest == bill_assets[key]
+              entry = embedded_by_key[key]
+              assert entry['transform'] == 'identity'
+              assert entry['dist_sha256'] == entry['embedded_sha256'] == digest
+              assert entry['dist_bytes'] == entry['embedded_bytes'] == src.stat().st_size
+              assets[key] = digest
+          (receipt / 'installed-five-assets.tsv').write_text(''.join(
+              f'{digest}\t{key}\n' for key, digest in sorted(assets.items())))
+          producer = temp / 'eh-input/input'
+          condition = os.environ['EH_CONDITION']
+          selected = []
+          for line in (producer / f'{condition}-sdk-archives.tsv').read_text().splitlines():
+              name, archive_hash, member_list_hash = line.split('\t')
+              archive = producer / f'{condition}-bytes' / name
+              members = producer / 'member-lists' / f'{condition}-{name}.txt'
+              assert name.endswith('.a') and '/' not in name and len(archive_hash) == 64
+              assert sha(archive) == archive_hash and sha(members) == member_list_hash
+              selected.append({'name': name, 'archive_sha256': archive_hash,
+                               'member_list_sha256': member_list_hash})
+          assert len(selected) == len({item['name'] for item in selected}) == 9
+          arrow_rows = [line.split('=', 1) for line in
+                        (producer / f'{condition}-arrow.txt').read_text().splitlines()]
+          assert len(arrow_rows) == 2 and all(len(row) == 2 for row in arrow_rows)
+          assert {row[0] for row in arrow_rows} == {'archive', 'sha256'}
+          arrow_lines = dict(arrow_rows)
+          arrow_hash = arrow_lines['sha256']
+          assert len(arrow_hash) == 64 and all(c in '0123456789abcdef' for c in arrow_hash)
+          candidate_rows = [line.split('\t') for line in
+                            (producer / f'{condition}-arrow-source-objects.tsv').read_text().splitlines()]
+          assert len(candidate_rows) == 2 and all(len(row) == 2 for row in candidate_rows)
+          assert len({row[0] for row in candidate_rows}) == 2
+          arrow_candidates = dict(candidate_rows)
+          assert set(arrow_candidates) == {'array/util.cc.o', 'compute/util.cc.o'}
+          assert all(len(value) == 64 and all(c in '0123456789abcdef' for c in value)
+                     for value in arrow_candidates.values())
+          assert (producer / f'{condition}-arrow-members.txt').read_text().splitlines().count('util.cc.o') == 2
+          source_evidence = {}
+          for name in ('upstream-legal-texts.tar.gz', 'sdk-archive-recipe-source.tar.gz',
+                       f'{condition}-js-glue-source-bytes.tar.gz',
+                       'sdk-system-legal-texts.tar.gz'):
+              file = producer / name
+              assert file.is_file() and file.stat().st_size > 0
+              source_evidence[name] = sha(file)
+              recorded_source_hash = (producer / f'{name.removesuffix(".tar.gz")}.sha256').read_text().split()[0]
+              assert source_evidence[name] == recorded_source_hash
+          map_hash = sha(producer / f'{condition}.map')
+          output_hashes = (producer / f'{condition}-output.sha256').read_text().splitlines()
+          assert len([line for line in output_hashes if
+                      line.split(maxsplit=1)[0] == map_hash and
+                      Path(line.split(maxsplit=1)[1]).name == f'{condition}.map']) == 1
+          native = {
+              'producer_artifact_id': 12638297806,
+              'producer_artifact_zip_sha256': '21b7db5bdbee90431c8c17c341faa823f213efb1d1bcfab66f18d0c18e6ac166',
+              'selected_link_map_sha256': map_hash,
+              'selected_sdk_archives': selected,
+              'arrow_archive_sha256_producer_attested': arrow_hash,
+              'arrow_archive_bytes_retained': 'NO',
+              'arrow_duplicate_util_member_candidate_hashes_producer_attested': arrow_candidates,
+              'source_evidence_archive_sha256': source_evidence,
+              'physical_archive_scope': 'nine_selected_sdk_archives_only',
+              'other_selected_project_archive_physical_hashes': 'NOT_RETAINED',
+              'source_build_admission': 'NO', 'glue_legal_admission': 'NO',
+              'arrow_original_member_instance': 'AMBIGUOUS',
+          }
+          exact_bill = {
+              'schema': 'tundra-duckdb-exact-eh-package-selected-bill/v1',
+              'admission': 'NO', 'condition': condition,
+              'profile': os.environ['EH_PROFILE'],
+              'consumer_head': os.environ['CONSUMER_HEAD'],
+              'producer_head': os.environ['PRODUCER_HEAD'],
+              'producer_run': int(os.environ['PRODUCER_RUN']),
+              'installer_sha256': sha(deb), 'installed_elf_sha256': sha(binary),
+              'installed_pr119_bill_sha256': bill_hash,
+              'assets': [{'path': key, 'sha256': digest} for key, digest in sorted(assets.items())],
+              'attributions': bill['attributions'], 'texts': bill['texts'],
+              'native_evidence': native,
+              'source_texts_upstream_reverified_this_run': 'NO',
+              'selected_dependency_inventory_admission': 'NO',
+              'full_EH_semantics': 'NO', 'product_fleet_admission': 'NO',
+              'unresolved': bill['unresolved'] + [
+                  'PR116 project archive physical hashes and original Arrow util.cc.o occurrence are not fully bound',
+                  'Generated JavaScript glue licensing and native source-build equivalence remain unproved',
+              ],
+          }
+          (receipt / 'exact-package-selected-bill.json').write_text(
+              json.dumps(exact_bill, sort_keys=True, indent=2) + '\n')
+          manifest = {
+              'schema': 'tundra-eh-installed-notice-custody/v1',
+              'admission': 'NO', 'full_EH_semantics': 'NO',
+              'source_build_admission': 'NO', 'glue_legal_admission': 'NO',
+              'arrow_original_member_instance': 'AMBIGUOUS',
+              'condition': os.environ['EH_CONDITION'],
+              'profile': os.environ['EH_PROFILE'],
+              'consumer_head': os.environ['CONSUMER_HEAD'],
+              'producer_head': os.environ['PRODUCER_HEAD'],
+              'producer_run': int(os.environ['PRODUCER_RUN']),
+              'installer_sha256': sha(deb), 'installed_elf_sha256': sha(binary),
+              'installed_bill_sha256': bill_hash,
+              'exact_package_selected_bill_sha256': sha(receipt / 'exact-package-selected-bill.json'),
+              'installed_attributions': 38, 'installed_texts': text_digests,
+              'installed_assets': assets,
+          }
+          (receipt / 'installed-legal-custody.json').write_text(
+              json.dumps(manifest, sort_keys=True, indent=2) + '\n')
+          PYNOTICE
+      - name: Run forced EH in installed WebKitGTK
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -d '' bins < <(find "$RUNNER_TEMP/deb-root" -type f -name auto-tundra -print0)
+          test "${#bins[@]}" -eq 1
+          elf_sha="$(sha256sum "${bins[0]}" | cut -d ' ' -f1)"
+          home="$RUNNER_TEMP/eh-smoke-home"
+          mkdir -p "$home/home" "$home/config" "$home/data" "$home/cache"
+          set +e
+          dbus-run-session -- xvfb-run -a -s '-screen 0 1280x800x24' \
+            env HOME="$home/home" XDG_CONFIG_HOME="$home/config" \
+              XDG_DATA_HOME="$home/data" XDG_CACHE_HOME="$home/cache" \
+              TUNDRA_SMOKE_HEAD_SHA="$CONSUMER_HEAD" \
+              TUNDRA_SMOKE_PROFILE='${{ matrix.profile }}' \
+              TUNDRA_SMOKE_VARIANT=eh TUNDRA_SMOKE_ELF_SHA256="$elf_sha" \
+              http_proxy=http://127.0.0.1:9 https_proxy=http://127.0.0.1:9 \
+              HTTP_PROXY=http://127.0.0.1:9 HTTPS_PROXY=http://127.0.0.1:9 \
+              NO_PROXY=localhost,127.0.0.1,tauri.localhost \
+            timeout 150s "${bins[0]}" --smoke-duckdb eh \
+            > "$RUNNER_TEMP/eh-semantic/webkit.stdout" \
+            2> "$RUNNER_TEMP/eh-semantic/webkit.stderr"
+          status=$?
+          set -e
+          printf 'exit_status=%s\ninstalled_elf_sha256=%s\n' "$status" "$elf_sha" \
+            >> "$RUNNER_TEMP/eh-semantic/source.txt"
+          awk 'index($0, "TUNDRA_DUCKDB_SMOKE:") == 1 {
+            print substr($0, length("TUNDRA_DUCKDB_SMOKE:") + 1)
+          }' "$RUNNER_TEMP/eh-semantic/webkit.stdout" \
+            > "$RUNNER_TEMP/eh-semantic/webkit.json"
+          test "$(wc -l < "$RUNNER_TEMP/eh-semantic/webkit.json")" -eq 1
+          jq -e --arg head "$CONSUMER_HEAD" --arg elf "$elf_sha" \
+            --arg profile '${{ matrix.profile }}' '
+            .schema == "tundra-duckdb-webkit-smoke/v1" and
+            .head_sha == $head and .profile == $profile and
+            .installed_elf_sha256 == $elf and .requested_variant == "eh" and
+            .result.variant == "eh" and .ok == true and .result.ok == true and
+            .result.exceptionOk == true and .result.cspDenied == true and
+            .result.cspViolations == [] and .result.localRuntime == true and
+            .result.remoteRequests == 0 and
+            (.result.semanticObserved | fromjson | .sameConnection and .recovery and
+              .targetedPathsOk and
+              (.cases | length == 9))' "$RUNNER_TEMP/eh-semantic/webkit.json"
+          test "$status" -eq 0
+          printf 'installed_native_js_pair=SAME_RUN_WORKER_REBUILT_AND_INSTALLED\n' \
+            >> "$RUNNER_TEMP/eh-semantic/source.txt"
+      - name: Enforce bounded diagnostic receipt
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/eh-semantic"
+          mkdir -p "$out"
+          cap=16777216
+          candidate="$(du -sb "$out" | cut -f1)"
+          if test "$candidate" -gt "$((cap - 1024))"; then
+            mkdir -p "$RUNNER_TEMP/eh-refusal"
+            printf 'schema=tundra-eh-pair-receipt-refusal/v1\nproduct_admission=NO\nreceipt_upload=NO\nobserved_bytes=%s\ncap_bytes=%s\n' \
+              "$candidate" "$cap" > "$RUNNER_TEMP/eh-refusal/refusal.txt"
+            mv "$out" "$RUNNER_TEMP/eh-quarantine"
+            exit 1
+          fi
+          printf 'schema=tundra-eh-pair-receipt-budget/v1\nproduct_admission=NO\nreceipt_upload=YES\ncandidate_bytes=%s\ncap_bytes=%s\n' \
+            "$candidate" "$cap" > "$out/receipt-budget.txt"
+      - name: Retain diagnostic receipts, not package bytes
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: duckdb-eh-pair-${{ matrix.condition }}-${{ matrix.profile }}
+          path: ${{ runner.temp }}/eh-semantic/
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Retain bounded receipt refusal
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: duckdb-eh-pair-refusal-${{ matrix.condition }}-${{ matrix.profile }}
+          path: ${{ runner.temp }}/eh-refusal/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  compare-selected-eh-webkit-semantics:
+    name: Compare four installed EH observations
+    if: always()
+    needs: selected-eh-webkit-semantic-trial
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+    steps:
+      - name: Read exact-run trial receipts and compare observations
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/eh-compare"
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --pattern 'duckdb-eh-pair-*' --dir "$RUNNER_TEMP/eh-compare"
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          def unique_object(pairs):
+              result = {}
+              for key, value in pairs:
+                  assert key not in result, f'duplicate JSON key: {key}'
+                  result[key] = value
+              return result
+          root = Path(os.environ['RUNNER_TEMP']) / 'eh-compare'
+          observed = {}
+          installation = {}
+          for condition in ('image', 'clean'):
+              for profile in ('default', 'sounds'):
+                  directory = root / f'duckdb-eh-pair-{condition}-{profile}'
+                  source = (directory / 'source.txt').read_text()
+                  assert 'admission=NO\n' in source
+                  assert 'producer_head=fbcc2be993b9d47fd062d7833cf52f4a630649f8\n' in source
+                  assert 'producer_run=40294462862\n' in source
+                  assert 'artifact_id=12638297806\n' in source
+                  assert 'artifact_zip_sha256=21b7db5bdbee90431c8c17c341faa823f213efb1d1bcfab66f18d0c18e6ac166\n' in source
+                  assert f'profile={profile}\n' in source
+                  assert f'condition={condition}\n' in source
+                  expected_wasm = {
+                      'image': '3691935bf26fb246441d968c64352d1204faff11637766fc38653d0bb9217884',
+                      'clean': 'd1899ce095b7431e8711ac10ead50a0229aac0aae2cc88f209b8d28ab0b1163e',
+                  }[condition]
+                  assert f'wasm_sha256={expected_wasm}\n' in source
+                  assert 'generated_js_sha256=fd610ecd2c58944726dc473ef8babc400581ae07df2a805b67f29a14b38695d3\n' in source
+                  assert 'installed_native_js_pair=AWAITING_SAME_RUN_BUILD\n' in source
+                  assert 'installed_native_js_pair=SAME_RUN_WORKER_REBUILT_AND_INSTALLED\n' in source
+                  assert 'full_EH_semantics=NO\n' in source
+                  pair = json.loads((directory / 'pair.json').read_text())
+                  assert pair['schema'] == 'tundra-eh-same-run-worker-pair/v1'
+                  assert pair['condition'] == condition
+                  assert pair['upstream_head'] == 'f955138e5218942fb3fb097a8fdcb725222406ff'
+                  assert pair['native_js_sha256'] == 'fd610ecd2c58944726dc473ef8babc400581ae07df2a805b67f29a14b38695d3'
+                  assert pair['rewritten_js_sha256'] == '2a45ebf0fbb2113f6bdf6fcd7c61c7d1f14d8edca6fe871831b295132fefa397'
+                  assert pair['worker_sha256'] == 'feec83f39202c08eb93e89df8c181bac32d4fb9ffb83a18bc277953e4d2945c4'
+                  assert f"worker_source_dist_embedded_sha256={pair['worker_sha256']}\n" in source
+                  budget = dict(line.split('=', 1) for line in
+                                (directory / 'receipt-budget.txt').read_text().splitlines())
+                  assert budget['product_admission'] == 'NO'
+                  assert budget['receipt_upload'] == 'YES'
+                  assert int(budget['candidate_bytes']) <= int(budget['cap_bytes']) - 1024
+                  custody = json.loads((directory / 'installed-legal-custody.json').read_text(),
+                                       object_pairs_hook=unique_object)
+                  assert custody['schema'] == 'tundra-eh-installed-notice-custody/v1'
+                  assert custody['admission'] == custody['full_EH_semantics'] == 'NO'
+                  assert custody['source_build_admission'] == custody['glue_legal_admission'] == 'NO'
+                  assert custody['arrow_original_member_instance'] == 'AMBIGUOUS'
+                  assert custody['condition'] == condition and custody['profile'] == profile
+                  assert custody['consumer_head'] == 'ad0df7182cd4c9ea4a83bac04e5901de0218d9d0'
+                  assert custody['producer_head'] == 'fbcc2be993b9d47fd062d7833cf52f4a630649f8'
+                  assert custody['producer_run'] == 40294462862
+                  hashes = [line.split(maxsplit=1)[0] for line in
+                            (directory / 'installer.sha256').read_text().splitlines()]
+                  assert len(hashes) == 2
+                  assert hashes == [custody['installer_sha256'], custody['installed_elf_sha256']]
+                  bill_bytes = (directory / 'installed-selected-bill.json').read_bytes()
+                  assert hashlib.sha256(bill_bytes).hexdigest() == custody['installed_bill_sha256']
+                  assert custody['installed_bill_sha256'] == '34381cba60c8922a159f578753b55531460792372f2d72b22769da205fe97790'
+                  bill = json.loads(bill_bytes, object_pairs_hook=unique_object)
+                  assert bill['schema'] == 'tundra-duckdb-selected-notice-bill/v2'
+                  assert len(bill['attributions']) == custody['installed_attributions'] == 38
+                  assert len(bill['texts']) == len(custody['installed_texts']) == 36
+                  assert {item['file']: item['sha256'] for item in bill['texts']} == custody['installed_texts']
+                  raw = directory / 'installed-notice-bytes'
+                  assert {p.name for p in raw.iterdir()} == {
+                      Path(path).name for path in custody['installed_texts']}
+                  assert all(p.is_file() and not p.is_symlink() for p in raw.iterdir())
+                  for path, digest in custody['installed_texts'].items():
+                      assert hashlib.sha256((raw / Path(path).name).read_bytes()).hexdigest() == digest
+                  assert (directory / 'installed-notices.tsv').read_text() == ''.join(
+                      f'{digest}\t{path}\n' for path, digest in
+                      sorted(custody['installed_texts'].items()))
+                  assets = custody['installed_assets']
+                  assert set(assets) == {
+                      'duckdb-runtime/duckdb-browser.mjs',
+                      'duckdb-runtime/duckdb-browser-mvp.worker.js',
+                      'duckdb-runtime/duckdb-browser-eh.worker.js',
+                      'duckdb-runtime/duckdb-mvp.wasm',
+                      'duckdb-runtime/duckdb-eh.wasm',
+                  }
+                  old_assets = {item['path']: item['sha256'] for item in bill['assets']}
+                  assert len(old_assets) == 5
+                  assert all(assets[key] == digest for key, digest in old_assets.items()
+                             if key != 'duckdb-runtime/duckdb-eh.wasm')
+                  assert assets['duckdb-runtime/duckdb-eh.wasm'] == expected_wasm
+                  assert assets['duckdb-runtime/duckdb-browser-eh.worker.js'] == pair['worker_sha256']
+                  embedded = json.loads((directory / 'embedded-assets.json').read_text(),
+                                        object_pairs_hook=unique_object)
+                  assert all(len([item for item in embedded['assets'] if item['key'] == key and
+                                  item['transform'] == 'identity' and
+                                  item['dist_sha256'] == digest and
+                                  item['embedded_sha256'] == digest]) == 1
+                             for key, digest in assets.items())
+                  assert (directory / 'installed-five-assets.tsv').read_text() == ''.join(
+                      f'{digest}\t{key}\n' for key, digest in sorted(assets.items()))
+                  exact_bytes = (directory / 'exact-package-selected-bill.json').read_bytes()
+                  assert hashlib.sha256(exact_bytes).hexdigest() == custody['exact_package_selected_bill_sha256']
+                  exact = json.loads(exact_bytes, object_pairs_hook=unique_object)
+                  assert exact['schema'] == 'tundra-duckdb-exact-eh-package-selected-bill/v1'
+                  assert exact['admission'] == exact['full_EH_semantics'] == 'NO'
+                  assert exact['selected_dependency_inventory_admission'] == 'NO'
+                  assert exact['product_fleet_admission'] == 'NO'
+                  assert exact['source_texts_upstream_reverified_this_run'] == 'NO'
+                  assert exact['condition'] == condition and exact['profile'] == profile
+                  assert exact['consumer_head'] == custody['consumer_head']
+                  assert exact['producer_head'] == custody['producer_head']
+                  assert exact['producer_run'] == custody['producer_run']
+                  assert exact['installer_sha256'] == custody['installer_sha256']
+                  assert exact['installed_elf_sha256'] == custody['installed_elf_sha256']
+                  assert exact['installed_pr119_bill_sha256'] == custody['installed_bill_sha256']
+                  assert exact['attributions'] == bill['attributions'] and exact['texts'] == bill['texts']
+                  assert len(exact['assets']) == 5
+                  assert {item['path']: item['sha256'] for item in exact['assets']} == assets
+                  native = exact['native_evidence']
+                  assert native['producer_artifact_id'] == 12638297806
+                  assert native['producer_artifact_zip_sha256'] == '21b7db5bdbee90431c8c17c341faa823f213efb1d1bcfab66f18d0c18e6ac166'
+                  assert native['physical_archive_scope'] == 'nine_selected_sdk_archives_only'
+                  assert native['other_selected_project_archive_physical_hashes'] == 'NOT_RETAINED'
+                  assert native['arrow_archive_bytes_retained'] == 'NO'
+                  assert native['source_build_admission'] == native['glue_legal_admission'] == 'NO'
+                  assert native['arrow_original_member_instance'] == 'AMBIGUOUS'
+                  assert len(native['selected_sdk_archives']) == 9
+                  assert set(native['arrow_duplicate_util_member_candidate_hashes_producer_attested']) == {
+                      'array/util.cc.o', 'compute/util.cc.o'}
+                  assert len(native['source_evidence_archive_sha256']) == 4
+                  for name, expected in (
+                      (f'native-{condition}.js', pair['native_js_sha256']),
+                      ('rewritten-binding.js', pair['rewritten_js_sha256']),
+                      ('rebuilt-worker.js', pair['worker_sha256']),
+                  ):
+                      assert hashlib.sha256((directory / name).read_bytes()).hexdigest() == expected
+                  receipt = json.loads((directory / 'webkit.json').read_text())
+                  result = receipt['result']
+                  assert receipt['ok'] and result['ok']
+                  assert receipt['requested_variant'] == result['variant'] == 'eh'
+                  assert result['cspDenied'] and not result['cspViolations']
+                  assert result['localRuntime'] and result['remoteRequests'] == 0
+                  semantic = json.loads(result['semanticObserved'])
+                  assert semantic['sameConnection'] and semantic['recovery']
+                  assert semantic['targetedPathsOk'] and len(semantic['cases']) == 9
+                  worker_sha = (directory / 'pinned-worker.sha256').read_text().split()[0]
+                  assert worker_sha == pair['worker_sha256']
+                  elf_sha = next(line.split('=', 1)[1] for line in source.splitlines()
+                                 if line.startswith('installed_elf_sha256='))
+                  assert elf_sha == receipt['installed_elf_sha256']
+                  installation[(condition, profile)] = {
+                      'worker_sha256': worker_sha,
+                      'installed_elf_sha256': elf_sha,
+                      'installer_sha256': (directory / 'installer.sha256').read_text(),
+                      'overlaid_assets_sha256': (directory / 'overlaid-assets.sha256').read_text(),
+                  }
+                  observed[(condition, profile)] = {
+                      'semantic': semantic,
+                      'parser_catalog': result['rejectionProbes'],
+                      'aggregate': result['aggregateObserved'],
+                      'answer': result['answer'],
+                      'absent_is_null': result['absentIsNull'],
+                  }
+          baseline = observed[('image', 'default')]
+          differences = [f'{condition}-{profile}' for (condition, profile), value
+                         in observed.items() if value != baseline]
+          worker_digests = {cell['worker_sha256'] for cell in installation.values()}
+          output = root / 'comparison.json'
+          output.write_text(json.dumps({
+              'schema': 'tundra-eh-exact-pair-installed-compare/v1',
+              'admission': 'NO',
+              'producer_run': 40294462862,
+              'compared': [f'{c}-{p}' for c, p in observed],
+              'observed': {f'{c}-{p}': value for (c, p), value in observed.items()},
+              'installation': {f'{c}-{p}': value for (c, p), value in installation.items()},
+              'differences_from_image_default': differences,
+              'equal': not differences and len(worker_digests) == 1,
+              'installed_native_js_pair': 'SAME_RUN_WORKER_REBUILT_AND_INSTALLED',
+              'full_EH_semantics': 'NO',
+              'product_fleet_admission': 'NO',
+          }, sort_keys=True, indent=2) + '\n')
+          assert not differences, f'EH semantic mismatch: {differences}'
+          assert len(worker_digests) == 1, 'Pinned installed EH worker changed across cells'
+          PY
+      - name: Retain comparison receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: duckdb-eh-pair-comparison
+          path: ${{ runner.temp }}/eh-compare/comparison.json
+          if-no-files-found: warn
+          retention-days: 14
