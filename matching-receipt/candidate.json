@@ -1,0 +1,8 @@
+{
+  "source_commit": "f955138e5218942fb3fb097a8fdcb725222406ff",
+  "tagged_package_version": "1.11.0",
+  "native_wasm_mvp_sha256": "7cf852dcc3c399f34330072a422679f2a5b7fc58c5839d3de0035fc68d9b7791",
+  "native_wasm_eh_sha256": "d71b7e4575c98b87e09ac799c574d770aa5ee4df5e6c6cf36b6e277d92b8d2c2",
+  "coi_built": false,
+  "admission": "NO"
+}

@@ -1,0 +1,316 @@
+{
+  "admission": "NO",
+  "artifact": {
+    "artifact_id": 12607318747,
+    "producer_head": "7182d3f1b51cf643f73d40f15b576006accddd7d",
+    "repo": "ryanmaclean/tundra",
+    "run_id": 40217360882,
+    "zip_crc": "all_passed",
+    "zip_entries": 35,
+    "zip_sha256": "be8fade74d4dda4b5eae20fc3f906370f6fd9fc82e606810a469b24affa5e7b5"
+  },
+  "assets": {
+    "duckdb-runtime/duckdb-browser-eh.worker.js": {
+      "git_blob": "7d203fea20e8ed32b5930db1c0fc5bad5552c647",
+      "sha256": "feec83f39202c08eb93e89df8c181bac32d4fb9ffb83a18bc277953e4d2945c4",
+      "size": 265658,
+      "zip_entry": "matching-output/duckdb-browser-eh.worker.js"
+    },
+    "duckdb-runtime/duckdb-browser-mvp.worker.js": {
+      "git_blob": "c5cc6e8987db9f14fc52d9e6d8939c64e98f4d75",
+      "sha256": "d7920b73954d99ffa59175db35fe24e7936f8a003144386686b53c853c46eaef",
+      "size": 318515,
+      "zip_entry": "matching-output/duckdb-browser-mvp.worker.js"
+    },
+    "duckdb-runtime/duckdb-browser.mjs": {
+      "git_blob": "75f3d1df7ecbb27e5aee44ead7c5380281d3d269",
+      "sha256": "8ccf3fe3c6bd87d5c3e397f01d40cc11ea6373b016a9cf5e954d39ee22c3aa49",
+      "size": 204153,
+      "zip_entry": "matching-output/duckdb-browser.mjs"
+    },
+    "duckdb-runtime/duckdb-eh.wasm": {
+      "git_blob": "a4a84b21887a3747e7e574b2950ac9914d0e1b61",
+      "sha256": "d71b7e4575c98b87e09ac799c574d770aa5ee4df5e6c6cf36b6e277d92b8d2c2",
+      "size": 18042658,
+      "zip_entry": "matching-output/duckdb-eh.wasm"
+    },
+    "duckdb-runtime/duckdb-mvp.wasm": {
+      "git_blob": "19c57576304c6f0d69da29d8a078f3f0df074ff5",
+      "sha256": "7cf852dcc3c399f34330072a422679f2a5b7fc58c5839d3de0035fc68d9b7791",
+      "size": 22078870,
+      "zip_entry": "matching-output/duckdb-mvp.wasm"
+    }
+  },
+  "fetch_contract": "Consumers must pin the immutable custody commit ID, rehash five assets, exact bill/texts and all six producer receipts, inspect the three metafiles for the admitted external-import shape, and preserve producer run/head without restating the custody commit as producer.",
+  "legal": {
+    "attribution_count": 38,
+    "bill_git_blob": "56922b9dd3ac6f961891949f1962c307064431df",
+    "bill_path": "third-party-licenses/ui/duckdb-runtime-selected-bill.json",
+    "bill_sha256": "34381cba60c8922a159f578753b55531460792372f2d72b22769da205fe97790",
+    "source_head": "1ccac98a3cfe7a7b1e28b900761d81b94fa5f64f",
+    "source_pr": 119,
+    "text_count": 36,
+    "texts": {
+      "third-party-licenses/ui/duckdb-runtime/browser-flatbuffers-23.5.26-LICENSE": {
+        "git_blob": "d645695673349e3947e8e5ae42332d0ac3164cd7",
+        "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+        "size": 11358,
+        "source_commit": "1ccac98a3cfe7a7b1e28b900761d81b94fa5f64f"
+      },
+      "third-party-licenses/ui/duckdb-runtime/browser-js-sha256-0.9.0-LICENSE.txt": {
+        "git_blob": "04498ccb1502764cc4f59921478f9712aa3324ac",
+        "sha256": "03e598437c73d8eae2b341910d42df85860405ed879264f3fd37dfaa5a63fee6",
+        "size": 1076,
+        "source_commit": "1ccac98a3cfe7a7b1e28b900761d81b94fa5f64f"
+      },
+      "third-party-licenses/ui/duckdb-runtime/browser-tslib-2.6.2-CopyrightNotice.txt": {
+        "git_blob": "0e42542369729ec05635e54491d177e86ccea100",
+        "sha256": "da16ddb65f8ca390998fb99223d0112498b56b45784d00afd77ff8ce1ac4de8b",
+        "size": 822,
+        "source_commit": "1ccac98a3cfe7a7b1e28b900761d81b94fa5f64f"
+      },
+      "third-party-licenses/ui/duckdb-runtime/browser-tslib-2.6.2-LICENSE.txt": {
+        "git_blob": "bfe6430cb0d83f34f5ed859d118dd3dc8ec1f7e8",
+        "sha256": "210b19e543130388c68654b7497e967119ce17145f66ab7d85688fbd70f08751",
+        "size": 655,
+        "source_commit": "1ccac98a3cfe7a7b1e28b900761d81b94fa5f64f"
+      },
+      "third-party-licenses/ui/duckdb-runtime/browser-wasm-feature-detect-1.5.1-LICENSE": {
+        "git_blob": "12b597d3c138941bde65a6b1d20ffc5f5d87b7c2",
+        "sha256": "bcf29b4fd3ec2cb5f9d40a0866da446f6da62170d2ccedf4aeca9cf9406dd20c",
+        "size": 11341,
+        "source_commit": "1ccac98a3cfe7a7b1e28b900761d81b94fa5f64f"
+      },
+      "third-party-licenses/ui/duckdb-runtime/native-arrow-license.txt": {
+        "git_blob": "c2b0a996fedd166caf4df1fa743807af9eac648f",
+        "sha256": "6d26daef86611d1ea2fdf74d900886aa27c46249f018417a993449eb4a414eac",
+        "size": 110516,
+        "source_commit": "1ccac98a3cfe7a7b1e28b900761d81b94fa5f64f"
+      },
+      "third-party-licenses/ui/duckdb-runtime/native-arrow-notice.txt": {
+        "git_blob": "a609791374c287718bcdefd550d17e6a3f07c25f",
+        "sha256": "f5b6a58f5d2082e403c49663d87566328d40cf03f16abb01f52632a09b97c55e",
+        "size": 3032,
+        "source_commit": "1ccac98a3cfe7a7b1e28b900761d81b94fa5f64f"
+      },
+      "third-party-licenses/ui/duckdb-runtime/native-duckdb-core.txt": {
+        "git_blob": "d8cd6e6e8508d9960ed8d9b69a93bcfad20b1558",
+        "sha256": "2db1b1e3e6a8ed8e7d2607e8f762fa41111b868790274710ae97013dfe8584ee",
+        "size": 1072,
+        "source_commit": "1ccac98a3cfe7a7b1e28b900761d81b94fa5f64f"
+      },
+      "third-party-licenses/ui/duckdb-runtime/native-duckdb-wasm.txt": {
+        "git_blob": "a79d955f7d91b5679f49f78aad20f7834b50c8bb",
+        "sha256": "3ad73e53243c374756dfc2eb5e780abd462ce99e89c84f9e46ada745db934107",
+        "size": 1072,
+        "source_commit": "1ccac98a3cfe7a7b1e28b900761d81b94fa5f64f"
+      },
+      "third-party-licenses/ui/duckdb-runtime/native-emscripten-LICENSE": {
+        "git_blob": "70cabe388d27da221bd769c50b427a35354f4f1d",
+        "sha256": "620a78084fc7ca97c0b5dea9abf891f3ffcadfdbf305276f099c9c4e12fc1d86",
+        "size": 5093,
+        "source_commit": "1ccac98a3cfe7a7b1e28b900761d81b94fa5f64f"
+      },
+      "third-party-licenses/ui/duckdb-runtime/native-emscripten-system-lib-compiler-rt-LICENSE.TXT": {
+        "git_blob": "5a79a1b9d5cb0af9a779751f07033e44ca3b14d8",
+        "sha256": "1a8f1058753f1ba890de984e48f0242a3a5c29a6a8f2ed9fd813f36985387e8d",
+        "size": 16708,
+        "source_commit": "1ccac98a3cfe7a7b1e28b900761d81b94fa5f64f"
+      },
+      "third-party-licenses/ui/duckdb-runtime/native-emscripten-system-lib-libc-musl-COPYRIGHT": {
+        "git_blob": "c1628e9ac84f927fe791124ec172fb61c760bb9b",
+        "sha256": "f9bc4423732350eb0b3f7ed7e91d530298476f8fec0c6c427a1c04ade22655af",
+        "size": 6204,
+        "source_commit": "1ccac98a3cfe7a7b1e28b900761d81b94fa5f64f"
+      },
+      "third-party-licenses/ui/duckdb-runtime/native-emscripten-system-lib-libcxx-LICENSE.TXT": {
+        "git_blob": "e159d283443f92ac78b964d2bccebe8f95d5d445",
+        "sha256": "539dd7aed86e8a4f12cbdd0e6c50c189c7d74847e4fecc64ce2c6ee3a01da38b",
+        "size": 16703,
+        "source_commit": "1ccac98a3cfe7a7b1e28b900761d81b94fa5f64f"
+      },
+      "third-party-licenses/ui/duckdb-runtime/native-emscripten-system-lib-libcxxabi-LICENSE.TXT": {
+        "git_blob": "b75c0441bcd5be32b5a07e2a1ffc7e67b6d99f16",
+        "sha256": "e2b35be49f7284a45b7baca8fc7b3ab7440e7902392b2528a457816b5bb2a15c",
+        "size": 16706,
+        "source_commit": "1ccac98a3cfe7a7b1e28b900761d81b94fa5f64f"
+      },
+      "third-party-licenses/ui/duckdb-runtime/native-emscripten-system-lib-libunwind-LICENSE.TXT": {
+        "git_blob": "1e3120621caeb62648745a42f7a9a25d1e2731ab",
+        "sha256": "b5efebcaca80879234098e52d1725e6d9eb8fb96a19fce625d39184b705f7b6d",
+        "size": 16706,
+        "source_commit": "1ccac98a3cfe7a7b1e28b900761d81b94fa5f64f"
+      },
+      "third-party-licenses/ui/duckdb-runtime/native-fast_float-LICENSE": {
+        "git_blob": "31aa79387f27e730e33d871925e152e35e428031",
+        "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+        "size": 1023,
+        "source_commit": "1ccac98a3cfe7a7b1e28b900761d81b94fa5f64f"
+      },
+      "third-party-licenses/ui/duckdb-runtime/native-fastpforlib.txt": {
+        "git_blob": "8405e89a0b12024529554191c9b7ec20acc116fd",
+        "sha256": "9ff562631a04b8cb1030c53fdf461bd749c9af0655d86e4f17eb270e935a7fe2",
+        "size": 10272,
+        "source_commit": "1ccac98a3cfe7a7b1e28b900761d81b94fa5f64f"
+      },
+      "third-party-licenses/ui/duckdb-runtime/native-fmt.txt": {
+        "git_blob": "f0ec3db4d2a03368a9f1357b38e79486bdf41076",
+        "sha256": "825c9324e70f8c839c8ba910543dd4a7daee243b86ef960594c11381a19980b8",
+        "size": 1408,
+        "source_commit": "1ccac98a3cfe7a7b1e28b900761d81b94fa5f64f"
+      },
+      "third-party-licenses/ui/duckdb-runtime/native-fsst.txt": {
+        "git_blob": "edb46d2db5fb4567eff02d3d96470b47194f727a",
+        "sha256": "20e9c14ff437a73a6e2b105f1b5aaf9ef24a84d962741c0ab01d04b4910294ab",
+        "size": 1087,
+        "source_commit": "1ccac98a3cfe7a7b1e28b900761d81b94fa5f64f"
+      },
+      "third-party-licenses/ui/duckdb-runtime/native-httplib-LICENSE": {
+        "git_blob": "3e5ed359a2bb16f52c383745c25f14bb7a81c9e4",
+        "sha256": "4b45cbe16d7b71b89ae6127e26e0d90a029198ca5e958ad8e3d0b8bbed364d8b",
+        "size": 1075,
+        "source_commit": "1ccac98a3cfe7a7b1e28b900761d81b94fa5f64f"
+      },
+      "third-party-licenses/ui/duckdb-runtime/native-hyperloglog.txt": {
+        "git_blob": "e0fc1c1843dc1b2114825209a3051e97513588a2",
+        "sha256": "3a3fcdbaecbeb1e7dea97843961100c637766e59de4674fed809760283b716e1",
+        "size": 1055,
+        "source_commit": "1ccac98a3cfe7a7b1e28b900761d81b94fa5f64f"
+      },
+      "third-party-licenses/ui/duckdb-runtime/native-jaro_winkler-LICENSE": {
+        "git_blob": "945ce9fa1f4afb944d0f022be6640fb707400b11",
+        "sha256": "077815ffd10f0677d060e9d5c0059592d28c41d1e9985c848435e0ea17ea06c3",
+        "size": 1055,
+        "source_commit": "1ccac98a3cfe7a7b1e28b900761d81b94fa5f64f"
+      },
+      "third-party-licenses/ui/duckdb-runtime/native-libpg-query.txt": {
+        "git_blob": "f1f7eea2c572d9eb20880321308310cdfa2e0b43",
+        "sha256": "2780b6375a5ab1901472b7694958dd0c8c1381a21f0765cbb64e1923d94c6717",
+        "size": 1484,
+        "source_commit": "1ccac98a3cfe7a7b1e28b900761d81b94fa5f64f"
+      },
+      "third-party-licenses/ui/duckdb-runtime/native-mbedtls.txt": {
+        "git_blob": "d645695673349e3947e8e5ae42332d0ac3164cd7",
+        "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+        "size": 11358,
+        "source_commit": "1ccac98a3cfe7a7b1e28b900761d81b94fa5f64f"
+      },
+      "third-party-licenses/ui/duckdb-runtime/native-miniz.txt": {
+        "git_blob": "1982f4bb8f4afa3dcbe803887fb4af7573430e51",
+        "sha256": "0115478d567121238cf6cc1c0c361926cf07a49d9e4c9e66da97fac6a01646b3",
+        "size": 1184,
+        "source_commit": "1ccac98a3cfe7a7b1e28b900761d81b94fa5f64f"
+      },
+      "third-party-licenses/ui/duckdb-runtime/native-parquet.txt": {
+        "git_blob": "09c6877672451efce3342e682492bac834ce4ac3",
+        "sha256": "70b6a7d630fae9f49643f9b16bee42a2feda68301f9c14470e7fb5ad0599bb9f",
+        "size": 11625,
+        "source_commit": "1ccac98a3cfe7a7b1e28b900761d81b94fa5f64f"
+      },
+      "third-party-licenses/ui/duckdb-runtime/native-pcg-LICENSE": {
+        "git_blob": "48546122acc6a9140260c1e6e3a9b670c32723be",
+        "sha256": "3febf788fd814bf1f350db169bdc51b28ff7e7596ff1f09cc0181e4fde42b480",
+        "size": 1092,
+        "source_commit": "1ccac98a3cfe7a7b1e28b900761d81b94fa5f64f"
+      },
+      "third-party-licenses/ui/duckdb-runtime/native-rapidjson.txt": {
+        "git_blob": "7ccc161c84b243687498a0dae5043c1da6173ac4",
+        "sha256": "a140e5d46fe734a1c78f1a3c3ef207871dd75648be71fdda8e309b23ab8b1f32",
+        "size": 5152,
+        "source_commit": "1ccac98a3cfe7a7b1e28b900761d81b94fa5f64f"
+      },
+      "third-party-licenses/ui/duckdb-runtime/native-re2.txt": {
+        "git_blob": "09e5ec1c74c187adc8fde6c74308c3492ef31f77",
+        "sha256": "6040cda75d90b1738292a631d89934c411ef7ffd543c4d6a1b7edfc8edf29449",
+        "size": 1558,
+        "source_commit": "1ccac98a3cfe7a7b1e28b900761d81b94fa5f64f"
+      },
+      "third-party-licenses/ui/duckdb-runtime/native-snappy.txt": {
+        "git_blob": "bd0e5971dbf09bd6b3213ea7248383d10f26dea2",
+        "sha256": "55172044f7e241207117448a4d9d6ba1d0925c8ad66b5d4c08c70adfa9cc3de6",
+        "size": 2645,
+        "source_commit": "1ccac98a3cfe7a7b1e28b900761d81b94fa5f64f"
+      },
+      "third-party-licenses/ui/duckdb-runtime/native-snowball.txt": {
+        "git_blob": "f36607f9e93f335177eb162099a7b46821ba2382",
+        "sha256": "f6f9e4c0e737728ca980de8595ded046d5e077017c1bb0ee05dc794a01434dae",
+        "size": 1655,
+        "source_commit": "1ccac98a3cfe7a7b1e28b900761d81b94fa5f64f"
+      },
+      "third-party-licenses/ui/duckdb-runtime/native-tdigest-LICENSE": {
+        "git_blob": "f49a4e16e68b128803cc2dcea614603632b04eac",
+        "sha256": "43070e2d4e532684de521b885f385d0841030efa2b1a20bafb76133a5e1379c1",
+        "size": 11356,
+        "source_commit": "1ccac98a3cfe7a7b1e28b900761d81b94fa5f64f"
+      },
+      "third-party-licenses/ui/duckdb-runtime/native-tdigest-NOTICES": {
+        "git_blob": "ebeb0fcfb10c1cd613bc96f8965ac2b205e9fb86",
+        "sha256": "5ded9726da6c5360c0b0ba0725455f57b367dc9b4954bed7ca8f235d26cee33b",
+        "size": 457,
+        "source_commit": "1ccac98a3cfe7a7b1e28b900761d81b94fa5f64f"
+      },
+      "third-party-licenses/ui/duckdb-runtime/native-thrift.txt": {
+        "git_blob": "3b6d7d74cc9b18043b2f46b60b6f5379e3f5262b",
+        "sha256": "23df881cec3192d1f4474633c14eb2ec30a45b84f8daeb82b9de5d2bd3ac8218",
+        "size": 12610,
+        "source_commit": "1ccac98a3cfe7a7b1e28b900761d81b94fa5f64f"
+      },
+      "third-party-licenses/ui/duckdb-runtime/native-utf8proc.txt": {
+        "git_blob": "80fab6ee6ee8dbd718687aec9cf9847470df09b5",
+        "sha256": "fbc720fcc90fb44396985646f67e4d19be03e0c0539f7138ed9dc6efba49dc49",
+        "size": 5125,
+        "source_commit": "1ccac98a3cfe7a7b1e28b900761d81b94fa5f64f"
+      },
+      "third-party-licenses/ui/duckdb-runtime/native-zstd.txt": {
+        "git_blob": "dbdb05eda171e0082dc1d49d866b929418352bdb",
+        "sha256": "8b7bc50ec3ecee27224e17d4d316a939fa2ddda9c88e0ddc2f059ce432edbfb9",
+        "size": 1529,
+        "source_commit": "1ccac98a3cfe7a7b1e28b900761d81b94fa5f64f"
+      }
+    }
+  },
+  "native_inputs": {
+    "duckdb_wasm_source_head": "f955138e5218942fb3fb097a8fdcb725222406ff",
+    "native_run_id": 40216203853,
+    "tundra_native_head": "a7d43e055ad33f73bb7cd4333b80ebd70ea940ea"
+  },
+  "purpose": "Diagnostic byte custody only; not a release, product, source-build, or legal admission",
+  "receipts": {
+    "input-receipt/heads.txt": {
+      "git_blob": "9eb56373658e5360676a62d8ee1aa97baac23542",
+      "sha256": "789eb0550b8d4179d621017e253c2250a27d5cfc8277f6bc2554d9dab4a056dd",
+      "size": 195
+    },
+    "matching-receipt/browser-metafile.json": {
+      "git_blob": "5a976630d7a55814a4857b67371424200c1fe321",
+      "sha256": "eacfeeba5f2c7dc45413ad8f09d501509d600f8b91d2f64c2195f6e6ff28cccb",
+      "size": 129882
+    },
+    "matching-receipt/candidate.json": {
+      "git_blob": "2a605662b8149b0e8ea5e3130a085a1ca6a1ca62",
+      "sha256": "2f03daee21daf2aca0f3e8ccc38d3c1cf08d8deb09d8e10bb4be331ee36b4991",
+      "size": 337
+    },
+    "matching-receipt/five-output.sha256": {
+      "git_blob": "58703013f9f60c8fe4839455e79e1e2c8fd2d0a9",
+      "sha256": "70061bf63b96945d8fbd2627cbd50e3b28fd1c078d9c9fc10f077004dcdabf7c",
+      "size": 637
+    },
+    "matching-receipt/worker-eh-metafile.json": {
+      "git_blob": "d823f4ccaa5bfb113ec001041c409d1c150f397d",
+      "sha256": "a73c838a59fafef26bc09ca3876c7e6762d84b934247b90885d774358ec75103",
+      "size": 141022
+    },
+    "matching-receipt/worker-mvp-metafile.json": {
+      "git_blob": "6c6a96a277f0c3d59506fd60ce5ff3b79c370e2d",
+      "sha256": "00bd5a3b1747450acf105a60bf7b8cdc20afbd22a294f989a9e5ac51383438db",
+      "size": 141036
+    }
+  },
+  "schema": "tundra-diagnostic-browser-asset-custody/v1",
+  "unresolved": [
+    "Exact Emscripten generated glue lacks complete selected JS source-to-notice mapping",
+    "Selected Emscripten SDK archive bytes and source-build provenance not independently reverified",
+    "Worker external crypto require-call requires PR118 installed WebKit/CSP disposition"
+  ]
+}

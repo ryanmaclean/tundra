@@ -1,0 +1,4301 @@
+{
+  "inputs": {
+    "duckdb-upstream/node_modules/tslib/tslib.es6.mjs": {
+      "bytes": 16249,
+      "imports": [],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/util/utf8.mjs": {
+      "bytes": 1065,
+      "imports": [],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/util/compat.mjs": {
+      "bytes": 3772,
+      "imports": [],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/util/buffer.mjs": {
+      "bytes": 12233,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/tslib/tslib.es6.mjs",
+          "kind": "import-statement",
+          "original": "tslib"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/util/utf8.mjs",
+          "kind": "import-statement",
+          "original": "../util/utf8.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/util/compat.mjs",
+          "kind": "import-statement",
+          "original": "./compat.mjs"
+        },
+        {
+          "path": "<runtime>",
+          "kind": "import-statement",
+          "external": true
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/io/adapters.mjs": {
+      "bytes": 13191,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/tslib/tslib.es6.mjs",
+          "kind": "import-statement",
+          "original": "tslib"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/util/buffer.mjs",
+          "kind": "import-statement",
+          "original": "../util/buffer.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/enum.mjs": {
+      "bytes": 8654,
+      "imports": [],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/util/pretty.mjs": {
+      "bytes": 1808,
+      "imports": [],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/util/bn.mjs": {
+      "bytes": 6383,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/util/buffer.mjs",
+          "kind": "import-statement",
+          "original": "./buffer.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/util/bigint.mjs": {
+      "bytes": 1243,
+      "imports": [],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/type.mjs": {
+      "bytes": 18615,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/util/bigint.mjs",
+          "kind": "import-statement",
+          "original": "./util/bigint.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/enum.mjs",
+          "kind": "import-statement",
+          "original": "./enum.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/visitor.mjs": {
+      "bytes": 11986,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/enum.mjs",
+          "kind": "import-statement",
+          "original": "./enum.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/type.mjs",
+          "kind": "import-statement",
+          "original": "./type.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/util/math.mjs": {
+      "bytes": 4215,
+      "imports": [],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/visitor/set.mjs": {
+      "bytes": 12593,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/vector.mjs",
+          "kind": "import-statement",
+          "original": "../vector.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/visitor.mjs",
+          "kind": "import-statement",
+          "original": "../visitor.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/util/utf8.mjs",
+          "kind": "import-statement",
+          "original": "../util/utf8.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/util/math.mjs",
+          "kind": "import-statement",
+          "original": "../util/math.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/enum.mjs",
+          "kind": "import-statement",
+          "original": "../enum.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/row/struct.mjs": {
+      "bytes": 4526,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/util/pretty.mjs",
+          "kind": "import-statement",
+          "original": "../util/pretty.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/visitor/get.mjs",
+          "kind": "import-statement",
+          "original": "../visitor/get.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/visitor/set.mjs",
+          "kind": "import-statement",
+          "original": "../visitor/set.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/visitor/get.mjs": {
+      "bytes": 10747,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/util/bn.mjs",
+          "kind": "import-statement",
+          "original": "../util/bn.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/vector.mjs",
+          "kind": "import-statement",
+          "original": "../vector.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/visitor.mjs",
+          "kind": "import-statement",
+          "original": "../visitor.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/row/map.mjs",
+          "kind": "import-statement",
+          "original": "../row/map.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/row/struct.mjs",
+          "kind": "import-statement",
+          "original": "../row/struct.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/util/utf8.mjs",
+          "kind": "import-statement",
+          "original": "../util/utf8.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/util/math.mjs",
+          "kind": "import-statement",
+          "original": "../util/math.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/enum.mjs",
+          "kind": "import-statement",
+          "original": "../enum.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/row/map.mjs": {
+      "bytes": 4213,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/vector.mjs",
+          "kind": "import-statement",
+          "original": "../vector.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/util/pretty.mjs",
+          "kind": "import-statement",
+          "original": "../util/pretty.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/visitor/get.mjs",
+          "kind": "import-statement",
+          "original": "../visitor/get.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/visitor/set.mjs",
+          "kind": "import-statement",
+          "original": "../visitor/set.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/util/vector.mjs": {
+      "bytes": 6530,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/vector.mjs",
+          "kind": "import-statement",
+          "original": "../vector.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/row/map.mjs",
+          "kind": "import-statement",
+          "original": "../row/map.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/row/struct.mjs",
+          "kind": "import-statement",
+          "original": "../row/struct.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/util/buffer.mjs",
+          "kind": "import-statement",
+          "original": "../util/buffer.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/util/bit.mjs": {
+      "bytes": 5286,
+      "imports": [],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/data.mjs": {
+      "bytes": 16426,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/vector.mjs",
+          "kind": "import-statement",
+          "original": "./vector.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/enum.mjs",
+          "kind": "import-statement",
+          "original": "./enum.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/type.mjs",
+          "kind": "import-statement",
+          "original": "./type.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/util/bit.mjs",
+          "kind": "import-statement",
+          "original": "./util/bit.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/visitor.mjs",
+          "kind": "import-statement",
+          "original": "./visitor.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/util/buffer.mjs",
+          "kind": "import-statement",
+          "original": "./util/buffer.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/util/chunk.mjs": {
+      "bytes": 4904,
+      "imports": [],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/visitor/indexof.mjs": {
+      "bytes": 5324,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/visitor.mjs",
+          "kind": "import-statement",
+          "original": "../visitor.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/visitor/get.mjs",
+          "kind": "import-statement",
+          "original": "./get.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/util/bit.mjs",
+          "kind": "import-statement",
+          "original": "../util/bit.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/util/vector.mjs",
+          "kind": "import-statement",
+          "original": "../util/vector.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/visitor/iterator.mjs": {
+      "bytes": 5053,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/visitor.mjs",
+          "kind": "import-statement",
+          "original": "../visitor.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/enum.mjs",
+          "kind": "import-statement",
+          "original": "../enum.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/type.mjs",
+          "kind": "import-statement",
+          "original": "../type.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/util/chunk.mjs",
+          "kind": "import-statement",
+          "original": "../util/chunk.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/visitor/bytelength.mjs": {
+      "bytes": 4088,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/visitor.mjs",
+          "kind": "import-statement",
+          "original": "../visitor.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/enum.mjs",
+          "kind": "import-statement",
+          "original": "../enum.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/vector.mjs": {
+      "bytes": 16245,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/enum.mjs",
+          "kind": "import-statement",
+          "original": "./enum.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/util/vector.mjs",
+          "kind": "import-statement",
+          "original": "./util/vector.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/type.mjs",
+          "kind": "import-statement",
+          "original": "./type.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/data.mjs",
+          "kind": "import-statement",
+          "original": "./data.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/util/chunk.mjs",
+          "kind": "import-statement",
+          "original": "./util/chunk.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/visitor/get.mjs",
+          "kind": "import-statement",
+          "original": "./visitor/get.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/visitor/set.mjs",
+          "kind": "import-statement",
+          "original": "./visitor/set.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/visitor/indexof.mjs",
+          "kind": "import-statement",
+          "original": "./visitor/indexof.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/visitor/iterator.mjs",
+          "kind": "import-statement",
+          "original": "./visitor/iterator.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/visitor/bytelength.mjs",
+          "kind": "import-statement",
+          "original": "./visitor/bytelength.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/type.mjs",
+          "kind": "import-statement",
+          "original": "./type.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/builder/valid.mjs": {
+      "bytes": 2295,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/util/pretty.mjs",
+          "kind": "import-statement",
+          "original": "../util/pretty.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/builder/buffer.mjs": {
+      "bytes": 4756,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/util/buffer.mjs",
+          "kind": "import-statement",
+          "original": "../util/buffer.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/builder.mjs": {
+      "bytes": 13534,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/vector.mjs",
+          "kind": "import-statement",
+          "original": "./vector.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/data.mjs",
+          "kind": "import-statement",
+          "original": "./data.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/row/map.mjs",
+          "kind": "import-statement",
+          "original": "./row/map.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/type.mjs",
+          "kind": "import-statement",
+          "original": "./type.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder/valid.mjs",
+          "kind": "import-statement",
+          "original": "./builder/valid.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder/buffer.mjs",
+          "kind": "import-statement",
+          "original": "./builder/buffer.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/fb/block.mjs": {
+      "bytes": 1228,
+      "imports": [],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/flatbuffers/mjs/constants.js": {
+      "bytes": 138,
+      "imports": [],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/flatbuffers/mjs/utils.js": {
+      "bytes": 237,
+      "imports": [],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/flatbuffers/mjs/encoding.js": {
+      "bytes": 195,
+      "imports": [],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/flatbuffers/mjs/byte-buffer.js": {
+      "bytes": 8265,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/flatbuffers/mjs/constants.js",
+          "kind": "import-statement",
+          "original": "./constants.js"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/flatbuffers/mjs/utils.js",
+          "kind": "import-statement",
+          "original": "./utils.js"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/flatbuffers/mjs/encoding.js",
+          "kind": "import-statement",
+          "original": "./encoding.js"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/flatbuffers/mjs/builder.js": {
+      "bytes": 18161,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/flatbuffers/mjs/byte-buffer.js",
+          "kind": "import-statement",
+          "original": "./byte-buffer.js"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/flatbuffers/mjs/constants.js",
+          "kind": "import-statement",
+          "original": "./constants.js"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/flatbuffers/mjs/flatbuffers.js": {
+      "bytes": 401,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/flatbuffers/mjs/constants.js",
+          "kind": "import-statement",
+          "original": "./constants.js"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/flatbuffers/mjs/constants.js",
+          "kind": "import-statement",
+          "original": "./constants.js"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/flatbuffers/mjs/constants.js",
+          "kind": "import-statement",
+          "original": "./constants.js"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/flatbuffers/mjs/constants.js",
+          "kind": "import-statement",
+          "original": "./constants.js"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/flatbuffers/mjs/utils.js",
+          "kind": "import-statement",
+          "original": "./utils.js"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/flatbuffers/mjs/encoding.js",
+          "kind": "import-statement",
+          "original": "./encoding.js"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/flatbuffers/mjs/builder.js",
+          "kind": "import-statement",
+          "original": "./builder.js"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/flatbuffers/mjs/byte-buffer.js",
+          "kind": "import-statement",
+          "original": "./byte-buffer.js"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/fb/key-value.mjs": {
+      "bytes": 1903,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/flatbuffers/mjs/flatbuffers.js",
+          "kind": "import-statement",
+          "original": "flatbuffers"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/fb/metadata-version.mjs": {
+      "bytes": 1458,
+      "imports": [],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/fb/endianness.mjs": {
+      "bytes": 427,
+      "imports": [],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/fb/dictionary-kind.mjs": {
+      "bytes": 567,
+      "imports": [],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/fb/int.mjs": {
+      "bytes": 1572,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/flatbuffers/mjs/flatbuffers.js",
+          "kind": "import-statement",
+          "original": "flatbuffers"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/fb/dictionary-encoding.mjs": {
+      "bytes": 3076,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/flatbuffers/mjs/flatbuffers.js",
+          "kind": "import-statement",
+          "original": "flatbuffers"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/dictionary-kind.mjs",
+          "kind": "import-statement",
+          "original": "./dictionary-kind.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/int.mjs",
+          "kind": "import-statement",
+          "original": "./int.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/fb/binary.mjs": {
+      "bytes": 1031,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/flatbuffers/mjs/flatbuffers.js",
+          "kind": "import-statement",
+          "original": "flatbuffers"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/fb/bool.mjs": {
+      "bytes": 975,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/flatbuffers/mjs/flatbuffers.js",
+          "kind": "import-statement",
+          "original": "flatbuffers"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/fb/date-unit.mjs": {
+      "bytes": 289,
+      "imports": [],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/fb/date.mjs": {
+      "bytes": 1680,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/flatbuffers/mjs/flatbuffers.js",
+          "kind": "import-statement",
+          "original": "flatbuffers"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/date-unit.mjs",
+          "kind": "import-statement",
+          "original": "./date-unit.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/fb/decimal.mjs": {
+      "bytes": 2419,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/flatbuffers/mjs/flatbuffers.js",
+          "kind": "import-statement",
+          "original": "flatbuffers"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/fb/time-unit.mjs": {
+      "bytes": 411,
+      "imports": [],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/fb/duration.mjs": {
+      "bytes": 1386,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/flatbuffers/mjs/flatbuffers.js",
+          "kind": "import-statement",
+          "original": "flatbuffers"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/time-unit.mjs",
+          "kind": "import-statement",
+          "original": "./time-unit.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/fb/fixed-size-binary.mjs": {
+      "bytes": 1488,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/flatbuffers/mjs/flatbuffers.js",
+          "kind": "import-statement",
+          "original": "flatbuffers"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/fb/fixed-size-list.mjs": {
+      "bytes": 1458,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/flatbuffers/mjs/flatbuffers.js",
+          "kind": "import-statement",
+          "original": "flatbuffers"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/fb/precision.mjs": {
+      "bytes": 340,
+      "imports": [],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/fb/floating-point.mjs": {
+      "bytes": 1481,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/flatbuffers/mjs/flatbuffers.js",
+          "kind": "import-statement",
+          "original": "flatbuffers"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/precision.mjs",
+          "kind": "import-statement",
+          "original": "./precision.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/fb/interval-unit.mjs": {
+      "bytes": 406,
+      "imports": [],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/fb/interval.mjs": {
+      "bytes": 1400,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/flatbuffers/mjs/flatbuffers.js",
+          "kind": "import-statement",
+          "original": "flatbuffers"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/interval-unit.mjs",
+          "kind": "import-statement",
+          "original": "./interval-unit.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/fb/large-binary.mjs": {
+      "bytes": 1173,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/flatbuffers/mjs/flatbuffers.js",
+          "kind": "import-statement",
+          "original": "flatbuffers"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/fb/large-list.mjs": {
+      "bytes": 1145,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/flatbuffers/mjs/flatbuffers.js",
+          "kind": "import-statement",
+          "original": "flatbuffers"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/fb/large-utf8.mjs": {
+      "bytes": 1145,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/flatbuffers/mjs/flatbuffers.js",
+          "kind": "import-statement",
+          "original": "flatbuffers"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/fb/list.mjs": {
+      "bytes": 975,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/flatbuffers/mjs/flatbuffers.js",
+          "kind": "import-statement",
+          "original": "flatbuffers"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/fb/map.mjs": {
+      "bytes": 2399,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/flatbuffers/mjs/flatbuffers.js",
+          "kind": "import-statement",
+          "original": "flatbuffers"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/fb/null.mjs": {
+      "bytes": 1045,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/flatbuffers/mjs/flatbuffers.js",
+          "kind": "import-statement",
+          "original": "flatbuffers"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/fb/run-end-encoded.mjs": {
+      "bytes": 1405,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/flatbuffers/mjs/flatbuffers.js",
+          "kind": "import-statement",
+          "original": "flatbuffers"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/fb/struct-.mjs": {
+      "bytes": 1207,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/flatbuffers/mjs/flatbuffers.js",
+          "kind": "import-statement",
+          "original": "flatbuffers"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/fb/time.mjs": {
+      "bytes": 2401,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/flatbuffers/mjs/flatbuffers.js",
+          "kind": "import-statement",
+          "original": "flatbuffers"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/time-unit.mjs",
+          "kind": "import-statement",
+          "original": "./time-unit.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/fb/timestamp.mjs": {
+      "bytes": 7405,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/flatbuffers/mjs/flatbuffers.js",
+          "kind": "import-statement",
+          "original": "flatbuffers"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/time-unit.mjs",
+          "kind": "import-statement",
+          "original": "./time-unit.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/fb/union-mode.mjs": {
+      "bytes": 292,
+      "imports": [],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/fb/union.mjs": {
+      "bytes": 2751,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/flatbuffers/mjs/flatbuffers.js",
+          "kind": "import-statement",
+          "original": "flatbuffers"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/union-mode.mjs",
+          "kind": "import-statement",
+          "original": "./union-mode.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/fb/utf8.mjs": {
+      "bytes": 1014,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/flatbuffers/mjs/flatbuffers.js",
+          "kind": "import-statement",
+          "original": "flatbuffers"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/fb/type.mjs": {
+      "bytes": 5295,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/binary.mjs",
+          "kind": "import-statement",
+          "original": "./binary.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/bool.mjs",
+          "kind": "import-statement",
+          "original": "./bool.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/date.mjs",
+          "kind": "import-statement",
+          "original": "./date.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/decimal.mjs",
+          "kind": "import-statement",
+          "original": "./decimal.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/duration.mjs",
+          "kind": "import-statement",
+          "original": "./duration.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/fixed-size-binary.mjs",
+          "kind": "import-statement",
+          "original": "./fixed-size-binary.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/fixed-size-list.mjs",
+          "kind": "import-statement",
+          "original": "./fixed-size-list.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/floating-point.mjs",
+          "kind": "import-statement",
+          "original": "./floating-point.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/int.mjs",
+          "kind": "import-statement",
+          "original": "./int.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/interval.mjs",
+          "kind": "import-statement",
+          "original": "./interval.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/large-binary.mjs",
+          "kind": "import-statement",
+          "original": "./large-binary.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/large-list.mjs",
+          "kind": "import-statement",
+          "original": "./large-list.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/large-utf8.mjs",
+          "kind": "import-statement",
+          "original": "./large-utf8.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/list.mjs",
+          "kind": "import-statement",
+          "original": "./list.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/map.mjs",
+          "kind": "import-statement",
+          "original": "./map.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/null.mjs",
+          "kind": "import-statement",
+          "original": "./null.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/run-end-encoded.mjs",
+          "kind": "import-statement",
+          "original": "./run-end-encoded.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/struct-.mjs",
+          "kind": "import-statement",
+          "original": "./struct-.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/time.mjs",
+          "kind": "import-statement",
+          "original": "./time.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/timestamp.mjs",
+          "kind": "import-statement",
+          "original": "./timestamp.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/union.mjs",
+          "kind": "import-statement",
+          "original": "./union.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/utf8.mjs",
+          "kind": "import-statement",
+          "original": "./utf8.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/fb/field.mjs": {
+      "bytes": 4759,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/flatbuffers/mjs/flatbuffers.js",
+          "kind": "import-statement",
+          "original": "flatbuffers"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/dictionary-encoding.mjs",
+          "kind": "import-statement",
+          "original": "./dictionary-encoding.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/key-value.mjs",
+          "kind": "import-statement",
+          "original": "./key-value.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/type.mjs",
+          "kind": "import-statement",
+          "original": "./type.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/fb/schema.mjs": {
+      "bytes": 4794,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/flatbuffers/mjs/flatbuffers.js",
+          "kind": "import-statement",
+          "original": "flatbuffers"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/endianness.mjs",
+          "kind": "import-statement",
+          "original": "./endianness.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/field.mjs",
+          "kind": "import-statement",
+          "original": "./field.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/key-value.mjs",
+          "kind": "import-statement",
+          "original": "./key-value.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/fb/footer.mjs": {
+      "bytes": 4103,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/flatbuffers/mjs/flatbuffers.js",
+          "kind": "import-statement",
+          "original": "flatbuffers"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/block.mjs",
+          "kind": "import-statement",
+          "original": "./block.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/key-value.mjs",
+          "kind": "import-statement",
+          "original": "./key-value.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/metadata-version.mjs",
+          "kind": "import-statement",
+          "original": "./metadata-version.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/schema.mjs",
+          "kind": "import-statement",
+          "original": "./schema.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/schema.mjs": {
+      "bytes": 5630,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/type.mjs",
+          "kind": "import-statement",
+          "original": "./type.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/ipc/metadata/file.mjs": {
+      "bytes": 5368,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/block.mjs",
+          "kind": "import-statement",
+          "original": "../../fb/block.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/footer.mjs",
+          "kind": "import-statement",
+          "original": "../../fb/footer.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/flatbuffers/mjs/flatbuffers.js",
+          "kind": "import-statement",
+          "original": "flatbuffers"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/schema.mjs",
+          "kind": "import-statement",
+          "original": "../../schema.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/enum.mjs",
+          "kind": "import-statement",
+          "original": "../../enum.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/util/buffer.mjs",
+          "kind": "import-statement",
+          "original": "../../util/buffer.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/util/bigint.mjs",
+          "kind": "import-statement",
+          "original": "../../util/bigint.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/io/interfaces.mjs": {
+      "bytes": 4735,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/tslib/tslib.es6.mjs",
+          "kind": "import-statement",
+          "original": "tslib"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/io/adapters.mjs",
+          "kind": "import-statement",
+          "original": "./adapters.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/io/stream.mjs": {
+      "bytes": 6758,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/tslib/tslib.es6.mjs",
+          "kind": "import-statement",
+          "original": "tslib"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/io/adapters.mjs",
+          "kind": "import-statement",
+          "original": "./adapters.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/util/utf8.mjs",
+          "kind": "import-statement",
+          "original": "../util/utf8.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/io/interfaces.mjs",
+          "kind": "import-statement",
+          "original": "./interfaces.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/util/buffer.mjs",
+          "kind": "import-statement",
+          "original": "../util/buffer.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/util/compat.mjs",
+          "kind": "import-statement",
+          "original": "../util/compat.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/io/file.mjs": {
+      "bytes": 5217,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/tslib/tslib.es6.mjs",
+          "kind": "import-statement",
+          "original": "tslib"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/io/stream.mjs",
+          "kind": "import-statement",
+          "original": "./stream.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/util/buffer.mjs",
+          "kind": "import-statement",
+          "original": "../util/buffer.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/util/int.mjs": {
+      "bytes": 13439,
+      "imports": [],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/visitor/vectorloader.mjs": {
+      "bytes": 9062,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/data.mjs",
+          "kind": "import-statement",
+          "original": "../data.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/schema.mjs",
+          "kind": "import-statement",
+          "original": "../schema.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/type.mjs",
+          "kind": "import-statement",
+          "original": "../type.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/visitor.mjs",
+          "kind": "import-statement",
+          "original": "../visitor.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/util/bit.mjs",
+          "kind": "import-statement",
+          "original": "../util/bit.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/util/utf8.mjs",
+          "kind": "import-statement",
+          "original": "../util/utf8.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/util/int.mjs",
+          "kind": "import-statement",
+          "original": "../util/int.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/enum.mjs",
+          "kind": "import-statement",
+          "original": "../enum.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/util/buffer.mjs",
+          "kind": "import-statement",
+          "original": "../util/buffer.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/builder/binary.mjs": {
+      "bytes": 2083,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/util/buffer.mjs",
+          "kind": "import-statement",
+          "original": "../util/buffer.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder/buffer.mjs",
+          "kind": "import-statement",
+          "original": "./buffer.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder.mjs",
+          "kind": "import-statement",
+          "original": "../builder.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/builder/bool.mjs": {
+      "bytes": 1173,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder/buffer.mjs",
+          "kind": "import-statement",
+          "original": "./buffer.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder.mjs",
+          "kind": "import-statement",
+          "original": "../builder.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/builder/date.mjs": {
+      "bytes": 1335,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder.mjs",
+          "kind": "import-statement",
+          "original": "../builder.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/visitor/set.mjs",
+          "kind": "import-statement",
+          "original": "../visitor/set.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/builder/decimal.mjs": {
+      "bytes": 1062,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder.mjs",
+          "kind": "import-statement",
+          "original": "../builder.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/visitor/set.mjs",
+          "kind": "import-statement",
+          "original": "../visitor/set.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/builder/dictionary.mjs": {
+      "bytes": 3493,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/type.mjs",
+          "kind": "import-statement",
+          "original": "../type.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder.mjs",
+          "kind": "import-statement",
+          "original": "../builder.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/factories.mjs",
+          "kind": "import-statement",
+          "original": "../factories.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/builder/fixedsizebinary.mjs": {
+      "bytes": 1102,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder.mjs",
+          "kind": "import-statement",
+          "original": "../builder.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/visitor/set.mjs",
+          "kind": "import-statement",
+          "original": "../visitor/set.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/builder/fixedsizelist.mjs": {
+      "bytes": 1605,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/schema.mjs",
+          "kind": "import-statement",
+          "original": "../schema.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder.mjs",
+          "kind": "import-statement",
+          "original": "../builder.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/type.mjs",
+          "kind": "import-statement",
+          "original": "../type.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/builder/float.mjs": {
+      "bytes": 1423,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/util/math.mjs",
+          "kind": "import-statement",
+          "original": "../util/math.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder.mjs",
+          "kind": "import-statement",
+          "original": "../builder.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/builder/interval.mjs": {
+      "bytes": 1413,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder.mjs",
+          "kind": "import-statement",
+          "original": "../builder.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/visitor/set.mjs",
+          "kind": "import-statement",
+          "original": "../visitor/set.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/builder/int.mjs": {
+      "bytes": 1545,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder.mjs",
+          "kind": "import-statement",
+          "original": "../builder.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/builder/list.mjs": {
+      "bytes": 2053,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/schema.mjs",
+          "kind": "import-statement",
+          "original": "../schema.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/type.mjs",
+          "kind": "import-statement",
+          "original": "../type.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder/buffer.mjs",
+          "kind": "import-statement",
+          "original": "./buffer.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder.mjs",
+          "kind": "import-statement",
+          "original": "../builder.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/builder/map.mjs": {
+      "bytes": 2392,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/schema.mjs",
+          "kind": "import-statement",
+          "original": "../schema.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/type.mjs",
+          "kind": "import-statement",
+          "original": "../type.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder.mjs",
+          "kind": "import-statement",
+          "original": "../builder.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/builder/null.mjs": {
+      "bytes": 1100,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder.mjs",
+          "kind": "import-statement",
+          "original": "../builder.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/builder/struct.mjs": {
+      "bytes": 1957,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/schema.mjs",
+          "kind": "import-statement",
+          "original": "../schema.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder.mjs",
+          "kind": "import-statement",
+          "original": "../builder.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/type.mjs",
+          "kind": "import-statement",
+          "original": "../type.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/builder/timestamp.mjs": {
+      "bytes": 1788,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder.mjs",
+          "kind": "import-statement",
+          "original": "../builder.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/visitor/set.mjs",
+          "kind": "import-statement",
+          "original": "../visitor/set.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/builder/time.mjs": {
+      "bytes": 1663,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder.mjs",
+          "kind": "import-statement",
+          "original": "../builder.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/visitor/set.mjs",
+          "kind": "import-statement",
+          "original": "../visitor/set.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/builder/union.mjs": {
+      "bytes": 3432,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/schema.mjs",
+          "kind": "import-statement",
+          "original": "../schema.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder/buffer.mjs",
+          "kind": "import-statement",
+          "original": "./buffer.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder.mjs",
+          "kind": "import-statement",
+          "original": "../builder.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/type.mjs",
+          "kind": "import-statement",
+          "original": "../type.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/builder/utf8.mjs": {
+      "bytes": 1735,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/util/utf8.mjs",
+          "kind": "import-statement",
+          "original": "../util/utf8.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder/binary.mjs",
+          "kind": "import-statement",
+          "original": "./binary.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder/buffer.mjs",
+          "kind": "import-statement",
+          "original": "./buffer.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder.mjs",
+          "kind": "import-statement",
+          "original": "../builder.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/visitor/builderctor.mjs": {
+      "bytes": 4638,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/visitor.mjs",
+          "kind": "import-statement",
+          "original": "../visitor.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder/binary.mjs",
+          "kind": "import-statement",
+          "original": "../builder/binary.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder/bool.mjs",
+          "kind": "import-statement",
+          "original": "../builder/bool.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder/date.mjs",
+          "kind": "import-statement",
+          "original": "../builder/date.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder/decimal.mjs",
+          "kind": "import-statement",
+          "original": "../builder/decimal.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder/dictionary.mjs",
+          "kind": "import-statement",
+          "original": "../builder/dictionary.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder/fixedsizebinary.mjs",
+          "kind": "import-statement",
+          "original": "../builder/fixedsizebinary.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder/fixedsizelist.mjs",
+          "kind": "import-statement",
+          "original": "../builder/fixedsizelist.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder/float.mjs",
+          "kind": "import-statement",
+          "original": "../builder/float.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder/interval.mjs",
+          "kind": "import-statement",
+          "original": "../builder/interval.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder/int.mjs",
+          "kind": "import-statement",
+          "original": "../builder/int.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder/list.mjs",
+          "kind": "import-statement",
+          "original": "../builder/list.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder/map.mjs",
+          "kind": "import-statement",
+          "original": "../builder/map.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder/null.mjs",
+          "kind": "import-statement",
+          "original": "../builder/null.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder/struct.mjs",
+          "kind": "import-statement",
+          "original": "../builder/struct.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder/timestamp.mjs",
+          "kind": "import-statement",
+          "original": "../builder/timestamp.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder/time.mjs",
+          "kind": "import-statement",
+          "original": "../builder/time.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder/union.mjs",
+          "kind": "import-statement",
+          "original": "../builder/union.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder/utf8.mjs",
+          "kind": "import-statement",
+          "original": "../builder/utf8.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/visitor/typecomparator.mjs": {
+      "bytes": 7371,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/visitor.mjs",
+          "kind": "import-statement",
+          "original": "../visitor.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/factories.mjs": {
+      "bytes": 10747,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/tslib/tslib.es6.mjs",
+          "kind": "import-statement",
+          "original": "tslib"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/schema.mjs",
+          "kind": "import-statement",
+          "original": "./schema.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/type.mjs",
+          "kind": "import-statement",
+          "original": "./type.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/data.mjs",
+          "kind": "import-statement",
+          "original": "./data.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/vector.mjs",
+          "kind": "import-statement",
+          "original": "./vector.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/visitor/builderctor.mjs",
+          "kind": "import-statement",
+          "original": "./visitor/builderctor.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/table.mjs",
+          "kind": "import-statement",
+          "original": "./table.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/recordbatch.mjs",
+          "kind": "import-statement",
+          "original": "./recordbatch.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/visitor/typecomparator.mjs",
+          "kind": "import-statement",
+          "original": "./visitor/typecomparator.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/util/recordbatch.mjs": {
+      "bytes": 3534,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/data.mjs",
+          "kind": "import-statement",
+          "original": "../data.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/type.mjs",
+          "kind": "import-statement",
+          "original": "../type.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/recordbatch.mjs",
+          "kind": "import-statement",
+          "original": "../recordbatch.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/table.mjs": {
+      "bytes": 13556,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/enum.mjs",
+          "kind": "import-statement",
+          "original": "./enum.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/data.mjs",
+          "kind": "import-statement",
+          "original": "./data.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/factories.mjs",
+          "kind": "import-statement",
+          "original": "./factories.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/vector.mjs",
+          "kind": "import-statement",
+          "original": "./vector.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/schema.mjs",
+          "kind": "import-statement",
+          "original": "./schema.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/type.mjs",
+          "kind": "import-statement",
+          "original": "./type.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/visitor/typecomparator.mjs",
+          "kind": "import-statement",
+          "original": "./visitor/typecomparator.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/util/recordbatch.mjs",
+          "kind": "import-statement",
+          "original": "./util/recordbatch.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/util/chunk.mjs",
+          "kind": "import-statement",
+          "original": "./util/chunk.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/visitor/get.mjs",
+          "kind": "import-statement",
+          "original": "./visitor/get.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/visitor/set.mjs",
+          "kind": "import-statement",
+          "original": "./visitor/set.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/visitor/indexof.mjs",
+          "kind": "import-statement",
+          "original": "./visitor/indexof.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/visitor/iterator.mjs",
+          "kind": "import-statement",
+          "original": "./visitor/iterator.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/visitor/bytelength.mjs",
+          "kind": "import-statement",
+          "original": "./visitor/bytelength.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/util/vector.mjs",
+          "kind": "import-statement",
+          "original": "./util/vector.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/recordbatch.mjs",
+          "kind": "import-statement",
+          "original": "./recordbatch.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/recordbatch.mjs": {
+      "bytes": 11950,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/data.mjs",
+          "kind": "import-statement",
+          "original": "./data.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/table.mjs",
+          "kind": "import-statement",
+          "original": "./table.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/vector.mjs",
+          "kind": "import-statement",
+          "original": "./vector.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/schema.mjs",
+          "kind": "import-statement",
+          "original": "./schema.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/type.mjs",
+          "kind": "import-statement",
+          "original": "./type.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/visitor/get.mjs",
+          "kind": "import-statement",
+          "original": "./visitor/get.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/visitor/set.mjs",
+          "kind": "import-statement",
+          "original": "./visitor/set.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/visitor/indexof.mjs",
+          "kind": "import-statement",
+          "original": "./visitor/indexof.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/visitor/iterator.mjs",
+          "kind": "import-statement",
+          "original": "./visitor/iterator.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/visitor/bytelength.mjs",
+          "kind": "import-statement",
+          "original": "./visitor/bytelength.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/fb/body-compression-method.mjs": {
+      "bytes": 1053,
+      "imports": [],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/fb/compression-type.mjs": {
+      "bytes": 350,
+      "imports": [],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/fb/body-compression.mjs": {
+      "bytes": 2303,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/flatbuffers/mjs/flatbuffers.js",
+          "kind": "import-statement",
+          "original": "flatbuffers"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/body-compression-method.mjs",
+          "kind": "import-statement",
+          "original": "./body-compression-method.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/compression-type.mjs",
+          "kind": "import-statement",
+          "original": "./compression-type.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/fb/buffer.mjs": {
+      "bytes": 1398,
+      "imports": [],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/fb/field-node.mjs": {
+      "bytes": 1647,
+      "imports": [],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/fb/record-batch.mjs": {
+      "bytes": 3604,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/flatbuffers/mjs/flatbuffers.js",
+          "kind": "import-statement",
+          "original": "flatbuffers"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/body-compression.mjs",
+          "kind": "import-statement",
+          "original": "./body-compression.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/buffer.mjs",
+          "kind": "import-statement",
+          "original": "./buffer.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/field-node.mjs",
+          "kind": "import-statement",
+          "original": "./field-node.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/fb/dictionary-batch.mjs": {
+      "bytes": 2329,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/flatbuffers/mjs/flatbuffers.js",
+          "kind": "import-statement",
+          "original": "flatbuffers"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/record-batch.mjs",
+          "kind": "import-statement",
+          "original": "./record-batch.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/fb/sparse-matrix-compressed-axis.mjs": {
+      "bytes": 443,
+      "imports": [],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/fb/sparse-matrix-index-csx.mjs": {
+      "bytes": 4387,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/flatbuffers/mjs/flatbuffers.js",
+          "kind": "import-statement",
+          "original": "flatbuffers"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/buffer.mjs",
+          "kind": "import-statement",
+          "original": "./buffer.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/int.mjs",
+          "kind": "import-statement",
+          "original": "./int.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/sparse-matrix-compressed-axis.mjs",
+          "kind": "import-statement",
+          "original": "./sparse-matrix-compressed-axis.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/fb/sparse-tensor-index-coo.mjs": {
+      "bytes": 4751,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/flatbuffers/mjs/flatbuffers.js",
+          "kind": "import-statement",
+          "original": "flatbuffers"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/buffer.mjs",
+          "kind": "import-statement",
+          "original": "./buffer.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/int.mjs",
+          "kind": "import-statement",
+          "original": "./int.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/fb/sparse-tensor-index-csf.mjs": {
+      "bytes": 6864,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/flatbuffers/mjs/flatbuffers.js",
+          "kind": "import-statement",
+          "original": "flatbuffers"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/buffer.mjs",
+          "kind": "import-statement",
+          "original": "./buffer.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/int.mjs",
+          "kind": "import-statement",
+          "original": "./int.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/fb/sparse-tensor-index.mjs": {
+      "bytes": 1655,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/sparse-matrix-index-csx.mjs",
+          "kind": "import-statement",
+          "original": "./sparse-matrix-index-csx.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/sparse-tensor-index-coo.mjs",
+          "kind": "import-statement",
+          "original": "./sparse-tensor-index-coo.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/sparse-tensor-index-csf.mjs",
+          "kind": "import-statement",
+          "original": "./sparse-tensor-index-csf.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/fb/tensor-dim.mjs": {
+      "bytes": 1884,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/flatbuffers/mjs/flatbuffers.js",
+          "kind": "import-statement",
+          "original": "flatbuffers"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/fb/sparse-tensor.mjs": {
+      "bytes": 4448,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/flatbuffers/mjs/flatbuffers.js",
+          "kind": "import-statement",
+          "original": "flatbuffers"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/buffer.mjs",
+          "kind": "import-statement",
+          "original": "./buffer.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/sparse-tensor-index.mjs",
+          "kind": "import-statement",
+          "original": "./sparse-tensor-index.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/tensor-dim.mjs",
+          "kind": "import-statement",
+          "original": "./tensor-dim.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/type.mjs",
+          "kind": "import-statement",
+          "original": "./type.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/fb/tensor.mjs": {
+      "bytes": 4208,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/flatbuffers/mjs/flatbuffers.js",
+          "kind": "import-statement",
+          "original": "flatbuffers"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/buffer.mjs",
+          "kind": "import-statement",
+          "original": "./buffer.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/tensor-dim.mjs",
+          "kind": "import-statement",
+          "original": "./tensor-dim.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/type.mjs",
+          "kind": "import-statement",
+          "original": "./type.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/fb/message-header.mjs": {
+      "bytes": 2287,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/dictionary-batch.mjs",
+          "kind": "import-statement",
+          "original": "./dictionary-batch.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/record-batch.mjs",
+          "kind": "import-statement",
+          "original": "./record-batch.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/schema.mjs",
+          "kind": "import-statement",
+          "original": "./schema.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/sparse-tensor.mjs",
+          "kind": "import-statement",
+          "original": "./sparse-tensor.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/tensor.mjs",
+          "kind": "import-statement",
+          "original": "./tensor.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/fb/message.mjs": {
+      "bytes": 3699,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/flatbuffers/mjs/flatbuffers.js",
+          "kind": "import-statement",
+          "original": "flatbuffers"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/key-value.mjs",
+          "kind": "import-statement",
+          "original": "./key-value.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/message-header.mjs",
+          "kind": "import-statement",
+          "original": "./message-header.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/metadata-version.mjs",
+          "kind": "import-statement",
+          "original": "./metadata-version.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/visitor/typeassembler.mjs": {
+      "bytes": 5176,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/visitor.mjs",
+          "kind": "import-statement",
+          "original": "../visitor.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/null.mjs",
+          "kind": "import-statement",
+          "original": "../fb/null.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/int.mjs",
+          "kind": "import-statement",
+          "original": "../fb/int.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/floating-point.mjs",
+          "kind": "import-statement",
+          "original": "../fb/floating-point.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/binary.mjs",
+          "kind": "import-statement",
+          "original": "../fb/binary.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/bool.mjs",
+          "kind": "import-statement",
+          "original": "../fb/bool.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/utf8.mjs",
+          "kind": "import-statement",
+          "original": "../fb/utf8.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/decimal.mjs",
+          "kind": "import-statement",
+          "original": "../fb/decimal.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/date.mjs",
+          "kind": "import-statement",
+          "original": "../fb/date.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/time.mjs",
+          "kind": "import-statement",
+          "original": "../fb/time.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/timestamp.mjs",
+          "kind": "import-statement",
+          "original": "../fb/timestamp.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/interval.mjs",
+          "kind": "import-statement",
+          "original": "../fb/interval.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/list.mjs",
+          "kind": "import-statement",
+          "original": "../fb/list.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/struct-.mjs",
+          "kind": "import-statement",
+          "original": "../fb/struct-.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/union.mjs",
+          "kind": "import-statement",
+          "original": "../fb/union.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/dictionary-encoding.mjs",
+          "kind": "import-statement",
+          "original": "../fb/dictionary-encoding.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/fixed-size-binary.mjs",
+          "kind": "import-statement",
+          "original": "../fb/fixed-size-binary.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/fixed-size-list.mjs",
+          "kind": "import-statement",
+          "original": "../fb/fixed-size-list.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/map.mjs",
+          "kind": "import-statement",
+          "original": "../fb/map.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/ipc/metadata/json.mjs": {
+      "bytes": 7281,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/schema.mjs",
+          "kind": "import-statement",
+          "original": "../../schema.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/type.mjs",
+          "kind": "import-statement",
+          "original": "../../type.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/ipc/metadata/message.mjs",
+          "kind": "import-statement",
+          "original": "./message.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/enum.mjs",
+          "kind": "import-statement",
+          "original": "../../enum.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/ipc/metadata/message.mjs": {
+      "bytes": 19729,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/flatbuffers/mjs/flatbuffers.js",
+          "kind": "import-statement",
+          "original": "flatbuffers"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/schema.mjs",
+          "kind": "import-statement",
+          "original": "../../fb/schema.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/int.mjs",
+          "kind": "import-statement",
+          "original": "../../fb/int.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/record-batch.mjs",
+          "kind": "import-statement",
+          "original": "../../fb/record-batch.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/dictionary-batch.mjs",
+          "kind": "import-statement",
+          "original": "../../fb/dictionary-batch.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/buffer.mjs",
+          "kind": "import-statement",
+          "original": "../../fb/buffer.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/field.mjs",
+          "kind": "import-statement",
+          "original": "../../fb/field.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/field-node.mjs",
+          "kind": "import-statement",
+          "original": "../../fb/field-node.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/type.mjs",
+          "kind": "import-statement",
+          "original": "../../fb/type.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/key-value.mjs",
+          "kind": "import-statement",
+          "original": "../../fb/key-value.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/endianness.mjs",
+          "kind": "import-statement",
+          "original": "../../fb/endianness.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/floating-point.mjs",
+          "kind": "import-statement",
+          "original": "../../fb/floating-point.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/decimal.mjs",
+          "kind": "import-statement",
+          "original": "../../fb/decimal.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/date.mjs",
+          "kind": "import-statement",
+          "original": "../../fb/date.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/time.mjs",
+          "kind": "import-statement",
+          "original": "../../fb/time.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/timestamp.mjs",
+          "kind": "import-statement",
+          "original": "../../fb/timestamp.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/interval.mjs",
+          "kind": "import-statement",
+          "original": "../../fb/interval.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/union.mjs",
+          "kind": "import-statement",
+          "original": "../../fb/union.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/fixed-size-binary.mjs",
+          "kind": "import-statement",
+          "original": "../../fb/fixed-size-binary.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/fixed-size-list.mjs",
+          "kind": "import-statement",
+          "original": "../../fb/fixed-size-list.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/map.mjs",
+          "kind": "import-statement",
+          "original": "../../fb/map.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/message.mjs",
+          "kind": "import-statement",
+          "original": "../../fb/message.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/schema.mjs",
+          "kind": "import-statement",
+          "original": "../../schema.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/util/buffer.mjs",
+          "kind": "import-statement",
+          "original": "../../util/buffer.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/util/bigint.mjs",
+          "kind": "import-statement",
+          "original": "../../util/bigint.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/enum.mjs",
+          "kind": "import-statement",
+          "original": "../../enum.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/visitor/typeassembler.mjs",
+          "kind": "import-statement",
+          "original": "../../visitor/typeassembler.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/ipc/metadata/json.mjs",
+          "kind": "import-statement",
+          "original": "./json.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/type.mjs",
+          "kind": "import-statement",
+          "original": "../../type.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/ipc/message.mjs": {
+      "bytes": 11823,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/tslib/tslib.es6.mjs",
+          "kind": "import-statement",
+          "original": "tslib"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/enum.mjs",
+          "kind": "import-statement",
+          "original": "../enum.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/flatbuffers/mjs/flatbuffers.js",
+          "kind": "import-statement",
+          "original": "flatbuffers"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/ipc/metadata/message.mjs",
+          "kind": "import-statement",
+          "original": "./metadata/message.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/util/compat.mjs",
+          "kind": "import-statement",
+          "original": "../util/compat.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/io/file.mjs",
+          "kind": "import-statement",
+          "original": "../io/file.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/util/buffer.mjs",
+          "kind": "import-statement",
+          "original": "../util/buffer.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/io/stream.mjs",
+          "kind": "import-statement",
+          "original": "../io/stream.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/io/interfaces.mjs",
+          "kind": "import-statement",
+          "original": "../io/interfaces.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/ipc/reader.mjs": {
+      "bytes": 26533,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/tslib/tslib.es6.mjs",
+          "kind": "import-statement",
+          "original": "tslib"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/data.mjs",
+          "kind": "import-statement",
+          "original": "../data.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/vector.mjs",
+          "kind": "import-statement",
+          "original": "../vector.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/type.mjs",
+          "kind": "import-statement",
+          "original": "../type.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/enum.mjs",
+          "kind": "import-statement",
+          "original": "../enum.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/ipc/metadata/file.mjs",
+          "kind": "import-statement",
+          "original": "./metadata/file.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/io/adapters.mjs",
+          "kind": "import-statement",
+          "original": "../io/adapters.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/io/stream.mjs",
+          "kind": "import-statement",
+          "original": "../io/stream.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/io/file.mjs",
+          "kind": "import-statement",
+          "original": "../io/file.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/visitor/vectorloader.mjs",
+          "kind": "import-statement",
+          "original": "../visitor/vectorloader.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/recordbatch.mjs",
+          "kind": "import-statement",
+          "original": "../recordbatch.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/io/interfaces.mjs",
+          "kind": "import-statement",
+          "original": "../io/interfaces.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/ipc/message.mjs",
+          "kind": "import-statement",
+          "original": "./message.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/util/compat.mjs",
+          "kind": "import-statement",
+          "original": "../util/compat.mjs"
+        },
+        {
+          "path": "<runtime>",
+          "kind": "import-statement",
+          "external": true
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/visitor/vectorassembler.mjs": {
+      "bytes": 9198,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/vector.mjs",
+          "kind": "import-statement",
+          "original": "../vector.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/visitor.mjs",
+          "kind": "import-statement",
+          "original": "../visitor.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/enum.mjs",
+          "kind": "import-statement",
+          "original": "../enum.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/recordbatch.mjs",
+          "kind": "import-statement",
+          "original": "../recordbatch.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/util/buffer.mjs",
+          "kind": "import-statement",
+          "original": "../util/buffer.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/util/bit.mjs",
+          "kind": "import-statement",
+          "original": "../util/bit.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/ipc/metadata/message.mjs",
+          "kind": "import-statement",
+          "original": "../ipc/metadata/message.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/type.mjs",
+          "kind": "import-statement",
+          "original": "../type.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/visitor/jsontypeassembler.mjs": {
+      "bytes": 3470,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/visitor.mjs",
+          "kind": "import-statement",
+          "original": "../visitor.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/type.mjs",
+          "kind": "import-statement",
+          "original": "../fb/type.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/enum.mjs",
+          "kind": "import-statement",
+          "original": "../enum.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/visitor/jsonvectorassembler.mjs": {
+      "bytes": 4976,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/util/bn.mjs",
+          "kind": "import-statement",
+          "original": "../util/bn.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/vector.mjs",
+          "kind": "import-statement",
+          "original": "../vector.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/visitor.mjs",
+          "kind": "import-statement",
+          "original": "../visitor.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/enum.mjs",
+          "kind": "import-statement",
+          "original": "../enum.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/enum.mjs",
+          "kind": "import-statement",
+          "original": "../enum.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/util/bit.mjs",
+          "kind": "import-statement",
+          "original": "../util/bit.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/type.mjs",
+          "kind": "import-statement",
+          "original": "../type.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/ipc/writer.mjs": {
+      "bytes": 16057,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/tslib/tslib.es6.mjs",
+          "kind": "import-statement",
+          "original": "tslib"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/table.mjs",
+          "kind": "import-statement",
+          "original": "../table.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/ipc/message.mjs",
+          "kind": "import-statement",
+          "original": "./message.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/vector.mjs",
+          "kind": "import-statement",
+          "original": "../vector.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/type.mjs",
+          "kind": "import-statement",
+          "original": "../type.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/ipc/metadata/message.mjs",
+          "kind": "import-statement",
+          "original": "./metadata/message.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/ipc/metadata/message.mjs",
+          "kind": "import-statement",
+          "original": "./metadata/message.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/ipc/metadata/file.mjs",
+          "kind": "import-statement",
+          "original": "./metadata/file.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/enum.mjs",
+          "kind": "import-statement",
+          "original": "../enum.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/visitor/typecomparator.mjs",
+          "kind": "import-statement",
+          "original": "../visitor/typecomparator.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/io/stream.mjs",
+          "kind": "import-statement",
+          "original": "../io/stream.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/visitor/vectorassembler.mjs",
+          "kind": "import-statement",
+          "original": "../visitor/vectorassembler.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/visitor/jsontypeassembler.mjs",
+          "kind": "import-statement",
+          "original": "../visitor/jsontypeassembler.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/visitor/jsonvectorassembler.mjs",
+          "kind": "import-statement",
+          "original": "../visitor/jsonvectorassembler.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/util/buffer.mjs",
+          "kind": "import-statement",
+          "original": "../util/buffer.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/recordbatch.mjs",
+          "kind": "import-statement",
+          "original": "../recordbatch.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/io/interfaces.mjs",
+          "kind": "import-statement",
+          "original": "../io/interfaces.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/util/compat.mjs",
+          "kind": "import-statement",
+          "original": "../util/compat.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/io/whatwg/iterable.mjs": {
+      "bytes": 4340,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/tslib/tslib.es6.mjs",
+          "kind": "import-statement",
+          "original": "tslib"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/util/buffer.mjs",
+          "kind": "import-statement",
+          "original": "../../util/buffer.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/util/compat.mjs",
+          "kind": "import-statement",
+          "original": "../../util/compat.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/io/whatwg/builder.mjs": {
+      "bytes": 4224,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/tslib/tslib.es6.mjs",
+          "kind": "import-statement",
+          "original": "tslib"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/factories.mjs",
+          "kind": "import-statement",
+          "original": "../../factories.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/io/whatwg/reader.mjs": {
+      "bytes": 2418,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/tslib/tslib.es6.mjs",
+          "kind": "import-statement",
+          "original": "tslib"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/io/stream.mjs",
+          "kind": "import-statement",
+          "original": "../../io/stream.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/ipc/reader.mjs",
+          "kind": "import-statement",
+          "original": "../../ipc/reader.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/io/whatwg/writer.mjs": {
+      "bytes": 2193,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/tslib/tslib.es6.mjs",
+          "kind": "import-statement",
+          "original": "tslib"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/io/stream.mjs",
+          "kind": "import-statement",
+          "original": "../../io/stream.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/ipc/serialization.mjs": {
+      "bytes": 1890,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/table.mjs",
+          "kind": "import-statement",
+          "original": "../table.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/util/compat.mjs",
+          "kind": "import-statement",
+          "original": "../util/compat.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/ipc/reader.mjs",
+          "kind": "import-statement",
+          "original": "./reader.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/ipc/writer.mjs",
+          "kind": "import-statement",
+          "original": "./writer.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/Arrow.mjs": {
+      "bytes": 4776,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/fb/message-header.mjs",
+          "kind": "import-statement",
+          "original": "./fb/message-header.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/enum.mjs",
+          "kind": "import-statement",
+          "original": "./enum.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/data.mjs",
+          "kind": "import-statement",
+          "original": "./data.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/type.mjs",
+          "kind": "import-statement",
+          "original": "./type.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/table.mjs",
+          "kind": "import-statement",
+          "original": "./table.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/vector.mjs",
+          "kind": "import-statement",
+          "original": "./vector.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/visitor.mjs",
+          "kind": "import-statement",
+          "original": "./visitor.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/schema.mjs",
+          "kind": "import-statement",
+          "original": "./schema.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/row/map.mjs",
+          "kind": "import-statement",
+          "original": "./row/map.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/row/struct.mjs",
+          "kind": "import-statement",
+          "original": "./row/struct.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder.mjs",
+          "kind": "import-statement",
+          "original": "./builder.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/factories.mjs",
+          "kind": "import-statement",
+          "original": "./factories.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder/bool.mjs",
+          "kind": "import-statement",
+          "original": "./builder/bool.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder/null.mjs",
+          "kind": "import-statement",
+          "original": "./builder/null.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder/date.mjs",
+          "kind": "import-statement",
+          "original": "./builder/date.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder/decimal.mjs",
+          "kind": "import-statement",
+          "original": "./builder/decimal.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder/dictionary.mjs",
+          "kind": "import-statement",
+          "original": "./builder/dictionary.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder/fixedsizebinary.mjs",
+          "kind": "import-statement",
+          "original": "./builder/fixedsizebinary.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder/float.mjs",
+          "kind": "import-statement",
+          "original": "./builder/float.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder/int.mjs",
+          "kind": "import-statement",
+          "original": "./builder/int.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder/time.mjs",
+          "kind": "import-statement",
+          "original": "./builder/time.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder/timestamp.mjs",
+          "kind": "import-statement",
+          "original": "./builder/timestamp.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder/interval.mjs",
+          "kind": "import-statement",
+          "original": "./builder/interval.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder/utf8.mjs",
+          "kind": "import-statement",
+          "original": "./builder/utf8.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder/binary.mjs",
+          "kind": "import-statement",
+          "original": "./builder/binary.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder/list.mjs",
+          "kind": "import-statement",
+          "original": "./builder/list.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder/fixedsizelist.mjs",
+          "kind": "import-statement",
+          "original": "./builder/fixedsizelist.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder/map.mjs",
+          "kind": "import-statement",
+          "original": "./builder/map.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder/struct.mjs",
+          "kind": "import-statement",
+          "original": "./builder/struct.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder/union.mjs",
+          "kind": "import-statement",
+          "original": "./builder/union.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/io/stream.mjs",
+          "kind": "import-statement",
+          "original": "./io/stream.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/ipc/reader.mjs",
+          "kind": "import-statement",
+          "original": "./ipc/reader.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/ipc/writer.mjs",
+          "kind": "import-statement",
+          "original": "./ipc/writer.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/ipc/serialization.mjs",
+          "kind": "import-statement",
+          "original": "./ipc/serialization.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/ipc/message.mjs",
+          "kind": "import-statement",
+          "original": "./ipc/message.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/ipc/metadata/message.mjs",
+          "kind": "import-statement",
+          "original": "./ipc/metadata/message.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/recordbatch.mjs",
+          "kind": "import-statement",
+          "original": "./recordbatch.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/util/bn.mjs",
+          "kind": "import-statement",
+          "original": "./util/bn.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/util/int.mjs",
+          "kind": "import-statement",
+          "original": "./util/int.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/util/bit.mjs",
+          "kind": "import-statement",
+          "original": "./util/bit.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/util/math.mjs",
+          "kind": "import-statement",
+          "original": "./util/math.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/util/buffer.mjs",
+          "kind": "import-statement",
+          "original": "./util/buffer.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/util/vector.mjs",
+          "kind": "import-statement",
+          "original": "./util/vector.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/visitor/typecomparator.mjs",
+          "kind": "import-statement",
+          "original": "./visitor/typecomparator.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/apache-arrow/Arrow.dom.mjs": {
+      "bytes": 3938,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/io/adapters.mjs",
+          "kind": "import-statement",
+          "original": "./io/adapters.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/builder.mjs",
+          "kind": "import-statement",
+          "original": "./builder.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/ipc/reader.mjs",
+          "kind": "import-statement",
+          "original": "./ipc/reader.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/ipc/writer.mjs",
+          "kind": "import-statement",
+          "original": "./ipc/writer.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/io/whatwg/iterable.mjs",
+          "kind": "import-statement",
+          "original": "./io/whatwg/iterable.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/io/whatwg/builder.mjs",
+          "kind": "import-statement",
+          "original": "./io/whatwg/builder.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/io/whatwg/reader.mjs",
+          "kind": "import-statement",
+          "original": "./io/whatwg/reader.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/io/whatwg/writer.mjs",
+          "kind": "import-statement",
+          "original": "./io/whatwg/writer.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/Arrow.mjs",
+          "kind": "import-statement",
+          "original": "./Arrow.mjs"
+        },
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/Arrow.mjs",
+          "kind": "import-statement",
+          "original": "./Arrow.mjs"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/packages/duckdb-wasm/src/log.ts": {
+      "bytes": 3773,
+      "imports": [],
+      "format": "esm"
+    },
+    "duckdb-upstream/packages/duckdb-wasm/src/parallel/async_connection.ts": {
+      "bytes": 7533,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/Arrow.dom.mjs",
+          "kind": "import-statement",
+          "original": "apache-arrow"
+        },
+        {
+          "path": "./async_bindings",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "duckdb-upstream/packages/duckdb-wasm/src/log.ts",
+          "kind": "import-statement",
+          "original": "../log"
+        },
+        {
+          "path": "../bindings/insert_options",
+          "kind": "import-statement",
+          "external": true
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/packages/duckdb-wasm/src/parallel/async_bindings_interface.ts": {
+      "bytes": 1720,
+      "imports": [
+        {
+          "path": "../log",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "../bindings/insert_options",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "../bindings",
+          "kind": "import-statement",
+          "external": true
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/packages/duckdb-wasm/src/parallel/worker_request.ts": {
+      "bytes": 10167,
+      "imports": [
+        {
+          "path": "../bindings/insert_options",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "../log",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "../bindings/tokens",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "../bindings/file_stats",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "../bindings/config",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "../bindings/web_file",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "../bindings/progress",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "../bindings",
+          "kind": "import-statement",
+          "external": true
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/packages/duckdb-wasm/src/json_typedef.ts": {
+      "bytes": 4909,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/Arrow.dom.mjs",
+          "kind": "import-statement",
+          "original": "apache-arrow"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/packages/duckdb-wasm/src/parallel/async_bindings.ts": {
+      "bytes": 25018,
+      "imports": [
+        {
+          "path": "duckdb-upstream/packages/duckdb-wasm/src/parallel/worker_request.ts",
+          "kind": "import-statement",
+          "original": "./worker_request"
+        },
+        {
+          "path": "./async_bindings_interface",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "../log",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "duckdb-upstream/packages/duckdb-wasm/src/parallel/async_connection.ts",
+          "kind": "import-statement",
+          "original": "./async_connection"
+        },
+        {
+          "path": "../bindings/insert_options",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "../bindings/tokens",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "../bindings/file_stats",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "../bindings/config",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "../bindings/progress",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "duckdb-upstream/packages/duckdb-wasm/src/json_typedef.ts",
+          "kind": "import-statement",
+          "original": "../json_typedef"
+        },
+        {
+          "path": "../bindings/web_file",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "../bindings",
+          "kind": "import-statement",
+          "external": true
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/packages/duckdb-wasm/src/parallel/worker_dispatcher.ts": {
+      "bytes": 16594,
+      "imports": [
+        {
+          "path": "../bindings",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "duckdb-upstream/packages/duckdb-wasm/src/parallel/worker_request.ts",
+          "kind": "import-statement",
+          "original": "./worker_request"
+        },
+        {
+          "path": "../log",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "../bindings/progress",
+          "kind": "import-statement",
+          "external": true
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/packages/duckdb-wasm/src/parallel/index.ts": {
+      "bytes": 185,
+      "imports": [
+        {
+          "path": "duckdb-upstream/packages/duckdb-wasm/src/parallel/async_connection.ts",
+          "kind": "import-statement",
+          "original": "./async_connection"
+        },
+        {
+          "path": "duckdb-upstream/packages/duckdb-wasm/src/parallel/async_bindings_interface.ts",
+          "kind": "import-statement",
+          "original": "./async_bindings_interface"
+        },
+        {
+          "path": "duckdb-upstream/packages/duckdb-wasm/src/parallel/async_bindings.ts",
+          "kind": "import-statement",
+          "original": "./async_bindings"
+        },
+        {
+          "path": "duckdb-upstream/packages/duckdb-wasm/src/parallel/worker_dispatcher.ts",
+          "kind": "import-statement",
+          "original": "./worker_dispatcher"
+        },
+        {
+          "path": "duckdb-upstream/packages/duckdb-wasm/src/parallel/worker_request.ts",
+          "kind": "import-statement",
+          "original": "./worker_request"
+        }
+      ],
+      "format": "esm"
+    },
+    "(disabled):fs": {
+      "bytes": 0,
+      "imports": []
+    },
+    "(disabled):path": {
+      "bytes": 0,
+      "imports": []
+    },
+    "duckdb-upstream/packages/duckdb-wasm/src/bindings/duckdb-eh.js": {
+      "bytes": 47005,
+      "imports": [
+        {
+          "path": "(disabled):fs",
+          "kind": "require-call",
+          "original": "fs"
+        },
+        {
+          "path": "(disabled):path",
+          "kind": "require-call",
+          "original": "path"
+        },
+        {
+          "path": "crypto",
+          "kind": "require-call",
+          "external": true
+        }
+      ],
+      "format": "cjs"
+    },
+    "duckdb-upstream/packages/duckdb-wasm/src/bindings/connection.ts": {
+      "bytes": 6352,
+      "imports": [
+        {
+          "path": "duckdb-upstream/node_modules/apache-arrow/Arrow.dom.mjs",
+          "kind": "import-statement",
+          "original": "apache-arrow"
+        },
+        {
+          "path": "./bindings_interface",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "./insert_options",
+          "kind": "import-statement",
+          "external": true
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/packages/duckdb-wasm/src/status.ts": {
+      "bytes": 44,
+      "imports": [],
+      "format": "esm"
+    },
+    "duckdb-upstream/packages/duckdb-wasm/src/bindings/udf_runtime.ts": {
+      "bytes": 10840,
+      "imports": [
+        {
+          "path": "./runtime",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "./duckdb_module",
+          "kind": "import-statement",
+          "external": true
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/packages/duckdb-wasm/src/bindings/runtime.ts": {
+      "bytes": 7562,
+      "imports": [
+        {
+          "path": "./duckdb_module",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "./udf_function",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "duckdb-upstream/packages/duckdb-wasm/src/bindings/udf_runtime.ts",
+          "kind": "import-statement",
+          "original": "./udf_runtime"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/packages/duckdb-wasm/src/bindings/file_stats.ts": {
+      "bytes": 2314,
+      "imports": [],
+      "format": "esm"
+    },
+    "duckdb-upstream/packages/duckdb-wasm/src/bindings/bindings_base.ts": {
+      "bytes": 20060,
+      "imports": [
+        {
+          "path": "./duckdb_module",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "./config",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "../log",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "./progress",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "./bindings_interface",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "duckdb-upstream/packages/duckdb-wasm/src/bindings/connection.ts",
+          "kind": "import-statement",
+          "original": "./connection"
+        },
+        {
+          "path": "duckdb-upstream/packages/duckdb-wasm/src/status.ts",
+          "kind": "import-statement",
+          "original": "../status"
+        },
+        {
+          "path": "duckdb-upstream/packages/duckdb-wasm/src/bindings/runtime.ts",
+          "kind": "import-statement",
+          "original": "./runtime"
+        },
+        {
+          "path": "./insert_options",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "./tokens",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "duckdb-upstream/packages/duckdb-wasm/src/bindings/file_stats.ts",
+          "kind": "import-statement",
+          "original": "./file_stats"
+        },
+        {
+          "path": "duckdb-upstream/packages/duckdb-wasm/src/json_typedef.ts",
+          "kind": "import-statement",
+          "original": "../json_typedef"
+        },
+        {
+          "path": "./web_file",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "./udf_function",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "apache-arrow",
+          "kind": "import-statement",
+          "external": true
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/packages/duckdb-wasm/src/bindings/bindings_browser_base.ts": {
+      "bytes": 7573,
+      "imports": [
+        {
+          "path": "./duckdb_module",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "duckdb-upstream/packages/duckdb-wasm/src/bindings/bindings_base.ts",
+          "kind": "import-statement",
+          "original": "./bindings_base"
+        },
+        {
+          "path": "./runtime",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "duckdb-upstream/packages/duckdb-wasm/src/log.ts",
+          "kind": "import-statement",
+          "original": "../log"
+        },
+        {
+          "path": "../log",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": ".",
+          "kind": "import-statement",
+          "external": true
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/packages/duckdb-wasm/src/bindings/bindings_browser_eh.ts": {
+      "bytes": 933,
+      "imports": [
+        {
+          "path": "duckdb-upstream/packages/duckdb-wasm/src/bindings/duckdb-eh.js",
+          "kind": "import-statement",
+          "original": "./duckdb-eh.js"
+        },
+        {
+          "path": "duckdb-upstream/packages/duckdb-wasm/src/bindings/bindings_browser_base.ts",
+          "kind": "import-statement",
+          "original": "./bindings_browser_base"
+        },
+        {
+          "path": "./duckdb_module",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "./runtime",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "../log",
+          "kind": "import-statement",
+          "external": true
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/packages/duckdb-wasm/src/utils/binary_dump.ts": {
+      "bytes": 325,
+      "imports": [],
+      "format": "esm"
+    },
+    "duckdb-upstream/node_modules/js-sha256/src/sha256.js": {
+      "bytes": 18387,
+      "imports": [],
+      "format": "cjs"
+    },
+    "duckdb-upstream/packages/duckdb-wasm/src/utils/s3_helper.ts": {
+      "bytes": 8053,
+      "imports": [
+        {
+          "path": "../bindings",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "duckdb-upstream/node_modules/js-sha256/src/sha256.js",
+          "kind": "import-statement",
+          "original": "js-sha256"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/packages/duckdb-wasm/src/utils/index.ts": {
+      "bytes": 60,
+      "imports": [
+        {
+          "path": "duckdb-upstream/packages/duckdb-wasm/src/utils/binary_dump.ts",
+          "kind": "import-statement",
+          "original": "./binary_dump"
+        },
+        {
+          "path": "duckdb-upstream/packages/duckdb-wasm/src/utils/s3_helper.ts",
+          "kind": "import-statement",
+          "original": "./s3_helper"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/packages/duckdb-wasm/src/bindings/runtime_browser.ts": {
+      "bytes": 27350,
+      "imports": [
+        {
+          "path": "duckdb-upstream/packages/duckdb-wasm/src/status.ts",
+          "kind": "import-statement",
+          "original": "../status"
+        },
+        {
+          "path": "duckdb-upstream/packages/duckdb-wasm/src/utils/index.ts",
+          "kind": "import-statement",
+          "original": "../utils"
+        },
+        {
+          "path": "duckdb-upstream/packages/duckdb-wasm/src/bindings/runtime.ts",
+          "kind": "import-statement",
+          "original": "./runtime"
+        },
+        {
+          "path": "./duckdb_module",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "duckdb-upstream/packages/duckdb-wasm/src/bindings/udf_runtime.ts",
+          "kind": "import-statement",
+          "original": "./udf_runtime"
+        }
+      ],
+      "format": "esm"
+    },
+    "duckdb-upstream/packages/duckdb-wasm/src/targets/duckdb-browser-eh.worker.ts": {
+      "bytes": 1255,
+      "imports": [
+        {
+          "path": "duckdb-upstream/packages/duckdb-wasm/src/parallel/index.ts",
+          "kind": "import-statement",
+          "original": "../parallel"
+        },
+        {
+          "path": "duckdb-upstream/packages/duckdb-wasm/src/bindings/bindings_browser_eh.ts",
+          "kind": "import-statement",
+          "original": "../bindings/bindings_browser_eh"
+        },
+        {
+          "path": "../bindings",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "duckdb-upstream/packages/duckdb-wasm/src/bindings/runtime_browser.ts",
+          "kind": "import-statement",
+          "original": "../bindings/runtime_browser"
+        },
+        {
+          "path": "../bindings/progress",
+          "kind": "import-statement",
+          "external": true
+        }
+      ],
+      "format": "esm"
+    }
+  },
+  "outputs": {
+    "../../_temp/matching-output/duckdb-browser-eh.worker.js.map": {
+      "imports": [],
+      "exports": [],
+      "inputs": {},
+      "bytes": 632942
+    },
+    "../../_temp/matching-output/duckdb-browser-eh.worker.js": {
+      "imports": [
+        {
+          "path": "crypto",
+          "kind": "require-call",
+          "external": true
+        }
+      ],
+      "exports": [],
+      "entryPoint": "duckdb-upstream/packages/duckdb-wasm/src/targets/duckdb-browser-eh.worker.ts",
+      "inputs": {
+        "(disabled):fs": {
+          "bytesInOutput": 18
+        },
+        "(disabled):path": {
+          "bytesInOutput": 18
+        },
+        "duckdb-upstream/packages/duckdb-wasm/src/bindings/duckdb-eh.js": {
+          "bytesInOutput": 25997
+        },
+        "duckdb-upstream/node_modules/js-sha256/src/sha256.js": {
+          "bytesInOutput": 10338
+        },
+        "duckdb-upstream/packages/duckdb-wasm/src/targets/duckdb-browser-eh.worker.ts": {
+          "bytesInOutput": 275
+        },
+        "duckdb-upstream/node_modules/tslib/tslib.es6.mjs": {
+          "bytesInOutput": 2288
+        },
+        "duckdb-upstream/node_modules/apache-arrow/util/buffer.mjs": {
+          "bytesInOutput": 4257
+        },
+        "duckdb-upstream/node_modules/apache-arrow/util/utf8.mjs": {
+          "bytesInOutput": 89
+        },
+        "duckdb-upstream/node_modules/apache-arrow/util/compat.mjs": {
+          "bytesInOutput": 752
+        },
+        "duckdb-upstream/node_modules/apache-arrow/io/adapters.mjs": {
+          "bytesInOutput": 3457
+        },
+        "duckdb-upstream/node_modules/apache-arrow/enum.mjs": {
+          "bytesInOutput": 2325
+        },
+        "duckdb-upstream/node_modules/apache-arrow/util/vector.mjs": {
+          "bytesInOutput": 1950
+        },
+        "duckdb-upstream/node_modules/apache-arrow/util/pretty.mjs": {
+          "bytesInOutput": 502
+        },
+        "duckdb-upstream/node_modules/apache-arrow/util/bn.mjs": {
+          "bytesInOutput": 2836
+        },
+        "duckdb-upstream/node_modules/apache-arrow/util/bigint.mjs": {
+          "bytesInOutput": 183
+        },
+        "duckdb-upstream/node_modules/apache-arrow/type.mjs": {
+          "bytesInOutput": 9895
+        },
+        "duckdb-upstream/node_modules/apache-arrow/visitor.mjs": {
+          "bytesInOutput": 5737
+        },
+        "duckdb-upstream/node_modules/apache-arrow/util/math.mjs": {
+          "bytesInOutput": 640
+        },
+        "duckdb-upstream/node_modules/apache-arrow/visitor/set.mjs": {
+          "bytesInOutput": 4527
+        },
+        "duckdb-upstream/node_modules/apache-arrow/row/struct.mjs": {
+          "bytesInOutput": 1850
+        },
+        "duckdb-upstream/node_modules/apache-arrow/visitor/get.mjs": {
+          "bytesInOutput": 3816
+        },
+        "duckdb-upstream/node_modules/apache-arrow/row/map.mjs": {
+          "bytesInOutput": 1629
+        },
+        "duckdb-upstream/node_modules/apache-arrow/util/bit.mjs": {
+          "bytesInOutput": 1655
+        },
+        "duckdb-upstream/node_modules/apache-arrow/data.mjs": {
+          "bytesInOutput": 6388
+        },
+        "duckdb-upstream/node_modules/apache-arrow/util/chunk.mjs": {
+          "bytesInOutput": 1520
+        },
+        "duckdb-upstream/node_modules/apache-arrow/visitor/indexof.mjs": {
+          "bytesInOutput": 1773
+        },
+        "duckdb-upstream/node_modules/apache-arrow/visitor/iterator.mjs": {
+          "bytesInOutput": 1874
+        },
+        "duckdb-upstream/node_modules/apache-arrow/visitor/bytelength.mjs": {
+          "bytesInOutput": 1575
+        },
+        "duckdb-upstream/node_modules/apache-arrow/vector.mjs": {
+          "bytesInOutput": 3963
+        },
+        "duckdb-upstream/node_modules/apache-arrow/builder/valid.mjs": {
+          "bytesInOutput": 419
+        },
+        "duckdb-upstream/node_modules/apache-arrow/builder/buffer.mjs": {
+          "bytesInOutput": 1841
+        },
+        "duckdb-upstream/node_modules/apache-arrow/builder.mjs": {
+          "bytesInOutput": 3588
+        },
+        "duckdb-upstream/node_modules/apache-arrow/fb/block.mjs": {
+          "bytesInOutput": 440
+        },
+        "duckdb-upstream/node_modules/flatbuffers/mjs/flatbuffers.js": {
+          "bytesInOutput": 0
+        },
+        "duckdb-upstream/node_modules/flatbuffers/mjs/utils.js": {
+          "bytesInOutput": 143
+        },
+        "duckdb-upstream/node_modules/flatbuffers/mjs/encoding.js": {
+          "bytesInOutput": 101
+        },
+        "duckdb-upstream/node_modules/flatbuffers/mjs/byte-buffer.js": {
+          "bytesInOutput": 2911
+        },
+        "duckdb-upstream/node_modules/flatbuffers/mjs/builder.js": {
+          "bytesInOutput": 5409
+        },
+        "duckdb-upstream/node_modules/apache-arrow/fb/key-value.mjs": {
+          "bytesInOutput": 803
+        },
+        "duckdb-upstream/node_modules/apache-arrow/fb/metadata-version.mjs": {
+          "bytesInOutput": 110
+        },
+        "duckdb-upstream/node_modules/apache-arrow/fb/endianness.mjs": {
+          "bytesInOutput": 75
+        },
+        "duckdb-upstream/node_modules/apache-arrow/fb/dictionary-kind.mjs": {
+          "bytesInOutput": 66
+        },
+        "duckdb-upstream/node_modules/apache-arrow/fb/int.mjs": {
+          "bytesInOutput": 782
+        },
+        "duckdb-upstream/node_modules/apache-arrow/fb/dictionary-encoding.mjs": {
+          "bytesInOutput": 1110
+        },
+        "duckdb-upstream/node_modules/apache-arrow/fb/binary.mjs": {
+          "bytesInOutput": 479
+        },
+        "duckdb-upstream/node_modules/apache-arrow/fb/bool.mjs": {
+          "bytesInOutput": 465
+        },
+        "duckdb-upstream/node_modules/apache-arrow/fb/date-unit.mjs": {
+          "bytesInOutput": 85
+        },
+        "duckdb-upstream/node_modules/apache-arrow/fb/date.mjs": {
+          "bytesInOutput": 640
+        },
+        "duckdb-upstream/node_modules/apache-arrow/fb/decimal.mjs": {
+          "bytesInOutput": 967
+        },
+        "duckdb-upstream/node_modules/apache-arrow/fb/time-unit.mjs": {
+          "bytesInOutput": 155
+        },
+        "duckdb-upstream/node_modules/apache-arrow/fb/fixed-size-binary.mjs": {
+          "bytesInOutput": 706
+        },
+        "duckdb-upstream/node_modules/apache-arrow/fb/fixed-size-list.mjs": {
+          "bytesInOutput": 689
+        },
+        "duckdb-upstream/node_modules/apache-arrow/fb/precision.mjs": {
+          "bytesInOutput": 100
+        },
+        "duckdb-upstream/node_modules/apache-arrow/fb/floating-point.mjs": {
+          "bytesInOutput": 704
+        },
+        "duckdb-upstream/node_modules/apache-arrow/fb/interval-unit.mjs": {
+          "bytesInOutput": 132
+        },
+        "duckdb-upstream/node_modules/apache-arrow/fb/interval.mjs": {
+          "bytesInOutput": 666
+        },
+        "duckdb-upstream/node_modules/apache-arrow/fb/list.mjs": {
+          "bytesInOutput": 465
+        },
+        "duckdb-upstream/node_modules/apache-arrow/fb/map.mjs": {
+          "bytesInOutput": 627
+        },
+        "duckdb-upstream/node_modules/apache-arrow/fb/null.mjs": {
+          "bytesInOutput": 465
+        },
+        "duckdb-upstream/node_modules/apache-arrow/fb/struct-.mjs": {
+          "bytesInOutput": 486
+        },
+        "duckdb-upstream/node_modules/apache-arrow/fb/time.mjs": {
+          "bytesInOutput": 803
+        },
+        "duckdb-upstream/node_modules/apache-arrow/fb/timestamp.mjs": {
+          "bytesInOutput": 832
+        },
+        "duckdb-upstream/node_modules/apache-arrow/fb/union-mode.mjs": {
+          "bytesInOutput": 79
+        },
+        "duckdb-upstream/node_modules/apache-arrow/fb/union.mjs": {
+          "bytesInOutput": 1301
+        },
+        "duckdb-upstream/node_modules/apache-arrow/fb/utf8.mjs": {
+          "bytesInOutput": 465
+        },
+        "duckdb-upstream/node_modules/apache-arrow/fb/type.mjs": {
+          "bytesInOutput": 635
+        },
+        "duckdb-upstream/node_modules/apache-arrow/fb/field.mjs": {
+          "bytesInOutput": 2160
+        },
+        "duckdb-upstream/node_modules/apache-arrow/fb/schema.mjs": {
+          "bytesInOutput": 2281
+        },
+        "duckdb-upstream/node_modules/apache-arrow/fb/footer.mjs": {
+          "bytesInOutput": 2064
+        },
+        "duckdb-upstream/node_modules/apache-arrow/schema.mjs": {
+          "bytesInOutput": 2098
+        },
+        "duckdb-upstream/node_modules/apache-arrow/ipc/metadata/file.mjs": {
+          "bytesInOutput": 1997
+        },
+        "duckdb-upstream/node_modules/apache-arrow/io/interfaces.mjs": {
+          "bytesInOutput": 2211
+        },
+        "duckdb-upstream/node_modules/apache-arrow/io/stream.mjs": {
+          "bytesInOutput": 2811
+        },
+        "duckdb-upstream/node_modules/apache-arrow/io/file.mjs": {
+          "bytesInOutput": 2136
+        },
+        "duckdb-upstream/node_modules/apache-arrow/util/int.mjs": {
+          "bytesInOutput": 5623
+        },
+        "duckdb-upstream/node_modules/apache-arrow/visitor/vectorloader.mjs": {
+          "bytesInOutput": 4991
+        },
+        "duckdb-upstream/node_modules/apache-arrow/builder/binary.mjs": {
+          "bytesInOutput": 494
+        },
+        "duckdb-upstream/node_modules/apache-arrow/builder/bool.mjs": {
+          "bytesInOutput": 107
+        },
+        "duckdb-upstream/node_modules/apache-arrow/builder/date.mjs": {
+          "bytesInOutput": 156
+        },
+        "duckdb-upstream/node_modules/apache-arrow/builder/decimal.mjs": {
+          "bytesInOutput": 52
+        },
+        "duckdb-upstream/node_modules/apache-arrow/builder/dictionary.mjs": {
+          "bytesInOutput": 1597
+        },
+        "duckdb-upstream/node_modules/apache-arrow/builder/fixedsizebinary.mjs": {
+          "bytesInOutput": 52
+        },
+        "duckdb-upstream/node_modules/apache-arrow/builder/fixedsizelist.mjs": {
+          "bytesInOutput": 322
+        },
+        "duckdb-upstream/node_modules/apache-arrow/builder/float.mjs": {
+          "bytesInOutput": 166
+        },
+        "duckdb-upstream/node_modules/apache-arrow/builder/interval.mjs": {
+          "bytesInOutput": 156
+        },
+        "duckdb-upstream/node_modules/apache-arrow/builder/int.mjs": {
+          "bytesInOutput": 238
+        },
+        "duckdb-upstream/node_modules/apache-arrow/builder/list.mjs": {
+          "bytesInOutput": 447
+        },
+        "duckdb-upstream/node_modules/apache-arrow/builder/map.mjs": {
+          "bytesInOutput": 682
+        },
+        "duckdb-upstream/node_modules/apache-arrow/builder/null.mjs": {
+          "bytesInOutput": 102
+        },
+        "duckdb-upstream/node_modules/apache-arrow/builder/struct.mjs": {
+          "bytesInOutput": 526
+        },
+        "duckdb-upstream/node_modules/apache-arrow/builder/timestamp.mjs": {
+          "bytesInOutput": 260
+        },
+        "duckdb-upstream/node_modules/apache-arrow/builder/time.mjs": {
+          "bytesInOutput": 260
+        },
+        "duckdb-upstream/node_modules/apache-arrow/builder/union.mjs": {
+          "bytesInOutput": 1244
+        },
+        "duckdb-upstream/node_modules/apache-arrow/builder/utf8.mjs": {
+          "bytesInOutput": 403
+        },
+        "duckdb-upstream/node_modules/apache-arrow/visitor/builderctor.mjs": {
+          "bytesInOutput": 1189
+        },
+        "duckdb-upstream/node_modules/apache-arrow/visitor/typecomparator.mjs": {
+          "bytesInOutput": 3242
+        },
+        "duckdb-upstream/node_modules/apache-arrow/factories.mjs": {
+          "bytesInOutput": 331
+        },
+        "duckdb-upstream/node_modules/apache-arrow/util/recordbatch.mjs": {
+          "bytesInOutput": 885
+        },
+        "duckdb-upstream/node_modules/apache-arrow/table.mjs": {
+          "bytesInOutput": 3647
+        },
+        "duckdb-upstream/node_modules/apache-arrow/recordbatch.mjs": {
+          "bytesInOutput": 3707
+        },
+        "duckdb-upstream/node_modules/apache-arrow/fb/body-compression-method.mjs": {
+          "bytesInOutput": 58
+        },
+        "duckdb-upstream/node_modules/apache-arrow/fb/compression-type.mjs": {
+          "bytesInOutput": 83
+        },
+        "duckdb-upstream/node_modules/apache-arrow/fb/body-compression.mjs": {
+          "bytesInOutput": 883
+        },
+        "duckdb-upstream/node_modules/apache-arrow/fb/buffer.mjs": {
+          "bytesInOutput": 352
+        },
+        "duckdb-upstream/node_modules/apache-arrow/fb/field-node.mjs": {
+          "bytesInOutput": 358
+        },
+        "duckdb-upstream/node_modules/apache-arrow/fb/record-batch.mjs": {
+          "bytesInOutput": 1428
+        },
+        "duckdb-upstream/node_modules/apache-arrow/fb/dictionary-batch.mjs": {
+          "bytesInOutput": 907
+        },
+        "duckdb-upstream/node_modules/apache-arrow/fb/message-header.mjs": {
+          "bytesInOutput": 209
+        },
+        "duckdb-upstream/node_modules/apache-arrow/fb/message.mjs": {
+          "bytesInOutput": 1830
+        },
+        "duckdb-upstream/node_modules/apache-arrow/visitor/typeassembler.mjs": {
+          "bytesInOutput": 1896
+        },
+        "duckdb-upstream/node_modules/apache-arrow/ipc/metadata/json.mjs": {
+          "bytesInOutput": 2364
+        },
+        "duckdb-upstream/node_modules/apache-arrow/ipc/metadata/message.mjs": {
+          "bytesInOutput": 7488
+        },
+        "duckdb-upstream/node_modules/apache-arrow/ipc/message.mjs": {
+          "bytesInOutput": 4256
+        },
+        "duckdb-upstream/node_modules/apache-arrow/ipc/reader.mjs": {
+          "bytesInOutput": 11310
+        },
+        "duckdb-upstream/node_modules/apache-arrow/visitor/vectorassembler.mjs": {
+          "bytesInOutput": 2651
+        },
+        "duckdb-upstream/node_modules/apache-arrow/ipc/writer.mjs": {
+          "bytesInOutput": 4808
+        },
+        "duckdb-upstream/node_modules/apache-arrow/io/whatwg/iterable.mjs": {
+          "bytesInOutput": 1514
+        },
+        "duckdb-upstream/node_modules/apache-arrow/io/whatwg/builder.mjs": {
+          "bytesInOutput": 1641
+        },
+        "duckdb-upstream/node_modules/apache-arrow/io/whatwg/reader.mjs": {
+          "bytesInOutput": 649
+        },
+        "duckdb-upstream/node_modules/apache-arrow/io/whatwg/writer.mjs": {
+          "bytesInOutput": 542
+        },
+        "duckdb-upstream/node_modules/apache-arrow/Arrow.mjs": {
+          "bytesInOutput": 186
+        },
+        "duckdb-upstream/node_modules/apache-arrow/ipc/serialization.mjs": {
+          "bytesInOutput": 82
+        },
+        "duckdb-upstream/node_modules/apache-arrow/Arrow.dom.mjs": {
+          "bytesInOutput": 137
+        },
+        "duckdb-upstream/packages/duckdb-wasm/src/json_typedef.ts": {
+          "bytesInOutput": 2035
+        },
+        "duckdb-upstream/packages/duckdb-wasm/src/parallel/worker_dispatcher.ts": {
+          "bytesInOutput": 5449
+        },
+        "duckdb-upstream/packages/duckdb-wasm/src/bindings/bindings_browser_eh.ts": {
+          "bytesInOutput": 217
+        },
+        "duckdb-upstream/packages/duckdb-wasm/src/bindings/connection.ts": {
+          "bytesInOutput": 2129
+        },
+        "duckdb-upstream/packages/duckdb-wasm/src/bindings/udf_runtime.ts": {
+          "bytesInOutput": 3460
+        },
+        "duckdb-upstream/packages/duckdb-wasm/src/bindings/runtime.ts": {
+          "bytesInOutput": 721
+        },
+        "duckdb-upstream/packages/duckdb-wasm/src/bindings/file_stats.ts": {
+          "bytesInOutput": 760
+        },
+        "duckdb-upstream/packages/duckdb-wasm/src/bindings/bindings_base.ts": {
+          "bytesInOutput": 7468
+        },
+        "duckdb-upstream/packages/duckdb-wasm/src/bindings/bindings_browser_base.ts": {
+          "bytesInOutput": 2355
+        },
+        "duckdb-upstream/packages/duckdb-wasm/src/utils/s3_helper.ts": {
+          "bytesInOutput": 3244
+        },
+        "duckdb-upstream/packages/duckdb-wasm/src/bindings/runtime_browser.ts": {
+          "bytesInOutput": 9955
+        }
+      },
+      "bytes": 265658
+    }
+  }
+}
