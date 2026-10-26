@@ -781,11 +781,55 @@ jobs:
             (cd "$build" && bash -euo pipefail -c \
               "$original_link -Wl,--why-extract=$out/$condition-arrow-original-why-extract.tsv") \
               > "$out/$condition-arrow-original-relink.log" 2>&1
+            # Preserve the replay map before a failed comparison or the EXIT trap
+            # restores the ordinary map in the build directory.
+            trace_map="$out/$condition-arrow-original-trace.map"
+            test -s "$map"
+            cp "$map" "$trace_map"
+            cmp "$map" "$trace_map"
+            python3 - "$saved_map" "$trace_map" \
+              "$out/$condition-arrow-original-map-diff.txt" <<'PY'
+          from hashlib import sha256
+          from pathlib import Path
+          import sys
+
+          ordinary, replay, receipt = map(Path, sys.argv[1:])
+          def digest(path):
+              value = sha256()
+              with path.open('rb') as stream:
+                  for chunk in iter(lambda: stream.read(65536), b''):
+                      value.update(chunk)
+              return value.hexdigest()
+
+          first = None
+          with ordinary.open('rb') as left, replay.open('rb') as right:
+              offset = 0
+              while True:
+                  a, b = left.read(65536), right.read(65536)
+                  if a != b:
+                      index = next((i for i in range(min(len(a), len(b)))
+                                    if a[i] != b[i]), min(len(a), len(b)))
+                      first = (offset + index, a[index:index + 16].hex(),
+                               b[index:index + 16].hex())
+                      break
+                  if not a:
+                      break
+                  offset += len(a)
+          lines = [f'ordinary_bytes={ordinary.stat().st_size}',
+                   f'ordinary_sha256={digest(ordinary)}',
+                   f'replay_bytes={replay.stat().st_size}',
+                   f'replay_sha256={digest(replay)}',
+                   f'byte_equal={"YES" if first is None else "NO"}']
+          if first is not None:
+              lines += [f'first_diff_offset_zero_based={first[0]}',
+                        f'ordinary_first_16_hex={first[1]}',
+                        f'replay_first_16_hex={first[2]}']
+          receipt.write_text('\n'.join(lines) + '\n')
+          PY
             test -s "$out/$condition-arrow-original-why-extract.tsv"
             cmp "$build/duckdb_wasm.js" "$out/$condition.js"
             cmp "$build/duckdb_wasm.wasm" "$out/$condition.wasm"
-            cmp "$map" "$saved_map"
-            cp "$map" "$out/$condition-arrow-original-trace.map"
+            cmp "$trace_map" "$saved_map"
             clone="$out/$condition-arrow-renamed.a"
             staging="$RUNNER_TEMP/arrow-$condition-members"
             mkdir "$staging" "$out/$condition-arrow-source"
