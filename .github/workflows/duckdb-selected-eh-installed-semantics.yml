@@ -1,6 +1,9 @@
 name: DuckDB selected same-run EH installed semantic diagnostic
 
 on:
+  pull_request:
+    paths:
+      - .github/workflows/duckdb-selected-eh-installed-semantics.yml
   workflow_dispatch:
 
 permissions:
