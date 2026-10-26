@@ -56,11 +56,12 @@ def inspect_corpus [file: path, expected_ids: list<string>] {
   let receipt = (open $file)
   let corpus = ($receipt.result.corpusObserved | from json)
   if ($receipt.ok != true or $receipt.result.ok != true or
+     $receipt.result.exceptionOk != true or
      $receipt.result.cspDenied != true or $receipt.result.localRuntime != true or
      $receipt.result.remoteRequests != 0 or ($receipt.result.cspViolations | length) != 0) {
     error make {msg: $"offline/CSP smoke failed: ($file)"}
   }
-  if ($corpus.schema != 'tundra-installed-eh-corpus/v1' or $corpus.passed != true or
+  if ($corpus.schema != 'tundra-installed-eh-corpus/v1' or
      $corpus.directConnection != 'SEPARATE_SAME_INSTALLED_PAIR') {
     error make {msg: $"invalid corpus or connection label: ($file)"}
   }
@@ -75,28 +76,42 @@ def inspect_corpus [file: path, expected_ids: list<string>] {
      (($ids | sort) != ($expected_ids | sort))) {
     error make {msg: $"case set omitted, duplicated or changed: ($file)"}
   }
+  if $corpus.passed != ($corpus.cases | all {|case| $case.passed == true}) {
+    error make {msg: $"corpus verdict inconsistent with cases: ($file)"}
+  }
   let error_classes = {bridge-parser-error: 'Parser', bridge-catalog-error: 'Catalog',
     bridge-binder-error: 'Binder', bridge-conversion-error: 'Conversion',
     direct-file-error: 'IO', direct-arrow-invalid-ipc: 'Invalid Input'}
   let canonical = ($corpus.cases | each {|case|
-    if ($case.passed != true or (($case.skipped? | default false) != false) or
+    if (($case.passed != true and $case.passed != false) or
+       (($case.skipped? | default false) != false) or
        (($case.unsupported? | default false) != false)) {
-      error make {msg: $"failed/skipped case ($case.id) in ($file)"}
+      error make {msg: $"invalid/skipped case ($case.id) in ($file)"}
     }
     if $case.id in ($error_classes | columns) {
       let wanted = ($error_classes | get $case.id)
-      if not (($case.errorClass | str contains $wanted) and (($case.marker | str length) > 0)) {
+      if ($case.passed == true and
+          not (($case.errorClass | str contains $wanted) and (($case.marker | str length) > 0))) {
         error make {msg: $"wrong error class/marker for ($case.id): ($file)"}
       }
-    } else if $case.id != 'installed-local-pair-urls' {
+    } else if ($case.passed == true and $case.id != 'installed-local-pair-urls') {
       if ($case.canonicalSha256 !~ '^[0-9a-f]{64}$') or $case.canonicalBytes <= 0 {
         error make {msg: $"missing full-output digest for ($case.id): ($file)"}
       }
     }
+    let diagnostic = ($case.error? | default '')
+    if (($diagnostic | str length) > 160) {
+      error make {msg: $"unbounded case diagnostic ($case.id): ($file)"}
+    }
     {id: $case.id, phase: $case.phase, passed: $case.passed,
       canonicalSha256: ($case.canonicalSha256? | default ''),
       canonicalBytes: ($case.canonicalBytes? | default 0),
-      errorClass: ($case.errorClass? | default ''), marker: ($case.marker? | default '')}
+      errorClass: ($case.errorClass? | default ''), marker: ($case.marker? | default ''),
+      error: $diagnostic,
+      responseShape: ($case.responseShape? | default ''),
+      responseDigest: ($case.responseDigest? | default null),
+      responseLength: ($case.responseLength? | default null),
+      rejectionStage: ($case.rejectionStage? | default '')}
   })
   let selected = $corpus.selected
   if not (($selected.moduleUrl | str ends-with '/duckdb-runtime/duckdb-browser.mjs') and
@@ -122,6 +137,25 @@ def inspect_corpus [file: path, expected_ids: list<string>] {
       canonicalSha256: $case.canonicalSha256, canonicalBytes: $case.canonicalBytes,
       errorClass: $case.errorClass}})
   {receipt: $receipt, selected: $selected, cases: $canonical, semantic: $semantic}
+}
+
+def case_signature [row: record] {
+  let nonsemantic = ['installed-local-pair-urls' 'installed-local-pair-bytes'
+    'direct-parquet-buffer' 'direct-parquet-reregister']
+  if $row.passed == false {
+    return {phase: $row.phase, passed: false,
+      canonicalSha256: $row.canonicalSha256, canonicalBytes: $row.canonicalBytes,
+      errorClass: $row.errorClass, marker: $row.marker, error: $row.error,
+      responseShape: $row.responseShape, responseDigest: $row.responseDigest,
+      responseLength: $row.responseLength, rejectionStage: $row.rejectionStage}
+  }
+  if $row.id in $nonsemantic {
+    {phase: $row.phase, passed: $row.passed}
+  } else {
+    {phase: $row.phase, passed: $row.passed,
+      canonicalSha256: $row.canonicalSha256, canonicalBytes: $row.canonicalBytes,
+      errorClass: $row.errorClass}
+  }
 }
 
 def main [receipt_root: path] {
@@ -215,12 +249,34 @@ def main [receipt_root: path] {
       error make {msg: $"baseline environment/harness drift: ($baseline.profile)"}
     }
   }
-  let equal = ((($new_differences | length) == 0) and (($old_differences | length) == 0))
+  let case_comparisons = ($expected_ids | each {|id|
+    let new = ($snapshots | each {|cell|
+      let row = ($cell.cases | where id == $id | first)
+      {cell: $cell.cell, passed: $row.passed, signature: (case_signature $row)}
+    })
+    let old = ($baselines | each {|cell|
+      let row = ($cell.cases | where id == $id | first)
+      {profile: $cell.profile, passed: $row.passed, signature: (case_signature $row)}
+    })
+    let signatures = (($new | get signature) ++ ($old | get signature) |
+      each {|value| $value | to json --raw} | uniq)
+    let failures = (($new | where passed == false | get cell) ++
+      ($old | where passed == false | get profile | each {|profile| $"old-($profile)"}))
+    {id: $id, new: $new, old: $old, equal: (($signatures | length) == 1),
+      all_passed: (($failures | length) == 0), failed_cells: $failures}
+  })
+  let case_failures = ($case_comparisons | where all_passed == false | get id)
+  let case_differences = ($case_comparisons | where equal == false | get id)
+  let equal = ((($new_differences | length) == 0) and
+    (($old_differences | length) == 0) and
+    (($case_failures | length) == 0) and (($case_differences | length) == 0))
   let result = {schema: 'tundra-installed-eh-corpus-compare/v2', admission: 'NO',
     artifact_auth: $artifact_auth,
     case_count: ($expected_ids | length), equal: $equal,
     new_differences: $new_differences, old_differences: $old_differences,
+    case_failures: $case_failures, case_differences: $case_differences,
+    case_comparisons: $case_comparisons,
     snapshots: $snapshots, baselines: $baselines}
   $result | to json --raw | save --force ($receipt_root | path join 'corpus-comparison.json')
-  if not $equal { error make {msg: 'new or old installed EH corpus differs'} }
+  if not $equal { error make {msg: 'installed EH corpus case failure or difference'} }
 }

@@ -339,10 +339,21 @@ jobs:
           git -C gate-source merge-base --is-ancestor 5aac42f054e25ca0cee69ca341aa67dbdbcbc649 HEAD
           helper=gate-source/.github/scripts/duckdb-eh-corpus
           printf '%s  %s\n' \
-            '63e642092ef8129fc67a07c340eadb9e71a5b50f81e12c8d564a35cf7b62656e' "$helper/eh-corpus.mjs" \
+            '774268708bf753b093ff03ce3665dad22164d4b2e32673c4e436abb958bd3428' "$helper/eh-corpus.mjs" \
             '7895597e2417426c141dcbc7c5e002269fb5f7f3c3381a6612bdfba33af3acf4' "$helper/apply-eh-corpus.nu" \
             | sha256sum --check --status
           nu "$helper/apply-eh-corpus.nu" app/tauri/src/main.rs "$helper/eh-corpus.mjs"
+          # Corpus failures are diagnostics; preserve the independent installed
+          # smoke verdict so only a complete, safe receipt reaches comparison.
+          python3 - <<'PYCORPUS'
+          from pathlib import Path
+          path = Path('app/tauri/src/main.rs')
+          source = path.read_text()
+          old = 'result.ok = result.ok && corpus.passed;'
+          new = 'result.corpusPassed = corpus.passed;'
+          assert source.count(old) == 1
+          path.write_text(source.replace(old, new))
+          PYCORPUS
           sha256sum app/tauri/src/main.rs > "$RUNNER_TEMP/eh-semantic/corpus-harness.sha256"
           node --check "$helper/eh-corpus.mjs"
       - name: Build test-only default or sounds installer with EH candidate
@@ -677,9 +688,25 @@ jobs:
               .targetedPathsOk and
               (.cases | length == 9)) and
             (.result.corpusObserved | fromjson |
-              .schema == "tundra-installed-eh-corpus/v1" and .passed == true and
+              .schema == "tundra-installed-eh-corpus/v1" and
               .directConnection == "SEPARATE_SAME_INSTALLED_PAIR" and
-              (.cases | length == 32) and all(.cases[]; .passed == true) and
+              (.cases | length == 32) and
+              (.cases | map(.id) | sort) == (["bridge-create", "bridge-json-insert",
+                "bridge-empty-insert", "bridge-persist-null-utf8", "bridge-macro-create",
+                "bridge-macro-query", "bridge-parser-error", "bridge-parser-recovery",
+                "bridge-catalog-error", "bridge-catalog-recovery", "bridge-binder-error",
+                "bridge-conversion-error", "bridge-after-errors", "bridge-arrow-json-types",
+                "bridge-large-bigint-string", "installed-local-pair-urls",
+                "installed-local-pair-bytes", "direct-arrow-schema", "direct-csv-register",
+                "direct-csv-scan", "direct-csv-insert", "direct-json-register",
+                "direct-json-scan", "direct-json-insert", "direct-parquet-copy",
+                "direct-parquet-buffer", "direct-parquet-reregister", "direct-parquet-scan",
+                "direct-file-error", "direct-after-error", "direct-arrow-invalid-ipc",
+                "direct-after-arrow-error"] | sort) and
+              all(.cases[]; (.passed | type) == "boolean" and
+                (.skipped // false) == false and (.unsupported // false) == false) and
+              (.passed | type) == "boolean" and
+              .passed == all(.cases[]; .passed == true) and
               .skipped == [] and
               (.unsupported | sort) == ["arrow-positive-ipc", "multibatch-stream", "upstream-full-suite"])' "$RUNNER_TEMP/eh-semantic/webkit.json"
           test "$status" -eq 0
@@ -791,7 +818,7 @@ jobs:
           helper=gate-source/.github/scripts/duckdb-eh-corpus
           printf '%s  %s\n' \
             '95206f742c58dda13fb9640bc0c90dfd7b43a96206fea2773015f2ac630386c6' "$helper/authenticate-eh-artifacts.nu" \
-            '11f1ce554844b90b1f8ab701afb18ce79ab323f2b7ec017a43bf4d64fea36b14' "$helper/compare-eh-corpus.nu" \
+            '79886db2fc7f2de039609c4cf7813c65ee4e45af9c74638caf620e07addbcb10' "$helper/compare-eh-corpus.nu" \
             | sha256sum --check --status
           mkdir -p "$RUNNER_TEMP/eh-compare"
           case "$GITHUB_EVENT_NAME" in
@@ -1002,10 +1029,45 @@ jobs:
             "$RUNNER_TEMP/eh-compare"
           jq -e '.schema == "tundra-installed-eh-corpus-compare/v2" and
             .admission == "NO" and .case_count == 32 and .equal == true and
+            (.case_comparisons | length == 32) and
+            .case_failures == [] and .case_differences == [] and
             (.snapshots | length == 4) and (.baselines | length == 2)' \
             "$RUNNER_TEMP/eh-compare/corpus-comparison.json"
-      - name: Retain comparison receipt
+      - name: Enforce bounded authenticated comparison receipt
+        id: comparison_budget
         if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/eh-compare"
+          mkdir -p "$root"
+          cap=16777216
+          candidate=0
+          for name in comparison.json corpus-comparison.json artifact-auth.json; do
+            if ! test -f "$root/$name"; then
+              mkdir -p "$RUNNER_TEMP/eh-compare-refusal"
+              printf 'schema=tundra-eh-comparison-refusal/v1\nproduct_admission=NO\nreceipt_upload=NO\nreason=missing_required_receipt\n' \
+                > "$RUNNER_TEMP/eh-compare-refusal/refusal.txt"
+              exit 1
+            fi
+            bytes="$(stat -c %s "$root/$name")"
+            candidate="$((candidate + bytes))"
+          done
+          if test "$candidate" -gt "$((cap - 1024))"; then
+            mkdir -p "$RUNNER_TEMP/eh-compare-refusal"
+            printf 'schema=tundra-eh-comparison-refusal/v1\nproduct_admission=NO\nreceipt_upload=NO\nobserved_bytes=%s\ncap_bytes=%s\n' \
+              "$candidate" "$cap" > "$RUNNER_TEMP/eh-compare-refusal/refusal.txt"
+            for name in comparison.json corpus-comparison.json artifact-auth.json; do
+              if test -f "$root/$name"; then
+                mv "$root/$name" "$RUNNER_TEMP/eh-compare-refusal/$name.quarantined"
+              fi
+            done
+            exit 1
+          fi
+          printf 'schema=tundra-eh-comparison-budget/v1\nproduct_admission=NO\nreceipt_upload=YES\ncandidate_bytes=%s\ncap_bytes=%s\n' \
+            "$candidate" "$cap" > "$root/comparison-budget.txt"
+      - name: Retain comparison receipt
+        if: ${{ always() && steps.comparison_budget.outcome == 'success' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: duckdb-eh-pair-comparison
@@ -1013,7 +1075,16 @@ jobs:
             ${{ runner.temp }}/eh-compare/comparison.json
             ${{ runner.temp }}/eh-compare/corpus-comparison.json
             ${{ runner.temp }}/eh-compare/artifact-auth.json
+            ${{ runner.temp }}/eh-compare/comparison-budget.txt
           if-no-files-found: warn
+          retention-days: 14
+      - name: Retain bounded comparison refusal
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: duckdb-eh-pair-comparison-refusal
+          path: ${{ runner.temp }}/eh-compare-refusal/refusal.txt
+          if-no-files-found: ignore
           retention-days: 14
 
   old-selected-eh-webkit-baseline:
@@ -1228,10 +1299,21 @@ jobs:
           git -C gate-source merge-base --is-ancestor 5aac42f054e25ca0cee69ca341aa67dbdbcbc649 HEAD
           helper=gate-source/.github/scripts/duckdb-eh-corpus
           printf '%s  %s\n' \
-            '63e642092ef8129fc67a07c340eadb9e71a5b50f81e12c8d564a35cf7b62656e' "$helper/eh-corpus.mjs" \
+            '774268708bf753b093ff03ce3665dad22164d4b2e32673c4e436abb958bd3428' "$helper/eh-corpus.mjs" \
             '7895597e2417426c141dcbc7c5e002269fb5f7f3c3381a6612bdfba33af3acf4' "$helper/apply-eh-corpus.nu" \
             | sha256sum --check --status
           nu "$helper/apply-eh-corpus.nu" app/tauri/src/main.rs "$helper/eh-corpus.mjs"
+          # Corpus failures are diagnostics; preserve the independent installed
+          # smoke verdict so only a complete, safe receipt reaches comparison.
+          python3 - <<'PYCORPUS'
+          from pathlib import Path
+          path = Path('app/tauri/src/main.rs')
+          source = path.read_text()
+          old = 'result.ok = result.ok && corpus.passed;'
+          new = 'result.corpusPassed = corpus.passed;'
+          assert source.count(old) == 1
+          path.write_text(source.replace(old, new))
+          PYCORPUS
           sha256sum app/tauri/src/main.rs > "$RUNNER_TEMP/eh-semantic/corpus-harness.sha256"
           node --check "$helper/eh-corpus.mjs"
       - name: Build and verify installed PR119 old selected package
@@ -1346,9 +1428,25 @@ jobs:
               .targetedPathsOk and
               (.cases | length == 9)) and
             (.result.corpusObserved | fromjson |
-              .schema == "tundra-installed-eh-corpus/v1" and .passed == true and
+              .schema == "tundra-installed-eh-corpus/v1" and
               .directConnection == "SEPARATE_SAME_INSTALLED_PAIR" and
-              (.cases | length == 32) and all(.cases[]; .passed == true) and
+              (.cases | length == 32) and
+              (.cases | map(.id) | sort) == (["bridge-create", "bridge-json-insert",
+                "bridge-empty-insert", "bridge-persist-null-utf8", "bridge-macro-create",
+                "bridge-macro-query", "bridge-parser-error", "bridge-parser-recovery",
+                "bridge-catalog-error", "bridge-catalog-recovery", "bridge-binder-error",
+                "bridge-conversion-error", "bridge-after-errors", "bridge-arrow-json-types",
+                "bridge-large-bigint-string", "installed-local-pair-urls",
+                "installed-local-pair-bytes", "direct-arrow-schema", "direct-csv-register",
+                "direct-csv-scan", "direct-csv-insert", "direct-json-register",
+                "direct-json-scan", "direct-json-insert", "direct-parquet-copy",
+                "direct-parquet-buffer", "direct-parquet-reregister", "direct-parquet-scan",
+                "direct-file-error", "direct-after-error", "direct-arrow-invalid-ipc",
+                "direct-after-arrow-error"] | sort) and
+              all(.cases[]; (.passed | type) == "boolean" and
+                (.skipped // false) == false and (.unsupported // false) == false) and
+              (.passed | type) == "boolean" and
+              .passed == all(.cases[]; .passed == true) and
               .skipped == [] and
               (.unsupported | sort) == ["arrow-positive-ipc", "multibatch-stream", "upstream-full-suite"])' "$RUNNER_TEMP/eh-semantic/webkit.json"
           test "$status" -eq 0

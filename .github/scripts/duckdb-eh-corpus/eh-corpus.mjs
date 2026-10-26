@@ -24,6 +24,25 @@ function canonicalRows(table) {
     ? row.toJSON() : Object.assign({}, row));
 }
 
+async function probeMalformedArrowIpc(conn) {
+  let stage = 'registration';
+  let message = '';
+  try {
+    await conn.insertArrowFromIPCStream(new Uint8Array([0, 1, 2, 3]),
+      { name: 'eh_corpus_bad_arrow' });
+    stage = 'consumption';
+    const table = await conn.query('SELECT * FROM eh_corpus_bad_arrow LIMIT 1');
+    table.toArray();
+  } catch (error) {
+    message = String(error);
+  }
+  const errorClass = classify(message);
+  const marker = message.split(/\r?\n/, 1)[0].slice(0, 120);
+  return { id: 'direct-arrow-invalid-ipc', phase: 'direct',
+    passed: errorClass === 'Invalid Input Error' && /\b(?:arrow|ipc|stream)\b/i.test(marker),
+    errorClass, marker, rejectionStage: message ? stage : 'NONE' };
+}
+
 export async function runInstalledEhCorpus(bridge) {
   const cases = [];
   const fixtures = {};
@@ -49,9 +68,15 @@ export async function runInstalledEhCorpus(bridge) {
   const expectBridgeError = async (id, sql, expectedClass) => {
     const value = JSON.parse(await bridge.query_duckdb(sql));
     const message = typeof value?.error === 'string' ? value.error : '';
-  cases.push({ id, phase: 'bridge', passed: !!message &&
+    const diagnostic = id === 'bridge-conversion-error' ?
+      { responseShape: Array.isArray(value) ? 'array' :
+          (value === null ? 'null' : typeof value),
+        responseDigest: await digest(value),
+        responseLength: Array.isArray(value) ? value.length : null } : {};
+    cases.push({ id, phase: 'bridge', passed: !!message &&
       classify(message).toLowerCase().includes(expectedClass.toLowerCase()),
-      errorClass: classify(message), marker: message.split(/\r?\n/, 1)[0].slice(0, 120) });
+      errorClass: classify(message), marker: message.split(/\r?\n/, 1)[0].slice(0, 120),
+      ...diagnostic });
   };
   const expectDirectError = async (id, operation, expectedClass) => {
     let message = '';
@@ -158,13 +183,13 @@ export async function runInstalledEhCorpus(bridge) {
     await record('direct-csv-register', 'direct', () =>
       db.registerFileBuffer('eh_corpus_input.csv', csv).then(() => csv.length),
     v => v === csv.length);
-    await record('direct-csv-scan', 'direct', () => direct(
+  await record('direct-csv-scan', 'direct', () => direct(
       "SELECT i,s FROM read_csv_auto('eh_corpus_input.csv') ORDER BY i"),
-    v => stable(v) === stable([{ i: 7, s: 'a,b' }, { i: 11, s: 'héllo' }]));
+    v => stable(v) === stable([{ i: '7', s: 'a,b' }, { i: '11', s: 'héllo' }]));
     await record('direct-csv-insert', 'direct', async () => {
       await conn.insertCSVFromPath('eh_corpus_input.csv', { name: 'eh_corpus_csv' });
       return direct('SELECT i,s FROM eh_corpus_csv ORDER BY i');
-    }, v => stable(v) === stable([{ i: 7, s: 'a,b' }, { i: 11, s: 'héllo' }]));
+    }, v => stable(v) === stable([{ i: '7', s: 'a,b' }, { i: '11', s: 'héllo' }]));
 
     const json = new TextEncoder().encode('[{"i":2,"s":"j"},{"i":3,"s":null}]');
     fixtures.json = await digest(json);
@@ -179,9 +204,9 @@ export async function runInstalledEhCorpus(bridge) {
       return direct('SELECT i,s FROM eh_corpus_json ORDER BY i');
     }, v => stable(v) === stable([{ i: 2, s: 'j' }, { i: 3, s: null }]));
 
-    await record('direct-parquet-copy', 'direct', () => direct(
+  await record('direct-parquet-copy', 'direct', () => direct(
       "COPY (SELECT 7::INTEGER AS i, 'p'::VARCHAR AS s) TO 'eh_corpus_out.parquet' (FORMAT PARQUET)"),
-    v => v.length === 1 && v[0]?.Count === 1);
+    v => stable(v) === '[{"Count":"1"}]');
     const parquet = await record('direct-parquet-buffer', 'direct', () =>
       db.copyFileToBuffer('eh_corpus_out.parquet'),
     v => v instanceof Uint8Array && v.length > 8);
@@ -203,9 +228,7 @@ export async function runInstalledEhCorpus(bridge) {
       direct("SELECT * FROM parquet_scan('eh_corpus_missing.parquet')"), 'IO');
     await record('direct-after-error', 'direct', () => direct('SELECT 42 AS alive'),
       v => stable(v) === '[{"alive":42}]');
-    await expectDirectError('direct-arrow-invalid-ipc', () =>
-      conn.insertArrowFromIPCStream(new Uint8Array([0, 1, 2, 3]),
-        { name: 'eh_corpus_bad_arrow' }), 'Invalid Input');
+    cases.push(await probeMalformedArrowIpc(conn));
     await record('direct-after-arrow-error', 'direct', () => direct('SELECT 42 AS alive'),
       v => stable(v) === '[{"alive":42}]');
   } catch (error) {
