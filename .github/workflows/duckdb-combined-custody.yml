@@ -107,9 +107,9 @@ jobs:
           printf 'image_cache=%s\nclean_cache=%s\nclean_cache_empty_before_configure=YES\n' "$image_cache" "$clean_cache" > "$out/cache-source.txt"
           # Retain the installed SDK recipe and library sources that produce
           # clean-cache system archives, alongside the command and build logs.
-          test -s "$EMSDK/upstream/emscripten/tools/embuilder.py"
+          test -s "$EMSDK/upstream/emscripten/embuilder.py"
           tar -C "$EMSDK/upstream/emscripten" -czf "$out/sdk-archive-recipe-source.tar.gz" \
-            tools/embuilder.py system/lib
+            embuilder.py system/lib
           sha256sum "$out/sdk-archive-recipe-source.tar.gz" > "$out/sdk-archive-recipe-source.sha256"
           find duckdb-upstream -type f \
             \( -iname 'LICENSE*' -o -iname 'COPYING*' -o -iname 'NOTICE*' \) \
