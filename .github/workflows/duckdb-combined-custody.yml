@@ -278,14 +278,19 @@ jobs:
           tokens = shlex.split(response.read_text(encoding='utf-8'))
           map_text = link_map.read_text(encoding='utf-8')
           ar = Path(os.environ['EMSDK']) / 'upstream/bin/llvm-ar'
-          for archive_name in ('libduckdb_web_json.a', 'libduckdb_json.a'):
+          expected_paths = ('libduckdb_web_json.a',
+                            'third_party/duckdb/install/lib/libjson_extension.a')
+          for expected_path in expected_paths:
+              archive_name = Path(expected_path).name
               paths = [Path(token) for token in tokens if Path(token).name == archive_name]
               if len(paths) != 1:
                   raise SystemExit(f'expected one {archive_name} in link response; got {len(paths)}')
+              if str(paths[0]) != expected_path:
+                  raise SystemExit(f'wrong selected JSON archive path: {paths[0]}')
               path = paths[0] if paths[0].is_absolute() else build / paths[0]
               if not path.is_file() or not path.stat().st_size:
                   raise SystemExit(f'JSON archive missing or empty: {path}')
-              selected = re.findall(re.escape(archive_name) + r'\(([^)]+)\)', map_text)
+              selected = re.findall(re.escape(expected_path) + r'\(([^)]+)\)', map_text)
               if not selected:
                   raise SystemExit(f'no selected {archive_name} member in final link map')
               inventory = subprocess.check_output([str(ar), 't', str(path)], text=True).splitlines()
