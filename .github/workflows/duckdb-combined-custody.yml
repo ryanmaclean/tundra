@@ -1280,11 +1280,18 @@ jobs:
                   size, digest = files[name]
                   require(f' {digest} {size} {name}\n' in dsc, 'SOURCE_HASH_JOIN')
               deb = scratch / 'strace_5.16-0ubuntu3_amd64.deb'
-              metadata = subprocess.run(
-                  ['dpkg-deb', '-f', str(deb), 'Package', 'Version', 'Architecture', 'Depends'],
-                  capture_output=True, text=True, timeout=15, check=True).stdout.splitlines()
-              require(metadata == ['strace', '5.16-0ubuntu3', 'amd64',
-                                   'libc6 (>= 2.34), libunwind8'], 'PACKAGE_METADATA')
+              # dpkg-deb prefixes field names when more than one is requested.
+              # Query each field alone and require its exact value and newline;
+              # a missing field prints nothing and is therefore refused.
+              for field, value in (
+                  ('Package', 'strace'), ('Version', '5.16-0ubuntu3'),
+                  ('Architecture', 'amd64'),
+                  ('Depends', 'libc6 (>= 2.34), libunwind8')):
+                  metadata = subprocess.run(
+                      ['dpkg-deb', '-f', str(deb), field],
+                      capture_output=True, text=True, timeout=15, check=True)
+                  require(metadata.stdout == value + '\n' and not metadata.stderr,
+                          'PACKAGE_METADATA')
               unpack = scratch / 'unpacked'
               subprocess.run(['dpkg-deb', '-x', str(deb), str(unpack)],
                              capture_output=True, timeout=30, check=True)
