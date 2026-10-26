@@ -1121,6 +1121,85 @@ jobs:
           test -s "$out/clean-js-generator-scope.txt"
           printf 'js_generator_superset=RETAINED_DIAGNOSTIC\njs_generator_input_closure=UNPROVEN\n' \
             >> "$out/admission.txt"
+      - name: Inventory EH tracer provenance before any generator replay
+        if: ${{ matrix.variant == 'eh' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/combined-custody"
+          test -s "$out/image-js-generator-scope.txt"
+          test -s "$out/clean-js-generator-scope.txt"
+          # The container is digest-pinned, but its tracer executable and
+          # selected package notice have not been independently pinned.
+          # This discovery step never executes the candidate or a relink.
+          python3 - "$out" <<'PY'
+          import hashlib, re, shutil, subprocess, sys
+          from pathlib import Path
+
+          out = Path(sys.argv[1])
+          receipt = out / 'eh-generator-tracer-candidate.txt'
+          fields = {
+              'schema': 'tundra-generator-tracer-candidate/v1',
+              'container_image': 'emscripten/emsdk:3.1.48@sha256:c952f592577a428698cb990c9656f395ae34424740f9c40bed4c3ee6d4850d29',
+              'tracer_candidate': 'strace',
+              'tracer_pin': 'UNREVIEWED',
+              'python_node_child_canary': 'NOT_RUN_UNPINNED',
+              'eh_image_traced_relink': 'NOT_RUN_UNPINNED',
+              'generator_input_closure': 'UNPROVEN',
+              'glue_legal_admission': 'NO',
+              'product_admission': 'NO',
+          }
+          candidate = shutil.which('strace')
+          if candidate is None:
+              fields['discovery'] = 'ABSENT'
+          elif candidate != '/usr/bin/strace':
+              fields['discovery'] = 'NONSTANDARD_PATH_REFUSED'
+          else:
+              binary = Path(candidate)
+              notice = Path('/usr/share/doc/strace/copyright')
+              if (not binary.is_file() or binary.is_symlink() or
+                      not 0 < binary.stat().st_size <= 16777216):
+                  fields['discovery'] = 'NONREGULAR_BINARY_REFUSED'
+              elif not notice.is_file() or notice.is_symlink():
+                  fields['discovery'] = 'NOTICE_MISSING_OR_NONREGULAR_REFUSED'
+              else:
+                  owner = subprocess.run(['dpkg-query', '-S', candidate],
+                                         capture_output=True, text=True, check=False)
+                  package = subprocess.run(
+                      ['dpkg-query', '-W', '-f=${Version}\t${Architecture}\t${Status}\n', 'strace'],
+                      capture_output=True, text=True, check=False)
+                  if (owner.returncode != 0 or owner.stdout.strip() != 'strace: /usr/bin/strace'
+                          or package.returncode != 0):
+                      fields['discovery'] = 'PACKAGE_OWNER_UNVERIFIED'
+                  else:
+                      match = re.fullmatch(r'([A-Za-z0-9.+:~_-]+)\t(amd64)\t(install ok installed)\n',
+                                           package.stdout)
+                      if match is None:
+                          fields['discovery'] = 'PACKAGE_METADATA_UNVERIFIED'
+                      else:
+                          body = notice.read_bytes()
+                          if (not 0 < len(body) <= 131072 or
+                              any(byte < 32 and byte not in (9, 10, 13) for byte in body) or
+                              not re.search(rb'LGPL[- ]?2\.1', body, re.I)):
+                              fields['discovery'] = 'NOTICE_UNSAFE_OR_LICENSE_UNVERIFIED'
+                          else:
+                              fields.update({
+                                  'discovery': 'PIN_REVIEW_REQUIRED',
+                                  'package_version': match.group(1),
+                                  'package_arch': match.group(2),
+                                  'binary_bytes': str(binary.stat().st_size),
+                                  'binary_sha256': hashlib.sha256(binary.read_bytes()).hexdigest(),
+                                  'notice_bytes': str(len(body)),
+                                  'notice_sha256': hashlib.sha256(body).hexdigest(),
+                              })
+                              (out / 'eh-generator-tracer-candidate-copyright').write_bytes(body)
+          receipt.write_text(''.join(f'{key}={value}\n' for key, value in fields.items()))
+          PY
+          test -s "$out/eh-generator-tracer-candidate.txt"
+          grep -Fqx 'generator_input_closure=UNPROVEN' "$out/eh-generator-tracer-candidate.txt"
+          grep -Fqx 'eh_image_traced_relink=NOT_RUN_UNPINNED' "$out/eh-generator-tracer-candidate.txt"
+          printf 'generator_tracer=DISCOVERY_ONLY\njs_generator_input_closure=UNPROVEN\n' \
+            >> "$out/admission.txt"
       - name: Classify same-run bytes and immutable custody
         shell: bash
         run: |
