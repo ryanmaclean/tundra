@@ -683,6 +683,291 @@ jobs:
               assert (root / f'{condition}-json-object-source.tsv').is_file()
           path.write_text(data.replace(old, 'json_selected_archive_bytes=RETAINED_BOUNDED\n'))
           PY
+      - name: Retain EH Arrow archive and duplicate-instance relink
+        if: ${{ matrix.variant == 'eh' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/combined-custody"
+          ar="$EMSDK/upstream/bin/llvm-ar"
+          "$EMSDK/upstream/bin/wasm-ld" --help > "$out/arrow-wasm-ld-help.txt"
+          grep -Fq -- '--why-extract' "$out/arrow-wasm-ld-help.txt"
+          test -s "$out/cache-source.txt"
+          restore_arrow_link() {
+            cp "$saved_rsp" "$linklibs"
+            cp "$saved_map" "$map"
+            cp "$out/$condition.js" "$build/duckdb_wasm.js"
+            cp "$out/$condition.wasm" "$build/duckdb_wasm.wasm"
+          }
+          for condition in image clean; do
+            case "$condition" in
+              image) cache="$EMSDK/upstream/emscripten/cache" ;;
+              clean) cache="$RUNNER_TEMP/empty-sdk-cache-eh" ;;
+            esac
+            test -d "$cache"
+            grep -Fqx "${condition}_cache=$cache" "$out/cache-source.txt"
+            printf 'condition=%s\nEM_CACHE=%s\nsource=cache-source.txt\n' \
+              "$condition" "$cache" > "$out/$condition-arrow-relink-cache.txt"
+            build="$GITHUB_WORKSPACE/duckdb-upstream/build/integrated-eh-$condition"
+            map="$out/$condition.map"
+            linklibs="$build/CMakeFiles/duckdb_wasm.dir/linklibs.rsp"
+            saved_rsp="$out/$condition-arrow-ordinary-linklibs.rsp"
+            saved_map="$out/$condition-arrow-ordinary.map"
+            test -s "$out/$condition.js" && test -s "$out/$condition.wasm"
+            test -s "$map" && test -s "$linklibs"
+            cmp "$linklibs" "$out/$condition-linklibs.rsp"
+            cp "$linklibs" "$saved_rsp"
+            cp "$map" "$saved_map"
+            trap restore_arrow_link EXIT
+            token=third_party/arrow/install/lib/libarrow.a
+            test "$(tr ' ' '\n' < "$linklibs" | grep -Fxc "$token")" -eq 1
+            archive="$build/$token"
+            original="$out/$condition-arrow-original.a"
+            test -s "$archive"
+            cp "$archive" "$original"
+            cmp "$archive" "$original"
+            test "$(sha256sum "$original" | cut -d ' ' -f 1)" = \
+              "$(sed -n 's/^sha256=//p' "$out/$condition-arrow.txt")"
+            test "$(stat -c %s "$original")" -le 83886080
+            members="$out/$condition-arrow-original-members.txt"
+            offsets="$out/$condition-arrow-original-offsets.txt"
+            "$ar" t "$original" > "$members"
+            "$ar" tO "$original" > "$offsets"
+            test "$(wc -l < "$members")" -eq "$(wc -l < "$offsets")"
+            test "$(grep -Fxc util.cc.o "$members")" -eq 2
+            verified="$out/$condition-arrow-verified-offsets.tsv"
+            python3 - "$original" "$members" "$offsets" "$verified" <<'PY'
+          from pathlib import Path
+          import re, sys
+          archive, members, offsets, verified = map(Path, sys.argv[1:])
+          data = archive.read_bytes()
+          assert data.startswith(b'!<arch>\n')
+          selected = []
+          string_table = None
+          cursor = 8
+          while cursor < len(data):
+              header = data[cursor:cursor + 60]
+              assert len(header) == 60 and header[58:60] == bytes((96, 10))
+              raw_name = header[:16].decode('ascii').strip()
+              size = int(header[48:58].strip())
+              payload = cursor + 60
+              end = payload + size
+              assert 0 < size and end <= len(data)
+              if raw_name == '//':
+                  string_table = data[payload:end]
+              elif raw_name not in ('/', '/SYM64/'):
+                  if raw_name.startswith('/') and raw_name[1:].isdigit():
+                      assert string_table is not None
+                      start = int(raw_name[1:])
+                      stop = string_table.find(b'/\n', start)
+                      assert 0 <= start < stop
+                      name = string_table[start:stop].decode('utf-8')
+                  else:
+                      assert raw_name.endswith('/')
+                      name = raw_name[:-1]
+                  selected.append((name, payload, cursor))
+              cursor = end + (size & 1)
+          assert cursor == len(data)
+          member_rows = members.read_text().splitlines()
+          offset_rows = offsets.read_text().splitlines()
+          assert len(selected) == len(member_rows) == len(offset_rows) > 0
+          output = []
+          last_payload = -1
+          for row, ((name, payload, header), member, offset_row) in enumerate(
+                  zip(selected, member_rows, offset_rows), 1):
+              match = re.fullmatch(r'(\S+)\s+0x([0-9A-Fa-f]+)', offset_row)
+              assert match is not None
+              assert name == member == match.group(1)
+              assert payload == int(match.group(2), 16)
+              assert 8 <= header < payload and payload > last_payload
+              assert data[header + 58:header + 60] == bytes((96, 10))
+              last_payload = payload
+              output.append(f'{row}\t{name}\t0x{payload:x}\t0x{header:x}\n')
+          verified.write_text(''.join(output))
+          PY
+            original_link="$(cat "$out/$condition-link.txt")"
+            test "$(wc -l < "$out/$condition-link.txt")" -eq 1
+            (cd "$build" && EM_CACHE="$cache" bash -euo pipefail -c \
+              "$original_link -Wl,--why-extract=$out/$condition-arrow-original-why-extract.tsv") \
+              > "$out/$condition-arrow-original-relink.log" 2>&1
+            # Preserve the replay map before a failed comparison or the EXIT trap
+            # restores the ordinary map in the build directory.
+            trace_map="$out/$condition-arrow-original-trace.map"
+            test -s "$map"
+            cp "$map" "$trace_map"
+            cmp "$map" "$trace_map"
+            python3 - "$saved_map" "$trace_map" \
+              "$out/$condition-arrow-original-map-diff.txt" <<'PY'
+          from hashlib import sha256
+          from pathlib import Path
+          import sys
+
+          ordinary, replay, receipt = map(Path, sys.argv[1:])
+          def digest(path):
+              value = sha256()
+              with path.open('rb') as stream:
+                  for chunk in iter(lambda: stream.read(65536), b''):
+                      value.update(chunk)
+              return value.hexdigest()
+
+          first = None
+          with ordinary.open('rb') as left, replay.open('rb') as right:
+              offset = 0
+              while True:
+                  a, b = left.read(65536), right.read(65536)
+                  if a != b:
+                      index = next((i for i in range(min(len(a), len(b)))
+                                    if a[i] != b[i]), min(len(a), len(b)))
+                      first = (offset + index, a[index:index + 16].hex(),
+                               b[index:index + 16].hex())
+                      break
+                  if not a:
+                      break
+                  offset += len(a)
+          lines = [f'ordinary_bytes={ordinary.stat().st_size}',
+                   f'ordinary_sha256={digest(ordinary)}',
+                   f'replay_bytes={replay.stat().st_size}',
+                   f'replay_sha256={digest(replay)}',
+                   f'byte_equal={"YES" if first is None else "NO"}']
+          if first is not None:
+              lines += [f'first_diff_offset_zero_based={first[0]}',
+                        f'ordinary_first_16_hex={first[1]}',
+                        f'replay_first_16_hex={first[2]}']
+          receipt.write_text('\n'.join(lines) + '\n')
+          PY
+            test -s "$out/$condition-arrow-original-why-extract.tsv"
+            cmp "$build/duckdb_wasm.js" "$out/$condition.js"
+            cmp "$build/duckdb_wasm.wasm" "$out/$condition.wasm"
+            cmp "$trace_map" "$saved_map"
+            clone="$out/$condition-arrow-renamed.a"
+            staging="$RUNNER_TEMP/arrow-$condition-members"
+            mkdir "$staging" "$out/$condition-arrow-source"
+            : > "$out/$condition-arrow-source/joins.tsv"
+            ledger="$out/$condition-arrow-instance-ledger.tsv"
+            printf 'row\tmember\toccurrence\tpayload_offset\theader_offset\tpayload_sha256\tbytes\trenamed_member\tsource_object\n' > "$ledger"
+            row=0
+            # The selected member list is read-only; the loop writes a separate clone.
+            # shellcheck disable=SC2094
+            while IFS= read -r member; do
+              row=$((row + 1))
+              test -n "$member" && [[ "$member" != */* && "$member" != *[[:space:]]* ]]
+              count="$(head -n "$row" "$members" | grep -Fxc "$member")"
+              slot="$staging/$row"
+              mkdir "$slot"
+              (cd "$slot" && "$ar" xN "$count" "$original" "$member")
+              test -s "$slot/$member"
+              IFS=$'\t' read -r offset_row offset_name payload_offset header_offset \
+                <<< "$(sed -n "$row"p "$verified")"
+              test "$offset_row" = "$row" && test "$offset_name" = "$member"
+              new_name="$member"
+              source_object=-
+              if test "$member" = util.cc.o; then
+                case "$count" in
+                  1) family=array; new_name=arrow-array-util-instance-1.o ;;
+                  2) family=compute; new_name=arrow-compute-util-instance-2.o ;;
+                  *) exit 1 ;;
+                esac
+                source_object="$build/third_party/arrow/src/arrow_ep-build/src/arrow/CMakeFiles/arrow_objlib.dir/$family/util.cc.o"
+                source_file="$GITHUB_WORKSPACE/duckdb-upstream/submodules/arrow/cpp/src/arrow/$family/util.cc"
+                test -s "$source_object" && test -s "$source_object.d" && test -s "$source_file"
+                cmp "$slot/$member" "$source_object"
+                if ! grep -Fq "$source_file" "$source_object.d"; then
+                  grep -Fq "src/arrow/$family/util.cc" "$source_object.d"
+                fi
+                target="src/arrow/CMakeFiles/arrow_objlib.dir/$family/util.cc.o:"
+                test "$(awk -v target="$target" -v source="$source_file" \
+                  'index($0, target) == 1 && index($0, source) > 0 { n++ } END { print n+0 }' \
+                  "$out/$condition-arrow-build.make")" -eq 1
+                printf '%s\t%s\t%s\t%s\n' "$family" \
+                  "$(sha256sum "$source_object" | cut -d ' ' -f 1)" \
+                  "$(sha256sum "$source_object.d" | cut -d ' ' -f 1)" \
+                  "$(sha256sum "$source_file" | cut -d ' ' -f 1)" \
+                  >> "$out/$condition-arrow-source/joins.tsv"
+                cp "$source_object" "$out/$condition-arrow-source/$family-util.o"
+                cp "$source_object.d" "$out/$condition-arrow-source/$family-util.o.d"
+                cp "$source_file" "$out/$condition-arrow-source/$family-util.cc"
+                cmp "$source_object" "$out/$condition-arrow-source/$family-util.o"
+                cmp "$source_object.d" "$out/$condition-arrow-source/$family-util.o.d"
+                cmp "$source_file" "$out/$condition-arrow-source/$family-util.cc"
+                mv "$slot/$member" "$slot/$new_name"
+              fi
+              payload="$slot/$new_name"
+              printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+                "$row" "$member" "$count" "$payload_offset" "$header_offset" \
+                "$(sha256sum "$payload" | cut -d ' ' -f 1)" "$(stat -c %s "$payload")" \
+                "$new_name" "$source_object" >> "$ledger"
+              "$ar" qc "$clone" "$payload"
+            done < "$members"
+            "$ar" s "$clone"
+            test "$(wc -l < "$ledger")" -eq "$((row + 1))"
+            test "$(wc -l < "$out/$condition-arrow-source/joins.tsv")" -eq 2
+            test "$(stat -c %s "$clone")" -le 83886080
+            "$ar" t "$clone" > "$out/$condition-arrow-renamed-members.txt"
+            test "$(wc -l < "$out/$condition-arrow-renamed-members.txt")" -eq "$row"
+            test "$(grep -Fxc arrow-array-util-instance-1.o "$out/$condition-arrow-renamed-members.txt")" -eq 1
+            test "$(grep -Fxc arrow-compute-util-instance-2.o "$out/$condition-arrow-renamed-members.txt")" -eq 1
+            test "$(grep -Fxc util.cc.o "$out/$condition-arrow-renamed-members.txt" || true)" -eq 0
+            while IFS=$'\t' read -r ledger_row member count payload_offset header_offset payload_sha bytes new_name source_object; do
+              test "$(sed -n "$ledger_row"p "$out/$condition-arrow-renamed-members.txt")" = "$new_name"
+              clone_count="$count"
+              if test "$member" = util.cc.o; then clone_count=1; fi
+              check="$staging/check-$ledger_row"
+              mkdir "$check"
+              (cd "$check" && "$ar" xN "$clone_count" "$clone" "$new_name")
+              test "$(stat -c %s "$check/$new_name")" = "$bytes"
+              test "$(sha256sum "$check/$new_name" | cut -d ' ' -f 1)" = "$payload_sha"
+            done < <(tail -n +2 "$ledger")
+            python3 - "$linklibs" "$token" "$clone" <<'PY'
+          from pathlib import Path
+          import sys
+          path, token, replacement = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
+          data = path.read_text()
+          assert data.split().count(token) == 1
+          data = data.replace(token, replacement)
+          assert data.split().count(replacement) == 1
+          path.write_text(data)
+          PY
+            (cd "$build" && EM_CACHE="$cache" bash -euo pipefail -c \
+              "$original_link -Wl,--why-extract=$out/$condition-arrow-renamed-why-extract.tsv") \
+              > "$out/$condition-arrow-renamed-relink.log" 2>&1
+            test -s "$out/$condition-arrow-renamed-why-extract.tsv"
+            cp "$map" "$out/$condition-arrow-renamed.map"
+            cmp "$build/duckdb_wasm.js" "$out/$condition.js"
+            cmp "$build/duckdb_wasm.wasm" "$out/$condition.wasm"
+            array=arrow-array-util-instance-1.o
+            compute=arrow-compute-util-instance-2.o
+            test "$(awk -F '\t' -v name="$array" 'NR > 1 && index($2, "(" name ")") > 0 { n++ } END { print n+0 }' \
+              "$out/$condition-arrow-renamed-why-extract.tsv")" -eq 1
+            test "$(awk -F '\t' -v name="$compute" 'NR > 1 && index($2, "(" name ")") > 0 { n++ } END { print n+0 }' \
+              "$out/$condition-arrow-renamed-why-extract.tsv")" -eq 0
+            grep -Fq "$clone($array)" "$out/$condition-arrow-renamed.map"
+            if grep -Fq "$clone($compute)" "$out/$condition-arrow-renamed.map"; then exit 1; fi
+            printf 'original_trace_js_wasm_map_byte_match=YES\nrenamed_relink_js_wasm_byte_match=YES\narray_instance_1=EXTRACTED_RETAINED\ncompute_instance_2=NOT_EXTRACTED\nproduct_admission=NO\n' \
+              > "$out/$condition-arrow-instance-gate.txt"
+            sha256sum "$original" "$clone" "$ledger" \
+              "$out/$condition-arrow-original-why-extract.tsv" \
+              "$out/$condition-arrow-renamed-why-extract.tsv" \
+              "$out/$condition-arrow-renamed.map" \
+              > "$out/$condition-arrow-instance.sha256"
+            restore_arrow_link
+            trap - EXIT
+          done
+          python3 - "$out/admission.txt" <<'PY'
+          from pathlib import Path
+          import sys
+          root = Path(sys.argv[1]).parent
+          for condition in ('image', 'clean'):
+              gate = (root / f'{condition}-arrow-instance-gate.txt').read_text()
+              assert gate.count('renamed_relink_js_wasm_byte_match=YES\n') == 1
+              assert gate.count('compute_instance_2=NOT_EXTRACTED\n') == 1
+              assert (root / f'{condition}-arrow-original.a').is_file()
+          path = root / 'admission.txt'
+          data = path.read_text()
+          old = 'arrow_original_member_instance=AMBIGUOUS\n'
+          assert data.count(old) == 1
+          path.write_text(data.replace(old,
+              'arrow_original_member_instance=ARRAY_1_SELECTED_COMPUTE_2_UNSELECTED_EH_DIAGNOSTIC\n'))
+          PY
       - name: Classify same-run bytes and immutable custody
         shell: bash
         run: |
