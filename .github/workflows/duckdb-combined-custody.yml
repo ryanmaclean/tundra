@@ -1370,6 +1370,196 @@ jobs:
           grep -Fqx 'candidate_executable=NOT_RUN' "$out/eh-generator-tracer-provenance.txt"
           printf 'generator_tracer=PINNED_TOOLING_BYTES_ONLY\njs_generator_input_closure=UNPROVEN\n' \
             >> "$out/admission.txt"
+      - name: Retain pinned EH libunwind runtime provenance without execution
+        if: ${{ matrix.variant == 'eh' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/combined-custody"
+          grep -Fqx 'candidate_executable=NOT_RUN' "$out/eh-generator-tracer-provenance.txt"
+          python3 - "$out" "$RUNNER_TEMP" <<'PY'
+          import hashlib, os, platform, re, shutil, subprocess, sys, tarfile, tempfile
+          import urllib.parse, urllib.request
+          from pathlib import Path
+
+          out, runner_temp = map(Path, sys.argv[1:])
+          receipt = out / 'eh-libunwind-provenance.txt'
+          target = out / 'eh-libunwind-package'
+          base = 'https://archive.ubuntu.com/ubuntu/pool/main/libu/libunwind/'
+          files = {
+              'libunwind8_1.3.2-2build2.1_amd64.deb': (54518, '781e3eb86986ab93e8b4866fc571fdec780c3d9a8b56b490e9c2f10fb90978ce'),
+              'libunwind_1.3.2-2build2.1.dsc': (2929, '8da13052cdf57f1c4d4efb4b4acad7019066273f99849910db2af3cd3c75d290'),
+              'libunwind_1.3.2.orig.tar.gz': (854114, '0a4b5a78d8c0418dfa610245f75fa03ad45d8e5e4cc091915d2dbed34c01178e'),
+              'libunwind_1.3.2.orig.tar.gz.asc': (659, '5c1ffad1980acc92536a35643afba3f0e395b2a953fb898fda3403dae8fbd6ef'),
+              'libunwind_1.3.2-2build2.1.debian.tar.xz': (20156, 'fd9de87fb8d2a45c4f55c390db5bd57e58fc963d7ca14e4aae854a917f239dc3'),
+          }
+          members = {
+              'control': (1023, '52ff7eeebf5981ed9091ccb6eefc662c9a694f8b2d8342269f62bc64d11d92ba'),
+              'copyright': (3613, '977d981f5677652884b09cccef6b62f992aa9c74b7a748bfe9863a703f5aed58'),
+              'COPYING': (1063, '6a0dbbdaec2b3136b7bf045586f4212bdf74e7af688bf9dfe9154607cf5ec156'),
+              'libunwind-ptrace.so.0.0.0': (18840, 'f791a9b0b01faa13a65ee066d2351d2e38a23d6c3752f75eebeaf0fc5c7d56f4'),
+              'libunwind-x86_64.so.8.0.1': (71920, '1077e265bdd76ed4f2d628ea29150eb98f5c7c8f5a30004a561e6e93a2a6f097'),
+              'libunwind.so.8.0.1': (63744, '5d1f6f104f79698e137c9f17c4b0317dfd96816c0eb6a87c50619a41472ca382'),
+              'libunwind-coredump.so.0.0.0': (18280, 'f94a928e9f3e915939f46a2d630ba9946b2fa90dcf58579089bc3b40f409ddc5'),
+          }
+          sonames = {
+              'libunwind-ptrace.so.0.0.0': ('libunwind-ptrace.so.0', {'libc.so.6'}),
+              'libunwind-x86_64.so.8.0.1': ('libunwind-x86_64.so.8', {'libunwind.so.8', 'liblzma.so.5', 'libc.so.6'}),
+              'libunwind.so.8.0.1': ('libunwind.so.8', {'liblzma.so.5', 'libc.so.6', 'ld-linux-x86-64.so.2'}),
+              'libunwind-coredump.so.0.0.0': ('libunwind-coredump.so.0', {'liblzma.so.5', 'libc.so.6'}),
+          }
+          class Refusal(Exception): pass
+          def require(ok, code):
+              if not ok: raise Refusal(code)
+          def exact(data, spec, code):
+              require(len(data) == spec[0] and hashlib.sha256(data).hexdigest() == spec[1], code)
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, request, fp, code, msg, headers, newurl): return None
+          opener = urllib.request.build_opener(NoRedirect)
+          def fetch(name, spec):
+              url = base + name
+              parsed = urllib.parse.urlsplit(url)
+              require(parsed.scheme == 'https' and parsed.netloc == 'archive.ubuntu.com'
+                      and not parsed.query and not parsed.fragment, 'UNAPPROVED_ORIGIN')
+              with opener.open(urllib.request.Request(url), timeout=45) as response:
+                  require(response.status == 200 and response.geturl() == url, 'REDIRECT_OR_STATUS')
+                  data = response.read(spec[0] + 1)
+                  require(len(data) == spec[0] and response.read(1) == b'', 'DOWNLOAD_SIZE')
+              exact(data, spec, 'DOWNLOAD_HASH')
+              return data
+          def source_member(archive, name):
+              with tarfile.open(archive, mode='r:*') as tf:
+                  member = tf.getmember(name)
+                  require(member.isfile() and 0 < member.size <= 131072, 'SOURCE_MEMBER_TYPE_OR_SIZE')
+                  return tf.extractfile(member).read()
+          def installed(package):
+              result = subprocess.run(['dpkg-query', '-W', '-f=${Version}\t${Status}\n', package],
+                                      capture_output=True, text=True, timeout=15, check=False)
+              if result.returncode != 0: return ('MISSING', '-')
+              match = re.fullmatch(r'([A-Za-z0-9.+:~_-]+)\tinstall ok installed\n', result.stdout)
+              return ('PRESENT_UNREVIEWED', match.group(1)) if match else ('UNVERIFIED', '-')
+          def dynamic(path):
+              result = subprocess.run(['readelf', '-d', str(path)], capture_output=True,
+                                      text=True, timeout=15, check=True)
+              require(not result.stderr, 'READELF_STDERR')
+              names = re.findall(r'\(SONAME\)\s+Library soname: \[([^]]+)\]', result.stdout)
+              needed = set(re.findall(r'\(NEEDED\)\s+Shared library: \[([^]]+)\]', result.stdout))
+              return names, needed
+          scratch = Path(tempfile.mkdtemp(prefix='tundra-libunwind-', dir=runner_temp))
+          try:
+              os_release = Path('/etc/os-release').read_text()
+              require(re.search(r'^ID=ubuntu$', os_release, re.M) is not None and
+                      re.search(r'^VERSION_ID="?22\.04"?$', os_release, re.M) is not None and
+                      platform.machine() == 'x86_64', 'CONTAINER_OS_ARCH')
+              fetched = {name: fetch(name, spec) for name, spec in files.items()}
+              for name, data in fetched.items(): (scratch / name).write_bytes(data)
+              dsc = fetched['libunwind_1.3.2-2build2.1.dsc'].decode('utf-8')
+              require('Source: libunwind\n' in dsc and 'Version: 1.3.2-2build2.1\n' in dsc,
+                      'SOURCE_IDENTITY')
+              for name in ('libunwind_1.3.2.orig.tar.gz', 'libunwind_1.3.2.orig.tar.gz.asc',
+                           'libunwind_1.3.2-2build2.1.debian.tar.xz'):
+                  size, digest = files[name]
+                  require(f' {digest} {size} {name}\n' in dsc, 'SOURCE_HASH_JOIN')
+              deb = scratch / 'libunwind8_1.3.2-2build2.1_amd64.deb'
+              for field, value in (('Package', 'libunwind8'), ('Source', 'libunwind'),
+                                   ('Version', '1.3.2-2build2.1'), ('Architecture', 'amd64'),
+                                   ('Depends', 'libc6 (>= 2.34), liblzma5 (>= 5.1.1alpha+20110809)')):
+                  result = subprocess.run(['dpkg-deb', '-f', str(deb), field], capture_output=True,
+                                          text=True, timeout=15, check=True)
+                  require(result.stdout == value + '\n' and not result.stderr, 'PACKAGE_METADATA')
+              unpack, control_dir = scratch / 'unpacked', scratch / 'control'
+              subprocess.run(['dpkg-deb', '-x', str(deb), str(unpack)], capture_output=True,
+                             timeout=30, check=True)
+              subprocess.run(['dpkg-deb', '-e', str(deb), str(control_dir)], capture_output=True,
+                             timeout=30, check=True)
+              control = (control_dir / 'control').read_bytes()
+              exact(control, members['control'], 'CONTROL_HASH')
+              notice = (unpack / 'usr/share/doc/libunwind8/copyright').read_bytes()
+              exact(notice, members['copyright'], 'SELECTED_NOTICE_HASH')
+              copying = source_member(scratch / 'libunwind_1.3.2.orig.tar.gz',
+                                      'libunwind-1.3.2/COPYING')
+              debian_notice = source_member(scratch / 'libunwind_1.3.2-2build2.1.debian.tar.xz',
+                                            'debian/copyright')
+              exact(copying, members['COPYING'], 'UPSTREAM_COPYING_HASH')
+              require(debian_notice == notice and b'Files: *\n' in notice
+                      and b'License: Expat\n' in notice
+                      and b'Files: debian/*\n' in notice
+                      and b'License: GPL-2+\n' in notice,
+                      'SELECTED_RUNTIME_VS_PACKAGING_LICENSE')
+              libdir = unpack / 'usr/lib/x86_64-linux-gnu'
+              elf_bytes = {}
+              for name, (soname, needed) in sonames.items():
+                  path = libdir / name
+                  require(path.is_file() and not path.is_symlink(), 'ELF_TYPE')
+                  elf_bytes[name] = path.read_bytes()
+                  exact(elf_bytes[name], members[name], 'ELF_HASH')
+                  observed_soname, observed_needed = dynamic(path)
+                  require(observed_soname == [soname] and observed_needed == needed,
+                          'ELF_ABI')
+                  link = libdir / soname
+                  require(link.is_symlink() and os.readlink(link) == name,
+                          'SONAME_SYMLINK_TOPOLOGY')
+              strace_path = out / 'eh-generator-tracer-package/strace'
+              require(strace_path.is_file() and hashlib.sha256(strace_path.read_bytes()).hexdigest()
+                      == '38a5c75cb29dd85ddd7780d54f5bf595554d7a1b5c42524b23065f5dc4c4b01d',
+                      'STRACE_JOIN')
+              strace_soname, strace_needed = dynamic(strace_path)
+              require(not strace_soname and {'libunwind-ptrace.so.0',
+                      'libunwind-x86_64.so.8', 'libc.so.6'} <= strace_needed,
+                      'STRACE_ABI_JOIN')
+              libc, libc_version = installed('libc6')
+              lzma, lzma_version = installed('liblzma5')
+              fields = {
+                  'schema': 'tundra-libunwind-provenance/v1',
+                  'status': 'PINNED_RUNTIME_BYTES_DEPENDENCY_REVIEW_PENDING',
+                  'package': 'libunwind8=1.3.2-2build2.1:amd64',
+                  'package_origin': 'HTTPS_ARCHIVE_UBUNTU_COM_EXACT_HASH',
+                  'selected_runtime_license': 'EXPAT_MIT',
+                  'source_packaging_license': 'GPL_2_OR_LATER_SEPARATE',
+                  'asc_signature_verification': 'NOT_PERFORMED',
+                  'strace_abi_join': 'ELF_NEEDED_AND_SONAME_ONLY',
+                  'libc6_status': libc, 'libc6_version': libc_version,
+                  'liblzma5_status': lzma, 'liblzma5_version': lzma_version,
+                  'loader_resolution': 'NOT_RUN',
+                  'dependency_license_review': 'PENDING',
+                  'candidate_executable': 'NOT_RUN', 'python_node_child_canary': 'NOT_RUN',
+                  'eh_image_traced_relink': 'NOT_RUN', 'generator_input_closure': 'UNPROVEN',
+                  'glue_legal_admission': 'NO', 'product_admission': 'NO',
+              }
+              for name, spec in files.items(): fields['file_' + name] = f'{spec[0]}:{spec[1]}'
+              for name, spec in members.items(): fields['member_' + name] = f'{spec[0]}:{spec[1]}'
+              require(not target.exists(), 'TARGET_EXISTS')
+              target.mkdir()
+              try:
+                  for name, data in fetched.items(): (target / name).write_bytes(data)
+                  for name, data in {'control': control, 'copyright': notice,
+                                     'COPYING': copying, **elf_bytes}.items():
+                      (target / name).write_bytes(data)
+                  for name, spec in {**files, **members}.items():
+                      exact((target / name).read_bytes(), spec, 'RETAINED_BYTE_JOIN')
+              except Exception:
+                  shutil.rmtree(target)
+                  raise
+              receipt.write_text(''.join(f'{key}={value}\n' for key, value in fields.items()))
+          except Refusal as error:
+              receipt.write_text('schema=tundra-libunwind-provenance/v1\nstatus=REFUSED\n'
+                                 f'reason={error}\ncandidate_executable=NOT_RUN\n'
+                                 'generator_input_closure=UNPROVEN\n'
+                                 'glue_legal_admission=NO\nproduct_admission=NO\n')
+              raise SystemExit(1)
+          except Exception:
+              receipt.write_text('schema=tundra-libunwind-provenance/v1\nstatus=REFUSED\n'
+                                 'reason=UNEXPECTED_ERROR\ncandidate_executable=NOT_RUN\n'
+                                 'generator_input_closure=UNPROVEN\n'
+                                 'glue_legal_admission=NO\nproduct_admission=NO\n')
+              raise SystemExit(1)
+          finally:
+              shutil.rmtree(scratch)
+          PY
+          grep -Fqx 'candidate_executable=NOT_RUN' "$out/eh-libunwind-provenance.txt"
+          grep -Fqx 'generator_input_closure=UNPROVEN' "$out/eh-libunwind-provenance.txt"
+          printf 'libunwind_runtime=PINNED_BYTES_ONLY\njs_generator_input_closure=UNPROVEN\n' \
+            >> "$out/admission.txt"
       - name: Classify same-run bytes and immutable custody
         shell: bash
         run: |
