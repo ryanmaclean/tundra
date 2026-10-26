@@ -1,0 +1,125 @@
+name: DuckDB Wasm matching browser bundle trial
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/duckdb-wasm-matching-js.yml
+      - .github/scripts/duckdb-bundle-matching-js.nu
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  pinned-browser-bundle:
+    name: Pinned MVP and EH browser bundle
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out exact Tundra head
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Check out pinned DuckDB Wasm source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: duckdb/duckdb-wasm
+          ref: f955138e5218942fb3fb097a8fdcb725222406ff
+          path: duckdb-upstream
+          persist-credentials: false
+
+      - name: Check exact input identities and download native receipts
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = '${{ github.event.pull_request.head.sha || github.sha }}'
+          test "$(git -C duckdb-upstream rev-parse HEAD)" = 'f955138e5218942fb3fb097a8fdcb725222406ff'
+          test -z "$(git -C duckdb-upstream status --porcelain)"
+          mkdir -p "$RUNNER_TEMP/native/mvp" "$RUNNER_TEMP/native/eh" "$RUNNER_TEMP/input-receipt"
+          printf 'tundra_trial_head=%s\nsource_head=%s\nnative_tundra_head=%s\nnative_run=%s\n' \
+            "$(git rev-parse HEAD)" "$(git -C duckdb-upstream rev-parse HEAD)" \
+            'a7d43e055ad33f73bb7cd4333b80ebd70ea940ea' '40216203853' \
+            > "$RUNNER_TEMP/input-receipt/heads.txt"
+          sha256sum .github/scripts/duckdb-bundle-matching-js.nu \
+            > "$RUNNER_TEMP/input-receipt/script.sha256"
+          while read -r variant id expected; do
+            metadata="$RUNNER_TEMP/input-receipt/artifact-$variant.json"
+            zip="$RUNNER_TEMP/native-$variant.zip"
+            curl --fail --silent --show-error --location --retry 3 \
+              --header "Authorization: Bearer $GH_TOKEN" \
+              --header 'Accept: application/vnd.github+json' \
+              "https://api.github.com/repos/ryanmaclean/tundra/actions/artifacts/$id" \
+              --output "$metadata"
+            jq -e --argjson id "$id" --arg digest "sha256:$expected" \
+              --arg name "duckdb-native-map-$variant" \
+              '.id == $id and .name == $name and .digest == $digest and
+               .expired == false and .workflow_run.id == 40216203853 and
+               .workflow_run.head_sha == "a7d43e055ad33f73bb7cd4333b80ebd70ea940ea"' \
+              "$metadata" > /dev/null
+            curl --fail --silent --show-error --location --retry 3 \
+              --header "Authorization: Bearer $GH_TOKEN" \
+              --header 'Accept: application/vnd.github+json' \
+              "https://api.github.com/repos/ryanmaclean/tundra/actions/artifacts/$id/zip" \
+              --output "$zip"
+            printf '%s  %s\n' "$expected" "$zip" | sha256sum --check --status
+            sha256sum "$zip" > "$RUNNER_TEMP/input-receipt/artifact-$variant.zip.sha256"
+            unzip -tq "$zip"
+            unzip -q "$zip" -d "$RUNNER_TEMP/native/$variant"
+            test -s "$RUNNER_TEMP/native/$variant/duckdb-$variant.wasm"
+            test -s "$RUNNER_TEMP/native/$variant/duckdb-$variant.js"
+          done <<'NATIVE_ARTIFACTS'
+          mvp 12608056954 4c16a3b818a2d56ed4ddfe2ef3d37d7a46e3f8914bc83964642f962decc8d777
+          eh 12607937550 b56961834539456cff75f8202ad7a0f2a02817356113624ac85633923c516417
+          NATIVE_ARTIFACTS
+
+      - name: Install checksum-pinned Nushell tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/input-receipt/nu-0.108.0-x86_64-unknown-linux-gnu.tar.gz"
+          curl --fail --silent --show-error --location --retry 3 \
+            'https://github.com/nushell/nushell/releases/download/0.108.0/nu-0.108.0-x86_64-unknown-linux-gnu.tar.gz' \
+            --output "$archive"
+          printf '%s  %s\n' \
+            'f0daaa0256b0f7dd5f4d9925b4d5522d8de5e947ed9ad64a43526e5cffeb05df' "$archive" \
+            | sha256sum --check --status
+          mkdir -p "$RUNNER_TEMP/nu-tool"
+          tar -xzf "$archive" -C "$RUNNER_TEMP/nu-tool"
+          mapfile -t binaries < <(find "$RUNNER_TEMP/nu-tool" -type f -name nu -perm -u+x)
+          test "${#binaries[@]}" -eq 1
+          printf '%s\n' "${binaries[0]}" > "$RUNNER_TEMP/input-receipt/nu-path.txt"
+          "${binaries[0]}" --version > "$RUNNER_TEMP/input-receipt/nu-version.txt"
+          grep -Fxq '0.108.0' "$RUNNER_TEMP/input-receipt/nu-version.txt"
+
+      - name: Bundle matching browser JavaScript from pinned source and native glue
+        shell: bash
+        run: |
+          set -euo pipefail
+          nu_bin="$(cat "$RUNNER_TEMP/input-receipt/nu-path.txt")"
+          "$nu_bin" .github/scripts/duckdb-bundle-matching-js.nu \
+            "$GITHUB_WORKSPACE/duckdb-upstream" \
+            "$RUNNER_TEMP/native/mvp" "$RUNNER_TEMP/native/eh" \
+            "$RUNNER_TEMP/matching-output" "$RUNNER_TEMP/matching-receipt"
+          test -s "$RUNNER_TEMP/matching-receipt/candidate.json"
+          jq -e '.admission == "NO" and .coi_built == false' \
+            "$RUNNER_TEMP/matching-receipt/candidate.json" > /dev/null
+          test "$(find "$RUNNER_TEMP/matching-output" -maxdepth 1 -type f | wc -l)" -eq 5
+          sha256sum "$RUNNER_TEMP/matching-output"/* \
+            > "$RUNNER_TEMP/input-receipt/hosted-output.sha256"
+
+      - name: Retain candidate and provenance for independent review
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: duckdb-matching-browser-candidate
+          path: |
+            ${{ runner.temp }}/input-receipt/
+            ${{ runner.temp }}/matching-receipt/
+            ${{ runner.temp }}/matching-output/
+          if-no-files-found: warn
+          retention-days: 14
