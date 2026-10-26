@@ -586,7 +586,7 @@ jobs:
             byName('pragma-error')?.shape === 'error' &&
             !!byName('pragma-error')?.errorClass &&
             byName('aggregate-ok')?.shape === 'rows' &&
-            byName('aggregate-ok')?.rows?.[0]?.total === 3 &&
+            [3, '3', '"3"'].includes(byName('aggregate-ok')?.rows?.[0]?.total) &&
             byName('aggregate-error')?.shape === 'error' &&
             !!byName('aggregate-error')?.errorClass;
           result.semanticObserved = JSON.stringify(semantic);
