@@ -1,0 +1,182 @@
+name: DuckDB selected SDK member command probe
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/duckdb-sdk-selected-member-probe.yml
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  selected-sdk-members:
+    name: Replay map-selected SDK libraries
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    container:
+      image: emscripten/emsdk:3.1.48@sha256:c952f592577a428698cb990c9656f395ae34424740f9c40bed4c3ee6d4850d29
+    steps:
+      - name: Check out exact diagnostic head
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Check out exact Emscripten source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: emscripten-core/emscripten
+          ref: e967e20b4727956a30592165a3c1cde5c67fa0a8
+          path: emscripten-source
+          persist-credentials: false
+
+      - name: Download exact-head MVP native receipt
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: duckdb-native-map-mvp
+          run-id: 40243016204
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/prior-mvp
+
+      - name: Download exact-head EH native receipt
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: duckdb-native-map-eh
+          run-id: 40243016204
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/prior-eh
+
+      - name: Replay only the selected SDK libraries from pinned source
+        shell: bash
+        run: |
+          set -euo pipefail
+          receipt="$RUNNER_TEMP/sdk-member-probe"
+          mkdir -p "$receipt/logs" "$receipt/archives" "$receipt/member-lists"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          test "$(git rev-parse HEAD)" = '${{ github.event.pull_request.head.sha }}'
+          pinned="$GITHUB_WORKSPACE/emscripten-source"
+          installed="$EMSDK/upstream/emscripten"
+          git config --global --add safe.directory "$pinned"
+          test "$(git -C "$pinned" rev-parse HEAD)" = 'e967e20b4727956a30592165a3c1cde5c67fa0a8'
+          git -C "$pinned" diff --quiet
+          git -C "$pinned" diff --cached --quiet
+          export EM_CONFIG="${EM_CONFIG:-$EMSDK/.emscripten}"
+          test -s "$EM_CONFIG"
+          sha256sum "$EM_CONFIG" > "$receipt/em-config.sha256"
+
+          # Pin the exact previous selected-archive lists, then rehash their
+          # copied bytes independently of the previous runner's checksum text.
+          printf '%s  %s\n' \
+            'e5fd8b1f3cb192b94a1dd4e4f9e34cc437ff5c585aa84aebb9a077d2f5d76494' "$RUNNER_TEMP/prior-mvp/selected-sdk-archive-comparison.tsv" \
+            '168c781de56e5775fd4fffbbe07cc60739b42206a8e6311c418585e14c2e20bf' "$RUNNER_TEMP/prior-eh/selected-sdk-archive-comparison.tsv" \
+            | sha256sum -c - > "$receipt/prior-receipt-check.txt"
+          : > "$receipt/selected-original-and-rebuild.tsv"
+          : > "$receipt/selected-targets.txt"
+          for variant in mvp eh; do
+            prior="$RUNNER_TEMP/prior-$variant"
+            while IFS=$'\t' read -r archive old_hash new_hash result; do
+              test "$result" = DIFF
+              test -n "$archive" && test -n "$old_hash" && test -n "$new_hash"
+              printf '%s  %s\n' "$old_hash" "$prior/selected-sdk-archive-bytes/$archive" \
+                "$new_hash" "$prior/selected-sdk-rebuilt-archive-bytes/$archive" \
+                | sha256sum -c - >> "$receipt/prior-receipt-check.txt"
+              printf '%s\t%s\t%s\t%s\n' "$variant" "$archive" "$old_hash" "$new_hash" \
+                >> "$receipt/selected-original-and-rebuild.tsv"
+              printf '%s\n' "${archive%.a}" >> "$receipt/selected-targets.txt"
+            done < "$prior/selected-sdk-archive-comparison.tsv"
+          done
+          test "$(wc -l < "$RUNNER_TEMP/prior-mvp/selected-sdk-archive-comparison.tsv")" -eq 8
+          test "$(wc -l < "$RUNNER_TEMP/prior-eh/selected-sdk-archive-comparison.tsv")" -eq 9
+          LC_ALL=C sort -u "$receipt/selected-targets.txt" > "$receipt/unique-targets.txt"
+          test "$(wc -l < "$receipt/unique-targets.txt")" -eq 12
+          cp -a "$RUNNER_TEMP/prior-mvp/sdk-release-metadata" "$receipt/"
+          cp -- "$RUNNER_TEMP/prior-mvp/sdk-source-comparison-summary.txt" \
+            "$receipt/prior-source-comparison-summary.txt"
+          grep -Fxq 'runtime_affecting_manifest_or_version_differences=3' \
+            "$receipt/prior-source-comparison-summary.txt"
+
+          # Hash source plus headers. The release package omits two nested
+          # formatting files; record and bound those exact omissions.
+          git -C "$pinned" ls-files -s -- system > "$receipt/system-file-modes.txt"
+          awk '$1 != "100644" && $1 != "100755" { print }' \
+            "$receipt/system-file-modes.txt" > "$receipt/unsupported-system-file-modes.txt"
+          test ! -s "$receipt/unsupported-system-file-modes.txt"
+          : > "$receipt/installed-system-sources.sha256"
+          : > "$receipt/system-formatting-omissions.txt"
+          while IFS= read -r -d '' relative; do
+            case "$relative" in
+              system/lib/libcxxabi/src/demangle/.clang-format|system/lib/libunwind/.clang-format)
+                test ! -e "$installed/$relative"
+                printf '%s\n' "$relative" >> "$receipt/system-formatting-omissions.txt"
+                continue
+                ;;
+            esac
+            test -f "$pinned/$relative" && test -f "$installed/$relative"
+            cmp -s "$pinned/$relative" "$installed/$relative"
+            sha256sum "$installed/$relative" >> "$receipt/installed-system-sources.sha256"
+          done < <(git -C "$pinned" ls-files -z -- system)
+          test "$(wc -l < "$receipt/system-formatting-omissions.txt")" -eq 2
+          cmp -s "$pinned/tools/system_libs.py" "$installed/tools/system_libs.py"
+          cmp -s "$pinned/tools/building.py" "$installed/tools/building.py"
+          cmp -s "$pinned/embuilder.py" "$installed/embuilder.py"
+          sha256sum "$installed/tools/system_libs.py" "$installed/tools/building.py" \
+            "$installed/embuilder.py" > "$receipt/build-recipe.sha256"
+          cp -- "$pinned/LICENSE" "$receipt/emscripten-LICENSE"
+          find "$pinned/system/lib" -type f \( -iname 'LICENSE*' -o -iname 'COPYING*' -o -iname 'NOTICE*' \) \
+            -printf '%P\0' | LC_ALL=C sort -z \
+            | tar -C "$pinned/system/lib" --null -czf "$receipt/system-lib-licenses.tar.gz" -T -
+
+          cache="$RUNNER_TEMP/selected-sdk-member-empty-cache"
+          test ! -e "$cache"
+          mkdir "$cache"
+          test -z "$(find "$cache" -mindepth 1 -print -quit)"
+          printf 'EM_CACHE=%s\nempty_before_build=true\n' "$cache" > "$receipt/cache.txt"
+          # The pinned embuilder resolves variation names through
+          # Library.get_all_variations(). Validate every exact target with
+          # its non-building clear operation before compiling anything.
+          : > "$receipt/target-validation.log"
+          while IFS= read -r target; do
+            printf 'validating %s\n' "$target" >> "$receipt/target-validation.log"
+            EM_CACHE="$cache" "$installed/embuilder" clear "$target" \
+              >> "$receipt/target-validation.log" 2>&1
+          done < "$receipt/unique-targets.txt"
+          EM_CACHE="$cache" "$installed/embuilder" build sysroot \
+            > "$receipt/sysroot-install.log" 2>&1
+          version_header="$cache/sysroot/include/emscripten/version.h"
+          test -s "$version_header"
+          cp -- "$version_header" "$receipt/generated-version.h"
+          {
+            printf 'diagnostic_head=%s\nemscripten_source_commit=%s\n' \
+              "$(git rev-parse HEAD)" 'e967e20b4727956a30592165a3c1cde5c67fa0a8'
+            printf 'container=emscripten/emsdk:3.1.48@sha256:c952f592577a428698cb990c9656f395ae34424740f9c40bed4c3ee6d4850d29\n'
+            command -v emcc embuilder
+            emcc --version
+            "$EMSDK/upstream/bin/clang" --version
+          } > "$receipt/environment.txt"
+          while IFS= read -r target; do
+            printf 'EM_CACHE=%s EM_FORCE_RESPONSE_FILES=0 EMCC_DEBUG=1 %s --verbose build %s\n' \
+              "$cache" "$installed/embuilder" "$target" \
+              >> "$receipt/replay-commands.txt"
+            EM_CACHE="$cache" EM_FORCE_RESPONSE_FILES=0 EMCC_DEBUG=1 \
+              "$installed/embuilder" --verbose build "$target" \
+              > "$receipt/logs/$target.log" 2>&1
+            archive="$cache/sysroot/lib/wasm32-emscripten/$target.a"
+            test -s "$archive"
+            cp -- "$archive" "$receipt/archives/$target.a"
+            "$EMSDK/upstream/bin/llvm-ar" t "$archive" \
+              > "$receipt/member-lists/$target.txt"
+            test -s "$receipt/member-lists/$target.txt"
+          done < "$receipt/unique-targets.txt"
+          (cd "$receipt/archives" && sha256sum ./*.a) > "$receipt/replayed-archives.sha256"
+          printf 'source_build_admission=NO\nmanifest_effects=unresolved\nmember_command_attribution=pending_independent_readback\n' \
+            > "$receipt/admission.txt"
+
+      - name: Retain selected SDK member command probe
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: duckdb-selected-sdk-member-command-probe
+          path: ${{ runner.temp }}/sdk-member-probe/
+          if-no-files-found: warn
+          retention-days: 14

@@ -1,0 +1,238 @@
+name: DuckDB paired SDK archive payload diagnostic
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/duckdb-sdk-archive-payload-pair.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  paired-archives:
+    name: Same-run image and clean archive bytes (${{ matrix.variant }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    container:
+      image: emscripten/emsdk:3.1.48@sha256:c952f592577a428698cb990c9656f395ae34424740f9c40bed4c3ee6d4850d29
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [mvp, eh]
+    env:
+      DUCKDB_EXCEL: "0"
+      DUCKDB_JSON: "0"
+      CCACHE_DISABLE: "1"
+      SOURCE_HEAD: 0bb7c5237dc1b047de488d67ba30b5ed05c37383
+    steps:
+      - name: Check out pinned PR116 source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: 0bb7c5237dc1b047de488d67ba30b5ed05c37383
+          persist-credentials: false
+      - name: Check out pinned DuckDB Wasm and submodules
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: duckdb/duckdb-wasm
+          ref: f955138e5218942fb3fb097a8fdcb725222406ff
+          path: duckdb-upstream
+          submodules: recursive
+          persist-credentials: false
+      - name: Retain paired map-selected physical archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/sdk-archive-pair"
+          mkdir -p "$out" "$out/image-bytes" "$out/clean-bytes" "$out/member-lists"
+          printf 'product_admission=NO\nsource_build_admission=NO\nglue_legal_admission=NO\narchive_payload_classification=UNREAD\n' > "$out/admission.txt"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE/duckdb-upstream"
+          while IFS= read -r -d '' directory; do
+            git config --global --add safe.directory "$directory"
+          done < <(find "$GITHUB_WORKSPACE/duckdb-upstream" -type f -name .git -printf '%h\0')
+          test "$(git rev-parse HEAD)" = "$SOURCE_HEAD"
+          test "$(git -C duckdb-upstream rev-parse HEAD)" = f955138e5218942fb3fb097a8fdcb725222406ff
+          test "$(git -C duckdb-upstream/submodules/duckdb rev-parse HEAD)" = 401c8061c6ece35949cac58c7770cc755710ca86
+          test "$(git -C duckdb-upstream/submodules/arrow rev-parse HEAD)" = ca1c30f60d6419849dbc2a533bd0bcaff310185f
+          test -z "$(git -C duckdb-upstream status --porcelain)"
+          git -C duckdb-upstream submodule status --recursive > "$out/submodules.txt"
+          test -z "$(grep '^[+-U]' "$out/submodules.txt" || true)"
+          emcc --version | grep -Fq 3.1.48
+          {
+            printf 'diagnostic_head=%s\nsource_head=%s\nupstream_head=%s\nvariant=%s\n' \
+              '${{ github.event.pull_request.head.sha || github.sha }}' "$SOURCE_HEAD" f955138e5218942fb3fb097a8fdcb725222406ff '${{ matrix.variant }}'
+            printf 'container=emscripten/emsdk:3.1.48@sha256:c952f592577a428698cb990c9656f395ae34424740f9c40bed4c3ee6d4850d29\n'
+            emcc --version
+            "$EMSDK/upstream/bin/llvm-ar" --version
+          } > "$out/environment.txt"
+          cp "$EMSDK/upstream/emscripten/LICENSE" "$out/emscripten-LICENSE"
+          cp duckdb-upstream/LICENSE "$out/duckdb-wasm-LICENSE"
+          sha256sum "$out/emscripten-LICENSE" "$out/duckdb-wasm-LICENSE" > "$out/legal-texts.sha256"
+          find "$EMSDK/upstream/emscripten/system/lib" -type f \
+            \( -iname 'LICENSE*' -o -iname 'COPYING*' -o -iname 'NOTICE*' \) \
+            -printf '%P\0' | LC_ALL=C sort -z \
+            | tar -C "$EMSDK/upstream/emscripten/system/lib" --null -czf "$out/sdk-system-legal-texts.tar.gz" -T -
+          sha256sum "$out/sdk-system-legal-texts.tar.gz" >> "$out/legal-texts.sha256"
+          sha256sum duckdb-upstream/duckdb.patch > "$out/duckdb-patch.sha256"
+          git -C duckdb-upstream/submodules/duckdb apply --check ../../duckdb.patch
+          git -C duckdb-upstream/submodules/duckdb apply ../../duckdb.patch
+          git -C duckdb-upstream/submodules/duckdb diff --binary > "$out/duckdb-applied.patch"
+          test -s "$out/duckdb-applied.patch"
+          image_cache="$EMSDK/upstream/emscripten/cache"
+          clean_cache="$RUNNER_TEMP/pair-clean-cache-${{ matrix.variant }}"
+          test -d "$image_cache" && test ! -e "$clean_cache"
+          mkdir "$clean_cache"
+          test -z "$(find "$clean_cache" -mindepth 1 -print -quit)"
+          printf 'image_cache=%s\nclean_cache=%s\nclean_cache_empty_before_configure=YES\n' \
+            "$image_cache" "$clean_cache" > "$out/cache.txt"
+          find "$image_cache" -type f -name '*.a' -print0 | LC_ALL=C sort -z \
+            | xargs -0 -r sha256sum > "$out/image-inventory-before.sha256"
+          variant='${{ matrix.variant }}'
+          case "$variant" in
+            mvp) expected=8; names=(libc++.a libc++abi.a libc.a libcompiler_rt.a libdlmalloc.a libnoexit.a libsockets.a libstubs.a) ;;
+            eh) expected=9; names=(libc++-except.a libc++abi-except.a libc.a libcompiler_rt-wasm-sjlj.a libdlmalloc.a libnoexit.a libsockets.a libstubs.a libunwind-except.a) ;;
+            *) exit 1 ;;
+          esac
+          # Snapshot every expected warm candidate before either build mutates a cache.
+          : > "$out/image-prebuild.tsv"
+          for name in "${names[@]}"; do
+            mapfile -t paths < <(find "$image_cache/sysroot" -type f -name "$name" | LC_ALL=C sort)
+            test "${#paths[@]}" -eq 1
+            archive="${paths[0]}"
+            cp -- "$archive" "$out/image-bytes/$name"
+            cmp -s "$archive" "$out/image-bytes/$name"
+            printf '%s\t%s\t%s\n' "$name" "$archive" "$(sha256sum "$archive" | cut -d ' ' -f 1)" \
+              >> "$out/image-prebuild.tsv"
+          done
+          for condition in image clean; do
+            if test "$condition" = image; then cache="$image_cache"; else cache="$clean_cache"; fi
+            build="$GITHUB_WORKSPACE/duckdb-upstream/build/archive-pair-$variant-$condition"
+            map="$out/$condition.map"
+            flags=(-DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+              -DDUCKDB_WASM_VERSION=v1.28.0
+              "-DDUCKDB_LOCATION=$GITHUB_WORKSPACE/duckdb-upstream/submodules/duckdb"
+              "-DCMAKE_EXE_LINKER_FLAGS=-Wl,-Map,$map")
+            if test "$variant" = eh; then
+              flags+=(-DWITH_WASM_EXCEPTIONS=1 -DDUCKDB_CUSTOM_PLATFORM=wasm_eh)
+            else
+              flags+=(-DDUCKDB_CUSTOM_PLATFORM=wasm_mvp)
+            fi
+            if test "$condition" = clean; then
+              test -z "$(find "$cache" -mindepth 1 -print -quit)"
+            fi
+            printf 'EM_CACHE=%s emcmake cmake -S duckdb-upstream/lib -B %s %s\n' \
+              "$cache" "$build" "${flags[*]}" > "$out/$condition-command.txt"
+            printf 'EM_CACHE=%s EMCC_DEBUG=1 EM_FORCE_RESPONSE_FILES=0 emmake make -C %s -j4 duckdb_wasm\n' \
+              "$cache" "$build" >> "$out/$condition-command.txt"
+            EM_CACHE="$cache" emcmake cmake -S duckdb-upstream/lib -B "$build" "${flags[@]}" \
+              > "$out/$condition-configure.log" 2>&1
+            EM_CACHE="$cache" EMCC_DEBUG=1 EM_FORCE_RESPONSE_FILES=0 \
+              emmake make -C "$build" -j4 duckdb_wasm > "$out/$condition-build.log" 2>&1
+            test -s "$map" && test -s "$build/duckdb_wasm.wasm"
+            cp "$build/CMakeFiles/duckdb_wasm.dir/link.txt" "$out/$condition-link.txt"
+            cp "$build/CMakeFiles/duckdb_wasm.dir/objects1.rsp" "$out/$condition-objects1.rsp"
+            cp "$build/CMakeFiles/duckdb_wasm.dir/linklibs.rsp" "$out/$condition-linklibs.rsp"
+            sha256sum "$build/duckdb_wasm.js" "$build/duckdb_wasm.wasm" \
+              "$out/$condition-link.txt" "$out/$condition-objects1.rsp" "$out/$condition-linklibs.rsp" \
+              > "$out/$condition-output.sha256"
+            grep -oE "$cache/sysroot/[^[:space:]():]+\.a" "$map" | LC_ALL=C sort -u \
+              > "$out/$condition-selected-paths.txt"
+            test "$(wc -l < "$out/$condition-selected-paths.txt")" -eq "$expected"
+            : > "$out/$condition-selected.tsv"
+            while IFS= read -r archive; do
+              test -s "$archive"
+              name="${archive##*/}"
+              test ! -e "$out/member-lists/$condition-$name.txt"
+              test "$(printf '%s\n' "${names[@]}" | grep -Fxc "$name")" -eq 1
+              if test "$condition" = clean; then
+                cp -- "$archive" "$out/clean-bytes/$name"
+              else
+                cmp -s "$archive" "$out/image-bytes/$name"
+                grep -Fqx "$name"$'\t'"$archive"$'\t'"$(sha256sum "$archive" | cut -d ' ' -f 1)" "$out/image-prebuild.tsv"
+              fi
+              cmp -s "$archive" "$out/$condition-bytes/$name"
+              "$EMSDK/upstream/bin/llvm-ar" t "$out/$condition-bytes/$name" \
+                > "$out/member-lists/$condition-$name.txt"
+              test -s "$out/member-lists/$condition-$name.txt"
+              printf '%s\t%s\t%s\t%s\n' "$name" "$archive" \
+                "$(sha256sum "$out/$condition-bytes/$name" | cut -d ' ' -f 1)" \
+                "$(sha256sum "$out/member-lists/$condition-$name.txt" | cut -d ' ' -f 1)" \
+                >> "$out/$condition-selected.tsv"
+            done < "$out/$condition-selected-paths.txt"
+            test "$(find "$out/$condition-bytes" -maxdepth 1 -type f -name '*.a' | wc -l)" -eq "$expected"
+            grep -F "$cache/sysroot/" "$map" > "$out/$condition-map-selected-rows.txt"
+            test -s "$out/$condition-map-selected-rows.txt"
+          done
+          find "$image_cache" -type f -name '*.a' -print0 | LC_ALL=C sort -z \
+            | xargs -0 -r sha256sum > "$out/image-inventory-after.sha256"
+          cmp -s "$out/image-inventory-before.sha256" "$out/image-inventory-after.sha256"
+          printf 'image_cache_inventory_stable=YES\n' >> "$out/cache.txt"
+          # B678 warm-image hashes are a comparison reference, not substituted bytes.
+          printf '%s\n' 'mvp libc++.a adcc1b705ea6b54edeb8480e9183172356d77fee43b12fde718c33f56f0d803b' \
+            'mvp libc++abi.a d6b9298c3c0651591843a38c8bbc0cd7402786f8e8196a60cd6c5686b4e696f4' \
+            'mvp libc.a 7e6af4b09ec027ba28034482fc46b6316bab24e466d137ae96b9ab2b5c83d01f' \
+            'mvp libcompiler_rt.a 6c6dc176c816faa8e942e9839b4d7df4b94af071489657ac1585f8891c8fcb18' \
+            'mvp libdlmalloc.a be1a34621edf0bd32f17b100c3c35a45778c1d967fe189286dbb42d058720a5d' \
+            'mvp libnoexit.a dadb42e9b0d69d891a72dc756ade75f3726b8e2eb49d2aed09c59c7a2e7e1a47' \
+            'mvp libsockets.a 63a41d8e131188acf229993f5db28bf7313f317c3e233d53a9f1730e31d9b504' \
+            'mvp libstubs.a 36a4c790708740796e5d4e09a7cc3050adb177fdb037138170e9d5d3cbe5d229' \
+            'eh libc++-except.a 37809212bdd9b8fa860cf117b350d85faafaf1ff805c08cebec97ed2d25db37b' \
+            'eh libc++abi-except.a 3265aefb7dd7eb87165c99e6d1dd6ce6b6ee7ffffeb6c498797777dc4c3161e6' \
+            'eh libc.a 7e6af4b09ec027ba28034482fc46b6316bab24e466d137ae96b9ab2b5c83d01f' \
+            'eh libcompiler_rt-wasm-sjlj.a 4812ec1f0cf5c75362d00884a70109c5960043e9dc19ca16ffacab47f703f0b8' \
+            'eh libdlmalloc.a be1a34621edf0bd32f17b100c3c35a45778c1d967fe189286dbb42d058720a5d' \
+            'eh libnoexit.a dadb42e9b0d69d891a72dc756ade75f3726b8e2eb49d2aed09c59c7a2e7e1a47' \
+            'eh libsockets.a 63a41d8e131188acf229993f5db28bf7313f317c3e233d53a9f1730e31d9b504' \
+            'eh libstubs.a 36a4c790708740796e5d4e09a7cc3050adb177fdb037138170e9d5d3cbe5d229' \
+            'eh libunwind-except.a ccf519e5c1485e91ab14f6fd69808337cb5228b56597a5c1b5d6a33a00ad7892' \
+            > "$out/b678-warm-reference.txt"
+          : > "$out/b678-warm-comparison.tsv"
+          while IFS=$'\t' read -r name path hash members; do
+            test -s "$path"
+            test "$hash" = "$(sha256sum "$out/image-bytes/$name" | cut -d ' ' -f 1)"
+            test "$members" = "$(sha256sum "$out/member-lists/image-$name.txt" | cut -d ' ' -f 1)"
+            expected_hash="$(awk -v variant="$variant" -v name="$name" '$1 == variant && $2 == name { print $3 }' "$out/b678-warm-reference.txt")"
+            test -n "$expected_hash"
+            if test "$hash" = "$expected_hash"; then verdict=MATCH; else verdict=DIFF_SAME_RUN_BYTES_RETAINED; fi
+            printf '%s\t%s\t%s\t%s\n' "$name" "$hash" "$expected_hash" "$verdict" >> "$out/b678-warm-comparison.tsv"
+          done < "$out/image-selected.tsv"
+          test "$(wc -l < "$out/b678-warm-comparison.tsv")" -eq "$expected"
+          printf 'archive_payload_classification=PAIRED_BYTES_RETAINED_NOT_YET_AUDITED\nproduct_admission=NO\n' >> "$out/admission.txt"
+      - name: Enforce bounded receipt on every outcome
+        id: budget
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/sdk-archive-pair"
+          mkdir -p "$out"
+          cap=100663296
+          bytes="$(du -sb "$out" | cut -f 1)"
+          printf 'product_admission=NO\nreceipt_budget_bytes=%s\ncandidate_bytes=%s\n' "$cap" "$bytes" > "$out/budget.txt"
+          bytes="$(du -sb "$out" | cut -f 1)"
+          if test "$bytes" -le "$cap"; then
+            printf 'upload=true\n' >> "$GITHUB_OUTPUT"
+          else
+            mkdir -p "$RUNNER_TEMP/sdk-archive-over-budget"
+            printf 'receipt_upload=NO\nobserved_bytes=%s\ncap_bytes=%s\nproduct_admission=NO\n' \
+              "$bytes" "$cap" > "$RUNNER_TEMP/sdk-archive-over-budget/budget.txt"
+            printf 'over_budget=true\n' >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+      - name: Retain bounded paired physical archives
+        if: ${{ always() && steps.budget.outputs.upload == 'true' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: duckdb-sdk-archive-pair-${{ matrix.variant }}
+          path: ${{ runner.temp }}/sdk-archive-pair/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Retain over-budget refusal
+        if: ${{ always() && steps.budget.outputs.over_budget == 'true' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: duckdb-sdk-archive-pair-over-budget-${{ matrix.variant }}
+          path: ${{ runner.temp }}/sdk-archive-over-budget/
+          if-no-files-found: error
+          retention-days: 14

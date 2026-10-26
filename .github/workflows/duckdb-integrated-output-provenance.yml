@@ -1,0 +1,347 @@
+name: DuckDB integrated output provenance diagnostic
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/duckdb-integrated-output-provenance.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-output:
+    name: Original versus clean SDK cache (${{ matrix.variant }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    container:
+      image: emscripten/emsdk:3.1.48@sha256:c952f592577a428698cb990c9656f395ae34424740f9c40bed4c3ee6d4850d29
+    env:
+      DUCKDB_EXCEL: "0"
+      DUCKDB_JSON: "0"
+      CCACHE_DISABLE: "1"
+      SOURCE_HEAD: 0bb7c5237dc1b047de488d67ba30b5ed05c37383
+      CUSTODY_HEAD: 1d77df7776dca44731ae8267092e480a78f9f735
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [mvp, eh]
+    steps:
+      - name: Check out exact PR116 source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: 0bb7c5237dc1b047de488d67ba30b5ed05c37383
+          persist-credentials: false
+      - name: Check out immutable PR119 custody bytes
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: 1d77df7776dca44731ae8267092e480a78f9f735
+          path: custody
+          persist-credentials: false
+      - name: Check out pinned DuckDB Wasm and submodules
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: duckdb/duckdb-wasm
+          ref: f955138e5218942fb3fb097a8fdcb725222406ff
+          path: duckdb-upstream
+          submodules: recursive
+          persist-credentials: false
+      - name: Build both cache conditions and classify exact outputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE/custody"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE/duckdb-upstream"
+          while IFS= read -r -d '' directory; do
+            git config --global --add safe.directory "$directory"
+          done < <(find "$GITHUB_WORKSPACE/duckdb-upstream" -type f -name .git -printf '%h\0')
+          out="$RUNNER_TEMP/integrated-provenance"
+          mkdir -p "$out"
+          printf 'product_admission=NO\nsource_build_admission=NO\nglue_legal_admission=NO\nexact_custody_output=UNRESOLVED\n' > "$out/admission.txt"
+          test "$(git rev-parse HEAD)" = "$SOURCE_HEAD"
+          test "$(git -C custody rev-parse HEAD)" = "$CUSTODY_HEAD"
+          test "$(git -C duckdb-upstream rev-parse HEAD)" = f955138e5218942fb3fb097a8fdcb725222406ff
+          test "$(git -C duckdb-upstream/submodules/duckdb rev-parse HEAD)" = 401c8061c6ece35949cac58c7770cc755710ca86
+          test "$(git -C duckdb-upstream/submodules/arrow rev-parse HEAD)" = ca1c30f60d6419849dbc2a533bd0bcaff310185f
+          test -z "$(git -C duckdb-upstream status --porcelain)"
+          git -C duckdb-upstream submodule status --recursive > "$out/submodules.txt"
+          test -z "$(grep '^[+-U]' "$out/submodules.txt" || true)"
+          emcc --version | grep -Fq '3.1.48'
+          python3 --version > "$out/python-version.txt"
+          sha256sum custody/custody/manifest.json > "$out/custody-manifest.sha256"
+          test "$(cut -d ' ' -f 1 "$out/custody-manifest.sha256")" = 5ec157dc96c54326970029900129b044365c2e330a46fa5d9f3ea66741fb2d14
+          python3 - <<'PY'
+          import json
+          with open('custody/custody/manifest.json', encoding='utf-8') as f:
+              manifest = json.load(f)
+          if manifest['admission'] != 'NO' or len(manifest['assets']) != 5:
+              raise SystemExit('custody manifest admission/assets mismatch')
+          PY
+          : > "$out/five-custody-assets.tsv"
+          for asset in duckdb-browser.mjs duckdb-browser-mvp.worker.js duckdb-browser-eh.worker.js duckdb-mvp.wasm duckdb-eh.wasm; do
+            expected="$(python3 - "$asset" <<'PY'
+          import json, sys
+          with open('custody/custody/manifest.json', encoding='utf-8') as f:
+              print(json.load(f)['assets']['duckdb-runtime/' + sys.argv[1]]['sha256'])
+          PY
+          )"
+            actual="$(sha256sum "custody/duckdb-runtime/$asset" | cut -d ' ' -f 1)"
+            test "$expected" = "$actual"
+            printf '%s\t%s\t%s\n' "$asset" "$actual" CUSTODY_BYTE_MATCH >> "$out/five-custody-assets.tsv"
+          done
+          image_cache="$EMSDK/upstream/emscripten/cache"
+          test -d "$image_cache"
+          clean_cache="$RUNNER_TEMP/empty-sdk-cache-${{ matrix.variant }}"
+          test ! -e "$clean_cache"
+          mkdir "$clean_cache"
+          test -z "$(find "$clean_cache" -mindepth 1 -print -quit)"
+          printf 'image_cache=%s\nclean_cache=%s\nclean_cache_empty_before_configure=YES\n' "$image_cache" "$clean_cache" > "$out/cache-source.txt"
+          find "$image_cache" -type f -name '*.a' -print0 | sort -z | xargs -0 -r sha256sum > "$out/image-cache-before.sha256"
+          printf 'image_cache_preexisting_archive_count=%s\n' "$(wc -l < "$out/image-cache-before.sha256")" >> "$out/cache-source.txt"
+          git -C duckdb-upstream/submodules/duckdb apply --check ../../duckdb.patch
+          git -C duckdb-upstream/submodules/duckdb apply ../../duckdb.patch
+          git -C duckdb-upstream/submodules/duckdb diff --binary > "$out/duckdb-applied.patch"
+          test -s "$out/duckdb-applied.patch"
+          variant='${{ matrix.variant }}'
+          for condition in image clean; do
+            case "$condition" in
+              image) cache="$image_cache" ;;
+              clean) cache="$clean_cache" ;;
+            esac
+            build="$GITHUB_WORKSPACE/duckdb-upstream/build/integrated-$variant-$condition"
+            map="$out/$condition.map"
+            flags=(-DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+              -DDUCKDB_WASM_VERSION=v1.28.0
+              "-DDUCKDB_LOCATION=$GITHUB_WORKSPACE/duckdb-upstream/submodules/duckdb"
+              "-DCMAKE_EXE_LINKER_FLAGS=-Wl,-Map,$map")
+            if test "$variant" = eh; then
+              flags+=(-DWITH_WASM_EXCEPTIONS=1 -DDUCKDB_CUSTOM_PLATFORM=wasm_eh)
+            else
+              flags+=(-DDUCKDB_CUSTOM_PLATFORM=wasm_mvp)
+            fi
+            EM_CACHE="$cache" emcmake cmake -S duckdb-upstream/lib -B "$build" "${flags[@]}" > "$out/$condition-configure.log" 2>&1
+            EM_CACHE="$cache" EMCC_DEBUG=1 EM_FORCE_RESPONSE_FILES=0 \
+              emmake make -C "$build" -j4 duckdb_wasm > "$out/$condition-build.log" 2>&1
+            test -s "$build/duckdb_wasm.js" && test -s "$build/duckdb_wasm.wasm" && test -s "$map"
+            cp "$build/duckdb_wasm.js" "$out/$condition.js"
+            cp "$build/duckdb_wasm.wasm" "$out/$condition.wasm"
+            cp "$build/compile_commands.json" "$out/$condition-compile_commands.json"
+            cp "$build/CMakeCache.txt" "$out/$condition-CMakeCache.txt"
+            arrow_build="$build/third_party/arrow/src/arrow_ep-build"
+            arrow_commands="$arrow_build/src/arrow/CMakeFiles/arrow_objlib.dir"
+            test -s "$arrow_commands/build.make" && test -s "$arrow_commands/flags.make"
+            cp "$arrow_commands/build.make" "$out/$condition-arrow-build.make"
+            cp "$arrow_commands/flags.make" "$out/$condition-arrow-flags.make"
+            if test -s "$arrow_build/compile_commands.json"; then
+              cp "$arrow_build/compile_commands.json" "$out/$condition-arrow-compile_commands.json"
+              arrow_db="$out/$condition-arrow-compile_commands.json"
+              printf 'arrow_compile_commands=external_project_database\n' > "$out/$condition-arrow-command-source.txt"
+            else
+              arrow_db=''
+              python3 - "$out/$condition-arrow-build.make" <<'PY'
+          from pathlib import Path
+          import re, sys
+          recipe = Path(sys.argv[1]).read_text(encoding='utf-8')
+          for source in ('array', 'compute'):
+              rule = (r'(?m)^[^\n]*/' + re.escape(source) +
+                      r'/util\.cc\.o:[ \t]+[^\n]*/' + re.escape(source) +
+                      r'/util\.cc(?:[ \t]|$)')
+              if len(re.findall(rule, recipe)) != 1:
+                  raise SystemExit(f'missing or ambiguous Arrow {source}/util.cc source prerequisite')
+          PY
+              printf 'arrow_compile_commands=verified_make_fragments_only\n' > "$out/$condition-arrow-command-source.txt"
+            fi
+            for source in array compute; do
+              if test -z "$arrow_db"; then
+                continue
+              fi
+              python3 - "$arrow_db" "/$source/util.cc" > "$out/$condition-arrow-$source-command.json" <<'PY'
+          import json, sys
+          with open(sys.argv[1], encoding='utf-8') as f:
+              matches = [row for row in json.load(f) if row['file'].endswith(sys.argv[2])]
+          if len(matches) != 1:
+              raise SystemExit(f'expected one util compile command, got {len(matches)}')
+          print(json.dumps(matches[0], sort_keys=True))
+          PY
+            done
+            cp "$build/CMakeFiles/duckdb_wasm.dir/link.txt" "$out/$condition-link.txt"
+            cp "$build/CMakeFiles/duckdb_wasm.dir/objects1.rsp" "$out/$condition-objects1.rsp"
+            cp "$build/CMakeFiles/duckdb_wasm.dir/linklibs.rsp" "$out/$condition-linklibs.rsp"
+            sha256sum "$out/$condition.js" "$out/$condition.wasm" "$out/$condition-link.txt" \
+              "$out/$condition-objects1.rsp" "$out/$condition-linklibs.rsp" \
+              "$out/$condition-CMakeCache.txt" "$map" > "$out/$condition-output.sha256"
+            # These are link-selected archives, not an inventory of every cache entry.
+            grep -oE "$cache/sysroot/[^[:space:]():]+\.a" "$map" | LC_ALL=C sort -u > "$out/$condition-sdk-selected.txt"
+            test -s "$out/$condition-sdk-selected.txt"
+            : > "$out/$condition-sdk-archives.tsv"
+            mkdir "$out/$condition-sdk-member-lists"
+            while IFS= read -r archive; do
+              test -s "$archive"
+              name="${archive##*/}"
+              test ! -e "$out/$condition-sdk-member-lists/$name.txt"
+              "$EMSDK/upstream/bin/llvm-ar" t "$archive" > "$out/$condition-sdk-member-lists/$name.txt"
+              printf '%s\t%s\t%s\n' "$name" "$(sha256sum "$archive" | cut -d ' ' -f 1)" \
+                "$(sha256sum "$out/$condition-sdk-member-lists/$name.txt" | cut -d ' ' -f 1)" \
+                >> "$out/$condition-sdk-archives.tsv"
+            done < "$out/$condition-sdk-selected.txt"
+            grep -F "$cache/sysroot/" "$map" > "$out/$condition-sdk-map-selection.txt"
+            test -s "$out/$condition-sdk-map-selection.txt"
+            if test "$condition" = image; then
+              warm=0
+              cold=0
+              : > "$out/image-selected-prebuild-cache.tsv"
+              while IFS= read -r archive; do
+                selected_sha="$(sha256sum "$archive" | cut -d ' ' -f 1)"
+                if grep -Fqx "$selected_sha  $archive" "$out/image-cache-before.sha256"; then
+                  status=PREEXISTING_PATH_AND_BYTES
+                  warm=$((warm + 1))
+                else
+                  status=COLD_OR_CHANGED_DURING_BUILD
+                  cold=$((cold + 1))
+                fi
+                printf '%s\t%s\t%s\n' "$archive" "$selected_sha" "$status" \
+                  >> "$out/image-selected-prebuild-cache.tsv"
+              done < "$out/image-sdk-selected.txt"
+              if test "$cold" -eq 0; then
+                printf 'image_selected_cache_classification=WARM_EXACT\n' >> "$out/cache-source.txt"
+              else
+                printf 'image_selected_cache_classification=COLD_OR_MUTATED\n' >> "$out/cache-source.txt"
+              fi
+              printf 'image_selected_preexisting=%s\nimage_selected_cold_or_mutated=%s\n' \
+                "$warm" "$cold" >> "$out/cache-source.txt"
+            fi
+            mapfile -t arrows < <(grep -oE "[^[:space:]\"']*libarrow\.a" "$out/$condition-linklibs.rsp" | LC_ALL=C sort -u)
+            test "${#arrows[@]}" -eq 1
+            arrow="${arrows[0]}"
+            if [[ "$arrow" != /* ]]; then arrow="$build/$arrow"; fi
+            arrow="$(realpath "$arrow")"
+            test -s "$arrow"
+            printf 'archive=%s\nsha256=%s\n' "$arrow" "$(sha256sum "$arrow" | cut -d ' ' -f 1)" > "$out/$condition-arrow.txt"
+            "$EMSDK/upstream/bin/llvm-ar" t "$arrow" > "$out/$condition-arrow-members.txt"
+            test "$(grep -Fxc util.cc.o "$out/$condition-arrow-members.txt")" -eq 2
+            grep -F 'libarrow.a(' "$map" > "$out/$condition-arrow-map-selection.txt"
+            test -s "$out/$condition-arrow-map-selection.txt"
+            # These are candidate source objects only. The original archive
+            # has duplicate util.cc.o names; map rows cannot bind either one.
+            for source in array compute; do
+              object="$build/third_party/arrow/src/arrow_ep-build/src/arrow/CMakeFiles/arrow_objlib.dir/$source/util.cc.o"
+              test -s "$object"
+              printf '%s\t%s\n' "$source/util.cc.o" "$(sha256sum "$object" | cut -d ' ' -f 1)" >> "$out/$condition-arrow-source-objects.tsv"
+              "$EMSDK/upstream/bin/llvm-readobj" --sections "$object" > "$out/$condition-arrow-$source-sections.txt"
+            done
+            # Replay the exact native link with only VERBOSE tracing added.
+            original="$(cat "$out/$condition-link.txt")"
+            test "$(wc -l < "$out/$condition-link.txt")" -eq 1
+            [[ "$original" == *' --js-library='* ]]
+            traced="${original/ --js-library=/ -sVERBOSE=1 --js-library=}"
+            test "$traced" != "$original"
+            (cd "$build" && EM_CACHE="$cache" bash -euo pipefail -c "$traced") > "$out/$condition-glue-link.log" 2>&1
+            if cmp -s "$build/duckdb_wasm.js" "$out/$condition.js" && \
+               cmp -s "$build/duckdb_wasm.wasm" "$out/$condition.wasm"; then
+              printf 'verbose_relink_byte_match=YES\n' > "$out/$condition-replay.txt"
+            else
+              printf 'verbose_relink_byte_match=NO\n' > "$out/$condition-replay.txt"
+            fi
+            grep -E '^processing (system|user) library: ' "$out/$condition-glue-link.log" > "$out/$condition-js-glue-bill.txt"
+            test -s "$out/$condition-js-glue-bill.txt"
+            grep -Fq "processing user library: $GITHUB_WORKSPACE/duckdb-upstream/lib/js-stubs.js" "$out/$condition-js-glue-bill.txt"
+            : > "$out/$condition-js-glue-source.tsv"
+            : > "$out/$condition-js-glue-archive-paths.txt"
+            installed_js_root="$(realpath -e "$EMSDK/upstream/emscripten/src")"
+            upstream_root="$(realpath -e "$GITHUB_WORKSPACE/duckdb-upstream")"
+            while IFS= read -r entry; do
+              case "$entry" in
+                'processing system library: '*)
+                  relative="${entry#processing system library: }"
+                  [[ "$relative" != /* && "$relative" != *..* ]]
+                  source="$EMSDK/upstream/emscripten/src/$relative"
+                  resolved="$(realpath -e "$source")"
+                  [[ "$resolved" == "$installed_js_root/"* ]]
+                  ;;
+                'processing user library: '*)
+                  source="${entry#processing user library: }"
+                  test "$source" = "$GITHUB_WORKSPACE/duckdb-upstream/lib/js-stubs.js"
+                  resolved="$(realpath -e "$source")"
+                  [[ "$resolved" == "$upstream_root/"* ]]
+                  ;;
+                *) exit 1 ;;
+              esac
+              test -f "$resolved"
+              test -s "$source"
+              printf '%s\t%s\n' "$source" "$(sha256sum "$source" | cut -d ' ' -f 1)" >> "$out/$condition-js-glue-source.tsv"
+              printf '%s\n' "${source#/}" >> "$out/$condition-js-glue-archive-paths.txt"
+            done < "$out/$condition-js-glue-bill.txt"
+            tar -C / --dereference -czf "$out/$condition-js-glue-source-bytes.tar.gz" \
+              -T "$out/$condition-js-glue-archive-paths.txt"
+            test -s "$out/$condition-js-glue-source-bytes.tar.gz"
+            mkdir "$out/$condition-legal-texts"
+            cp "$EMSDK/upstream/emscripten/LICENSE" \
+              "$out/$condition-legal-texts/emscripten-LICENSE"
+            cp duckdb-upstream/LICENSE \
+              "$out/$condition-legal-texts/duckdb-wasm-LICENSE"
+            (cd "$out/$condition-legal-texts" && sha256sum ./*) \
+              > "$out/$condition-legal-texts.sha256"
+            sha256sum "$out/$condition-js-glue-source-bytes.tar.gz" \
+              > "$out/$condition-js-glue-source-bytes.sha256"
+          done
+          find "$image_cache" -type f -name '*.a' -print0 | sort -z | xargs -0 -r sha256sum > "$out/image-cache-after.sha256"
+          if cmp -s "$out/image-cache-before.sha256" "$out/image-cache-after.sha256"; then
+            printf 'image_cache_archive_inventory_stable=YES\n' >> "$out/cache-source.txt"
+          else
+            printf 'image_cache_archive_inventory_stable=NO\n' >> "$out/cache-source.txt"
+          fi
+          custody_wasm="custody/duckdb-runtime/duckdb-$variant.wasm"
+          custody_hash="$(sha256sum "$custody_wasm" | cut -d ' ' -f 1)"
+          : > "$out/classification.tsv"
+          for condition in image clean; do
+            actual="$(sha256sum "$out/$condition.wasm" | cut -d ' ' -f 1)"
+            if test "$actual" = "$custody_hash"; then verdict=MATCH; else verdict=DIFF; fi
+            printf '%s\t%s\t%s\t%s\n' "$condition" "duckdb-$variant.wasm" "$actual" "$verdict" >> "$out/classification.tsv"
+          done
+          for asset in duckdb-browser.mjs duckdb-browser-mvp.worker.js duckdb-browser-eh.worker.js; do
+            printf 'native-link\t%s\tN/A\tINCOMPARABLE_NATIVE_GLUE_VS_BROWSER_ASSET\n' "$asset" >> "$out/classification.tsv"
+          done
+          for kind in js wasm; do
+            if cmp -s "$out/image.$kind" "$out/clean.$kind"; then verdict=MATCH; else verdict=DIFF; fi
+            printf 'image_vs_clean\tduckdb_wasm.%s\tN/A\t%s\n' "$kind" "$verdict" >> "$out/classification.tsv"
+          done
+          printf 'exact_custody_output=DIAGNOSTIC_ONLY\nproduct_admission=NO\n' >> "$out/admission.txt"
+      - name: Enforce bounded receipt on every outcome
+        id: budget
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/integrated-provenance"
+          mkdir -p "$out"
+          cap=167772160
+          printf 'product_admission=NO\nreceipt_budget_bytes=%s\n' "$cap" > "$out/budget.txt"
+          bytes="$(du -sb "$out" | cut -f 1)"
+          printf 'candidate_bytes=%s\n' "$bytes" >> "$out/budget.txt"
+          bytes="$(du -sb "$out" | cut -f 1)"
+          if test "$bytes" -le "$cap"; then
+            printf 'upload=true\n' >> "$GITHUB_OUTPUT"
+          else
+            mkdir -p "$RUNNER_TEMP/integrated-over-budget"
+            printf 'receipt_upload=NO\nobserved_bytes=%s\ncap_bytes=%s\nproduct_admission=NO\n' \
+              "$bytes" "$cap" > "$RUNNER_TEMP/integrated-over-budget/budget.txt"
+            printf 'over_budget=true\n' >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+      - name: Retain bounded diagnostic receipt
+        if: ${{ always() && steps.budget.outputs.upload == 'true' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: duckdb-integrated-provenance-${{ matrix.variant }}
+          path: ${{ runner.temp }}/integrated-provenance/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Retain over-budget refusal
+        if: ${{ always() && steps.budget.outputs.over_budget == 'true' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: duckdb-integrated-over-budget-${{ matrix.variant }}
+          path: ${{ runner.temp }}/integrated-over-budget/
+          if-no-files-found: error
+          retention-days: 14

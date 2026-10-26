@@ -1,0 +1,547 @@
+name: DuckDB Wasm native provenance trial
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/duckdb-wasm-native-provenance.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pinned-native-map:
+    name: Pinned native map (${{ matrix.variant }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    container:
+      image: emscripten/emsdk:3.1.48@sha256:c952f592577a428698cb990c9656f395ae34424740f9c40bed4c3ee6d4850d29
+    env:
+      DUCKDB_EXCEL: "0"
+      DUCKDB_JSON: "0"
+      CCACHE_DISABLE: "1"
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [mvp, eh]
+    steps:
+      - name: Check out exact Tundra head
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Check out pinned DuckDB Wasm source and submodules
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: duckdb/duckdb-wasm
+          ref: f955138e5218942fb3fb097a8fdcb725222406ff
+          path: duckdb-upstream
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Check out exact Emscripten compiler source for rebuild
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: emscripten-core/emscripten
+          ref: e967e20b4727956a30592165a3c1cde5c67fa0a8
+          path: emscripten-source
+          persist-credentials: false
+
+      - name: Trust these checked-out paths inside the ephemeral container
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE/duckdb-upstream"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE/emscripten-source"
+          while IFS= read -r -d '' directory; do
+            git config --global --add safe.directory "$directory"
+          done < <(find "$GITHUB_WORKSPACE/duckdb-upstream" -type f -name .git -printf '%h\0')
+
+      - name: Record and require pinned source and toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/native-receipt"
+          test "$(git rev-parse HEAD)" = '${{ github.event.pull_request.head.sha || github.sha }}'
+          test "$(git -C duckdb-upstream rev-parse HEAD)" = 'f955138e5218942fb3fb097a8fdcb725222406ff'
+          test "$(git -C duckdb-upstream/submodules/duckdb rev-parse HEAD)" = '401c8061c6ece35949cac58c7770cc755710ca86'
+          test "$(git -C duckdb-upstream/submodules/arrow rev-parse HEAD)" = 'ca1c30f60d6419849dbc2a533bd0bcaff310185f'
+          test "$(git -C duckdb-upstream/submodules/rapidjson rev-parse HEAD)" = '973dc9c06dcd3d035ebd039cfb9ea457721ec213'
+          test -z "$(git -C duckdb-upstream status --porcelain)"
+          git -C duckdb-upstream submodule status --recursive > "$RUNNER_TEMP/native-receipt/submodules.txt"
+          test -z "$(grep '^[+-U]' "$RUNNER_TEMP/native-receipt/submodules.txt" || true)"
+          sha256sum duckdb-upstream/duckdb.patch > "$RUNNER_TEMP/native-receipt/patch.sha256"
+          emcc --version | grep -Fq '3.1.48'
+          em++ --version | grep -Fq '3.1.48'
+          test -n "${EMSDK:-}"
+          wasm_ld="$EMSDK/upstream/bin/wasm-ld"
+          test -x "$wasm_ld"
+          config="${EM_CONFIG:-${EMSDK}/.emscripten}"
+          test -s "$config"
+          {
+            printf 'tundra_head=%s\nupstream_head=%s\nvariant=%s\n' \
+              "$(git rev-parse HEAD)" "$(git -C duckdb-upstream rev-parse HEAD)" '${{ matrix.variant }}'
+            printf 'container=emscripten/emsdk:3.1.48@sha256:c952f592577a428698cb990c9656f395ae34424740f9c40bed4c3ee6d4850d29\n'
+            printf 'DUCKDB_EXCEL=%s\nDUCKDB_JSON=%s\nCCACHE_DISABLE=%s\n' \
+              "$DUCKDB_EXCEL" "$DUCKDB_JSON" "$CCACHE_DISABLE"
+            uname -a
+            command -v emcc em++ emcmake cmake make
+            emcc --version
+            em++ --version
+            printf 'wasm_ld=%s\n' "$wasm_ld"
+            "$wasm_ld" --version
+            cmake --version
+            printf 'EMSDK=%s\nEM_CONFIG=%s\n' "$EMSDK" "$config"
+            sha256sum "$config"
+          } > "$RUNNER_TEMP/native-receipt/toolchain.txt"
+          test ! -e duckdb-upstream/.ccache/extension/json
+          test ! -e duckdb-upstream/.ccache/extension/excel
+          git -C duckdb-upstream/submodules/duckdb apply --check ../../duckdb.patch
+          git -C duckdb-upstream/submodules/duckdb apply ../../duckdb.patch
+          git -C duckdb-upstream/submodules/duckdb diff --binary \
+            > "$RUNNER_TEMP/native-receipt/duckdb-applied.patch"
+          test -s "$RUNNER_TEMP/native-receipt/duckdb-applied.patch"
+
+      - name: Compare installed compiler source with pinned checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          pinned="$GITHUB_WORKSPACE/emscripten-source"
+          installed="$EMSDK/upstream/emscripten"
+          receipt="$RUNNER_TEMP/native-receipt"
+          test "$(git -C "$pinned" rev-parse HEAD)" = 'e967e20b4727956a30592165a3c1cde5c67fa0a8'
+          git -C "$pinned" diff --quiet
+          git -C "$pinned" diff --cached --quiet
+          config="${EM_CONFIG:-$EMSDK/.emscripten}"
+          test -s "$config"
+          export EM_CONFIG="$config"
+          test "$(command -v emcc)" = "$installed/emcc"
+          test "$(command -v em++)" = "$installed/em++"
+          test "$(command -v emcmake)" = "$installed/emcmake"
+          test "$(command -v emmake)" = "$installed/emmake"
+          emcc --version > "$receipt/sdk-source-emcc-version.txt"
+          grep -Fq '3.1.48' "$receipt/sdk-source-emcc-version.txt"
+          printf 'EM_CONFIG=%s\ninstalled_emcc=%s/emcc\npinned_source=%s\n' \
+            "$config" "$installed" "$pinned" > "$receipt/sdk-source-config.txt"
+          sha256sum "$config" > "$receipt/sdk-source-config.sha256"
+          : > "$receipt/sdk-installed-source.sha256"
+          : > "$receipt/sdk-source-differences.tsv"
+          : > "$receipt/sdk-source-gitlinks.txt"
+          regular=0
+          symlinks=0
+          gitlinks=0
+          mismatches=0
+          while IFS=$'\t' read -r metadata relative; do
+            mode="${metadata%% *}"
+            source_file="$pinned/$relative"
+            installed_file="$installed/$relative"
+            if [ "$mode" = 160000 ]; then
+              gitlinks=$((gitlinks + 1))
+              printf '%s\n' "$relative" >> "$receipt/sdk-source-gitlinks.txt"
+            elif [ "$mode" = 120000 ]; then
+              symlinks=$((symlinks + 1))
+              if [ ! -L "$installed_file" ] \
+                || [ "$(readlink "$source_file")" != "$(readlink "$installed_file")" ]; then
+                printf 'SYMLINK_DIFF\t%s\n' "$relative" >> "$receipt/sdk-source-differences.tsv"
+                mismatches=$((mismatches + 1))
+              fi
+            elif [ "$mode" = 100644 ] || [ "$mode" = 100755 ]; then
+              regular=$((regular + 1))
+              if [ ! -f "$installed_file" ] || [ -L "$installed_file" ]; then
+                printf 'MISSING_OR_TYPE\t%s\n' "$relative" >> "$receipt/sdk-source-differences.tsv"
+                mismatches=$((mismatches + 1))
+              elif ! cmp -s "$source_file" "$installed_file"; then
+                printf 'BYTE_DIFF\t%s\n' "$relative" >> "$receipt/sdk-source-differences.tsv"
+                mismatches=$((mismatches + 1))
+              else
+                sha256sum "$installed_file" >> "$receipt/sdk-installed-source.sha256"
+              fi
+            else
+              printf 'UNKNOWN_MODE_%s\t%s\n' "$mode" "$relative" >> "$receipt/sdk-source-differences.tsv"
+              mismatches=$((mismatches + 1))
+            fi
+          done < <(git -C "$pinned" ls-files --stage)
+          git -C "$pinned" ls-files | LC_ALL=C sort \
+            > "$receipt/sdk-pinned-tracked-files.txt"
+          (cd "$installed" && find . \
+            \( -path './cache' -o -path './node_modules' -o -path './out' \
+               -o -path './.git' -o -name __pycache__ \) -prune -o \
+            \( -type f -o -type l \) -print | sed 's#^./##' | LC_ALL=C sort) \
+            > "$receipt/sdk-installed-noncache-files.txt"
+          comm -13 "$receipt/sdk-pinned-tracked-files.txt" \
+            "$receipt/sdk-installed-noncache-files.txt" \
+            > "$receipt/sdk-installed-extra-files.txt"
+          grep -E '(^|/)([^/]+\.(py|js|mjs|c|cc|cpp|h|hpp|sh)|emcc|em\+\+|emcmake|emmake)$' \
+            "$receipt/sdk-installed-extra-files.txt" \
+            > "$receipt/sdk-installed-extra-source-files.txt" || true
+          metadata="$receipt/sdk-release-metadata"
+          mkdir "$metadata"
+          : > "$receipt/sdk-release-metadata.sha256"
+          for name in emscripten-version.txt package.json package-lock.json; do
+            test -f "$pinned/$name"
+            test -f "$installed/$name"
+            cp "$pinned/$name" "$metadata/pinned-$name"
+            cp "$installed/$name" "$metadata/installed-$name"
+            sha256sum "$metadata/pinned-$name" "$metadata/installed-$name" \
+              >> "$receipt/sdk-release-metadata.sha256"
+          done
+          test -f "$installed/emscripten-revision.txt"
+          cp "$installed/emscripten-revision.txt" "$metadata/installed-emscripten-revision.txt"
+          sha256sum "$metadata/installed-emscripten-revision.txt" \
+            >> "$receipt/sdk-release-metadata.sha256"
+          : > "$receipt/sdk-source-excluded-differences.tsv"
+          : > "$receipt/sdk-source-runtime-differences.tsv"
+          omissions=0
+          metadata_differences=0
+          runtime_differences=0
+          while IFS=$'\t' read -r kind relative; do
+            reason=''
+            case "$kind:$relative" in
+              MISSING_OR_TYPE:test/third_party/*|MISSING_OR_TYPE:site/*|MISSING_OR_TYPE:tools/maint/*|MISSING_OR_TYPE:.*|MISSING_OR_TYPE:Makefile|MISSING_OR_TYPE:bootstrap.py|MISSING_OR_TYPE:system/lib/libcxxabi/src/demangle/.clang-format|MISSING_OR_TYPE:system/lib/libunwind/.clang-format)
+                reason=release_dev_or_formatting_omission
+                omissions=$((omissions + 1)) ;;
+              BYTE_DIFF:emscripten-version.txt|BYTE_DIFF:package.json|BYTE_DIFF:package-lock.json)
+                reason=release_manifest_or_version_difference
+                metadata_differences=$((metadata_differences + 1)) ;;
+            esac
+            if [ -n "$reason" ]; then
+              printf '%s\t%s\t%s\n' "$kind" "$relative" "$reason" \
+                >> "$receipt/sdk-source-excluded-differences.tsv"
+            else
+              printf '%s\t%s\n' "$kind" "$relative" \
+                >> "$receipt/sdk-source-runtime-differences.tsv"
+              runtime_differences=$((runtime_differences + 1))
+            fi
+          done < "$receipt/sdk-source-differences.tsv"
+          while IFS= read -r gitlink; do
+            case "$gitlink" in test/third_party/*) ;; *) exit 1 ;; esac
+          done < "$receipt/sdk-source-gitlinks.txt"
+          printf 'scope=compiler_source_subset_excluding_manifests\nfull_tree_equal=false\nsource_build_admission=NO\nregular=%s\nsymlinks=%s\ngitlinks_excluded=%s\nall_mismatches=%s\nrelease_omissions=%s\nruntime_affecting_manifest_or_version_differences=%s\nother_source_differences=%s\nextra_source_files=%s\n' \
+            "$regular" "$symlinks" "$gitlinks" "$mismatches" \
+            "$omissions" "$metadata_differences" "$runtime_differences" \
+            "$(wc -l < "$receipt/sdk-installed-extra-source-files.txt")" \
+            > "$receipt/sdk-source-comparison-summary.txt"
+          test "$gitlinks" -eq 3
+          test "$mismatches" -eq 2643
+          test "$omissions" -eq 2640
+          test "$metadata_differences" -eq 3
+          test "$runtime_differences" -eq 0
+          test ! -s "$receipt/sdk-installed-extra-source-files.txt"
+
+      - name: Build one ordinary relperf variant with retained link map
+        shell: bash
+        run: |
+          set -euo pipefail
+          variant='${{ matrix.variant }}'
+          build="$GITHUB_WORKSPACE/duckdb-upstream/build/relperf/$variant"
+          map="$RUNNER_TEMP/native-receipt/duckdb-$variant.map"
+          mkdir -p "$build"
+          flags=(
+            -DCMAKE_BUILD_TYPE=Release
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+            -DDUCKDB_WASM_VERSION=v1.28.0
+            "-DDUCKDB_LOCATION=$GITHUB_WORKSPACE/duckdb-upstream/submodules/duckdb"
+            "-DCMAKE_EXE_LINKER_FLAGS=-Wl,-Map,$map"
+          )
+          if [ "$variant" = eh ]; then
+            flags+=(-DWITH_WASM_EXCEPTIONS=1 -DDUCKDB_CUSTOM_PLATFORM=wasm_eh)
+          else
+            flags+=(-DDUCKDB_CUSTOM_PLATFORM=wasm_mvp)
+          fi
+          emcmake cmake -S duckdb-upstream/lib -B "$build" "${flags[@]}"
+          emmake make -C "$build" -j4 duckdb_wasm
+          test -s "$build/duckdb_wasm.wasm"
+          test -s "$build/duckdb_wasm.js"
+          test -s "$map"
+          test -s "$build/compile_commands.json"
+          test -s "$build/CMakeCache.txt"
+          test -s "$build/CMakeFiles/duckdb_wasm.dir/link.txt"
+          grep -Fq '@CMakeFiles/duckdb_wasm.dir/objects1.rsp' "$build/CMakeFiles/duckdb_wasm.dir/link.txt"
+          grep -Fq '@CMakeFiles/duckdb_wasm.dir/linklibs.rsp' "$build/CMakeFiles/duckdb_wasm.dir/link.txt"
+          objects_rsp="$build/CMakeFiles/duckdb_wasm.dir/objects1.rsp"
+          linklibs_rsp="$build/CMakeFiles/duckdb_wasm.dir/linklibs.rsp"
+          test -s "$objects_rsp"
+          test -s "$linklibs_rsp"
+          grep -Eq '(^|/).*\.o([):[:space:]]|$)' "$map"
+          cp "$build/compile_commands.json" "$RUNNER_TEMP/native-receipt/compile_commands.json"
+          cp "$build/CMakeCache.txt" "$RUNNER_TEMP/native-receipt/CMakeCache.txt"
+          cp "$build/CMakeFiles/duckdb_wasm.dir/link.txt" "$RUNNER_TEMP/native-receipt/link.txt"
+          cp "$objects_rsp" "$RUNNER_TEMP/native-receipt/objects1.rsp"
+          cp "$linklibs_rsp" "$RUNNER_TEMP/native-receipt/linklibs.rsp"
+          cp "$build/duckdb_wasm.wasm" "$RUNNER_TEMP/native-receipt/duckdb-$variant.wasm"
+          cp "$build/duckdb_wasm.js" "$RUNNER_TEMP/native-receipt/duckdb-$variant.js"
+          find "$build" -type f -name '*.a' -print0 | sort -z | xargs -0 -r sha256sum \
+            > "$RUNNER_TEMP/native-receipt/static-archives.sha256"
+          find "$build" -type f -name '*.d' -printf '%P\0' | sort -z \
+            | tar -C "$build" --null -czf "$RUNNER_TEMP/native-receipt/depfiles.tar.gz" -T -
+          test -s "$RUNNER_TEMP/native-receipt/static-archives.sha256"
+          test -s "$RUNNER_TEMP/native-receipt/depfiles.tar.gz"
+          # Hash the SDK archives actually selected by wasm-ld, not every cached SDK archive.
+          grep -oE '/emsdk/upstream/emscripten/cache/sysroot/[^[:space:]():]+\.a' "$map" \
+            | LC_ALL=C sort -u > "$RUNNER_TEMP/native-receipt/selected-sdk-archives.txt"
+          test -s "$RUNNER_TEMP/native-receipt/selected-sdk-archives.txt"
+          while IFS= read -r archive; do
+            test -f "$archive"
+            sha256sum "$archive"
+          done < "$RUNNER_TEMP/native-receipt/selected-sdk-archives.txt" \
+            > "$RUNNER_TEMP/native-receipt/selected-sdk-archives.sha256"
+          test -s "$RUNNER_TEMP/native-receipt/selected-sdk-archives.sha256"
+          # Keep the selected archive bytes so a separate reader can rehash
+          # them instead of trusting only this runner's checksum lines.
+          sdk_bytes="$RUNNER_TEMP/native-receipt/selected-sdk-archive-bytes"
+          mkdir "$sdk_bytes"
+          while IFS= read -r archive; do
+            name="${archive##*/}"
+            test -n "$name"
+            test ! -e "$sdk_bytes/$name"
+            cp -- "$archive" "$sdk_bytes/$name"
+            cmp -s "$archive" "$sdk_bytes/$name"
+            expected="$(awk -v file="$archive" '$2 == file { print $1 }' \
+              "$RUNNER_TEMP/native-receipt/selected-sdk-archives.sha256")"
+            actual="$(sha256sum "$sdk_bytes/$name" | cut -d ' ' -f 1)"
+            test -n "$expected"
+            test "$actual" = "$expected"
+          done < "$RUNNER_TEMP/native-receipt/selected-sdk-archives.txt"
+          test "$(find "$sdk_bytes" -maxdepth 1 -type f -name '*.a' | wc -l)" \
+            -eq "$(wc -l < "$RUNNER_TEMP/native-receipt/selected-sdk-archives.txt")"
+          (cd "$sdk_bytes" && sha256sum ./*.a) \
+            > "$RUNNER_TEMP/native-receipt/selected-sdk-archive-bytes.sha256"
+          sha256sum "$RUNNER_TEMP/native-receipt/objects1.rsp" \
+            "$RUNNER_TEMP/native-receipt/linklibs.rsp" \
+            > "$RUNNER_TEMP/native-receipt/link-response-files.sha256"
+          sha256sum "$RUNNER_TEMP/native-receipt/duckdb-$variant.wasm" "$map" \
+            > "$RUNNER_TEMP/native-receipt/output.sha256"
+          test ! -e duckdb-upstream/.ccache/extension/json
+          test ! -e duckdb-upstream/.ccache/extension/excel
+
+      - name: Replay exact native link with generated JS source tracing
+        shell: bash
+        run: |
+          set -euo pipefail
+          variant='${{ matrix.variant }}'
+          build="$GITHUB_WORKSPACE/duckdb-upstream/build/relperf/$variant"
+          native="$RUNNER_TEMP/native-receipt"
+          receipt="$native/js-glue-diagnostic"
+          pinned="$GITHUB_WORKSPACE/emscripten-source"
+          installed="$EMSDK/upstream/emscripten"
+          pinned_src="$(realpath "$pinned/src")"
+          installed_src="$(realpath "$installed/src")"
+          mkdir -p "$receipt" "$RUNNER_TEMP/js-link-debug"
+          printf 'source_build_admission=NO\nglue_legal_admission=NO\nmanifest_effects=unresolved\n' \
+            > "$receipt/admission.txt"
+          test "$(git -C "$pinned" rev-parse HEAD)" = 'e967e20b4727956a30592165a3c1cde5c67fa0a8'
+          git -C "$pinned" diff --quiet
+          git -C "$pinned" diff --cached --quiet
+          test "$(command -v em++)" = "$installed/em++"
+          export EM_CONFIG="${EM_CONFIG:-$EMSDK/.emscripten}"
+          test -s "$EM_CONFIG"
+          sha256sum "$EM_CONFIG" > "$receipt/em-config.sha256"
+          cmp -s "$build/duckdb_wasm.js" "$native/duckdb-$variant.js"
+          cmp -s "$build/duckdb_wasm.wasm" "$native/duckdb-$variant.wasm"
+          cp "$native/duckdb-$variant.map" "$receipt/original-map"
+          restore_original_outputs() {
+            cp "$receipt/original-map" "$native/duckdb-$variant.map"
+            cp "$native/duckdb-$variant.js" "$build/duckdb_wasm.js"
+            cp "$native/duckdb-$variant.wasm" "$build/duckdb_wasm.wasm"
+          }
+          trap restore_original_outputs EXIT
+          cp "$native/link.txt" "$receipt/original-link.txt"
+          sha256sum "$receipt/original-link.txt" "$native/objects1.rsp" \
+            "$native/linklibs.rsp" > "$receipt/original-link-inputs.sha256"
+          original="$(cat "$receipt/original-link.txt")"
+          test "$(wc -l < "$receipt/original-link.txt")" -eq 1
+          [[ "$original" == *' --js-library='* ]]
+          [[ "$original" != *' -sVERBOSE=1 '* ]]
+          instrumented="${original/ --js-library=/ -sVERBOSE=1 --js-library=}"
+          test "$instrumented" != "$original"
+          printf '%s\n' "$instrumented" > "$receipt/instrumented-link.txt"
+          # Only VERBOSE is added to the recorded link command. The debug
+          # environment retains pre-minified JS stages without changing flags.
+          (cd "$build" && EMCC_DEBUG=1 EMCC_DEBUG_SAVE=1 \
+            EMCC_TEMP_DIR="$RUNNER_TEMP/js-link-debug" EMCC_VERBOSE=1 \
+            bash -euo pipefail -c "$instrumented") \
+            > "$receipt/instrumented-link.log" 2>&1
+          test -s "$build/duckdb_wasm.js"
+          test -s "$build/duckdb_wasm.wasm"
+          cp "$native/duckdb-$variant.map" "$receipt/instrumented-map"
+          cp "$build/duckdb_wasm.js" "$receipt/instrumented-duckdb.js"
+          cp "$build/duckdb_wasm.wasm" "$receipt/instrumented-duckdb.wasm"
+          if cmp -s "$native/duckdb-$variant.js" "$receipt/instrumented-duckdb.js"; then
+            printf 'js_byte_comparison=MATCH\n' > "$receipt/output-comparison.txt"
+          else
+            printf 'js_byte_comparison=DIFF\n' > "$receipt/output-comparison.txt"
+          fi
+          if cmp -s "$native/duckdb-$variant.wasm" "$receipt/instrumented-duckdb.wasm"; then
+            printf 'wasm_byte_comparison=MATCH\n' >> "$receipt/output-comparison.txt"
+          else
+            printf 'wasm_byte_comparison=DIFF\n' >> "$receipt/output-comparison.txt"
+          fi
+          sha256sum "$native/duckdb-$variant.js" "$native/duckdb-$variant.wasm" \
+            "$receipt/instrumented-duckdb.js" "$receipt/instrumented-duckdb.wasm" \
+            > "$receipt/output-bytes.sha256"
+          grep -E '^processing (system|user) library: ' \
+            "$receipt/instrumented-link.log" > "$receipt/processed-js-libraries.txt"
+          test -s "$receipt/processed-js-libraries.txt"
+          grep -Fq "processing user library: $GITHUB_WORKSPACE/duckdb-upstream/lib/js-stubs.js" \
+            "$receipt/processed-js-libraries.txt"
+          : > "$receipt/processed-js-source-hashes.tsv"
+          : > "$receipt/processed-js-installed-paths.txt"
+          while IFS= read -r entry; do
+            case "$entry" in
+              'processing system library: '*)
+                name="${entry#processing system library: }"
+                [[ "$name" != /* && "$name" != *..* ]]
+                source="$installed/src/$name"
+                pinned_file="$pinned/src/$name"
+                [[ "$(realpath "$source")" == "$installed_src/"* ]]
+                [[ "$(realpath "$pinned_file")" == "$pinned_src/"* ]]
+                class=emscripten-system
+                ;;
+              'processing user library: '*)
+                source="${entry#processing user library: }"
+                test "$source" = "$GITHUB_WORKSPACE/duckdb-upstream/lib/js-stubs.js"
+                pinned_file="$source"
+                class=duckdb-user
+                ;;
+              *) exit 1 ;;
+            esac
+            test -s "$source" && test -s "$pinned_file"
+            source_hash="$(sha256sum "$source" | cut -d ' ' -f 1)"
+            pinned_hash="$(sha256sum "$pinned_file" | cut -d ' ' -f 1)"
+            test "$source_hash" = "$pinned_hash"
+            printf '%s\t%s\t%s\t%s\n' "$class" "$source" "$source_hash" "$pinned_hash" \
+              >> "$receipt/processed-js-source-hashes.tsv"
+            printf '%s\n' "$source" >> "$receipt/processed-js-installed-paths.txt"
+          done < "$receipt/processed-js-libraries.txt"
+          test "$(wc -l < "$receipt/processed-js-source-hashes.tsv")" \
+            -eq "$(wc -l < "$receipt/processed-js-libraries.txt")"
+          # Preserve exact library text and notices, plus every saved JS stage.
+          tar -czf "$receipt/processed-js-source-bytes.tar.gz" \
+            -T "$receipt/processed-js-installed-paths.txt"
+          cp "$pinned/LICENSE" "$receipt/emscripten-LICENSE"
+          cp "$GITHUB_WORKSPACE/duckdb-upstream/LICENSE" "$receipt/duckdb-wasm-LICENSE"
+          sha256sum "$receipt/emscripten-LICENSE" "$receipt/duckdb-wasm-LICENSE" \
+            > "$receipt/legal-texts.sha256"
+          debug="$RUNNER_TEMP/js-link-debug/emscripten_temp"
+          test -d "$debug"
+          grep -Fq "saving debug copy $debug/" "$receipt/instrumented-link.log"
+          printf 'EMCC_TEMP_DIR=%s\nactual_saved_debug_root=%s\n' \
+            "$RUNNER_TEMP/js-link-debug" "$(realpath "$debug")" \
+            > "$receipt/debug-root.txt"
+          find "$debug" -type f -name '*.js' -printf '%P\n' | LC_ALL=C sort \
+            > "$receipt/saved-js-stages.txt"
+          test -s "$receipt/saved-js-stages.txt"
+          (cd "$debug" && tar -czf "$receipt/saved-js-stages.tar.gz" \
+            -T "$receipt/saved-js-stages.txt")
+          while IFS= read -r stage; do sha256sum "$debug/$stage"; done \
+            < "$receipt/saved-js-stages.txt" > "$receipt/saved-js-stages.sha256"
+          mkdir "$receipt/manifest-bytes"
+          for file in emscripten-version.txt package.json package-lock.json; do
+            cp "$pinned/$file" "$receipt/manifest-bytes/pinned-$file"
+            cp "$installed/$file" "$receipt/manifest-bytes/installed-$file"
+            printf '%s\t%s\t%s\n' "$file" \
+              "$(sha256sum "$pinned/$file" | cut -d ' ' -f 1)" \
+              "$(sha256sum "$installed/$file" | cut -d ' ' -f 1)"
+          done > "$receipt/runtime-affecting-manifests.tsv"
+          grep -E 'acorn-optimizer|closure|Running subprocess' \
+            "$receipt/instrumented-link.log" > "$receipt/js-tool-invocations.txt" || true
+
+      - name: Rebuild selected SDK archives from an empty cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          variant='${{ matrix.variant }}'
+          receipt="$RUNNER_TEMP/native-receipt"
+          pinned_source="$GITHUB_WORKSPACE/emscripten-source"
+          sdk_source="$EMSDK/upstream/emscripten"
+          source_commit='e967e20b4727956a30592165a3c1cde5c67fa0a8'
+          test "$(git -C "$pinned_source" rev-parse HEAD)" = "$source_commit"
+          git -C "$pinned_source" diff --quiet
+          git -C "$pinned_source" diff --cached --quiet
+          export EM_CONFIG="${EM_CONFIG:-$EMSDK/.emscripten}"
+          sha256sum -c "$receipt/sdk-source-config.sha256"
+          sha256sum --quiet -c "$receipt/sdk-installed-source.sha256"
+          test "$(command -v emcc)" = "$sdk_source/emcc"
+          test "$(command -v em++)" = "$sdk_source/em++"
+          test "$(command -v emcmake)" = "$sdk_source/emcmake"
+          test "$(command -v emmake)" = "$sdk_source/emmake"
+          emcc --version | grep -Fq '3.1.48'
+          {
+            printf 'emscripten_source=%s\n' "$source_commit"
+            printf 'source_tree=%s\n' "$(git -C "$pinned_source" rev-parse HEAD^{tree})"
+            printf 'installed_source_path=%s\n' "$sdk_source"
+            printf 'source_equivalence_scope=compiler_source_subset_excluding_manifests\nfull_tree_equal=false\nsource_build_admission=NO\n'
+            git -C "$pinned_source" status --porcelain --untracked-files=no
+          } > "$receipt/sdk-source.txt"
+          cache="$RUNNER_TEMP/tundra-sdk-rebuild-cache-$variant"
+          test ! -e "$cache"
+          mkdir "$cache"
+          test -z "$(find "$cache" -mindepth 1 -print -quit)"
+          printf 'EM_CACHE=%s\nempty_before_build=true\n' "$cache" \
+            > "$receipt/sdk-rebuild-cache.txt"
+          build="$GITHUB_WORKSPACE/duckdb-upstream/build/sdk-rebuild-$variant"
+          map="$receipt/duckdb-$variant-sdk-rebuild.map"
+          flags=(
+            -DCMAKE_BUILD_TYPE=Release
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+            -DDUCKDB_WASM_VERSION=v1.28.0
+            "-DDUCKDB_LOCATION=$GITHUB_WORKSPACE/duckdb-upstream/submodules/duckdb"
+            "-DCMAKE_EXE_LINKER_FLAGS=-Wl,-Map,$map"
+            "-DCMAKE_C_COMPILER=$sdk_source/emcc"
+            "-DCMAKE_CXX_COMPILER=$sdk_source/em++"
+          )
+          if [ "$variant" = eh ]; then
+            flags+=(-DWITH_WASM_EXCEPTIONS=1 -DDUCKDB_CUSTOM_PLATFORM=wasm_eh)
+          else
+            flags+=(-DDUCKDB_CUSTOM_PLATFORM=wasm_mvp)
+          fi
+          {
+            printf 'emcmake cmake -S duckdb-upstream/lib -B %s' "$build"
+            printf ' %q' "${flags[@]}"
+            printf '\nEM_CACHE=%s emmake make -C %s -j4 duckdb_wasm\n' "$cache" "$build"
+          } > "$receipt/sdk-rebuild-commands.txt"
+          EM_CACHE="$cache" emcmake cmake -S duckdb-upstream/lib -B "$build" \
+            "${flags[@]}" 2>&1 | tee "$receipt/sdk-rebuild-configure.log"
+          grep -Fq "$sdk_source/em++" "$build/CMakeFiles/duckdb_wasm.dir/link.txt"
+          EM_CACHE="$cache" EMCC_DEBUG=1 emmake make -C "$build" -j4 duckdb_wasm \
+            2>&1 | tee "$receipt/sdk-rebuild-make.log"
+          test -s "$build/duckdb_wasm.wasm"
+          test -s "$map"
+          grep -Fq "$sdk_source/em++" "$build/compile_commands.json"
+          cp "$build/compile_commands.json" "$receipt/sdk-rebuild-compile_commands.json"
+          cp "$build/CMakeFiles/duckdb_wasm.dir/link.txt" "$receipt/sdk-rebuild-link.txt"
+          rebuilt="$receipt/selected-sdk-rebuilt-archive-bytes"
+          mkdir "$rebuilt"
+          : > "$receipt/selected-sdk-rebuilt-archives.sha256"
+          : > "$receipt/selected-sdk-archive-comparison.tsv"
+          while IFS= read -r original; do
+            name="${original##*/}"
+            test -n "$name"
+            candidate="$cache/sysroot/lib/wasm32-emscripten/$name"
+            test -f "$candidate"
+            cp -- "$candidate" "$rebuilt/$name"
+            cmp -s "$candidate" "$rebuilt/$name"
+            old_hash="$(sha256sum "$receipt/selected-sdk-archive-bytes/$name" | cut -d ' ' -f 1)"
+            new_hash="$(sha256sum "$rebuilt/$name" | cut -d ' ' -f 1)"
+            sha256sum "$candidate" >> "$receipt/selected-sdk-rebuilt-archives.sha256"
+            if [ "$old_hash" = "$new_hash" ]; then result=MATCH; else result=DIFF; fi
+            printf '%s\t%s\t%s\t%s\n' "$name" "$old_hash" "$new_hash" "$result" \
+              >> "$receipt/selected-sdk-archive-comparison.tsv"
+            "$EMSDK/upstream/bin/llvm-ar" t "$candidate" \
+              > "$receipt/sdk-rebuilt-members-$name.txt"
+          done < "$receipt/selected-sdk-archives.txt"
+          test "$(find "$rebuilt" -maxdepth 1 -type f -name '*.a' | wc -l)" \
+            -eq "$(wc -l < "$receipt/selected-sdk-archives.txt")"
+          sha256sum "$build/duckdb_wasm.wasm" "$map" \
+            > "$receipt/sdk-rebuild-output.sha256"
+
+      - name: Retain pinned native provenance trial
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: duckdb-native-map-${{ matrix.variant }}
+          path: ${{ runner.temp }}/native-receipt/
+          if-no-files-found: warn
+          retention-days: 14
