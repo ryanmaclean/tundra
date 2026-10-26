@@ -1,0 +1,205 @@
+# Browser-only diagnostic against pinned PR119 package bytes. This is not an
+# installed Tauri webview or product-admission gate.
+name: DuckDB worker crypto WebKit diagnostic
+
+on:
+  pull_request:
+    branches:
+      - safety/tundra-duckdb-native-provenance-20261025
+    paths:
+      - .github/workflows/duckdb-worker-crypto-webkit-diagnostic.yml
+      - '.github/scripts/duckdb-worker-crypto-*'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  webkit-worker:
+    if: >-
+      github.event.pull_request.head.repo.full_name == 'ryanmaclean/tundra' &&
+      github.event.pull_request.head.ref == 'safety/tundra-duckdb-matching-js-20261025'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - profile: default
+            artifact_id: 12616841845
+            artifact_sha256: f82f41991679c52a619df545764aa05457f15ed8458533aa15412d2e3e937e75
+            elf_sha256: e2057adb2a757b804b33024aea0ea7db025e5564c90fa67637674f14014511c3
+          - profile: sounds
+            artifact_id: 12616460123
+            artifact_sha256: f81ef3d9778ade3456b7adb350141e8050a355f918029a5bf5f13879685aaa4f
+            elf_sha256: c38acb09084c3bfb5be0157a8106baa2a22aa7883afc22ef20b3fb40a8814025
+    steps:
+      - name: Check out exact diagnostic source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Fetch and verify fixed PR119 package artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/crypto-receipt" "$RUNNER_TEMP/crypto-artifact"
+          test "$(git rev-parse HEAD)" = '${{ github.event.pull_request.head.sha }}'
+          test "$(git status --porcelain)" = ''
+          curl --fail --silent --show-error --location --retry 3 \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header 'Accept: application/vnd.github+json' \
+            'https://api.github.com/repos/ryanmaclean/tundra/actions/artifacts/${{ matrix.artifact_id }}' \
+            --output "$RUNNER_TEMP/crypto-receipt/artifact.json"
+          jq -e --argjson id '${{ matrix.artifact_id }}' \
+            --arg digest 'sha256:${{ matrix.artifact_sha256 }}' \
+            --arg name 'linux-deb-exception-license-proof-${{ matrix.profile }}' '
+              .id == $id and .name == $name and .digest == $digest and
+              .expired == false and .workflow_run.id == 40237343784 and
+              .workflow_run.head_sha == "1ccac98a3cfe7a7b1e28b900761d81b94fa5f64f"
+            ' "$RUNNER_TEMP/crypto-receipt/artifact.json"
+          curl --fail --silent --show-error --location --retry 3 \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header 'Accept: application/vnd.github+json' \
+            'https://api.github.com/repos/ryanmaclean/tundra/actions/artifacts/${{ matrix.artifact_id }}/zip' \
+            --output "$RUNNER_TEMP/crypto-artifact.zip"
+          printf '%s  %s\n' '${{ matrix.artifact_sha256 }}' "$RUNNER_TEMP/crypto-artifact.zip" \
+            | sha256sum --check --status
+          unzip -tq "$RUNNER_TEMP/crypto-artifact.zip"
+          unzip -q "$RUNNER_TEMP/crypto-artifact.zip" -d "$RUNNER_TEMP/crypto-artifact"
+          sha256sum "$RUNNER_TEMP/crypto-artifact.zip" \
+            > "$RUNNER_TEMP/crypto-receipt/artifact-zip.sha256"
+
+      - name: Extract installed ELF and verify embedded resource bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -d '' debs < <(find "$RUNNER_TEMP/crypto-artifact" -type f -name '*.deb' -print0)
+          test "${#debs[@]}" -eq 1
+          mkdir -p "$RUNNER_TEMP/crypto-deb-root"
+          dpkg-deb -x "${debs[0]}" "$RUNNER_TEMP/crypto-deb-root"
+          mapfile -d '' bins < <(find "$RUNNER_TEMP/crypto-deb-root" -type f -name auto-tundra -print0)
+          test "${#bins[@]}" -eq 1
+          printf '%s  %s\n' '${{ matrix.elf_sha256 }}' "${bins[0]}" | sha256sum --check --status
+          mapfile -d '' dists < <(find "$RUNNER_TEMP/crypto-artifact" -type d -path '*/app/leptos-ui/dist' -print0)
+          test "${#dists[@]}" -eq 1
+          test -d "${dists[0]}/duckdb-runtime"
+          printf '%s\n' "${bins[0]}" > "$RUNNER_TEMP/crypto-receipt/installed-bin-path.txt"
+          printf '%s\n' "${dists[0]}/duckdb-runtime" \
+            > "$RUNNER_TEMP/crypto-receipt/runtime-path.txt"
+          printf '%s\n' "${dists[0]}" > "$RUNNER_TEMP/crypto-receipt/dist-path.txt"
+          sha256sum "${bins[0]}" "${debs[0]}" \
+            > "$RUNNER_TEMP/crypto-receipt/installed-package.sha256"
+
+      - name: Install pinned WebKitGTK and Nushell diagnostic tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            webkit2gtk-driver=2.52.6-0ubuntu0.24.04.1 \
+            libwebkit2gtk-4.1-0=2.52.6-0ubuntu0.24.04.1 \
+            xvfb dbus-x11 python3
+          dpkg-query -W webkit2gtk-driver libwebkit2gtk-4.1-0 xvfb dbus-x11 python3 \
+            > "$RUNNER_TEMP/crypto-receipt/hosted-tools.tsv"
+          command -v WebKitWebDriver
+          archive="$RUNNER_TEMP/nu-0.108.0-x86_64-unknown-linux-gnu.tar.gz"
+          curl --fail --silent --show-error --location --retry 3 \
+            'https://github.com/nushell/nushell/releases/download/0.108.0/nu-0.108.0-x86_64-unknown-linux-gnu.tar.gz' \
+            --output "$archive"
+          printf '%s  %s\n' \
+            'f0daaa0256b0f7dd5f4d9925b4d5522d8de5e947ed9ad64a43526e5cffeb05df' "$archive" \
+            | sha256sum --check --status
+          mkdir -p "$RUNNER_TEMP/nu-tool"
+          tar -xzf "$archive" -C "$RUNNER_TEMP/nu-tool"
+          mapfile -t binaries < <(find "$RUNNER_TEMP/nu-tool" -type f -name nu -perm -u+x)
+          test "${#binaries[@]}" -eq 1
+          printf '%s\n' "${binaries[0]}" > "$RUNNER_TEMP/crypto-receipt/nu-path.txt"
+          test "$("${binaries[0]}" --version)" = '0.108.0'
+          installed_bin="$(cat "$RUNNER_TEMP/crypto-receipt/installed-bin-path.txt")"
+          dist_dir="$(cat "$RUNNER_TEMP/crypto-receipt/dist-path.txt")"
+          timeout 30s "$installed_bin" --verify-embedded-assets "$dist_dir" \
+            > "$RUNNER_TEMP/crypto-receipt/embedded-proof.stdout" \
+            2> "$RUNNER_TEMP/crypto-receipt/embedded-proof.stderr"
+
+      - name: Run both exact worker assets in hosted WebKitGTK
+        shell: bash
+        run: |
+          set -euo pipefail
+          nu_bin="$(cat "$RUNNER_TEMP/crypto-receipt/nu-path.txt")"
+          installed_bin="$(cat "$RUNNER_TEMP/crypto-receipt/installed-bin-path.txt")"
+          runtime_dir="$(cat "$RUNNER_TEMP/crypto-receipt/runtime-path.txt")"
+          "$nu_bin" .github/scripts/duckdb-worker-crypto-wrapper.nu \
+            '${{ matrix.profile }}' "$installed_bin" "$runtime_dir" \
+            '${{ matrix.elf_sha256 }}' "$RUNNER_TEMP/crypto-site"
+          # Loopback and a single same-origin directory; no remote browser fetch.
+          python3 -m http.server 8765 --bind 127.0.0.1 \
+            --directory "$RUNNER_TEMP/crypto-site" \
+            > "$RUNNER_TEMP/crypto-receipt/http.log" 2>&1 &
+          http_pid=$!
+          dbus-run-session -- xvfb-run -a WebKitWebDriver --port=9515 \
+            > "$RUNNER_TEMP/crypto-receipt/webdriver.log" 2>&1 &
+          driver_pid=$!
+          trap 'kill "$driver_pid" "$http_pid" 2>/dev/null || true' EXIT
+          for i in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:9515/status \
+              > "$RUNNER_TEMP/crypto-receipt/driver-status.json"; then break; fi
+            printf 'WebKitWebDriver readiness attempt %s\n' "$i"
+            sleep 1
+          done
+          jq -e '.value.ready == true' "$RUNNER_TEMP/crypto-receipt/driver-status.json"
+          curl --fail --silent --show-error --max-time 30 \
+            -H 'Content-Type: application/json' \
+            -d '{"capabilities":{"alwaysMatch":{"browserName":"MiniBrowser"}}}' \
+            http://127.0.0.1:9515/session \
+            > "$RUNNER_TEMP/crypto-receipt/session.json"
+          session="$(jq -er '.value.sessionId' "$RUNNER_TEMP/crypto-receipt/session.json")"
+          curl --fail --silent --show-error --max-time 30 \
+            -H 'Content-Type: application/json' \
+            -d '{"url":"http://127.0.0.1:8765/index.html"}' \
+            "http://127.0.0.1:9515/session/$session/url" \
+            > "$RUNNER_TEMP/crypto-receipt/navigation.json"
+          test "$(jq -r '.value' "$RUNNER_TEMP/crypto-receipt/navigation.json")" = 'null'
+          : > "$RUNNER_TEMP/crypto-receipt/result.json"
+          for i in $(seq 1 90); do
+            printf 'WebKit result attempt %s\n' "$i"
+            curl --fail --silent --show-error --max-time 10 \
+              -H 'Content-Type: application/json' \
+              -d '{"script":"return window.__tundraCryptoProbe || null;","args":[]}' \
+              "http://127.0.0.1:9515/session/$session/execute/sync" \
+              > "$RUNNER_TEMP/crypto-receipt/poll.json"
+            if jq -e '.value != null and .value.schema != null' \
+              "$RUNNER_TEMP/crypto-receipt/poll.json" > /dev/null; then
+              jq '.value' "$RUNNER_TEMP/crypto-receipt/poll.json" \
+                > "$RUNNER_TEMP/crypto-receipt/result.json"
+              break
+            fi
+            sleep 2
+          done
+          curl --fail --silent --show-error --max-time 10 -X DELETE \
+            "http://127.0.0.1:9515/session/$session" > /dev/null
+          jq -e '
+            .schema == "tundra-duckdb-webkit-crypto-harness/v1" and
+            .scope == "browser-only-diagnostic" and
+            .installedTauriWebview == false and
+            .jsSha256GuardBranchProven == false and
+            .cspViolations == [] and .remoteRequests == 0 and
+            .pass == true and (.results | length) == 2 and
+            ([.results[].variant] | sort) == ["eh", "mvp"] and
+            all(.results[]; .pass == true and
+              ([.packets[].phase] | index("before-import") != null and
+               index("after-import") != null and index("after-sql") != null) and
+              all(.packets[]; .requireCalls == 0 and .errors == 0))
+          ' "$RUNNER_TEMP/crypto-receipt/result.json"
+
+      - name: Retain fail-closed browser diagnostic receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: duckdb-worker-crypto-browser-only-${{ matrix.profile }}
+          path: ${{ runner.temp }}/crypto-receipt/
+          if-no-files-found: warn
+          retention-days: 14
