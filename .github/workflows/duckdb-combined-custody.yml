@@ -371,6 +371,149 @@ jobs:
           PY
             test -s "$out/$condition-json-link-selection.tsv"
             test -s "$out/$condition-json-archive-members.txt"
+            sha256sum "$out/$condition.js" "$out/$condition.wasm" "$out/$condition-link.txt" \
+              "$out/$condition-objects1.rsp" "$out/$condition-linklibs.rsp" \
+              "$out/$condition-CMakeCache.txt" "$map" > "$out/$condition-output.sha256"
+            # These are link-selected archives, not an inventory of every cache entry.
+            grep -oE "$cache/sysroot/[^[:space:]():]+\.a" "$map" | LC_ALL=C sort -u > "$out/$condition-sdk-selected.txt"
+            test "$(wc -l < "$out/$condition-sdk-selected.txt")" -eq "$expected"
+            : > "$out/$condition-sdk-archives.tsv"
+            while IFS= read -r archive; do
+              test -s "$archive"
+              name="${archive##*/}"
+              test "$(printf '%s\n' "${names[@]}" | grep -Fxc "$name")" -eq 1
+              test ! -e "$out/member-lists/$condition-$name.txt"
+              if test "$condition" = image; then
+                cmp -s "$archive" "$out/image-bytes/$name"
+                grep -Fqx "$name"$'\t'"$archive"$'\t'"$(sha256sum "$archive" | cut -d ' ' -f 1)" "$out/image-prebuild.tsv"
+              else
+                cp -- "$archive" "$out/clean-bytes/$name"
+              fi
+              cmp -s "$archive" "$out/$condition-bytes/$name"
+              "$EMSDK/upstream/bin/llvm-ar" t "$out/$condition-bytes/$name" > "$out/member-lists/$condition-$name.txt"
+              printf '%s\t%s\t%s\n' "$name" "$(sha256sum "$archive" | cut -d ' ' -f 1)" \
+                "$(sha256sum "$out/member-lists/$condition-$name.txt" | cut -d ' ' -f 1)" \
+                >> "$out/$condition-sdk-archives.tsv"
+            done < "$out/$condition-sdk-selected.txt"
+            test "$(find "$out/$condition-bytes" -maxdepth 1 -type f -name '*.a' | wc -l)" -eq "$expected"
+            grep -F "$cache/sysroot/" "$map" > "$out/$condition-sdk-map-selection.txt"
+            test -s "$out/$condition-sdk-map-selection.txt"
+            if test "$condition" = image; then
+              warm=0
+              cold=0
+              : > "$out/image-selected-prebuild-cache.tsv"
+              while IFS= read -r archive; do
+                selected_sha="$(sha256sum "$archive" | cut -d ' ' -f 1)"
+                if grep -Fqx "$selected_sha  $archive" "$out/image-cache-before.sha256"; then
+                  status=PREEXISTING_PATH_AND_BYTES
+                  warm=$((warm + 1))
+                else
+                  status=COLD_OR_CHANGED_DURING_BUILD
+                  cold=$((cold + 1))
+                fi
+                printf '%s\t%s\t%s\n' "$archive" "$selected_sha" "$status" \
+                  >> "$out/image-selected-prebuild-cache.tsv"
+              done < "$out/image-sdk-selected.txt"
+              if test "$cold" -eq 0; then
+                printf 'image_selected_cache_classification=WARM_EXACT\n' >> "$out/cache-source.txt"
+              else
+                printf 'image_selected_cache_classification=COLD_OR_MUTATED\n' >> "$out/cache-source.txt"
+              fi
+              printf 'image_selected_preexisting=%s\nimage_selected_cold_or_mutated=%s\n' \
+                "$warm" "$cold" >> "$out/cache-source.txt"
+            fi
+            mapfile -t arrows < <(grep -oE "[^[:space:]\"']*libarrow\.a" "$out/$condition-linklibs.rsp" | LC_ALL=C sort -u)
+            test "${#arrows[@]}" -eq 1
+            arrow="${arrows[0]}"
+            if [[ "$arrow" != /* ]]; then arrow="$build/$arrow"; fi
+            arrow="$(realpath "$arrow")"
+            test -s "$arrow"
+            printf 'archive=%s\nsha256=%s\n' "$arrow" "$(sha256sum "$arrow" | cut -d ' ' -f 1)" > "$out/$condition-arrow.txt"
+            "$EMSDK/upstream/bin/llvm-ar" t "$arrow" > "$out/$condition-arrow-members.txt"
+            test "$(grep -Fxc util.cc.o "$out/$condition-arrow-members.txt")" -eq 2
+            grep -F 'libarrow.a(' "$map" > "$out/$condition-arrow-map-selection.txt"
+            test -s "$out/$condition-arrow-map-selection.txt"
+            # These are candidate source objects only. The original archive
+            # has duplicate util.cc.o names; map rows cannot bind either one.
+            for source in array compute; do
+              object="$build/third_party/arrow/src/arrow_ep-build/src/arrow/CMakeFiles/arrow_objlib.dir/$source/util.cc.o"
+              test -s "$object"
+              printf '%s\t%s\n' "$source/util.cc.o" "$(sha256sum "$object" | cut -d ' ' -f 1)" >> "$out/$condition-arrow-source-objects.tsv"
+              "$EMSDK/upstream/bin/llvm-readobj" --sections "$object" > "$out/$condition-arrow-$source-sections.txt"
+            done
+            # Replay the exact native link with only VERBOSE tracing added.
+            original="$(cat "$out/$condition-link.txt")"
+            test "$(wc -l < "$out/$condition-link.txt")" -eq 1
+            [[ "$original" == *' --js-library='* ]]
+            traced="${original/ --js-library=/ -sVERBOSE=1 --js-library=}"
+            test "$traced" != "$original"
+            (cd "$build" && EM_CACHE="$cache" bash -euo pipefail -c "$traced") > "$out/$condition-glue-link.log" 2>&1
+            if cmp -s "$build/duckdb_wasm.js" "$out/$condition.js" && \
+               cmp -s "$build/duckdb_wasm.wasm" "$out/$condition.wasm"; then
+              printf 'verbose_relink_byte_match=YES\n' > "$out/$condition-replay.txt"
+            else
+              printf 'verbose_relink_byte_match=NO\n' > "$out/$condition-replay.txt"
+            fi
+            grep -E '^processing (system|user) library: ' "$out/$condition-glue-link.log" > "$out/$condition-js-glue-bill.txt"
+            test -s "$out/$condition-js-glue-bill.txt"
+            grep -Fq "processing user library: $GITHUB_WORKSPACE/duckdb-upstream/lib/js-stubs.js" "$out/$condition-js-glue-bill.txt"
+            : > "$out/$condition-js-glue-source.tsv"
+            : > "$out/$condition-js-glue-archive-paths.txt"
+            installed_js_root="$(realpath -e "$EMSDK/upstream/emscripten/src")"
+            upstream_root="$(realpath -e "$GITHUB_WORKSPACE/duckdb-upstream")"
+            while IFS= read -r entry; do
+              case "$entry" in
+                'processing system library: '*)
+                  relative="${entry#processing system library: }"
+                  [[ "$relative" != /* && "$relative" != *..* ]]
+                  source="$EMSDK/upstream/emscripten/src/$relative"
+                  resolved="$(realpath -e "$source")"
+                  [[ "$resolved" == "$installed_js_root/"* ]]
+                  ;;
+                'processing user library: '*)
+                  source="${entry#processing user library: }"
+                  test "$source" = "$GITHUB_WORKSPACE/duckdb-upstream/lib/js-stubs.js"
+                  resolved="$(realpath -e "$source")"
+                  [[ "$resolved" == "$upstream_root/"* ]]
+                  ;;
+                *) exit 1 ;;
+              esac
+              test -f "$resolved"
+              test -s "$source"
+              printf '%s\t%s\n' "$source" "$(sha256sum "$source" | cut -d ' ' -f 1)" >> "$out/$condition-js-glue-source.tsv"
+              printf '%s\n' "${source#/}" >> "$out/$condition-js-glue-archive-paths.txt"
+            done < "$out/$condition-js-glue-bill.txt"
+            tar -C / --dereference -czf "$out/$condition-js-glue-source-bytes.tar.gz" \
+              -T "$out/$condition-js-glue-archive-paths.txt"
+            test -s "$out/$condition-js-glue-source-bytes.tar.gz"
+            # Retain legal texts shipped with the SDK's system-library sources.
+            find "$EMSDK/upstream/emscripten/system/lib" -type f \
+              \( -iname 'LICENSE*' -o -iname 'COPYING*' -o -iname 'NOTICE*' \) \
+              -printf '%P\0' | LC_ALL=C sort -z \
+              | tar -C "$EMSDK/upstream/emscripten/system/lib" --null -czf "$out/sdk-system-legal-texts.tar.gz" -T -
+            test -s "$out/sdk-system-legal-texts.tar.gz"
+            sha256sum "$out/sdk-system-legal-texts.tar.gz" > "$out/sdk-system-legal-texts.sha256"
+            mkdir "$out/$condition-legal-texts"
+            cp "$EMSDK/upstream/emscripten/LICENSE" \
+              "$out/$condition-legal-texts/emscripten-LICENSE"
+            cp duckdb-upstream/LICENSE \
+              "$out/$condition-legal-texts/duckdb-wasm-LICENSE"
+            (cd "$out/$condition-legal-texts" && sha256sum ./*) \
+              > "$out/$condition-legal-texts.sha256"
+            sha256sum "$out/$condition-js-glue-source-bytes.tar.gz" \
+              > "$out/$condition-js-glue-source-bytes.sha256"
+          done
+      - name: Retain selected JSON archive and compiled-source custody
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/combined-custody"
+          variant='${{ matrix.variant }}'
+          case "$variant" in mvp|eh) ;; *) exit 1 ;; esac
+          for condition in image clean; do
+            build="$GITHUB_WORKSPACE/duckdb-upstream/build/integrated-$variant-$condition"
+            test -s "$out/$condition-json-link-selection.tsv"
+            test -s "$out/$condition-json-archive-members.txt"
             python3 - "$build" "$out" "$condition" "$EMSDK/upstream/bin/llvm-ar" \
               "$GITHUB_WORKSPACE/duckdb-upstream/submodules/duckdb" <<'PY'
           import hashlib, os, re, shlex, shutil, subprocess, sys
@@ -525,137 +668,6 @@ jobs:
               receipt.write('json_selected_archive_bytes=RETAINED_BOUNDED\n')
               receipt.write('duckdb_json_external_object_source=24_EXACT_ARCHIVE_OBJECT_DEPFILE_JOINS\n')
           PY
-            sha256sum "$out/$condition.js" "$out/$condition.wasm" "$out/$condition-link.txt" \
-              "$out/$condition-objects1.rsp" "$out/$condition-linklibs.rsp" \
-              "$out/$condition-CMakeCache.txt" "$map" > "$out/$condition-output.sha256"
-            # These are link-selected archives, not an inventory of every cache entry.
-            grep -oE "$cache/sysroot/[^[:space:]():]+\.a" "$map" | LC_ALL=C sort -u > "$out/$condition-sdk-selected.txt"
-            test "$(wc -l < "$out/$condition-sdk-selected.txt")" -eq "$expected"
-            : > "$out/$condition-sdk-archives.tsv"
-            while IFS= read -r archive; do
-              test -s "$archive"
-              name="${archive##*/}"
-              test "$(printf '%s\n' "${names[@]}" | grep -Fxc "$name")" -eq 1
-              test ! -e "$out/member-lists/$condition-$name.txt"
-              if test "$condition" = image; then
-                cmp -s "$archive" "$out/image-bytes/$name"
-                grep -Fqx "$name"$'\t'"$archive"$'\t'"$(sha256sum "$archive" | cut -d ' ' -f 1)" "$out/image-prebuild.tsv"
-              else
-                cp -- "$archive" "$out/clean-bytes/$name"
-              fi
-              cmp -s "$archive" "$out/$condition-bytes/$name"
-              "$EMSDK/upstream/bin/llvm-ar" t "$out/$condition-bytes/$name" > "$out/member-lists/$condition-$name.txt"
-              printf '%s\t%s\t%s\n' "$name" "$(sha256sum "$archive" | cut -d ' ' -f 1)" \
-                "$(sha256sum "$out/member-lists/$condition-$name.txt" | cut -d ' ' -f 1)" \
-                >> "$out/$condition-sdk-archives.tsv"
-            done < "$out/$condition-sdk-selected.txt"
-            test "$(find "$out/$condition-bytes" -maxdepth 1 -type f -name '*.a' | wc -l)" -eq "$expected"
-            grep -F "$cache/sysroot/" "$map" > "$out/$condition-sdk-map-selection.txt"
-            test -s "$out/$condition-sdk-map-selection.txt"
-            if test "$condition" = image; then
-              warm=0
-              cold=0
-              : > "$out/image-selected-prebuild-cache.tsv"
-              while IFS= read -r archive; do
-                selected_sha="$(sha256sum "$archive" | cut -d ' ' -f 1)"
-                if grep -Fqx "$selected_sha  $archive" "$out/image-cache-before.sha256"; then
-                  status=PREEXISTING_PATH_AND_BYTES
-                  warm=$((warm + 1))
-                else
-                  status=COLD_OR_CHANGED_DURING_BUILD
-                  cold=$((cold + 1))
-                fi
-                printf '%s\t%s\t%s\n' "$archive" "$selected_sha" "$status" \
-                  >> "$out/image-selected-prebuild-cache.tsv"
-              done < "$out/image-sdk-selected.txt"
-              if test "$cold" -eq 0; then
-                printf 'image_selected_cache_classification=WARM_EXACT\n' >> "$out/cache-source.txt"
-              else
-                printf 'image_selected_cache_classification=COLD_OR_MUTATED\n' >> "$out/cache-source.txt"
-              fi
-              printf 'image_selected_preexisting=%s\nimage_selected_cold_or_mutated=%s\n' \
-                "$warm" "$cold" >> "$out/cache-source.txt"
-            fi
-            mapfile -t arrows < <(grep -oE "[^[:space:]\"']*libarrow\.a" "$out/$condition-linklibs.rsp" | LC_ALL=C sort -u)
-            test "${#arrows[@]}" -eq 1
-            arrow="${arrows[0]}"
-            if [[ "$arrow" != /* ]]; then arrow="$build/$arrow"; fi
-            arrow="$(realpath "$arrow")"
-            test -s "$arrow"
-            printf 'archive=%s\nsha256=%s\n' "$arrow" "$(sha256sum "$arrow" | cut -d ' ' -f 1)" > "$out/$condition-arrow.txt"
-            "$EMSDK/upstream/bin/llvm-ar" t "$arrow" > "$out/$condition-arrow-members.txt"
-            test "$(grep -Fxc util.cc.o "$out/$condition-arrow-members.txt")" -eq 2
-            grep -F 'libarrow.a(' "$map" > "$out/$condition-arrow-map-selection.txt"
-            test -s "$out/$condition-arrow-map-selection.txt"
-            # These are candidate source objects only. The original archive
-            # has duplicate util.cc.o names; map rows cannot bind either one.
-            for source in array compute; do
-              object="$build/third_party/arrow/src/arrow_ep-build/src/arrow/CMakeFiles/arrow_objlib.dir/$source/util.cc.o"
-              test -s "$object"
-              printf '%s\t%s\n' "$source/util.cc.o" "$(sha256sum "$object" | cut -d ' ' -f 1)" >> "$out/$condition-arrow-source-objects.tsv"
-              "$EMSDK/upstream/bin/llvm-readobj" --sections "$object" > "$out/$condition-arrow-$source-sections.txt"
-            done
-            # Replay the exact native link with only VERBOSE tracing added.
-            original="$(cat "$out/$condition-link.txt")"
-            test "$(wc -l < "$out/$condition-link.txt")" -eq 1
-            [[ "$original" == *' --js-library='* ]]
-            traced="${original/ --js-library=/ -sVERBOSE=1 --js-library=}"
-            test "$traced" != "$original"
-            (cd "$build" && EM_CACHE="$cache" bash -euo pipefail -c "$traced") > "$out/$condition-glue-link.log" 2>&1
-            if cmp -s "$build/duckdb_wasm.js" "$out/$condition.js" && \
-               cmp -s "$build/duckdb_wasm.wasm" "$out/$condition.wasm"; then
-              printf 'verbose_relink_byte_match=YES\n' > "$out/$condition-replay.txt"
-            else
-              printf 'verbose_relink_byte_match=NO\n' > "$out/$condition-replay.txt"
-            fi
-            grep -E '^processing (system|user) library: ' "$out/$condition-glue-link.log" > "$out/$condition-js-glue-bill.txt"
-            test -s "$out/$condition-js-glue-bill.txt"
-            grep -Fq "processing user library: $GITHUB_WORKSPACE/duckdb-upstream/lib/js-stubs.js" "$out/$condition-js-glue-bill.txt"
-            : > "$out/$condition-js-glue-source.tsv"
-            : > "$out/$condition-js-glue-archive-paths.txt"
-            installed_js_root="$(realpath -e "$EMSDK/upstream/emscripten/src")"
-            upstream_root="$(realpath -e "$GITHUB_WORKSPACE/duckdb-upstream")"
-            while IFS= read -r entry; do
-              case "$entry" in
-                'processing system library: '*)
-                  relative="${entry#processing system library: }"
-                  [[ "$relative" != /* && "$relative" != *..* ]]
-                  source="$EMSDK/upstream/emscripten/src/$relative"
-                  resolved="$(realpath -e "$source")"
-                  [[ "$resolved" == "$installed_js_root/"* ]]
-                  ;;
-                'processing user library: '*)
-                  source="${entry#processing user library: }"
-                  test "$source" = "$GITHUB_WORKSPACE/duckdb-upstream/lib/js-stubs.js"
-                  resolved="$(realpath -e "$source")"
-                  [[ "$resolved" == "$upstream_root/"* ]]
-                  ;;
-                *) exit 1 ;;
-              esac
-              test -f "$resolved"
-              test -s "$source"
-              printf '%s\t%s\n' "$source" "$(sha256sum "$source" | cut -d ' ' -f 1)" >> "$out/$condition-js-glue-source.tsv"
-              printf '%s\n' "${source#/}" >> "$out/$condition-js-glue-archive-paths.txt"
-            done < "$out/$condition-js-glue-bill.txt"
-            tar -C / --dereference -czf "$out/$condition-js-glue-source-bytes.tar.gz" \
-              -T "$out/$condition-js-glue-archive-paths.txt"
-            test -s "$out/$condition-js-glue-source-bytes.tar.gz"
-            # Retain legal texts shipped with the SDK's system-library sources.
-            find "$EMSDK/upstream/emscripten/system/lib" -type f \
-              \( -iname 'LICENSE*' -o -iname 'COPYING*' -o -iname 'NOTICE*' \) \
-              -printf '%P\0' | LC_ALL=C sort -z \
-              | tar -C "$EMSDK/upstream/emscripten/system/lib" --null -czf "$out/sdk-system-legal-texts.tar.gz" -T -
-            test -s "$out/sdk-system-legal-texts.tar.gz"
-            sha256sum "$out/sdk-system-legal-texts.tar.gz" > "$out/sdk-system-legal-texts.sha256"
-            mkdir "$out/$condition-legal-texts"
-            cp "$EMSDK/upstream/emscripten/LICENSE" \
-              "$out/$condition-legal-texts/emscripten-LICENSE"
-            cp duckdb-upstream/LICENSE \
-              "$out/$condition-legal-texts/duckdb-wasm-LICENSE"
-            (cd "$out/$condition-legal-texts" && sha256sum ./*) \
-              > "$out/$condition-legal-texts.sha256"
-            sha256sum "$out/$condition-js-glue-source-bytes.tar.gz" \
-              > "$out/$condition-js-glue-source-bytes.sha256"
           done
           python3 - "$out/admission.txt" <<'PY'
           from pathlib import Path
