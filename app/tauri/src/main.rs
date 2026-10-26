@@ -29,6 +29,7 @@ static SMOKE_RECEIVED: AtomicBool = AtomicBool::new(false);
 #[serde(rename_all = "camelCase")]
 struct DuckDbSmokeResult {
     ok: bool,
+    variant: Option<String>,
     row_count: usize,
     answer: Option<i64>,
     absent_is_null: bool,
@@ -46,7 +47,11 @@ fn cmd_smoke_result(app: tauri::AppHandle, result: DuckDbSmokeResult) -> Result<
     if SMOKE_RECEIVED.swap(true, Ordering::SeqCst) {
         return Err("duplicate DuckDB smoke result".into());
     }
+    let requested_variant = std::env::var("TUNDRA_SMOKE_VARIANT").ok();
     let pass = result.ok
+        && requested_variant
+            .as_ref()
+            .map_or(true, |variant| result.variant.as_ref() == Some(variant))
         && result.row_count == 1
         && result.answer == Some(42)
         && result.absent_is_null
@@ -75,10 +80,12 @@ fn cmd_smoke_result(app: tauri::AppHandle, result: DuckDbSmokeResult) -> Result<
         "schema": "tundra-duckdb-webkit-smoke/v1",
         "head_sha": std::env::var("TUNDRA_SMOKE_HEAD_SHA").unwrap_or_default(),
         "profile": std::env::var("TUNDRA_SMOKE_PROFILE").unwrap_or_default(),
+        "requested_variant": requested_variant,
         "installed_elf_sha256": std::env::var("TUNDRA_SMOKE_ELF_SHA256").unwrap_or_default(),
         "ok": pass,
         "result": {
             "ok": result.ok,
+            "variant": result.variant,
             "rowCount": result.row_count,
             "answer": result.answer,
             "absentIsNull": result.absent_is_null,
@@ -110,7 +117,7 @@ const DUCKDB_SMOKE_INIT_SCRIPT: &str = r#"
   });
   window.addEventListener('load', () => setTimeout(async () => {
     const result = {
-      ok: false, rowCount: 0, answer: null, absentIsNull: false,
+      ok: false, variant: null, rowCount: 0, answer: null, absentIsNull: false,
       aggregateOk: false, aggregateObserved: null, smokeError: null,
       cspDenied: false, cspViolations: [], localRuntime: false,
       remoteRequests: 0
@@ -122,11 +129,17 @@ const DUCKDB_SMOKE_INIT_SCRIPT: &str = r#"
       violations.length = 0;
       await bridge.init_duckdb();
       const runtime = bridge.get_runtime_info();
+      const expectedVariant = window.__TUNDRA_DUCKDB_SMOKE_VARIANT__;
+      result.variant = runtime && runtime.variant;
       result.localRuntime = !!runtime &&
         [runtime.workerUrl, runtime.wasmUrl].every(value => {
           const url = new URL(value);
           return url.origin === location.origin && url.pathname.includes('/duckdb-runtime/');
-        });
+        }) && (!expectedVariant || (
+          runtime.variant === expectedVariant &&
+          new URL(runtime.workerUrl).pathname.endsWith('/duckdb-browser-' + expectedVariant + '.worker.js') &&
+          new URL(runtime.wasmUrl).pathname.endsWith('/duckdb-' + expectedVariant + '.wasm')
+        ));
       const rows = JSON.parse(await bridge.query_duckdb(
         'SELECT CAST(6*7 AS INTEGER) AS answer, CAST(NULL AS INTEGER) AS absent'
       ));
@@ -178,10 +191,24 @@ fn main() {
         eprintln!("usage: auto-tundra --verify-embedded-assets <generated-dist-directory>");
         std::process::exit(2);
     }
-    if smoke_requested && (args.len() != 1 || args[0].as_os_str() != smoke_flag) {
-        eprintln!("usage: auto-tundra --smoke-duckdb");
+    if smoke_requested && (args.is_empty() || args[0].as_os_str() != smoke_flag || args.len() > 2) {
+        eprintln!("usage: auto-tundra --smoke-duckdb [mvp|eh]");
         std::process::exit(2);
     }
+    let smoke_variant = if smoke_requested && args.len() == 2 {
+        let variant = args[1].to_string_lossy().into_owned();
+        if variant != "mvp" && variant != "eh" {
+            eprintln!("usage: auto-tundra --smoke-duckdb [mvp|eh]");
+            std::process::exit(2);
+        }
+        if std::env::var("TUNDRA_SMOKE_VARIANT").ok().as_deref() != Some(variant.as_str()) {
+            eprintln!("TUNDRA_SMOKE_VARIANT must match the requested variant");
+            std::process::exit(2);
+        }
+        Some(variant)
+    } else {
+        None
+    };
 
     // This is the same context passed to the running app. The package proof
     // reads it before logging, credentials, the daemon, or a webview starts.
@@ -192,9 +219,14 @@ fn main() {
         return;
     }
     if smoke_requested {
+        let smoke_script = match smoke_variant.as_deref() {
+            Some("mvp") => format!("Object.defineProperty(window, '__TUNDRA_DUCKDB_SMOKE_VARIANT__', {{value: 'mvp'}});{DUCKDB_SMOKE_INIT_SCRIPT}"),
+            Some("eh") => format!("Object.defineProperty(window, '__TUNDRA_DUCKDB_SMOKE_VARIANT__', {{value: 'eh'}});{DUCKDB_SMOKE_INIT_SCRIPT}"),
+            _ => DUCKDB_SMOKE_INIT_SCRIPT.to_string(),
+        };
         tauri::Builder::default()
             .invoke_handler(tauri::generate_handler![cmd_smoke_result])
-            .setup(|app| {
+            .setup(move |app| {
                 use tauri::Manager;
                 let window_config = app
                     .config()
@@ -205,7 +237,7 @@ fn main() {
                     .cloned()
                     .ok_or("tauri.conf.json has no main window")?;
                 tauri::WebviewWindowBuilder::from_config(app.handle(), &window_config)?
-                    .initialization_script(DUCKDB_SMOKE_INIT_SCRIPT)
+                    .initialization_script(smoke_script.clone())
                     .build()?;
                 Ok(())
             })

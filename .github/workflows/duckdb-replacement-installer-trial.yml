@@ -1,0 +1,341 @@
+name: DuckDB replacement installed WebKit trial
+
+# Technical-only trial. The legacy strict-licenses job retains PR115's bridge
+# blob and npm runtime bill pins; its expected failure is not product acceptance.
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/duckdb-replacement-installer-trial.yml
+      - .github/scripts/duckdb-stage-replacement-trial.nu
+      - app/leptos-ui/duckdb-bridge.js
+      - app/tauri/src/main.rs
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  installed-replacement:
+    name: Installed replacement (${{ matrix.profile }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [default, sounds]
+    env:
+      TRIAL_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - name: Check out exact trial head
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Fetch immutable PR117 custody and inspect closure
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TRIAL_HEAD"
+          custody_commit=1d77df7776dca44731ae8267092e480a78f9f735
+          custody="$RUNNER_TEMP/duckdb-browser-custody"
+          receipt="$RUNNER_TEMP/replacement-input"
+          evidence="$RUNNER_TEMP/replacement-receipt"
+          test ! -e "$custody" && test ! -e "$receipt"
+          mkdir -p "$custody" "$receipt/matching-output" \
+            "$receipt/matching-receipt" "$receipt/input-receipt" "$evidence"
+          git -C "$custody" init -q
+          git -C "$custody" fetch --quiet --no-tags --depth=1 \
+            https://github.com/ryanmaclean/tundra.git "$custody_commit"
+          test "$(git -C "$custody" rev-parse FETCH_HEAD)" = "$custody_commit"
+          git -C "$custody" checkout --quiet --detach "$custody_commit"
+          test "$(git -C "$custody" rev-parse HEAD)" = "$custody_commit"
+          test "$(git -C "$custody" rev-list --parents -n 1 HEAD)" = "$custody_commit"
+          manifest="$custody/custody/manifest.json"
+          test -f "$manifest" && test ! -L "$manifest"
+          jq -e '
+            .schema == "tundra-diagnostic-browser-asset-custody/v1" and
+            .admission == "NO" and .artifact.repo == "ryanmaclean/tundra" and
+            .artifact.artifact_id == 12607318747 and
+            .artifact.run_id == 40217360882 and
+            .artifact.producer_head == "7182d3f1b51cf643f73d40f15b576006accddd7d" and
+            .artifact.zip_sha256 == "be8fade74d4dda4b5eae20fc3f906370f6fd9fc82e606810a469b24affa5e7b5" and
+            .artifact.zip_entries == 35 and .artifact.zip_crc == "all_passed" and
+            .native_inputs.duckdb_wasm_source_head == "f955138e5218942fb3fb097a8fdcb725222406ff" and
+            .native_inputs.native_run_id == 40216203853 and
+            .native_inputs.tundra_native_head == "a7d43e055ad33f73bb7cd4333b80ebd70ea940ea" and
+            .legal.source_pr == 119 and
+            .legal.source_head == "1ccac98a3cfe7a7b1e28b900761d81b94fa5f64f" and
+            .legal.attribution_count == 38 and .legal.text_count == 36 and
+            (.assets | length) == 5 and (.receipts | length) == 6 and
+            (.legal.texts | length) == 36 and
+            .receipts["matching-receipt/browser-metafile.json"] != null and
+            .receipts["matching-receipt/worker-mvp-metafile.json"] != null and
+            .receipts["matching-receipt/worker-eh-metafile.json"] != null and
+            .legal.bill_path == "third-party-licenses/ui/duckdb-runtime-selected-bill.json" and
+            .legal.bill_git_blob == "56922b9dd3ac6f961891949f1962c307064431df" and
+            .legal.bill_sha256 == "34381cba60c8922a159f578753b55531460792372f2d72b22769da205fe97790"
+          ' "$manifest" > /dev/null
+          jq -r '(.assets | keys) + (.receipts | keys) +
+            (.legal.texts | keys) + [.legal.bill_path, "custody/manifest.json"] |
+            sort | .[]' "$manifest" > "$RUNNER_TEMP/custody-expected-paths"
+          test "$(wc -l < "$RUNNER_TEMP/custody-expected-paths")" -eq 49
+          git -C "$custody" ls-files | LC_ALL=C sort > "$RUNNER_TEMP/custody-actual-paths"
+          diff -u "$RUNNER_TEMP/custody-expected-paths" "$RUNNER_TEMP/custody-actual-paths"
+          test "$(git -C "$custody" ls-tree -r --format='%(objectmode)' HEAD | sort -u)" = 100644
+          test -z "$(git -C "$custody" status --porcelain)"
+          jq -e -r '(.assets + .receipts + .legal.texts) |
+            to_entries[] | [.key, .value.git_blob, .value.sha256, .value.size] |
+            @tsv' "$manifest" > "$RUNNER_TEMP/custody-file-claims.tsv"
+          test "$(wc -l < "$RUNNER_TEMP/custody-file-claims.tsv")" -eq 47
+          while IFS=$'\t' read -r path blob digest size; do
+            file="$custody/$path"
+            test -f "$file" && test ! -L "$file"
+            test "$(git -C "$custody" rev-parse "HEAD:$path")" = "$blob"
+            test "$(stat -c %s "$file")" = "$size"
+            printf '%s  %s\n' "$digest" "$file" | sha256sum --check --status
+          done < "$RUNNER_TEMP/custody-file-claims.tsv"
+          bill="$custody/third-party-licenses/ui/duckdb-runtime-selected-bill.json"
+          test -f "$bill" && test ! -L "$bill"
+          test "$(git -C "$custody" rev-parse HEAD:third-party-licenses/ui/duckdb-runtime-selected-bill.json)" = \
+            56922b9dd3ac6f961891949f1962c307064431df
+          test "$(stat -c %s "$bill")" -eq 27795
+          printf '%s  %s\n' \
+            '34381cba60c8922a159f578753b55531460792372f2d72b22769da205fe97790' "$bill" \
+            | sha256sum --check --status
+          for path in "$custody"/duckdb-runtime/*; do
+            cp "$path" "$receipt/matching-output/${path##*/}"
+          done
+          cp "$custody"/input-receipt/* "$receipt/input-receipt/"
+          cp "$custody"/matching-receipt/* "$receipt/matching-receipt/"
+          jq -r '.assets | keys[] | split("/") | last' "$manifest" | LC_ALL=C sort \
+            > "$RUNNER_TEMP/custody-expected-assets"
+          find "$receipt/matching-output" -maxdepth 1 -type f -printf '%f\n' | LC_ALL=C sort \
+            > "$RUNNER_TEMP/custody-staged-assets"
+          diff -u "$RUNNER_TEMP/custody-expected-assets" "$RUNNER_TEMP/custody-staged-assets"
+          test "$(wc -l < "$receipt/matching-receipt/five-output.sha256")" -eq 5
+          : > "$RUNNER_TEMP/custody-receipt-assets"
+          while read -r digest path; do
+            [[ "$path" == /home/runner/work/_temp/matching-output/* ]]
+            asset="${path##*/}"
+            printf '%s\n' "$asset" >> "$RUNNER_TEMP/custody-receipt-assets"
+            printf '%s  %s\n' "$digest" "$receipt/matching-output/$asset" \
+              | sha256sum --check --status
+          done < "$receipt/matching-receipt/five-output.sha256"
+          LC_ALL=C sort "$RUNNER_TEMP/custody-receipt-assets" \
+            > "$RUNNER_TEMP/custody-receipt-assets-sorted"
+          diff -u "$RUNNER_TEMP/custody-expected-assets" \
+            "$RUNNER_TEMP/custody-receipt-assets-sorted"
+          grep -Fxq 'tundra_trial_head=7182d3f1b51cf643f73d40f15b576006accddd7d' "$receipt/input-receipt/heads.txt"
+          grep -Fxq 'source_head=f955138e5218942fb3fb097a8fdcb725222406ff' "$receipt/input-receipt/heads.txt"
+          grep -Fxq 'native_tundra_head=a7d43e055ad33f73bb7cd4333b80ebd70ea940ea' "$receipt/input-receipt/heads.txt"
+          grep -Fxq 'native_run=40216203853' "$receipt/input-receipt/heads.txt"
+          jq -e '.admission == "NO" and .coi_built == false and
+            .source_commit == "f955138e5218942fb3fb097a8fdcb725222406ff"' \
+            "$receipt/matching-receipt/candidate.json" > /dev/null
+          jq -e '[.outputs | to_entries[] | .value.imports[]? |
+            select(.external == true)] | length == 0' \
+            "$receipt/matching-receipt/browser-metafile.json" > /dev/null
+          for variant in mvp eh; do
+            jq -e '[.outputs | to_entries[] | .value.imports[]? |
+              select(.external == true) | [.path,.kind]] ==
+              [["crypto","require-call"]]' \
+              "$receipt/matching-receipt/worker-$variant-metafile.json" > /dev/null
+          done
+          cp "$manifest" "$evidence/custody-manifest.json"
+          sha256sum "$manifest" "$bill" .github/scripts/duckdb-stage-replacement-trial.nu \
+            "$receipt"/matching-output/* > "$evidence/input.sha256"
+          printf 'trial_head=%s\nprofile=%s\ncustody_commit=%s\ncustody_manifest_sha256=%s\nsource_run=40217360882\nsource_head=7182d3f1b51cf643f73d40f15b576006accddd7d\nartifact_id=12607318747\nartifact_digest=sha256:be8fade74d4dda4b5eae20fc3f906370f6fd9fc82e606810a469b24affa5e7b5\nadmission=NO\n' \
+            "$TRIAL_HEAD" '${{ matrix.profile }}' "$custody_commit" \
+            "$(sha256sum "$manifest" | cut -d ' ' -f 1)" \
+            > "$evidence/trial-source.txt"
+      - name: Install Linux Tauri prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential curl file libayatana-appindicator3-dev libgtk-3-dev \
+            librsvg2-dev libssl-dev libwebkit2gtk-4.1-dev libxdo-dev \
+            patchelf pkg-config wget xvfb dbus-x11
+      - name: Install ALSA development files for sounds build
+        if: matrix.profile == 'sounds'
+        run: sudo apt-get install -y --no-install-recommends libasound2-dev
+      - name: Install Rust toolchain and WASM target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Install locked UI and Tauri build tools
+        run: |
+          cargo install trunk --version 0.21.14 --locked
+          cargo install tauri-cli --version 2.12.4 --locked
+      - name: Install checksum-pinned Nushell binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/nu-0.108.0-x86_64-unknown-linux-gnu.tar.gz"
+          curl --fail --silent --show-error --location --retry 3 \
+            'https://github.com/nushell/nushell/releases/download/0.108.0/nu-0.108.0-x86_64-unknown-linux-gnu.tar.gz' \
+            --output "$archive"
+          printf '%s  %s\n' \
+            'f0daaa0256b0f7dd5f4d9925b4d5522d8de5e947ed9ad64a43526e5cffeb05df' "$archive" \
+            | sha256sum --check --status
+          sha256sum "$archive" > "$RUNNER_TEMP/replacement-receipt/nu-archive.sha256"
+          mkdir -p "$RUNNER_TEMP/nu-tool"
+          tar -xzf "$archive" -C "$RUNNER_TEMP/nu-tool"
+          mapfile -t binaries < <(find "$RUNNER_TEMP/nu-tool" -type f -name nu -perm -u+x)
+          test "${#binaries[@]}" -eq 1
+          printf '%s\n' "${binaries[0]}" > "$RUNNER_TEMP/replacement-receipt/nu-path.txt"
+          "${binaries[0]}" --version > "$RUNNER_TEMP/replacement-receipt/nu-version.txt"
+          grep -Fxq '0.108.0' "$RUNNER_TEMP/replacement-receipt/nu-version.txt"
+      - name: Stage exactly five replacement assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          nu_bin="$(cat "$RUNNER_TEMP/replacement-receipt/nu-path.txt")"
+          "$nu_bin" .github/scripts/duckdb-stage-replacement-trial.nu \
+            "$RUNNER_TEMP/replacement-input/matching-output" \
+            app/leptos-ui/duckdb-runtime "$RUNNER_TEMP/replacement-stage"
+          jq -e '.admission == "NO" and .artifact_id == 12607318747 and
+            (.assets | length) == 5' \
+            "$RUNNER_TEMP/replacement-stage/replacement-trial.json" > /dev/null
+          jq -r '.assets[] | [.sha256,.name] | join("  ")' \
+            "$RUNNER_TEMP/replacement-stage/replacement-trial.json" \
+            > "$RUNNER_TEMP/replacement-receipt/five-assets.sha256"
+          (cd app/leptos-ui/duckdb-runtime && sha256sum --check --status \
+            "$RUNNER_TEMP/replacement-receipt/five-assets.sha256")
+          cp "$RUNNER_TEMP/replacement-stage/replacement-trial.json" \
+            "$RUNNER_TEMP/replacement-receipt/replacement-trial.json"
+      - name: Build locked UI and ephemeral Linux installer
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd app/leptos-ui && trunk build --release --locked)
+          test -s app/leptos-ui/dist/index.html
+          test "$(find app/leptos-ui/dist/duckdb-runtime -maxdepth 1 -type f | wc -l)" -eq 5
+          if [[ '${{ matrix.profile }}' == sounds ]]; then
+            (cd app/tauri && cargo tauri build --bundles deb --features sounds)
+          else
+            (cd app/tauri && cargo tauri build --bundles deb)
+          fi
+          git diff --exit-code -- Cargo.lock
+          test -s target/release/auto-tundra
+          shopt -s nullglob
+          fingerprints=(target/release/.fingerprint/at-tauri-*/bin-auto-tundra.json)
+          test "${#fingerprints[@]}" -eq 1
+          cp "${fingerprints[0]}" "$RUNNER_TEMP/replacement-receipt/profile-fingerprint.json"
+          if [[ '${{ matrix.profile }}' == sounds ]]; then
+            jq -e '(.features | fromjson | index("sounds")) != null' \
+              "$RUNNER_TEMP/replacement-receipt/profile-fingerprint.json" > /dev/null
+          else
+            jq -e '(.features | fromjson | index("sounds")) == null' \
+              "$RUNNER_TEMP/replacement-receipt/profile-fingerprint.json" > /dev/null
+          fi
+      - name: Verify source, dist, extracted installer, and embedded bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          debs=(target/release/bundle/deb/*.deb)
+          test "${#debs[@]}" -eq 1
+          root="$RUNNER_TEMP/tundra-deb-root"
+          mkdir -p "$root"
+          dpkg-deb -x "${debs[0]}" "$root"
+          mapfile -d '' installed_bins < <(find "$root" -type f -name auto-tundra -print0)
+          test "${#installed_bins[@]}" -eq 1
+          workspace_bin=target/release/auto-tundra
+          marker_prefix='__TAURI_BUNDLE_TYPE_VAR_'
+          mapfile -t marker_hits < <(LC_ALL=C grep -aobF "${marker_prefix}UNK" "$workspace_bin")
+          test "${#marker_hits[@]}" -eq 1
+          marker_offset="${marker_hits[0]%%:*}"
+          [[ "$marker_offset" =~ ^[0-9]+$ ]]
+          expected_bin="$RUNNER_TEMP/expected-bundle-auto-tundra"
+          cp "$workspace_bin" "$expected_bin"
+          printf 'DEB' | dd of="$expected_bin" bs=1 \
+            seek="$((marker_offset + ${#marker_prefix}))" conv=notrunc status=none
+          cmp "$expected_bin" "${installed_bins[0]}"
+          proof="$RUNNER_TEMP/replacement-receipt/embedded-asset-proof.json"
+          "${installed_bins[0]}" --verify-embedded-assets app/leptos-ui/dist > "$proof"
+          jq -e '.schema == "tundra-embedded-assets/v1" and
+            .asset_count == (.assets | length) and .asset_count >= 18 and
+            all(.assets[]; .dist_sha256 == .embedded_sha256 or
+              (.key == "index.html" and .transform == "tauri-csp-html"))' "$proof" > /dev/null
+          : > "$RUNNER_TEMP/replacement-receipt/five-joins.tsv"
+          while read -r digest asset; do
+            source="app/leptos-ui/duckdb-runtime/$asset"
+            dist="app/leptos-ui/dist/duckdb-runtime/$asset"
+            printf '%s  %s\n%s  %s\n' "$digest" "$source" "$digest" "$dist" \
+              | sha256sum --check --status
+            cmp "$source" "$dist"
+            jq -e --arg key "duckdb-runtime/$asset" --arg digest "$digest" '
+              [.assets[] | select(.key == $key and .transform == "identity" and
+                .dist_sha256 == $digest and .embedded_sha256 == $digest)] | length == 1
+            ' "$proof" > /dev/null
+            printf '%s\t%s\t%s\n' "$asset" "$digest" '${{ matrix.profile }}' \
+              >> "$RUNNER_TEMP/replacement-receipt/five-joins.tsv"
+          done < "$RUNNER_TEMP/replacement-receipt/five-assets.sha256"
+          test "$(wc -l < "$RUNNER_TEMP/replacement-receipt/five-joins.tsv")" -eq 5
+          printf 'trial_head=%s\nprofile=%s\nadmission=NO\nold_duckdb_bill=INAPPLICABLE\nlegacy_strict_gate=EXPECTED_RED_OLD_BRIDGE_PIN\n' \
+            "$TRIAL_HEAD" '${{ matrix.profile }}' \
+            > "$RUNNER_TEMP/replacement-receipt/installer-source.txt"
+          sha256sum "$workspace_bin" "$expected_bin" "${installed_bins[0]}" "${debs[0]}" "$proof" \
+            >> "$RUNNER_TEMP/replacement-receipt/installer-source.txt"
+          mapfile -d '' installed_bills < <(find "$root" -type f -path '*/third-party-licenses/ui/duckdb-runtime-bill.json' -print0)
+          test "${#installed_bills[@]}" -eq 1
+          cmp app/tauri/third-party-licenses/ui/duckdb-runtime-bill.json "${installed_bills[0]}"
+          sha256sum "${installed_bills[0]}" \
+            >> "$RUNNER_TEMP/replacement-receipt/installer-source.txt"
+      - name: Smoke installed MVP and EH in WebKitGTK
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/tundra-deb-root"
+          mapfile -d '' installed_bins < <(find "$root" -type f -name auto-tundra -print0)
+          test "${#installed_bins[@]}" -eq 1
+          cmp "$RUNNER_TEMP/expected-bundle-auto-tundra" "${installed_bins[0]}"
+          elf_sha="$(sha256sum "${installed_bins[0]}" | cut -d ' ' -f 1)"
+          for variant in mvp eh; do
+            home="$RUNNER_TEMP/smoke-$variant"
+            mkdir -p "$home/home" "$home/config" "$home/data" "$home/cache"
+            set +e
+            dbus-run-session -- xvfb-run -a -s '-screen 0 1280x800x24' \
+              env HOME="$home/home" XDG_CONFIG_HOME="$home/config" \
+                XDG_DATA_HOME="$home/data" XDG_CACHE_HOME="$home/cache" \
+                TUNDRA_SMOKE_HEAD_SHA="$TRIAL_HEAD" \
+                TUNDRA_SMOKE_PROFILE='${{ matrix.profile }}' \
+                TUNDRA_SMOKE_VARIANT="$variant" \
+                TUNDRA_SMOKE_ELF_SHA256="$elf_sha" \
+                http_proxy=http://127.0.0.1:9 https_proxy=http://127.0.0.1:9 \
+                HTTP_PROXY=http://127.0.0.1:9 HTTPS_PROXY=http://127.0.0.1:9 \
+                NO_PROXY=localhost,127.0.0.1,tauri.localhost \
+              timeout 120s "${installed_bins[0]}" --smoke-duckdb "$variant" \
+              > "$RUNNER_TEMP/replacement-receipt/webkit-$variant.stdout" \
+              2> "$RUNNER_TEMP/replacement-receipt/webkit-$variant.stderr"
+            status=$?
+            set -e
+            awk 'index($0, "TUNDRA_DUCKDB_SMOKE:") == 1 {
+              print substr($0, length("TUNDRA_DUCKDB_SMOKE:") + 1)
+            }' "$RUNNER_TEMP/replacement-receipt/webkit-$variant.stdout" \
+              > "$RUNNER_TEMP/replacement-receipt/webkit-$variant.json"
+            test "$(wc -l < "$RUNNER_TEMP/replacement-receipt/webkit-$variant.json")" -eq 1
+            jq -e --arg head "$TRIAL_HEAD" --arg profile '${{ matrix.profile }}' \
+              --arg elf "$elf_sha" --arg variant "$variant" '
+              .schema == "tundra-duckdb-webkit-smoke/v1" and
+              .head_sha == $head and .profile == $profile and
+              .installed_elf_sha256 == $elf and
+              .requested_variant == $variant and .result.variant == $variant and
+              .ok == true and .result.ok == true and
+              .result.rowCount == 1 and .result.answer == 42 and
+              .result.absentIsNull == true and .result.aggregateOk == true and
+              .result.cspDenied == true and .result.cspViolations == [] and
+              .result.localRuntime == true and .result.remoteRequests == 0
+            ' "$RUNNER_TEMP/replacement-receipt/webkit-$variant.json" > /dev/null
+            test "$status" -eq 0
+          done
+      - name: Retain receipts only, no installer or executable
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: duckdb-replacement-trial-${{ matrix.profile }}
+          path: ${{ runner.temp }}/replacement-receipt/
+          if-no-files-found: warn
+          retention-days: 14
