@@ -8,10 +8,13 @@ on:
       - Cargo.lock
       - app/leptos-ui/**
       - scripts/stage_duckdb_runtime.nu
+      - scripts/fetch_duckdb_replacement.nu
+      - app/tauri/third-party-licenses/ui/duckdb-runtime-selected-bill.json
       - crates/at-api-types/**
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   build-ui:
@@ -37,10 +40,17 @@ jobs:
       - name: Install pinned Nushell
         run: cargo install nu --version 0.108.0 --locked
 
-      - name: Stage pinned same-origin DuckDB runtime
+      - name: Authenticate replacement DuckDB artifact and stage exact assets
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
           test "$(git rev-parse HEAD)" = '${{ github.event.pull_request.head.sha }}'
-          nu scripts/stage_duckdb_runtime.nu app/leptos-ui/duckdb-runtime "$RUNNER_TEMP"
+          printf '%s  %s\n' '34381cba60c8922a159f578753b55531460792372f2d72b22769da205fe97790' \
+            app/tauri/third-party-licenses/ui/duckdb-runtime-selected-bill.json | sha256sum --check --status
+          nu scripts/fetch_duckdb_replacement.nu "$RUNNER_TEMP/duckdb-replacement" "$RUNNER_TEMP/duckdb-fetch"
+          nu scripts/stage_duckdb_runtime.nu app/leptos-ui/duckdb-runtime "$RUNNER_TEMP" \
+            "$RUNNER_TEMP/duckdb-replacement/matching-output"
 
       - name: Build locked Leptos UI
         working-directory: app/leptos-ui

@@ -53,59 +53,10 @@
       "sha256": "b2fe5e8987594e9ffd1d2ca52a2f5d73eb8335243893c5d6254b5ad69269591d",
       "upstream": "JetBrains/JetBrainsMono git tag v2.210 commit 40e4dea999d21eb6d5d84f5d754e087ae332f018 OFL.txt",
       "scope": "Exact copied source package or font family legal text; no claim of generated frontend custody."
-    },
-    {
-      "path": "app/tauri/third-party-licenses/ui/DuckDB-Wasm-MIT.txt",
-      "license": "MIT",
-      "sha256": "3ad73e53243c374756dfc2eb5e780abd462ce99e89c84f9e46ada745db934107",
-      "upstream": "duckdb/duckdb-wasm v1.28.0 commit f955138e5218942fb3fb097a8fdcb725222406ff LICENSE",
-      "scope": "Pinned same-origin DuckDB runtime legal text."
-    },
-    {
-      "path": "app/tauri/third-party-licenses/ui/Apache-Arrow-13-LICENSE.txt",
-      "license": "Apache-2.0",
-      "sha256": "6d26daef86611d1ea2fdf74d900886aa27c46249f018417a993449eb4a414eac",
-      "upstream": "apache-arrow@13.0.0 package/LICENSE.txt",
-      "scope": "Pinned same-origin DuckDB runtime legal text."
-    },
-    {
-      "path": "app/tauri/third-party-licenses/ui/Apache-Arrow-13-NOTICE.txt",
-      "license": "Apache-2.0-NOTICE",
-      "sha256": "f5b6a58f5d2082e403c49663d87566328d40cf03f16abb01f52632a09b97c55e",
-      "upstream": "apache-arrow@13.0.0 package/NOTICE.txt",
-      "scope": "Pinned same-origin DuckDB runtime legal text."
-    },
-    {
-      "path": "app/tauri/third-party-licenses/ui/tslib-0BSD.txt",
-      "license": "0BSD",
-      "sha256": "210b19e543130388c68654b7497e967119ce17145f66ab7d85688fbd70f08751",
-      "upstream": "tslib@2.6.2 package/LICENSE.txt",
-      "scope": "Pinned same-origin DuckDB runtime legal text."
-    },
-    {
-      "path": "app/tauri/third-party-licenses/ui/tslib-CopyrightNotice.txt",
-      "license": "0BSD-CopyrightNotice",
-      "sha256": "da16ddb65f8ca390998fb99223d0112498b56b45784d00afd77ff8ce1ac4de8b",
-      "upstream": "tslib@2.6.2 package/CopyrightNotice.txt",
-      "scope": "Pinned same-origin DuckDB runtime copyright notice."
-    },
-    {
-      "path": "app/tauri/third-party-licenses/ui/FlatBuffers-LICENSE.txt",
-      "license": "Apache-2.0",
-      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
-      "upstream": "flatbuffers@23.5.26 package/LICENSE",
-      "scope": "Pinned same-origin DuckDB runtime legal text."
-    },
-    {
-      "path": "app/tauri/third-party-licenses/ui/js-sha256-MIT.txt",
-      "license": "MIT",
-      "sha256": "03e598437c73d8eae2b341910d42df85860405ed879264f3fd37dfaa5a63fee6",
-      "upstream": "js-sha256@0.9.0 package/LICENSE.txt; bundled in DuckDB worker bytes",
-      "scope": "Pinned same-origin DuckDB worker bundled third-party legal text."
     }
   ],
   "unresolved": [],
-  "coverage": "Copied UI source and legal-text custody; hosted DuckDB archive, generated runtime, installed package, and executable checks are enforced by strict-licenses.yml. Native WebKitGTK execution remains separately unverified.",
+  "coverage": "Copied Xterm and font source and legal-text custody; DuckDB replacement has a separate selected notice bill and remains admission NO.",
   "source_binding": "Exact copied source Git blobs and SHA-256s; no claim that a later PR head equals the review head.",
   "trunk_entrypoint": {
     "path": "app/leptos-ui/index.html",

@@ -27,6 +27,16 @@ static SMOKE_RECEIVED: AtomicBool = AtomicBool::new(false);
 
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct RejectionProbe {
+    name: String,
+    shape: String,
+    error_class: String,
+    observed: String,
+    matched: bool,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct DuckDbSmokeResult {
     ok: bool,
     variant: Option<String>,
@@ -35,6 +45,14 @@ struct DuckDbSmokeResult {
     absent_is_null: bool,
     aggregate_ok: bool,
     aggregate_observed: Option<String>,
+    exception_ok: bool,
+    exception_error_class: Option<String>,
+    exception_error_fragment: Option<String>,
+    rejected_shape: Option<String>,
+    rejected_observed: Option<String>,
+    rejection_probes: Option<Vec<RejectionProbe>>,
+    recovery_row: Option<String>,
+    recovery_ok: bool,
     smoke_error: Option<String>,
     csp_denied: bool,
     csp_violations: Vec<String>,
@@ -56,6 +74,7 @@ fn cmd_smoke_result(app: tauri::AppHandle, result: DuckDbSmokeResult) -> Result<
         && result.answer == Some(42)
         && result.absent_is_null
         && result.aggregate_ok
+        && result.exception_ok
         && result.csp_denied
         && result.csp_violations.is_empty()
         && result.local_runtime
@@ -76,6 +95,14 @@ fn cmd_smoke_result(app: tauri::AppHandle, result: DuckDbSmokeResult) -> Result<
             }
         })
         .collect();
+    let rejection_probes: Vec<_> = result.rejection_probes.as_deref().unwrap_or(&[])
+        .iter().take(2).map(|probe| serde_json::json!({
+            "name": probe.name.chars().take(24).collect::<String>(),
+            "shape": probe.shape.chars().take(24).collect::<String>(),
+            "errorClass": probe.error_class.chars().take(32).collect::<String>(),
+            "observed": probe.observed.chars().take(96).collect::<String>(),
+            "matched": probe.matched,
+        })).collect();
     let receipt = serde_json::json!({
         "schema": "tundra-duckdb-webkit-smoke/v1",
         "head_sha": std::env::var("TUNDRA_SMOKE_HEAD_SHA").unwrap_or_default(),
@@ -91,6 +118,15 @@ fn cmd_smoke_result(app: tauri::AppHandle, result: DuckDbSmokeResult) -> Result<
             "absentIsNull": result.absent_is_null,
             "aggregateOk": result.aggregate_ok,
             "aggregateObserved": result.aggregate_observed.as_deref().unwrap_or("").chars().take(512).collect::<String>(),
+            "exceptionOk": result.exception_ok,
+            "exceptionGate": "parser-catalog-recovery",
+            "exceptionErrorClass": result.exception_error_class.as_deref().unwrap_or("").chars().take(32).collect::<String>(),
+            "exceptionErrorFragment": result.exception_error_fragment.as_deref().unwrap_or("").chars().take(160).collect::<String>(),
+            "rejectedShape": result.rejected_shape.as_deref().unwrap_or("").chars().take(24).collect::<String>(),
+            "rejectedObserved": result.rejected_observed.as_deref().unwrap_or("").chars().take(96).collect::<String>(),
+            "rejectionProbes": rejection_probes,
+            "recoveryRow": result.recovery_row.as_deref().unwrap_or("").chars().take(96).collect::<String>(),
+            "recoveryOk": result.recovery_ok,
             "smokeError": result.smoke_error.as_deref().unwrap_or("").chars().take(512).collect::<String>(),
             "cspDenied": result.csp_denied,
             "cspViolations": csp_directives,
@@ -118,7 +154,11 @@ const DUCKDB_SMOKE_INIT_SCRIPT: &str = r#"
   window.addEventListener('load', () => setTimeout(async () => {
     const result = {
       ok: false, variant: null, rowCount: 0, answer: null, absentIsNull: false,
-      aggregateOk: false, aggregateObserved: null, smokeError: null,
+      aggregateOk: false, aggregateObserved: null, exceptionOk: false,
+      exceptionErrorClass: 'not-run', exceptionErrorFragment: '',
+      rejectedShape: 'not-run', rejectedObserved: 'not-run',
+      rejectionProbes: [],
+      recoveryRow: 'not-run', recoveryOk: false, smokeError: null,
       cspDenied: false, cspViolations: [], localRuntime: false,
       remoteRequests: 0
     };
@@ -163,6 +203,73 @@ const DUCKDB_SMOKE_INIT_SCRIPT: &str = r#"
         aggregate[0].n === 2 && aggregate[0].total === 3 &&
         aggregate[0].nonnull === 1;
       result.ok = result.ok && result.aggregateOk;
+      const rejected = JSON.parse(await bridge.query_duckdb(
+        "SELECT CAST('tundra_invalid_i32' AS INTEGER) AS impossible"
+      ));
+      result.rejectedShape = Array.isArray(rejected)
+        ? (rejected.length === 0 ? 'array-empty' : 'array-rows')
+        : (rejected === null ? 'null' : typeof rejected);
+      const rejectedFirst = Array.isArray(rejected)
+        ? (rejected.length > 0 ? rejected[0] : null) : rejected;
+      result.rejectedObserved = (JSON.stringify(rejectedFirst) || 'undefined')
+        .replace(/[^\x20-\x7e]/g, '?').slice(0, 96);
+      const rejectedError = rejected && !Array.isArray(rejected) &&
+        typeof rejected.error === 'string' ? rejected.error : '';
+      const errorClassMatch = rejectedError.match(
+        /(?:Conversion|Catalog|Binder|Parser|Invalid Input|Internal) Error/
+      );
+      result.exceptionErrorClass = errorClassMatch ? errorClassMatch[0]
+        : (rejectedError ? 'other-error' : 'no-error');
+      result.exceptionErrorFragment = rejectedError.split(/\r?\n/, 1)[0]
+        .replace(/[^\x20-\x7e]/g, '?').slice(0, 160);
+      const probeRejection = async (name, sql, expectedClass, marker) => {
+        try {
+          const value = JSON.parse(await bridge.query_duckdb(sql));
+          const shape = Array.isArray(value)
+            ? (value.length === 0 ? 'array-empty' : 'array-rows')
+            : (value === null ? 'null' : typeof value);
+          const first = Array.isArray(value)
+            ? (value.length > 0 ? value[0] : null) : value;
+          const error = value && !Array.isArray(value) &&
+            typeof value.error === 'string' ? value.error : '';
+          const match = error.match(
+            /(?:Conversion|Catalog|Binder|Parser|Invalid Input|Internal) Error/
+          );
+          return {
+            name, shape,
+            errorClass: match ? match[0] : (error ? 'other-error' : 'no-error'),
+            observed: (JSON.stringify(first) || 'undefined')
+              .replace(/[^\x20-\x7e]/g, '?').slice(0, 96),
+            matched: !!value && !Array.isArray(value) &&
+              typeof value.error === 'string' &&
+              error.startsWith('Error: ' + expectedClass + ':') &&
+              error.includes(marker)
+          };
+        } catch (error) {
+          return {
+            name, shape: 'throw', errorClass: 'probe-throw',
+            observed: String(error).split(/\r?\n/, 1)[0]
+              .replace(/[^\x20-\x7e]/g, '?').slice(0, 96),
+            matched: false
+          };
+        }
+      };
+      result.rejectionProbes = [
+        await probeRejection('parser', 'SELECT )', 'Parser Error', 'SELECT )'),
+        await probeRejection('missing-table',
+          'SELECT * FROM tundra_missing_smoke_table_6f86d081',
+          'Catalog Error', 'tundra_missing_smoke_table_6f86d081')
+      ];
+      const recovered = await checkedQuery('SELECT CAST(42 AS INTEGER) AS alive');
+      const recoveryRow = Array.isArray(recovered) && recovered.length > 0
+        ? recovered[0] : null;
+      result.recoveryRow = JSON.stringify(recoveryRow).slice(0, 96);
+      result.recoveryOk = Array.isArray(recovered) && recovered.length === 1 &&
+        !!recoveryRow && recoveryRow.alive === 42;
+      result.exceptionOk = result.rejectionProbes.length === 2 &&
+        result.rejectionProbes[0].matched && result.rejectionProbes[1].matched &&
+        result.recoveryOk;
+      result.ok = result.ok && result.exceptionOk;
       await new Promise(resolve => setTimeout(resolve, 100));
       result.remoteRequests = performance.getEntriesByType('resource').filter(entry => {
         const url = new URL(entry.name);
