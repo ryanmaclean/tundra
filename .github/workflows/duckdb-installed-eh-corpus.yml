@@ -426,8 +426,13 @@ jobs:
           source_assets = Path('app/leptos-ui/duckdb-runtime')
           dist_assets = Path('app/leptos-ui/dist/duckdb-runtime')
           debs = list(Path('target/release/bundle/deb').glob('*.deb'))
-          bins = list(root.rglob('auto-tundra'))
-          assert len(debs) == len(bins) == 1
+          bin_candidates = list(root.rglob('auto-tundra'))
+          bins = [path for path in bin_candidates
+                  if path.is_file() and not path.is_symlink()]
+          assert len(debs) == 1, f'expected one built installer; found {len(debs)}'
+          assert len(bins) == 1, (
+              f'expected one regular non-symlink installed auto-tundra binary; '
+              f'found {len(bins)} among {len(bin_candidates)} named paths')
           deb, binary = debs[0], bins[0]
           assert binary.is_file() and not binary.is_symlink()
           recorded = [line.split(maxsplit=1) for line in
