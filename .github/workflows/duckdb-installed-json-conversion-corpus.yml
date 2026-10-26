@@ -200,20 +200,26 @@ jobs:
         run: |
           set -euo pipefail
           apt_bounded() {
-            local label="$1" limit="$2" attempt rc
+            local label="$1" limit="$2" attempt rc effective_limit
             shift 2
             for attempt in 1 2; do
-              if timeout --signal=TERM --kill-after=20s "${limit}s" \
+              effective_limit="$limit"
+              if [[ "$label" == base-install && "$attempt" -eq 2 ]]; then
+                effective_limit=1800
+              fi
+              if timeout --signal=TERM --kill-after=20s "${effective_limit}s" \
                 sudo -n env DEBIAN_FRONTEND=noninteractive apt-get \
                 -o DPkg::Lock::Timeout=60 -o Acquire::Retries=2 \
                 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 "$@"; then
-                printf 'prereq=%s attempt=%s result=PASS\n' "$label" "$attempt" \
+                printf 'prereq=%s attempt=%s limit_seconds=%s result=PASS\n' \
+                  "$label" "$attempt" "$effective_limit" \
                   >> "$RUNNER_TEMP/eh-semantic/prereq.txt"
                 return 0
               else
                 rc=$?
               fi
-              printf 'prereq=%s attempt=%s exit=%s\n' "$label" "$attempt" "$rc" \
+              printf 'prereq=%s attempt=%s limit_seconds=%s exit=%s\n' \
+                "$label" "$attempt" "$effective_limit" "$rc" \
                 >> "$RUNNER_TEMP/eh-semantic/prereq.txt"
               if [[ "$attempt" -eq 2 || ( "$rc" -ne 100 && "$rc" -ne 124 ) ]]; then
                 return "$rc"
@@ -222,6 +228,53 @@ jobs:
             done
           }
           apt_bounded update 300 update
+          apt-cache policy libwebkit2gtk-4.1-0 > "$RUNNER_TEMP/eh-semantic/apt-webkit-policy.txt"
+          webkit_candidate="$(awk '$1 == "Candidate:" { print $2 }' \
+            "$RUNNER_TEMP/eh-semantic/apt-webkit-policy.txt")"
+          test -n "$webkit_candidate" && test "$webkit_candidate" != '(none)'
+          test "$(grep -c '^[[:space:]]*Candidate:' \
+            "$RUNNER_TEMP/eh-semantic/apt-webkit-policy.txt")" -eq 1
+          apt-cache madison libwebkit2gtk-4.1-0 > "$RUNNER_TEMP/eh-semantic/apt-webkit-madison.txt"
+          apt-cache policy > "$RUNNER_TEMP/eh-semantic/apt-source-policy.txt"
+          python3 - "$webkit_candidate" "$RUNNER_TEMP/eh-semantic" <<'PYAPT'
+          from pathlib import Path
+          from urllib.parse import urlparse
+          import re, sys
+          version, root = sys.argv[1], Path(sys.argv[2])
+          policy = (root / 'apt-source-policy.txt').read_text().splitlines()
+          selected = []
+          for row in (root / 'apt-webkit-madison.txt').read_text().splitlines():
+              fields = [part.strip() for part in row.split('|')]
+              if len(fields) != 3 or fields[:2] != ['libwebkit2gtk-4.1-0', version]:
+                  continue
+              source = fields[2]
+              parts = source.split()
+              if len(parts) != 4 or parts[-1] != 'Packages':
+                  continue
+              parsed = urlparse(parts[0])
+              if (parsed.scheme not in ('http', 'https') or
+                  parsed.hostname not in ('azure.archive.ubuntu.com',
+                                          'archive.ubuntu.com',
+                                          'security.ubuntu.com') or
+                  parsed.path.rstrip('/') != '/ubuntu' or
+                  not parts[1].startswith('noble')):
+                  continue
+              for index, line in enumerate(policy[:-1]):
+                  if not re.fullmatch(r'\s*\d+\s+' + re.escape(source), line):
+                      continue
+                  release = policy[index + 1].strip()
+                  if (release.startswith('release ') and
+                      re.search(r'(?:^|,)o=Ubuntu(?:,|$)', release[8:]) and
+                      re.search(r'(?:^|,)l=Ubuntu(?:,|$)', release[8:])):
+                      selected.append((source, release))
+          assert selected, 'candidate WebKit version lacks authenticated Ubuntu archive origin'
+          (root / 'apt-webkit-origin.txt').write_text(
+              'candidate_version=' + version + '\n' +
+              ''.join('source=' + source + '\n' + 'release=' + release + '\n'
+                      for source, release in sorted(set(selected))))
+          PYAPT
+          printf 'webkit_candidate_version=%s\n' "$webkit_candidate" \
+            >> "$RUNNER_TEMP/eh-semantic/prereq.txt"
           apt_bounded base-install 900 install -y --no-install-recommends \
             build-essential curl file libayatana-appindicator3-dev libgtk-3-dev \
             librsvg2-dev libssl-dev libwebkit2gtk-4.1-dev libxdo-dev \
@@ -229,6 +282,21 @@ jobs:
           if [[ '${{ matrix.profile }}' == sounds ]]; then
             apt_bounded sounds-install 300 install -y --no-install-recommends libasound2-dev
           fi
+          installed_webkit="$(dpkg-query -W -f='${Version}' libwebkit2gtk-4.1-0)"
+          installed_status="$(dpkg-query -W -f='${db:Status-Abbrev}' libwebkit2gtk-4.1-0)"
+          test "$installed_webkit" = "$webkit_candidate"
+          test "$installed_status" = 'ii '
+          printf 'webkit_installed_version=%s\n' "$installed_webkit" \
+            >> "$RUNNER_TEMP/eh-semantic/prereq.txt"
+          dpkg-query -W -f='${Package}\t${Version}\t${db:Status-Abbrev}\n' \
+            | LC_ALL=C sort > "$RUNNER_TEMP/eh-semantic/apt-installed-packages.tsv"
+          test -s "$RUNNER_TEMP/eh-semantic/apt-installed-packages.tsv"
+          test "$(awk -F '\t' -v version="$installed_webkit" \
+            '$1 == "libwebkit2gtk-4.1-0" && $2 == version && $3 == "ii " \
+              { n++ } END { print n+0 }' \
+            "$RUNNER_TEMP/eh-semantic/apt-installed-packages.tsv")" -eq 1
+          sha256sum "$RUNNER_TEMP/eh-semantic/apt-installed-packages.tsv" \
+            > "$RUNNER_TEMP/eh-semantic/apt-installed-packages.sha256"
       - name: Install pinned build tools
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -1332,20 +1400,26 @@ jobs:
         run: |
           set -euo pipefail
           apt_bounded() {
-            local label="$1" limit="$2" attempt rc
+            local label="$1" limit="$2" attempt rc effective_limit
             shift 2
             for attempt in 1 2; do
-              if timeout --signal=TERM --kill-after=20s "${limit}s" \
+              effective_limit="$limit"
+              if [[ "$label" == base-install && "$attempt" -eq 2 ]]; then
+                effective_limit=1800
+              fi
+              if timeout --signal=TERM --kill-after=20s "${effective_limit}s" \
                 sudo -n env DEBIAN_FRONTEND=noninteractive apt-get \
                 -o DPkg::Lock::Timeout=60 -o Acquire::Retries=2 \
                 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 "$@"; then
-                printf 'prereq=%s attempt=%s result=PASS\n' "$label" "$attempt" \
+                printf 'prereq=%s attempt=%s limit_seconds=%s result=PASS\n' \
+                  "$label" "$attempt" "$effective_limit" \
                   >> "$RUNNER_TEMP/eh-semantic/prereq.txt"
                 return 0
               else
                 rc=$?
               fi
-              printf 'prereq=%s attempt=%s exit=%s\n' "$label" "$attempt" "$rc" \
+              printf 'prereq=%s attempt=%s limit_seconds=%s exit=%s\n' \
+                "$label" "$attempt" "$effective_limit" "$rc" \
                 >> "$RUNNER_TEMP/eh-semantic/prereq.txt"
               if [[ "$attempt" -eq 2 || ( "$rc" -ne 100 && "$rc" -ne 124 ) ]]; then
                 return "$rc"
@@ -1354,6 +1428,53 @@ jobs:
             done
           }
           apt_bounded update 300 update
+          apt-cache policy libwebkit2gtk-4.1-0 > "$RUNNER_TEMP/eh-semantic/apt-webkit-policy.txt"
+          webkit_candidate="$(awk '$1 == "Candidate:" { print $2 }' \
+            "$RUNNER_TEMP/eh-semantic/apt-webkit-policy.txt")"
+          test -n "$webkit_candidate" && test "$webkit_candidate" != '(none)'
+          test "$(grep -c '^[[:space:]]*Candidate:' \
+            "$RUNNER_TEMP/eh-semantic/apt-webkit-policy.txt")" -eq 1
+          apt-cache madison libwebkit2gtk-4.1-0 > "$RUNNER_TEMP/eh-semantic/apt-webkit-madison.txt"
+          apt-cache policy > "$RUNNER_TEMP/eh-semantic/apt-source-policy.txt"
+          python3 - "$webkit_candidate" "$RUNNER_TEMP/eh-semantic" <<'PYAPT'
+          from pathlib import Path
+          from urllib.parse import urlparse
+          import re, sys
+          version, root = sys.argv[1], Path(sys.argv[2])
+          policy = (root / 'apt-source-policy.txt').read_text().splitlines()
+          selected = []
+          for row in (root / 'apt-webkit-madison.txt').read_text().splitlines():
+              fields = [part.strip() for part in row.split('|')]
+              if len(fields) != 3 or fields[:2] != ['libwebkit2gtk-4.1-0', version]:
+                  continue
+              source = fields[2]
+              parts = source.split()
+              if len(parts) != 4 or parts[-1] != 'Packages':
+                  continue
+              parsed = urlparse(parts[0])
+              if (parsed.scheme not in ('http', 'https') or
+                  parsed.hostname not in ('azure.archive.ubuntu.com',
+                                          'archive.ubuntu.com',
+                                          'security.ubuntu.com') or
+                  parsed.path.rstrip('/') != '/ubuntu' or
+                  not parts[1].startswith('noble')):
+                  continue
+              for index, line in enumerate(policy[:-1]):
+                  if not re.fullmatch(r'\s*\d+\s+' + re.escape(source), line):
+                      continue
+                  release = policy[index + 1].strip()
+                  if (release.startswith('release ') and
+                      re.search(r'(?:^|,)o=Ubuntu(?:,|$)', release[8:]) and
+                      re.search(r'(?:^|,)l=Ubuntu(?:,|$)', release[8:])):
+                      selected.append((source, release))
+          assert selected, 'candidate WebKit version lacks authenticated Ubuntu archive origin'
+          (root / 'apt-webkit-origin.txt').write_text(
+              'candidate_version=' + version + '\n' +
+              ''.join('source=' + source + '\n' + 'release=' + release + '\n'
+                      for source, release in sorted(set(selected))))
+          PYAPT
+          printf 'webkit_candidate_version=%s\n' "$webkit_candidate" \
+            >> "$RUNNER_TEMP/eh-semantic/prereq.txt"
           apt_bounded base-install 900 install -y --no-install-recommends \
             build-essential curl file libayatana-appindicator3-dev libgtk-3-dev \
             librsvg2-dev libssl-dev libwebkit2gtk-4.1-dev libxdo-dev \
@@ -1361,6 +1482,21 @@ jobs:
           if [[ '${{ matrix.profile }}' == sounds ]]; then
             apt_bounded sounds-install 300 install -y --no-install-recommends libasound2-dev
           fi
+          installed_webkit="$(dpkg-query -W -f='${Version}' libwebkit2gtk-4.1-0)"
+          installed_status="$(dpkg-query -W -f='${db:Status-Abbrev}' libwebkit2gtk-4.1-0)"
+          test "$installed_webkit" = "$webkit_candidate"
+          test "$installed_status" = 'ii '
+          printf 'webkit_installed_version=%s\n' "$installed_webkit" \
+            >> "$RUNNER_TEMP/eh-semantic/prereq.txt"
+          dpkg-query -W -f='${Package}\t${Version}\t${db:Status-Abbrev}\n' \
+            | LC_ALL=C sort > "$RUNNER_TEMP/eh-semantic/apt-installed-packages.tsv"
+          test -s "$RUNNER_TEMP/eh-semantic/apt-installed-packages.tsv"
+          test "$(awk -F '\t' -v version="$installed_webkit" \
+            '$1 == "libwebkit2gtk-4.1-0" && $2 == version && $3 == "ii " \
+              { n++ } END { print n+0 }' \
+            "$RUNNER_TEMP/eh-semantic/apt-installed-packages.tsv")" -eq 1
+          sha256sum "$RUNNER_TEMP/eh-semantic/apt-installed-packages.tsv" \
+            > "$RUNNER_TEMP/eh-semantic/apt-installed-packages.sha256"
       - name: Install pinned build tools
         uses: dtolnay/rust-toolchain@stable
         with:
