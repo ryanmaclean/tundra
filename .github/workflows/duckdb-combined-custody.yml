@@ -1200,6 +1200,176 @@ jobs:
           grep -Fqx 'eh_image_traced_relink=NOT_RUN_UNPINNED' "$out/eh-generator-tracer-candidate.txt"
           printf 'generator_tracer=DISCOVERY_ONLY\njs_generator_input_closure=UNPROVEN\n' \
             >> "$out/admission.txt"
+      - name: Retain pinned EH tracer tooling provenance without execution
+        if: ${{ matrix.variant == 'eh' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/combined-custody"
+          test -s "$out/eh-generator-tracer-candidate.txt"
+          grep -Fqx 'discovery=ABSENT' "$out/eh-generator-tracer-candidate.txt"
+          python3 - "$out" "$RUNNER_TEMP" <<'PY'
+          import hashlib, os, platform, re, shutil, subprocess, sys, tarfile, tempfile
+          import urllib.parse, urllib.request
+          from pathlib import Path
+
+          out, runner_temp = map(Path, sys.argv[1:])
+          receipt = out / 'eh-generator-tracer-provenance.txt'
+          target = out / 'eh-generator-tracer-package'
+          base = 'https://archive.ubuntu.com/ubuntu/pool/main/s/strace/'
+          files = {
+              'strace_5.16-0ubuntu3_amd64.deb': (566994, '847a3535be015325f127f121d2ea5ac042b32bd20a5861a94cb7782b09857b1f'),
+              'strace_5.16-0ubuntu3.dsc': (2272, '2531ee5c4e44a909cf94a1f246cad50b05065212035d52712ceddd99b32f536f'),
+              'strace_5.16.orig.tar.xz': (2265944, 'dc7db230ff3e57c249830ba94acab2b862da1fcaac55417e9b85041a833ca285'),
+              'strace_5.16-0ubuntu3.debian.tar.xz': (23448, '65a5620cb1edb29b1d07d88db347f6dadbc868b22fe2bd85751ed6e241b9d495'),
+          }
+          expected = {
+              'strace': (1972848, '38a5c75cb29dd85ddd7780d54f5bf595554d7a1b5c42524b23065f5dc4c4b01d'),
+              'copyright': (2210, 'fb8db76eff2d56ed5cd2e36937e20138354ca7f0cb666207556196215ec644f6'),
+              'COPYING': (1405, 'd92f973d08c8466993efff1e500453add0c038c20b4d2cbce3297938a296aea9'),
+              'LGPL-2.1-or-later': (26890, '7c379436436a562834aa7d2f5dcae1f80a25230fa74201046ca1fba4367d39aa'),
+          }
+          class Refusal(Exception):
+              pass
+          def require(ok, code):
+              if not ok: raise Refusal(code)
+          def sha(data): return hashlib.sha256(data).hexdigest()
+          def exact(data, spec, code):
+              require(len(data) == spec[0] and sha(data) == spec[1], code)
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, request, fp, code, msg, headers, newurl):
+                  return None
+          opener = urllib.request.build_opener(NoRedirect)
+          def fetch(name, size, digest):
+              url = base + name
+              parsed = urllib.parse.urlsplit(url)
+              require(parsed.scheme == 'https' and parsed.netloc == 'archive.ubuntu.com'
+                      and not parsed.query and not parsed.fragment, 'UNAPPROVED_ORIGIN')
+              with opener.open(urllib.request.Request(url), timeout=45) as response:
+                  require(response.status == 200 and response.geturl() == url, 'REDIRECT_OR_STATUS')
+                  data = response.read(size + 1)
+                  require(len(data) == size and response.read(1) == b'', 'DOWNLOAD_SIZE')
+              exact(data, (size, digest), 'DOWNLOAD_HASH')
+              return data
+          def tar_member(archive, name):
+              with tarfile.open(archive, mode='r:xz') as tf:
+                  member = tf.getmember(name)
+                  require(member.isfile() and 0 < member.size <= 131072, 'SOURCE_MEMBER_TYPE_OR_SIZE')
+                  return tf.extractfile(member).read()
+          def installed(package):
+              result = subprocess.run(
+                  ['dpkg-query', '-W', '-f=${Version}\t${Status}\n', package],
+                  capture_output=True, text=True, timeout=15, check=False)
+              if result.returncode != 0: return ('MISSING', '-')
+              match = re.fullmatch(r'([A-Za-z0-9.+:~_-]+)\tinstall ok installed\n', result.stdout)
+              return ('PRESENT_UNREVIEWED', match.group(1)) if match else ('UNVERIFIED', '-')
+          scratch = Path(tempfile.mkdtemp(prefix='tundra-strace-', dir=runner_temp))
+          try:
+              os_release = Path('/etc/os-release').read_text()
+              require(re.search(r'^ID=ubuntu$', os_release, re.M) is not None and
+                      re.search(r'^VERSION_ID="?22\.04"?$', os_release, re.M) is not None and
+                      platform.machine() == 'x86_64', 'CONTAINER_OS_ARCH')
+              fetched = {}
+              for name, (size, digest) in files.items():
+                  fetched[name] = fetch(name, size, digest)
+                  (scratch / name).write_bytes(fetched[name])
+              dsc = fetched['strace_5.16-0ubuntu3.dsc'].decode('utf-8')
+              require('Source: strace\n' in dsc and 'Version: 5.16-0ubuntu3\n' in dsc,
+                      'SOURCE_IDENTITY')
+              for name in ('strace_5.16.orig.tar.xz', 'strace_5.16-0ubuntu3.debian.tar.xz'):
+                  size, digest = files[name]
+                  require(f' {digest} {size} {name}\n' in dsc, 'SOURCE_HASH_JOIN')
+              deb = scratch / 'strace_5.16-0ubuntu3_amd64.deb'
+              # dpkg-deb prefixes field names when more than one is requested.
+              # Query each field alone and require its exact value and newline;
+              # a missing field prints nothing and is therefore refused.
+              for field, value in (
+                  ('Package', 'strace'), ('Version', '5.16-0ubuntu3'),
+                  ('Architecture', 'amd64'),
+                  ('Depends', 'libc6 (>= 2.34), libunwind8')):
+                  metadata = subprocess.run(
+                      ['dpkg-deb', '-f', str(deb), field],
+                      capture_output=True, text=True, timeout=15, check=True)
+                  require(metadata.stdout == value + '\n' and not metadata.stderr,
+                          'PACKAGE_METADATA')
+              unpack = scratch / 'unpacked'
+              subprocess.run(['dpkg-deb', '-x', str(deb), str(unpack)],
+                             capture_output=True, timeout=30, check=True)
+              binary_path = unpack / 'usr/bin/strace'
+              notice_path = unpack / 'usr/share/doc/strace/copyright'
+              require(binary_path.is_file() and not binary_path.is_symlink() and
+                      notice_path.is_file() and not notice_path.is_symlink(),
+                      'PACKAGE_PAYLOAD_TYPE')
+              binary, notice = binary_path.read_bytes(), notice_path.read_bytes()
+              exact(binary, expected['strace'], 'BINARY_HASH')
+              exact(notice, expected['copyright'], 'SELECTED_NOTICE_HASH')
+              copying = tar_member(scratch / 'strace_5.16.orig.tar.xz', 'strace-5.16/COPYING')
+              lgpl = tar_member(scratch / 'strace_5.16.orig.tar.xz',
+                                'strace-5.16/LGPL-2.1-or-later')
+              debian_notice = tar_member(scratch / 'strace_5.16-0ubuntu3.debian.tar.xz',
+                                         'debian/copyright')
+              exact(copying, expected['COPYING'], 'UPSTREAM_COPYING_HASH')
+              exact(lgpl, expected['LGPL-2.1-or-later'], 'UPSTREAM_LGPL_HASH')
+              require(debian_notice == notice and b'LESSER GENERAL PUBLIC LICENSE' in lgpl
+                      and b'GNU Lesser General Public License' in copying
+                      and b'LGPL' not in notice, 'LICENSE_SOURCE_JOIN')
+              libc, libc_version = installed('libc6')
+              unwind, unwind_version = installed('libunwind8')
+              require(libc == 'PRESENT_UNREVIEWED', 'LIBC_MISSING')
+              fields = {
+                  'schema': 'tundra-generator-tracer-provenance/v1',
+                  'status': 'PINNED_BYTES_DEPENDENCY_REVIEW_PENDING',
+                  'package': 'strace=5.16-0ubuntu3:amd64',
+                  'package_origin': 'HTTPS_ARCHIVE_UBUNTU_COM_EXACT_HASH',
+                  'license_mismatch': 'PACKAGE_BSD_STYLE_UPSTREAM_LGPL_2_1_OR_LATER',
+                  'libc6_status': libc, 'libc6_version': libc_version,
+                  'libunwind8_status': unwind, 'libunwind8_version': unwind_version,
+                  'dependency_license_review': 'PENDING',
+                  'candidate_executable': 'NOT_RUN',
+                  'python_node_child_canary': 'NOT_RUN',
+                  'eh_image_traced_relink': 'NOT_RUN',
+                  'generator_input_closure': 'UNPROVEN',
+                  'glue_legal_admission': 'NO', 'product_admission': 'NO',
+              }
+              for name, (size, digest) in files.items():
+                  fields['file_' + name] = f'{size}:{digest}'
+              for name, (size, digest) in expected.items():
+                  fields['member_' + name] = f'{size}:{digest}'
+              require(not target.exists(), 'TARGET_EXISTS')
+              target.mkdir()
+              try:
+                  for name in files: shutil.copyfile(scratch / name, target / name)
+                  (target / 'strace').write_bytes(binary)
+                  (target / 'copyright').write_bytes(notice)
+                  (target / 'COPYING').write_bytes(copying)
+                  (target / 'LGPL-2.1-or-later').write_bytes(lgpl)
+                  for name, (size, digest) in {**files, **expected}.items():
+                      exact((target / name).read_bytes(), (size, digest), 'RETAINED_BYTE_JOIN')
+              except Exception:
+                  shutil.rmtree(target)
+                  raise
+              receipt.write_text(''.join(f'{key}={value}\n' for key, value in fields.items()))
+          except Refusal as error:
+              receipt.write_text('schema=tundra-generator-tracer-provenance/v1\n'
+                                 f'status=REFUSED\nreason={error}\n'
+                                 'candidate_executable=NOT_RUN\n'
+                                 'generator_input_closure=UNPROVEN\n'
+                                 'glue_legal_admission=NO\nproduct_admission=NO\n')
+              raise SystemExit(1)
+          except Exception:
+              receipt.write_text('schema=tundra-generator-tracer-provenance/v1\n'
+                                 'status=REFUSED\nreason=UNEXPECTED_ERROR\n'
+                                 'candidate_executable=NOT_RUN\n'
+                                 'generator_input_closure=UNPROVEN\n'
+                                 'glue_legal_admission=NO\nproduct_admission=NO\n')
+              raise SystemExit(1)
+          finally:
+              shutil.rmtree(scratch)
+          PY
+          grep -Fqx 'generator_input_closure=UNPROVEN' "$out/eh-generator-tracer-provenance.txt"
+          grep -Fqx 'candidate_executable=NOT_RUN' "$out/eh-generator-tracer-provenance.txt"
+          printf 'generator_tracer=PINNED_TOOLING_BYTES_ONLY\njs_generator_input_closure=UNPROVEN\n' \
+            >> "$out/admission.txt"
       - name: Classify same-run bytes and immutable custody
         shell: bash
         run: |
