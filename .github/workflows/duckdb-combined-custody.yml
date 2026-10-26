@@ -58,7 +58,32 @@ jobs:
           done < <(find "$GITHUB_WORKSPACE/duckdb-upstream" -type f -name .git -printf '%h\0')
           out="$RUNNER_TEMP/combined-custody"
           mkdir -p "$out" "$out/image-bytes" "$out/clean-bytes" "$out/member-lists"
-          printf 'product_admission=NO\nsource_build_admission=NO\nglue_legal_admission=NO\njson_installed_capability=UNVERIFIED\nconversion_fetch_error_behavior=UNVERIFIED\njson_selected_archive_bytes=UNRETAINED\narrow_original_member_instance=AMBIGUOUS\narchive_payload_classification=UNREAD\nexact_custody_output=UNRESOLVED\n' > "$out/admission.txt"
+          cat > "$out/yyjson-0.6.0-LICENSE" <<'LICENSE'
+          MIT License
+
+          Copyright (c) 2020 YaoYuan <ibireme@gmail.com>
+
+          Permission is hereby granted, free of charge, to any person obtaining a copy
+          of this software and associated documentation files (the "Software"), to deal
+          in the Software without restriction, including without limitation the rights
+          to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+          copies of the Software, and to permit persons to whom the Software is
+          furnished to do so, subject to the following conditions:
+
+          The above copyright notice and this permission notice shall be included in all
+          copies or substantial portions of the Software.
+
+          THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+          IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+          FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+          AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+          LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+          OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+          SOFTWARE.
+          LICENSE
+          test "$(sha256sum "$out/yyjson-0.6.0-LICENSE" | cut -d ' ' -f 1)" = \
+            45e384d3d52c73cba3a64d6e6c25d47cd738cd8a55c30629e3201046eda62947
+          printf 'product_admission=NO\nsource_build_admission=NO\nglue_legal_admission=NO\njson_installed_capability=UNVERIFIED\nconversion_fetch_error_behavior=UNVERIFIED\njson_selected_archive_bytes=PENDING\narrow_original_member_instance=AMBIGUOUS\narchive_payload_classification=UNREAD\nexact_custody_output=UNRESOLVED\n' > "$out/admission.txt"
           test "$(git rev-parse HEAD)" = "$SOURCE_HEAD"
           test "$(git -C custody rev-parse HEAD)" = "$CUSTODY_HEAD"
           test "$(git -C duckdb-upstream rev-parse HEAD)" = f955138e5218942fb3fb097a8fdcb725222406ff
@@ -342,7 +367,6 @@ jobs:
                       out.write(f'{archive_name}\t{member}\n')
           with receipt.open('a', encoding='utf-8') as out:
               out.write('json_web_and_duckdb_archives_in_response_and_map=YES\n')
-              out.write('json_selected_archive_bytes=UNRETAINED\n')
               out.write('json_installed_capability=UNVERIFIED\n')
           PY
             test -s "$out/$condition-json-link-selection.tsv"
@@ -479,6 +503,186 @@ jobs:
             sha256sum "$out/$condition-js-glue-source-bytes.tar.gz" \
               > "$out/$condition-js-glue-source-bytes.sha256"
           done
+      - name: Retain selected JSON archive and compiled-source custody
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/combined-custody"
+          variant='${{ matrix.variant }}'
+          case "$variant" in mvp|eh) ;; *) exit 1 ;; esac
+          for condition in image clean; do
+            build="$GITHUB_WORKSPACE/duckdb-upstream/build/integrated-$variant-$condition"
+            test -s "$out/$condition-json-link-selection.tsv"
+            test -s "$out/$condition-json-archive-members.txt"
+            python3 - "$build" "$out" "$condition" "$EMSDK/upstream/bin/llvm-ar" \
+              "$GITHUB_WORKSPACE/duckdb-upstream/submodules/duckdb" <<'PY'
+          import hashlib, os, re, shlex, shutil, subprocess, sys
+          from pathlib import Path
+          build, out, ar, source_root = [Path(sys.argv[i]).resolve() for i in (1, 2, 4, 5)]
+          condition = sys.argv[3]
+          if condition not in ('image', 'clean'): raise SystemExit('invalid JSON custody condition')
+          def require(ok, message):
+              if not ok: raise SystemExit(message)
+          def sha(path):
+              state = hashlib.sha256()
+              with path.open('rb') as stream:
+                  for chunk in iter(lambda: stream.read(1024 * 1024), b''):
+                      state.update(chunk)
+              return state.hexdigest()
+          def regular(path, limit):
+              require(path.is_file() and not path.is_symlink(), f'not regular: {path}')
+              size = path.stat().st_size
+              require(0 < size <= limit, f'unbounded or empty: {path}: {size}')
+              return size
+          rows = [line.split('\t') for line in
+                  (out / f'{condition}-json-link-selection.tsv').read_text().splitlines()]
+          require(len(rows) == 2 and all(len(row) == 4 for row in rows), 'JSON selection bill malformed')
+          by_name = {row[0]: row for row in rows}
+          require(len(by_name) == 2 and set(by_name) ==
+                  {'libduckdb_web_json.a', 'libjson_extension.a'}, 'JSON archive set changed')
+          selected_rows = [line.split('\t') for line in
+                           (out / f'{condition}-json-archive-members.txt').read_text().splitlines()]
+          require(len(selected_rows) == 25 and all(len(row) == 2 for row in selected_rows),
+                  'selected JSON member bill changed')
+          require(len({tuple(row) for row in selected_rows}) == 25, 'duplicate selected JSON member')
+          physical = out / f'{condition}-json-bytes'
+          physical.mkdir(exist_ok=False)
+          physical_bill = []
+          member_bill = []
+          archive_paths = {
+              'libduckdb_web_json.a': build / 'libduckdb_web_json.a',
+              'libjson_extension.a': build / 'third_party/duckdb/install/lib/libjson_extension.a',
+          }
+          for name in sorted(archive_paths):
+              source = archive_paths[name]
+              require(Path(by_name[name][1]).resolve() == source.resolve(),
+                      f'archive path drift: {name}')
+              size = regular(source, 134217728)
+              destination = physical / name
+              shutil.copyfile(source, destination)
+              require(regular(destination, 134217728) == size and sha(destination) ==
+                      sha(source) == by_name[name][2], f'archive physical/hash mismatch: {name}')
+              inventory = subprocess.check_output([str(ar), 't', str(destination)], text=True).splitlines()
+              require(inventory and len(inventory) == len(set(inventory)),
+                      f'ambiguous archive inventory: {name}')
+              inventory_file = out / f'{condition}-{name}.inventory.txt'
+              inventory_file.write_text(''.join(f'{member}\n' for member in inventory))
+              members = [member for archive, member in selected_rows if archive == name]
+              require(members and set(members) <= set(inventory), f'selected member absent: {name}')
+              require(int(by_name[name][3]) >= len(members), f'map/member count drift: {name}')
+              physical_bill.append((name, f'{condition}-json-bytes/{name}', sha(destination),
+                                    str(size), sha(inventory_file), str(len(inventory)),
+                                    str(len(members))))
+              for member in sorted(members):
+                  object_bytes = subprocess.check_output([str(ar), 'p', str(destination), member])
+                  require(0 < len(object_bytes) <= 33554432, f'bad selected object size: {member}')
+                  member_bill.append((name, member, hashlib.sha256(object_bytes).hexdigest(),
+                                      str(len(object_bytes))))
+          require(len(member_bill) == 25 and len([row for row in member_bill if
+                  row[0] == 'libjson_extension.a']) == 24, 'JSON selected object count drift')
+          require(('libjson_extension.a', 'yyjson.cpp.o') in
+                  {(row[0], row[1]) for row in member_bill}, 'selected yyjson object absent')
+          (out / f'{condition}-json-physical.tsv').write_text(''.join('\t'.join(row) + '\n'
+              for row in physical_bill))
+          (out / f'{condition}-json-member-bytes.tsv').write_text(''.join('\t'.join(row) + '\n'
+              for row in sorted(member_bill)))
+          duckdb_build = build / 'third_party/duckdb/src/duckdb_ep-build'
+          require(duckdb_build.is_dir(), 'DuckDB external-project build directory absent')
+          evidence = out / f'{condition}-json-external'
+          evidence.mkdir(exist_ok=False)
+          sources_retained = out / f'{condition}-json-source'
+          sources_retained.mkdir(exist_ok=False)
+          source_bill = []
+          for archive, member, object_sha, object_size in sorted(member_bill):
+              if archive != 'libjson_extension.a': continue
+              json_build = duckdb_build / 'extension/json'
+              selected_target = (json_build / 'yyjson/CMakeFiles/yyjson.dir' if
+                                 member == 'yyjson.cpp.o' else
+                                 json_build / 'CMakeFiles/json_extension.dir')
+              candidates = [p for p in json_build.rglob(member)
+                            if p.is_file() and not p.is_symlink()]
+              objects = [p for p in candidates if p.is_relative_to(selected_target) and
+                         regular(p, 33554432) == int(object_size) and sha(p) == object_sha]
+              require(len(objects) == 1,
+                      f'selected target/archive object mismatch: {member}: {len(objects)}')
+              obj = objects[0]
+              depfile = obj.with_name(member + '.d')
+              regular(depfile, 2097152)
+              deps = depfile.read_text().replace('\\\n', ' ')
+              require(':' in deps, f'depfile target absent: {member}')
+              target, prerequisites = deps.split(':', 1)
+              require(target.strip().endswith(member), f'depfile object target drift: {member}')
+              tokens = shlex.split(prerequisites)
+              sources = [Path(token).resolve() for token in tokens if token.endswith('.cpp') and
+                         Path(token).name == member.removesuffix('.o') and
+                         Path(token).resolve().is_relative_to(source_root / 'extension/json')]
+              require(len(sources) == 1, f'unbound JSON source: {member}')
+              source = sources[0]
+              regular(source, 8388608)
+              source_relative = source.relative_to(source_root)
+              retained_source = sources_retained / source_relative
+              retained_source.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copyfile(source, retained_source)
+              require(sha(retained_source) == sha(source), f'JSON source copy mismatch: {member}')
+              targets = [p for p in obj.parents if p.name.endswith('.dir') and
+                         p.parent.name == 'CMakeFiles']
+              require(len(targets) == 1, f'object target ambiguous: {member}')
+              recipe = (targets[0] / 'build.make').read_text()
+              rule = (r'(?m)^' + re.escape(str(obj.relative_to(duckdb_build))) +
+                      r':[ \t]+' + re.escape(str(source)) + r'(?:[ \t]|$)')
+              require(len(re.findall(rule, recipe)) == 1,
+                      f'CMake object/source rule missing or ambiguous: {member}')
+              fragments = [depfile, targets[0] / 'build.make', targets[0] / 'flags.make',
+                           targets[0] / 'includes_CXX.rsp']
+              copied = []
+              for path in fragments:
+                  regular(path, 8388608)
+                  relative = path.relative_to(duckdb_build)
+                  retained = evidence / relative
+                  retained.parent.mkdir(parents=True, exist_ok=True)
+                  if not retained.exists(): shutil.copyfile(path, retained)
+                  require(sha(retained) == sha(path), f'external fragment changed: {path}')
+                  copied.append((str(relative), sha(retained)))
+              if member == 'yyjson.cpp.o':
+                  require(sha(source) == '2a007a54182c6ea244ef65846a24652aa47a951a45808f1accd22752cfbb2590',
+                          'pinned yyjson source changed')
+                  header = source_root / 'extension/json/yyjson/include/yyjson.hpp'
+                  require(regular(header, 8388608) and sha(header) ==
+                          '69500ac662c5f22bdeb76fba7e881135eac07fafccd9ce9ffec5b47503f38ed1',
+                          'pinned yyjson header changed')
+                  require(str(header.resolve()) in tokens, 'yyjson header absent from object depfile')
+                  retained_header = sources_retained / header.relative_to(source_root)
+                  retained_header.parent.mkdir(parents=True, exist_ok=True)
+                  shutil.copyfile(header, retained_header)
+                  require(sha(retained_header) == sha(header), 'yyjson header copy mismatch')
+              source_bill.append((member, object_sha, str(obj.relative_to(duckdb_build)),
+                  str(source_relative), sha(retained_source),
+                  *(item for pair in copied for item in pair)))
+          require(len(source_bill) == 24, 'DuckDB JSON source/object coverage incomplete')
+          (out / f'{condition}-json-object-source.tsv').write_text(''.join(
+              '\t'.join(row) + '\n' for row in source_bill))
+          (out / f'{condition}-json-yyjson-header.tsv').write_text(
+              '\t'.join((str(header.relative_to(source_root)), sha(retained_header),
+                         str(retained_header.relative_to(out)))) + '\n')
+          with (out / f'{condition}-json-configuration.txt').open('a') as receipt:
+              receipt.write('json_selected_archive_bytes=RETAINED_BOUNDED\n')
+              receipt.write('duckdb_json_external_object_source=24_EXACT_ARCHIVE_OBJECT_DEPFILE_JOINS\n')
+          PY
+          done
+          python3 - "$out/admission.txt" <<'PY'
+          from pathlib import Path
+          import sys
+          path = Path(sys.argv[1])
+          data = path.read_text()
+          old = 'json_selected_archive_bytes=PENDING\n'
+          assert data.count(old) == 1
+          for condition in ('image', 'clean'):
+              root = path.parent
+              assert (root / f'{condition}-json-physical.tsv').is_file()
+              assert (root / f'{condition}-json-member-bytes.tsv').is_file()
+              assert (root / f'{condition}-json-object-source.tsv').is_file()
+          path.write_text(data.replace(old, 'json_selected_archive_bytes=RETAINED_BOUNDED\n'))
+          PY
       - name: Classify same-run bytes and immutable custody
         shell: bash
         run: |
