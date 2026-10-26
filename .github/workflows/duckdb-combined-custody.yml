@@ -18,7 +18,7 @@ jobs:
       image: emscripten/emsdk:3.1.48@sha256:c952f592577a428698cb990c9656f395ae34424740f9c40bed4c3ee6d4850d29
     env:
       DUCKDB_EXCEL: "0"
-      DUCKDB_JSON: "0"
+      DUCKDB_JSON: "1"
       CCACHE_DISABLE: "1"
       SOURCE_HEAD: 0bb7c5237dc1b047de488d67ba30b5ed05c37383
       CUSTODY_HEAD: 1d77df7776dca44731ae8267092e480a78f9f735
@@ -58,7 +58,7 @@ jobs:
           done < <(find "$GITHUB_WORKSPACE/duckdb-upstream" -type f -name .git -printf '%h\0')
           out="$RUNNER_TEMP/combined-custody"
           mkdir -p "$out" "$out/image-bytes" "$out/clean-bytes" "$out/member-lists"
-          printf 'product_admission=NO\nsource_build_admission=NO\nglue_legal_admission=NO\narrow_original_member_instance=AMBIGUOUS\narchive_payload_classification=UNREAD\nexact_custody_output=UNRESOLVED\n' > "$out/admission.txt"
+          printf 'product_admission=NO\nsource_build_admission=NO\nglue_legal_admission=NO\njson_installed_capability=UNVERIFIED\njson_selected_archive_bytes=UNRETAINED\narrow_original_member_instance=AMBIGUOUS\narchive_payload_classification=UNREAD\nexact_custody_output=UNRESOLVED\n' > "$out/admission.txt"
           test "$(git rev-parse HEAD)" = "$SOURCE_HEAD"
           test "$(git -C custody rev-parse HEAD)" = "$CUSTODY_HEAD"
           test "$(git -C duckdb-upstream rev-parse HEAD)" = f955138e5218942fb3fb097a8fdcb725222406ff
@@ -139,6 +139,21 @@ jobs:
           git -C duckdb-upstream/submodules/duckdb apply ../../duckdb.patch
           git -C duckdb-upstream/submodules/duckdb diff --binary > "$out/duckdb-applied.patch"
           test -s "$out/duckdb-applied.patch"
+          # Direct CMake never runs the upstream Makefile's extension-cache setup.
+          # A zero-byte sentinel selects the linked, non-loadable JSON extension.
+          extension_cache=duckdb-upstream/.ccache/extension
+          test ! -e "$extension_cache/excel"
+          test ! -e "$extension_cache/json"
+          mkdir -p "$extension_cache"
+          : > "$extension_cache/json"
+          test -f "$extension_cache/json" && test ! -s "$extension_cache/json"
+          test ! -e "$extension_cache/excel"
+          test "$(find "$extension_cache" -mindepth 1 -print)" = "$extension_cache/json"
+          test "$DUCKDB_JSON" = 1 && test "$DUCKDB_EXCEL" = 0
+          test -z "${DUCKDB_WASM_LOADABLE_EXTENSIONS+x}"
+          printf 'json_sentinel=regular_zero_byte\nexcel_sentinel=absent\nloadable_extensions_env=unset\n' > "$out/json-configuration-intent.txt"
+          sha256sum duckdb-upstream/lib/CMakeLists.txt duckdb-upstream/lib/src/webdb.cc \
+            "$extension_cache/json" > "$out/json-configuration-source.sha256"
       - name: Produce paired warm and empty-cache native bytes
         shell: bash
         run: |
@@ -153,6 +168,7 @@ jobs:
             *) exit 1 ;;
           esac
           test -s "$out/image-prebuild.tsv" && test -s "$out/duckdb-applied.patch"
+          extension_cache=duckdb-upstream/.ccache/extension
           for condition in image clean; do
             case "$condition" in
               image) cache="$image_cache" ;;
@@ -161,6 +177,8 @@ jobs:
             build="$GITHUB_WORKSPACE/duckdb-upstream/build/integrated-$variant-$condition"
             map="$out/$condition.map"
             flags=(-DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+              -DDUCKDB_WASM_LOADABLE_EXTENSIONS=OFF
+              -DDUCKDB_WASM_LOADABLE_EXTENSIONS_UNSIGNED=OFF
               -DDUCKDB_WASM_VERSION=v1.28.0
               "-DDUCKDB_LOCATION=$GITHUB_WORKSPACE/duckdb-upstream/submodules/duckdb"
               "-DCMAKE_EXE_LINKER_FLAGS=-Wl,-Map,$map")
@@ -172,6 +190,13 @@ jobs:
             if test "$condition" = clean; then
               test -z "$(find "$cache" -mindepth 1 -print -quit)"
             fi
+            test -f "$extension_cache/json" && test ! -s "$extension_cache/json"
+            test ! -e "$extension_cache/excel"
+            test "$(find "$extension_cache" -mindepth 1 -print)" = "$extension_cache/json"
+            test -z "${DUCKDB_WASM_LOADABLE_EXTENSIONS+x}"
+            printf 'condition=%s\njson_sentinel=regular_zero_byte\nexcel_sentinel=absent\nloadable_extensions_env=unset\n' \
+              "$condition" > "$out/$condition-json-configuration.txt"
+            sha256sum "$extension_cache/json" >> "$out/$condition-json-configuration.txt"
             printf 'EM_CACHE=%s emcmake cmake -S duckdb-upstream/lib -B %s %s\n' \
               "$cache" "$build" "${flags[*]}" > "$out/$condition-command.txt"
             printf 'EM_CACHE=%s EMCC_DEBUG=1 EM_FORCE_RESPONSE_FILES=0 emmake make -C %s -j4 duckdb_wasm\n' \
@@ -184,6 +209,26 @@ jobs:
             cp "$build/duckdb_wasm.wasm" "$out/$condition.wasm"
             cp "$build/compile_commands.json" "$out/$condition-compile_commands.json"
             cp "$build/CMakeCache.txt" "$out/$condition-CMakeCache.txt"
+            grep -Fxq 'DUCKDB_WASM_LOADABLE_EXTENSIONS:BOOL=OFF' "$out/$condition-CMakeCache.txt"
+            grep -Fxq 'DUCKDB_WASM_LOADABLE_EXTENSIONS_UNSIGNED:BOOL=OFF' "$out/$condition-CMakeCache.txt"
+            python3 - "$out/$condition-compile_commands.json" "$out/$condition-json-configuration.txt" <<'PY'
+          import json, shlex, sys
+          from pathlib import Path
+          commands = json.loads(Path(sys.argv[1]).read_text(encoding='utf-8'))
+          matches = [row for row in commands if row['file'].endswith('/src/webdb.cc')]
+          if len(matches) != 1:
+              raise SystemExit(f'expected one WebDB compile command; got {len(matches)}')
+          row = matches[0]
+          args = row.get('arguments') or shlex.split(row['command'])
+          if '-DDUCKDB_JSON_EXTENSION' not in args:
+              raise SystemExit('WebDB compile lacks DUCKDB_JSON_EXTENSION')
+          if '-DDISABLE_EXTENSION_LOAD=1' not in args or '-DWASM_LOADABLE_EXTENSIONS=1' in args:
+              raise SystemExit('WebDB compile is not confirmed non-loadable')
+          with Path(sys.argv[2]).open('a', encoding='utf-8') as receipt:
+              receipt.write('webdb_compile_json_define=YES\n')
+              receipt.write('webdb_compile_nonloadable=YES\n')
+              receipt.write('webdb_compile_command=' + shlex.join(args) + '\n')
+          PY
             arrow_build="$build/third_party/arrow/src/arrow_ep-build"
             arrow_commands="$arrow_build/src/arrow/CMakeFiles/arrow_objlib.dir"
             test -s "$arrow_commands/build.make" && test -s "$arrow_commands/flags.make"
@@ -224,6 +269,50 @@ jobs:
             cp "$build/CMakeFiles/duckdb_wasm.dir/link.txt" "$out/$condition-link.txt"
             cp "$build/CMakeFiles/duckdb_wasm.dir/objects1.rsp" "$out/$condition-objects1.rsp"
             cp "$build/CMakeFiles/duckdb_wasm.dir/linklibs.rsp" "$out/$condition-linklibs.rsp"
+            python3 - "$out/$condition-linklibs.rsp" "$map" "$build" \
+              "$out/$condition-json-configuration.txt" "$out/$condition-json-link-selection.tsv" \
+              "$out/$condition-json-archive-members.txt" <<'PY'
+          import hashlib, os, re, shlex, subprocess, sys
+          from pathlib import Path
+          response, link_map, build, receipt, selection, members = map(Path, sys.argv[1:])
+          tokens = shlex.split(response.read_text(encoding='utf-8'))
+          map_text = link_map.read_text(encoding='utf-8')
+          ar = Path(os.environ['EMSDK']) / 'upstream/bin/llvm-ar'
+          expected_paths = ('libduckdb_web_json.a',
+                            'third_party/duckdb/install/lib/libjson_extension.a')
+          for expected_path in expected_paths:
+              archive_name = Path(expected_path).name
+              paths = [Path(token) for token in tokens if Path(token).name == archive_name]
+              if len(paths) != 1:
+                  raise SystemExit(f'expected one {archive_name} in link response; got {len(paths)}')
+              if str(paths[0]) != expected_path:
+                  raise SystemExit(f'wrong selected JSON archive path: {paths[0]}')
+              path = paths[0] if paths[0].is_absolute() else build / paths[0]
+              if not path.is_file() or not path.stat().st_size:
+                  raise SystemExit(f'JSON archive missing or empty: {path}')
+              selected = re.findall(re.escape(expected_path) + r'\(([^)]+)\)', map_text)
+              if not selected:
+                  raise SystemExit(f'no selected {archive_name} member in final link map')
+              inventory = subprocess.check_output([str(ar), 't', str(path)], text=True).splitlines()
+              if not inventory or not set(selected).issubset(set(inventory)):
+                  raise SystemExit(f'JSON selected members missing from actual archive: {path}')
+              hash_state = hashlib.sha256()
+              with path.open('rb') as stream:
+                  for chunk in iter(lambda: stream.read(1024 * 1024), b''):
+                      hash_state.update(chunk)
+              digest = hash_state.hexdigest()
+              with selection.open('a', encoding='utf-8') as out:
+                  out.write(f'{archive_name}\t{path.resolve()}\t{digest}\t{len(selected)}\n')
+              with members.open('a', encoding='utf-8') as out:
+                  for member in sorted(set(selected)):
+                      out.write(f'{archive_name}\t{member}\n')
+          with receipt.open('a', encoding='utf-8') as out:
+              out.write('json_web_and_duckdb_archives_in_response_and_map=YES\n')
+              out.write('json_selected_archive_bytes=UNRETAINED\n')
+              out.write('json_installed_capability=UNVERIFIED\n')
+          PY
+            test -s "$out/$condition-json-link-selection.tsv"
+            test -s "$out/$condition-json-archive-members.txt"
             sha256sum "$out/$condition.js" "$out/$condition.wasm" "$out/$condition-link.txt" \
               "$out/$condition-objects1.rsp" "$out/$condition-linklibs.rsp" \
               "$out/$condition-CMakeCache.txt" "$map" > "$out/$condition-output.sha256"
