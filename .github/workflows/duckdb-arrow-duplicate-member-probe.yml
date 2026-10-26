@@ -206,8 +206,9 @@ jobs:
                 exit 1
               fi
               object_rel="src/arrow/CMakeFiles/arrow_objlib.dir/$matched_family/$member"
-              build_make_line="$(awk -v target="$object_rel:" \
-                'index($0, target) == 1 { print NR }' "$receipt/arrow-object-build.make")"
+              build_make_line="$(awk -v target="$object_rel:" -v source="$source" \
+                'index($0, target) == 1 && index($0, source) > 0 { print NR }' \
+                "$receipt/arrow-object-build.make")"
               test -n "$build_make_line"
               test "$(printf '%s\n' "$build_make_line" | wc -l)" -eq 1
               key="$member-$instance"
