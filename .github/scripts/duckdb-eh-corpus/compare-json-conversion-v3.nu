@@ -210,7 +210,7 @@ def main [receipt_root: path] {
        $item.receipt.head_sha != $custody.consumer_head or
        $item.receipt.profile != $profile or $custody.profile != $profile or
        $custody.condition != $condition or
-       $custody.producer_head != 'fbcc2be993b9d47fd062d7833cf52f4a630649f8' or
+       $custody.producer_head != '120a368e293c56bb22032c51859d431bc3a8307d' or
        $item.receipt.requested_variant != 'eh' or $item.receipt.result.variant != 'eh' or
        $custody.installer_sha256 !~ '^[0-9a-f]{64}$') {
       error make {msg: $"new-cell head/profile/condition custody mismatch: ($cell)"}

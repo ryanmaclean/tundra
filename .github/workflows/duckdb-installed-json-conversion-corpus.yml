@@ -1099,7 +1099,7 @@ jobs:
           helper=gate-source/.github/scripts/duckdb-eh-corpus
           printf '%s  %s\n' \
             '95206f742c58dda13fb9640bc0c90dfd7b43a96206fea2773015f2ac630386c6' "$helper/authenticate-eh-artifacts.nu" \
-            'c3c13bdb1b46f2102d62e3b695ee73a5db03f6b2f731a806aa751d36c2f58a50' "$helper/compare-json-conversion-v3.nu" \
+            'd2dfb136e1c4039ad7418aabdd9a3515d5161184019e527ddfabb98c81a6080b' "$helper/compare-json-conversion-v3.nu" \
             | sha256sum --check --status
           mkdir -p "$RUNNER_TEMP/eh-compare"
           case "$GITHUB_EVENT_NAME" in
