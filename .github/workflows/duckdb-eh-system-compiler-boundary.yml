@@ -1,0 +1,375 @@
+name: DuckDB EH system compiler-boundary diagnostic
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/duckdb-eh-system-compiler-boundary.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  paired-eh:
+    name: Pinned system compiler-boundary trial
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    container:
+      image: emscripten/emsdk:3.1.48@sha256:c952f592577a428698cb990c9656f395ae34424740f9c40bed4c3ee6d4850d29
+    env:
+      DUCKDB_EXCEL: "0"
+      DUCKDB_JSON: "0"
+      CCACHE_DISABLE: "1"
+      SOURCE_HEAD: adfdd3ee95a3054a14d3faa9baaf25edb9e38ddb
+    steps:
+      - name: Check out exact diagnostic source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: adfdd3ee95a3054a14d3faa9baaf25edb9e38ddb
+          persist-credentials: false
+      - name: Check out pinned DuckDB Wasm source and submodules
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: duckdb/duckdb-wasm
+          ref: f955138e5218942fb3fb097a8fdcb725222406ff
+          path: duckdb-upstream
+          submodules: recursive
+          persist-credentials: false
+      - name: Trust ephemeral checkout paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE/duckdb-upstream"
+          while IFS= read -r -d '' directory; do
+            git config --global --add safe.directory "$directory"
+          done < <(find "$GITHUB_WORKSPACE/duckdb-upstream" -type f -name .git -printf '%h\0')
+      - name: Require pinned inputs and apply exact DuckDB patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/eh-compiler-boundary/evidence"
+          mkdir -p "$out"
+          test "$(git rev-parse HEAD)" = "$SOURCE_HEAD"
+          test "$(git -C duckdb-upstream rev-parse HEAD)" = f955138e5218942fb3fb097a8fdcb725222406ff
+          test "$(git -C duckdb-upstream/submodules/duckdb rev-parse HEAD)" = 401c8061c6ece35949cac58c7770cc755710ca86
+          test "$(git -C duckdb-upstream/submodules/arrow rev-parse HEAD)" = ca1c30f60d6419849dbc2a533bd0bcaff310185f
+          test "$(git -C duckdb-upstream/submodules/rapidjson rev-parse HEAD)" = 973dc9c06dcd3d035ebd039cfb9ea457721ec213
+          test -z "$(git -C duckdb-upstream status --porcelain)"
+          git -C duckdb-upstream submodule status --recursive > "$out/submodules.txt"
+          test -z "$(grep '^[+-U]' "$out/submodules.txt" || true)"
+          emcc --version | grep -Fq '3.1.48'
+          em++ --version | grep -Fq '3.1.48'
+          test -x "$EMSDK/upstream/bin/wasm-ld"
+          test -x "$EMSDK/upstream/bin/llvm-readobj"
+          test -x "$EMSDK/upstream/bin/llvm-objdump"
+          test -s "${EM_CONFIG:-$EMSDK/.emscripten}"
+          sha256sum duckdb-upstream/duckdb.patch > "$out/patch.sha256"
+          git -C duckdb-upstream/submodules/duckdb apply --check ../../duckdb.patch
+          git -C duckdb-upstream/submodules/duckdb apply ../../duckdb.patch
+          git -C duckdb-upstream/submodules/duckdb diff --binary > "$out/applied.patch"
+          test -s "$out/applied.patch"
+          {
+            printf 'source_head=%s\nupstream_head=%s\nvariant=eh\n' "$SOURCE_HEAD" f955138e5218942fb3fb097a8fdcb725222406ff
+            printf 'container=emscripten/emsdk:3.1.48@sha256:c952f592577a428698cb990c9656f395ae34424740f9c40bed4c3ee6d4850d29\n'
+            printf 'admission=NO\ntrial=system-compiler-boundary-only\n'
+            emcc --version
+            "$EMSDK/upstream/bin/wasm-ld" --version
+            "$EMSDK/upstream/bin/wasm-opt" --version
+          } > "$out/toolchain.txt"
+          sha256sum "$EMSDK/upstream/emscripten/em++" "$EMSDK/upstream/bin/wasm-ld" \
+            "$EMSDK/upstream/bin/wasm-opt" "${EM_CONFIG:-$EMSDK/.emscripten}" \
+            > "$out/tools.sha256"
+      - name: Build EH and save the system unity preprocessor input
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/eh-compiler-boundary"
+          out="$root/evidence"
+          build="$GITHUB_WORKSPACE/duckdb-upstream/build/relperf/eh"
+          export EM_CACHE="$root/cache"
+          mkdir -p "$EM_CACHE" "$out"
+          test -z "$(ls -A "$EM_CACHE")"
+          flags=(
+            -DCMAKE_BUILD_TYPE=Release
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+            -DDUCKDB_WASM_VERSION=v1.28.0
+            "-DDUCKDB_LOCATION=$GITHUB_WORKSPACE/duckdb-upstream/submodules/duckdb"
+            -DWITH_WASM_EXCEPTIONS=1
+            -DDUCKDB_CUSTOM_PLATFORM=wasm_eh
+          )
+          emcmake cmake -S duckdb-upstream/lib -B "$build" "${flags[@]}" > "$root/configure.log" 2>&1
+          emmake make -C "$build" -j4 duckdb_wasm > "$root/build.log" 2>&1
+          nested="$build/third_party/duckdb/src/duckdb_ep-build"
+          rel=src/function/table/system
+          target=duckdb_table_func_system
+          member=ub_duckdb_table_func_system.cpp.o
+          unity=ub_duckdb_table_func_system.cpp
+          recipe="$rel/CMakeFiles/$target.dir/build.make"
+          object_target="$rel/CMakeFiles/$target.dir/$member"
+          preprocess_target="$rel/CMakeFiles/$target.dir/$unity.i"
+          dir="$nested/$rel"
+          object="$dir/CMakeFiles/$target.dir/$member"
+          test -s "$object"
+          emmake make -C "$nested" -f "$recipe" "$preprocess_target" > "$root/preprocess.log" 2>&1
+          test -s "$nested/$preprocess_target"
+          cp "$nested/$preprocess_target" "$out/input.i"
+          cp "$dir/CMakeFiles/$target.dir/includes_CXX.rsp" "$out/includes_CXX.rsp"
+          cp "$dir/CMakeFiles/$target.dir/flags.make" "$out/flags.make"
+          cp "$nested/$recipe" "$out/build.make"
+          sha256sum "$out/input.i" "$out/includes_CXX.rsp" "$out/flags.make" "$out/build.make" > "$out/inputs.sha256"
+          rm "$object"
+          mapfile -t lines < <(emmake make -C "$nested" -f "$recipe" -n "$object_target" | grep -F " -c $dir/$unity")
+          test "${#lines[@]}" -eq 1
+          printf '%s\n' "${lines[0]}" > "$out/generated-command.txt"
+          printf '%s\n' "$dir" > "$out/compiler-cwd.txt"
+          sha256sum "$EMSDK/upstream/emscripten/em++" "$EMSDK/upstream/bin/clang++" \
+            "$EMSDK/upstream/bin/llvm-readobj" "$EMSDK/upstream/bin/llvm-objdump" \
+            "${EM_CONFIG:-$EMSDK/.emscripten}" > "$out/compiler-tools.sha256"
+          printf 'admission=NO\nproduct_gate=NOT_RUN\n' > "$out/admission.txt"
+      - name: Split wrapper, Clang driver, and cc1 under fixed inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYCODE'
+          import csv, hashlib, json, os, pathlib, shlex, shutil, subprocess, sys, time
+          root = pathlib.Path(os.environ['RUNNER_TEMP']) / 'eh-compiler-boundary'
+          out = root / 'evidence'
+          directory = pathlib.Path((out / 'compiler-cwd.txt').read_text().strip())
+          source = directory / 'ub_duckdb_table_func_system.cpp'
+          object_path = directory / 'CMakeFiles/duckdb_table_func_system.dir/ub_duckdb_table_func_system.cpp.o'
+          em = pathlib.Path(os.environ['EMSDK']) / 'upstream/emscripten/em++'
+          clang = pathlib.Path(os.environ['EMSDK']) / 'upstream/bin/clang++'
+          objdump = pathlib.Path(os.environ['EMSDK']) / 'upstream/bin/llvm-objdump'
+          readobj = pathlib.Path(os.environ['EMSDK']) / 'upstream/bin/llvm-readobj'
+          command = (out / 'generated-command.txt').read_text().strip()
+          prefix = f'cd {directory} && '
+          if not command.startswith(prefix):
+              raise SystemExit('unexpected generated command prefix')
+          original = shlex.split(command[len(prefix):], posix=True)
+          if pathlib.Path(original[0]) != em or original[-1] != str(source):
+              raise SystemExit('unexpected compiler or source')
+          replay = original[:-1] + ['-x', 'c++-cpp-output', str(out / 'input.i')]
+          (out / 'replay-argv.json').write_text(json.dumps(replay, indent=2) + '\n')
+          (out / 'replay-argv.nul').write_bytes(b'\0'.join(x.encode() for x in replay) + b'\0')
+          fixed_temp = root / 'fixed-temp'
+          fixed_home = root / 'fixed-home'
+          fixed_cache = root / 'fixed-xdg-cache'
+          fixed_em_cache = root / 'cache'
+          for path in (fixed_temp, fixed_home, fixed_cache, fixed_em_cache):
+              path.mkdir(parents=True, exist_ok=True)
+          env = os.environ.copy()
+          env.update(TMPDIR=str(fixed_temp), TMP=str(fixed_temp), TEMP=str(fixed_temp),
+                     EMCC_TEMP_DIR=str(fixed_temp), HOME=str(fixed_home),
+                     XDG_CACHE_HOME=str(fixed_cache), EM_CACHE=str(fixed_em_cache),
+                     EM_CONFIG=str(pathlib.Path(os.environ['EMSDK']) / '.emscripten'),
+                     LC_ALL='C', TZ='UTC', PWD=str(directory))
+          env_digest = hashlib.sha256(b'\0'.join((k + '=' + env[k]).encode()
+                              for k in sorted(env)) + b'\0').hexdigest()
+          (out / 'environment.sha256').write_text(env_digest + '\n')
+          selected = ('TMPDIR','TMP','TEMP','EMCC_TEMP_DIR','HOME','XDG_CACHE_HOME',
+                      'EM_CACHE','EM_CONFIG','LC_ALL','TZ','PWD')
+          (out / 'selected-environment.json').write_text(json.dumps(
+              {k:env[k] for k in selected}, indent=2) + '\n')
+          pinned = {p:hashlib.sha256((out/p).read_bytes()).hexdigest()
+                    for p in ('input.i','includes_CXX.rsp','flags.make','build.make')}
+          response = directory / 'CMakeFiles/duckdb_table_func_system.dir/includes_CXX.rsp'
+          tool_files = [em, clang, objdump, readobj, pathlib.Path(env['EM_CONFIG'])]
+          pinned_tools = {str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in tool_files}
+          def check_inputs():
+              for p,h in pinned.items():
+                  if hashlib.sha256((out/p).read_bytes()).hexdigest() != h:
+                      raise SystemExit(f'input changed: {p}')
+              if hashlib.sha256(response.read_bytes()).hexdigest() != pinned['includes_CXX.rsp']:
+                  raise SystemExit('compiler response file changed')
+              for p,h in pinned_tools.items():
+                  if hashlib.sha256(pathlib.Path(p).read_bytes()).hexdigest() != h:
+                      raise SystemExit(f'tool changed: {p}')
+              current = hashlib.sha256(b'\0'.join((k + '=' + env[k]).encode()
+                         for k in sorted(env)) + b'\0').hexdigest()
+              if current != env_digest:
+                  raise SystemExit('environment changed')
+          def u32_leb(data, pos, end):
+              value = 0
+              for shift in range(0, 35, 7):
+                  if pos >= end:
+                      raise ValueError('truncated LEB128')
+                  byte = data[pos]
+                  pos += 1
+                  if shift == 28 and byte > 0x0f:
+                      raise ValueError('LEB128 overflow')
+                  value |= (byte & 0x7f) << shift
+                  if not byte & 0x80:
+                      return value, pos
+              raise ValueError('overlong LEB128')
+          def wasm_code_digest(data):
+              if data[:8] != b'\x00asm\x01\x00\x00\x00':
+                  raise ValueError('not a Wasm version-1 object')
+              pos, code = 8, None
+              while pos < len(data):
+                  section_id = data[pos]
+                  pos += 1
+                  size, pos = u32_leb(data, pos, len(data))
+                  end = pos + size
+                  if end > len(data):
+                      raise ValueError('truncated Wasm section')
+                  if section_id == 10:
+                      if code is not None:
+                          raise ValueError('duplicate CODE section')
+                      count, cursor = u32_leb(data, pos, end)
+                      if count == 0:
+                          raise ValueError('empty CODE section')
+                      for _ in range(count):
+                          body_size, cursor = u32_leb(data, cursor, end)
+                          cursor += body_size
+                          if cursor > end:
+                              raise ValueError('truncated function body')
+                      if cursor != end:
+                          raise ValueError('trailing CODE bytes')
+                      code = data[pos:end]
+                  pos = end
+              if code is None:
+                  raise ValueError('missing CODE section')
+              return hashlib.sha256(code).hexdigest()
+          def command_run(argv, label):
+              started = time.monotonic()
+              proc = subprocess.run(argv, cwd=directory, env=env, stdout=subprocess.PIPE,
+                                    stderr=subprocess.PIPE, timeout=300)
+              (out/f'{label}.seconds').write_text(f'{time.monotonic()-started:.6f}\n')
+              (out/f'{label}.stdout').write_bytes(proc.stdout[-1048576:])
+              (out/f'{label}.stderr').write_bytes(proc.stderr[-1048576:])
+              return proc
+          def cc1_expansion(argv, label):
+              p = command_run(argv + ['-###'], label)
+              if p.returncode:
+                  return None
+              matches = []
+              for line in p.stderr.decode('utf-8', 'replace').splitlines():
+                  try: parts = shlex.split(line, posix=True)
+                  except ValueError: continue
+                  if len(parts) > 2 and parts[1] == '-cc1' and pathlib.Path(parts[0]).resolve() == clang.resolve():
+                      matches.append(parts)
+              if len(matches) != 1:
+                  return None
+              parts = matches[0]
+              if parts.count('-o') != 1:
+                  return None
+              output = parts[parts.index('-o') + 1]
+              expected_output = 'CMakeFiles/duckdb_table_func_system.dir/ub_duckdb_table_func_system.cpp.o'
+              if output not in (expected_output, str(object_path)) or str(out/'input.i') not in parts:
+                  return None
+              return parts
+          wrapper_cc1 = cc1_expansion(replay, 'wrapper-expansion-before')
+          driver = [str(clang)] + [x for x in replay[1:] if not x.startswith('-sUSE_PTHREADS=')]
+          driver += ['--target=wasm32-unknown-emscripten',
+                     '--sysroot=' + str(pathlib.Path(os.environ['EMSDK'])/'upstream/emscripten/cache/sysroot')]
+          (out/'driver-argv.json').write_text(json.dumps(driver, indent=2) + '\n')
+          driver_cc1 = cc1_expansion(driver, 'driver-expansion-before')
+          if wrapper_cc1:
+              (out/'wrapper-cc1-argv.json').write_text(json.dumps(wrapper_cc1, indent=2) + '\n')
+          if driver_cc1:
+              (out/'driver-cc1-argv.json').write_text(json.dumps(driver_cc1, indent=2) + '\n')
+          equivalent_expansion = wrapper_cc1 is not None and wrapper_cc1 == driver_cc1
+          rows = []
+          failures = []
+          if wrapper_cc1 is None:
+              failures.append('wrapper_cc1_expansion_unavailable')
+          for round_no in range(1,4):
+              for arm,argv in (('wrapper',replay),('driver',driver),('cc1',wrapper_cc1)):
+                  label = f'{arm}-{round_no}'
+                  if argv is None:
+                      failures.append(label + '_argv_unavailable')
+                      continue
+                  check_inputs()
+                  shutil.rmtree(fixed_temp)
+                  fixed_temp.mkdir()
+                  object_path.unlink(missing_ok=True)
+                  p = command_run(argv, label)
+                  if p.returncode or not object_path.is_file():
+                      failures.append(label + '_compile_failed')
+                      continue
+                  if object_path.stat().st_size > 16777216:
+                      raise SystemExit('object exceeds 16 MiB')
+                  obj = object_path.read_bytes()
+                  (out/f'{label}.o').write_bytes(obj)
+                  dump = command_run([str(objdump),'-d',str(object_path)],label+'-code')
+                  sections = command_run([str(readobj),'--sections',str(object_path)],label+'-sections')
+                  if dump.returncode or sections.returncode or not dump.stdout or not sections.stdout:
+                      failures.append(label + '_code_receipt_failed')
+                      continue
+                  try:
+                      code = wasm_code_digest(obj)
+                  except ValueError as exc:
+                      failures.append(label + '_invalid_code_section_' + str(exc).replace(' ', '_'))
+                      continue
+                  rows.append(dict(arm=arm, round=round_no, object_sha256=hashlib.sha256(obj).hexdigest(),
+                                   code_sha256=code, disassembly_sha256=hashlib.sha256(dump.stdout).hexdigest(),
+                                   sections_sha256=hashlib.sha256(sections.stdout).hexdigest(),
+                                   input_sha256=pinned['input.i'], environment_sha256=env_digest))
+                  check_inputs()
+          wrapper_after = cc1_expansion(replay, 'wrapper-expansion-after')
+          driver_after = cc1_expansion(driver, 'driver-expansion-after')
+          expansion_stable = (wrapper_cc1 is not None and wrapper_cc1 == wrapper_after and
+                              driver_cc1 is not None and driver_cc1 == driver_after)
+          with (out/'compiler-results.tsv').open('w', newline='') as f:
+              writer=csv.DictWriter(f, fieldnames=('arm','round','object_sha256','code_sha256',
+                   'disassembly_sha256','sections_sha256','input_sha256','environment_sha256'), delimiter='\t')
+              writer.writeheader();writer.writerows(rows)
+          forms = {arm:{r['code_sha256'] for r in rows if r['arm']==arm}
+                   for arm in ('wrapper','driver','cc1')}
+          reproduced = len(forms['wrapper']) >= 2
+          comparable = (equivalent_expansion and expansion_stable and not failures and
+                        len(rows) == 9 and bool(forms['wrapper'] & forms['driver']) and
+                        bool(forms['wrapper'] & forms['cc1']))
+          if failures: result = 'INCOMPARABLE'
+          elif not reproduced: result = 'NOT_REPRODUCED'
+          elif not comparable: result = 'INCOMPARABLE'
+          elif len(forms['cc1']) >= 2: result = 'CC1_OR_HIDDEN_INPUT'
+          elif len(forms['driver']) >= 2: result = 'DRIVER_OR_HIDDEN_INPUT'
+          elif len(forms['wrapper']) >= 2: result = 'WRAPPER_OR_HIDDEN_INPUT'
+          else: result = 'UNRESOLVED'
+          receipt = dict(admission='NO',product_gate='NOT_RUN',compiler_cause=result,
+              wrapper_code_forms=len(forms['wrapper']),driver_code_forms=len(forms['driver']),
+              cc1_code_forms=len(forms['cc1']),wrapper_drift_reproduced=reproduced,
+              expanded_argv_equivalent=equivalent_expansion,expanded_argv_stable=expansion_stable,
+              failures=failures)
+          (out/'compiler-gate.json').write_text(json.dumps(receipt,indent=2)+'\n')
+          PYCODE
+      - name: Enforce evidence budget on every outcome
+        id: evidence_budget
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/eh-compiler-boundary/evidence"
+          summary="$RUNNER_TEMP/eh-compiler-boundary/over-budget"
+          cap=125829120
+          mkdir -p "$evidence"
+          printf 'admission=NO\nevidence_budget_bytes=%s\n' "$cap" > "$evidence/budget.txt"
+          bytes="$(du -sb "$evidence" | cut -f1)"
+          printf 'candidate_bytes=%s\n' "$bytes" >> "$evidence/budget.txt"
+          bytes="$(du -sb "$evidence" | cut -f1)"
+          if test "$bytes" -le "$cap"; then
+            printf 'upload=true\n' >> "$GITHUB_OUTPUT"
+          else
+            mkdir -p "$summary"
+            printf 'evidence_upload=NO\nobserved_bytes=%s\nbudget_bytes=%s\nadmission=NO\n' \
+              "$bytes" "$cap" > "$summary/budget.txt"
+            printf 'over_budget=true\n' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Retain bounded compiler-boundary evidence
+        if: ${{ always() && steps.evidence_budget.outputs.upload == 'true' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: duckdb-eh-system-compiler-boundary
+          path: ${{ runner.temp }}/eh-compiler-boundary/evidence/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Retain bounded over-budget receipt
+        if: ${{ always() && steps.evidence_budget.outputs.over_budget == 'true' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: duckdb-eh-system-compiler-over-budget
+          path: ${{ runner.temp }}/eh-compiler-boundary/over-budget/
+          if-no-files-found: error
+          retention-days: 14
