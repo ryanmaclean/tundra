@@ -1,0 +1,306 @@
+name: DuckDB Arrow duplicate archive member probe
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/duckdb-arrow-duplicate-member-probe.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  arrow-member-instances:
+    name: Arrow member instances (${{ matrix.variant }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    container:
+      image: emscripten/emsdk:3.1.48@sha256:c952f592577a428698cb990c9656f395ae34424740f9c40bed4c3ee6d4850d29
+    env:
+      DUCKDB_EXCEL: "0"
+      DUCKDB_JSON: "0"
+      CCACHE_DISABLE: "1"
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [mvp, eh]
+    steps:
+      - name: Check out exact Tundra head
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Check out pinned DuckDB Wasm source and submodules
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: duckdb/duckdb-wasm
+          ref: f955138e5218942fb3fb097a8fdcb725222406ff
+          path: duckdb-upstream
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Trust pinned source and apply the exact patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE/duckdb-upstream"
+          while IFS= read -r -d '' directory; do
+            git config --global --add safe.directory "$directory"
+          done < <(find "$GITHUB_WORKSPACE/duckdb-upstream" -type f -name .git -printf '%h\0')
+          receipt="$RUNNER_TEMP/arrow-member-receipt"
+          mkdir -p "$receipt"
+          printf 'source_build_admission=NO\narrow_member_admission=NO\nproduct_admission=NO\n' \
+            > "$receipt/admission.txt"
+          test "$(git rev-parse HEAD)" = '${{ github.event.pull_request.head.sha || github.sha }}'
+          test "$(git -C duckdb-upstream rev-parse HEAD)" = 'f955138e5218942fb3fb097a8fdcb725222406ff'
+          test "$(git -C duckdb-upstream/submodules/duckdb rev-parse HEAD)" = '401c8061c6ece35949cac58c7770cc755710ca86'
+          test "$(git -C duckdb-upstream/submodules/arrow rev-parse HEAD)" = 'ca1c30f60d6419849dbc2a533bd0bcaff310185f'
+          test -z "$(git -C duckdb-upstream status --porcelain)"
+          git -C duckdb-upstream submodule status --recursive > "$receipt/submodules.txt"
+          test -z "$(grep '^[+-U]' "$receipt/submodules.txt" || true)"
+          emcc --version | grep -Fq '3.1.48'
+          em++ --version | grep -Fq '3.1.48'
+          {
+            printf 'tundra_head=%s\nupstream_head=%s\narrow_head=%s\nvariant=%s\n' \
+              "$(git rev-parse HEAD)" "$(git -C duckdb-upstream rev-parse HEAD)" \
+              "$(git -C duckdb-upstream/submodules/arrow rev-parse HEAD)" '${{ matrix.variant }}'
+            printf 'container=emscripten/emsdk:3.1.48@sha256:c952f592577a428698cb990c9656f395ae34424740f9c40bed4c3ee6d4850d29\n'
+            command -v emcc em++ emcmake emmake cmake make
+            emcc --version
+            "$EMSDK/upstream/bin/llvm-ar" --version
+            "$EMSDK/upstream/bin/llvm-nm" --version
+          } > "$receipt/environment.txt"
+          sha256sum duckdb-upstream/duckdb.patch > "$receipt/patch.sha256"
+          git -C duckdb-upstream/submodules/duckdb apply --check ../../duckdb.patch
+          git -C duckdb-upstream/submodules/duckdb apply ../../duckdb.patch
+          git -C duckdb-upstream/submodules/duckdb diff --binary > "$receipt/duckdb-applied.patch"
+          test -s "$receipt/duckdb-applied.patch"
+
+      - name: Build exact native variant and resolve the selected Arrow archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          variant='${{ matrix.variant }}'
+          build="$GITHUB_WORKSPACE/duckdb-upstream/build/relperf/$variant"
+          receipt="$RUNNER_TEMP/arrow-member-receipt"
+          map="$receipt/duckdb-$variant.map"
+          mkdir -p "$build"
+          flags=(
+            -DCMAKE_BUILD_TYPE=Release
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+            -DDUCKDB_WASM_VERSION=v1.28.0
+            "-DDUCKDB_LOCATION=$GITHUB_WORKSPACE/duckdb-upstream/submodules/duckdb"
+            "-DCMAKE_EXE_LINKER_FLAGS=-Wl,-Map,$map"
+          )
+          if [ "$variant" = eh ]; then
+            flags+=(-DWITH_WASM_EXCEPTIONS=1 -DDUCKDB_CUSTOM_PLATFORM=wasm_eh)
+          else
+            flags+=(-DDUCKDB_CUSTOM_PLATFORM=wasm_mvp)
+          fi
+          emcmake cmake -S duckdb-upstream/lib -B "$build" "${flags[@]}"
+          emmake make -C "$build" -j4 duckdb_wasm
+          test -s "$build/duckdb_wasm.wasm"
+          test -s "$map"
+          cp "$build/CMakeFiles/duckdb_wasm.dir/link.txt" "$receipt/link.txt"
+          cp "$build/CMakeFiles/duckdb_wasm.dir/linklibs.rsp" "$receipt/linklibs.rsp"
+          cp "$build/compile_commands.json" "$receipt/duckdb-compile_commands.json"
+          arrow_build="$build/third_party/arrow/src/arrow_ep-build"
+          test -d "$arrow_build"
+          commands="$arrow_build/src/arrow/CMakeFiles/arrow_objlib.dir"
+          test -s "$commands/build.make"
+          test -s "$commands/flags.make"
+          cp "$commands/build.make" "$receipt/arrow-object-build.make"
+          cp "$commands/flags.make" "$receipt/arrow-object-flags.make"
+          if [ -s "$arrow_build/compile_commands.json" ]; then
+            cp "$arrow_build/compile_commands.json" "$receipt/arrow-compile_commands.json"
+            printf 'arrow_compile_commands_json=present\n' > "$receipt/command-sources.txt"
+          else
+            printf 'arrow_compile_commands_json=absent\n' > "$receipt/command-sources.txt"
+          fi
+          printf 'arrow_build_make=present\narrow_flags_make=present\n' \
+            >> "$receipt/command-sources.txt"
+          # Resolve the selected archive from the actual link response file.
+          # Keep the raw link map and response file for independent readback.
+          mapfile -t names < <(grep -oE "[^[:space:]\"']*libarrow\.a" "$receipt/linklibs.rsp" | LC_ALL=C sort -u)
+          test "${#names[@]}" -eq 1
+          archive="${names[0]}"
+          if [[ "$archive" != /* ]]; then archive="$build/$archive"; fi
+          archive="$(realpath "$archive")"
+          test -s "$archive"
+          grep -Fq 'libarrow.a(' "$map"
+          printf '%s\n' "$archive" > "$receipt/selected-arrow-archive.txt"
+          cp "$archive" "$receipt/selected-libarrow.a"
+          cmp -s "$archive" "$receipt/selected-libarrow.a"
+          sha256sum "$archive" "$receipt/selected-libarrow.a" \
+            > "$receipt/selected-arrow-archive.sha256"
+
+      - name: Attribute duplicate archive instances to full-path Arrow objects
+        shell: bash
+        run: |
+          set -euo pipefail
+          variant='${{ matrix.variant }}'
+          build="$GITHUB_WORKSPACE/duckdb-upstream/build/relperf/$variant"
+          receipt="$RUNNER_TEMP/arrow-member-receipt"
+          archive="$(cat "$receipt/selected-arrow-archive.txt")"
+          ar="$EMSDK/upstream/bin/llvm-ar"
+          nm="$EMSDK/upstream/bin/llvm-nm"
+          arrow_build="$build/third_party/arrow/src/arrow_ep-build"
+          arrow_src="$GITHUB_WORKSPACE/duckdb-upstream/submodules/arrow/cpp/src/arrow"
+          "$ar" t "$archive" > "$receipt/archive-members.txt"
+          "$ar" tO "$archive" > "$receipt/archive-members-offsets.txt"
+          test "$(wc -l < "$receipt/archive-members.txt")" \
+            -eq "$(wc -l < "$receipt/archive-members-offsets.txt")"
+          paste <(nl -ba "$receipt/archive-members.txt") \
+            "$receipt/archive-members-offsets.txt" \
+            > "$receipt/archive-instance-offsets.tsv"
+          mkdir -p "$receipt/instances" "$receipt/objects" "$receipt/depfiles"
+          printf 'member\tinstance\tarchive_row\tarchive_offset_line\tobject_path\tobject_sha256\textracted_sha256\tsource_path\tsource_sha256\n' \
+            > "$receipt/instance-source-manifest.tsv"
+          printf 'member\tinstance\tdepfile_path\tdepfile_sha256\tsource_reference\tbuild_make_target\tbuild_make_line\n' \
+            > "$receipt/object-command-depfile-joins.tsv"
+          for member in memory.cc.o util.cc.o; do
+            case "$member" in
+              memory.cc.o) families=(io util) ;;
+              util.cc.o) families=(array compute) ;;
+            esac
+            mapfile -t rows < <(awk -v name="$member" '$0 == name { print NR }' \
+              "$receipt/archive-members.txt")
+            test "${#rows[@]}" -eq 2
+            for instance in 1 2; do
+              row="${rows[$((instance - 1))]}"
+              offset_line="$(sed -n "${row}p" "$receipt/archive-members-offsets.txt")"
+              test -n "$offset_line"
+              extraction="$receipt/instances/$member-$instance"
+              mkdir "$extraction"
+              (cd "$extraction" && "$ar" xN "$instance" "$archive" "$member")
+              test -s "$extraction/$member"
+              extracted_sha="$(sha256sum "$extraction/$member" | cut -d ' ' -f 1)"
+              matches=0
+              matched_family=''
+              matched_object=''
+              for family in "${families[@]}"; do
+                object="$arrow_build/src/arrow/CMakeFiles/arrow_objlib.dir/$family/$member"
+                test -s "$object"
+                object_sha="$(sha256sum "$object" | cut -d ' ' -f 1)"
+                if [ "$extracted_sha" = "$object_sha" ]; then
+                  matches=$((matches + 1))
+                  matched_family="$family"
+                  matched_object="$object"
+                fi
+              done
+              test "$matches" -eq 1
+              source="$arrow_src/$matched_family/${member%.o}"
+              depfile="$matched_object.d"
+              test -s "$source"
+              test -s "$depfile"
+              source_rel="src/arrow/$matched_family/${member%.o}"
+              if grep -Fq -- "$source" "$depfile"; then
+                dep_source_reference="$source"
+              elif grep -Fq -- "$source_rel" "$depfile"; then
+                dep_source_reference="$source_rel"
+              else
+                printf 'depfile does not reference source: %s -> %s\n' \
+                  "$depfile" "$source" >&2
+                exit 1
+              fi
+              object_rel="src/arrow/CMakeFiles/arrow_objlib.dir/$matched_family/$member"
+              build_make_line="$(awk -v target="$object_rel:" -v source="$source" \
+                'index($0, target) == 1 && index($0, source) > 0 { print NR }' \
+                "$receipt/arrow-object-build.make")"
+              test -n "$build_make_line"
+              test "$(printf '%s\n' "$build_make_line" | wc -l)" -eq 1
+              key="$member-$instance"
+              cp "$matched_object" "$receipt/objects/$key.o"
+              cp "$depfile" "$receipt/depfiles/$key.d"
+              cmp -s "$matched_object" "$receipt/objects/$key.o"
+              "$nm" --defined-only --extern-only --format=posix \
+                "$extraction/$member" > "$extraction/defined-external-symbols.txt"
+              test -s "$extraction/defined-external-symbols.txt"
+              printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+                "$member" "$instance" "$row" "$offset_line" "$matched_object" \
+                "$(sha256sum "$matched_object" | cut -d ' ' -f 1)" "$extracted_sha" \
+                "$source" "$(sha256sum "$source" | cut -d ' ' -f 1)" \
+                >> "$receipt/instance-source-manifest.tsv"
+              printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+                "$member" "$instance" "$depfile" \
+                "$(sha256sum "$depfile" | cut -d ' ' -f 1)" \
+                "$dep_source_reference" "$object_rel" "$build_make_line" \
+                >> "$receipt/object-command-depfile-joins.tsv"
+            done
+          done
+          test "$(wc -l < "$receipt/instance-source-manifest.tsv")" -eq 5
+          # A basename occurrence is never accepted as linker selection.
+          # Require the source-bearing archive(member):(symbol) map token,
+          # then join its symbol to one extracted instance only.
+          printf 'member\tinstance\tsymbol\tmap_line_number\tmap_line\n' \
+            > "$receipt/unique-symbol-map-hits.tsv"
+          printf 'member\tinstance\tunique_defined_symbols\texact_map_hits\tselection_witness\n' \
+            > "$receipt/instance-map-summary.tsv"
+          unresolved_pairs=0
+          for member in memory.cc.o util.cc.o; do
+            pair_hits=0
+            for instance in 1 2; do
+              other=$((3 - instance))
+              own="$receipt/instances/$member-$instance/defined-external-symbols.txt"
+              peer="$receipt/instances/$member-$other/defined-external-symbols.txt"
+              awk '{ print $1 }' "$own" | LC_ALL=C sort -u \
+                > "$receipt/instances/$member-$instance/symbol-names.txt"
+              awk '{ print $1 }' "$peer" | LC_ALL=C sort -u \
+                > "$receipt/instances/$member-$other/symbol-names.txt"
+              comm -23 "$receipt/instances/$member-$instance/symbol-names.txt" \
+                "$receipt/instances/$member-$other/symbol-names.txt" \
+                > "$receipt/instances/$member-$instance/unique-symbols.txt"
+              awk -v member="$member" -v instance="$instance" '
+                FILENAME == ARGV[1] { unique[$1] = 1; next }
+                {
+                  anchor = "libarrow.a(" member "):("
+                  for (i = 1; i <= NF; i++) {
+                    field = $i
+                    start = index(field, anchor)
+                    if (!start) continue
+                    if (start > 1 && substr(field, start - 1, 1) != "/") continue
+                    tail = substr(field, start + length(anchor))
+                    if (length(tail) < 2 || substr(tail, length(tail), 1) != ")") continue
+                    symbol = substr(tail, 1, length(tail) - 1)
+                    if (symbol in unique)
+                      print member "\t" instance "\t" symbol "\t" FNR "\t" $0
+                  }
+                }
+              ' "$receipt/instances/$member-$instance/unique-symbols.txt" \
+                "$receipt/duckdb-$variant.map" >> "$receipt/unique-symbol-map-hits.tsv"
+              hits="$(awk -F '\t' -v member="$member" -v instance="$instance" \
+                '$1 == member && $2 == instance { n++ } END { print n + 0 }' \
+                "$receipt/unique-symbol-map-hits.tsv")"
+              if [ "$hits" -gt 0 ]; then
+                witness=selected_by_source_bound_unique_symbol
+              else
+                witness=UNRESOLVED
+              fi
+              pair_hits=$((pair_hits + hits))
+              printf '%s\t%s\t%s\t%s\t%s\n' "$member" "$instance" \
+                "$(wc -l < "$receipt/instances/$member-$instance/unique-symbols.txt")" \
+                "$hits" "$witness" >> "$receipt/instance-map-summary.tsv"
+            done
+            if [ "$pair_hits" -eq 0 ]; then
+              printf 'NO_UNIQUE_SOURCE_BOUND_MAP_HIT\t%s\n' "$member" \
+                >> "$receipt/unresolved-map-pairs.tsv"
+              unresolved_pairs=$((unresolved_pairs + 1))
+            fi
+          done
+          printf 'method=unique_defined_external_symbol_bound_to_exact_archive_member_map_record\n' \
+            > "$receipt/map-attribution-method.txt"
+          printf 'basename_only_selection=FORBIDDEN\nunresolved_pairs=%s\nsource_build_admission=NO\nproduct_admission=NO\n' \
+            "$unresolved_pairs" \
+            >> "$receipt/map-attribution-method.txt"
+          test "$unresolved_pairs" -eq 0
+
+      - name: Retain Arrow duplicate-instance diagnostic
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: duckdb-arrow-members-${{ matrix.variant }}
+          path: ${{ runner.temp }}/arrow-member-receipt/
+          if-no-files-found: warn
+          retention-days: 14

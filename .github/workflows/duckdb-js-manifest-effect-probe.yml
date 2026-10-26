@@ -1,0 +1,308 @@
+name: DuckDB pinned Emscripten JS manifest effect diagnostic
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/duckdb-js-manifest-effect-probe.yml
+
+permissions:
+  contents: read
+
+jobs:
+  controlled-native-link:
+    name: Trace controlled JS link (${{ matrix.variant }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    container:
+      image: emscripten/emsdk:3.1.48@sha256:c952f592577a428698cb990c9656f395ae34424740f9c40bed4c3ee6d4850d29
+    env:
+      DUCKDB_EXCEL: "0"
+      DUCKDB_JSON: "0"
+      CCACHE_DISABLE: "1"
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [mvp, eh]
+    steps:
+      - name: Check out exact diagnostic head
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Check out pinned DuckDB Wasm source and submodules
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: duckdb/duckdb-wasm
+          ref: f955138e5218942fb3fb097a8fdcb725222406ff
+          path: duckdb-upstream
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Check out exact Emscripten source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: emscripten-core/emscripten
+          ref: e967e20b4727956a30592165a3c1cde5c67fa0a8
+          path: emscripten-source
+          persist-credentials: false
+
+      - name: Pin metadata and smoke both installed and pinned combinations
+        shell: bash
+        run: |
+          set -euo pipefail
+          receipt="$RUNNER_TEMP/manifest-effect"
+          mkdir -p "$receipt/metadata" "$receipt/preflight"
+          printf 'source_build_admission=NO\nglue_legal_admission=NO\nmanifest_effects=pending_independent_readback\n' \
+            > "$receipt/admission.txt"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE/duckdb-upstream"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE/emscripten-source"
+          while IFS= read -r -d '' directory; do
+            git config --global --add safe.directory "$directory"
+          done < <(find "$GITHUB_WORKSPACE/duckdb-upstream" -type f -name .git -printf '%h\0')
+          test "$(git rev-parse HEAD)" = '${{ github.event.pull_request.head.sha }}'
+          test "$(git -C duckdb-upstream rev-parse HEAD)" = 'f955138e5218942fb3fb097a8fdcb725222406ff'
+          test "$(git -C duckdb-upstream/submodules/duckdb rev-parse HEAD)" = '401c8061c6ece35949cac58c7770cc755710ca86'
+          test "$(git -C duckdb-upstream/submodules/arrow rev-parse HEAD)" = 'ca1c30f60d6419849dbc2a533bd0bcaff310185f'
+          test "$(git -C duckdb-upstream/submodules/rapidjson rev-parse HEAD)" = '973dc9c06dcd3d035ebd039cfb9ea457721ec213'
+          test "$(git -C emscripten-source rev-parse HEAD)" = 'e967e20b4727956a30592165a3c1cde5c67fa0a8'
+          git -C emscripten-source diff --quiet
+          git -C emscripten-source diff --cached --quiet
+          installed="$EMSDK/upstream/emscripten"
+          pinned="$GITHUB_WORKSPACE/emscripten-source"
+          test "$(command -v em++)" = "$installed/em++"
+          export EM_CONFIG="${EM_CONFIG:-$EMSDK/.emscripten}"
+          test -s "$EM_CONFIG"
+          sha256sum "$EM_CONFIG" > "$receipt/em-config.sha256"
+          cmp -s "$installed/tools/acorn-optimizer.js" "$pinned/tools/acorn-optimizer.js"
+          cmp -s "$installed/src/modules.js" "$pinned/src/modules.js"
+          cmp -s "$installed/src/jsifier.js" "$pinned/src/jsifier.js"
+          printf '%s  %s\n' \
+            '151f91789ae48de1a97e9957bd5dc7dd65cdcec51f2b3b3cd811413ec257413a' "$installed/emscripten-version.txt" \
+            'd193b3aa9fd46ba177b584a554db3d3ae5feea23d1b3f27ab8020b791e78f3a8' "$installed/package.json" \
+            '74a7e41e47ffaf4252939d666395e2a2eb3ebab1a24ee40ab509877e354bed69' "$installed/package-lock.json" \
+            'ab270e48192c318114efb5faea7e9f6e61fba7e56dca3220c72c99b72b9afb84' "$pinned/emscripten-version.txt" \
+            'a14ffa286204013636586cf73d1f0664c98fc9f972c1bf527299df6da4d000ae' "$pinned/package.json" \
+            '30851ace2196c055fa964f5f7c9fd947fdb453ebe40ba31aa75ed4e7c4c8cf8b' "$pinned/package-lock.json" \
+            > "$receipt/metadata-preimage.sha256"
+          sha256sum -c "$receipt/metadata-preimage.sha256" > "$receipt/metadata-preimage-check.txt"
+          for file in emscripten-version.txt package.json package-lock.json; do
+            cp "$installed/$file" "$receipt/metadata/installed-$file"
+            cp "$pinned/$file" "$receipt/metadata/pinned-$file"
+          done
+          # The pinned package manifest intentionally differs from installed
+          # node_modules. Skip only the preflight sanity/freshness gate in all
+          # four cells; the ordinary build below still uses normal checks.
+          printf 'replay_EMCC_SKIP_SANITY_CHECK=1\nordinary_build_skip_sanity=NO\n' \
+            > "$receipt/diagnostic-environment.txt"
+          restore_metadata() {
+            for file in emscripten-version.txt package.json package-lock.json; do
+              cp "$receipt/metadata/installed-$file" "$installed/$file"
+            done
+          }
+          trap restore_metadata EXIT
+          for version in installed pinned; do
+            for manifest in installed pinned; do
+              cp "$receipt/metadata/$version-emscripten-version.txt" "$installed/emscripten-version.txt"
+              cp "$receipt/metadata/$manifest-package.json" "$installed/package.json"
+              cp "$receipt/metadata/$manifest-package-lock.json" "$installed/package-lock.json"
+              label="$version-version-$manifest-manifests"
+              EMCC_SKIP_SANITY_CHECK=1 em++ --version \
+                > "$receipt/preflight/$label.log" 2>&1
+              grep -Fq '3.1.48' "$receipt/preflight/$label.log"
+            done
+          done
+          restore_metadata
+          sha256sum -c "$receipt/metadata-preimage.sha256" > "$receipt/metadata-restored.txt"
+          trap - EXIT
+          git -C duckdb-upstream/submodules/duckdb apply --check ../../duckdb.patch
+          git -C duckdb-upstream/submodules/duckdb apply ../../duckdb.patch
+          git -C duckdb-upstream/submodules/duckdb diff --binary > "$receipt/duckdb-applied.patch"
+          test -s "$receipt/duckdb-applied.patch"
+
+      - name: Build ordinary native objects once for exact recorded link replay
+        shell: bash
+        run: |
+          set -euo pipefail
+          variant='${{ matrix.variant }}'
+          receipt="$RUNNER_TEMP/manifest-effect"
+          build="$GITHUB_WORKSPACE/duckdb-upstream/build/relperf/$variant"
+          map="$RUNNER_TEMP/native-receipt/duckdb-$variant.map"
+          mkdir -p "$build" "$RUNNER_TEMP/native-receipt"
+          flags=(
+            -DCMAKE_BUILD_TYPE=Release
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+            -DDUCKDB_WASM_VERSION=v1.28.0
+            "-DDUCKDB_LOCATION=$GITHUB_WORKSPACE/duckdb-upstream/submodules/duckdb"
+            "-DCMAKE_EXE_LINKER_FLAGS=-Wl,-Map,$map"
+          )
+          if [ "$variant" = eh ]; then
+            flags+=(-DWITH_WASM_EXCEPTIONS=1 -DDUCKDB_CUSTOM_PLATFORM=wasm_eh)
+            expected_link='779205bb06a223674aa817a16fbf5a8cfe055ba82048bf2918f329725dcc0343'
+          else
+            flags+=(-DDUCKDB_CUSTOM_PLATFORM=wasm_mvp)
+            expected_link='e47afdb3aa1e1af56c4e646aa2a042c22204740dc45727c4401e63a8b654545f'
+          fi
+          emcmake cmake -S duckdb-upstream/lib -B "$build" "${flags[@]}"
+          emmake make -C "$build" -j4 duckdb_wasm
+          test -s "$build/duckdb_wasm.js" && test -s "$build/duckdb_wasm.wasm"
+          test -s "$map"
+          link="$build/CMakeFiles/duckdb_wasm.dir/link.txt"
+          test -s "$link"
+          test "$(sha256sum "$link" | cut -d ' ' -f 1)" = "$expected_link"
+          cp "$link" "$receipt/original-link.txt"
+          cp "$build/CMakeFiles/duckdb_wasm.dir/objects1.rsp" "$receipt/objects1.rsp"
+          cp "$build/CMakeFiles/duckdb_wasm.dir/linklibs.rsp" "$receipt/linklibs.rsp"
+          cp "$build/duckdb_wasm.js" "$receipt/original.js"
+          cp "$build/duckdb_wasm.wasm" "$receipt/original.wasm"
+          cp "$map" "$receipt/original.map"
+          sha256sum "$receipt/original-link.txt" "$receipt/objects1.rsp" \
+            "$receipt/linklibs.rsp" "$receipt/original.js" "$receipt/original.wasm" \
+            > "$receipt/original-inputs-and-output.sha256"
+
+      - name: Trace four controlled version and manifest link combinations
+        shell: bash
+        run: |
+          set -euo pipefail
+          variant='${{ matrix.variant }}'
+          receipt="$RUNNER_TEMP/manifest-effect"
+          installed="$EMSDK/upstream/emscripten"
+          build="$GITHUB_WORKSPACE/duckdb-upstream/build/relperf/$variant"
+          map="$RUNNER_TEMP/native-receipt/duckdb-$variant.map"
+          export EM_CONFIG="${EM_CONFIG:-$EMSDK/.emscripten}"
+          sha256sum -c "$receipt/em-config.sha256"
+          original="$(cat "$receipt/original-link.txt")"
+          test "$(wc -l < "$receipt/original-link.txt")" -eq 1
+          [[ "$original" == *' --js-library='* ]]
+          [[ "$original" != *' -sVERBOSE=1 '* ]]
+          instrumented="${original/ --js-library=/ -sVERBOSE=1 --js-library=}"
+          test "$instrumented" != "$original"
+          printf '%s\n' "$instrumented" > "$receipt/instrumented-link.txt"
+          restore_all() {
+            for file in emscripten-version.txt package.json package-lock.json; do
+              cp "$receipt/metadata/installed-$file" "$installed/$file"
+            done
+            cp "$receipt/original.js" "$build/duckdb_wasm.js"
+            cp "$receipt/original.wasm" "$build/duckdb_wasm.wasm"
+            cp "$receipt/original.map" "$map"
+          }
+          trap restore_all EXIT
+          # Prove that an exact, uninstrumented replay is stable before
+          # interpreting any version or manifest perturbation.
+          mkdir "$receipt/uninstrumented-installed-replay"
+          (cd "$build" && bash -euo pipefail -c "$original") \
+            > "$receipt/uninstrumented-installed-replay/link.log" 2>&1
+          cp "$build/duckdb_wasm.js" "$receipt/uninstrumented-installed-replay/duckdb.js"
+          cp "$build/duckdb_wasm.wasm" "$receipt/uninstrumented-installed-replay/duckdb.wasm"
+          cp "$map" "$receipt/uninstrumented-installed-replay/duckdb.map"
+          sha256sum "$receipt/uninstrumented-installed-replay/duckdb.js" \
+            "$receipt/uninstrumented-installed-replay/duckdb.wasm" \
+            > "$receipt/uninstrumented-installed-replay/output.sha256"
+          if cmp -s "$receipt/original.js" "$receipt/uninstrumented-installed-replay/duckdb.js" \
+            && cmp -s "$receipt/original.wasm" "$receipt/uninstrumented-installed-replay/duckdb.wasm"; then
+            printf 'ordinary_vs_uninstrumented=MATCH\n' > "$receipt/baseline-validity.txt"
+          else
+            printf 'ordinary_vs_uninstrumented=DIFF\nresult=INCONCLUSIVE\n' \
+              > "$receipt/baseline-validity.txt"
+            exit 1
+          fi
+          cp "$receipt/original.js" "$build/duckdb_wasm.js"
+          cp "$receipt/original.wasm" "$build/duckdb_wasm.wasm"
+          cp "$receipt/original.map" "$map"
+          grid_baseline="$receipt/installed-version-installed-manifests"
+          debug_root="$RUNNER_TEMP/manifest-link-debug"
+          mkdir -p "$debug_root"
+          printf 'uniform_EMCC_TEMP_DIR=%s\n' "$debug_root" \
+            >> "$receipt/diagnostic-environment.txt"
+          : > "$receipt/comparison.tsv"
+          for version in installed pinned; do
+            for manifest in installed pinned; do
+              label="$version-version-$manifest-manifests"
+              trial="$receipt/$label"
+              mkdir "$trial"
+              # Keep the debug path identical across cells while retaining
+              # each cell's stages before the next link clears this path.
+              find "$debug_root" -mindepth 1 -delete
+              cp "$receipt/metadata/$version-emscripten-version.txt" "$installed/emscripten-version.txt"
+              cp "$receipt/metadata/$manifest-package.json" "$installed/package.json"
+              cp "$receipt/metadata/$manifest-package-lock.json" "$installed/package-lock.json"
+              sha256sum "$installed/emscripten-version.txt" "$installed/package.json" \
+                "$installed/package-lock.json" > "$trial/active-metadata.sha256"
+              (cd "$build" && EMCC_SKIP_SANITY_CHECK=1 \
+                NODE_DEBUG=module,child_process EMCC_VERBOSE=1 \
+                EMCC_DEBUG=1 EMCC_DEBUG_SAVE=1 EMCC_TEMP_DIR="$debug_root" \
+                bash -euo pipefail -c "$instrumented") > "$trial/link.log" 2>&1
+              test -s "$build/duckdb_wasm.js" && test -s "$build/duckdb_wasm.wasm"
+              grep -Fq 'MODULE ' "$trial/link.log"
+              grep -Fq "$installed/tools/acorn-optimizer.js" "$trial/link.log"
+              debug="$debug_root/emscripten_temp"
+              test -d "$debug"
+              find "$debug" -type f -name '*.js' -printf '%P\n' | LC_ALL=C sort \
+                > "$trial/saved-js-stages.txt"
+              test -s "$trial/saved-js-stages.txt"
+              (cd "$debug" && tar -czf "$trial/saved-js-stages.tar.gz" \
+                -T "$trial/saved-js-stages.txt")
+              while IFS= read -r stage; do sha256sum "$debug/$stage"; done \
+                < "$trial/saved-js-stages.txt" > "$trial/saved-js-stages.sha256"
+              cp "$build/duckdb_wasm.js" "$trial/duckdb.js"
+              cp "$build/duckdb_wasm.wasm" "$trial/duckdb.wasm"
+              cp "$map" "$trial/duckdb.map"
+              sha256sum "$trial/duckdb.js" "$trial/duckdb.wasm" \
+                > "$trial/output.sha256"
+              if cmp -s "$receipt/original.js" "$trial/duckdb.js"; then js=MATCH; else js=DIFF; fi
+              if cmp -s "$receipt/original.wasm" "$trial/duckdb.wasm"; then wasm=MATCH; else wasm=DIFF; fi
+              if [ "$label" = installed-version-installed-manifests ]; then
+                baseline_js="$js"
+                baseline_wasm="$wasm"
+                printf 'instrumented_baseline_js=%s\ninstrumented_baseline_wasm=%s\n' \
+                  "$baseline_js" "$baseline_wasm" >> "$receipt/baseline-validity.txt"
+                if [ "$baseline_js" != MATCH ] || [ "$baseline_wasm" != MATCH ]; then
+                  printf 'result=INCONCLUSIVE\n' >> "$receipt/baseline-validity.txt"
+                  exit 1
+                fi
+              fi
+              if cmp -s "$grid_baseline/duckdb.js" "$trial/duckdb.js"; then
+                vs_baseline_js=MATCH
+              else
+                vs_baseline_js=DIFF
+              fi
+              if cmp -s "$grid_baseline/duckdb.wasm" "$trial/duckdb.wasm"; then
+                vs_baseline_wasm=MATCH
+              else
+                vs_baseline_wasm=DIFF
+              fi
+              printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$label" "$js" "$wasm" \
+                "$vs_baseline_js" "$vs_baseline_wasm" \
+                "$(sha256sum "$trial/duckdb.js" | cut -d ' ' -f 1)" \
+                "$(sha256sum "$trial/duckdb.wasm" | cut -d ' ' -f 1)" \
+                >> "$receipt/comparison.tsv"
+              grep -E 'MODULE |CHILD_PROCESS|acorn-optimizer|closure' \
+                "$trial/link.log" > "$trial/node-load-and-exec-lines.txt" || true
+              if grep -Ei 'google-closure-compiler|closure-compiler|closure\.jar' \
+                "$trial/link.log" > "$trial/closure-mentions.txt"; then
+                printf 'closure_mention=YES\n' > "$trial/closure-observation.txt"
+              else
+                printf 'closure_mention=NO\n' > "$trial/closure-observation.txt"
+              fi
+            done
+          done
+          printf 'result=COMPARABLE_FOR_DIAGNOSTIC\n' >> "$receipt/baseline-validity.txt"
+          restore_all
+          cmp -s "$receipt/original.js" "$build/duckdb_wasm.js"
+          cmp -s "$receipt/original.wasm" "$build/duckdb_wasm.wasm"
+          cmp -s "$receipt/original.map" "$map"
+          for file in emscripten-version.txt package.json package-lock.json; do
+            cmp -s "$receipt/metadata/installed-$file" "$installed/$file"
+          done
+          printf 'original_output_and_installed_metadata_restored=YES\n' > "$receipt/restoration.txt"
+          trap - EXIT
+
+      - name: Retain controlled JS manifest diagnostic
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: duckdb-js-manifest-effect-${{ matrix.variant }}
+          path: ${{ runner.temp }}/manifest-effect/
+          if-no-files-found: warn
+          retention-days: 14
