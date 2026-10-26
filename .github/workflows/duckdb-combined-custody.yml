@@ -58,13 +58,44 @@ jobs:
           done < <(find "$GITHUB_WORKSPACE/duckdb-upstream" -type f -name .git -printf '%h\0')
           out="$RUNNER_TEMP/combined-custody"
           mkdir -p "$out" "$out/image-bytes" "$out/clean-bytes" "$out/member-lists"
-          printf 'product_admission=NO\nsource_build_admission=NO\nglue_legal_admission=NO\njson_installed_capability=UNVERIFIED\njson_selected_archive_bytes=UNRETAINED\narrow_original_member_instance=AMBIGUOUS\narchive_payload_classification=UNREAD\nexact_custody_output=UNRESOLVED\n' > "$out/admission.txt"
+          printf 'product_admission=NO\nsource_build_admission=NO\nglue_legal_admission=NO\njson_installed_capability=UNVERIFIED\nconversion_fetch_error_behavior=UNVERIFIED\njson_selected_archive_bytes=UNRETAINED\narrow_original_member_instance=AMBIGUOUS\narchive_payload_classification=UNREAD\nexact_custody_output=UNRESOLVED\n' > "$out/admission.txt"
           test "$(git rev-parse HEAD)" = "$SOURCE_HEAD"
           test "$(git -C custody rev-parse HEAD)" = "$CUSTODY_HEAD"
           test "$(git -C duckdb-upstream rev-parse HEAD)" = f955138e5218942fb3fb097a8fdcb725222406ff
           test "$(git -C duckdb-upstream/submodules/duckdb rev-parse HEAD)" = 401c8061c6ece35949cac58c7770cc755710ca86
           test "$(git -C duckdb-upstream/submodules/arrow rev-parse HEAD)" = ca1c30f60d6419849dbc2a533bd0bcaff310185f
           test -z "$(git -C duckdb-upstream status --porcelain)"
+          # Pinned source-only diagnostic: DuckDB can set a stream error during
+          # Fetch(), after RunQuery's initial HasError check. Refuse a successful
+          # schema-only Arrow file when materialization encountered that error.
+          webdb=duckdb-upstream/lib/src/webdb.cc
+          test "$(sha256sum "$webdb" | cut -d ' ' -f 1)" = \
+            764b0bd6f433281bd38520fb5537e41a503435d5b456d54909526f1f15f791b7
+          sha256sum "$webdb" > "$out/webdb-source-before.sha256"
+          cat > "$out/webdb-fetch-error.patch" <<'PATCH'
+          --- a/lib/src/webdb.cc
+          +++ b/lib/src/webdb.cc
+          @@ -128,6 +128,9 @@
+                   // Write the record batch
+                   ARROW_RETURN_NOT_OK(writer->WriteRecordBatch(*batch));
+               }
+          +    if (result->HasError()) {
+          +        return arrow::Status{arrow::StatusCode::ExecutionError, std::move(result->GetError())};
+          +    }
+               ARROW_RETURN_NOT_OK(writer->Close());
+               return out->Finish();
+           }
+          PATCH
+          test "$(sha256sum "$out/webdb-fetch-error.patch" | cut -d ' ' -f 1)" = \
+            9fc2d55cc1eb02f274743f9990a5601cc35ce5688afec6edf01e7a3d40fc795c
+          git -C duckdb-upstream apply --check "$out/webdb-fetch-error.patch"
+          git -C duckdb-upstream apply "$out/webdb-fetch-error.patch"
+          test "$(git -C duckdb-upstream diff --name-only)" = lib/src/webdb.cc
+          test "$(sha256sum "$webdb" | cut -d ' ' -f 1)" = \
+            e935d57b7ccb3d45ed5509d092b7040b6a5bc12968e17792fd69da2a7586bfe0
+          sha256sum "$webdb" "$out/webdb-fetch-error.patch" > "$out/webdb-source-and-patch.sha256"
+          git -C duckdb-upstream diff --binary -- lib/src/webdb.cc > "$out/webdb-applied.patch"
+          test -s "$out/webdb-applied.patch"
           {
             printf 'diagnostic_head=%s\nsource_head=%s\ncustody_head=%s\nupstream_head=%s\nvariant=%s\n' \
               '${{ github.event.pull_request.head.sha || github.sha }}' "$SOURCE_HEAD" "$CUSTODY_HEAD" \
@@ -168,6 +199,7 @@ jobs:
             *) exit 1 ;;
           esac
           test -s "$out/image-prebuild.tsv" && test -s "$out/duckdb-applied.patch"
+          test -s "$out/webdb-applied.patch"
           extension_cache=duckdb-upstream/.ccache/extension
           for condition in image clean; do
             case "$condition" in
@@ -194,6 +226,8 @@ jobs:
             test ! -e "$extension_cache/excel"
             test "$(find "$extension_cache" -mindepth 1 -print)" = "$extension_cache/json"
             test -z "${DUCKDB_WASM_LOADABLE_EXTENSIONS+x}"
+            test "$(sha256sum duckdb-upstream/lib/src/webdb.cc | cut -d ' ' -f 1)" = \
+              e935d57b7ccb3d45ed5509d092b7040b6a5bc12968e17792fd69da2a7586bfe0
             printf 'condition=%s\njson_sentinel=regular_zero_byte\nexcel_sentinel=absent\nloadable_extensions_env=unset\n' \
               "$condition" > "$out/$condition-json-configuration.txt"
             sha256sum "$extension_cache/json" >> "$out/$condition-json-configuration.txt"
