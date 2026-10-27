@@ -1,0 +1,90 @@
+{
+  "schema": "tundra-sdk-libnoexit-os-install-preflight/v1",
+  "scope": "FOUR_SAME_RUN_ARTIFACT_AND_DEB_STRUCTURE_ONLY",
+  "runnable": "NO",
+  "repository": "ryanmaclean/tundra",
+  "repository_id": 1164936674,
+  "source_head": "2a50c1fedb04c1a62acc034dde956403550566f2",
+  "run_id": 40548891504,
+  "run_attempt": 1,
+  "producer_run": 40536996581,
+  "producer_artifact_id": 12748008032,
+  "producer_zip_sha256": "0f051bf7adec09d86d786e5642c4ef89018da6958ab04094264c52ae8bd7ab57",
+  "archive_sha256": "fdaa14b94400917928bc73415535f02244549987beb92719882bcc905b4280fe",
+  "notice_sha256": "620a78084fc7ca97c0b5dea9abf891f3ffcadfdbf305276f099c9c4e12fc1d86",
+  "ledger_member_sha256": "ca8cbbd0f65be4e9645ff2d308c24ba0cbe21172bfe20bf005d4a761c1f6e2eb",
+  "preflight_member_sha256": "d34398146682469b1f5d33d4a904ebfbedb8669ec562afc5d8a1f02f3237f34e",
+  "expected_zip_members": [
+    "ledger.json",
+    "package.deb",
+    "preflight.json",
+    "witness/cell-witness.json",
+    "witness/installed-archive",
+    "witness/installed-cell.json",
+    "witness/installed-notice"
+  ],
+  "expected_package": {
+    "name": "auto-tundra",
+    "version": "0.1.0",
+    "architecture": "amd64",
+    "depends": "libwebkit2gtk-4.1-0, libgtk-3-0"
+  },
+  "max_artifact_zip_bytes": 20971520,
+  "max_deb_bytes": 201326592,
+  "max_data_members": 4096,
+  "max_data_expanded_bytes": 100663296,
+  "max_control_expanded_bytes": 131072,
+  "cells": [
+    {
+      "condition": "image",
+      "profile": "default",
+      "artifact_id": 12757172012,
+      "artifact_name": "duckdb-libnoexit-installed-40548891504-1-image-default",
+      "artifact_zip_bytes": 16004461,
+      "artifact_zip_sha256": "87de597576f547720a6dcc63d10831af9e2a20550a4b92cfb565ed4aca9673f4",
+      "deb_sha256": "7f4e468c35258fdec2f76704dcb3080917b77d8002b7616e70a58ac9688d25a8",
+      "cell_resource_sha256": "b975a1f907dc3cef351889dda5c9fdd56f6e262de3d20bfbdfe3e302bd63caa0",
+      "cell_key": "image/sdk/libnoexit.a/__archive__/1"
+    },
+    {
+      "condition": "image",
+      "profile": "sounds",
+      "artifact_id": 12754383765,
+      "artifact_name": "duckdb-libnoexit-installed-40548891504-1-image-sounds",
+      "artifact_zip_bytes": 16048739,
+      "artifact_zip_sha256": "df9fc36f2d2b0af193a025ab9b6f56dead4f28fd6f67504011f880189741d8fd",
+      "deb_sha256": "f8c9e9468c2cf394edcd473ec319b896d9d821ae4757ddec1395406e887c9e26",
+      "cell_resource_sha256": "7ffd1370750bc9f74b4015a0c219cea01088a27e3c29514b0d5003cb40310d8f",
+      "cell_key": "image/sdk/libnoexit.a/__archive__/1"
+    },
+    {
+      "condition": "clean",
+      "profile": "default",
+      "artifact_id": 12757820632,
+      "artifact_name": "duckdb-libnoexit-installed-40548891504-1-clean-default",
+      "artifact_zip_bytes": 16004583,
+      "artifact_zip_sha256": "b448df0265257ac54c45642e7703264f36c21b2f499731386b2d2db38d08ea76",
+      "deb_sha256": "3e853d30c5c53b70100ae9447880fe611ed7dd37b548bb5829f4f0d968c8d332",
+      "cell_resource_sha256": "12e2092a2e3e8406e922b6e22f03757816b1f45edc5529418b19d8f58448dd3b",
+      "cell_key": "clean/sdk/libnoexit.a/__archive__/1"
+    },
+    {
+      "condition": "clean",
+      "profile": "sounds",
+      "artifact_id": "UNSET",
+      "artifact_name": "duckdb-libnoexit-installed-40548891504-1-clean-sounds",
+      "artifact_zip_bytes": "UNSET",
+      "artifact_zip_sha256": "UNSET",
+      "deb_sha256": "UNSET",
+      "cell_resource_sha256": "UNSET",
+      "cell_key": "clean/sdk/libnoexit.a/__archive__/1"
+    }
+  ],
+  "package_install_verified": "NO",
+  "linker_input": "UNPROVEN",
+  "generator_input_closure": "UNPROVEN",
+  "selected_graph_exhaustive": "NO",
+  "legal_admission": "NO",
+  "product_admission": "NO",
+  "fleet_admission": "NO"
+}
