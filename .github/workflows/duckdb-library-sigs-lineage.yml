@@ -55,7 +55,7 @@ jobs:
           printf '%s\n' "$GITHUB_SHA" | cmp -s - "$GITHUB_WORKSPACE/.git/HEAD"
           printf '%s  %s\n' \
             923dbb4cf4a2fb4c8eb18a202bbfa05f9af0be5cc8723c22c3ab3f9f457b2cbe .github/receipts/duckdb-library-sigs-lineage-v1.json \
-            a93ebed433b05c3c76392a017c180ec11317b95b9268010b9889fc00b4bd4bdf .github/scripts/duckdb-library-sigs-lineage-v1.nu \
+            d17cf09f8df2a4ddbf3d3bf8991a743ab495fab78d7887dc1a39d0add5f9fca6 .github/scripts/duckdb-library-sigs-lineage-v1.nu \
             | sha256sum --check --status
           api=https://api.github.com/repos/ryanmaclean/tundra
           api_get() {

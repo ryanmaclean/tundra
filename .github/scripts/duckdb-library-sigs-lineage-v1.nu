@@ -132,6 +132,24 @@ export def classify_failed_invocation [exit_code: int, trace_path: string, trace
   {invocation_exit_class: $exit_class, invocation_signed_status: (signed_invocation_status $exit_code), invocation_trace_stage: $trace_stage, invocation_python_execve: $python_stage}
 }
 
+export def classify_direct_output [path: string, expected_size: int, expected_sha: string, copies: list<string>] {
+  let verified = (try { verify_file $path $expected_size $expected_sha; true } catch { false })
+  if not $verified { return 'DIRECT_OUTPUT_MISSING_OR_DRIFT' }
+  if ($copies | length) != 3 { return 'DIRECT_CHECK_REFUSED' }
+  for copy in $copies {
+    let comparison = (try { ^cmp -s -- $path $copy | complete } catch { return 'DIRECT_CHECK_REFUSED' })
+    if $comparison.exit_code == 1 { return 'DIRECT_OUTPUT_DIFFERENT' }
+    if $comparison.exit_code != 0 { return 'DIRECT_CHECK_REFUSED' }
+  }
+  'DIRECT_BYTE_EQUAL'
+}
+
+export def paired_control_class [direct_status: string, trace_status: string] {
+  let direct_equal = $direct_status == 'DIRECT_BYTE_EQUAL'
+  let trace_equal = $trace_status == 'TRACE_BYTE_EQUAL'
+  if $direct_equal and $trace_equal { 'PAIRED_BOTH_PARITY' } else if $direct_equal { 'PAIRED_DIRECT_ONLY_PARITY' } else if $trace_equal { 'PAIRED_TRACE_ONLY_PARITY' } else { 'PAIRED_NO_PARITY_PROVEN' }
+}
+
 export def classify_tracer_loader_list [exit_code: int, stdout: string, stderr: string] {
   if ($stdout | str length) > 8192 or ($stderr | str length) > 8192 { return 'TRACER_LOADER_LOG_CAP' }
   if $exit_code != 0 { return 'TRACER_LOADER_LIST_REFUSED' }
@@ -268,62 +286,56 @@ def inside [ledger_path: string, receipt: string] {
     let tracer_version = (try { ^timeout 8s $interpreter --library-path $runtime /tool/strace -V | complete } catch { error make {msg: 'TRACER_VERSION_REFUSED'} })
     let version_class = (classify_tracer_version $tracer_version.exit_code $tracer_version.stdout $tracer_version.stderr)
     if $version_class != 'PASS' { error make {msg: $version_class} }
-    cd /work
-    let invocation = (^timeout 600s $interpreter --library-path $runtime /tool/strace -f -yy -s 4096 -o /out/trace.raw -e 'trace=%file,%process,%network,read,readv,close,chdir,fchdir' python3 $"($source)/($ledger.generator_path)" -o /out/library_sigs.js | complete)
-    if ($invocation.stdout | str length) > 1048576 or ($invocation.stderr | str length) > 1048576 {
-      error make {msg: 'GENERATOR_LOG_CAP'}
-    }
-    if $invocation.exit_code != 0 {
-      refusal $receipt 'GENERATOR_OR_TRACER_FAILED' ((classify_failed_invocation $invocation.exit_code /out/trace.raw $ledger.trace_cap_bytes) | merge {tracer_link_smoke: 'PASS', tracer_version_smoke: 'PASS'})
-    }
-    let shape = (trace_shape /out/trace.raw $ledger.trace_cap_bytes)
-    verify_required_file GENERATED_OUTPUT /out/library_sigs.js $ledger.output_size $ledger.output_sha256
     verify_required_file EH_IMAGE_COPY /tool/image-library_sigs.js $ledger.output_size $ledger.output_sha256
     verify_required_file EH_CLEAN_COPY /tool/clean-library_sigs.js $ledger.output_size $ledger.output_sha256
-    let parity = ((^cmp -s /out/library_sigs.js $"($source)/($ledger.output_path)" | complete).exit_code == 0)
-      and ((^cmp -s /out/library_sigs.js /tool/image-library_sigs.js | complete).exit_code == 0)
-      and ((^cmp -s /out/library_sigs.js /tool/clean-library_sigs.js | complete).exit_code == 0)
-    if not $parity { error make {msg: 'OUTPUT_BYTES_DIFFER'} }
+    let copies = [$"($source)/($ledger.output_path)" /tool/image-library_sigs.js /tool/clean-library_sigs.js]
+    mkdir /work/direct /work/traced /out/direct /out/traced
+    mkdir /tmp/direct-home /tmp/direct-emcache /tmp/direct-tmp /tmp/traced-home /tmp/traced-emcache /tmp/traced-tmp
+    cd /work/direct
+    let direct = (with-env {HOME: '/tmp/direct-home', EM_CACHE: '/tmp/direct-emcache', TMPDIR: '/tmp/direct-tmp'} {
+      ^timeout 600s python3 $"($source)/($ledger.generator_path)" -o /out/direct/library_sigs.js | complete
+    })
+    let direct_status = if ($direct.stdout | str length) > 1048576 or ($direct.stderr | str length) > 1048576 {
+      'DIRECT_LOG_CAP'
+    } else if $direct.exit_code != 0 {
+      'DIRECT_EXIT_REFUSED'
+    } else {
+      classify_direct_output /out/direct/library_sigs.js $ledger.output_size $ledger.output_sha256 $copies
+    }
+    cd /work
+    rm -rf /work/direct /out/direct /tmp/direct-home /tmp/direct-emcache /tmp/direct-tmp
+    cd /work/traced
+    let invocation = (with-env {HOME: '/tmp/traced-home', EM_CACHE: '/tmp/traced-emcache', TMPDIR: '/tmp/traced-tmp'} {
+      ^timeout 600s $interpreter --library-path $runtime /tool/strace -f -yy -s 4096 -o /out/traced/trace.raw -e 'trace=%file,%process,%network,read,readv,close,chdir,fchdir' python3 $"($source)/($ledger.generator_path)" -o /out/traced/library_sigs.js | complete
+    })
+    mut trace_status = 'TRACE_SHAPE_OR_OUTPUT_REFUSED'
+    mut trace_details = {}
+    if ($invocation.stdout | str length) > 1048576 or ($invocation.stderr | str length) > 1048576 {
+      $trace_status = 'TRACE_LOG_CAP'
+    } else if $invocation.exit_code != 0 {
+      $trace_status = 'TRACE_INVOCATION_REFUSED'
+      $trace_details = (classify_failed_invocation $invocation.exit_code /out/traced/trace.raw $ledger.trace_cap_bytes)
+    } else {
+      $trace_status = (try {
+        trace_shape /out/traced/trace.raw $ledger.trace_cap_bytes | ignore
+        classify_direct_output /out/traced/library_sigs.js $ledger.output_size $ledger.output_sha256 $copies
+      } catch { 'DIRECT_CHECK_REFUSED' })
+      $trace_status = if $trace_status == 'DIRECT_BYTE_EQUAL' { 'TRACE_BYTE_EQUAL' } else if $trace_status == 'DIRECT_OUTPUT_DIFFERENT' { 'TRACE_OUTPUT_DIFFERENT' } else { 'TRACE_SHAPE_OR_OUTPUT_REFUSED' }
+    }
     let post = {generator: (file_sha $"($source)/($ledger.generator_path)"), tracked_output: (file_sha $"($source)/($ledger.output_path)"), notice: (file_sha $"($source)/($ledger.notice_path)")}
     if $pre != $post { error make {msg: 'PINNED_INPUT_CHANGED'} }
-    let result = {
-      schema: 'tundra-library-sigs-lineage-diagnostic/v1'
-      status: 'REPLAY_BYTE_EQUAL'
-      source_scope: 'PINNED_IMAGE_AND_TWO_AUTHENTICATED_EH_COPIES'
-      image: $ledger.image
-      invocation: 'python3 tools/maint/gen_sig_info.py -o scratch/library_sigs.js'
-      cwd_role: 'ISOLATED_SCRATCH'
-      home_role: 'ISOLATED_TMPFS'
-      em_cache_role: 'ISOLATED_TMPFS'
-      network: 'NONE'
-      source_root: 'READ_ONLY_IMAGE'
-      output_sha256: $ledger.output_sha256
-      output_size: $ledger.output_size
-      generator_script_sha256: $ledger.generator_sha256
-      generator_source_mode: 'VERIFIED_READ_ONLY_BIND'
+    refusal $receipt 'PAIRED_GENERATOR_CONTROL' ($trace_details | merge {
+      direct_control: $direct_status
+      traced_control: $trace_status
+      paired_control: (paired_control_class $direct_status $trace_status)
       tracer_link_smoke: 'PASS'
       tracer_version_smoke: 'PASS'
-      generator_script_notice_status: 'PINNED_HEADER_MIT_OR_NCSA_SELECTED_MIT'
-      tracked_notice_status: $ledger.source_status
-      other_inputs_notice_status: 'UNPROVEN'
-      known_input_pre_sha256: $pre
-      known_input_post_sha256: $post
-      input_manifest: 'UNPROVEN'
-      generator_input_closure: 'UNPROVEN'
-      selected_graph_exhaustive: 'NO'
-      glue_legal_admission: 'NO'
-      legal_admission: 'NO'
-      product_admission: 'NO'
-      fleet_admission: 'NO'
-      trace_shape: $shape
-    }
-    ($result | to json --raw) | save --force $"($receipt)/replay.json"
-    rm $"($receipt)/refusal.json"
+    })
   } catch {|e|
     # Preserve already-written bounded loader or invocation diagnostic classes.
     let existing = (open $"($receipt)/refusal.json")
     let message = ($e.msg | default 'UNKNOWN')
-    if $message in ['GENERATOR_OR_TRACER_FAILED' 'TRACER_LOADER_LIST_REFUSED'] and $existing.reason == $message {
+    if $message in ['GENERATOR_OR_TRACER_FAILED' 'TRACER_LOADER_LIST_REFUSED' 'PAIRED_GENERATOR_CONTROL'] and $existing.reason == $message {
       error make {msg: $message}
     }
     let allowed = [
