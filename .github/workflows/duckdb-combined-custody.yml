@@ -1631,18 +1631,44 @@ jobs:
               value = command(['dpkg-query', '-W', '-f=${Version}\t${Status}\n', package],
                               'INSTALLED_PACKAGE_QUERY')
               require(value == f'{version}\tinstall ok installed\n', 'INSTALLED_VERSION')
-          def owner(path, package):
-              value = command(['dpkg-query', '-S', str(path)], 'PACKAGE_OWNERSHIP_QUERY')
-              require(any(re.fullmatch(rf'{re.escape(package)}(?::amd64)?: {re.escape(str(path))}',
-                                       line) for line in value.splitlines()), 'PACKAGE_OWNERSHIP')
-          def host_file(path, package, spec):
+          failure_path_class = 'NONE'
+          def declared_regular_files(package):
+              value = command(['dpkg-query', '-L', package], 'PACKAGE_INVENTORY_QUERY')
+              require(0 < len(value) <= 524288 and value.endswith('\n'),
+                      'PACKAGE_INVENTORY_SIZE')
+              lines = value.splitlines()
+              require(0 < len(lines) <= 8192, 'PACKAGE_INVENTORY_COUNT')
+              declared = set()
+              for line in lines:
+                  path = Path(line)
+                  require(line.startswith('/') and len(line.encode('utf-8')) <= 4096 and
+                          '\r' not in line and '\x00' not in line and
+                          '..' not in path.parts, 'PACKAGE_INVENTORY_PATH')
+                  # A package's final-component symlink is not ownership of its
+                  # referent. Ancestor /lib -> /usr/lib aliases remain valid.
+                  if path.is_file() and not path.is_symlink():
+                      resolved = path.resolve(strict=True)
+                      require(resolved.is_file() and not resolved.is_symlink(),
+                              'PACKAGE_INVENTORY_REALPATH')
+                      declared.add(resolved)
+              require(declared, 'PACKAGE_INVENTORY_NO_FILES')
+              return declared
+          def host_file(path, package, spec, path_class):
+              global failure_path_class
+              require(path_class in ('LIBLZMA', 'LIBC', 'LOADER'),
+                      'HOST_PATH_CLASS')
+              failure_path_class = path_class + '_REQUESTED'
               requested = Path(path)
               require(requested.exists() and requested.is_file(), 'HOST_ELF_MISSING')
-              owner(requested, package)
+              failure_path_class = path_class + '_REALPATH'
               resolved = requested.resolve(strict=True)
               require(resolved.is_file() and not resolved.is_symlink(), 'HOST_ELF_REALPATH')
-              owner(resolved, package)
+              failure_path_class = path_class + '_INVENTORY'
+              declared = declared_regular_files(package)
+              require(resolved in declared, 'PACKAGE_INVENTORY_NO_CANONICAL_MATCH')
+              failure_path_class = path_class + '_OFFICIAL_BYTES'
               exact(resolved.read_bytes(), spec, 'INSTALLED_ELF_NOT_OFFICIAL_PACKAGE')
+              failure_path_class = 'NONE'
               return resolved
           def dynamic(path):
               text = command(['readelf', '-d', str(path)], 'READELF_DYNAMIC')
@@ -1695,7 +1721,8 @@ jobs:
                   member = unpack / elf_name
                   require(member.is_file() and not member.is_symlink(), 'PACKAGE_ELF_TYPE')
                   exact(member.read_bytes(), (elf_size, elf_hash), 'PACKAGE_ELF_HASH')
-                  host = host_file(info['host'], package, (elf_size, elf_hash))
+                  host = host_file(info['host'], package, (elf_size, elf_hash),
+                                   'LIBLZMA' if package == 'liblzma5' else 'LIBC')
                   require(dynamic(member)[0] == [info['soname']] and
                           dynamic(host) == dynamic(member), 'HOST_PACKAGE_ELF_DYNAMIC')
                   if package == 'liblzma5':
@@ -1709,7 +1736,7 @@ jobs:
               require(loader_member.is_file() and not loader_member.is_symlink(), 'PACKAGE_LOADER_TYPE')
               exact(loader_member.read_bytes(), (loader_size, loader_hash), 'PACKAGE_LOADER_HASH')
               loader_host = host_file(libc_info['host_loader'], 'libc6',
-                                      (loader_size, loader_hash))
+                                      (loader_size, loader_hash), 'LOADER')
               require(dynamic(loader_host) == dynamic(loader_member), 'HOST_PACKAGE_LOADER_DYNAMIC')
               providers = {
                   'liblzma.so.5': selected['liblzma5'][3],
@@ -1776,12 +1803,14 @@ jobs:
               receipt.write_text('\n'.join(fields + abi_lines) + '\n')
           except Refusal as error:
               receipt.write_text('schema=tundra-eh-runtime-dependencies/v1\nstatus=REFUSED\n'
-                                 f'reason={error}\ncandidate_executable=NOT_RUN\n'
+                                 f'reason={error}\npath_class={failure_path_class}\n'
+                                 'candidate_executable=NOT_RUN\n'
                                  'loader_resolution=NOT_RUN\nproduct_admission=NO\n')
               raise SystemExit(1)
           except Exception:
               receipt.write_text('schema=tundra-eh-runtime-dependencies/v1\nstatus=REFUSED\n'
-                                 'reason=UNEXPECTED_ERROR\ncandidate_executable=NOT_RUN\n'
+                                 f'reason=UNEXPECTED_ERROR\npath_class={failure_path_class}\n'
+                                 'candidate_executable=NOT_RUN\n'
                                  'loader_resolution=NOT_RUN\nproduct_admission=NO\n')
               raise SystemExit(1)
           finally:
