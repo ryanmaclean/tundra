@@ -1560,6 +1560,266 @@ jobs:
           grep -Fqx 'generator_input_closure=UNPROVEN' "$out/eh-libunwind-provenance.txt"
           printf 'libunwind_runtime=PINNED_BYTES_ONLY\njs_generator_input_closure=UNPROVEN\n' \
             >> "$out/admission.txt"
+      - name: Pin hosted EH liblzma and libc dependency bytes without execution
+        if: ${{ matrix.variant == 'eh' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/combined-custody"
+          grep -Fqx 'candidate_executable=NOT_RUN' "$out/eh-libunwind-provenance.txt"
+          grep -Fqx 'liblzma5_version=5.2.5-2ubuntu1' "$out/eh-libunwind-provenance.txt"
+          grep -Fqx 'libc6_version=2.35-0ubuntu3.4' "$out/eh-libunwind-provenance.txt"
+          python3 - "$out" "$RUNNER_TEMP" <<'PY'
+          import hashlib, os, platform, re, shutil, subprocess, sys, tempfile
+          import urllib.parse, urllib.request
+          from pathlib import Path
+
+          out, runner_temp = map(Path, sys.argv[1:])
+          receipt = out / 'eh-runtime-dependencies-provenance.txt'
+          target = out / 'eh-runtime-dependencies-package'
+          packages = {
+              'liblzma5': {
+                  'version': '5.2.5-2ubuntu1',
+                  'url': 'https://archive.ubuntu.com/ubuntu/pool/main/x/xz-utils/liblzma5_5.2.5-2ubuntu1_amd64.deb',
+                  'file': 'liblzma5_5.2.5-2ubuntu1_amd64.deb',
+                  'spec': (99544, '8f1c46e7d3f5102a5e4fdca7c949728a343ba71c2a7c124118df2c13d4c444f7'),
+                  'notice': ('usr/share/doc/liblzma5/copyright', 15465, 'a2dc8fac0f496e1c58aff67018cf0c6b88336316afa5642f9335b71642e28aa8'),
+                  'elf': ('lib/x86_64-linux-gnu/liblzma.so.5.2.5', 170456, '493cb401ab4aa3bba611ca464d12996afb3b327940d29476f535f999e167439b'),
+                  'soname': 'liblzma.so.5',
+                  'host': '/lib/x86_64-linux-gnu/liblzma.so.5',
+              },
+              'libc6': {
+                  'version': '2.35-0ubuntu3.4',
+                  'url': 'https://launchpadlibrarian.net/689665881/libc6_2.35-0ubuntu3.4_amd64.deb',
+                  'file': 'libc6_2.35-0ubuntu3.4_amd64.deb',
+                  'spec': (3234380, '00e54c06bde8531d955b3fac7dc13f4bd69e5d03515f68a72db08f9cd4cc2c06'),
+                  'notice': ('usr/share/doc/libc6/copyright', 26462, 'd3c95b56fa33e28b57860580f0baf4e4f4de2a268a2b80f1d031a5191bade265'),
+                  'elf': ('lib/x86_64-linux-gnu/libc.so.6', 2216304, '2e15e345ccba1e1e8bf3bc58938d13eb7ccc17044942f0376cd5bc771f429b79'),
+                  'loader': ('lib/x86_64-linux-gnu/ld-linux-x86-64.so.2', 240936, 'e833bd99168bea158d2f2e5d32462479cacfb624003304a9ea74a1607a144f1f'),
+                  'soname': 'libc.so.6',
+                  'host': '/lib/x86_64-linux-gnu/libc.so.6',
+                  'host_loader': '/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2',
+              },
+          }
+          class Refusal(Exception): pass
+          def require(ok, code):
+              if not ok: raise Refusal(code)
+          def exact(data, spec, code):
+              require(len(data) == spec[0] and hashlib.sha256(data).hexdigest() == spec[1], code)
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, request, fp, code, msg, headers, newurl): return None
+          opener = urllib.request.build_opener(NoRedirect)
+          def fetch(info):
+              url = info['url']
+              parsed = urllib.parse.urlsplit(url)
+              require(parsed.scheme == 'https' and parsed.hostname in
+                      ('archive.ubuntu.com', 'launchpadlibrarian.net') and
+                      parsed.username is None and not parsed.query and not parsed.fragment,
+                      'UNAPPROVED_ORIGIN')
+              with opener.open(urllib.request.Request(url), timeout=45) as response:
+                  require(response.status == 200 and response.geturl() == url, 'REDIRECT_OR_STATUS')
+                  data = response.read(info['spec'][0] + 1)
+                  require(len(data) == info['spec'][0] and response.read(1) == b'', 'DOWNLOAD_SIZE')
+              exact(data, info['spec'], 'DOWNLOAD_HASH')
+              return data
+          def command(args, code):
+              result = subprocess.run(args, capture_output=True, text=True,
+                                      timeout=30, check=False)
+              require(result.returncode == 0 and not result.stderr, code)
+              return result.stdout
+          def installed(package, version):
+              value = command(['dpkg-query', '-W', '-f=${Version}\t${Status}\n', package],
+                              'INSTALLED_PACKAGE_QUERY')
+              require(value == f'{version}\tinstall ok installed\n', 'INSTALLED_VERSION')
+          failure_path_class = 'NONE'
+          def declared_regular_files(package):
+              value = command(['dpkg-query', '-L', package], 'PACKAGE_INVENTORY_QUERY')
+              require(0 < len(value) <= 524288 and value.endswith('\n'),
+                      'PACKAGE_INVENTORY_SIZE')
+              lines = value.splitlines()
+              require(0 < len(lines) <= 8192, 'PACKAGE_INVENTORY_COUNT')
+              declared = set()
+              for line in lines:
+                  path = Path(line)
+                  require(line.startswith('/') and len(line.encode('utf-8')) <= 4096 and
+                          '\r' not in line and '\x00' not in line and
+                          '..' not in path.parts, 'PACKAGE_INVENTORY_PATH')
+                  # A package's final-component symlink is not ownership of its
+                  # referent. Ancestor /lib -> /usr/lib aliases remain valid.
+                  if path.is_file() and not path.is_symlink():
+                      resolved = path.resolve(strict=True)
+                      require(resolved.is_file() and not resolved.is_symlink(),
+                              'PACKAGE_INVENTORY_REALPATH')
+                      declared.add(resolved)
+              require(declared, 'PACKAGE_INVENTORY_NO_FILES')
+              return declared
+          def host_file(path, package, spec, path_class):
+              global failure_path_class
+              require(path_class in ('LIBLZMA', 'LIBC', 'LOADER'),
+                      'HOST_PATH_CLASS')
+              failure_path_class = path_class + '_REQUESTED'
+              requested = Path(path)
+              require(requested.exists() and requested.is_file(), 'HOST_ELF_MISSING')
+              failure_path_class = path_class + '_REALPATH'
+              resolved = requested.resolve(strict=True)
+              require(resolved.is_file() and not resolved.is_symlink(), 'HOST_ELF_REALPATH')
+              failure_path_class = path_class + '_INVENTORY'
+              declared = declared_regular_files(package)
+              require(resolved in declared, 'PACKAGE_INVENTORY_NO_CANONICAL_MATCH')
+              failure_path_class = path_class + '_OFFICIAL_BYTES'
+              exact(resolved.read_bytes(), spec, 'INSTALLED_ELF_NOT_OFFICIAL_PACKAGE')
+              failure_path_class = 'NONE'
+              return resolved
+          def dynamic(path):
+              text = command(['readelf', '-d', str(path)], 'READELF_DYNAMIC')
+              sonames = re.findall(r'\(SONAME\)\s+Library soname: \[([^]]+)\]', text)
+              needed = set(re.findall(r'\(NEEDED\)\s+Shared library: \[([^]]+)\]', text))
+              return sonames, needed
+          def versions(path):
+              text = command(['readelf', '-V', str(path)], 'READELF_VERSIONS')
+              section, current, definitions, requirements = '', None, set(), {}
+              for line in text.splitlines():
+                  if line.startswith('Version definition section'): section, current = 'definition', None
+                  elif line.startswith('Version needs section'): section, current = 'need', None
+                  elif line.startswith('Version symbols section'): section, current = 'symbols', None
+                  if section == 'need':
+                      file_match = re.search(r'File: (\S+)', line)
+                      if file_match:
+                          current = file_match.group(1)
+                          requirements.setdefault(current, set())
+                  name_match = re.search(r'Name: (\S+)', line)
+                  if name_match and section == 'definition':
+                      definitions.add(name_match.group(1))
+                  elif name_match and section == 'need':
+                      require(current is not None, 'VERSION_REQUIREMENT_WITHOUT_FILE')
+                      requirements[current].add(name_match.group(1))
+              return definitions, requirements
+          scratch = Path(tempfile.mkdtemp(prefix='tundra-eh-runtime-deps-', dir=runner_temp))
+          try:
+              release = Path('/etc/os-release').read_text()
+              require(re.search(r'^ID=ubuntu$', release, re.M) is not None and
+                      re.search(r'^VERSION_ID="?22\.04"?$', release, re.M) is not None and
+                      platform.machine() == 'x86_64', 'CONTAINER_OS_ARCH')
+              require(not target.exists(), 'TARGET_EXISTS')
+              selected = {}
+              for package, info in packages.items():
+                  installed(package, info['version'])
+                  data = fetch(info)
+                  deb = scratch / info['file']
+                  deb.write_bytes(data)
+                  for field, expected in (('Package', package), ('Version', info['version']),
+                                          ('Architecture', 'amd64')):
+                      require(command(['dpkg-deb', '-f', str(deb), field],
+                                      'PACKAGE_METADATA') == expected + '\n', 'PACKAGE_METADATA')
+                  unpack = scratch / package
+                  subprocess.run(['dpkg-deb', '-x', str(deb), str(unpack)],
+                                 capture_output=True, timeout=30, check=True)
+                  notice_name, notice_size, notice_hash = info['notice']
+                  notice = (unpack / notice_name).read_bytes()
+                  exact(notice, (notice_size, notice_hash), 'SELECTED_NOTICE_HASH')
+                  elf_name, elf_size, elf_hash = info['elf']
+                  member = unpack / elf_name
+                  require(member.is_file() and not member.is_symlink(), 'PACKAGE_ELF_TYPE')
+                  exact(member.read_bytes(), (elf_size, elf_hash), 'PACKAGE_ELF_HASH')
+                  host = host_file(info['host'], package, (elf_size, elf_hash),
+                                   'LIBLZMA' if package == 'liblzma5' else 'LIBC')
+                  require(dynamic(member)[0] == [info['soname']] and
+                          dynamic(host) == dynamic(member), 'HOST_PACKAGE_ELF_DYNAMIC')
+                  if package == 'liblzma5':
+                      link = unpack / 'lib/x86_64-linux-gnu/liblzma.so.5'
+                      require(link.is_symlink() and os.readlink(link) == 'liblzma.so.5.2.5',
+                              'PACKAGE_SONAME_LINK')
+                  selected[package] = (data, notice, member, host)
+              libc_info = packages['libc6']
+              loader_name, loader_size, loader_hash = libc_info['loader']
+              loader_member = scratch / 'libc6' / loader_name
+              require(loader_member.is_file() and not loader_member.is_symlink(), 'PACKAGE_LOADER_TYPE')
+              exact(loader_member.read_bytes(), (loader_size, loader_hash), 'PACKAGE_LOADER_HASH')
+              loader_host = host_file(libc_info['host_loader'], 'libc6',
+                                      (loader_size, loader_hash), 'LOADER')
+              require(dynamic(loader_host) == dynamic(loader_member), 'HOST_PACKAGE_LOADER_DYNAMIC')
+              providers = {
+                  'liblzma.so.5': selected['liblzma5'][3],
+                  'libc.so.6': selected['libc6'][3],
+                  'ld-linux-x86-64.so.2': loader_host,
+                  'libunwind-ptrace.so.0': out / 'eh-libunwind-package/libunwind-ptrace.so.0.0.0',
+                  'libunwind-x86_64.so.8': out / 'eh-libunwind-package/libunwind-x86_64.so.8.0.1',
+                  'libunwind.so.8': out / 'eh-libunwind-package/libunwind.so.8.0.1',
+              }
+              strace = out / 'eh-generator-tracer-package/strace'
+              consumers = {'strace': strace, **providers}
+              abi_lines = []
+              for label, path in consumers.items():
+                  require(path.is_file(), 'ABI_INPUT_MISSING')
+                  soname, needed = dynamic(path)
+                  definitions, requirements = versions(path)
+                  for provider, required in requirements.items():
+                      if provider in providers:
+                          supplied, _ = versions(providers[provider])
+                          require(required <= supplied, 'UNSATISFIED_ELF_SYMBOL_VERSION')
+                  abi_lines.append(f'abi_{label}_soname={",".join(soname) or "-"}')
+                  abi_lines.append(f'abi_{label}_needed={",".join(sorted(needed)) or "-"}')
+                  abi_lines.append(f'abi_{label}_version_definitions={",".join(sorted(definitions)) or "-"}')
+                  for provider, required in sorted(requirements.items()):
+                      abi_lines.append(f'abi_{label}_requires_{provider}={",".join(sorted(required)) or "-"}')
+              target.mkdir()
+              try:
+                  for package, (data, notice, _, _) in selected.items():
+                      info = packages[package]
+                      (target / info['file']).write_bytes(data)
+                      (target / f'{package}-copyright').write_bytes(notice)
+                      exact((target / info['file']).read_bytes(), info['spec'], 'RETAINED_DEB_JOIN')
+                      notice_spec = info['notice']
+                      exact((target / f'{package}-copyright').read_bytes(),
+                            (notice_spec[1], notice_spec[2]), 'RETAINED_NOTICE_JOIN')
+              except Exception:
+                  shutil.rmtree(target)
+                  raise
+              fields = [
+                  'schema=tundra-eh-runtime-dependencies/v1',
+                  'status=PINNED_HOSTED_BYTES_PASSIVE_ABI_ONLY',
+                  'liblzma5_version=5.2.5-2ubuntu1',
+                  'libc6_version=2.35-0ubuntu3.4',
+                  'liblzma_selected_license=PUBLIC_DOMAIN_WITH_PERMISSION_FALLBACK',
+                  'libc_selected_license=LGPL_2_1_OR_LATER_FILE_SPECIFIC_NOTICE',
+                  'source_archive_custody=NOT_EXTENDED',
+                  'loader_resolution=NOT_RUN',
+                  'dependency_license_review=SELECTED_BINARY_NOTICES_ONLY',
+                  'candidate_executable=NOT_RUN',
+                  'python_node_child_canary=NOT_RUN',
+                  'eh_image_traced_relink=NOT_RUN',
+                  'generator_input_closure=UNPROVEN',
+                  'glue_legal_admission=NO',
+                  'product_admission=NO',
+                  f'host_liblzma_realpath={selected["liblzma5"][3]}',
+                  f'host_libc_realpath={selected["libc6"][3]}',
+                  f'host_loader_realpath={loader_host}',
+              ]
+              for package, info in packages.items():
+                  fields.append(f'package_{package}={info["spec"][0]}:{info["spec"][1]}')
+                  fields.append(f'notice_{package}={info["notice"][1]}:{info["notice"][2]}')
+                  fields.append(f'host_elf_{package}={info["elf"][1]}:{info["elf"][2]}')
+              fields.append(f'host_loader={loader_size}:{loader_hash}')
+              receipt.write_text('\n'.join(fields + abi_lines) + '\n')
+          except Refusal as error:
+              receipt.write_text('schema=tundra-eh-runtime-dependencies/v1\nstatus=REFUSED\n'
+                                 f'reason={error}\npath_class={failure_path_class}\n'
+                                 'candidate_executable=NOT_RUN\n'
+                                 'loader_resolution=NOT_RUN\nproduct_admission=NO\n')
+              raise SystemExit(1)
+          except Exception:
+              receipt.write_text('schema=tundra-eh-runtime-dependencies/v1\nstatus=REFUSED\n'
+                                 f'reason=UNEXPECTED_ERROR\npath_class={failure_path_class}\n'
+                                 'candidate_executable=NOT_RUN\n'
+                                 'loader_resolution=NOT_RUN\nproduct_admission=NO\n')
+              raise SystemExit(1)
+          finally:
+              shutil.rmtree(scratch)
+          PY
+          grep -Fqx 'candidate_executable=NOT_RUN' "$out/eh-runtime-dependencies-provenance.txt"
+          grep -Fqx 'product_admission=NO' "$out/eh-runtime-dependencies-provenance.txt"
+          printf 'host_runtime_dependencies=PINNED_PASSIVE_BYTES_ONLY\njs_generator_input_closure=UNPROVEN\n' \
+            >> "$out/admission.txt"
       - name: Classify same-run bytes and immutable custody
         shell: bash
         run: |
