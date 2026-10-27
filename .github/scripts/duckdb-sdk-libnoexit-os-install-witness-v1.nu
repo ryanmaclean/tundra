@@ -34,13 +34,13 @@ def main [ledger_path: string, condition: string, profile: string, deb: string, 
 import hashlib,json,os,pathlib,re,subprocess,sys
 condition,profile,elf_sha,archive_sha,notice_sha,cell_sha,deb_sha = sys.argv[1:]
 def fail(code): raise SystemExit(code)
-def cmd(args,stage):
+def cmd(args,stage,cap=65536):
     try:
         p=subprocess.run(args,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=15,check=False)
     except subprocess.TimeoutExpired:
         fail(stage+"__TIMEOUT")
     if p.returncode: fail(stage+"__EXIT")
-    if len(p.stdout)>65536: fail(stage+"__OUTPUT_CAP")
+    if len(p.stdout)>cap: fail(stage+"__OUTPUT_CAP")
     try:
         return p.stdout.decode("utf-8","strict")
     except UnicodeDecodeError:
@@ -66,7 +66,7 @@ prerequisites[1]["provides_token"]=matches[0]
 base="/usr/lib/auto-tundra/third-party-licenses/ui/duckdb-runtime/"
 paths={"elf":"/usr/bin/auto-tundra", "archive":base+"native-emscripten-libnoexit.a", "notice":base+"native-emscripten-LICENSE", "cell":base+"native-emscripten-libnoexit-cell.json"}
 expected={"elf":elf_sha,"archive":archive_sha,"notice":notice_sha,"cell":cell_sha}
-listed=set(cmd(["dpkg-query","-L","auto-tundra"],"DPKG_QUERY_PACKAGE_LIST").splitlines())
+listed=set(cmd(["dpkg-query","-L","auto-tundra"],"DPKG_QUERY_PACKAGE_LIST",131072).splitlines())
 owner_stages={"elf":"DPKG_QUERY_OWNER_ELF","archive":"DPKG_QUERY_OWNER_ARCHIVE","notice":"DPKG_QUERY_OWNER_NOTICE","cell":"DPKG_QUERY_OWNER_CELL"}
 for key,path in paths.items():
     if path not in listed: fail("DPKG_LIST_MISSING")
