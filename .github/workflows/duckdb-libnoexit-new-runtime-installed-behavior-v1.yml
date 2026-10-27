@@ -46,7 +46,7 @@ jobs:
             test -f "$path" && test ! -L "$path"
           done
           printf '%s  %s\n' \
-            91a8e06c92eda6efb7358a1449d9c5f8ff65dbfebb18e5f56bed045818d8b026 .github/scripts/duckdb-libnoexit-new-runtime-installed-behavior-v1.nu \
+            28bb24d9cb0f64a2b899a4bad41326bbab40d2bc1979a734d5164dbf70b9e83f .github/scripts/duckdb-libnoexit-new-runtime-installed-behavior-v1.nu \
             e5395df7ec250d8ad71a55df387bb3f647703b351cebb8d5388636485ce08f03 .github/receipts/duckdb-libnoexit-new-runtime-installed-behavior-v1.json \
             | sha256sum --check --status
       - name: Install checksum-pinned MIT Nushell
