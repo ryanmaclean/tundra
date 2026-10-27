@@ -114,14 +114,30 @@ def trace_prefix_pid [line: string] {
 export def classify_root_python_terminal [lines: list<string>, wrapper_status: int] {
   let unknown = {root_python_terminal: 'ROOT_TERMINAL_UNPROVEN', root_python_signal: 'UNPROVEN', root_python_terminal_count: 0, root_python_wrapper_join: 'UNPROVEN'}
   if ($lines | length) > 200000 { return ($unknown | merge {root_python_terminal: 'ROOT_TRACE_LINE_CAP'}) }
-  # -f with -o prefixes every tracee line with a PID. One successful Python
-  # execve is required before any terminal event can be attributed to it.
-  let python = ($lines | where {|line| $line =~ 'execve\("[^"\n]*/python3",'})
-  if ($python | length) != 1 { return ($unknown | merge {root_python_terminal: 'ROOT_EXECVE_COUNT_UNPROVEN'}) }
-  let root_line = ($python | first)
-  if (classify_python_execve_line $root_line) != 'ZERO_TEXT' { return ($unknown | merge {root_python_terminal: 'ROOT_EXECVE_RETURN_UNPROVEN'}) }
+  if ($lines | is-empty) { return $unknown }
+  # strace -f -o starts at the command's execve. Failed PATH probes may
+  # precede its success, but no child can run before that successful execve.
+  # Require a complete prefix so a later Python descendant cannot pose as root.
+  let first_pid = (trace_prefix_pid ($lines | first))
+  if $first_pid == '' or ($lines | first) !~ '^\s*(\[pid\s+[1-9][0-9]*\]\s*|[1-9][0-9]*\s+)execve\(' {
+    return ($unknown | merge {root_python_terminal: 'ROOT_INITIAL_EXECVE_UNPROVEN'})
+  }
+  let execs = ($lines | enumerate | where {|row| $row.item =~ '^\s*(\[pid\s+[1-9][0-9]*\]\s*|[1-9][0-9]*\s+)execve\('})
+  if ($execs | length) > 64 { return ($unknown | merge {root_python_terminal: 'ROOT_EXECVE_SCAN_CAP'}) }
+  let successes = ($execs | where {|row| (classify_python_execve_line $row.item) == 'ZERO_TEXT'})
+  if ($successes | is-empty) { return ($unknown | merge {root_python_terminal: 'ROOT_EXECVE_RETURN_UNPROVEN'}) }
+  let root = ($successes | first)
+  let root_line = $root.item
   let root_pid = (trace_prefix_pid $root_line)
-  if $root_pid == '' { return ($unknown | merge {root_python_terminal: 'ROOT_PID_UNPROVEN'}) }
+  if $root_pid != $first_pid { return ($unknown | merge {root_python_terminal: 'ROOT_PID_UNPROVEN'}) }
+  let expected = '^\s*(\[pid\s+[1-9][0-9]*\]\s*|[1-9][0-9]*\s+)execve\("/[^"\n]*/python3", \["python3", "/emsdk/upstream/emscripten/tools/maint/gen_sig_info\.py", "-o", "/out/traced/library_sigs\.js"\], '
+  if $root_line !~ $expected { return ($unknown | merge {root_python_terminal: 'ROOT_GENERATOR_ARGV_UNPROVEN'}) }
+  let before = ($lines | take $root.index)
+  if ($before | any {|line| (trace_prefix_pid $line) != $root_pid or (classify_python_execve_line $line) != 'NONZERO_TEXT'}) {
+    return ($unknown | merge {root_python_terminal: 'ROOT_EXECVE_PREFIX_UNPROVEN'})
+  }
+  let later_root_exec = ($lines | skip ($root.index + 1) | any {|line| (trace_prefix_pid $line) == $root_pid and $line =~ 'execve\(|<\.\.\. execve resumed>'})
+  if $later_root_exec { return ($unknown | merge {root_python_terminal: 'ROOT_REEXEC_UNPROVEN'}) }
   let terminal_lines = ($lines | where {|line| $line =~ '^\s*(\[pid\s+[0-9]+\]|[0-9]+)\s+\+\+\+ (exited with|killed by)'})
   if ($terminal_lines | length) > 4096 { return ($unknown | merge {root_python_terminal: 'ROOT_TERMINAL_SCAN_CAP'}) }
   let root_terminal = ($terminal_lines | where {|line| (trace_prefix_pid $line) == $root_pid})
