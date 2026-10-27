@@ -35,6 +35,20 @@ export def verify_file [path: string, expected_size: int, expected_sha: string] 
   }
 }
 
+export def verify_required_file [stage: string, path: string, expected_size: int, expected_sha: string] {
+  let stages = ['PINNED_GENERATOR' 'TRACKED_OUTPUT' 'GENERATED_OUTPUT' 'EH_IMAGE_COPY' 'EH_CLEAN_COPY']
+  if $stage not-in $stages { error make {msg: 'REQUIRED_STAGE_UNCLASSIFIED'} }
+  try {
+    verify_file $path $expected_size $expected_sha
+  } catch {|e|
+    let reason = ($e.msg | default 'UNKNOWN')
+    if $reason in ['FILE_MISSING' 'FILE_DRIFT' 'HASH_FAILED'] {
+      error make {msg: $"($stage)_($reason)"}
+    }
+    error make {msg: 'REQUIRED_FILE_UNCLASSIFIED'}
+  }
+}
+
 export def trace_shape [path: string, cap: int] {
   if not ($path | path exists) { error make {msg: 'TRACE_MISSING'} }
   let item = (ls -l $path | first)
@@ -74,8 +88,8 @@ def inside [ledger_path: string, receipt: string] {
   let ledger = (open $ledger_path)
   let source = '/emsdk/upstream/emscripten'
   try {
-    verify_file $"($source)/($ledger.generator_path)" 12317 $ledger.generator_sha256
-    verify_file $"($source)/($ledger.output_path)" $ledger.output_size $ledger.output_sha256
+    verify_required_file PINNED_GENERATOR $"($source)/($ledger.generator_path)" 12317 $ledger.generator_sha256
+    verify_required_file TRACKED_OUTPUT $"($source)/($ledger.output_path)" $ledger.output_size $ledger.output_sha256
     if (file_sha $"($source)/($ledger.notice_path)") != $ledger.notice_sha256 {
       error make {msg: 'NOTICE_DRIFT'}
     }
@@ -90,9 +104,9 @@ def inside [ledger_path: string, receipt: string] {
       error make {msg: 'GENERATOR_LOG_CAP'}
     }
     let shape = (trace_shape /out/trace.raw $ledger.trace_cap_bytes)
-    verify_file /out/library_sigs.js $ledger.output_size $ledger.output_sha256
-    verify_file /tool/image-library_sigs.js $ledger.output_size $ledger.output_sha256
-    verify_file /tool/clean-library_sigs.js $ledger.output_size $ledger.output_sha256
+    verify_required_file GENERATED_OUTPUT /out/library_sigs.js $ledger.output_size $ledger.output_sha256
+    verify_required_file EH_IMAGE_COPY /tool/image-library_sigs.js $ledger.output_size $ledger.output_sha256
+    verify_required_file EH_CLEAN_COPY /tool/clean-library_sigs.js $ledger.output_size $ledger.output_sha256
     let parity = ((^cmp -s /out/library_sigs.js $"($source)/($ledger.output_path)" | complete).exit_code == 0)
       and ((^cmp -s /out/library_sigs.js /tool/image-library_sigs.js | complete).exit_code == 0)
       and ((^cmp -s /out/library_sigs.js /tool/clean-library_sigs.js | complete).exit_code == 0)
@@ -137,6 +151,11 @@ def inside [ledger_path: string, receipt: string] {
       'DIRFD_UNRESOLVED' 'SPLIT_SYSCALL_UNRESOLVED'
       'OTHER_PATH_MECHANISM_UNRESOLVED' 'OUTPUT_BYTES_DIFFER'
       'PINNED_INPUT_CHANGED' 'GENERATOR_LOG_CAP'
+      'PINNED_GENERATOR_FILE_MISSING' 'PINNED_GENERATOR_FILE_DRIFT' 'PINNED_GENERATOR_HASH_FAILED'
+      'TRACKED_OUTPUT_FILE_MISSING' 'TRACKED_OUTPUT_FILE_DRIFT' 'TRACKED_OUTPUT_HASH_FAILED'
+      'GENERATED_OUTPUT_FILE_MISSING' 'GENERATED_OUTPUT_FILE_DRIFT' 'GENERATED_OUTPUT_HASH_FAILED'
+      'EH_IMAGE_COPY_FILE_MISSING' 'EH_IMAGE_COPY_FILE_DRIFT' 'EH_IMAGE_COPY_HASH_FAILED'
+      'EH_CLEAN_COPY_FILE_MISSING' 'EH_CLEAN_COPY_FILE_DRIFT' 'EH_CLEAN_COPY_HASH_FAILED'
     ]
     let message = ($e.msg | default 'UNKNOWN')
     if $message in $allowed { refusal $receipt $message } else { refusal $receipt 'UNCLASSIFIED_FAILURE' }
