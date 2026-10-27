@@ -1982,6 +1982,7 @@ jobs:
               'schema': 'tundra-eh-child-trace-canary/v1',
               'status': 'REFUSED',
               'reason': 'NOT_STARTED',
+              'reason_subcode': 'NOT_EVALUATED',
               'scope': 'PINNED_TRACER_PYTHON_NODE_SENTINEL_ONLY',
               'run_id': os.environ.get('GITHUB_RUN_ID', ''),
               'run_attempt': os.environ.get('GITHUB_RUN_ATTEMPT', ''),
@@ -2035,23 +2036,56 @@ jobs:
               resource.setrlimit(resource.RLIMIT_FSIZE, (raw_cap, raw_cap))
           def parse_trace(raw, python_path, node_path, sentinel_path, sentinel_len):
               lines = raw.splitlines()
+              shape = {
+                  'line_count': len(lines), 'pid_prefixed_lines': 0,
+                  'unique_pid_count': 0, 'execve_lines': 0,
+                  'execve_success_lines': 0, 'execve_nonzero_lines': 0,
+                  'execve_unfinished_lines': 0, 'execve_resumed_lines': 0,
+                  'expected_python_execve_lines': 0,
+                  'expected_node_execve_lines': 0,
+                  'expected_python_execve_success': 0,
+                  'expected_node_execve_success': 0,
+                  'other_execve_success': 0,
+              }
+              receipt['trace_shape'] = shape
               require(0 < len(lines) <= 20000, 'TRACE_LINE_COUNT')
               roles = {}
               exited = set()
               sentinel_fds = set()
               sentinel_opens = 0
               reads = 0
+              pids = set()
               for line in lines:
                   match = re.match(r'^\s*(?:\[pid\s+)?(\d+)(?:\])?\s+(.*)$', line)
+                  if match is None: receipt['reason_subcode'] = 'PID_PREFIX_SHAPE'
                   require(match is not None, 'TRACE_LINE_FORMAT')
                   pid, body = match.group(1), match.group(2)
-                  if body.startswith('execve(') and body.rstrip().endswith('= 0'):
-                      if body.startswith('execve("' + str(python_path) + '"'):
+                  pids.add(pid)
+                  shape['pid_prefixed_lines'] += 1
+                  shape['unique_pid_count'] = len(pids)
+                  if body.startswith('<... execve resumed>'):
+                      shape['execve_resumed_lines'] += 1
+                  if body.startswith('execve('):
+                      shape['execve_lines'] += 1
+                      if '<unfinished ...>' in body:
+                          shape['execve_unfinished_lines'] += 1
+                      success = body.rstrip().endswith('= 0')
+                      if success: shape['execve_success_lines'] += 1
+                      elif '<unfinished ...>' not in body: shape['execve_nonzero_lines'] += 1
+                      python_match = body.startswith('execve("' + str(python_path) + '"')
+                      node_match = body.startswith('execve("' + str(node_path) + '"')
+                      if python_match: shape['expected_python_execve_lines'] += 1
+                      if node_match: shape['expected_node_execve_lines'] += 1
+                      if success and python_match:
+                          shape['expected_python_execve_success'] += 1
                           require('python' not in roles, 'MULTIPLE_PYTHON_EXEC')
                           roles['python'] = pid
-                      elif body.startswith('execve("' + str(node_path) + '"'):
+                      elif success and node_match:
+                          shape['expected_node_execve_success'] += 1
                           require('node' not in roles, 'MULTIPLE_NODE_EXEC')
                           roles['node'] = pid
+                      elif success:
+                          shape['other_execve_success'] += 1
                   if body.startswith('exit_group(0)'):
                       exited.add(pid)
                   if pid == roles.get('node') and body.startswith('openat('):
@@ -2067,10 +2101,21 @@ jobs:
                       read = re.match(r'^read\((\d+),.*\)\s+=\s+(\d+)\s*$', body)
                       if read and read.group(1) in sentinel_fds and int(read.group(2)) == sentinel_len:
                           reads += 1
-              require(set(roles) == {'python', 'node'} and roles['python'] != roles['node'],
-                      'CHILD_EXEC_NOT_PROVED')
+              if set(roles) != {'python', 'node'} or roles['python'] == roles['node']:
+                  if shape['execve_success_lines'] == 0:
+                      receipt['reason_subcode'] = 'NO_SUCCESSFUL_EXECVE_LINE'
+                  elif not roles:
+                      receipt['reason_subcode'] = 'NO_EXPECTED_EXECVE_SUCCESS'
+                  elif 'python' not in roles:
+                      receipt['reason_subcode'] = 'PYTHON_EXECVE_SUCCESS_NOT_PROVED'
+                  elif 'node' not in roles:
+                      receipt['reason_subcode'] = 'NODE_EXECVE_SUCCESS_NOT_PROVED'
+                  else:
+                      receipt['reason_subcode'] = 'EXECVE_PID_COLLISION'
+                  raise Refusal('CHILD_EXEC_NOT_PROVED')
               require(roles['python'] in exited and roles['node'] in exited, 'CHILD_EXIT_NOT_PROVED')
               require(sentinel_opens == 1 and reads >= 1, 'NODE_SENTINEL_READ_NOT_PROVED')
+              receipt['reason_subcode'] = 'CONTROLLED_CHILD_PROVED'
               return {'python_execve': 1, 'node_execve': 1, 'node_sentinel_open': 1,
                       'node_sentinel_full_read': reads, 'normal_exit_roles': 2}
           def safe_run(argv, env, timeout):
