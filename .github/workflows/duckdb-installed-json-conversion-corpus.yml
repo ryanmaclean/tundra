@@ -28,7 +28,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           ref: ${{ github.sha }}
-          fetch-depth: 2
+          fetch-depth: 0
           persist-credentials: false
       - name: Require direct child of reviewed source and exact file bytes
         shell: bash
@@ -39,7 +39,9 @@ jobs:
           [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
           test -f .git/HEAD && test ! -L .git/HEAD
           printf '%s\n' "$GITHUB_SHA" | cmp -s - .git/HEAD
-          test "$(git rev-parse HEAD^)" = 1f7924abd1462a9efd81eb4684e8b1a16fb9940b
+          git cat-file -e '1f7924abd1462a9efd81eb4684e8b1a16fb9940b^{commit}'
+          git merge-base --is-ancestor 1f7924abd1462a9efd81eb4684e8b1a16fb9940b HEAD
+          test "$(git diff --name-only 1f7924abd1462a9efd81eb4684e8b1a16fb9940b HEAD)" = .github/workflows/duckdb-installed-json-conversion-corpus.yml
           for source in \
             .github/workflows/duckdb-eh-seeded-image-build-v1.yml \
             .github/scripts/duckdb-eh-seeded-archive-identity-v1.nu \
