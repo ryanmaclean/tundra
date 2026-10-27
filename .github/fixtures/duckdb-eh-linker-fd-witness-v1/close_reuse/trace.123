@@ -1,0 +1,7 @@
+execve("/emsdk/upstream/bin/wasm-ld", ["/emsdk/upstream/bin/wasm-ld"], 0x7fff) = 0
+openat(AT_FDCWD, "/work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a", O_RDONLY|O_CLOEXEC) = 3</work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a>
+close(3</work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a>) = 0
+openat(AT_FDCWD, "/tmp/other", O_RDONLY) = 3</tmp/other>
+read(3</tmp/other>, "x", 1644) = 1644
+exit_group(0) = ?
++++ exited with 0 +++

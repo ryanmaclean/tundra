@@ -1,0 +1,12 @@
+--- a/lib/src/webdb.cc
++++ b/lib/src/webdb.cc
+@@ -128,6 +128,9 @@
+         // Write the record batch
+         ARROW_RETURN_NOT_OK(writer->WriteRecordBatch(*batch));
+     }
++    if (result->HasError()) {
++        return arrow::Status{arrow::StatusCode::ExecutionError, std::move(result->GetError())};
++    }
+     ARROW_RETURN_NOT_OK(writer->Close());
+     return out->Finish();
+ }

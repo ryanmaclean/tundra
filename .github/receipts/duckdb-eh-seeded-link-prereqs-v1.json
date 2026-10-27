@@ -1,0 +1,47 @@
+{
+  "schema": "tundra-eh-seeded-link-prerequisites/v1",
+  "status": "REFUSED_DEPENDENCIES_UNSTAGED",
+  "runnable": "NO",
+  "scope": "CONTROLLED_IMAGE_ONLY_FUTURE_EH_TRACE",
+  "producer": {
+    "run_id": 40536996581,
+    "attempt": 1,
+    "head": "7c8a9cbad78e1fbcdfedb301b8e579c98dbec7d8",
+    "artifact_id": 12748008032,
+    "zip_sha256": "0f051bf7adec09d86d786e5642c4ef89018da6958ab04094264c52ae8bd7ab57",
+    "selected_member": "image-libnoexit.a",
+    "selected_member_sha256": "fdaa14b94400917928bc73415535f02244549987beb92719882bcc905b4280fe"
+  },
+  "linker_preflight": {
+    "run_id": 40549577194,
+    "head": "53d6f5af4d0ebbad18c24672f777ebb70a69417d",
+    "configured_path": "/emsdk/upstream/bin/wasm-ld",
+    "resolved_path": "/emsdk/upstream/bin/lld",
+    "target_elf_sha256": "6e5c12aab29b80db118acd16c08953257683ed11c415970f8320ed777997eec7"
+  },
+  "pr138_source_heads": {
+    "source": "0bb7c5237dc1b047de488d67ba30b5ed05c37383",
+    "custody": "1d77df7776dca44731ae8267092e480a78f9f735",
+    "duckdb_wasm": "f955138e5218942fb3fb097a8fdcb725222406ff",
+    "duckdb_submodule": "401c8061c6ece35949cac58c7770cc755710ca86",
+    "arrow_submodule": "ca1c30f60d6419849dbc2a533bd0bcaff310185f"
+  },
+  "image": "emscripten/emsdk:3.1.48@sha256:c952f592577a428698cb990c9656f395ae34424740f9c40bed4c3ee6d4850d29",
+  "missing_same_run_proofs": [
+    "PR138_SOURCE_PATCH_REPLAY_AND_BUILD_TREE",
+    "FRESH_IMAGE_CONDITION_CACHE_AND_SETTINGS_DERIVED_SEED_PATH",
+    "ARCHIVE_DEVICE_INODE_SIZE_SHA_BEFORE_AND_AFTER_LINK",
+    "PINNED_STRACE_LOADER_ABI_AND_SAME_RUN_CHILD_CANARY",
+    "COMPLETE_BOUNDED_PER_PID_TRACE_AND_RAW_TRACE_DELETION",
+    "DIRECT_LINKER_PID_FD_POSITIVE_READ_PARSER_JOIN",
+    "FRESH_SAME_RUN_MAP_JS_WASM_AND_ARCHIVE_MEMBER_MAP_JOIN"
+  ],
+  "other_sdk_archive_keys_pending": 8,
+  "actual_eh_linker_child": "UNPROVEN",
+  "linker_archive_read": "UNPROVEN",
+  "same_run_eh_outputs": "UNPROVEN",
+  "selected_graph_exhaustive": "NO",
+  "legal_admission": "NO",
+  "product_admission": "NO",
+  "fleet_admission": "NO"
+}
