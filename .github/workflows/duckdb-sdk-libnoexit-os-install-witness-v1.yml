@@ -1,0 +1,250 @@
+name: DuckDB libnoexit disposable OS install witness v1
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  os-install-witness:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/diagnostic/pr151-libnoexit-install-preflight-held-20261027' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        condition: [image, clean]
+        profile: [default, sounds]
+    steps:
+      - name: Initialize fixed refusal
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/libnoexit-install-output"
+          printf 'schema=tundra-sdk-libnoexit-os-install-witness/v1\nstatus=REFUSED\nreason=SOURCE_OR_AUTH_OR_INSTALL_OR_OWNERSHIP_FAILED\npackage_install_verified=NO\nbehavior_cases=NOT_RUN\nlinker_input=UNPROVEN\ngenerator_input_closure=UNPROVEN\nlegal_admission=NO\nproduct_admission=NO\nfleet_admission=NO\n' > "$RUNNER_TEMP/libnoexit-install-output/refusal.txt"
+      - name: Check out exact gate source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Pin source and disposable runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = workflow_dispatch
+          test "$GITHUB_REF" = refs/heads/diagnostic/pr151-libnoexit-install-preflight-held-20261027
+          test "$RUNNER_OS" = Linux && test "$(uname -m)" = x86_64
+          test "$(. /etc/os-release; echo "$ID:$VERSION_ID")" = ubuntu:24.04
+          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test -f .git/HEAD && test ! -L .git/HEAD
+          printf '%s\n' "$GITHUB_SHA" | cmp -s - .git/HEAD
+          for path in \
+            .github/scripts/duckdb-sdk-libnoexit-os-install-preflight-v1.nu \
+            .github/receipts/duckdb-sdk-libnoexit-os-install-preflight-v1.json \
+            .github/scripts/duckdb-sdk-libnoexit-os-install-witness-v1.nu \
+            .github/receipts/duckdb-sdk-libnoexit-os-install-witness-v1.json; do
+            test -f "$path" && test ! -L "$path"
+          done
+          printf '%s  %s\n' \
+            f070573bd130334ad2ccadb3661795bb6276a8547691616f00432ffc8cd79247 .github/scripts/duckdb-sdk-libnoexit-os-install-preflight-v1.nu \
+            bed8ac3ef50793c49990db967d8bcedeb87d6a50be905f08c90c35148c290b58 .github/receipts/duckdb-sdk-libnoexit-os-install-preflight-v1.json \
+            1f81216db730e8f6a56560635d0de8f51ea9755cbb4acabde4d54300d0640dee .github/scripts/duckdb-sdk-libnoexit-os-install-witness-v1.nu \
+            1239e5b88b46d914c4a4a084ca7a614a138b65a88511c52ed9ae3bd31a6fdd0b .github/receipts/duckdb-sdk-libnoexit-os-install-witness-v1.json \
+            | sha256sum --check --status
+      - name: Install checksum-pinned MIT Nushell
+        shell: bash
+        run: |
+          set -euo pipefail
+          tool="$RUNNER_TEMP/tundra-nu-0.115.1"
+          mkdir -p "$tool"
+          archive="$tool/nu.tar.gz"
+          timeout 180s curl --fail --location --silent --show-error \
+            --proto '=https' --proto-redir '=https' --max-time 120 --retry 1 \
+            --max-filesize 90000000 --output "$archive" \
+            https://github.com/nushell/nushell/releases/download/0.115.1/nu-0.115.1-x86_64-unknown-linux-musl.tar.gz
+          test "$(stat -c %s "$archive")" = 83545998
+          printf '%s  %s\n' 8a9722177ddd421eba927b4baae4ae341a4d1c3434504be7b1b17d998bafdd87 "$archive" | sha256sum --check --status
+          tar -xOzf "$archive" nu-0.115.1-x86_64-unknown-linux-musl/nu > "$tool/nu"
+          tar -xOzf "$archive" nu-0.115.1-x86_64-unknown-linux-musl/LICENSE > "$tool/LICENSE"
+          test "$(stat -c %s "$tool/nu")" = 70750360
+          printf '%s  %s\n' \
+            c343a927a2d4a45ebf9300d013b226bcdc2598ecb0178a8a79722ebffe71e56e "$tool/nu" \
+            ff5dcaaba6140ec57cafdd4f707cd0d329e727477cf7d5b9ba7a244ec2678b79 "$tool/LICENSE" \
+            | sha256sum --check --status
+          grep -Fxq 'MIT License' "$tool/LICENSE"
+          chmod 0700 "$tool/nu"
+          test "$("$tool/nu" --version)" = 0.115.1
+          echo "$tool" >> "$GITHUB_PATH"
+      - name: Authenticate all four exact PR148 artifacts and package structures
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/libnoexit-install-input"
+          mkdir -p "$root"
+          gh api repos/ryanmaclean/tundra/actions/runs/40548891504 > "$root/run.json"
+          for cell in image-default image-sounds clean-default clean-sounds; do
+            case "$cell" in
+              image-default) id=12757172012 ;;
+              image-sounds) id=12754383765 ;;
+              clean-default) id=12757820632 ;;
+              clean-sounds) id=12757479434 ;;
+              *) exit 1 ;;
+            esac
+            mkdir "$root/$cell"
+            gh api "repos/ryanmaclean/tundra/actions/artifacts/$id" > "$root/$cell/artifact.json"
+            jq -e --argjson id "$id" '.id == $id and .expired == false and .size_in_bytes <= 20971520' "$root/$cell/artifact.json" >/dev/null
+            gh api "repos/ryanmaclean/tundra/actions/artifacts/$id/zip" > "$root/$cell/artifact.zip"
+            test "$(stat -c %s "$root/$cell/artifact.zip")" -le 20971520
+          done
+          nu .github/scripts/duckdb-sdk-libnoexit-os-install-preflight-v1.nu all \
+            .github/receipts/duckdb-sdk-libnoexit-os-install-preflight-v1.json \
+            "$root/run.json" "$root" "$root/four-preflight.json"
+          jq -e '.status == "FOUR_ARTIFACTS_AND_DEB_STRUCTURES_ONLY" and
+            .package_install_verified == "NO" and .linker_input == "UNPROVEN" and
+            .legal_admission == "NO" and .product_admission == "NO" and .fleet_admission == "NO"' \
+            "$root/four-preflight.json" >/dev/null
+          unzip -p "$root/${{ matrix.condition }}-${{ matrix.profile }}/artifact.zip" package.deb > "$root/package.deb"
+          test -f "$root/package.deb" && test ! -L "$root/package.deb"
+          jq -r --arg condition '${{ matrix.condition }}' --arg profile '${{ matrix.profile }}' \
+            '.cells[] | select(.condition == $condition and .profile == $profile) | .deb_sha256' \
+            .github/receipts/duckdb-sdk-libnoexit-os-install-witness-v1.json > "$root/expected-sha"
+          test "$(wc -l < "$root/expected-sha")" -eq 1
+          printf '%s  %s\n' "$(cat "$root/expected-sha")" "$root/package.deb" | sha256sum --check --status
+      - name: Prepare the two declared Ubuntu package dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/libnoexit-install-input"
+          output="$RUNNER_TEMP/libnoexit-install-output"
+          provides_old_gtk() {
+            local count
+            count="$(printf '%s\n' "$1" | tr ',' '\n' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' | grep -Ec '^libgtk-3-0( \(= [^ )]+\))?$' || true)"
+            test "$count" = 1
+          }
+          refuse_apt() {
+            printf 'schema=tundra-sdk-libnoexit-os-install-witness/v1\nstatus=REFUSED\nreason=%s\napt_command_exit_code=%s\npackage_install_verified=NO\nbehavior_cases=NOT_RUN\nlinker_input=UNPROVEN\ngenerator_input_closure=UNPROVEN\nlegal_admission=NO\nproduct_admission=NO\nfleet_admission=NO\n' "$1" "$2" > "$output/refusal.txt"
+            exit 1
+          }
+          if timeout 180s sudo -n apt-get update -qq > "$root/apt-update.stdout" 2> "$root/apt-update.stderr"; then
+            update_rc=0
+          else
+            update_rc=$?
+          fi
+          test "$(stat -c %s "$root/apt-update.stdout")" -le 262144 || refuse_apt PREREQ_UPDATE_OUTPUT_CAP "$update_rc"
+          test "$(stat -c %s "$root/apt-update.stderr")" -le 262144 || refuse_apt PREREQ_UPDATE_OUTPUT_CAP "$update_rc"
+          test "$update_rc" -eq 0 || refuse_apt PREREQ_UPDATE_COMMAND_NONZERO "$update_rc"
+          if webkit_version="$(timeout 15s apt-cache policy libwebkit2gtk-4.1-0 | awk '$1 == "Candidate:" { print $2 }')" && \
+             gtk_version="$(timeout 15s apt-cache policy libgtk-3-0t64 | awk '$1 == "Candidate:" { print $2 }')"; then
+            :
+          else
+            refuse_apt PREREQ_CANDIDATE_QUERY_NONZERO 0
+          fi
+          [[ "$webkit_version" =~ ^[0-9][A-Za-z0-9.+:~_-]*$ ]] || refuse_apt PREREQ_CANDIDATE_MISSING 0
+          [[ "$gtk_version" =~ ^[0-9][A-Za-z0-9.+:~_-]*$ ]] || refuse_apt PREREQ_CANDIDATE_MISSING 0
+          if timeout 15s apt-cache show "libgtk-3-0t64=$gtk_version" > "$root/gtk-provider.control" 2> /dev/null; then
+            :
+          else
+            refuse_apt PREREQ_PROVIDER_METADATA_MISSING 0
+          fi
+          test "$(stat -c %s "$root/gtk-provider.control")" -le 65536 || refuse_apt PREREQ_PROVIDER_METADATA_CAP 0
+          test "$(grep -Fxc 'Package: libgtk-3-0t64' "$root/gtk-provider.control" || true)" = 1 || refuse_apt PREREQ_PROVIDER_IDENTITY 0
+          test "$(grep -Fxc "Version: $gtk_version" "$root/gtk-provider.control" || true)" = 1 || refuse_apt PREREQ_PROVIDER_IDENTITY 0
+          test "$(grep -Fxc 'Architecture: amd64' "$root/gtk-provider.control" || true)" = 1 || refuse_apt PREREQ_PROVIDER_IDENTITY 0
+          provides="$(sed -n 's/^Provides: //p' "$root/gtk-provider.control")"
+          if test "$(printf '%s\n' "$provides" | wc -l)" -eq 1 && provides_old_gtk "$provides"; then
+            :
+          else
+            refuse_apt PREREQ_PROVIDER_RELATION 0
+          fi
+          if timeout 600s sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            "libwebkit2gtk-4.1-0=$webkit_version" "libgtk-3-0t64=$gtk_version" \
+            > "$root/apt-install.stdout" 2> "$root/apt-install.stderr"; then
+            prepare_rc=0
+          else
+            prepare_rc=$?
+          fi
+          test "$(stat -c %s "$root/apt-install.stdout")" -le 262144 || refuse_apt PREREQ_INSTALL_OUTPUT_CAP "$prepare_rc"
+          test "$(stat -c %s "$root/apt-install.stderr")" -le 262144 || refuse_apt PREREQ_INSTALL_OUTPUT_CAP "$prepare_rc"
+          test "$prepare_rc" -eq 0 || refuse_apt PREREQ_INSTALL_COMMAND_NONZERO "$prepare_rc"
+          test "$(dpkg-query -W -f='${db:Status-Abbrev}\t${Version}' libwebkit2gtk-4.1-0)" = $'ii \t'"$webkit_version" || refuse_apt PREREQ_STATUS_DRIFT 0
+          test "$(dpkg-query -W -f='${db:Status-Abbrev}\t${Version}' libgtk-3-0t64)" = $'ii \t'"$gtk_version" || refuse_apt PREREQ_STATUS_DRIFT 0
+          installed_provides="$(dpkg-query -W -f='${Provides}' libgtk-3-0t64)"
+          provides_old_gtk "$installed_provides" || refuse_apt PREREQ_PROVIDER_RELATION 0
+      - name: Install authenticated package only on disposable GitHub runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/libnoexit-install-input"
+          if timeout 180s sudo -n env DEBIAN_FRONTEND=noninteractive dpkg -i -- "$root/package.deb" \
+            > "$root/dpkg.stdout" 2> "$root/dpkg.stderr"; then
+            install_rc=0
+          else
+            install_rc=$?
+          fi
+          test "$(stat -c %s "$root/dpkg.stdout")" -le 65536
+          test "$(stat -c %s "$root/dpkg.stderr")" -le 65536
+          if test "$install_rc" -ne 0; then
+            [[ "$install_rc" =~ ^[0-9]{1,3}$ ]] && test "$install_rc" -le 255
+            printf 'schema=tundra-sdk-libnoexit-os-install-witness/v1\nstatus=REFUSED\nreason=INSTALL_COMMAND_NONZERO\ninstall_exit_code=%s\npackage_install_verified=NO\nbehavior_cases=NOT_RUN\nlinker_input=UNPROVEN\ngenerator_input_closure=UNPROVEN\nlegal_admission=NO\nproduct_admission=NO\nfleet_admission=NO\n' "$install_rc" > "$RUNNER_TEMP/libnoexit-install-output/refusal.txt"
+            exit 1
+          fi
+          nu .github/scripts/duckdb-sdk-libnoexit-os-install-witness-v1.nu \
+            .github/receipts/duckdb-sdk-libnoexit-os-install-witness-v1.json \
+            '${{ matrix.condition }}' '${{ matrix.profile }}' "$root/package.deb" \
+            "$root/four-preflight.json" "$RUNNER_TEMP/libnoexit-install-output/receipt.json" \
+            "$RUNNER_TEMP/libnoexit-install-output/refusal.txt"
+          test "$(stat -c %s "$RUNNER_TEMP/libnoexit-install-output/receipt.json")" -le 8192
+          rm -f -- "$root/dpkg.stdout" "$root/dpkg.stderr"
+      - name: Prove ephemeral cleanup before selecting any artifact
+        if: always()
+        shell: bash
+        env:
+          PRIOR_JOB_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/libnoexit-install-input"
+          output="$RUNNER_TEMP/libnoexit-install-output"
+          cleanup_ok=NO
+          if rm -rf -- "$root" && test ! -e "$root" && test ! -L "$root"; then
+            cleanup_ok=YES
+          fi
+          if test "$cleanup_ok" != YES; then
+            rm -f -- "$output/receipt.json" "$output/receipt-final.json" || true
+            printf 'schema=tundra-sdk-libnoexit-os-install-witness/v1\nstatus=REFUSED\nreason=EPHEMERAL_CLEANUP_UNPROVEN\npackage_install_verified=NO\nbehavior_cases=NOT_RUN\nlinker_input=UNPROVEN\ngenerator_input_closure=UNPROVEN\nlegal_admission=NO\nproduct_admission=NO\nfleet_admission=NO\n' > "$output/refusal.txt"
+            exit 1
+          fi
+          if test "$PRIOR_JOB_STATUS" = success; then
+            test -f "$output/receipt.json" && test ! -L "$output/receipt.json"
+            jq -e 'select(.status == "DISPOSABLE_DPKG_OWNERSHIP_AND_BYTES_ONLY" and
+              .package_install_verified == "YES_DISPOSABLE_RUNNER_ONLY" and
+              .behavior_cases == "NOT_RUN" and .linker_input == "UNPROVEN" and
+              .legal_admission == "NO" and .product_admission == "NO" and
+              .fleet_admission == "NO") | . + {ephemeral_cleanup: "PROVEN"}' \
+              "$output/receipt.json" > "$output/receipt-final.tmp"
+            test "$(stat -c %s "$output/receipt-final.tmp")" -le 8192
+            mv -- "$output/receipt-final.tmp" "$output/receipt-final.json"
+            rm -f -- "$output/receipt.json"
+          else
+            rm -f -- "$output/receipt.json" "$output/receipt-final.tmp" "$output/receipt-final.json"
+          fi
+      - name: Retain bounded ownership witness only after cleanup proof
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: duckdb-libnoexit-os-install-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.condition }}-${{ matrix.profile }}
+          path: ${{ runner.temp }}/libnoexit-install-output/receipt-final.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Retain fixed refusal only
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: duckdb-libnoexit-os-install-refusal-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.condition }}-${{ matrix.profile }}
+          path: ${{ runner.temp }}/libnoexit-install-output/refusal.txt
+          if-no-files-found: error
+          retention-days: 14
