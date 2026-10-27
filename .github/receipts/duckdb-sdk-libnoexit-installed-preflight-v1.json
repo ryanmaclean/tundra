@@ -1,0 +1,43 @@
+{
+  "schema": "tundra-sdk-libnoexit-installed-preflight/v1",
+  "scope": "PRODUCER_AUTH_AND_FUTURE_CELL_MANIFEST_ONLY",
+  "producer": {
+    "repository": "ryanmaclean/tundra",
+    "run": 40536996581,
+    "attempt": 1,
+    "head": "7c8a9cbad78e1fbcdfedb301b8e579c98dbec7d8",
+    "artifact_id": 12748008032,
+    "artifact_name": "duckdb-sdk-libnoexit-controlled-v2-40536996581-1",
+    "zip_bytes": 7075,
+    "zip_sha256": "0f051bf7adec09d86d786e5642c4ef89018da6958ab04094264c52ae8bd7ab57",
+    "receipt_sha256": "f5718291d87d7ee9c6c7dd1092ab1102c13703c53b1989408f9ca6a8ca5a5b5e",
+    "notice_sha256": "620a78084fc7ca97c0b5dea9abf891f3ffcadfdbf305276f099c9c4e12fc1d86",
+    "source_commit": "e967e20b4727956a30592165a3c1cde5c67fa0a8",
+    "source_sha256": "7d085afbb2951dad60c4567319ae5299b669dc261767ea11f8760981c3324fb9",
+    "image_digest": "emscripten/emsdk:3.1.48@sha256:c952f592577a428698cb990c9656f395ae34424740f9c40bed4c3ee6d4850d29",
+    "archive_sha256": "fdaa14b94400917928bc73415535f02244549987beb92719882bcc905b4280fe",
+    "object_sha256": "d58194aea8fda6a000d2aa479617837afc6a7d527dcc670060bd7faade9d2ea1"
+  },
+  "retired": {
+    "producer_run": 40434996466,
+    "installed_run": 40442338363,
+    "installed_artifact_ids": [12707397953, 12707094239, 12708117533, 12708990037]
+  },
+  "installed_notice_path": "third-party-licenses/ui/duckdb-runtime/native-emscripten-LICENSE",
+  "future_cells": [
+    {"condition":"image","profile":"default","key":"image/sdk/libnoexit.a/__archive__/1","status":"NOT_BUILT","retired_artifact_id":12707397953,"retired_zip_sha256":"78bce8eec78e007edfc675dde994d1cd850372a23bfe769bb38b02ffb2b9f7e3"},
+    {"condition":"image","profile":"sounds","key":"image/sdk/libnoexit.a/__archive__/1","status":"NOT_BUILT","retired_artifact_id":12707094239,"retired_zip_sha256":"2f0f7e11d2cf64a4489e78c6103988f32b4b6139f0282dfd5c80789f2f1c903d"},
+    {"condition":"clean","profile":"default","key":"clean/sdk/libnoexit.a/__archive__/1","status":"NOT_BUILT","retired_artifact_id":12708117533,"retired_zip_sha256":"9b966aee4bffa81be8975d3125182118a4c89de45d3595262254fd1ff3d514fa"},
+    {"condition":"clean","profile":"sounds","key":"clean/sdk/libnoexit.a/__archive__/1","status":"NOT_BUILT","retired_artifact_id":12708990037,"retired_zip_sha256":"4f93ad7d9f440bbb1dc53194c78186e01a6202d8d12e5a3f9b3d418396814ef8"}
+  ],
+  "package_install_verified": "NO",
+  "archive_file_installed": "NO",
+  "linker_input": "UNPROVEN",
+  "object_input_closure": "UNPROVEN",
+  "generator_input_closure": "UNPROVEN",
+  "selected_graph_exhaustive": "NO",
+  "glue_legal_admission": "NO",
+  "legal_admission": "NO",
+  "product_admission": "NO",
+  "fleet_admission": "NO"
+}

@@ -1,0 +1,44 @@
+{
+  "schema": "tundra-sdk-libnoexit-installed-cells/v1",
+  "scope": "FOUR_NEW_PACKAGE_NOTICE_AND_ARCHIVE_EVIDENCE_CELLS_ONLY",
+  "consumer_head": "ad0df7182cd4c9ea4a83bac04e5901de0218d9d0",
+  "old_ui": {
+    "run": 40275385842,
+    "artifact_id": 12630875549,
+    "artifact_name": "leptos-ui-dist",
+    "zip_sha256": "d0f2845347a404c37265b008626bbce4d3b3e97033f3b98383389400b4fe3685",
+    "assets": {
+      "duckdb-browser.mjs": "8ccf3fe3c6bd87d5c3e397f01d40cc11ea6373b016a9cf5e954d39ee22c3aa49",
+      "duckdb-browser-eh.worker.js": "feec83f39202c08eb93e89df8c181bac32d4fb9ffb83a18bc277953e4d2945c4",
+      "duckdb-eh.wasm": "d71b7e4575c98b87e09ac799c574d770aa5ee4df5e6c6cf36b6e277d92b8d2c2",
+      "duckdb-browser-mvp.worker.js": "d7920b73954d99ffa59175db35fe24e7936f8a003144386686b53c853c46eaef",
+      "duckdb-mvp.wasm": "7cf852dcc3c399f34330072a422679f2a5b7fc58c5839d3de0035fc68d9b7791"
+    }
+  },
+  "preflight_schema": "tundra-sdk-libnoexit-installed-preflight-result/v1",
+  "preflight_status": "PRODUCER_BYTES_AUTHENTICATED_ONLY",
+  "producer_run": 40536996581,
+  "producer_artifact_id": 12748008032,
+  "producer_zip_sha256": "0f051bf7adec09d86d786e5642c4ef89018da6958ab04094264c52ae8bd7ab57",
+  "archive_sha256": "fdaa14b94400917928bc73415535f02244549987beb92719882bcc905b4280fe",
+  "object_sha256": "d58194aea8fda6a000d2aa479617837afc6a7d527dcc670060bd7faade9d2ea1",
+  "notice_sha256": "620a78084fc7ca97c0b5dea9abf891f3ffcadfdbf305276f099c9c4e12fc1d86",
+  "notice_resource": "third-party-licenses/ui/duckdb-runtime/native-emscripten-LICENSE",
+  "archive_resource": "third-party-licenses/ui/duckdb-runtime/native-emscripten-libnoexit.a",
+  "cell_resource": "third-party-licenses/ui/duckdb-runtime/native-emscripten-libnoexit-cell.json",
+  "cells": ["image/default", "image/sounds", "clean/default", "clean/sounds"],
+  "retired_package_sha256": [
+    "4a59cb27421939086c8af5594769292e8b8c8ca3196cd7efac8782e7e0fdd28f",
+    "12b6bac4d55381456a32ef9bf13aa18d9231bcaabbad8bcb6c0214868f2090db",
+    "1166cacee360c1d7219d8a8bc2b083a071826c55f57bed779e280bd9b48300a1",
+    "3298bc18016485f8f44218b134cd5285f695a090ca0b87d20c01b1a86147a7ea"
+  ],
+  "max_deb_bytes": 201326592,
+  "max_receipt_bytes": 2097152,
+  "linker_input": "UNPROVEN",
+  "selected_graph_exhaustive": "NO",
+  "generator_input_closure": "UNPROVEN",
+  "legal_admission": "NO",
+  "product_admission": "NO",
+  "fleet_admission": "NO"
+}
