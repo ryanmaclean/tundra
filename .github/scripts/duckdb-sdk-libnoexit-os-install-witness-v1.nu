@@ -45,6 +45,11 @@ def sha(path):
     return h.hexdigest()
 status=cmd(["dpkg-query","-W","-f=${Status}\\t${Version}\\t${Architecture}\\n","auto-tundra"])
 if status!="install ok installed\t0.1.0\tamd64\n": fail("DPKG_STATUS")
+prerequisites=[]
+for name in ("libwebkit2gtk-4.1-0","libgtk-3-0"):
+    row=cmd(["dpkg-query","-W","-f=${Status}\\t${Version}\\t${Architecture}\\n",name]).rstrip("\n").split("\t")
+    if len(row)!=3 or row[0]!="install ok installed" or not row[1] or row[2]!="amd64": fail("PREREQ_STATUS_DRIFT")
+    prerequisites.append({"package":name,"status":row[0],"version":row[1],"architecture":row[2]})
 base="/usr/lib/auto-tundra/third-party-licenses/ui/duckdb-runtime/"
 paths={"elf":"/usr/bin/auto-tundra", "archive":base+"native-emscripten-libnoexit.a", "notice":base+"native-emscripten-LICENSE", "cell":base+"native-emscripten-libnoexit-cell.json"}
 expected={"elf":elf_sha,"archive":archive_sha,"notice":notice_sha,"cell":cell_sha}
@@ -61,11 +66,11 @@ for key,path in paths.items():
     if sha(path)!=expected[key]: fail("INSTALLED_BYTES")
 cell=json.loads(pathlib.Path(paths["cell"]).read_bytes())
 if cell.get("condition")!=condition or cell.get("profile")!=profile or cell.get("archive_linker_input")!="UNPROVEN" or any(cell.get(k)!="NO" for k in ("legal_admission","product_admission","fleet_admission")): fail("INSTALLED_CELL_SCOPE")
-print(json.dumps({"schema":"tundra-sdk-libnoexit-os-install-witness/v1","status":"DISPOSABLE_DPKG_OWNERSHIP_AND_BYTES_ONLY","condition":condition,"profile":profile,"package_sha256":deb_sha,"installed_elf_sha256":elf_sha,"installed_archive_sha256":archive_sha,"installed_notice_sha256":notice_sha,"installed_cell_sha256":cell_sha,"package_install_verified":"YES_DISPOSABLE_RUNNER_ONLY","behavior_cases":"NOT_RUN","linker_input":"UNPROVEN","generator_input_closure":"UNPROVEN","legal_admission":"NO","product_admission":"NO","fleet_admission":"NO"},sort_keys=True))
+print(json.dumps({"schema":"tundra-sdk-libnoexit-os-install-witness/v1","status":"DISPOSABLE_DPKG_OWNERSHIP_AND_BYTES_ONLY","condition":condition,"profile":profile,"package_sha256":deb_sha,"installed_elf_sha256":elf_sha,"installed_archive_sha256":archive_sha,"installed_notice_sha256":notice_sha,"installed_cell_sha256":cell_sha,"prerequisite_packages":prerequisites,"package_install_verified":"YES_DISPOSABLE_RUNNER_ONLY","behavior_cases":"NOT_RUN","linker_input":"UNPROVEN","generator_input_closure":"UNPROVEN","legal_admission":"NO","product_admission":"NO","fleet_admission":"NO"},sort_keys=True))
 '
   let r = (^python3 -c $py $condition $profile $c.elf_sha256 $l.archive_sha256 $l.notice_sha256 $c.cell_resource_sha256 $c.deb_sha256 | complete)
   if $r.exit_code != 0 {
-    let allowed = ['DPKG_QUERY_REFUSED' 'DPKG_STATUS' 'DPKG_LIST_MISSING' 'INSTALLED_SYMLINK' 'INSTALLED_PATH' 'DPKG_OWNER' 'INSTALLED_BYTES' 'INSTALLED_CELL_SCOPE']
+    let allowed = ['DPKG_QUERY_REFUSED' 'DPKG_STATUS' 'PREREQ_STATUS_DRIFT' 'DPKG_LIST_MISSING' 'INSTALLED_SYMLINK' 'INSTALLED_PATH' 'DPKG_OWNER' 'INSTALLED_BYTES' 'INSTALLED_CELL_SCOPE']
     let observed = ($r.stderr | str trim)
     let detail = if $observed in $allowed { $observed } else { 'UNCLASSIFIED' }
     $"schema=tundra-sdk-libnoexit-os-install-witness/v1\nstatus=REFUSED\nreason=OWNERSHIP_OR_BYTES_REFUSED\ndetail=($detail)\npackage_install_verified=NO\nbehavior_cases=NOT_RUN\nlinker_input=UNPROVEN\ngenerator_input_closure=UNPROVEN\nlegal_admission=NO\nproduct_admission=NO\nfleet_admission=NO\n" | save --force $refusal_path
