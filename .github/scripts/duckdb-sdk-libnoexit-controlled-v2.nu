@@ -46,6 +46,12 @@ export def inspect_confined_tool_link [path: string, root: string] {
   error make {msg: 'TOOL_CLANG_LINK_DEPTH'}
 }
 
+export def accept_pinned_clang [record: record] {
+  require ($record.hops == 1 and $record.target_regular == 'YES' and $record.confined == 'YES') 'TOOL_CLANG_LINK_SHAPE_DRIFT'
+  require ($record.target_sha256 == '1dc630418acfa9cb6bb3e0df4ba17ee81053e7a7f3ad1f8920df095a9c53c581') 'TOOL_CLANG_TARGET_DRIFT'
+  $record.target_sha256
+}
+
 export def select_compile_command [log: string] {
   require (($log | str length) <= 131072) 'BUILD_LOG_CAP'
   let expected_source = '../../../../../emsdk/upstream/emscripten/system/lib/libc/atexit_dummy.c'
@@ -147,13 +153,14 @@ def main [ledger_path: string, output: string] {
     let entries = (try { ls -lD $directory } catch { [] })
     require (($entries | length) == 1 and ($entries | first).type == 'dir') 'TOOL_CLANG_ANCESTOR_DRIFT'
   }
-  let clang = (inspect_confined_tool_link '/emsdk/upstream/bin/clang' '/emsdk/upstream/bin')
-  let refused = (open $"($output)/refusal.json")
-  $refused | merge {reason: 'TOOL_CLANG_LINK_DIAGNOSTIC_ONLY', clang_link_hops: $clang.hops, clang_target_regular: $clang.target_regular, clang_confined: $clang.confined, clang_target_sha256: $clang.target_sha256} | to json --raw | save --force $"($output)/refusal.json"
-  error make {msg: 'TOOL_CLANG_LINK_DIAGNOSTIC_ONLY'}
-  let stages = ['TOOL_EMCC' 'TOOL_CLANG' 'TOOL_LLVM_AR']
-  for item in ($ledger.tool_paths | enumerate) { digest $item.item ($stages | get $item.index) | ignore }
-  let tool_hashes = ($ledger.tool_paths | enumerate | each {|item| {path: $item.item, sha256: (digest $item.item ($stages | get $item.index))} })
+  let clang_sha = (accept_pinned_clang (inspect_confined_tool_link '/emsdk/upstream/bin/clang' '/emsdk/upstream/bin'))
+  let emcc_sha = (digest '/emsdk/upstream/emscripten/emcc' 'TOOL_EMCC')
+  let llvm_ar_sha = (digest '/emsdk/upstream/bin/llvm-ar' 'TOOL_LLVM_AR')
+  let tool_hashes = [
+    {path: '/emsdk/upstream/emscripten/emcc', sha256: $emcc_sha}
+    {path: '/emsdk/upstream/bin/clang', sha256: $clang_sha}
+    {path: '/emsdk/upstream/bin/llvm-ar', sha256: $llvm_ar_sha}
+  ]
   let image = (build_condition image '/work/image/cache' $output $ledger)
   let clean = (build_condition clean '/work/clean/cache' $output $ledger)
   let result = {
