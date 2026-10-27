@@ -1,0 +1,250 @@
+name: DuckDB controlled libnoexit corpus-enabled four package cells v1
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  installed-cells:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/diagnostic/pr151-corpus-enabled-package-held-20261027' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        condition: [image, clean]
+        profile: [default, sounds]
+    steps:
+      - name: Initialize bounded refusal receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/libnoexit-refusal"
+          printf 'schema=tundra-libnoexit-corpus-package-refusal/v1\nstatus=REFUSED\nreason=SOURCE_OR_PACKAGE_GATE_FAILED\npackage_install_verified=NO\nbehavior_cases=NOT_RUN\nlinker_input=UNPROVEN\ngenerator_input_closure=UNPROVEN\nlegal_admission=NO\nproduct_admission=NO\nfleet_admission=NO\n' \
+            > "$RUNNER_TEMP/libnoexit-refusal/refusal.txt"
+      - name: Check out exact PR119 package consumer
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ad0df7182cd4c9ea4a83bac04e5901de0218d9d0
+          persist-credentials: false
+      - name: Check out same-head diagnostic gate
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.sha }}
+          path: gate-source
+          persist-credentials: false
+      - name: Verify exact source and reviewed helper pins
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = workflow_dispatch
+          test "$GITHUB_REF" = refs/heads/diagnostic/pr151-corpus-enabled-package-held-20261027
+          test "$GITHUB_RUN_ID" != 40442338363
+          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test -f gate-source/.git/HEAD && test ! -L gate-source/.git/HEAD
+          printf '%s\n' "$GITHUB_SHA" | cmp -s - gate-source/.git/HEAD
+          test -f .git/HEAD && test ! -L .git/HEAD
+          printf '%s\n' ad0df7182cd4c9ea4a83bac04e5901de0218d9d0 | cmp -s - .git/HEAD
+          for path in \
+            gate-source/.github/scripts/duckdb-sdk-libnoexit-installed-preflight-v1.nu \
+            gate-source/.github/receipts/duckdb-sdk-libnoexit-installed-preflight-v1.json \
+            gate-source/.github/scripts/duckdb-sdk-libnoexit-installed-cells-v1.nu \
+            gate-source/.github/receipts/duckdb-sdk-libnoexit-installed-cells-v1.json \
+            gate-source/.github/scripts/duckdb-libnoexit-corpus-package-source-v1.nu \
+            gate-source/.github/receipts/duckdb-libnoexit-corpus-package-source-v1.json \
+            gate-source/.github/scripts/duckdb-eh-corpus/eh-corpus.mjs \
+            gate-source/.github/scripts/duckdb-eh-corpus/apply-eh-corpus.nu; do
+            test -f "$path" && test ! -L "$path"
+          done
+          printf '%s  %s\n' \
+            9260c1e08c89d481206978c8b65bbf9a649183a4e141a86e9c29a89730939b4c gate-source/.github/scripts/duckdb-sdk-libnoexit-installed-preflight-v1.nu \
+            4ed8d49164418402f19528e2ee4e0c61db204f12cc6b1f3f1ba09f019afa005d gate-source/.github/receipts/duckdb-sdk-libnoexit-installed-preflight-v1.json \
+            c240925a7fdaab81a4ee4b3e4e2f309001e3efd434fd046e197899a0c5a0ab7f gate-source/.github/scripts/duckdb-sdk-libnoexit-installed-cells-v1.nu \
+            ca8cbbd0f65be4e9645ff2d308c24ba0cbe21172bfe20bf005d4a761c1f6e2eb gate-source/.github/receipts/duckdb-sdk-libnoexit-installed-cells-v1.json \
+            82c13f5be891cd6bda30e8c2c5963847482fd2d68ae765630f2e19ab22bdb5ee gate-source/.github/scripts/duckdb-libnoexit-corpus-package-source-v1.nu \
+            80b4c8e2a6f42f3d8f8bab45d8fb65c7ed1639596b363d80216ee76dad4f71cf gate-source/.github/receipts/duckdb-libnoexit-corpus-package-source-v1.json \
+            196ba238054a5b22e2a89d781eb7ed3844a416b71384f98fbc9c032eea551c0a gate-source/.github/scripts/duckdb-eh-corpus/eh-corpus.mjs \
+            7895597e2417426c141dcbc7c5e002269fb5f7f3c3381a6612bdfba33af3acf4 gate-source/.github/scripts/duckdb-eh-corpus/apply-eh-corpus.nu \
+            | sha256sum --check --status
+      - name: Install checksum-pinned MIT Nushell
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -s)" = Linux && test "$(uname -m)" = x86_64
+          tool="$RUNNER_TEMP/tundra-nu-0.115.1"
+          mkdir -p "$tool"
+          archive="$tool/nu-0.115.1-x86_64-unknown-linux-musl.tar.gz"
+          timeout 180s curl --fail --location --silent --show-error \
+            --proto '=https' --proto-redir '=https' --max-time 120 --retry 1 \
+            --max-filesize 90000000 --output "$archive" \
+            https://github.com/nushell/nushell/releases/download/0.115.1/nu-0.115.1-x86_64-unknown-linux-musl.tar.gz
+          test "$(stat -c %s "$archive")" = 83545998
+          printf '%s  %s\n' 8a9722177ddd421eba927b4baae4ae341a4d1c3434504be7b1b17d998bafdd87 "$archive" \
+            | sha256sum --check --status
+          tar -xOzf "$archive" nu-0.115.1-x86_64-unknown-linux-musl/nu > "$tool/nu"
+          tar -xOzf "$archive" nu-0.115.1-x86_64-unknown-linux-musl/LICENSE > "$tool/LICENSE"
+          test "$(stat -c %s "$tool/nu")" = 70750360
+          printf '%s  %s\n' \
+            c343a927a2d4a45ebf9300d013b226bcdc2598ecb0178a8a79722ebffe71e56e "$tool/nu" \
+            ff5dcaaba6140ec57cafdd4f707cd0d329e727477cf7d5b9ba7a244ec2678b79 "$tool/LICENSE" \
+            | sha256sum --check --status
+          grep -Fxq 'MIT License' "$tool/LICENSE"
+          chmod 0700 "$tool/nu"
+          test "$("$tool/nu" --version)" = 0.115.1
+          echo "$tool" >> "$GITHUB_PATH"
+      - name: Authenticate controlled producer bytes independently
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          nu gate-source/.github/scripts/duckdb-sdk-libnoexit-installed-preflight-v1.nu \
+            "$RUNNER_TEMP/libnoexit-preflight"
+          jq -e '.status == "PRODUCER_BYTES_AUTHENTICATED_ONLY" and
+            .installed_cell_status == "NOT_BUILT" and
+            (.future_cells | length) == 4 and
+            .legal_admission == "NO" and .product_admission == "NO" and
+            .fleet_admission == "NO"' \
+            "$RUNNER_TEMP/libnoexit-preflight/authenticated/preflight.json"
+      - name: Authenticate exact old UI runtime basis
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/libnoexit-old-ui"
+          mkdir -p "$out"
+          gh api repos/ryanmaclean/tundra/actions/runs/40275385842 > "$out/run.json"
+          gh api repos/ryanmaclean/tundra/actions/artifacts/12630875549 > "$out/artifact.json"
+          jq -e '.id == 40275385842 and .repository.full_name == "ryanmaclean/tundra" and
+            .head_sha == "ad0df7182cd4c9ea4a83bac04e5901de0218d9d0" and
+            .status == "completed" and .conclusion == "success"' "$out/run.json"
+          jq -e '.id == 12630875549 and .name == "leptos-ui-dist" and .expired == false and
+            .digest == "sha256:d0f2845347a404c37265b008626bbce4d3b3e97033f3b98383389400b4fe3685" and
+            .workflow_run.id == 40275385842 and
+            .workflow_run.head_sha == "ad0df7182cd4c9ea4a83bac04e5901de0218d9d0"' "$out/artifact.json"
+          gh api repos/ryanmaclean/tundra/actions/artifacts/12630875549/zip > "$out/ui.zip"
+          test "$(stat -c %s "$out/ui.zip")" = "$(jq -r .size_in_bytes "$out/artifact.json")"
+          printf '%s  %s\n' d0f2845347a404c37265b008626bbce4d3b3e97033f3b98383389400b4fe3685 "$out/ui.zip" \
+            | sha256sum --check --status
+      - name: Stage exact four-cell diagnostic resources
+        shell: bash
+        run: |
+          set -euo pipefail
+          nu gate-source/.github/scripts/duckdb-sdk-libnoexit-installed-cells-v1.nu prepare \
+            gate-source/.github/receipts/duckdb-sdk-libnoexit-installed-cells-v1.json \
+            "$RUNNER_TEMP/libnoexit-preflight/authenticated/preflight.json" \
+            "$RUNNER_TEMP/libnoexit-preflight/authenticated" \
+            "$RUNNER_TEMP/libnoexit-old-ui/ui.zip" "$GITHUB_WORKSPACE" \
+            '${{ matrix.condition }}' '${{ matrix.profile }}'
+      - name: Install disposable package build prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout 300s sudo -n env DEBIAN_FRONTEND=noninteractive apt-get update
+          timeout 1800s sudo -n env DEBIAN_FRONTEND=noninteractive apt-get \
+            -o DPkg::Lock::Timeout=60 -o Acquire::Retries=2 \
+            install -y --no-install-recommends \
+            build-essential curl file libayatana-appindicator3-dev libgtk-3-dev \
+            librsvg2-dev libssl-dev libwebkit2gtk-4.1-dev libxdo-dev \
+            patchelf pkg-config wget
+          if [[ '${{ matrix.profile }}' == sounds ]]; then
+            timeout 300s sudo -n env DEBIAN_FRONTEND=noninteractive apt-get \
+              -o DPkg::Lock::Timeout=60 install -y --no-install-recommends libasound2-dev
+          fi
+      - name: Install Rust and pinned Tauri build commands
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Install UI and Tauri tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo install trunk --version 0.21.14 --locked
+          cargo install tauri-cli --version 2.12.4 --locked
+      - name: Apply exact PR137 32-case source transformation before package build
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -d "$GITHUB_WORKSPACE/gate-source"
+          test -f app/tauri/src/main.rs && test ! -L app/tauri/src/main.rs
+          mkdir -p "$RUNNER_TEMP/libnoexit-cell" "$RUNNER_TEMP/libnoexit-corpus-source"
+          nu gate-source/.github/scripts/duckdb-libnoexit-corpus-package-source-v1.nu patch \
+            gate-source/.github/receipts/duckdb-libnoexit-corpus-package-source-v1.json \
+            app/tauri/src/main.rs \
+            gate-source/.github/scripts/duckdb-eh-corpus/eh-corpus.mjs \
+            gate-source/.github/scripts/duckdb-eh-corpus/apply-eh-corpus.nu \
+            "$RUNNER_TEMP/libnoexit-corpus-source" \
+            "$RUNNER_TEMP/libnoexit-cell/source-receipt.json"
+          printf '%s  %s\n' \
+            57480e689cccfa26e8527dba3f566c275bfbfad7cb2c43c4cb3dd85263284b8e \
+            app/tauri/src/main.rs | sha256sum --check --status
+      - name: Build four genuinely new condition/profile packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          prior_debs=(target/release/bundle/deb/*.deb)
+          test "${#prior_debs[@]}" -eq 0
+          (cd app/leptos-ui && trunk build --release --locked)
+          for name in duckdb-browser.mjs duckdb-browser-eh.worker.js duckdb-eh.wasm \
+                      duckdb-browser-mvp.worker.js duckdb-mvp.wasm; do
+            cmp "app/leptos-ui/duckdb-runtime/$name" "app/leptos-ui/dist/duckdb-runtime/$name"
+          done
+          if [[ '${{ matrix.profile }}' == sounds ]]; then
+            (cd app/tauri && cargo tauri build --bundles deb --features sounds)
+          else
+            (cd app/tauri && cargo tauri build --bundles deb)
+          fi
+          git diff --exit-code -- Cargo.lock
+          printf '%s  %s\n' \
+            57480e689cccfa26e8527dba3f566c275bfbfad7cb2c43c4cb3dd85263284b8e \
+            app/tauri/src/main.rs | sha256sum --check --status
+          shopt -s nullglob
+          debs=(target/release/bundle/deb/*.deb)
+          test "${#debs[@]}" -eq 1
+          mkdir -p "$RUNNER_TEMP/libnoexit-deb-root" "$RUNNER_TEMP/libnoexit-cell"
+          dpkg-deb -x "${debs[0]}" "$RUNNER_TEMP/libnoexit-deb-root"
+          nu gate-source/.github/scripts/duckdb-sdk-libnoexit-installed-cells-v1.nu verify \
+            gate-source/.github/receipts/duckdb-sdk-libnoexit-installed-cells-v1.json \
+            "$RUNNER_TEMP/libnoexit-preflight/authenticated/preflight.json" \
+            "$GITHUB_WORKSPACE" '${{ matrix.condition }}' '${{ matrix.profile }}' \
+            "${debs[0]}" "$RUNNER_TEMP/libnoexit-deb-root" \
+            "$RUNNER_TEMP/libnoexit-cell/witness"
+          nu gate-source/.github/scripts/duckdb-libnoexit-corpus-package-source-v1.nu package \
+            gate-source/.github/receipts/duckdb-libnoexit-corpus-package-source-v1.json \
+            "$RUNNER_TEMP/libnoexit-cell/source-receipt.json" \
+            "$RUNNER_TEMP/libnoexit-cell/witness/cell-witness.json" \
+            "${debs[0]}" "$RUNNER_TEMP/libnoexit-deb-root/usr/bin/auto-tundra" \
+            '${{ matrix.condition }}' '${{ matrix.profile }}' "$GITHUB_SHA" \
+            "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" \
+            "$RUNNER_TEMP/libnoexit-cell/corpus-package-identity.json"
+          cp "${debs[0]}" "$RUNNER_TEMP/libnoexit-cell/package.deb"
+          cp "$RUNNER_TEMP/libnoexit-preflight/authenticated/preflight.json" \
+            "$RUNNER_TEMP/libnoexit-cell/preflight.json"
+          cp gate-source/.github/receipts/duckdb-sdk-libnoexit-installed-cells-v1.json \
+            "$RUNNER_TEMP/libnoexit-cell/old-resource-ledger.json"
+          cp gate-source/.github/receipts/duckdb-libnoexit-corpus-package-source-v1.json \
+            "$RUNNER_TEMP/libnoexit-cell/corpus-source-ledger.json"
+          bytes="$(du -sb "$RUNNER_TEMP/libnoexit-cell" | cut -f1)"
+          test "$bytes" -le 201326592
+      - name: Retain bounded new package and diagnostic witness
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: duckdb-libnoexit-corpus-package-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.condition }}-${{ matrix.profile }}
+          path: ${{ runner.temp }}/libnoexit-cell/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Retain bounded refusal only
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: duckdb-libnoexit-corpus-package-refusal-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.condition }}-${{ matrix.profile }}
+          path: ${{ runner.temp }}/libnoexit-refusal/refusal.txt
+          if-no-files-found: error
+          retention-days: 14
