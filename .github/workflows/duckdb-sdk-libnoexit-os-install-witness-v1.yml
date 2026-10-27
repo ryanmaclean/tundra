@@ -131,12 +131,44 @@ jobs:
             "$root/four-preflight.json" "$RUNNER_TEMP/libnoexit-install-output/receipt.json"
           test "$(stat -c %s "$RUNNER_TEMP/libnoexit-install-output/receipt.json")" -le 8192
           rm -f -- "$root/dpkg.stdout" "$root/dpkg.stderr"
-      - name: Retain bounded ownership witness only
+      - name: Prove ephemeral cleanup before selecting any artifact
+        if: always()
+        shell: bash
+        env:
+          PRIOR_JOB_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/libnoexit-install-input"
+          output="$RUNNER_TEMP/libnoexit-install-output"
+          cleanup_ok=NO
+          if rm -rf -- "$root" && test ! -e "$root" && test ! -L "$root"; then
+            cleanup_ok=YES
+          fi
+          if test "$cleanup_ok" != YES; then
+            rm -f -- "$output/receipt.json" "$output/receipt-final.json" || true
+            printf 'schema=tundra-sdk-libnoexit-os-install-witness/v1\nstatus=REFUSED\nreason=EPHEMERAL_CLEANUP_UNPROVEN\npackage_install_verified=NO\nbehavior_cases=NOT_RUN\nlinker_input=UNPROVEN\ngenerator_input_closure=UNPROVEN\nlegal_admission=NO\nproduct_admission=NO\nfleet_admission=NO\n' > "$output/refusal.txt"
+            exit 1
+          fi
+          if test "$PRIOR_JOB_STATUS" = success; then
+            test -f "$output/receipt.json" && test ! -L "$output/receipt.json"
+            jq -e 'select(.status == "DISPOSABLE_DPKG_OWNERSHIP_AND_BYTES_ONLY" and
+              .package_install_verified == "YES_DISPOSABLE_RUNNER_ONLY" and
+              .behavior_cases == "NOT_RUN" and .linker_input == "UNPROVEN" and
+              .legal_admission == "NO" and .product_admission == "NO" and
+              .fleet_admission == "NO") | . + {ephemeral_cleanup: "PROVEN"}' \
+              "$output/receipt.json" > "$output/receipt-final.tmp"
+            test "$(stat -c %s "$output/receipt-final.tmp")" -le 8192
+            mv -- "$output/receipt-final.tmp" "$output/receipt-final.json"
+            rm -f -- "$output/receipt.json"
+          else
+            rm -f -- "$output/receipt.json" "$output/receipt-final.tmp" "$output/receipt-final.json"
+          fi
+      - name: Retain bounded ownership witness only after cleanup proof
         if: success()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: duckdb-libnoexit-os-install-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.condition }}-${{ matrix.profile }}
-          path: ${{ runner.temp }}/libnoexit-install-output/receipt.json
+          path: ${{ runner.temp }}/libnoexit-install-output/receipt-final.json
           if-no-files-found: error
           retention-days: 14
       - name: Retain fixed refusal only
@@ -147,11 +179,3 @@ jobs:
           path: ${{ runner.temp }}/libnoexit-install-output/refusal.txt
           if-no-files-found: error
           retention-days: 14
-      - name: Remove downloaded package and transient logs
-        if: always()
-        shell: bash
-        run: |
-          set -euo pipefail
-          if test -d "$RUNNER_TEMP/libnoexit-install-input"; then
-            rm -rf -- "$RUNNER_TEMP/libnoexit-install-input"
-          fi
