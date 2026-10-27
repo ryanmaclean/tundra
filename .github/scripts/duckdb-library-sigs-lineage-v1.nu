@@ -62,8 +62,8 @@ export def classify_container_start_failure [stderr: string] {
   }
 }
 
-export def classify_failed_invocation [exit_code: int, trace_path: string, trace_cap: int] {
-  let exit_class = if $exit_code == 124 {
+export def exit_value_bucket [exit_code: int] {
+  if $exit_code == 124 {
     'EXIT_124_TIMEOUT_COMPATIBLE'
   } else if $exit_code == 125 {
     'EXIT_125'
@@ -76,6 +76,10 @@ export def classify_failed_invocation [exit_code: int, trace_path: string, trace
   } else {
     'EXIT_OUT_OF_RANGE'
   }
+}
+
+export def classify_failed_invocation [exit_code: int, trace_path: string, trace_cap: int] {
+  let exit_class = (exit_value_bucket $exit_code)
   let trace_stage = if not ($trace_path | path exists) {
     'TRACE_MISSING'
   } else {
@@ -118,6 +122,41 @@ export def classify_tracer_loader_list [exit_code: int, stdout: string, stderr: 
     if (($rows | where {|line| $line =~ $pattern} | length) != 1) { return 'TRACER_LOADER_LIST_DRIFT' }
   }
   'PASS'
+}
+
+export def classify_tracer_loader_failure [exit_code: int, stdout: string, stderr: string] {
+  if ($stdout | str length) > 8192 or ($stderr | str length) > 8192 {
+    error make {msg: 'TRACER_LOADER_LOG_CAP'}
+  }
+  let rows = ($stdout | lines)
+  let known = [
+    {name: 'LIBUNWIND_PTRACE', pattern: 'libunwind-ptrace\.so\.0'}
+    {name: 'LIBUNWIND_X86_64', pattern: 'libunwind-x86_64\.so\.8'}
+    {name: 'LIBUNWIND', pattern: 'libunwind\.so\.8'}
+    {name: 'LIBLZMA', pattern: 'liblzma\.so\.5'}
+    {name: 'LIBC', pattern: 'libc\.so\.6'}
+    {name: 'LOADER', pattern: 'ld-linux-x86-64\.so\.2'}
+  ]
+  mut missing = []
+  for item in $known {
+    let row_pattern = ('^\s*' + $item.pattern + '\s+=>\s+not found\s*$')
+    let error_pattern = ('(^|\s)' + $item.pattern + ': cannot open shared object file')
+    if (($rows | any {|line| $line =~ $row_pattern}) or ($stderr =~ $error_pattern)) {
+      $missing = ($missing | append $item.name)
+    }
+  }
+  let report_class = if ($missing | length) > 0 {
+    'KNOWN_SONAME_NOT_FOUND_TEXT'
+  } else if $stderr =~ 'GLIBC_[0-9]+\.[0-9]+.*not found' {
+    'GLIBC_VERSION_NOT_FOUND_TEXT'
+  } else if ($stderr | str contains 'wrong ELF class') {
+    'ELF_CLASS_MISMATCH_TEXT'
+  } else if ($stdout | str contains 'not found') or ($stderr | str contains 'not found') {
+    'OTHER_NOT_FOUND_TEXT'
+  } else {
+    'NO_RECOGNIZED_LOADER_TEXT'
+  }
+  {loader_exit_class: (exit_value_bucket $exit_code), loader_report_class: $report_class, loader_missing_sonames: $missing}
 }
 
 export def classify_tracer_version [exit_code: int, stdout: string, stderr: string] {
@@ -184,6 +223,9 @@ def inside [ledger_path: string, receipt: string] {
     if $interpreter_check.exit_code != 0 { error make {msg: 'TRACER_INTERPRETER_UNAVAILABLE'} }
     let loader_list = (try { ^timeout 8s $interpreter --list /tool/strace | complete } catch { error make {msg: 'TRACER_LOADER_LIST_REFUSED'} })
     let loader_class = (classify_tracer_loader_list $loader_list.exit_code $loader_list.stdout $loader_list.stderr)
+    if $loader_class == 'TRACER_LOADER_LIST_REFUSED' {
+      refusal $receipt $loader_class (classify_tracer_loader_failure $loader_list.exit_code $loader_list.stdout $loader_list.stderr)
+    }
     if $loader_class != 'PASS' { error make {msg: $loader_class} }
     let tracer_version = (try { ^timeout 8s /tool/strace -V | complete } catch { error make {msg: 'TRACER_VERSION_REFUSED'} })
     let version_class = (classify_tracer_version $tracer_version.exit_code $tracer_version.stdout $tracer_version.stderr)
@@ -240,10 +282,11 @@ def inside [ledger_path: string, receipt: string] {
     ($result | to json --raw) | save --force $"($receipt)/replay.json"
     rm $"($receipt)/refusal.json"
   } catch {|e|
-    # The bounded invocation diagnostic is already a complete refusal; retain its two fixed classes.
+    # Preserve already-written bounded loader or invocation diagnostic classes.
     let existing = (open $"($receipt)/refusal.json")
-    if ($e.msg | default 'UNKNOWN') == 'GENERATOR_OR_TRACER_FAILED' and $existing.reason == 'GENERATOR_OR_TRACER_FAILED' {
-      error make {msg: 'GENERATOR_OR_TRACER_FAILED'}
+    let message = ($e.msg | default 'UNKNOWN')
+    if $message in ['GENERATOR_OR_TRACER_FAILED' 'TRACER_LOADER_LIST_REFUSED'] and $existing.reason == $message {
+      error make {msg: $message}
     }
     let allowed = [
       'FILE_MISSING' 'FILE_DRIFT' 'HASH_FAILED' 'NOTICE_DRIFT' 'IMAGE_DRIFT'
@@ -265,7 +308,6 @@ def inside [ledger_path: string, receipt: string] {
       'TRACER_LOADER_LIST_DRIFT' 'TRACER_VERSION_LOG_CAP' 'TRACER_VERSION_REFUSED'
       'TRACER_VERSION_DRIFT'
     ]
-    let message = ($e.msg | default 'UNKNOWN')
     if $message in $allowed { refusal $receipt $message } else { refusal $receipt 'UNCLASSIFIED_FAILURE' }
   }
 }
