@@ -7,6 +7,7 @@ def refusal [receipt: string, reason: string, details: record = {}] {
     schema: 'tundra-library-sigs-lineage-diagnostic/v1'
     status: 'REFUSED'
     reason: $reason
+    generator_source_mode: 'NOT_ESTABLISHED'
     input_manifest: 'UNPROVEN'
     generator_input_closure: 'UNPROVEN'
     selected_graph_exhaustive: 'NO'
@@ -36,7 +37,7 @@ export def verify_file [path: string, expected_size: int, expected_sha: string] 
 }
 
 export def verify_required_file [stage: string, path: string, expected_size: int, expected_sha: string] {
-  let stages = ['PINNED_GENERATOR' 'TRACKED_OUTPUT' 'GENERATED_OUTPUT' 'EH_IMAGE_COPY' 'EH_CLEAN_COPY']
+  let stages = ['PINNED_GENERATOR' 'TRACKED_OUTPUT' 'GENERATED_OUTPUT' 'EH_IMAGE_COPY' 'EH_CLEAN_COPY' 'SHARED_MODULE' 'UTILS_MODULE' 'WEBASSEMBLY_MODULE' 'COMPILER_JS']
   if $stage not-in $stages { error make {msg: 'REQUIRED_STAGE_UNCLASSIFIED'} }
   try {
     verify_file $path $expected_size $expected_sha
@@ -46,6 +47,18 @@ export def verify_required_file [stage: string, path: string, expected_size: int
       error make {msg: $"($stage)_($reason)"}
     }
     error make {msg: 'REQUIRED_FILE_UNCLASSIFIED'}
+  }
+}
+
+export def classify_container_start_failure [stderr: string] {
+  let target = '/emsdk/upstream/emscripten/tools/maint/gen_sig_info.py'
+  if ($stderr | str contains $target) and (
+      ($stderr | str contains 'invalid mount config') or
+      ($stderr | str contains 'error mounting') or
+      ($stderr | str contains 'mount through procfd')) {
+    'GENERATOR_BIND_UNAVAILABLE'
+  } else {
+    'ISOLATED_GENERATOR_REFUSED'
   }
 }
 
@@ -89,6 +102,10 @@ def inside [ledger_path: string, receipt: string] {
   let source = '/emsdk/upstream/emscripten'
   try {
     verify_required_file PINNED_GENERATOR $"($source)/($ledger.generator_path)" 12317 $ledger.generator_sha256
+    verify_required_file SHARED_MODULE $"($source)/tools/shared.py" 27249 'a0d5e0d92e49e062bd083782f2569b6ff6eb8328ddf60d50d28d86ec1dee6840'
+    verify_required_file UTILS_MODULE $"($source)/tools/utils.py" 2761 'd786b040de3197fd8949bc407ef502f28dade58f7ffd1289197db8ff3bcf176f'
+    verify_required_file WEBASSEMBLY_MODULE $"($source)/tools/webassembly.py" 15298 '23eea83f1745c959b7d88f09f77488249cc686e56a5de46c929617083acca3c8'
+    verify_required_file COMPILER_JS $"($source)/src/compiler.js" 3793 '2a49cf913f39fb2795458ed6cfba56942576d511b57b4e290e1c667a24cfdf30'
     verify_required_file TRACKED_OUTPUT $"($source)/($ledger.output_path)" $ledger.output_size $ledger.output_sha256
     if (file_sha $"($source)/($ledger.notice_path)") != $ledger.notice_sha256 {
       error make {msg: 'NOTICE_DRIFT'}
@@ -127,6 +144,7 @@ def inside [ledger_path: string, receipt: string] {
       output_sha256: $ledger.output_sha256
       output_size: $ledger.output_size
       generator_script_sha256: $ledger.generator_sha256
+      generator_source_mode: 'VERIFIED_READ_ONLY_BIND'
       generator_script_notice_status: 'PINNED_HEADER_MIT_OR_NCSA_SELECTED_MIT'
       tracked_notice_status: $ledger.source_status
       other_inputs_notice_status: 'UNPROVEN'
@@ -156,6 +174,10 @@ def inside [ledger_path: string, receipt: string] {
       'GENERATED_OUTPUT_FILE_MISSING' 'GENERATED_OUTPUT_FILE_DRIFT' 'GENERATED_OUTPUT_HASH_FAILED'
       'EH_IMAGE_COPY_FILE_MISSING' 'EH_IMAGE_COPY_FILE_DRIFT' 'EH_IMAGE_COPY_HASH_FAILED'
       'EH_CLEAN_COPY_FILE_MISSING' 'EH_CLEAN_COPY_FILE_DRIFT' 'EH_CLEAN_COPY_HASH_FAILED'
+      'SHARED_MODULE_FILE_MISSING' 'SHARED_MODULE_FILE_DRIFT' 'SHARED_MODULE_HASH_FAILED'
+      'UTILS_MODULE_FILE_MISSING' 'UTILS_MODULE_FILE_DRIFT' 'UTILS_MODULE_HASH_FAILED'
+      'WEBASSEMBLY_MODULE_FILE_MISSING' 'WEBASSEMBLY_MODULE_FILE_DRIFT' 'WEBASSEMBLY_MODULE_HASH_FAILED'
+      'COMPILER_JS_FILE_MISSING' 'COMPILER_JS_FILE_DRIFT' 'COMPILER_JS_HASH_FAILED'
     ]
     let message = ($e.msg | default 'UNKNOWN')
     if $message in $allowed { refusal $receipt $message } else { refusal $receipt 'UNCLASSIFIED_FAILURE' }
@@ -168,6 +190,11 @@ def host [ledger_path: string, input: string, private: string, receipt: string] 
     refusal $receipt 'ADMISSION_DRIFT'
   }
   verify_file $"($input)/strace" 1972848 '38a5c75cb29dd85ddd7780d54f5bf595554d7a1b5c42524b23065f5dc4c4b01d'
+  try {
+    verify_file $"($input)/gen_sig_info.py" 12317 $ledger.generator_sha256
+  } catch {
+    refusal $receipt 'GENERATOR_SOURCE_DRIFT'
+  }
   let tool = $"($input)/tool"
   mkdir $tool
   cp -- $"($input)/strace" $"($tool)/strace"
@@ -189,9 +216,11 @@ def host [ledger_path: string, input: string, private: string, receipt: string] 
   } catch {
     refusal $receipt 'IMAGE_DIGEST_DRIFT'
   }
-  let result = (^docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges --pids-limit 128 --memory 4g --cpus 2 --ulimit fsize=16777216:16777216 --user 1000:1000 --env HOME=/tmp --env EM_CACHE=/tmp/emcache --env TUNDRA_SIGS_INSIDE=1 --tmpfs /work:rw,nosuid,nodev,size=67108864 --tmpfs /tmp:rw,nosuid,nodev,size=536870912 --mount $"type=bind,src=($tool),dst=/tool,readonly" --mount $"type=bind,src=($private),dst=/out" --mount $"type=bind,src=($receipt),dst=/receipt" --entrypoint /tool/nu $ledger.image /tool/helper.nu /tool/ledger.json /tool /out /receipt | complete)
+  let result = (^docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges --pids-limit 128 --memory 4g --cpus 2 --ulimit fsize=16777216:16777216 --user 1000:1000 --env HOME=/tmp --env EM_CACHE=/tmp/emcache --env TUNDRA_SIGS_INSIDE=1 --tmpfs /work:rw,nosuid,nodev,size=67108864 --tmpfs /tmp:rw,nosuid,nodev,size=536870912 --mount $"type=bind,src=($tool),dst=/tool,readonly" --mount $"type=bind,src=($input)/gen_sig_info.py,dst=/emsdk/upstream/emscripten/tools/maint/gen_sig_info.py,readonly" --mount $"type=bind,src=($private),dst=/out" --mount $"type=bind,src=($receipt),dst=/receipt" --entrypoint /tool/nu $ledger.image /tool/helper.nu /tool/ledger.json /tool /out /receipt | complete)
   if $result.exit_code != 0 {
-    if (open $"($receipt)/refusal.json").reason == 'NOT_COMPLETED' { refusal $receipt 'ISOLATED_GENERATOR_REFUSED' }
+    if (open $"($receipt)/refusal.json").reason == 'NOT_COMPLETED' {
+      refusal $receipt (classify_container_start_failure $result.stderr)
+    }
     error make {msg: 'ISOLATED_GENERATOR_REFUSED'}
   }
   if not ($"($receipt)/replay.json" | path exists) or ($"($receipt)/refusal.json" | path exists) {

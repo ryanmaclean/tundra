@@ -23,7 +23,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/sigs-input" "$RUNNER_TEMP/sigs-receipt" "$RUNNER_TEMP/sigs-private"
-          printf '%s\n' '{"schema":"tundra-library-sigs-lineage-diagnostic/v1","status":"REFUSED","reason":"NOT_COMPLETED","input_manifest":"UNPROVEN","generator_input_closure":"UNPROVEN","selected_graph_exhaustive":"NO","glue_legal_admission":"NO","legal_admission":"NO","product_admission":"NO","fleet_admission":"NO"}' > "$RUNNER_TEMP/sigs-receipt/refusal.json"
+          printf '%s\n' '{"schema":"tundra-library-sigs-lineage-diagnostic/v1","status":"REFUSED","reason":"NOT_COMPLETED","generator_source_mode":"NOT_ESTABLISHED","input_manifest":"UNPROVEN","generator_input_closure":"UNPROVEN","selected_graph_exhaustive":"NO","glue_legal_admission":"NO","legal_admission":"NO","product_admission":"NO","fleet_admission":"NO"}' > "$RUNNER_TEMP/sigs-receipt/refusal.json"
       - name: Install checksum-pinned MIT Nushell
         shell: bash
         run: |
@@ -55,7 +55,7 @@ jobs:
           printf '%s\n' "$GITHUB_SHA" | cmp -s - "$GITHUB_WORKSPACE/.git/HEAD"
           printf '%s  %s\n' \
             923dbb4cf4a2fb4c8eb18a202bbfa05f9af0be5cc8723c22c3ab3f9f457b2cbe .github/receipts/duckdb-library-sigs-lineage-v1.json \
-            44ac5485b9421395643bd2a64eb3307793f50132b32b5a6ce74a043b428718fd .github/scripts/duckdb-library-sigs-lineage-v1.nu \
+            460ebf0d444d8ea90f96af054aad43bd4749ac7fb0850a2f381533f885f5c38d .github/scripts/duckdb-library-sigs-lineage-v1.nu \
             | sha256sum --check --status
           api=https://api.github.com/repos/ryanmaclean/tundra
           api_get() {
@@ -145,6 +145,17 @@ jobs:
           output = pathlib.Path(os.environ['RUNNER_TEMP']) / 'sigs-receipt' / 'auth.json'
           output.write_text(json.dumps({'schema':'tundra-library-sigs-input-auth/v1','sources':auth,'pr134_head':ledger['pr134']['head'],'pr134_ledger_sha256':ledger['pr134']['ledger_sha256'],'admission':'NO'},sort_keys=True,separators=(',',':'))+'\n')
           PY
+      - name: Supply exact official generator script as a verified read-only input
+        shell: bash
+        run: |
+          set -euo pipefail
+          script="$RUNNER_TEMP/sigs-input/gen_sig_info.py"
+          timeout 90s curl --fail --location --silent --show-error --proto '=https' --proto-redir '=https' --max-time 75 --retry 1 --max-filesize 20000 --output "$script" \
+            https://raw.githubusercontent.com/emscripten-core/emscripten/e967e20b4727956a30592165a3c1cde5c67fa0a8/tools/maint/gen_sig_info.py
+          test -f "$script" && test ! -L "$script"
+          test "$(stat -c %s "$script")" = 12317
+          printf '%s  %s\n' 64f906f405eee71f56e1407acfc0074b9951d05fc0c03eaf72f14efdc48b1f52 "$script" | sha256sum --check --status
+          chmod 0444 "$script"
       - name: Run isolated pinned-image generator and conservative trace diagnostic
         shell: bash
         run: |
@@ -162,7 +173,7 @@ jobs:
           bytes="$(du -sb "$output" | cut -f 1)"
           if test "$bytes" -gt 2097152; then
             find "$output" -mindepth 1 -maxdepth 1 -type f -delete
-            printf '%s\n' '{"schema":"tundra-library-sigs-lineage-diagnostic/v1","status":"REFUSED","reason":"DIAGNOSTIC_CAP","input_manifest":"UNPROVEN","generator_input_closure":"UNPROVEN","selected_graph_exhaustive":"NO","glue_legal_admission":"NO","legal_admission":"NO","product_admission":"NO","fleet_admission":"NO"}' > "$output/refusal.json"
+            printf '%s\n' '{"schema":"tundra-library-sigs-lineage-diagnostic/v1","status":"REFUSED","reason":"DIAGNOSTIC_CAP","generator_source_mode":"NOT_ESTABLISHED","input_manifest":"UNPROVEN","generator_input_closure":"UNPROVEN","selected_graph_exhaustive":"NO","glue_legal_admission":"NO","legal_admission":"NO","product_admission":"NO","fleet_admission":"NO"}' > "$output/refusal.json"
             exit 1
           fi
       - name: Retain sanitized diagnostic only
