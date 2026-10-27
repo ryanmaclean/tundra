@@ -55,7 +55,7 @@ jobs:
           printf '%s\n' "$GITHUB_SHA" | cmp -s - "$GITHUB_WORKSPACE/.git/HEAD"
           printf '%s  %s\n' \
             923dbb4cf4a2fb4c8eb18a202bbfa05f9af0be5cc8723c22c3ab3f9f457b2cbe .github/receipts/duckdb-library-sigs-lineage-v1.json \
-            05994fa3321617b6dcf35d74b2f49de55de7c673433a94b8e2f52876075d1b4b .github/scripts/duckdb-library-sigs-lineage-v1.nu \
+            9fadfe5d6a484574e412ca3322cb8e7f81c880982aabaf54ab4469f6da339eb5 .github/scripts/duckdb-library-sigs-lineage-v1.nu \
             | sha256sum --check --status
           api=https://api.github.com/repos/ryanmaclean/tundra
           api_get() {
@@ -141,10 +141,50 @@ jobs:
                       binary = z.read('eh-generator-tracer-package/strace')
                       assert len(binary) == 1972848 and sha(binary) == '38a5c75cb29dd85ddd7780d54f5bf595554d7a1b5c42524b23065f5dc4c4b01d'
                       p = root / 'strace'; p.write_bytes(binary); p.chmod(0o500)
+                      for label, member, size, digest in (
+                          ('libunwind8', 'eh-libunwind-package/libunwind8_1.3.2-2build2.1_amd64.deb', 54518, '781e3eb86986ab93e8b4866fc571fdec780c3d9a8b56b490e9c2f10fb90978ce'),
+                          ('liblzma5', 'eh-runtime-dependencies-package/liblzma5_5.2.5-2ubuntu1_amd64.deb', 99544, '8f1c46e7d3f5102a5e4fdca7c949728a343ba71c2a7c124118df2c13d4c444f7'),
+                          ('libc6', 'eh-runtime-dependencies-package/libc6_2.35-0ubuntu3.4_amd64.deb', 3234380, '00e54c06bde8531d955b3fac7dc13f4bd69e5d03515f68a72db08f9cd4cc2c06'),
+                      ):
+                          package = z.read(member)
+                          assert len(package) == size and sha(package) == digest
+                          (root / f'{label}.deb').write_bytes(package)
+                      for member, size, digest in (
+                          ('eh-libunwind-package/copyright', 3613, '977d981f5677652884b09cccef6b62f992aa9c74b7a748bfe9863a703f5aed58'),
+                          ('eh-libunwind-package/COPYING', 1063, '6a0dbbdaec2b3136b7bf045586f4212bdf74e7af688bf9dfe9154607cf5ec156'),
+                          ('eh-runtime-dependencies-package/liblzma5-copyright', 15465, 'a2dc8fac0f496e1c58aff67018cf0c6b88336316afa5642f9335b71642e28aa8'),
+                          ('eh-runtime-dependencies-package/libc6-copyright', 26462, 'd3c95b56fa33e28b57860580f0baf4e4f4de2a268a2b80f1d031a5191bade265'),
+                      ):
+                          notice = z.read(member)
+                          assert len(notice) == size and sha(notice) == digest
               auth.append({'run': run_id, 'attempt': expected['attempt'], 'head': expected['head'], 'artifact_id': artifact_id, 'artifact_zip_sha256': expected['artifact_zip_sha256']})
           output = pathlib.Path(os.environ['RUNNER_TEMP']) / 'sigs-receipt' / 'auth.json'
           output.write_text(json.dumps({'schema':'tundra-library-sigs-input-auth/v1','sources':auth,'pr134_head':ledger['pr134']['head'],'pr134_ledger_sha256':ledger['pr134']['ledger_sha256'],'admission':'NO'},sort_keys=True,separators=(',',':'))+'\n')
           PY
+      - name: Stage exact package tracer runtime without installation
+        shell: bash
+        run: |
+          set -euo pipefail
+          input="$RUNNER_TEMP/sigs-input"; scratch="$RUNNER_TEMP/sigs-private/runtime-packages"
+          runtime="$input/tracer-runtime"; mkdir -p "$scratch" "$runtime"
+          for package in libunwind8 liblzma5 libc6; do
+            mkdir "$scratch/$package"
+            dpkg-deb --extract "$input/$package.deb" "$scratch/$package"
+          done
+          install -m 0444 "$scratch/libunwind8/usr/lib/x86_64-linux-gnu/libunwind-ptrace.so.0.0.0" "$runtime/libunwind-ptrace.so.0"
+          install -m 0444 "$scratch/libunwind8/usr/lib/x86_64-linux-gnu/libunwind-x86_64.so.8.0.1" "$runtime/libunwind-x86_64.so.8"
+          install -m 0444 "$scratch/libunwind8/usr/lib/x86_64-linux-gnu/libunwind.so.8.0.1" "$runtime/libunwind.so.8"
+          install -m 0444 "$scratch/liblzma5/lib/x86_64-linux-gnu/liblzma.so.5.2.5" "$runtime/liblzma.so.5"
+          install -m 0444 "$scratch/libc6/lib/x86_64-linux-gnu/libc.so.6" "$runtime/libc.so.6"
+          install -m 0555 "$scratch/libc6/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2" "$runtime/ld-linux-x86-64.so.2"
+          printf '%s  %s\n' \
+            f791a9b0b01faa13a65ee066d2351d2e38a23d6c3752f75eebeaf0fc5c7d56f4 "$runtime/libunwind-ptrace.so.0" \
+            1077e265bdd76ed4f2d628ea29150eb98f5c7c8f5a30004a561e6e93a2a6f097 "$runtime/libunwind-x86_64.so.8" \
+            5d1f6f104f79698e137c9f17c4b0317dfd96816c0eb6a87c50619a41472ca382 "$runtime/libunwind.so.8" \
+            493cb401ab4aa3bba611ca464d12996afb3b327940d29476f535f999e167439b "$runtime/liblzma.so.5" \
+            2e15e345ccba1e1e8bf3bc58938d13eb7ccc17044942f0376cd5bc771f429b79 "$runtime/libc.so.6" \
+            e833bd99168bea158d2f2e5d32462479cacfb624003304a9ea74a1607a144f1f "$runtime/ld-linux-x86-64.so.2" \
+            | sha256sum --check --status
       - name: Supply exact official generator script as a verified read-only input
         shell: bash
         run: |

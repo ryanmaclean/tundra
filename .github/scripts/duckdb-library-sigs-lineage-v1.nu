@@ -114,12 +114,16 @@ export def classify_tracer_loader_list [exit_code: int, stdout: string, stderr: 
     return 'TRACER_LOADER_LIST_DRIFT'
   }
   let rows = ($stdout | lines)
-  for pattern in [
-    '^\s*libunwind-ptrace\.so\.0\s+=>\s+/'
-    '^\s*libunwind-x86_64\.so\.8\s+=>\s+/'
-    '^\s*libc\.so\.6\s+=>\s+/'
+  for soname in [
+    'libunwind-ptrace\.so\.0'
+    'libunwind-x86_64\.so\.8'
+    'libunwind\.so\.8'
+    'liblzma\.so\.5'
+    'libc\.so\.6'
   ] {
-    if (($rows | where {|line| $line =~ $pattern} | length) != 1) { return 'TRACER_LOADER_LIST_DRIFT' }
+    let selected = ($rows | where {|line| $line =~ ('^\s*' + $soname + '\s+=>')})
+    let pinned = ('^\s*' + $soname + '\s+=>\s+/tool/tracer-runtime/' + $soname + '\s+\(')
+    if ($selected | length) != 1 or not (($selected | first) =~ $pinned) { return 'TRACER_LOADER_LIST_DRIFT' }
   }
   'PASS'
 }
@@ -218,20 +222,29 @@ def inside [ledger_path: string, receipt: string] {
       error make {msg: 'IMAGE_DRIFT'}
     }
     let pre = {generator: (file_sha $"($source)/($ledger.generator_path)"), tracked_output: (file_sha $"($source)/($ledger.output_path)"), notice: (file_sha $"($source)/($ledger.notice_path)")}
-    let interpreter = '/lib64/ld-linux-x86-64.so.2'
+    let runtime = '/tool/tracer-runtime'
+    try {
+      verify_file $"($runtime)/libunwind-ptrace.so.0" 18840 'f791a9b0b01faa13a65ee066d2351d2e38a23d6c3752f75eebeaf0fc5c7d56f4'
+      verify_file $"($runtime)/libunwind-x86_64.so.8" 71920 '1077e265bdd76ed4f2d628ea29150eb98f5c7c8f5a30004a561e6e93a2a6f097'
+      verify_file $"($runtime)/libunwind.so.8" 63744 '5d1f6f104f79698e137c9f17c4b0317dfd96816c0eb6a87c50619a41472ca382'
+      verify_file $"($runtime)/liblzma.so.5" 170456 '493cb401ab4aa3bba611ca464d12996afb3b327940d29476f535f999e167439b'
+      verify_file $"($runtime)/libc.so.6" 2216304 '2e15e345ccba1e1e8bf3bc58938d13eb7ccc17044942f0376cd5bc771f429b79'
+      verify_file $"($runtime)/ld-linux-x86-64.so.2" 240936 'e833bd99168bea158d2f2e5d32462479cacfb624003304a9ea74a1607a144f1f'
+    } catch { error make {msg: 'TRACER_RUNTIME_DRIFT'} }
+    let interpreter = $"($runtime)/ld-linux-x86-64.so.2"
     let interpreter_check = (try { ^test -f $interpreter -a -x $interpreter | complete } catch { error make {msg: 'TRACER_INTERPRETER_UNAVAILABLE'} })
     if $interpreter_check.exit_code != 0 { error make {msg: 'TRACER_INTERPRETER_UNAVAILABLE'} }
-    let loader_list = (try { ^timeout 8s $interpreter --list /tool/strace | complete } catch { error make {msg: 'TRACER_LOADER_LIST_REFUSED'} })
+    let loader_list = (try { ^timeout 8s $interpreter --library-path $runtime --list /tool/strace | complete } catch { error make {msg: 'TRACER_LOADER_LIST_REFUSED'} })
     let loader_class = (classify_tracer_loader_list $loader_list.exit_code $loader_list.stdout $loader_list.stderr)
     if $loader_class == 'TRACER_LOADER_LIST_REFUSED' {
       refusal $receipt $loader_class (classify_tracer_loader_failure $loader_list.exit_code $loader_list.stdout $loader_list.stderr)
     }
     if $loader_class != 'PASS' { error make {msg: $loader_class} }
-    let tracer_version = (try { ^timeout 8s /tool/strace -V | complete } catch { error make {msg: 'TRACER_VERSION_REFUSED'} })
+    let tracer_version = (try { ^timeout 8s $interpreter --library-path $runtime /tool/strace -V | complete } catch { error make {msg: 'TRACER_VERSION_REFUSED'} })
     let version_class = (classify_tracer_version $tracer_version.exit_code $tracer_version.stdout $tracer_version.stderr)
     if $version_class != 'PASS' { error make {msg: $version_class} }
     cd /work
-    let invocation = (^timeout 600s /tool/strace -f -yy -s 4096 -o /out/trace.raw -e 'trace=%file,%process,%network,read,readv,close,chdir,fchdir' python3 $"($source)/($ledger.generator_path)" -o /out/library_sigs.js | complete)
+    let invocation = (^timeout 600s $interpreter --library-path $runtime /tool/strace -f -yy -s 4096 -o /out/trace.raw -e 'trace=%file,%process,%network,read,readv,close,chdir,fchdir' python3 $"($source)/($ledger.generator_path)" -o /out/library_sigs.js | complete)
     if ($invocation.stdout | str length) > 1048576 or ($invocation.stderr | str length) > 1048576 {
       error make {msg: 'GENERATOR_LOG_CAP'}
     }
@@ -305,7 +318,7 @@ def inside [ledger_path: string, receipt: string] {
       'WEBASSEMBLY_MODULE_FILE_MISSING' 'WEBASSEMBLY_MODULE_FILE_DRIFT' 'WEBASSEMBLY_MODULE_HASH_FAILED'
       'COMPILER_JS_FILE_MISSING' 'COMPILER_JS_FILE_DRIFT' 'COMPILER_JS_HASH_FAILED'
       'TRACER_INTERPRETER_UNAVAILABLE' 'TRACER_LOADER_LOG_CAP' 'TRACER_LOADER_LIST_REFUSED'
-      'TRACER_LOADER_LIST_DRIFT' 'TRACER_VERSION_LOG_CAP' 'TRACER_VERSION_REFUSED'
+      'TRACER_RUNTIME_DRIFT' 'TRACER_LOADER_LIST_DRIFT' 'TRACER_VERSION_LOG_CAP' 'TRACER_VERSION_REFUSED'
       'TRACER_VERSION_DRIFT'
     ]
     if $message in $allowed { refusal $receipt $message } else { refusal $receipt 'UNCLASSIFIED_FAILURE' }
@@ -331,6 +344,8 @@ def host [ledger_path: string, input: string, private: string, receipt: string] 
   cp -- $ledger_path $"($tool)/ledger.json"
   cp -- .github/scripts/duckdb-library-sigs-lineage-v1.nu $"($tool)/helper.nu"
   cp -- $"($env.RUNNER_TEMP)/tundra-nu-0.115.1/nu" $"($tool)/nu"
+  # Stage only the previously hashed package bytes inside the existing read-only /tool bind.
+  ^cp -R -- $"($input)/tracer-runtime" $"($tool)/tracer-runtime"
   ^chmod -R a+rX -- $tool
   ^chmod 0777 -- $private
   ^chmod 0777 -- $receipt
