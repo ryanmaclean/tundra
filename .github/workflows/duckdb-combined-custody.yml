@@ -43,7 +43,10 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           path: legal-ledger
-          sparse-checkout: .github/receipts/duckdb-eh-js-glue-observed-v2.tsv
+          sparse-checkout: |
+            .github/receipts/duckdb-eh-js-glue-observed-v2.tsv
+            .github/scripts/duckdb-selected-native-glue-bill-v1.nu
+          sparse-checkout-cone-mode: false
           persist-credentials: false
       - name: Check out pinned DuckDB Wasm and submodules
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -53,6 +56,38 @@ jobs:
           path: duckdb-upstream
           submodules: recursive
           persist-credentials: false
+      - name: Pin MIT Nushell for EH bill diagnostic
+        if: ${{ matrix.variant == 'eh' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/combined-custody"
+          tool="$RUNNER_TEMP/tundra-nu-0.115.1"
+          mkdir -p "$out" "$tool"
+          printf 'tool=nushell\nversion=0.115.1\nstatus=REFUSED_UNVERIFIED\nproduct_admission=NO\n' \
+            > "$out/nu-tool-provenance.txt"
+          test "$(uname -s)" = Linux && test "$(uname -m)" = x86_64
+          archive="$tool/nu-0.115.1-x86_64-unknown-linux-musl.tar.gz"
+          timeout 180s curl --fail --location --silent --show-error \
+            --proto '=https' --proto-redir '=https' --max-time 120 --retry 1 \
+            --max-filesize 90000000 --output "$archive" \
+            https://github.com/nushell/nushell/releases/download/0.115.1/nu-0.115.1-x86_64-unknown-linux-musl.tar.gz
+          test "$(stat -c %s "$archive")" = 83545998
+          printf '%s  %s\n' 8a9722177ddd421eba927b4baae4ae341a4d1c3434504be7b1b17d998bafdd87 \
+            "$archive" | sha256sum --check --status
+          tar -xOzf "$archive" nu-0.115.1-x86_64-unknown-linux-musl/nu > "$tool/nu"
+          tar -xOzf "$archive" nu-0.115.1-x86_64-unknown-linux-musl/LICENSE \
+            > "$out/nu-tool-LICENSE"
+          test "$(stat -c %s "$tool/nu")" = 70750360
+          printf '%s  %s\n' c343a927a2d4a45ebf9300d013b226bcdc2598ecb0178a8a79722ebffe71e56e \
+            "$tool/nu" | sha256sum --check --status
+          printf '%s  %s\n' ff5dcaaba6140ec57cafdd4f707cd0d329e727477cf7d5b9ba7a244ec2678b79 \
+            "$out/nu-tool-LICENSE" | sha256sum --check --status
+          grep -Fxq 'MIT License' "$out/nu-tool-LICENSE"
+          chmod 0700 "$tool/nu"
+          test "$("$tool/nu" --version)" = 0.115.1
+          printf 'tool=nushell\nversion=0.115.1\narchive_sha256=8a9722177ddd421eba927b4baae4ae341a4d1c3434504be7b1b17d998bafdd87\nbinary_sha256=c343a927a2d4a45ebf9300d013b226bcdc2598ecb0178a8a79722ebffe71e56e\nlicense=MIT\nlicense_sha256=ff5dcaaba6140ec57cafdd4f707cd0d329e727477cf7d5b9ba7a244ec2678b79\nstatus=PINNED_OFFICIAL_ARCHIVE\nproduct_admission=NO\n' \
+            > "$out/nu-tool-provenance.txt"
       - name: Build both cache conditions and retain same-run inputs and outputs
         shell: bash
         run: |
@@ -1313,6 +1348,22 @@ jobs:
           done < "$out/image-prebuild.tsv"
           test "$(wc -l < "$out/b678-warm-comparison.tsv")" -eq "$expected"
           printf 'archive_payload_classification=PAIRED_BYTES_RETAINED_NOT_YET_AUDITED\nexact_custody_output=DIAGNOSTIC_ONLY\nproduct_admission=NO\n' >> "$out/admission.txt"
+      - name: Produce bounded selected native and glue bill
+        if: ${{ matrix.variant == 'eh' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C legal-ledger rev-parse HEAD)" = '${{ github.event.pull_request.head.sha || github.sha }}'
+          test -s legal-ledger/.github/scripts/duckdb-selected-native-glue-bill-v1.nu
+          test -x "$RUNNER_TEMP/tundra-nu-0.115.1/nu"
+          test "$("$RUNNER_TEMP/tundra-nu-0.115.1/nu" --version)" = 0.115.1
+          "$RUNNER_TEMP/tundra-nu-0.115.1/nu" \
+            legal-ledger/.github/scripts/duckdb-selected-native-glue-bill-v1.nu \
+            "$RUNNER_TEMP/combined-custody" \
+            legal-ledger/.github/receipts/duckdb-eh-js-glue-observed-v2.tsv \
+            eh '${{ github.event.pull_request.head.sha || github.sha }}' \
+            "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT"
+          test -s "$RUNNER_TEMP/combined-custody/selected-native-glue-bill-v1.json"
       - name: Enforce bounded receipt on every outcome
         id: budget
         if: always()
