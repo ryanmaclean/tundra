@@ -103,6 +103,30 @@ export def classify_failed_invocation [exit_code: int, trace_path: string, trace
   {invocation_exit_class: $exit_class, invocation_trace_stage: $trace_stage}
 }
 
+export def classify_tracer_loader_list [exit_code: int, stdout: string, stderr: string] {
+  if ($stdout | str length) > 8192 or ($stderr | str length) > 8192 { return 'TRACER_LOADER_LOG_CAP' }
+  if $exit_code != 0 { return 'TRACER_LOADER_LIST_REFUSED' }
+  if ($stdout | str contains 'not found') or ($stderr | str contains 'not found') {
+    return 'TRACER_LOADER_LIST_DRIFT'
+  }
+  let rows = ($stdout | lines)
+  for pattern in [
+    '^\s*libunwind-ptrace\.so\.0\s+=>\s+/'
+    '^\s*libunwind-x86_64\.so\.8\s+=>\s+/'
+    '^\s*libc\.so\.6\s+=>\s+/'
+  ] {
+    if (($rows | where {|line| $line =~ $pattern} | length) != 1) { return 'TRACER_LOADER_LIST_DRIFT' }
+  }
+  'PASS'
+}
+
+export def classify_tracer_version [exit_code: int, stdout: string, stderr: string] {
+  if ($stdout | str length) > 8192 or ($stderr | str length) > 8192 { return 'TRACER_VERSION_LOG_CAP' }
+  if $exit_code != 0 { return 'TRACER_VERSION_REFUSED' }
+  if (($stdout | lines | first) != 'strace -- version 5.16') { return 'TRACER_VERSION_DRIFT' }
+  'PASS'
+}
+
 export def trace_shape [path: string, cap: int] {
   if not ($path | path exists) { error make {msg: 'TRACE_MISSING'} }
   let item = (ls -l $path | first)
@@ -155,13 +179,22 @@ def inside [ledger_path: string, receipt: string] {
       error make {msg: 'IMAGE_DRIFT'}
     }
     let pre = {generator: (file_sha $"($source)/($ledger.generator_path)"), tracked_output: (file_sha $"($source)/($ledger.output_path)"), notice: (file_sha $"($source)/($ledger.notice_path)")}
+    let interpreter = '/lib64/ld-linux-x86-64.so.2'
+    let interpreter_check = (try { ^test -f $interpreter -a -x $interpreter | complete } catch { error make {msg: 'TRACER_INTERPRETER_UNAVAILABLE'} })
+    if $interpreter_check.exit_code != 0 { error make {msg: 'TRACER_INTERPRETER_UNAVAILABLE'} }
+    let loader_list = (try { ^timeout 8s $interpreter --list /tool/strace | complete } catch { error make {msg: 'TRACER_LOADER_LIST_REFUSED'} })
+    let loader_class = (classify_tracer_loader_list $loader_list.exit_code $loader_list.stdout $loader_list.stderr)
+    if $loader_class != 'PASS' { error make {msg: $loader_class} }
+    let tracer_version = (try { ^timeout 8s /tool/strace -V | complete } catch { error make {msg: 'TRACER_VERSION_REFUSED'} })
+    let version_class = (classify_tracer_version $tracer_version.exit_code $tracer_version.stdout $tracer_version.stderr)
+    if $version_class != 'PASS' { error make {msg: $version_class} }
     cd /work
     let invocation = (^timeout 600s /tool/strace -f -yy -s 4096 -o /out/trace.raw -e 'trace=%file,%process,%network,read,readv,close,chdir,fchdir' python3 $"($source)/($ledger.generator_path)" -o /out/library_sigs.js | complete)
     if ($invocation.stdout | str length) > 1048576 or ($invocation.stderr | str length) > 1048576 {
       error make {msg: 'GENERATOR_LOG_CAP'}
     }
     if $invocation.exit_code != 0 {
-      refusal $receipt 'GENERATOR_OR_TRACER_FAILED' (classify_failed_invocation $invocation.exit_code /out/trace.raw $ledger.trace_cap_bytes)
+      refusal $receipt 'GENERATOR_OR_TRACER_FAILED' ((classify_failed_invocation $invocation.exit_code /out/trace.raw $ledger.trace_cap_bytes) | merge {tracer_link_smoke: 'PASS', tracer_version_smoke: 'PASS'})
     }
     let shape = (trace_shape /out/trace.raw $ledger.trace_cap_bytes)
     verify_required_file GENERATED_OUTPUT /out/library_sigs.js $ledger.output_size $ledger.output_sha256
@@ -188,6 +221,8 @@ def inside [ledger_path: string, receipt: string] {
       output_size: $ledger.output_size
       generator_script_sha256: $ledger.generator_sha256
       generator_source_mode: 'VERIFIED_READ_ONLY_BIND'
+      tracer_link_smoke: 'PASS'
+      tracer_version_smoke: 'PASS'
       generator_script_notice_status: 'PINNED_HEADER_MIT_OR_NCSA_SELECTED_MIT'
       tracked_notice_status: $ledger.source_status
       other_inputs_notice_status: 'UNPROVEN'
@@ -226,6 +261,9 @@ def inside [ledger_path: string, receipt: string] {
       'UTILS_MODULE_FILE_MISSING' 'UTILS_MODULE_FILE_DRIFT' 'UTILS_MODULE_HASH_FAILED'
       'WEBASSEMBLY_MODULE_FILE_MISSING' 'WEBASSEMBLY_MODULE_FILE_DRIFT' 'WEBASSEMBLY_MODULE_HASH_FAILED'
       'COMPILER_JS_FILE_MISSING' 'COMPILER_JS_FILE_DRIFT' 'COMPILER_JS_HASH_FAILED'
+      'TRACER_INTERPRETER_UNAVAILABLE' 'TRACER_LOADER_LOG_CAP' 'TRACER_LOADER_LIST_REFUSED'
+      'TRACER_LOADER_LIST_DRIFT' 'TRACER_VERSION_LOG_CAP' 'TRACER_VERSION_REFUSED'
+      'TRACER_VERSION_DRIFT'
     ]
     let message = ($e.msg | default 'UNKNOWN')
     if $message in $allowed { refusal $receipt $message } else { refusal $receipt 'UNCLASSIFIED_FAILURE' }
