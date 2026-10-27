@@ -1,0 +1,29 @@
+{
+  "behavior_cases": "NOT_RUN",
+  "consumer_head": "ad0df7182cd4c9ea4a83bac04e5901de0218d9d0",
+  "controlled_archive_sha256": "fdaa14b94400917928bc73415535f02244549987beb92719882bcc905b4280fe",
+  "controlled_notice_sha256": "620a78084fc7ca97c0b5dea9abf891f3ffcadfdbf305276f099c9c4e12fc1d86",
+  "corpus_apply_helper_sha256": "7895597e2417426c141dcbc7c5e002269fb5f7f3c3381a6612bdfba33af3acf4",
+  "corpus_module_sha256": "196ba238054a5b22e2a89d781eb7ed3844a416b71384f98fbc9c032eea551c0a",
+  "final_main_sha256": "57480e689cccfa26e8527dba3f566c275bfbfad7cb2c43c4cb3dd85263284b8e",
+  "fleet_admission": "NO",
+  "generator_input_closure": "UNPROVEN",
+  "legal_admission": "NO",
+  "linker_input": "UNPROVEN",
+  "package_install_verified": "NO",
+  "pr137_source_head": "a5b05fc1c6e51add369fd61ffe668d7a4a293bc8",
+  "preimage_main_sha256": "e4a89f0db2603d1a6cd5d22b564cc03816b379116deb33c0322ea1d813bdae1d",
+  "product_admission": "NO",
+  "retired_pr148_packages_sha256": [
+    "7f4e468c35258fdec2f76704dcb3080917b77d8002b7616e70a58ac9688d25a8",
+    "f8c9e9468c2cf394edcd473ec319b896d9d821ae4757ddec1395406e887c9e26",
+    "3e853d30c5c53b70100ae9447880fe611ed7dd37b548bb5829f4f0d968c8d332",
+    "bdf9db89cb30721b1f4e94f03c900392198da017af1e0264c9e76546e3379679"
+  ],
+  "schema": "tundra-libnoexit-corpus-package-source/v1",
+  "scope": "PR119_FOUR_NEW_DIAGNOSTIC_CORPUS_PACKAGES_ONLY",
+  "selected_graph_exhaustive": "NO",
+  "semantic_main_sha256": "667a6112b3256a2d6478e128808469a26a8dd0b566fac4f3a7d6ea32f905350d",
+  "semantic_patch": "diff --git a/app/tauri/src/main.rs b/app/tauri/src/main.rs\n--- a/app/tauri/src/main.rs\n+++ b/app/tauri/src/main.rs\n@@ -53,6 +53,7 @@\n     rejection_probes: Option<Vec<RejectionProbe>>,\n     recovery_row: Option<String>,\n     recovery_ok: bool,\n+    semantic_observed: Option<String>,\n     smoke_error: Option<String>,\n     csp_denied: bool,\n     csp_violations: Vec<String>,\n@@ -127,6 +128,7 @@\n             \"rejectionProbes\": rejection_probes,\n             \"recoveryRow\": result.recovery_row.as_deref().unwrap_or(\"\").chars().take(96).collect::<String>(),\n             \"recoveryOk\": result.recovery_ok,\n+            \"semanticObserved\": result.semantic_observed.as_deref().unwrap_or(\"\").chars().take(4096).collect::<String>(),\n             \"smokeError\": result.smoke_error.as_deref().unwrap_or(\"\").chars().take(512).collect::<String>(),\n             \"cspDenied\": result.csp_denied,\n             \"cspViolations\": csp_directives,\n@@ -269,7 +271,49 @@\n       result.exceptionOk = result.rejectionProbes.length === 2 &&\n         result.rejectionProbes[0].matched && result.rejectionProbes[1].matched &&\n         result.recoveryOk;\n-      result.ok = result.ok && result.exceptionOk;\n+      // Test-only extension: every query uses the bridge's one retained connection.\n+const semantic = { cases: [], sameConnection: false,\n+  recovery: false, targetedPathsOk: false };\n+const inspect = async (name, sql) => {\n+  const value = JSON.parse(await bridge.query_duckdb(sql));\n+  const error = value && !Array.isArray(value) &&\n+    typeof value.error === 'string' ? value.error : '';\n+  semantic.cases.push({ name, shape: Array.isArray(value) ? 'rows' :\n+    (error ? 'error' : typeof value),\n+    errorClass: (error.match(/(?:Parser|Catalog|Binder|Conversion|Invalid Input|Internal) Error/) || [])[0] || '',\n+    rows: Array.isArray(value) ? value : [],\n+    marker: error ? error.split(/\\r?\\n/, 1)[0].slice(0, 120) : '' });\n+};\n+await inspect('create-macro',\n+  'CREATE MACRO eh_probe(x) AS TABLE SELECT x AS v');\n+await inspect('table-macro-ok', 'SELECT * FROM eh_probe(7)');\n+await inspect('table-macro-arity-error', 'SELECT * FROM eh_probe()');\n+await inspect('pragma-ok', 'PRAGMA version');\n+await inspect('pragma-error', 'PRAGMA eh_missing_pragma_6f86d081');\n+await inspect('aggregate-ok', 'SELECT sum(i) AS total FROM csp_probe');\n+await inspect('aggregate-error', \"SELECT sum('eh_bad_number') FROM csp_probe\");\n+await inspect('same-connection', 'SELECT * FROM eh_probe(11)');\n+await inspect('post-error-recovery', 'SELECT 42 AS alive');\n+semantic.sameConnection = JSON.stringify(semantic.cases.find(c =>\n+  c.name === 'same-connection')?.rows) === JSON.stringify([{v:11}]);\n+semantic.recovery = JSON.stringify(semantic.cases.find(c =>\n+  c.name === 'post-error-recovery')?.rows) === JSON.stringify([{alive:42}]);\n+const byName = name => semantic.cases.find(c => c.name === name);\n+semantic.targetedPathsOk =\n+  byName('create-macro')?.shape === 'rows' &&\n+  JSON.stringify(byName('table-macro-ok')?.rows) === JSON.stringify([{v:7}]) &&\n+  byName('table-macro-arity-error')?.shape === 'error' &&\n+  !!byName('table-macro-arity-error')?.errorClass &&\n+  byName('pragma-ok')?.shape === 'rows' &&\n+  byName('pragma-error')?.shape === 'error' &&\n+  !!byName('pragma-error')?.errorClass &&\n+  byName('aggregate-ok')?.shape === 'rows' &&\n+  [3, '3', '\"3\"'].includes(byName('aggregate-ok')?.rows?.[0]?.total) &&\n+  byName('aggregate-error')?.shape === 'error' &&\n+  !!byName('aggregate-error')?.errorClass;\n+result.semanticObserved = JSON.stringify(semantic);\n+result.ok = result.ok && result.exceptionOk &&\n+  semantic.sameConnection && semantic.recovery && semantic.targetedPathsOk;\n       await new Promise(resolve => setTimeout(resolve, 100));\n       result.remoteRequests = performance.getEntriesByType('resource').filter(entry => {\n         const url = new URL(entry.name);\n",
+  "semantic_patch_sha256": "28deafac7a2f76e83adfbc92d4368444adbf97fae3aba496080f2f5a39742cca"
+}
