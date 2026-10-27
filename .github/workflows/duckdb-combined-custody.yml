@@ -2176,7 +2176,7 @@ jobs:
                       'SOURCE_HEAD_DRIFT')
               receipt['baseline_sha256'] = {}
               for condition in ('image', 'clean'):
-                  for suffix in ('command.txt', 'objects1.rsp', 'linklibs.rsp',
+                  for suffix in ('command.txt', 'link.txt', 'objects1.rsp', 'linklibs.rsp',
                                  'map', 'js', 'wasm'):
                       name = f'{condition}-{suffix}' if suffix.endswith(('.txt', '.rsp')) else f'{condition}.{suffix}'
                       receipt['baseline_sha256'][name] = sha(out / name)
@@ -2480,11 +2480,11 @@ jobs:
                       ('wasm', out / f'{condition}.wasm', build / 'duckdb_wasm.wasm')):
                       digest = sha(artifact)
                       require(sha(current) == digest, 'SAME_RUN_BASELINE_DRIFT')
-                      canary_name = (f'{condition}-{name}' if name in
-                                     ('command', 'objects1_rsp', 'linklibs_rsp') else
-                                     f'{condition}.{name}')
-                      canary_name = canary_name.replace('-command', '-command.txt').replace(
-                          '-objects1_rsp', '-objects1.rsp').replace('-linklibs_rsp', '-linklibs.rsp')
+                      canary_name = (f'{condition}-link.txt' if name == 'command' else
+                                     f'{condition}-{name}' if name in
+                                     ('objects1_rsp', 'linklibs_rsp') else f'{condition}.{name}')
+                      canary_name = canary_name.replace('-objects1_rsp', '-objects1.rsp').replace(
+                          '-linklibs_rsp', '-linklibs.rsp')
                       require(canary['baseline_sha256'][canary_name] == digest,
                               'SAME_RUN_BASELINE_DRIFT')
                       baseline[name] = digest
