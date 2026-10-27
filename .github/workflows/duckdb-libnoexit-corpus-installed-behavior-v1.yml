@@ -150,7 +150,8 @@ jobs:
           set -euo pipefail
           root="$RUNNER_TEMP/corpus-install-input"
           home="$root/eh-smoke-home"
-          mkdir -m 0700 -p "$home/home" "$home/config" "$home/data" "$home/cache"
+          umask 077
+          mkdir -p "$home/home" "$home/config" "$home/data" "$home/cache"
           set +e
           dbus-run-session -- xvfb-run -a -s '-screen 0 1280x800x24' \
             env HOME="$home/home" XDG_CONFIG_HOME="$home/config" \
