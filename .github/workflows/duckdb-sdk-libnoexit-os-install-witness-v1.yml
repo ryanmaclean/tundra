@@ -120,7 +120,6 @@ jobs:
         run: |
           set -euo pipefail
           root="$RUNNER_TEMP/libnoexit-install-input"
-          ulimit -f 128
           if timeout 180s sudo -n env DEBIAN_FRONTEND=noninteractive dpkg -i -- "$root/package.deb" \
             > "$root/dpkg.stdout" 2> "$root/dpkg.stderr"; then
             install_rc=0
