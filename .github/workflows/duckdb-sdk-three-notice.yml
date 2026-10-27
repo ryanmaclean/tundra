@@ -73,7 +73,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -d "$GITHUB_WORKSPACE/.git" && test ! -L "$GITHUB_WORKSPACE/.git"
+          test -f "$GITHUB_WORKSPACE/.git/HEAD" && test ! -L "$GITHUB_WORKSPACE/.git/HEAD"
+          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
+          printf '%s\n' "$GITHUB_SHA" | cmp -s - "$GITHUB_WORKSPACE/.git/HEAD"
           printf '%s  %s\n' \
             42aa11ec57e421a54d1bb3904097c7b85254d240d6664862bc7d78a7092d678b .github/receipts/duckdb-sdk-three-v1.json \
             6edc9d050d218d2e929523d21391873a1e4fa5eabdfee36cd3bbe847102f1791 .github/scripts/duckdb-sdk-three-notice-v1.nu \
