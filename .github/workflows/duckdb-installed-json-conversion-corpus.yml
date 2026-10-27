@@ -45,8 +45,8 @@ jobs:
             test -f "$source" && test ! -L "$source"
           done
           printf '%s  %s\n' \
-            792fc8d1f1115b6bb20db53d6f2b37522ac38083a1a1f6398989a4a87d9c48be .github/workflows/duckdb-libnoexit-corpus-installed-behavior-v1.yml \
-            48df8e2ff100bdd39c8653e5f02e66e1d4175ca1804e7da817bd3bb098d83cd0 .github/scripts/duckdb-libnoexit-corpus-installed-behavior-v1.nu \
+            c7773a40cee4cea50a60f3c430dc3367c5051b27a2f0fd7fa957f2109699ae6f .github/workflows/duckdb-libnoexit-corpus-installed-behavior-v1.yml \
+            6de77cf8fee3c49567037d0fb05eeb4cf55aa298ed91ff8e0d2ebd5cc3104bc3 .github/scripts/duckdb-libnoexit-corpus-installed-behavior-v1.nu \
             56dff3313aa454dca6ad914d1ffa0b73c19b812aa158c80b4d0e397b78dab875 .github/receipts/duckdb-libnoexit-corpus-installed-behavior-v1.json \
             | sha256sum --check --status
 
