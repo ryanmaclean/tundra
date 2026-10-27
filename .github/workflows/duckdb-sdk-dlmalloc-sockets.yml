@@ -1,0 +1,226 @@
+name: DuckDB SDK dlmalloc and sockets candidate diagnostic
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  sdk-next-notice:
+    runs-on: ubuntu-22.04
+    container:
+      image: emscripten/emsdk:3.1.48@sha256:c952f592577a428698cb990c9656f395ae34424740f9c40bed4c3ee6d4850d29
+    timeout-minutes: 30
+    steps:
+      - name: Check out exact diagnostic source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Initialize bounded refusal receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/sdk-next-receipt" "$RUNNER_TEMP/sdk-next-input"
+          printf '{"schema":"tundra-sdk-dlmalloc-sockets-candidate-diagnostic/v1","status":"REFUSED","admission":"NO","reason":"NOT_COMPLETED","sdk_archive_keys_pending_per_condition":9,"other_sdk_archive_keys_pending_per_condition":7,"generator_keys_pending_per_condition":1,"source_only_dlmalloc_declaration":"UNPROVEN","installed_dlmalloc_attribution":"UNPROVEN","selected_graph_exhaustive":"NO","generator_input_closure":"UNPROVEN","glue_legal_admission":"NO","legal_admission":"NO","product_admission":"NO","fleet_admission":"NO"}\n' \
+            > "$RUNNER_TEMP/sdk-next-receipt/refusal.json"
+      - name: Install checksum-pinned MIT Nushell
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -s)" = Linux && test "$(uname -m)" = x86_64
+          tool="$RUNNER_TEMP/tundra-nu-0.115.1"
+          mkdir -p "$tool"
+          archive="$tool/nu-0.115.1-x86_64-unknown-linux-musl.tar.gz"
+          timeout 180s curl --fail --location --silent --show-error \
+            --proto '=https' --proto-redir '=https' --max-time 120 --retry 1 \
+            --max-filesize 90000000 --output "$archive" \
+            https://github.com/nushell/nushell/releases/download/0.115.1/nu-0.115.1-x86_64-unknown-linux-musl.tar.gz
+          test "$(stat -c %s "$archive")" = 83545998
+          printf '%s  %s\n' 8a9722177ddd421eba927b4baae4ae341a4d1c3434504be7b1b17d998bafdd87 "$archive" | sha256sum --check --status
+          tar -xOzf "$archive" nu-0.115.1-x86_64-unknown-linux-musl/nu > "$tool/nu"
+          tar -xOzf "$archive" nu-0.115.1-x86_64-unknown-linux-musl/LICENSE > "$tool/LICENSE"
+          test "$(stat -c %s "$tool/nu")" = 70750360
+          printf '%s  %s\n' \
+            c343a927a2d4a45ebf9300d013b226bcdc2598ecb0178a8a79722ebffe71e56e "$tool/nu" \
+            ff5dcaaba6140ec57cafdd4f707cd0d329e727477cf7d5b9ba7a244ec2678b79 "$tool/LICENSE" \
+            | sha256sum --check --status
+          grep -Fxq 'MIT License' "$tool/LICENSE"
+          chmod 0700 "$tool/nu"
+          test "$("$tool/nu" --version)" = 0.115.1
+          echo "$tool" >> "$GITHUB_PATH"
+      - name: Capture pinned-image SDK recipe and root license
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$EMSDK" = /emsdk
+          src="$EMSDK/upstream/emscripten"
+          test -f "$src/tools/system_libs.py" && test ! -L "$src/tools/system_libs.py"
+          test -f "$src/LICENSE" && test ! -L "$src/LICENSE"
+          mkdir -p "$RUNNER_TEMP/sdk-next-input/image"
+          cp -- "$src/tools/system_libs.py" "$RUNNER_TEMP/sdk-next-input/image/system_libs.py"
+          cp -- "$src/LICENSE" "$RUNNER_TEMP/sdk-next-input/image/LICENSE"
+          printf '%s  %s\n' \
+            cfbe818b5f6fc59102e55eb2ef8da94ba9273a484d799fcac5fa831ed3c2ee07 "$RUNNER_TEMP/sdk-next-input/image/system_libs.py" \
+            620a78084fc7ca97c0b5dea9abf891f3ffcadfdbf305276f099c9c4e12fc1d86 "$RUNNER_TEMP/sdk-next-input/image/LICENSE" \
+            | sha256sum --check --status
+      - name: Authenticate frozen runs, artifacts and source tar bytes
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test -d "$GITHUB_WORKSPACE/.git" && test ! -L "$GITHUB_WORKSPACE/.git"
+          test -f "$GITHUB_WORKSPACE/.git/HEAD" && test ! -L "$GITHUB_WORKSPACE/.git/HEAD"
+          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
+          printf '%s\n' "$GITHUB_SHA" | cmp -s - "$GITHUB_WORKSPACE/.git/HEAD"
+          printf '%s  %s\n' \
+            96454851fb0478eb6faf682734ed6978a06492c132846aa9384f4b1bd74eacfa .github/receipts/duckdb-sdk-dlmalloc-sockets-v1.json \
+            e1ebd5f3ee3f92cd682b8c455631fdde9738bae63afc1c70a9b212cafdbca3fb .github/scripts/duckdb-sdk-dlmalloc-sockets-v1.nu \
+            | sha256sum --check --status
+          input="$RUNNER_TEMP/sdk-next-input"
+          api=https://api.github.com/repos/ryanmaclean/tundra
+          api_get() {
+            printf 'header = "Authorization: Bearer %s"\n' "$GH_TOKEN" |
+              curl --config - --fail --silent --show-error --location \
+                --proto '=https' --proto-redir '=https' --max-time 180 --retry 1 \
+                --max-filesize 80000000 --output "$2" "$1"
+          }
+          api_get "$api/actions/runs/40434996466" "$input/producer-run.json"
+          api_get "$api/actions/runs/40442338363" "$input/consumer-run.json"
+          for id in 12705817192 12707397953 12707094239 12708117533 12708990037; do
+            api_get "$api/actions/artifacts/$id" "$input/artifact-$id.json"
+            api_get "$api/actions/artifacts/$id/zip" "$input/artifact-$id.zip"
+          done
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, shutil, tarfile, zipfile
+          root = pathlib.Path(os.environ['RUNNER_TEMP']) / 'sdk-next-input'
+          ledger = json.loads(pathlib.Path('.github/receipts/duckdb-sdk-dlmalloc-sockets-v1.json').read_text())
+          for label, expected in [('producer', ledger['producer']), ('consumer', ledger['consumer'])]:
+              run = json.loads((root / f'{label}-run.json').read_text())
+              assert run['id'] == expected['run'] and run['run_attempt'] == expected['attempt']
+              assert run['head_sha'] == expected['head'] and run['event'] == 'workflow_dispatch'
+              assert run['status'] == 'completed' and run['conclusion'] == 'success'
+          targets = [(ledger['producer']['artifact_id'], ledger['producer']['run'],
+                      ledger['producer']['head'], 'duckdb-combined-custody-eh',
+                      ledger['producer']['artifact_zip_sha256'], 'producer')]
+          for a in ledger['consumer']['artifacts']:
+              targets.append((a['id'], ledger['consumer']['run'], ledger['consumer']['head'],
+                              f"duckdb-eh-pair-{a['condition']}-{a['profile']}",
+                              a['zip_sha256'], f"installed/{a['condition']}-{a['profile']}"))
+          receipt = []
+          for artifact_id, run_id, head, name, digest, label in targets:
+              meta = json.loads((root / f'artifact-{artifact_id}.json').read_text())
+              archive = root / f'artifact-{artifact_id}.zip'
+              assert meta['id'] == artifact_id and meta['name'] == name
+              assert meta['digest'] == 'sha256:' + digest and not meta['expired']
+              assert meta['workflow_run']['id'] == run_id and meta['workflow_run']['head_sha'] == head
+              assert archive.stat().st_size == meta['size_in_bytes'] <= 80000000
+              assert hashlib.sha256(archive.read_bytes()).hexdigest() == digest
+              with zipfile.ZipFile(archive) as z:
+                  members = z.infolist()
+                  names = [m.filename for m in members]
+                  assert len(names) == len(set(names)) == (333 if label == 'producer' else 87)
+                  assert sum(m.file_size for m in members) <= (419430400 if label == 'producer' else 16777216)
+                  for member in members:
+                      parts = member.filename.rstrip('/').split('/')
+                      mode = (member.external_attr >> 16) & 0o170000
+                      assert not member.filename.startswith('/') and '\\' not in member.filename
+                      assert all(part not in ('', '.', '..') for part in parts)
+                      assert mode in (0, 0o100000, 0o040000)
+                  assert z.testzip() is None
+                  if label == 'producer':
+                      required = {'selected-native-glue-bill-v1.json',
+                                  'sdk-archive-recipe-source.tar.gz', 'sdk-system-legal-texts.tar.gz'}
+                      for condition in ('image', 'clean'):
+                          required.update((f'{condition}-sdk-archives.tsv',
+                                           f'{condition}-sdk-map-selection.txt'))
+                          required.update(f'{condition}-bytes/{archive}' for archive in
+                                          ('libdlmalloc.a', 'libsockets.a'))
+                      assert hashlib.sha256(z.read('selected-native-glue-bill-v1.json')).hexdigest() == ledger['producer']['bill_sha256']
+                  else:
+                      required = {'exact-package-selected-bill.json', 'producer-selected-bill.json',
+                                  'installed-notice-bytes/native-emscripten-LICENSE',
+                                  'installed-notice-bytes/native-emscripten-system-lib-libc-musl-COPYRIGHT'}
+                  assert required <= set(names)
+                  destination = root / label
+                  for relative in sorted(required):
+                      target = destination / relative
+                      target.parent.mkdir(parents=True, exist_ok=True)
+                      with z.open(relative) as source, target.open('xb') as sink:
+                          shutil.copyfileobj(source, sink)
+              receipt.append({'id': artifact_id, 'run': run_id, 'head': head,
+                              'name': name, 'zip_sha256': digest, 'size': archive.stat().st_size})
+          assert hashlib.sha256((root / 'producer/sdk-archive-recipe-source.tar.gz').read_bytes()).hexdigest() == ledger['source_tar_sha256']
+          assert hashlib.sha256((root / 'producer/sdk-system-legal-texts.tar.gz').read_bytes()).hexdigest() == ledger['legal_tar_sha256']
+          sources = {r['source_path'] for r in ledger['rows']}
+          assert len(sources) == 22 and sources == ({'system/lib/dlmalloc.c'} | {f'system/lib/libc/musl/src/network/{r["member"][:-2]}.c' for r in ledger['rows'] if r['archive'] == 'libsockets.a'})
+          for tar_name, selected, destination, count, size_cap in [
+              ('sdk-archive-recipe-source.tar.gz', sources | {'system/lib/libc/musl/COPYRIGHT'},
+               root / 'producer/source', 3490, 20000000),
+              ('sdk-system-legal-texts.tar.gz', set(),
+               root / 'producer/legal', 4, 100000)]:
+              with tarfile.open(root / 'producer' / tar_name, 'r:gz') as t:
+                  members = t.getmembers()
+                  names = [m.name for m in members]
+                  assert len(names) == len(set(names)) == count
+                  assert sum(m.size for m in members) <= size_cap
+                  for member in members:
+                      assert member.isfile() or member.isdir()
+                      assert not member.name.startswith('/') and '\\' not in member.name
+                      assert all(part not in ('', '.', '..') for part in member.name.split('/'))
+                  assert selected <= set(names)
+                  for relative in sorted(selected):
+                      info = t.getmember(relative)
+                      assert info.isfile() and info.size <= 300000
+                      target = destination / relative
+                      target.parent.mkdir(parents=True, exist_ok=True)
+                      with t.extractfile(info) as source, target.open('xb') as sink:
+                          shutil.copyfileobj(source, sink)
+          auth = {'schema': 'tundra-sdk-dlmalloc-sockets-input-auth/v1',
+                  'producer_run': ledger['producer']['run'],
+                  'consumer_run': ledger['consumer']['run'],
+                  'artifacts': receipt, 'image_digest': ledger['image_digest'],
+                  'image_recipe_sha256': ledger['official_recipe_sha256'],
+                  'image_license_sha256': ledger['official_emscripten_license_sha256'],
+                  'admission': 'NO'}
+          path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'sdk-next-receipt' / 'auth.json'
+          path.write_text(json.dumps(auth, sort_keys=True, separators=(',', ':')) + '\n')
+          PY
+      - name: Validate dlmalloc and sockets physical SDK archives and installed notice bytes
+        shell: bash
+        env:
+          SDK_NEXT_LEDGER_SHA256: 96454851fb0478eb6faf682734ed6978a06492c132846aa9384f4b1bd74eacfa
+        run: |
+          set -euo pipefail
+          input="$RUNNER_TEMP/sdk-next-input"
+          output="$RUNNER_TEMP/sdk-next-receipt"
+          nu .github/scripts/duckdb-sdk-dlmalloc-sockets-v1.nu \
+            .github/receipts/duckdb-sdk-dlmalloc-sockets-v1.json \
+            "$input/producer" "$input/installed" "$input/image" "$output/sdk-next.json"
+          test -s "$output/sdk-next.json"
+          rm "$output/refusal.json"
+      - name: Enforce separate diagnostic cap
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          output="$RUNNER_TEMP/sdk-next-receipt"
+          mkdir -p "$output"
+          bytes="$(du -sb "$output" | cut -f 1)"
+          if test "$bytes" -gt 2097152; then
+            find "$output" -mindepth 1 -maxdepth 1 -type f -delete
+            printf '{"schema":"tundra-sdk-dlmalloc-sockets-candidate-diagnostic/v1","status":"REFUSED","reason":"DIAGNOSTIC_CAP","admission":"NO","sdk_archive_keys_pending_per_condition":9,"other_sdk_archive_keys_pending_per_condition":7,"generator_keys_pending_per_condition":1,"source_only_dlmalloc_declaration":"UNPROVEN","installed_dlmalloc_attribution":"UNPROVEN","selected_graph_exhaustive":"NO","generator_input_closure":"UNPROVEN","glue_legal_admission":"NO","legal_admission":"NO","product_admission":"NO","fleet_admission":"NO"}\n' > "$output/refusal.json"
+            exit 1
+          fi
+      - name: Retain bounded SDK dlmalloc and sockets candidate diagnostic
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: duckdb-sdk-dlmalloc-sockets-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/sdk-next-receipt/
+          if-no-files-found: error
+          retention-days: 7
