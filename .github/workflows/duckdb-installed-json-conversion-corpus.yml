@@ -54,7 +54,7 @@ jobs:
             test -f "$source" && test ! -L "$source"
           done
           printf '%s  %s\n' \
-            844d26bcaf6e12038779fc8307ea804d1c842dd666f695aaa120153df7151140 .github/workflows/duckdb-eh-seeded-image-build-v1.yml \
+            42233e0e6af725fbc90c001adf83c4a59f6127e56000be88dd4e80fee789da9b .github/workflows/duckdb-eh-seeded-image-build-v1.yml \
             83fa2ee3355c9e26732d94265e06ed23c8b7ba9c9b71cad05fa7b4d131e1a9ba .github/scripts/duckdb-eh-seeded-archive-identity-v1.nu \
             9d445433aa4f8c46c057321413bfd6f24e2c05b1d45200f6385fdf346b210896 .github/scripts/duckdb-eh-seeded-build-v1.nu \
             684e4f3d9abfc1f0451d32d7aa66b79431a726c47a41d1640e5f69ae8abacfc8 .github/receipts/duckdb-eh-seeded-build-v1.json \

@@ -91,7 +91,7 @@ jobs:
           set_refusal SOURCE_SUBMODULES
           test -z "$(git -C duckdb-upstream submodule status --recursive | grep '^[+-U]' || true)"
           set_refusal CUSTODY_MANIFEST
-          test "$(sha256sum custody/custody/manifest.json | cut -d ' ' -f 1)" = 5ec157dc96c54326970029900129b044365d2e330a46fa5d9f3ea66741fb2d14
+          test "$(sha256sum custody/custody/manifest.json | cut -d ' ' -f 1)" = 5ec157dc96c54326970029900129b044365c2e330a46fa5d9f3ea66741fb2d14
           set_refusal CUSTODY_ASSETS
           for asset in duckdb-browser.mjs duckdb-browser-mvp.worker.js duckdb-browser-eh.worker.js duckdb-mvp.wasm duckdb-eh.wasm; do
             expected="$(python3 - "$asset" <<'PY'
