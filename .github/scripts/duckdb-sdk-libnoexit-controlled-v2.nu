@@ -4,12 +4,13 @@ def require [ok: bool, reason: string] {
   if not $ok { error make {msg: $reason} }
 }
 
-def digest [path: string] {
-  require ($path | path exists) 'FILE_MISSING'
+export def digest [path: string, stage: string] {
+  require ($stage in ['SOURCE' 'RECIPE' 'EMBUILDER' 'NOTICE' 'TOOL_EMCC' 'TOOL_CLANG' 'TOOL_LLVM_AR' 'ARCHIVE_INPUT' 'ARCHIVE_COPY' 'OBJECT_COPY']) 'DIGEST_STAGE_INVALID'
+  require ($path | path exists) $"($stage)_FILE_MISSING"
   let item = (ls -l $path | first)
-  require ($item.type == 'file') 'FILE_NOT_REGULAR'
+  require ($item.type == 'file') $"($stage)_FILE_NOT_REGULAR"
   let result = (^sha256sum $path | complete)
-  require ($result.exit_code == 0) 'HASH_FAILED'
+  require ($result.exit_code == 0) $"($stage)_HASH_FAILED"
   $result.stdout | split row ' ' | first
 }
 
@@ -80,12 +81,12 @@ def build_condition [name: string, cache: string, output: string, ledger: record
   require ($env.LAST_EXIT_CODE == 0) 'MEMBER_EXTRACT_FAILED'
   let archive_out = $"($output)/($name)-libnoexit.a"
   cp $archive $archive_out
-  require ((digest $archive) == (digest $archive_out)) 'ARCHIVE_COPY_DRIFT'
+  require ((digest $archive 'ARCHIVE_INPUT') == (digest $archive_out 'ARCHIVE_COPY')) 'ARCHIVE_COPY_DRIFT'
   let record = {
     condition: $name, cache: $cache, cache_initially_empty: 'YES',
     build_exit: $build_exit, command: $command, command_sha256: ($command | hash sha256),
-    source_sha256: (digest $ledger.source_path), notice_sha256: (digest $ledger.notice_path),
-    archive_sha256: (digest $archive_out), object_sha256: (digest $member_out),
+    source_sha256: (digest $ledger.source_path 'SOURCE'), notice_sha256: (digest $ledger.notice_path 'NOTICE'),
+    archive_sha256: (digest $archive_out 'ARCHIVE_COPY'), object_sha256: (digest $member_out 'OBJECT_COPY'),
     member: $ledger.expected_member, ordinal: 1, member_count: 1,
     archive_bytes: ((ls -l $archive_out | first).size | into int),
     object_bytes: ((ls -l $member_out | first).size | into int)
@@ -105,12 +106,14 @@ def main [ledger_path: string, output: string] {
     require (($ledger | get $key) == 'NO') 'LEDGER_ADMISSION'
   }
   require ($ledger.generator_input_closure == 'UNPROVEN' and $ledger.selected_graph_exhaustive == 'NO') 'LEDGER_ADMISSION'
-  require ((digest $ledger.source_path) == $ledger.source_sha256) 'SOURCE_DRIFT'
-  require ((digest $ledger.recipe_path) == $ledger.recipe_sha256) 'RECIPE_DRIFT'
-  require ((digest $ledger.embuilder_path) == $ledger.embuilder_sha256) 'EMBUILDER_DRIFT'
-  require ((digest $ledger.notice_path) == $ledger.notice_sha256) 'NOTICE_DRIFT'
-  for path in $ledger.tool_paths { digest $path | ignore }
-  let tool_hashes = ($ledger.tool_paths | each {|p| {path: $p, sha256: (digest $p)} })
+  require (($ledger.tool_paths | length) == 3) 'TOOL_PATHS_DRIFT'
+  require ((digest $ledger.source_path 'SOURCE') == $ledger.source_sha256) 'SOURCE_DRIFT'
+  require ((digest $ledger.recipe_path 'RECIPE') == $ledger.recipe_sha256) 'RECIPE_DRIFT'
+  require ((digest $ledger.embuilder_path 'EMBUILDER') == $ledger.embuilder_sha256) 'EMBUILDER_DRIFT'
+  require ((digest $ledger.notice_path 'NOTICE') == $ledger.notice_sha256) 'NOTICE_DRIFT'
+  let stages = ['TOOL_EMCC' 'TOOL_CLANG' 'TOOL_LLVM_AR']
+  for item in ($ledger.tool_paths | enumerate) { digest $item.item ($stages | get $item.index) | ignore }
+  let tool_hashes = ($ledger.tool_paths | enumerate | each {|item| {path: $item.item, sha256: (digest $item.item ($stages | get $item.index))} })
   let image = (build_condition image '/work/image/cache' $output $ledger)
   let clean = (build_condition clean '/work/clean/cache' $output $ledger)
   let result = {

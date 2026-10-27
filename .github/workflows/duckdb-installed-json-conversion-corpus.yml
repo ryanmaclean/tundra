@@ -46,7 +46,7 @@ jobs:
           done
           printf '%s  %s\n' \
             311e2cfe2b1924dcbd353fe76a831b63cf451d910e779aae0aaf06831f4ac93a .github/workflows/duckdb-sdk-libnoexit-controlled-v2.yml \
-            c4233d9e6368c7b2f4057f96d1c8e8aa2268d3c4df7b5fdea50dfe93779c1862 .github/scripts/duckdb-sdk-libnoexit-controlled-v2.nu \
+            fe2b0e1b6af8c52a00e6512ed5ff0802c104481e631dc22c7d438d6fc4934600 .github/scripts/duckdb-sdk-libnoexit-controlled-v2.nu \
             4d96f66f32395d6bec9d969d66d761b66f2beb03f56ea00217f7bca3b6f327f9 .github/receipts/duckdb-sdk-libnoexit-controlled-v2.json \
             | sha256sum --check --status
 
