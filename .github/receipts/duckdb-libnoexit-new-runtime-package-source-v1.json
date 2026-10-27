@@ -1,0 +1,93 @@
+{
+  "archive_sha256": "fdaa14b94400917928bc73415535f02244549987beb92719882bcc905b4280fe",
+  "assets": {
+    "duckdb-browser-eh.worker.js": "feec83f39202c08eb93e89df8c181bac32d4fb9ffb83a18bc277953e4d2945c4",
+    "duckdb-browser-mvp.worker.js": "d7920b73954d99ffa59175db35fe24e7936f8a003144386686b53c853c46eaef",
+    "duckdb-browser.mjs": "8ccf3fe3c6bd87d5c3e397f01d40cc11ea6373b016a9cf5e954d39ee22c3aa49",
+    "duckdb-eh.wasm": {
+      "clean": "d267671286a6f0718a6fe1d712cd209bda84ef53f5984d0303defeb55c9f5d99",
+      "image": "ac2022967687136ec63c8917d77842f3c01f69291d2d024626e42a34d17953b8"
+    },
+    "duckdb-mvp.wasm": "7cf852dcc3c399f34330072a422679f2a5b7fc58c5839d3de0035fc68d9b7791"
+  },
+  "behavior_cases": "NOT_RUN",
+  "cells": [
+    {
+      "artifact_id": 12707397953,
+      "artifact_zip_sha256": "78bce8eec78e007edfc675dde994d1cd850372a23bfe769bb38b02ffb2b9f7e3",
+      "bill_sha256": "edaa7fa45fdb1b4cd27e487fd9df0348d0d194c40414f6decfa6809d6c0bc3e3",
+      "condition": "image",
+      "custody_sha256": "6337e2adb32dc20212e1e946a255b86c3ac78c2e17e848ca224359bbb34387e5",
+      "pair_sha256": "90d51d9c5af73cd6a3884337227994dc915a78f0f4ce66509d944867f8303562",
+      "profile": "default"
+    },
+    {
+      "artifact_id": 12707094239,
+      "artifact_zip_sha256": "2f0f7e11d2cf64a4489e78c6103988f32b4b6139f0282dfd5c80789f2f1c903d",
+      "bill_sha256": "29c4b00b87ec6c0ae2d216da23e883f5501d543fb9cdf25a250e02584c59950d",
+      "condition": "image",
+      "custody_sha256": "c5d4c0fa48b817d63a570841fbd3825cf2e6a193a3eb52d6c0019bf0732c70c7",
+      "pair_sha256": "90d51d9c5af73cd6a3884337227994dc915a78f0f4ce66509d944867f8303562",
+      "profile": "sounds"
+    },
+    {
+      "artifact_id": 12708117533,
+      "artifact_zip_sha256": "9b966aee4bffa81be8975d3125182118a4c89de45d3595262254fd1ff3d514fa",
+      "bill_sha256": "e1d22a8a178d3c4472f6f4928b7b4f4c4756ff6d50411006987329582d3cfe61",
+      "condition": "clean",
+      "custody_sha256": "06ff8177cd20d146d28adb0dc6a8c5a3579766330b5c2f42844227e6b1cf34fd",
+      "pair_sha256": "262d554ab7c1c3336a216fb7b61b2e6372e074bbdc0c5ec610b7e9f0e63e189c",
+      "profile": "default"
+    },
+    {
+      "artifact_id": 12708990037,
+      "artifact_zip_sha256": "4f93ad7d9f440bbb1dc53194c78186e01a6202d8d12e5a3f9b3d418396814ef8",
+      "bill_sha256": "6d6a5a1bda4acf009d02ce300b70996535caa733b17274551db38824fe8dbc0d",
+      "condition": "clean",
+      "custody_sha256": "afc77927d07669c25ea81d28dfc87057d217201162ffd7f200f57c352b0d2463",
+      "pair_sha256": "262d554ab7c1c3336a216fb7b61b2e6372e074bbdc0c5ec610b7e9f0e63e189c",
+      "profile": "sounds"
+    }
+  ],
+  "consumer_head": "ad0df7182cd4c9ea4a83bac04e5901de0218d9d0",
+  "corpus_source_ledger_sha256": "80b4c8e2a6f42f3d8f8bab45d8fb65c7ed1639596b363d80216ee76dad4f71cf",
+  "final_main_sha256": "57480e689cccfa26e8527dba3f566c275bfbfad7cb2c43c4cb3dd85263284b8e",
+  "fleet_admission": "NO",
+  "generator_input_closure": "UNPROVEN",
+  "legal_admission": "NO",
+  "linker_input": "UNPROVEN",
+  "max_package_bytes": 201326592,
+  "max_producer_zip_bytes": 67108864,
+  "max_trial_zip_bytes": 8388608,
+  "notice_sha256": "620a78084fc7ca97c0b5dea9abf891f3ffcadfdbf305276f099c9c4e12fc1d86",
+  "old_bill_sha256": "34381cba60c8922a159f578753b55531460792372f2d72b22769da205fe97790",
+  "package_install_verified": "NO",
+  "pr117_artifact_id": 12607318747,
+  "pr117_attempt": 1,
+  "pr117_custody_commit": "1d77df7776dca44731ae8267092e480a78f9f735",
+  "pr117_head": "7182d3f1b51cf643f73d40f15b576006accddd7d",
+  "pr117_run": 40217360882,
+  "pr117_zip_sha256": "be8fade74d4dda4b5eae20fc3f906370f6fd9fc82e606810a469b24affa5e7b5",
+  "pr136_artifact_id": 12705817192,
+  "pr136_attempt": 1,
+  "pr136_bill_sha256": "93c4637dcd0cf4527814267b38a242cc626ad64f92df0a9a52928d1edc036c0f",
+  "pr136_head": "22637d141f67dc92510211d7d281f6591a12a5f5",
+  "pr136_run": 40434996466,
+  "pr136_zip_sha256": "b25664ca46d4f4970aa7742e3e4927a2c55b53f9466bd5644854263e0b33ab6c",
+  "pr137_attempt": 1,
+  "pr137_head": "a5b05fc1c6e51add369fd61ffe668d7a4a293bc8",
+  "pr137_run": 40442338363,
+  "product_admission": "NO",
+  "repository": "ryanmaclean/tundra",
+  "repository_id": 1164936674,
+  "retired_pr151_deb_sha256": [
+    "7d03d22f2737711ece4654a83a60f07b563a66665913006445403faf267ccc78",
+    "1ff71268e184113608fd7285a39d9fdb00b0dad2930639656898612eccf8327a",
+    "0dd6573ca1f57a489e5a177416d56225a3b9e3345d38d36d050bc9e5db95b26f",
+    "4454d4bf5e9bddc9e9da47016bc751c95f6627948b29487c8bc43904b49fd7bb"
+  ],
+  "schema": "tundra-libnoexit-new-runtime-package-source/v1",
+  "scope": "PR117_PR136_PR137_FOUR_DIAGNOSTIC_PACKAGES_ONLY",
+  "selected_graph_exhaustive": "NO",
+  "v5_helper_sha256": "b26c3651b599ad15baf58b1e24a91a7fd83ad5832d2ce4b25e3d690b9c00d72c"
+}
