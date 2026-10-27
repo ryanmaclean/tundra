@@ -56,6 +56,20 @@ export def trace_shape [path: string, cap: int] {
   {trace_bytes: $size, trace_lines: ($lines | length), exec_lines: $execs, open_lines: $opens, relative_shape_lines: ($relative | length), dirfd_shape_lines: ($dirfd | length), split_shape_lines: ($unfinished | length), other_path_mechanism_lines: ($unknown | length), network_shape_lines: ($network | length)}
 }
 
+export def verify_repo_digests [tagged_ref: string, repo_digests_json: string] {
+  let expected_tagged = 'emscripten/emsdk:3.1.48@sha256:c952f592577a428698cb990c9656f395ae34424740f9c40bed4c3ee6d4850d29'
+  let expected_repo_digest = 'emscripten/emsdk@sha256:c952f592577a428698cb990c9656f395ae34424740f9c40bed4c3ee6d4850d29'
+  if $tagged_ref != $expected_tagged { error make {msg: 'IMAGE_DIGEST_DRIFT'} }
+  let digests = ($repo_digests_json | from json)
+  if (($digests | describe) != 'list<string>') or (($digests | length) < 1) or (($digests | length) > 16) {
+    error make {msg: 'IMAGE_DIGEST_DRIFT'}
+  }
+  if (($digests | uniq | length) != ($digests | length)) or (not ($expected_repo_digest in $digests)) {
+    error make {msg: 'IMAGE_DIGEST_DRIFT'}
+  }
+  $expected_repo_digest
+}
+
 def inside [ledger_path: string, receipt: string] {
   let ledger = (open $ledger_path)
   let source = '/emsdk/upstream/emscripten'
@@ -149,8 +163,13 @@ def host [ledger_path: string, input: string, private: string, receipt: string] 
   ^chmod 0666 -- $"($receipt)/refusal.json"
   let pulled = (^timeout 900s docker pull $ledger.image | complete)
   if $pulled.exit_code != 0 { refusal $receipt 'PINNED_IMAGE_UNAVAILABLE' }
-  let image_id = (^docker image inspect --format '{{index .RepoDigests 0}}' $ledger.image | str trim)
-  if $image_id != $ledger.image { refusal $receipt 'IMAGE_DIGEST_DRIFT' }
+  let inspected = (^docker image inspect --format '{{json .RepoDigests}}' $ledger.image | complete)
+  if $inspected.exit_code != 0 { refusal $receipt 'IMAGE_DIGEST_DRIFT' }
+  try {
+    verify_repo_digests $ledger.image ($inspected.stdout | str trim) | ignore
+  } catch {
+    refusal $receipt 'IMAGE_DIGEST_DRIFT'
+  }
   let result = (^docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges --pids-limit 128 --memory 4g --cpus 2 --ulimit fsize=16777216:16777216 --user 1000:1000 --env HOME=/tmp --env EM_CACHE=/tmp/emcache --env TUNDRA_SIGS_INSIDE=1 --tmpfs /work:rw,nosuid,nodev,size=67108864 --tmpfs /tmp:rw,nosuid,nodev,size=536870912 --mount $"type=bind,src=($tool),dst=/tool,readonly" --mount $"type=bind,src=($private),dst=/out" --mount $"type=bind,src=($receipt),dst=/receipt" --entrypoint /tool/nu $ledger.image /tool/helper.nu /tool/ledger.json /tool /out /receipt | complete)
   if $result.exit_code != 0 {
     if (open $"($receipt)/refusal.json").reason == 'NOT_COMPLETED' { refusal $receipt 'ISOLATED_GENERATOR_REFUSED' }
