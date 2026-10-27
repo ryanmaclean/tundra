@@ -7,10 +7,10 @@ on:
       - .github/workflows/duckdb-installed-json-conversion-corpus.yml
       - .github/scripts/duckdb-eh-corpus/apply-eh-corpus.nu
       - .github/scripts/duckdb-eh-corpus/authenticate-eh-artifacts.nu
-      - .github/scripts/duckdb-eh-corpus/compare-json-conversion-v3.nu
+      - .github/scripts/duckdb-eh-corpus/compare-json-conversion-v4.nu
       - .github/scripts/duckdb-eh-corpus/eh-corpus.mjs
       - .github/scripts/duckdb-json-selected-notices/yyjson-0.6.0-LICENSE
-      - .github/scripts/duckdb-package-json-selected-bill-v4.nu
+      - .github/scripts/duckdb-package-json-selected-bill-v5.nu
 
 permissions:
   contents: read
@@ -30,8 +30,12 @@ jobs:
     env:
       # Exact PR119 consumer source, including its forced-EH smoke path.
       CONSUMER_HEAD: ad0df7182cd4c9ea4a83bac04e5901de0218d9d0
-      PRODUCER_HEAD: 120a368e293c56bb22032c51859d431bc3a8307d
-      PRODUCER_RUN: "40351355919"
+      PRODUCER_HEAD: 22637d141f67dc92510211d7d281f6591a12a5f5
+      PRODUCER_RUN: "40434996466"
+      PRODUCER_ATTEMPT: "1"
+      PRODUCER_ARTIFACT_ID: "12705817192"
+      PRODUCER_ZIP_SHA256: b25664ca46d4f4970aa7742e3e4927a2c55b53f9466bd5644854263e0b33ab6c
+      PRODUCER_BILL_SHA256: 93c4637dcd0cf4527814267b38a242cc626ad64f92df0a9a52928d1edc036c0f
     steps:
       - name: Check out exact installed-consumer source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -44,6 +48,12 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           path: gate-source
           fetch-depth: 0
+          persist-credentials: false
+      - name: Check out exact selected-bill producer source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: 22637d141f67dc92510211d7d281f6591a12a5f5
+          path: producer-source
           persist-credentials: false
       - name: Check out exact upstream worker source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -59,16 +69,26 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$CONSUMER_HEAD"
+          test "$(git -C producer-source rev-parse HEAD)" = "$PRODUCER_HEAD"
+          test "$(git -C producer-source hash-object .github/scripts/duckdb-selected-native-glue-bill-v1.nu)" = eaadc9293b9f9b9f850f39035cf0785a429d80b7
+          printf '%s  %s\n' \
+            dfb03cd2c17f6cb4aa8d2c68568d5c7829a1362b15a7c8aaa564db4b1385911c \
+            producer-source/.github/scripts/duckdb-selected-native-glue-bill-v1.nu \
+            58f8a95afeb3d41499dd89bb37a00f8b1dbab99a78da39a5fc7e9cb56b9604ca \
+            producer-source/.github/receipts/duckdb-eh-js-glue-observed-v2.tsv \
+            | sha256sum --check --status
           mkdir -p "$RUNNER_TEMP/eh-semantic" "$RUNNER_TEMP/eh-input/input"
           base=https://api.github.com/repos/ryanmaclean/tundra
           headers=(--header "Authorization: Bearer $GH_TOKEN" --header 'Accept: application/vnd.github+json')
           curl --fail --silent --show-error --location --retry 3 "${headers[@]}" \
             "$base/actions/runs/$PRODUCER_RUN" -o "$RUNNER_TEMP/eh-semantic/producer-run.json"
           jq -e --arg head "$PRODUCER_HEAD" --argjson run "$PRODUCER_RUN" \
-            '.id == $run and .head_sha == $head and .status == "completed" and .conclusion == "success"' \
+            --argjson attempt "$PRODUCER_ATTEMPT" \
+            '.id == $run and .run_attempt == $attempt and .event == "workflow_dispatch" and
+             .head_sha == $head and .status == "completed" and .conclusion == "success"' \
             "$RUNNER_TEMP/eh-semantic/producer-run.json"
-          artifact=12666032736
-          zip_digest=1b93d62cef81dc8d099f70d564f3654f81f0e19cda4a6b041ff806bb6f1abc11
+          artifact="$PRODUCER_ARTIFACT_ID"
+          zip_digest="$PRODUCER_ZIP_SHA256"
           curl --fail --silent --show-error --location --retry 3 "${headers[@]}" \
             "$base/actions/artifacts/$artifact" -o "$RUNNER_TEMP/eh-semantic/artifact.json"
           jq -e --argjson id "$artifact" --argjson run "$PRODUCER_RUN" \
@@ -82,12 +102,12 @@ jobs:
             "$(jq -r .size_in_bytes "$RUNNER_TEMP/eh-semantic/artifact.json")"
           printf '%s  %s\n' "$zip_digest" "$RUNNER_TEMP/eh-input/artifact.zip" | sha256sum -c -
           python3 - <<'PYZIP'
-          import hashlib, os, pathlib, zipfile
+          import hashlib, json, os, pathlib, shutil, zipfile
           root = pathlib.Path(os.environ['RUNNER_TEMP']) / 'eh-input'
           with zipfile.ZipFile(root / 'artifact.zip') as z:
               members = z.infolist()
               names = [i.filename for i in members]
-              assert len(names) == len(set(names)) and 100 < len(names) <= 160
+              assert len(names) == len(set(names)) == 333
               assert sum(i.file_size for i in members) <= 419430400
               for i in members:
                   p = pathlib.PurePosixPath(i.filename)
@@ -107,12 +127,25 @@ jobs:
                           'image-json-archive-members.txt','clean-json-archive-members.txt',
                           'image-linklibs.rsp','clean-linklibs.rsp',
                           'duckdb-applied.patch','webdb-fetch-error.patch',
-                          'webdb-applied.patch'}
+                          'webdb-applied.patch',
+                          'selected-native-glue-bill-v1.json',
+                          'image-json-physical.tsv','clean-json-physical.tsv',
+                          'image-json-member-bytes.tsv','clean-json-member-bytes.tsv',
+                          'image-json-object-source.tsv','clean-json-object-source.tsv',
+                          'image-arrow-instance-ledger.tsv','clean-arrow-instance-ledger.tsv',
+                          'image-arrow-original.a','clean-arrow-original.a',
+                          'image-js-generator-superset.tsv','clean-js-generator-superset.tsv',
+                          'image-js-glue-legal-review.txt','clean-js-glue-legal-review.txt',
+                          'image-legal-texts/emscripten-LICENSE',
+                          'clean-legal-texts/emscripten-LICENSE',
+                          'image-legal-texts/duckdb-wasm-LICENSE',
+                          'clean-legal-texts/duckdb-wasm-LICENSE',
+                          'yyjson-0.6.0-LICENSE'}
               assert required <= set(names)
               z.extractall(root / 'input')
           inp = root / 'input'
           env = (inp / 'environment.txt').read_text()
-          for line in ('diagnostic_head=120a368e293c56bb22032c51859d431bc3a8307d',
+          for line in ('diagnostic_head=22637d141f67dc92510211d7d281f6591a12a5f5',
                        'source_head=0bb7c5237dc1b047de488d67ba30b5ed05c37383',
                        'custody_head=1d77df7776dca44731ae8267092e480a78f9f735',
                        'upstream_head=f955138e5218942fb3fb097a8fdcb725222406ff',
@@ -122,7 +155,7 @@ jobs:
           for line in ('product_admission=NO','source_build_admission=NO',
                        'glue_legal_admission=NO','json_installed_capability=UNVERIFIED',
                        'conversion_fetch_error_behavior=UNVERIFIED',
-                       'json_selected_archive_bytes=UNRETAINED'):
+                       'json_selected_archive_bytes=RETAINED_BOUNDED'):
               assert line in adm.splitlines(), line
           budget = dict(line.split('=',1) for line in (inp / 'budget.txt').read_text().splitlines())
           assert budget['receipt_budget_bytes'] == '419430400'
@@ -130,8 +163,8 @@ jobs:
           cache = (inp / 'cache-source.txt').read_text()
           assert 'clean_cache_empty_before_configure=YES' in cache
           assert 'image_selected_cache_classification=WARM_EXACT' in cache
-          for cond, expected in [('image','dd806adf0140dca0256088507bc6f03aeaa48fef3c74582fec338cd61e19fbcc'),
-                                 ('clean','94ffd326fc34f1859c70eeccac0eb7e0e1e074fab029735757c6075cda898117')]:
+          for cond, expected in [('image','ac2022967687136ec63c8917d77842f3c01f69291d2d024626e42a34d17953b8'),
+                                 ('clean','d267671286a6f0718a6fe1d712cd209bda84ef53f5984d0303defeb55c9f5d99')]:
               lines = (inp / f'{cond}-output.sha256').read_text().splitlines()
               outputs = {pathlib.PurePosixPath(line.split('  ',1)[1]).name: line.split('  ',1)[0]
                          for line in lines}
@@ -159,7 +192,7 @@ jobs:
               for marker in ('json_sentinel=regular_zero_byte', 'excel_sentinel=absent',
                              'webdb_compile_json_define=YES', 'webdb_compile_nonloadable=YES',
                              'json_web_and_duckdb_archives_in_response_and_map=YES',
-                             'json_selected_archive_bytes=UNRETAINED'):
+                             'json_selected_archive_bytes=RETAINED_BOUNDED'):
                   assert marker in configuration.splitlines(), (cond, marker)
               response = (inp / f'{cond}-linklibs.rsp').read_text().split()
               assert response.count('libduckdb_web_json.a') == 1
@@ -179,16 +212,76 @@ jobs:
           }.items():
               assert hashlib.sha256((inp / name).read_bytes()).hexdigest() == digest
           assert len((inp / 'five-custody-assets.tsv').read_text().splitlines()) == 5
+          def unique_object(pairs):
+              result = {}
+              for key, value in pairs:
+                  assert key not in result, f'duplicate JSON key: {key}'
+                  result[key] = value
+              return result
+          bill_path = inp / 'selected-native-glue-bill-v1.json'
+          bill_bytes = bill_path.read_bytes()
+          assert hashlib.sha256(bill_bytes).hexdigest() == os.environ['PRODUCER_BILL_SHA256']
+          bill = json.loads(bill_bytes, object_pairs_hook=unique_object)
+          assert bill['schema'] == 'selected-native-glue-bill/v1'
+          assert bill['producer_diagnostic_head'] == os.environ['PRODUCER_HEAD']
+          assert bill['pinned_source_head'] == '0bb7c5237dc1b047de488d67ba30b5ed05c37383'
+          assert bill['pinned_custody_head'] == '1d77df7776dca44731ae8267092e480a78f9f735'
+          assert bill['pinned_upstream_head'] == 'f955138e5218942fb3fb097a8fdcb725222406ff'
+          assert bill['run_id'] == os.environ['PRODUCER_RUN']
+          assert bill['run_attempt'] == os.environ['PRODUCER_ATTEMPT']
+          assert bill['artifact_name'] == 'duckdb-combined-custody-eh'
+          assert bill['artifact_id'] == bill['artifact_digest'] == 'PENDING_UPLOAD_API_JOIN'
+          for key, value in {'selected_graph_exhaustive':'NO',
+                             'generator_input_closure':'UNPROVEN',
+                             'glue_legal_admission':'NO','legal_admission':'NO',
+                             'product_admission':'NO','fleet_admission':'NO'}.items():
+              assert bill[key] == value
+          outputs = {row['condition']: row for row in bill['condition_outputs']}
+          assert len(outputs) == len(bill['condition_outputs']) == 2
+          assert set(outputs) == {'image','clean'}
+          rows = bill['rows']
+          assert len(rows) == len({row['key'] for row in rows}) == 142
+          expected_family = {'json':25,'arrow':1,'sdk':9,'glue':36}
+          for condition in ('image','clean'):
+              part = [row for row in rows if row['condition'] == condition]
+              assert len(part) == 71
+              for family, count in expected_family.items():
+                  assert sum(row['family'] == family for row in part) == count
+              assert outputs[condition]['js_sha256'] == hashlib.sha256((inp / f'{condition}.js').read_bytes()).hexdigest()
+              assert outputs[condition]['wasm_sha256'] == hashlib.sha256((inp / f'{condition}.wasm').read_bytes()).hexdigest()
+              assert outputs[condition]['map_sha256'] == hashlib.sha256((inp / f'{condition}.map').read_bytes()).hexdigest()
+          ledger = pathlib.Path('producer-source/.github/receipts/duckdb-eh-js-glue-observed-v2.tsv')
+          for row in rows:
+              assert row['key'].startswith(row['condition'] + '/' + row['family'] + '/')
+              assert row['status'] != 'TOP_LEVEL_NOTICE_CANDIDATE_UNREVIEWED'
+              for path_key, hash_key in (('witness_path','witness_sha256'),
+                                          ('source_join_witness_path','source_join_witness_sha256')):
+                  rel = row[path_key]
+                  path = ledger if rel == '.github/receipts/duckdb-eh-js-glue-observed-v2.tsv' else inp / rel
+                  assert not pathlib.PurePosixPath(rel).is_absolute() and '..' not in pathlib.PurePosixPath(rel).parts
+                  assert path.is_file() and not path.is_symlink()
+                  assert hashlib.sha256(path.read_bytes()).hexdigest() == row[hash_key]
+              if row['notice_sha256'] != 'UNRESOLVED':
+                  rel = row['notice_path']
+                  if rel == 'yyjson-0.6.0-LICENSE':
+                      path = inp / rel
+                  elif rel in ('emscripten/LICENSE','duckdb-wasm/LICENSE'):
+                      path = inp / f"{row['condition']}-legal-texts" / rel.replace('/', '-')
+                  else:
+                      raise AssertionError('unexpected selected notice path')
+                  assert path.is_file() and not path.is_symlink()
+                  assert hashlib.sha256(path.read_bytes()).hexdigest() == row['notice_sha256']
+          shutil.copyfile(bill_path, root.parent / 'eh-semantic' / 'producer-selected-bill.json')
           PYZIP
           condition='${{ matrix.condition }}'
           wasm_digest="$(sha256sum "$RUNNER_TEMP/eh-input/input/$condition.wasm" | cut -d ' ' -f1)"
           js_digest="$(sha256sum "$RUNNER_TEMP/eh-input/input/$condition.js" | cut -d ' ' -f1)"
           {
-            printf 'schema=tundra-selected-eh-installed-semantic/v1\n'
+            printf 'schema=tundra-selected-eh-installed-semantic/v2\n'
             printf 'admission=NO\nfull_EH_semantics=NO\ngenerated_JS_pair_admission=NO\n'
             printf 'legal_source_build_admission=NO\nproduct_fleet_admission=NO\ninstalled_native_js_pair=AWAITING_SAME_RUN_BUILD\n'
-            printf 'consumer_head=%s\nproducer_head=%s\nproducer_run=%s\n' \
-              "$CONSUMER_HEAD" "$PRODUCER_HEAD" "$PRODUCER_RUN"
+            printf 'consumer_head=%s\nproducer_head=%s\nproducer_run=%s\nproducer_attempt=%s\nproducer_bill_sha256=%s\n' \
+              "$CONSUMER_HEAD" "$PRODUCER_HEAD" "$PRODUCER_RUN" "$PRODUCER_ATTEMPT" "$PRODUCER_BILL_SHA256"
             printf 'artifact_id=%s\nartifact_zip_sha256=%s\n' "$artifact" "$zip_digest"
             printf 'condition=%s\nprofile=%s\nwasm_sha256=%s\ngenerated_js_sha256=%s\n' \
               "$condition" '${{ matrix.profile }}' "$wasm_digest" "$js_digest"
@@ -411,7 +504,45 @@ jobs:
         run: |
           cargo install trunk --version 0.21.14 --locked
           cargo install tauri-cli --version 2.12.4 --locked
-          cargo install nu --version 0.108.0 --locked
+      - name: Install checksum-pinned MIT Nushell for selected-bill replay
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -s)" = Linux && test "$(uname -m)" = x86_64
+          tool="$RUNNER_TEMP/tundra-nu-0.115.1"
+          mkdir -p "$tool"
+          archive="$tool/nu-0.115.1-x86_64-unknown-linux-musl.tar.gz"
+          timeout 180s curl --fail --location --silent --show-error \
+            --proto '=https' --proto-redir '=https' --max-time 120 --retry 1 \
+            --max-filesize 90000000 --output "$archive" \
+            https://github.com/nushell/nushell/releases/download/0.115.1/nu-0.115.1-x86_64-unknown-linux-musl.tar.gz
+          test "$(stat -c %s "$archive")" = 83545998
+          printf '%s  %s\n' 8a9722177ddd421eba927b4baae4ae341a4d1c3434504be7b1b17d998bafdd87 \
+            "$archive" | sha256sum --check --status
+          tar -xOzf "$archive" nu-0.115.1-x86_64-unknown-linux-musl/nu > "$tool/nu"
+          tar -xOzf "$archive" nu-0.115.1-x86_64-unknown-linux-musl/LICENSE > "$tool/LICENSE"
+          test "$(stat -c %s "$tool/nu")" = 70750360
+          printf '%s  %s\n' c343a927a2d4a45ebf9300d013b226bcdc2598ecb0178a8a79722ebffe71e56e "$tool/nu" \
+            ff5dcaaba6140ec57cafdd4f707cd0d329e727477cf7d5b9ba7a244ec2678b79 "$tool/LICENSE" \
+            | sha256sum --check --status
+          grep -Fxq 'MIT License' "$tool/LICENSE"
+          chmod 0700 "$tool/nu"
+          test "$("$tool/nu" --version)" = 0.115.1
+          echo "$tool" >> "$GITHUB_PATH"
+      - name: Replay exact PR136 selected bill against authenticated producer bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C producer-source rev-parse HEAD)" = "$PRODUCER_HEAD"
+          input="$RUNNER_TEMP/eh-input/input"
+          cmp "$input/selected-native-glue-bill-v1.json" "$RUNNER_TEMP/eh-semantic/producer-selected-bill.json"
+          cp "$input/selected-native-glue-bill-v1.json" "$RUNNER_TEMP/eh-input/bill-before-replay.json"
+          nu producer-source/.github/scripts/duckdb-selected-native-glue-bill-v1.nu \
+            "$input" producer-source/.github/receipts/duckdb-eh-js-glue-observed-v2.tsv eh \
+            "$PRODUCER_HEAD" "$PRODUCER_RUN" "$PRODUCER_ATTEMPT"
+          cmp "$input/selected-native-glue-bill-v1.json" "$RUNNER_TEMP/eh-input/bill-before-replay.json"
+          printf '%s  %s\n' "$PRODUCER_BILL_SHA256" "$input/selected-native-glue-bill-v1.json" \
+            | sha256sum --check --status
       - name: Rebuild EH worker from exact PR116 JS in this run
         shell: bash
         run: |
@@ -493,16 +624,20 @@ jobs:
           expected_wasm="$(sha256sum "$RUNNER_TEMP/eh-input/input/$condition.wasm" | cut -d ' ' -f1)"
           expected_worker="$(sha256sum "$RUNNER_TEMP/eh-pair-worker/duckdb-browser-eh.worker.js" | cut -d ' ' -f1)"
           expected_js="$(sha256sum "$RUNNER_TEMP/eh-input/input/$condition.js" | cut -d ' ' -f1)"
-          nu gate-source/.github/scripts/duckdb-package-json-selected-bill-v4.nu \
+          printf '%s  %s\n' b26c3651b599ad15baf58b1e24a91a7fd83ad5832d2ce4b25e3d690b9c00d72c \
+            gate-source/.github/scripts/duckdb-package-json-selected-bill-v5.nu \
+            | sha256sum --check --status
+          nu gate-source/.github/scripts/duckdb-package-json-selected-bill-v5.nu \
             "$pinned_bill" app/leptos-ui/duckdb-runtime "$source_bill" \
             "$condition" '${{ matrix.profile }}' "$CONSUMER_HEAD" \
-            "$PRODUCER_HEAD" "$PRODUCER_RUN" 12666032736 \
-            1b93d62cef81dc8d099f70d564f3654f81f0e19cda4a6b041ff806bb6f1abc11 \
+            "$PRODUCER_HEAD" "$PRODUCER_RUN" "$PRODUCER_ATTEMPT" "$PRODUCER_ARTIFACT_ID" \
+            "sha256:$PRODUCER_ZIP_SHA256" "$PRODUCER_ZIP_SHA256" \
+            "$RUNNER_TEMP/eh-semantic/producer-selected-bill.json" \
             "$expected_wasm" "$expected_worker" "$expected_js" \
             gate-source/.github/scripts/duckdb-json-selected-notices/yyjson-0.6.0-LICENSE \
             app/tauri/third-party-licenses/ui/duckdb-runtime
           sha256sum "$source_bill" > "$RUNNER_TEMP/eh-semantic/prebundle-selected-bill.sha256"
-          sha256sum gate-source/.github/scripts/duckdb-package-json-selected-bill-v4.nu \
+          sha256sum gate-source/.github/scripts/duckdb-package-json-selected-bill-v5.nu \
             > "$RUNNER_TEMP/eh-semantic/package-bill-script.sha256"
       - name: Extend the existing forced-EH smoke with targeted SQL paths
         shell: bash
@@ -711,16 +846,28 @@ jobs:
           assert len(bill['texts']) == 36
           assert len(bill['unresolved']) >= 2
           package_bill = json.loads(bill_installed.read_bytes(), object_pairs_hook=unique_object)
-          assert package_bill['schema'] == 'tundra-duckdb-installed-json-package-selected-bill/v4'
+          producer_bill_bytes = (receipt / 'producer-selected-bill.json').read_bytes()
+          assert hashlib.sha256(producer_bill_bytes).hexdigest() == os.environ['PRODUCER_BILL_SHA256']
+          producer_bill = json.loads(producer_bill_bytes, object_pairs_hook=unique_object)
+          selected_outputs = [row for row in producer_bill['condition_outputs']
+                              if row['condition'] == os.environ['EH_CONDITION']]
+          assert len(selected_outputs) == 1
+          assert package_bill['schema'] == 'tundra-duckdb-installed-json-package-selected-bill/v5'
           assert package_bill['admission'] == package_bill['notice_graph_complete'] == 'NO'
           assert package_bill['selected_dependency_inventory_admission'] == 'NO'
           assert package_bill['source_build_admission'] == package_bill['glue_legal_admission'] == 'NO'
+          assert package_bill['selected_graph_exhaustive'] == package_bill['legal_admission'] == 'NO'
+          assert package_bill['generator_input_closure'] == 'UNPROVEN'
           assert package_bill['full_EH_semantics'] == package_bill['product_fleet_admission'] == 'NO'
-          assert package_bill['json_selected_archive_bytes'] == 'UNRETAINED'
+          assert package_bill['json_selected_archive_bytes'] == 'RETAINED_BOUNDED'
           assert package_bill['producer_head'] == os.environ['PRODUCER_HEAD']
           assert package_bill['producer_run'] == int(os.environ['PRODUCER_RUN'])
-          assert package_bill['producer_artifact_id'] == 12666032736
-          assert package_bill['producer_zip_sha256'] == '1b93d62cef81dc8d099f70d564f3654f81f0e19cda4a6b041ff806bb6f1abc11'
+          assert package_bill['producer_attempt'] == int(os.environ['PRODUCER_ATTEMPT'])
+          assert package_bill['producer_artifact_id'] == int(os.environ['PRODUCER_ARTIFACT_ID'])
+          assert package_bill['producer_artifact_digest'] == 'sha256:' + os.environ['PRODUCER_ZIP_SHA256']
+          assert package_bill['producer_zip_sha256'] == os.environ['PRODUCER_ZIP_SHA256']
+          assert package_bill['producer_bill_sha256'] == os.environ['PRODUCER_BILL_SHA256']
+          assert package_bill['condition_output'] == selected_outputs[0]
           assert package_bill['condition'] == os.environ['EH_CONDITION']
           assert package_bill['profile'] == os.environ['EH_PROFILE']
           assert package_bill['consumer_head'] == os.environ['CONSUMER_HEAD']
@@ -728,6 +875,13 @@ jobs:
           assert package_bill['attributions'][:38] == bill['attributions']
           assert package_bill['texts'][:36] == bill['texts']
           assert len(package_bill['attributions']) == 39 and len(package_bill['texts']) == 37
+          assert package_bill['historical_notice_rows'] == {
+              'attributions':39,'texts':37,'graph_closure':'NO'}
+          joins = package_bill['selected_notice_joins']
+          assert len(joins) == len({item['key'] for item in joins}) == 71
+          assert len(package_bill['selected_unresolved_keys']) == 35
+          assert sorted(package_bill['selected_unresolved_keys']) == sorted(
+              item['key'] for item in joins if item['installed_notice_status'] != 'NOTICE_BYTES_MATCH')
           yy = package_bill['attributions'][-1]
           assert yy['component'] == 'yyjson' and yy['license_or_role'] == 'MIT'
           assert yy['source_sha256'] == '45e384d3d52c73cba3a64d6e6c25d47cd738cd8a55c30629e3201046eda62947'
@@ -753,6 +907,19 @@ jobs:
               text_names.append(relative.name)
               text_digests[path] = entry['sha256']
           assert len(set(text_names)) == 37
+          for item in joins:
+              if item['installed_notice_status'] == 'SOURCE_OR_NOTICE_UNRESOLVED':
+                  assert item['installed_notice_path'] == 'UNRESOLVED'
+                  assert item['source_notice_sha256'] == 'UNRESOLVED'
+              else:
+                  path = item['installed_notice_path']
+                  assert path in text_digests
+                  assert text_digests[path] == item['source_notice_sha256'] == item['installed_notice_sha256']
+                  assert sha(raw / PurePosixPath(path).name) == item['installed_notice_sha256']
+                  if item['installed_notice_status'] == 'NOTICE_BYTES_MATCH_GENERATOR_PROVENANCE_PENDING':
+                      assert item['producer_status'] == 'REPO_SCOPE_MIT_GENERATOR_PROVENANCE_PENDING'
+              if item['attribution_install_status'] == 'HEADER_BYTES_RETAINED_NOT_INSTALLED':
+                  assert item['family'] == 'json' and item['attribution_sha256'] == '69500ac662c5f22bdeb76fba7e881135eac07fafccd9ce9ffec5b47503f38ed1'
           expected = set(text_names)
           for directory in (source_ui / 'duckdb-runtime',
                             bill_installed.parent / 'duckdb-runtime', raw):
@@ -792,8 +959,8 @@ jobs:
           assert set(p.name for p in dist_assets.iterdir()) == expected_assets
           assert set(bill_assets) == {f'duckdb-runtime/{name}' for name in expected_assets}
           expected_wasm = {
-              'image': 'dd806adf0140dca0256088507bc6f03aeaa48fef3c74582fec338cd61e19fbcc',
-              'clean': '94ffd326fc34f1859c70eeccac0eb7e0e1e074fab029735757c6075cda898117',
+              'image': 'ac2022967687136ec63c8917d77842f3c01f69291d2d024626e42a34d17953b8',
+              'clean': 'd267671286a6f0718a6fe1d712cd209bda84ef53f5984d0303defeb55c9f5d99',
           }[os.environ['EH_CONDITION']]
           assets = {}
           for name in sorted(expected_assets):
@@ -864,62 +1031,99 @@ jobs:
           json_links = (producer / f'{condition}-json-link-selection.tsv').read_text().splitlines()
           assert len(json_links) == 2 and {line.split('\t', 1)[0] for line in json_links} == {
               'libduckdb_web_json.a', 'libjson_extension.a'}
+          physical = [line.split('\t') for line in
+                      (producer / f'{condition}-json-physical.tsv').read_text().splitlines()]
+          assert len(physical) == 2 and all(len(row) == 7 for row in physical)
+          assert {row[0] for row in physical} == {'libduckdb_web_json.a', 'libjson_extension.a'}
+          for row in physical:
+              assert row[1] == f'{condition}-json-bytes/{row[0]}'
+              assert sha(producer / row[1]) == row[2]
+          assert sha(producer / f'{condition}-arrow-original.a') == arrow_hash
           native = {
-              'producer_artifact_id': 12666032736,
-              'producer_artifact_zip_sha256': '1b93d62cef81dc8d099f70d564f3654f81f0e19cda4a6b041ff806bb6f1abc11',
+              'producer_artifact_id': int(os.environ['PRODUCER_ARTIFACT_ID']),
+              'producer_artifact_digest': 'sha256:' + os.environ['PRODUCER_ZIP_SHA256'],
+              'producer_artifact_zip_sha256': os.environ['PRODUCER_ZIP_SHA256'],
+              'producer_bill_sha256': os.environ['PRODUCER_BILL_SHA256'],
+              'condition_output': selected_outputs[0],
               'selected_link_map_sha256': map_hash,
               'selected_sdk_archives': selected,
               'arrow_archive_sha256_producer_attested': arrow_hash,
-              'arrow_archive_bytes_retained': 'NO',
-              'json_selected_archive_bytes': 'UNRETAINED',
+              'arrow_archive_bytes_retained': 'YES_BOUNDED',
+              'json_selected_archive_bytes': 'RETAINED_BOUNDED',
               'json_selected_members_bill_sha256': sha(producer / f'{condition}-json-archive-members.txt'),
               'json_selected_link_selection_sha256': sha(producer / f'{condition}-json-link-selection.tsv'),
               'json_selected_member_count': 25,
+              'json_physical_archives': [
+                  {'name': row[0], 'path': row[1], 'sha256': row[2]}
+                  for row in physical],
               'arrow_duplicate_util_member_candidate_hashes_producer_attested': arrow_candidates,
               'source_evidence_archive_sha256': source_evidence,
-              'physical_archive_scope': 'nine_selected_sdk_archives_only',
-              'other_selected_project_archive_physical_hashes': 'NOT_RETAINED',
+              'physical_archive_scope': 'two_selected_json_and_one_arrow_and_nine_sdk_archives_per_condition',
+              'other_selected_project_archive_physical_hashes': 'NOT_PROVED_EXHAUSTIVE',
               'source_build_admission': 'NO', 'glue_legal_admission': 'NO',
-              'arrow_original_member_instance': 'AMBIGUOUS',
+              'arrow_original_member_instance': 'ARRAY_1_SELECTED_COMPUTE_2_UNSELECTED_EH_DIAGNOSTIC',
+              'selected_graph_exhaustive': 'NO', 'generator_input_closure': 'UNPROVEN',
           }
           exact_bill = {
-              'schema': 'tundra-duckdb-exact-eh-package-selected-bill/v1',
+              'schema': 'tundra-duckdb-exact-eh-package-selected-bill/v2',
               'admission': 'NO', 'condition': condition,
               'profile': os.environ['EH_PROFILE'],
               'consumer_head': os.environ['CONSUMER_HEAD'],
               'producer_head': os.environ['PRODUCER_HEAD'],
               'producer_run': int(os.environ['PRODUCER_RUN']),
+              'producer_attempt': int(os.environ['PRODUCER_ATTEMPT']),
+              'producer_artifact_id': int(os.environ['PRODUCER_ARTIFACT_ID']),
+              'producer_artifact_digest': 'sha256:' + os.environ['PRODUCER_ZIP_SHA256'],
+              'producer_zip_sha256': os.environ['PRODUCER_ZIP_SHA256'],
+              'producer_bill_sha256': os.environ['PRODUCER_BILL_SHA256'],
+              'condition_output': selected_outputs[0],
               'installer_sha256': sha(deb), 'installed_elf_sha256': sha(binary),
               'installed_pr119_bill_sha256': bill_hash,
-              'installed_json_v4_bill_sha256': sha(bill_installed),
+              'installed_json_v5_bill_sha256': sha(bill_installed),
               'assets': [{'path': key, 'sha256': digest} for key, digest in sorted(assets.items())],
               'attributions': package_bill['attributions'], 'texts': package_bill['texts'],
+              'selected_notice_joins': joins,
+              'selected_unresolved_keys': package_bill['selected_unresolved_keys'],
               'native_evidence': native,
               'source_texts_upstream_reverified_this_run': 'NO',
               'selected_dependency_inventory_admission': 'NO',
+              'selected_graph_exhaustive': 'NO',
+              'generator_input_closure': 'UNPROVEN',
+              'legal_admission': 'NO',
               'full_EH_semantics': 'NO', 'product_fleet_admission': 'NO',
               'unresolved': package_bill['unresolved'] + [
-                  'PR116 project archive physical hashes and original Arrow util.cc.o occurrence are not fully bound',
-                  'Generated JavaScript glue licensing and native source-build equivalence remain unproved',
+                  'Selected Arrow instance is identified, but its notice and all native source-build obligations remain unproved',
+                  'Generated JavaScript glue generator provenance and full input closure remain unproved',
               ],
           }
           (receipt / 'exact-package-selected-bill.json').write_text(
               json.dumps(exact_bill, sort_keys=True, indent=2) + '\n')
           manifest = {
-              'schema': 'tundra-eh-installed-notice-custody/v1',
+              'schema': 'tundra-eh-installed-notice-custody/v2',
               'admission': 'NO', 'full_EH_semantics': 'NO',
               'source_build_admission': 'NO', 'glue_legal_admission': 'NO',
-              'arrow_original_member_instance': 'AMBIGUOUS',
+              'legal_admission': 'NO', 'selected_graph_exhaustive': 'NO',
+              'generator_input_closure': 'UNPROVEN',
+              'arrow_original_member_instance': 'ARRAY_1_SELECTED_COMPUTE_2_UNSELECTED_EH_DIAGNOSTIC',
               'condition': os.environ['EH_CONDITION'],
               'profile': os.environ['EH_PROFILE'],
               'consumer_head': os.environ['CONSUMER_HEAD'],
               'producer_head': os.environ['PRODUCER_HEAD'],
               'producer_run': int(os.environ['PRODUCER_RUN']),
+              'producer_attempt': int(os.environ['PRODUCER_ATTEMPT']),
+              'producer_artifact_id': int(os.environ['PRODUCER_ARTIFACT_ID']),
+              'producer_artifact_digest': 'sha256:' + os.environ['PRODUCER_ZIP_SHA256'],
+              'producer_zip_sha256': os.environ['PRODUCER_ZIP_SHA256'],
+              'producer_bill_sha256': os.environ['PRODUCER_BILL_SHA256'],
+              'condition_output': selected_outputs[0],
               'installer_sha256': sha(deb), 'installed_elf_sha256': sha(binary),
               'installed_bill_sha256': sha(bill_installed),
               'pinned_pr119_bill_sha256': bill_hash,
               'exact_package_selected_bill_sha256': sha(receipt / 'exact-package-selected-bill.json'),
               'installed_attributions': 39, 'installed_texts': text_digests,
+              'selected_notice_joins_sha256': hashlib.sha256(json.dumps(
+                  joins, sort_keys=True, separators=(',', ':')).encode()).hexdigest(),
+              'selected_unresolved_keys': package_bill['selected_unresolved_keys'],
               'installed_assets': assets,
           }
           (receipt / 'installed-legal-custody.json').write_text(
@@ -1099,7 +1303,7 @@ jobs:
           helper=gate-source/.github/scripts/duckdb-eh-corpus
           printf '%s  %s\n' \
             '95206f742c58dda13fb9640bc0c90dfd7b43a96206fea2773015f2ac630386c6' "$helper/authenticate-eh-artifacts.nu" \
-            'd2dfb136e1c4039ad7418aabdd9a3515d5161184019e527ddfabb98c81a6080b' "$helper/compare-json-conversion-v3.nu" \
+            '5e91791b76511824a168797e1a08e458b73491c621ca2d5be064bcbc0b004218' "$helper/compare-json-conversion-v4.nu" \
             | sha256sum --check --status
           mkdir -p "$RUNNER_TEMP/eh-compare"
           case "$GITHUB_EVENT_NAME" in
@@ -1135,16 +1339,19 @@ jobs:
               for profile in ('default', 'sounds'):
                   directory = root / f'duckdb-eh-pair-{condition}-{profile}'
                   source = (directory / 'source.txt').read_text()
+                  assert 'schema=tundra-selected-eh-installed-semantic/v2\n' in source
                   assert 'admission=NO\n' in source
-                  assert 'producer_head=120a368e293c56bb22032c51859d431bc3a8307d\n' in source
-                  assert 'producer_run=40351355919\n' in source
-                  assert 'artifact_id=12666032736\n' in source
-                  assert 'artifact_zip_sha256=1b93d62cef81dc8d099f70d564f3654f81f0e19cda4a6b041ff806bb6f1abc11\n' in source
+                  assert 'producer_head=22637d141f67dc92510211d7d281f6591a12a5f5\n' in source
+                  assert 'producer_run=40434996466\n' in source
+                  assert 'producer_attempt=1\n' in source
+                  assert 'producer_bill_sha256=93c4637dcd0cf4527814267b38a242cc626ad64f92df0a9a52928d1edc036c0f\n' in source
+                  assert 'artifact_id=12705817192\n' in source
+                  assert 'artifact_zip_sha256=b25664ca46d4f4970aa7742e3e4927a2c55b53f9466bd5644854263e0b33ab6c\n' in source
                   assert f'profile={profile}\n' in source
                   assert f'condition={condition}\n' in source
                   expected_wasm = {
-                      'image': 'dd806adf0140dca0256088507bc6f03aeaa48fef3c74582fec338cd61e19fbcc',
-                      'clean': '94ffd326fc34f1859c70eeccac0eb7e0e1e074fab029735757c6075cda898117',
+                      'image': 'ac2022967687136ec63c8917d77842f3c01f69291d2d024626e42a34d17953b8',
+                      'clean': 'd267671286a6f0718a6fe1d712cd209bda84ef53f5984d0303defeb55c9f5d99',
                   }[condition]
                   assert f'wasm_sha256={expected_wasm}\n' in source
                   assert 'generated_js_sha256=fd610ecd2c58944726dc473ef8babc400581ae07df2a805b67f29a14b38695d3\n' in source
@@ -1166,14 +1373,21 @@ jobs:
                   assert int(budget['candidate_bytes']) <= int(budget['cap_bytes']) - 1024
                   custody = json.loads((directory / 'installed-legal-custody.json').read_text(),
                                        object_pairs_hook=unique_object)
-                  assert custody['schema'] == 'tundra-eh-installed-notice-custody/v1'
+                  assert custody['schema'] == 'tundra-eh-installed-notice-custody/v2'
                   assert custody['admission'] == custody['full_EH_semantics'] == 'NO'
                   assert custody['source_build_admission'] == custody['glue_legal_admission'] == 'NO'
-                  assert custody['arrow_original_member_instance'] == 'AMBIGUOUS'
+                  assert custody['legal_admission'] == custody['selected_graph_exhaustive'] == 'NO'
+                  assert custody['generator_input_closure'] == 'UNPROVEN'
+                  assert custody['arrow_original_member_instance'] == 'ARRAY_1_SELECTED_COMPUTE_2_UNSELECTED_EH_DIAGNOSTIC'
                   assert custody['condition'] == condition and custody['profile'] == profile
                   assert custody['consumer_head'] == 'ad0df7182cd4c9ea4a83bac04e5901de0218d9d0'
-                  assert custody['producer_head'] == '120a368e293c56bb22032c51859d431bc3a8307d'
-                  assert custody['producer_run'] == 40351355919
+                  assert custody['producer_head'] == '22637d141f67dc92510211d7d281f6591a12a5f5'
+                  assert custody['producer_run'] == 40434996466
+                  assert custody['producer_attempt'] == 1
+                  assert custody['producer_artifact_id'] == 12705817192
+                  assert custody['producer_artifact_digest'] == 'sha256:b25664ca46d4f4970aa7742e3e4927a2c55b53f9466bd5644854263e0b33ab6c'
+                  assert custody['producer_zip_sha256'] == 'b25664ca46d4f4970aa7742e3e4927a2c55b53f9466bd5644854263e0b33ab6c'
+                  assert custody['producer_bill_sha256'] == '93c4637dcd0cf4527814267b38a242cc626ad64f92df0a9a52928d1edc036c0f'
                   hashes = [line.split(maxsplit=1)[0] for line in
                             (directory / 'installer.sha256').read_text().splitlines()]
                   assert len(hashes) == 2
@@ -1182,16 +1396,30 @@ jobs:
                   assert hashlib.sha256(bill_bytes).hexdigest() == custody['installed_bill_sha256']
                   prebundle = (directory / 'prebundle-selected-bill.sha256').read_text().splitlines()
                   assert len(prebundle) == 1 and prebundle[0].split(maxsplit=1)[0] == custody['installed_bill_sha256']
-                  bill_script = Path('gate-source/.github/scripts/duckdb-package-json-selected-bill-v4.nu')
+                  bill_script = Path('gate-source/.github/scripts/duckdb-package-json-selected-bill-v5.nu')
                   script_receipt = (directory / 'package-bill-script.sha256').read_text().splitlines()
                   assert len(script_receipt) == 1
                   assert script_receipt[0].split(maxsplit=1) == [hashlib.sha256(bill_script.read_bytes()).hexdigest(), str(bill_script)]
                   assert custody['pinned_pr119_bill_sha256'] == '34381cba60c8922a159f578753b55531460792372f2d72b22769da205fe97790'
                   bill = json.loads(bill_bytes, object_pairs_hook=unique_object)
-                  assert bill['schema'] == 'tundra-duckdb-installed-json-package-selected-bill/v4'
+                  assert bill['schema'] == 'tundra-duckdb-installed-json-package-selected-bill/v5'
                   assert bill['admission'] == bill['notice_graph_complete'] == 'NO'
-                  assert bill['producer_artifact_id'] == 12666032736
-                  assert bill['producer_zip_sha256'] == '1b93d62cef81dc8d099f70d564f3654f81f0e19cda4a6b041ff806bb6f1abc11'
+                  assert bill['producer_artifact_id'] == 12705817192
+                  assert bill['producer_attempt'] == custody['producer_attempt']
+                  assert bill['producer_artifact_digest'] == custody['producer_artifact_digest']
+                  assert bill['producer_bill_sha256'] == custody['producer_bill_sha256']
+                  assert bill['producer_zip_sha256'] == 'b25664ca46d4f4970aa7742e3e4927a2c55b53f9466bd5644854263e0b33ab6c'
+                  producer_bytes = (directory / 'producer-selected-bill.json').read_bytes()
+                  assert hashlib.sha256(producer_bytes).hexdigest() == custody['producer_bill_sha256']
+                  producer_bill = json.loads(producer_bytes, object_pairs_hook=unique_object)
+                  assert producer_bill['schema'] == 'selected-native-glue-bill/v1'
+                  assert producer_bill['run_id'] == str(custody['producer_run'])
+                  assert producer_bill['run_attempt'] == str(custody['producer_attempt'])
+                  assert producer_bill['artifact_id'] == producer_bill['artifact_digest'] == 'PENDING_UPLOAD_API_JOIN'
+                  assert len(producer_bill['rows']) == len({row['key'] for row in producer_bill['rows']}) == 142
+                  condition_outputs = [row for row in producer_bill['condition_outputs'] if row['condition'] == condition]
+                  assert len(condition_outputs) == 1
+                  assert bill['condition_output'] == custody['condition_output'] == condition_outputs[0]
                   assert bill['condition'] == condition and bill['profile'] == profile
                   assert bill['consumer_head'] == custody['consumer_head']
                   assert bill['producer_head'] == custody['producer_head']
@@ -1213,7 +1441,17 @@ jobs:
                   assert yy['component'] == 'yyjson' and yy['license_or_role'] == 'MIT'
                   assert yy['source_sha256'] == '45e384d3d52c73cba3a64d6e6c25d47cd738cd8a55c30629e3201046eda62947'
                   assert bill['texts'][-1] == {'file': yy['file'], 'sha256': yy['source_sha256']}
-                  assert bill['json_selected_archive_bytes'] == 'UNRETAINED'
+                  assert bill['json_selected_archive_bytes'] == 'RETAINED_BOUNDED'
+                  assert bill['selected_graph_exhaustive'] == bill['legal_admission'] == 'NO'
+                  assert bill['generator_input_closure'] == 'UNPROVEN'
+                  joins = bill['selected_notice_joins']
+                  assert len(joins) == len({item['key'] for item in joins}) == 71
+                  assert sorted(bill['selected_unresolved_keys']) == sorted(
+                      item['key'] for item in joins if item['installed_notice_status'] != 'NOTICE_BYTES_MATCH')
+                  assert len(bill['selected_unresolved_keys']) == 35
+                  assert custody['selected_unresolved_keys'] == bill['selected_unresolved_keys']
+                  assert hashlib.sha256(json.dumps(joins, sort_keys=True,
+                      separators=(',', ':')).encode()).hexdigest() == custody['selected_notice_joins_sha256']
                   assert {item['file']: item['sha256'] for item in bill['texts']} == custody['installed_texts']
                   raw = directory / 'installed-notice-bytes'
                   assert {p.name for p in raw.iterdir()} == {
@@ -1221,6 +1459,13 @@ jobs:
                   assert all(p.is_file() and not p.is_symlink() for p in raw.iterdir())
                   for path, digest in custody['installed_texts'].items():
                       assert hashlib.sha256((raw / Path(path).name).read_bytes()).hexdigest() == digest
+                  for item in joins:
+                      if item['installed_notice_status'] == 'SOURCE_OR_NOTICE_UNRESOLVED':
+                          assert item['installed_notice_path'] == 'UNRESOLVED'
+                      else:
+                          path = item['installed_notice_path']
+                          assert custody['installed_texts'][path] == item['installed_notice_sha256']
+                          assert hashlib.sha256((raw / Path(path).name).read_bytes()).hexdigest() == item['source_notice_sha256']
                   assert (directory / 'installed-notices.tsv').read_text() == ''.join(
                       f'{digest}\t{path}\n' for path, digest in
                       sorted(custody['installed_texts'].items()))
@@ -1249,7 +1494,7 @@ jobs:
                   exact_bytes = (directory / 'exact-package-selected-bill.json').read_bytes()
                   assert hashlib.sha256(exact_bytes).hexdigest() == custody['exact_package_selected_bill_sha256']
                   exact = json.loads(exact_bytes, object_pairs_hook=unique_object)
-                  assert exact['schema'] == 'tundra-duckdb-exact-eh-package-selected-bill/v1'
+                  assert exact['schema'] == 'tundra-duckdb-exact-eh-package-selected-bill/v2'
                   assert exact['admission'] == exact['full_EH_semantics'] == 'NO'
                   assert exact['selected_dependency_inventory_admission'] == 'NO'
                   assert exact['product_fleet_admission'] == 'NO'
@@ -1258,26 +1503,37 @@ jobs:
                   assert exact['consumer_head'] == custody['consumer_head']
                   assert exact['producer_head'] == custody['producer_head']
                   assert exact['producer_run'] == custody['producer_run']
+                  for key in ('producer_attempt','producer_artifact_id','producer_artifact_digest',
+                              'producer_zip_sha256','producer_bill_sha256','condition_output'):
+                      assert exact[key] == custody[key]
                   assert exact['installer_sha256'] == custody['installer_sha256']
                   assert exact['installed_elf_sha256'] == custody['installed_elf_sha256']
                   assert exact['installed_pr119_bill_sha256'] == custody['pinned_pr119_bill_sha256']
-                  assert exact['installed_json_v4_bill_sha256'] == custody['installed_bill_sha256']
+                  assert exact['installed_json_v5_bill_sha256'] == custody['installed_bill_sha256']
                   assert exact['attributions'] == bill['attributions'] and exact['texts'] == bill['texts']
+                  assert exact['selected_notice_joins'] == joins
+                  assert exact['selected_unresolved_keys'] == bill['selected_unresolved_keys']
+                  assert exact['selected_graph_exhaustive'] == exact['legal_admission'] == 'NO'
+                  assert exact['generator_input_closure'] == 'UNPROVEN'
                   assert len(exact['assets']) == 5
                   assert {item['path']: item['sha256'] for item in exact['assets']} == assets
                   native = exact['native_evidence']
-                  assert native['producer_artifact_id'] == 12666032736
-                  assert native['producer_artifact_zip_sha256'] == '1b93d62cef81dc8d099f70d564f3654f81f0e19cda4a6b041ff806bb6f1abc11'
-                  assert native['physical_archive_scope'] == 'nine_selected_sdk_archives_only'
-                  assert native['other_selected_project_archive_physical_hashes'] == 'NOT_RETAINED'
-                  assert native['arrow_archive_bytes_retained'] == 'NO'
-                  assert native['json_selected_archive_bytes'] == 'UNRETAINED'
+                  assert native['producer_artifact_id'] == 12705817192
+                  assert native['producer_artifact_zip_sha256'] == 'b25664ca46d4f4970aa7742e3e4927a2c55b53f9466bd5644854263e0b33ab6c'
+                  assert native['producer_bill_sha256'] == custody['producer_bill_sha256']
+                  assert native['condition_output'] == custody['condition_output']
+                  assert native['physical_archive_scope'] == 'two_selected_json_and_one_arrow_and_nine_sdk_archives_per_condition'
+                  assert native['other_selected_project_archive_physical_hashes'] == 'NOT_PROVED_EXHAUSTIVE'
+                  assert native['arrow_archive_bytes_retained'] == 'YES_BOUNDED'
+                  assert native['json_selected_archive_bytes'] == 'RETAINED_BOUNDED'
                   assert native['json_selected_member_count'] == 25
                   for key in ('json_selected_members_bill_sha256',
                               'json_selected_link_selection_sha256'):
                       assert len(native[key]) == 64 and all(c in '0123456789abcdef' for c in native[key])
                   assert native['source_build_admission'] == native['glue_legal_admission'] == 'NO'
-                  assert native['arrow_original_member_instance'] == 'AMBIGUOUS'
+                  assert native['arrow_original_member_instance'] == 'ARRAY_1_SELECTED_COMPUTE_2_UNSELECTED_EH_DIAGNOSTIC'
+                  assert native['selected_graph_exhaustive'] == 'NO' and native['generator_input_closure'] == 'UNPROVEN'
+                  assert len(native['json_physical_archives']) == 2
                   assert len(native['selected_sdk_archives']) == 9
                   assert set(native['arrow_duplicate_util_member_candidate_hashes_producer_attested']) == {
                       'array/util.cc.o', 'compute/util.cc.o'}
@@ -1321,9 +1577,14 @@ jobs:
           worker_digests = {cell['worker_sha256'] for cell in installation.values()}
           output = root / 'comparison.json'
           output.write_text(json.dumps({
-              'schema': 'tundra-eh-exact-pair-installed-compare/v1',
+              'schema': 'tundra-eh-exact-pair-installed-compare/v2',
               'admission': 'NO',
-              'producer_run': 40351355919,
+              'producer_run': 40434996466,
+              'producer_attempt': 1,
+              'producer_head': '22637d141f67dc92510211d7d281f6591a12a5f5',
+              'producer_artifact_id': 12705817192,
+              'producer_artifact_digest': 'sha256:b25664ca46d4f4970aa7742e3e4927a2c55b53f9466bd5644854263e0b33ab6c',
+              'producer_bill_sha256': '93c4637dcd0cf4527814267b38a242cc626ad64f92df0a9a52928d1edc036c0f',
               'compared': [f'{c}-{p}' for c, p in observed],
               'observed': {f'{c}-{p}': value for (c, p), value in observed.items()},
               'installation': {f'{c}-{p}': value for (c, p), value in installation.items()},
@@ -1340,9 +1601,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          nu gate-source/.github/scripts/duckdb-eh-corpus/compare-json-conversion-v3.nu \
+          nu gate-source/.github/scripts/duckdb-eh-corpus/compare-json-conversion-v4.nu \
             "$RUNNER_TEMP/eh-compare"
-          jq -e '.schema == "tundra-installed-json-conversion-corpus-compare/v3" and
+          jq -e '.schema == "tundra-installed-json-conversion-corpus-compare/v4" and
             .admission == "NO" and .case_count == 32 and .accepted == true and
             (.case_comparisons | length == 32) and
             .case_failures == [] and .case_differences == [] and
