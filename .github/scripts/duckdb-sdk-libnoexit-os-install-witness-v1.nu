@@ -31,7 +31,7 @@ def main [ledger_path: string, condition: string, profile: string, deb: string, 
   require ($p.cells == $expected) 'PREFLIGHT_FOUR_TUPLES'
   require ((regular $deb) <= $l.max_deb_bytes and (sha $deb) == $c.deb_sha256) 'DEB_BYTES_DRIFT'
   let py = '
-import hashlib,json,os,pathlib,subprocess,sys
+import hashlib,json,os,pathlib,re,subprocess,sys
 condition,profile,elf_sha,archive_sha,notice_sha,cell_sha,deb_sha = sys.argv[1:]
 def fail(code): raise SystemExit(code)
 def cmd(args):
@@ -46,10 +46,16 @@ def sha(path):
 status=cmd(["dpkg-query","-W","-f=${Status}\\t${Version}\\t${Architecture}\\n","auto-tundra"])
 if status!="install ok installed\t0.1.0\tamd64\n": fail("DPKG_STATUS")
 prerequisites=[]
-for name in ("libwebkit2gtk-4.1-0","libgtk-3-0"):
+for name in ("libwebkit2gtk-4.1-0","libgtk-3-0t64"):
     row=cmd(["dpkg-query","-W","-f=${Status}\\t${Version}\\t${Architecture}\\n",name]).rstrip("\n").split("\t")
     if len(row)!=3 or row[0]!="install ok installed" or not row[1] or row[2]!="amd64": fail("PREREQ_STATUS_DRIFT")
     prerequisites.append({"package":name,"status":row[0],"version":row[1],"architecture":row[2]})
+provided=cmd(["dpkg-query","-W","-f=${Provides}","libgtk-3-0t64"])
+provided_tokens=[x.strip() for x in provided.split(",")]
+matches=[x for x in provided_tokens if re.fullmatch(r"libgtk-3-0(?: \(= [^ )]+\))?",x)]
+if len(matches)!=1: fail("PREREQ_PROVIDER_RELATION")
+prerequisites[1]["provides_old_gtk"]="libgtk-3-0"
+prerequisites[1]["provides_token"]=matches[0]
 base="/usr/lib/auto-tundra/third-party-licenses/ui/duckdb-runtime/"
 paths={"elf":"/usr/bin/auto-tundra", "archive":base+"native-emscripten-libnoexit.a", "notice":base+"native-emscripten-LICENSE", "cell":base+"native-emscripten-libnoexit-cell.json"}
 expected={"elf":elf_sha,"archive":archive_sha,"notice":notice_sha,"cell":cell_sha}
@@ -70,7 +76,7 @@ print(json.dumps({"schema":"tundra-sdk-libnoexit-os-install-witness/v1","status"
 '
   let r = (^python3 -c $py $condition $profile $c.elf_sha256 $l.archive_sha256 $l.notice_sha256 $c.cell_resource_sha256 $c.deb_sha256 | complete)
   if $r.exit_code != 0 {
-    let allowed = ['DPKG_QUERY_REFUSED' 'DPKG_STATUS' 'PREREQ_STATUS_DRIFT' 'DPKG_LIST_MISSING' 'INSTALLED_SYMLINK' 'INSTALLED_PATH' 'DPKG_OWNER' 'INSTALLED_BYTES' 'INSTALLED_CELL_SCOPE']
+    let allowed = ['DPKG_QUERY_REFUSED' 'DPKG_STATUS' 'PREREQ_STATUS_DRIFT' 'PREREQ_PROVIDER_RELATION' 'DPKG_LIST_MISSING' 'INSTALLED_SYMLINK' 'INSTALLED_PATH' 'DPKG_OWNER' 'INSTALLED_BYTES' 'INSTALLED_CELL_SCOPE']
     let observed = ($r.stderr | str trim)
     let detail = if $observed in $allowed { $observed } else { 'UNCLASSIFIED' }
     $"schema=tundra-sdk-libnoexit-os-install-witness/v1\nstatus=REFUSED\nreason=OWNERSHIP_OR_BYTES_REFUSED\ndetail=($detail)\npackage_install_verified=NO\nbehavior_cases=NOT_RUN\nlinker_input=UNPROVEN\ngenerator_input_closure=UNPROVEN\nlegal_admission=NO\nproduct_admission=NO\nfleet_admission=NO\n" | save --force $refusal_path

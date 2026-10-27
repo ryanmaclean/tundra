@@ -51,7 +51,7 @@ jobs:
           printf '%s  %s\n' \
             f070573bd130334ad2ccadb3661795bb6276a8547691616f00432ffc8cd79247 .github/scripts/duckdb-sdk-libnoexit-os-install-preflight-v1.nu \
             bed8ac3ef50793c49990db967d8bcedeb87d6a50be905f08c90c35148c290b58 .github/receipts/duckdb-sdk-libnoexit-os-install-preflight-v1.json \
-            4d4a6eb10b5c158165c54330e82d2f8b521da52bb638147ed972b165b5ab852b .github/scripts/duckdb-sdk-libnoexit-os-install-witness-v1.nu \
+            5f1e4a50971df531a9a310bf902cff6ee82a763b28daaa9a117f7059cf749998 .github/scripts/duckdb-sdk-libnoexit-os-install-witness-v1.nu \
             1239e5b88b46d914c4a4a084ca7a614a138b65a88511c52ed9ae3bd31a6fdd0b .github/receipts/duckdb-sdk-libnoexit-os-install-witness-v1.json \
             | sha256sum --check --status
       - name: Install checksum-pinned MIT Nushell
@@ -121,6 +121,11 @@ jobs:
           set -euo pipefail
           root="$RUNNER_TEMP/libnoexit-install-input"
           output="$RUNNER_TEMP/libnoexit-install-output"
+          provides_old_gtk() {
+            local count
+            count="$(printf '%s\n' "$1" | tr ',' '\n' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' | grep -Ec '^libgtk-3-0( \(= [^ )]+\))?$' || true)"
+            test "$count" = 1
+          }
           refuse_apt() {
             printf 'schema=tundra-sdk-libnoexit-os-install-witness/v1\nstatus=REFUSED\nreason=%s\napt_command_exit_code=%s\npackage_install_verified=NO\nbehavior_cases=NOT_RUN\nlinker_input=UNPROVEN\ngenerator_input_closure=UNPROVEN\nlegal_admission=NO\nproduct_admission=NO\nfleet_admission=NO\n' "$1" "$2" > "$output/refusal.txt"
             exit 1
@@ -134,15 +139,30 @@ jobs:
           test "$(stat -c %s "$root/apt-update.stderr")" -le 262144 || refuse_apt PREREQ_UPDATE_OUTPUT_CAP "$update_rc"
           test "$update_rc" -eq 0 || refuse_apt PREREQ_UPDATE_COMMAND_NONZERO "$update_rc"
           if webkit_version="$(timeout 15s apt-cache policy libwebkit2gtk-4.1-0 | awk '$1 == "Candidate:" { print $2 }')" && \
-             gtk_version="$(timeout 15s apt-cache policy libgtk-3-0 | awk '$1 == "Candidate:" { print $2 }')"; then
+             gtk_version="$(timeout 15s apt-cache policy libgtk-3-0t64 | awk '$1 == "Candidate:" { print $2 }')"; then
             :
           else
             refuse_apt PREREQ_CANDIDATE_QUERY_NONZERO 0
           fi
           [[ "$webkit_version" =~ ^[0-9][A-Za-z0-9.+:~_-]*$ ]] || refuse_apt PREREQ_CANDIDATE_MISSING 0
           [[ "$gtk_version" =~ ^[0-9][A-Za-z0-9.+:~_-]*$ ]] || refuse_apt PREREQ_CANDIDATE_MISSING 0
+          if timeout 15s apt-cache show "libgtk-3-0t64=$gtk_version" > "$root/gtk-provider.control" 2> /dev/null; then
+            :
+          else
+            refuse_apt PREREQ_PROVIDER_METADATA_MISSING 0
+          fi
+          test "$(stat -c %s "$root/gtk-provider.control")" -le 65536 || refuse_apt PREREQ_PROVIDER_METADATA_CAP 0
+          test "$(grep -Fxc 'Package: libgtk-3-0t64' "$root/gtk-provider.control" || true)" = 1 || refuse_apt PREREQ_PROVIDER_IDENTITY 0
+          test "$(grep -Fxc "Version: $gtk_version" "$root/gtk-provider.control" || true)" = 1 || refuse_apt PREREQ_PROVIDER_IDENTITY 0
+          test "$(grep -Fxc 'Architecture: amd64' "$root/gtk-provider.control" || true)" = 1 || refuse_apt PREREQ_PROVIDER_IDENTITY 0
+          provides="$(sed -n 's/^Provides: //p' "$root/gtk-provider.control")"
+          if test "$(printf '%s\n' "$provides" | wc -l)" -eq 1 && provides_old_gtk "$provides"; then
+            :
+          else
+            refuse_apt PREREQ_PROVIDER_RELATION 0
+          fi
           if timeout 300s sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-            "libwebkit2gtk-4.1-0=$webkit_version" "libgtk-3-0=$gtk_version" \
+            "libwebkit2gtk-4.1-0=$webkit_version" "libgtk-3-0t64=$gtk_version" \
             > "$root/apt-install.stdout" 2> "$root/apt-install.stderr"; then
             prepare_rc=0
           else
@@ -152,7 +172,9 @@ jobs:
           test "$(stat -c %s "$root/apt-install.stderr")" -le 262144 || refuse_apt PREREQ_INSTALL_OUTPUT_CAP "$prepare_rc"
           test "$prepare_rc" -eq 0 || refuse_apt PREREQ_INSTALL_COMMAND_NONZERO "$prepare_rc"
           test "$(dpkg-query -W -f='${db:Status-Abbrev}\t${Version}' libwebkit2gtk-4.1-0)" = $'ii \t'"$webkit_version" || refuse_apt PREREQ_STATUS_DRIFT 0
-          test "$(dpkg-query -W -f='${db:Status-Abbrev}\t${Version}' libgtk-3-0)" = $'ii \t'"$gtk_version" || refuse_apt PREREQ_STATUS_DRIFT 0
+          test "$(dpkg-query -W -f='${db:Status-Abbrev}\t${Version}' libgtk-3-0t64)" = $'ii \t'"$gtk_version" || refuse_apt PREREQ_STATUS_DRIFT 0
+          installed_provides="$(dpkg-query -W -f='${Provides}' libgtk-3-0t64)"
+          provides_old_gtk "$installed_provides" || refuse_apt PREREQ_PROVIDER_RELATION 0
       - name: Install authenticated package only on disposable GitHub runner
         shell: bash
         run: |
