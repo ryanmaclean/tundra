@@ -60,7 +60,7 @@ jobs:
         run: |
           set -euo pipefail
           set_refusal() {
-            case "$1" in SOURCE_ENV|SOURCE_GIT_SAFETY|SOURCE_PIN_GATE|SOURCE_PIN_TUNDRA|SOURCE_PIN_CUSTODY|SOURCE_PIN_WASM|SOURCE_PIN_DUCKDB|SOURCE_PIN_ARROW|SOURCE_TREE_CLEAN|SOURCE_SUBMODULES|CUSTODY_MANIFEST|CUSTODY_ASSETS|WEBDB_PATCH_INPUT|WEBDB_PATCH_APPLY|DUCKDB_PATCH_INPUT|DUCKDB_PATCH_APPLY|JSON_SENTINEL|PATH_PROBE|ZIP_AUTH|SEED|CONFIGURE|BUILD|OUTPUT_JOIN) ;; *) exit 2 ;; esac
+            case "$1" in SOURCE_ENV|SOURCE_GIT_SAFETY|SOURCE_PIN_GATE|SOURCE_PIN_TUNDRA|SOURCE_PIN_CUSTODY|SOURCE_PIN_WASM|SOURCE_PIN_DUCKDB|SOURCE_PIN_ARROW|SOURCE_TREE_CLEAN|SOURCE_SUBMODULES|CUSTODY_MANIFEST|CUSTODY_ASSETS|WEBDB_PATCH_INPUT|WEBDB_PATCH_APPLY|DUCKDB_PATCH_INPUT|DUCKDB_PATCH_APPLY|JSON_SENTINEL|PATH_PROBE|NU_RUNTIME_FIXTURE|ZIP_AUTH|SEED|CONFIGURE|BUILD|OUTPUT_JOIN) ;; *) exit 2 ;; esac
             printf '{"schema":"tundra-eh-seeded-build/v1","status":"REFUSED","reason":"%s","condition":"image","actual_eh_linker_child":"UNPROVEN","linker_archive_read":"UNPROVEN","same_run_traced_outputs":"UNPROVEN","object_input_closure":"UNPROVEN","generator_input_closure":"UNPROVEN","selected_graph_exhaustive":"NO","legal_admission":"NO","product_admission":"NO","fleet_admission":"NO"}\n' "$1" > /work/image/receipt/refusal.json
           }
           set_refusal SOURCE_ENV
@@ -144,6 +144,8 @@ jobs:
           grep -Fxq 'MIT License' /work/image/tool/LICENSE
           chmod 0700 /work/image/tool/nu
           test "$(/work/image/tool/nu --version)" = 0.115.1
+          set_refusal NU_RUNTIME_FIXTURE
+          /work/image/tool/nu gate/.github/scripts/duckdb-eh-seeded-archive-identity-v1-test.nu /work/image/tool/nu
           set_refusal ZIP_AUTH
           base=https://api.github.com/repos/ryanmaclean/tundra/actions
           curl --fail --location --silent --show-error --proto '=https' --proto-redir '=https' --max-time 45 --max-filesize 65536 -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' --output /work/image/api/run.json "$base/runs/40536996581"

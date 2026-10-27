@@ -41,9 +41,10 @@ jobs:
           printf '%s\n' "$GITHUB_SHA" | cmp -s - .git/HEAD
           git cat-file -e '1f7924abd1462a9efd81eb4684e8b1a16fb9940b^{commit}'
           git merge-base --is-ancestor 1f7924abd1462a9efd81eb4684e8b1a16fb9940b HEAD
-          test "$(git diff --name-only 1f7924abd1462a9efd81eb4684e8b1a16fb9940b HEAD)" = "$(printf '%s\n' .github/workflows/duckdb-eh-seeded-image-build-v1.yml .github/workflows/duckdb-installed-json-conversion-corpus.yml)"
+          test "$(git diff --name-only 1f7924abd1462a9efd81eb4684e8b1a16fb9940b HEAD)" = "$(printf '%s\n' .github/scripts/duckdb-eh-seeded-archive-identity-v1-test.nu .github/scripts/duckdb-eh-seeded-archive-identity-v1.nu .github/workflows/duckdb-eh-seeded-image-build-v1.yml .github/workflows/duckdb-installed-json-conversion-corpus.yml)"
           for source in \
             .github/workflows/duckdb-eh-seeded-image-build-v1.yml \
+            .github/scripts/duckdb-eh-seeded-archive-identity-v1-test.nu \
             .github/scripts/duckdb-eh-seeded-archive-identity-v1.nu \
             .github/scripts/duckdb-eh-seeded-build-v1.nu \
             .github/receipts/duckdb-eh-seeded-build-v1.json \
@@ -54,8 +55,9 @@ jobs:
             test -f "$source" && test ! -L "$source"
           done
           printf '%s  %s\n' \
-            42233e0e6af725fbc90c001adf83c4a59f6127e56000be88dd4e80fee789da9b .github/workflows/duckdb-eh-seeded-image-build-v1.yml \
-            83fa2ee3355c9e26732d94265e06ed23c8b7ba9c9b71cad05fa7b4d131e1a9ba .github/scripts/duckdb-eh-seeded-archive-identity-v1.nu \
+            ccc983a248adab0ebacc0cb7f497e7cc4571a4fcdbc9387c49ff5cf1aa7afe25 .github/workflows/duckdb-eh-seeded-image-build-v1.yml \
+            ff851c894387a9c2359d2046ac231b58096b0db940ba2aebf0d544bdadeb1d4a .github/scripts/duckdb-eh-seeded-archive-identity-v1-test.nu \
+            80627698a97c9206169bc9d874c59c093838031688df065a43aea938987d1188 .github/scripts/duckdb-eh-seeded-archive-identity-v1.nu \
             9d445433aa4f8c46c057321413bfd6f24e2c05b1d45200f6385fdf346b210896 .github/scripts/duckdb-eh-seeded-build-v1.nu \
             684e4f3d9abfc1f0451d32d7aa66b79431a726c47a41d1640e5f69ae8abacfc8 .github/receipts/duckdb-eh-seeded-build-v1.json \
             799f3e08403d6b48a6afa7bb933d40f5455c168d7b1948237bf9d2a1415a339b .github/receipts/duckdb-eh-seeded-link-prereqs-v1.json \

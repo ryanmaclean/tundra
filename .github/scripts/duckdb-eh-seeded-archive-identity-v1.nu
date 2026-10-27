@@ -110,6 +110,5 @@ def main [mode: string, ledger: string, first: string, second: string, third: st
     seed $ledger $first $second $third $fourth $fifth $sixth $seventh $eighth $ninth
   } else if $mode == 'verify' {
     verify $ledger $first $second $third $fourth | ignore
-  }
-  else { error make {msg: 'MODE'} }
+  } else { error make {msg: 'MODE'} }
 }
