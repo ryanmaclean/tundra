@@ -14,6 +14,38 @@ export def digest [path: string, stage: string] {
   $result.stdout | split row ' ' | first
 }
 
+# This is a diagnostic for the exact pinned clang path, not a tool fallback.
+# Each link target must be a basename in the same real directory. Refuse any
+# absolute target outside that directory, slash, traversal, cycle, or >4 hops.
+export def inspect_confined_tool_link [path: string, root: string] {
+  require (($path | path dirname) == $root) 'TOOL_CLANG_PATH_DRIFT'
+  let directory = (try { ls -lD $root } catch { [] })
+  require (($directory | length) == 1 and ($directory | first).type == 'dir') 'TOOL_CLANG_ROOT_NOT_REGULAR_DIR'
+  mut current = $path
+  mut seen = []
+  for hop in 0..4 {
+    require (not ($current in $seen)) 'TOOL_CLANG_LINK_CYCLE'
+    $seen = ($seen | append $current)
+    let entries = (try { ls -lD $current } catch { [] })
+    require (($entries | length) == 1) 'TOOL_CLANG_LINK_TARGET_MISSING'
+    let item = ($entries | first)
+    if $item.type == 'file' {
+      require ($hop > 0) 'TOOL_CLANG_LINK_NOT_PRESENT'
+      return {hops: $hop, target_regular: 'YES', confined: 'YES', target_sha256: (digest $current 'TOOL_CLANG')}
+    }
+    require ($item.type == 'symlink') 'TOOL_CLANG_LINK_TARGET_NOT_REGULAR'
+    require ($hop < 4) 'TOOL_CLANG_LINK_DEPTH'
+    let target = ($item.target | default '')
+    let name = if ($target | str starts-with '/') {
+      require ($target | str starts-with $"($root)/") 'TOOL_CLANG_LINK_ESCAPE'
+      $target | str replace $"($root)/" ''
+    } else { $target }
+    require ($name =~ '^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$') 'TOOL_CLANG_LINK_ESCAPE'
+    $current = ($root | path join $name)
+  }
+  error make {msg: 'TOOL_CLANG_LINK_DEPTH'}
+}
+
 export def select_compile_command [log: string] {
   require (($log | str length) <= 131072) 'BUILD_LOG_CAP'
   let expected_source = '../../../../../emsdk/upstream/emscripten/system/lib/libc/atexit_dummy.c'
@@ -106,11 +138,19 @@ def main [ledger_path: string, output: string] {
     require (($ledger | get $key) == 'NO') 'LEDGER_ADMISSION'
   }
   require ($ledger.generator_input_closure == 'UNPROVEN' and $ledger.selected_graph_exhaustive == 'NO') 'LEDGER_ADMISSION'
-  require (($ledger.tool_paths | length) == 3) 'TOOL_PATHS_DRIFT'
+  require ($ledger.tool_paths == ['/emsdk/upstream/emscripten/emcc' '/emsdk/upstream/bin/clang' '/emsdk/upstream/bin/llvm-ar']) 'TOOL_PATHS_DRIFT'
   require ((digest $ledger.source_path 'SOURCE') == $ledger.source_sha256) 'SOURCE_DRIFT'
   require ((digest $ledger.recipe_path 'RECIPE') == $ledger.recipe_sha256) 'RECIPE_DRIFT'
   require ((digest $ledger.embuilder_path 'EMBUILDER') == $ledger.embuilder_sha256) 'EMBUILDER_DRIFT'
   require ((digest $ledger.notice_path 'NOTICE') == $ledger.notice_sha256) 'NOTICE_DRIFT'
+  for directory in ['/emsdk' '/emsdk/upstream' '/emsdk/upstream/bin'] {
+    let entries = (try { ls -lD $directory } catch { [] })
+    require (($entries | length) == 1 and ($entries | first).type == 'dir') 'TOOL_CLANG_ANCESTOR_DRIFT'
+  }
+  let clang = (inspect_confined_tool_link '/emsdk/upstream/bin/clang' '/emsdk/upstream/bin')
+  let refused = (open $"($output)/refusal.json")
+  $refused | merge {reason: 'TOOL_CLANG_LINK_DIAGNOSTIC_ONLY', clang_link_hops: $clang.hops, clang_target_regular: $clang.target_regular, clang_confined: $clang.confined, clang_target_sha256: $clang.target_sha256} | to json --raw | save --force $"($output)/refusal.json"
+  error make {msg: 'TOOL_CLANG_LINK_DIAGNOSTIC_ONLY'}
   let stages = ['TOOL_EMCC' 'TOOL_CLANG' 'TOOL_LLVM_AR']
   for item in ($ledger.tool_paths | enumerate) { digest $item.item ($stages | get $item.index) | ignore }
   let tool_hashes = ($ledger.tool_paths | enumerate | each {|item| {path: $item.item, sha256: (digest $item.item ($stages | get $item.index))} })

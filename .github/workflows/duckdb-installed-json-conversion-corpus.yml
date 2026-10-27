@@ -45,8 +45,8 @@ jobs:
             test -f "$source" && test ! -L "$source"
           done
           printf '%s  %s\n' \
-            ea7db44ab6a8bcde2434276a0e92f5f546d9fe2e00080e987a02d0ae8508828f .github/workflows/duckdb-sdk-libnoexit-controlled-v2.yml \
-            fe2b0e1b6af8c52a00e6512ed5ff0802c104481e631dc22c7d438d6fc4934600 .github/scripts/duckdb-sdk-libnoexit-controlled-v2.nu \
+            b8b669d45612490f0e123158124e3fbdb936a6f6f18d2c828f86a233901cac88 .github/workflows/duckdb-sdk-libnoexit-controlled-v2.yml \
+            849ef466d420e1d9180437ae2a8158fc9fc212c0dcca3a4665bd29cf9ef5e271 .github/scripts/duckdb-sdk-libnoexit-controlled-v2.nu \
             4d96f66f32395d6bec9d969d66d761b66f2beb03f56ea00217f7bca3b6f327f9 .github/receipts/duckdb-sdk-libnoexit-controlled-v2.json \
             | sha256sum --check --status
 

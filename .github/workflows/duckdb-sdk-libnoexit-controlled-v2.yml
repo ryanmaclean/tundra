@@ -58,7 +58,7 @@ jobs:
           printf '%s\n' "$GITHUB_SHA" | cmp -s - "$GITHUB_WORKSPACE/.git/HEAD"
           printf '%s  %s\n' \
             4d96f66f32395d6bec9d969d66d761b66f2beb03f56ea00217f7bca3b6f327f9 .github/receipts/duckdb-sdk-libnoexit-controlled-v2.json \
-            fe2b0e1b6af8c52a00e6512ed5ff0802c104481e631dc22c7d438d6fc4934600 .github/scripts/duckdb-sdk-libnoexit-controlled-v2.nu \
+            849ef466d420e1d9180437ae2a8158fc9fc212c0dcca3a4665bd29cf9ef5e271 .github/scripts/duckdb-sdk-libnoexit-controlled-v2.nu \
             | sha256sum --check --status
           test ! -e "$RUNNER_TEMP/pr143-v2-tool"
           tool="$RUNNER_TEMP/pr143-v2-tool"; mkdir "$tool"
