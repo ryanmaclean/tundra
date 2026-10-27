@@ -1,0 +1,219 @@
+name: DuckDB selected non-SDK notice association diagnostic
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  selected-notice-25:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out exact diagnostic source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Initialize bounded refusal receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/notice-25-receipt" "$RUNNER_TEMP/notice-25-input"
+          printf '{"schema":"tundra-selected-notice-25-diagnostic/v1","status":"REFUSED","admission":"NO","reason":"NOT_COMPLETED","pending_sdk_keys_per_condition":9,"pending_generator_keys_per_condition":1,"selected_graph_exhaustive":"NO","generator_input_closure":"UNPROVEN","legal_admission":"NO","product_admission":"NO","fleet_admission":"NO"}\n' \
+            > "$RUNNER_TEMP/notice-25-receipt/refusal.json"
+      - name: Install checksum-pinned MIT Nushell
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -s)" = Linux && test "$(uname -m)" = x86_64
+          tool="$RUNNER_TEMP/tundra-nu-0.115.1"
+          mkdir -p "$tool"
+          archive="$tool/nu-0.115.1-x86_64-unknown-linux-musl.tar.gz"
+          timeout 180s curl --fail --location --silent --show-error \
+            --proto '=https' --proto-redir '=https' --max-time 120 --retry 1 \
+            --max-filesize 90000000 --output "$archive" \
+            https://github.com/nushell/nushell/releases/download/0.115.1/nu-0.115.1-x86_64-unknown-linux-musl.tar.gz
+          test "$(stat -c %s "$archive")" = 83545998
+          printf '%s  %s\n' 8a9722177ddd421eba927b4baae4ae341a4d1c3434504be7b1b17d998bafdd87 "$archive" | sha256sum --check --status
+          tar -xOzf "$archive" nu-0.115.1-x86_64-unknown-linux-musl/nu > "$tool/nu"
+          tar -xOzf "$archive" nu-0.115.1-x86_64-unknown-linux-musl/LICENSE > "$tool/LICENSE"
+          test "$(stat -c %s "$tool/nu")" = 70750360
+          printf '%s  %s\n' \
+            c343a927a2d4a45ebf9300d013b226bcdc2598ecb0178a8a79722ebffe71e56e "$tool/nu" \
+            ff5dcaaba6140ec57cafdd4f707cd0d329e727477cf7d5b9ba7a244ec2678b79 "$tool/LICENSE" \
+            | sha256sum --check --status
+          grep -Fxq 'MIT License' "$tool/LICENSE"
+          chmod 0700 "$tool/nu"
+          test "$("$tool/nu" --version)" = 0.115.1
+          echo "$tool" >> "$GITHUB_PATH"
+      - name: Authenticate frozen runs, artifacts and immutable primary bytes
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          printf '%s  %s\n' \
+            f21ae393373fac12601e76ce763ffdad973a5f5a7983d029364f955084757515 .github/receipts/duckdb-selected-notice-25-v1.json \
+            1b3c1ca65642516e89f635e06958b934d6c27059f85eb567cdc549cae5a9ec43 .github/scripts/duckdb-selected-notice-25-v1.nu \
+            | sha256sum --check --status
+          input="$RUNNER_TEMP/notice-25-input"
+          api=https://api.github.com/repos/ryanmaclean/tundra
+          api_get() {
+            printf 'header = "Authorization: Bearer %s"\n' "$GH_TOKEN" |
+              curl --config - --fail --silent --show-error --location \
+                --proto '=https' --proto-redir '=https' --max-time 180 --retry 1 \
+                --max-filesize 80000000 --output "$2" "$1"
+          }
+          api_get "$api/actions/runs/40434996466" "$input/producer-run.json"
+          api_get "$api/actions/runs/40442338363" "$input/consumer-run.json"
+          for id in 12705817192 12707397953 12707094239 12708117533 12708990037; do
+            api_get "$api/actions/artifacts/$id" "$input/artifact-$id.json"
+            api_get "$api/actions/artifacts/$id/zip" "$input/artifact-$id.zip"
+          done
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, re, shutil, urllib.request, zipfile
+          root = pathlib.Path(os.environ['RUNNER_TEMP']) / 'notice-25-input'
+          ledger = json.loads(pathlib.Path('.github/receipts/duckdb-selected-notice-25-v1.json').read_text())
+          runs = [('producer', ledger['producer']), ('consumer', ledger['consumer'])]
+          for label, expected in runs:
+              run = json.loads((root / f'{label}-run.json').read_text())
+              assert run['id'] == expected['run'] and run['run_attempt'] == expected['attempt']
+              assert run['head_sha'] == expected['head'] and run['event'] == 'workflow_dispatch'
+              assert run['status'] == 'completed' and run['conclusion'] == 'success'
+          targets = [(ledger['producer']['artifact_id'], ledger['producer']['run'],
+                      ledger['producer']['head'], 'duckdb-combined-custody-eh',
+                      ledger['producer']['artifact_zip_sha256'], 'producer')]
+          for a in ledger['consumer']['artifacts']:
+              targets.append((a['id'], ledger['consumer']['run'], ledger['consumer']['head'],
+                              f"duckdb-eh-pair-{a['condition']}-{a['profile']}",
+                              a['zip_sha256'], f"installed/{a['condition']}-{a['profile']}"))
+          receipt = []
+          for artifact_id, run_id, head, name, digest, label in targets:
+              meta = json.loads((root / f'artifact-{artifact_id}.json').read_text())
+              archive = root / f'artifact-{artifact_id}.zip'
+              assert meta['id'] == artifact_id and meta['name'] == name
+              assert meta['digest'] == 'sha256:' + digest and not meta['expired']
+              assert meta['workflow_run']['id'] == run_id and meta['workflow_run']['head_sha'] == head
+              assert archive.stat().st_size == meta['size_in_bytes'] <= 80000000
+              assert hashlib.sha256(archive.read_bytes()).hexdigest() == digest
+              with zipfile.ZipFile(archive) as z:
+                  members = z.infolist()
+                  names = [m.filename for m in members]
+                  assert len(names) == len(set(names))
+                  assert len(names) == (333 if label == 'producer' else 87)
+                  assert sum(m.file_size for m in members) <= (419430400 if label == 'producer' else 16777216)
+                  for member in members:
+                      parts = member.filename.rstrip('/').split('/')
+                      mode = (member.external_attr >> 16) & 0o170000
+                      assert not member.filename.startswith('/') and '\\' not in member.filename
+                      assert all(part not in ('', '.', '..') for part in parts)
+                      assert mode in (0, 0o100000, 0o040000)
+                  assert z.testzip() is None
+                  if label == 'producer':
+                      required = {'selected-native-glue-bill-v1.json'}
+                      for condition in ('image', 'clean'):
+                          required.update({f'{condition}-json-object-source.tsv',
+                              f'{condition}-arrow-instance-ledger.tsv',
+                              f'{condition}-arrow-source/joins.tsv',
+                              f'{condition}-arrow-source/array-util.cc',
+                              f'{condition}-compile_commands.json', f'{condition}-build.log',
+                              f'{condition}-json-bytes/libduckdb_web_json.a'})
+                          required.update(f"{condition}-json-source/{r['source_path']}"
+                              for r in ledger['rows'] if r['primary_repo'] == 'duckdb/duckdb')
+                      bill = json.loads(z.read('selected-native-glue-bill-v1.json'))
+                      assert hashlib.sha256(z.read('selected-native-glue-bill-v1.json')).hexdigest() == ledger['producer']['bill_sha256']
+                      for condition in ('image', 'clean'):
+                          for entry in ledger['rows']:
+                              row = next(r for r in bill['rows'] if r['key'] == condition + '/' + entry['suffix'])
+                              required.add(row['witness_path'])
+                              required.add(row['source_join_witness_path'])
+                      assert required <= set(names)
+                  else:
+                      required = {'exact-package-selected-bill.json', 'producer-selected-bill.json'}
+                      required.update('installed-notice-bytes/' + n for n in
+                          ('native-duckdb-core.txt', 'native-duckdb-wasm.txt',
+                           'native-arrow-license.txt', 'native-arrow-notice.txt'))
+                      assert required <= set(names)
+                  destination = root / label
+                  for relative in sorted(required):
+                      target = destination / relative
+                      target.parent.mkdir(parents=True, exist_ok=True)
+                      with z.open(relative) as source, target.open('xb') as sink:
+                          shutil.copyfileobj(source, sink)
+              receipt.append({'id': artifact_id, 'run': run_id, 'head': head,
+                              'name': name, 'zip_sha256': digest, 'size': archive.stat().st_size})
+          primary = root / 'primary'
+          files = {}
+          for entry in ledger['rows']:
+              candidates = [(entry['source_path'], entry['source_sha256']),
+                            (entry['notice_path'], entry['notice_sha256'])]
+              if entry['attribution_path'] != 'NOT_APPLICABLE':
+                  candidates.append((entry['attribution_path'], entry['attribution_sha256']))
+              if 'cmake_path' in entry:
+                  candidates.append((entry['cmake_path'], entry['cmake_sha256']))
+              for path, digest in candidates:
+                  assert re.fullmatch(r'[0-9a-f]{64}', digest)
+                  assert path and not path.startswith('/') and '..' not in pathlib.PurePosixPath(path).parts
+                  files[(entry['primary_repo'], entry['primary_commit'], path)] = digest
+          assert len(files) == 30
+          for (repo, commit, path), digest in files.items():
+              assert repo in ('duckdb/duckdb', 'duckdb/duckdb-wasm', 'apache/arrow')
+              assert re.fullmatch(r'[0-9a-f]{40}', commit)
+              url = f'https://raw.githubusercontent.com/{repo}/{commit}/{path}'
+              with urllib.request.urlopen(url, timeout=20) as response:
+                  assert response.url.startswith('https://raw.githubusercontent.com/')
+                  data = response.read(2_000_001)
+              assert len(data) <= 2_000_000 and hashlib.sha256(data).hexdigest() == digest
+              target = primary / repo / commit / path
+              target.parent.mkdir(parents=True, exist_ok=True)
+              target.write_bytes(data)
+          auth = {'schema': 'tundra-selected-notice-25-input-auth/v1',
+                  'producer_run': ledger['producer']['run'],
+                  'consumer_run': ledger['consumer']['run'],
+                  'artifacts': receipt, 'primary_file_count': len(files),
+                  'admission': 'NO'}
+          path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'notice-25-receipt' / 'auth.json'
+          path.write_text(json.dumps(auth, sort_keys=True, separators=(',', ':')) + '\n')
+          PY
+      - name: Validate selected non-SDK keys and installed notice bytes
+        shell: bash
+        env:
+          NOTICE_LEDGER_SHA256: f21ae393373fac12601e76ce763ffdad973a5f5a7983d029364f955084757515
+        run: |
+          set -euo pipefail
+          input="$RUNNER_TEMP/notice-25-input"
+          output="$RUNNER_TEMP/notice-25-receipt"
+          nu .github/scripts/duckdb-selected-notice-25-v1.nu \
+            .github/receipts/duckdb-selected-notice-25-v1.json \
+            "$input/producer" "$input/installed" "$input/primary" "$output/associations.json"
+          jq -e '.schema == "tundra-selected-notice-25-diagnostic/v1" and
+            .status == "CANDIDATE_ASSOCIATIONS_ONLY" and .admission == "NO" and
+            (.associations | length) == 50 and .pending_sdk_keys_per_condition == 9 and
+            .pending_generator_keys_per_condition == 1 and .legal_admission == "NO" and
+            .product_admission == "NO" and .fleet_admission == "NO"' "$output/associations.json" >/dev/null
+          rm "$output/refusal.json"
+      - name: Enforce separate diagnostic cap
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          output="$RUNNER_TEMP/notice-25-receipt"
+          mkdir -p "$output"
+          bytes="$(du -sb "$output" | cut -f 1)"
+          if test "$bytes" -gt 2097152; then
+            find "$output" -mindepth 1 -maxdepth 1 -type f -delete
+            printf '{"schema":"tundra-selected-notice-25-diagnostic/v1","status":"REFUSED","reason":"DIAGNOSTIC_CAP","admission":"NO","legal_admission":"NO","product_admission":"NO","fleet_admission":"NO"}\n' > "$output/refusal.json"
+            exit 1
+          fi
+      - name: Retain bounded selected-notice diagnostic
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: duckdb-selected-notice-25-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/notice-25-receipt/
+          if-no-files-found: error
+          retention-days: 7
