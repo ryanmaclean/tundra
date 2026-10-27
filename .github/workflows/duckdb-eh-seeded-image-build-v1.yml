@@ -60,28 +60,39 @@ jobs:
         run: |
           set -euo pipefail
           set_refusal() {
-            case "$1" in SOURCE_PREP|PATH_PROBE|ZIP_AUTH|SEED|CONFIGURE|BUILD|OUTPUT_JOIN) ;; *) exit 2 ;; esac
+            case "$1" in SOURCE_ENV|SOURCE_GIT_SAFETY|SOURCE_PIN_GATE|SOURCE_PIN_TUNDRA|SOURCE_PIN_CUSTODY|SOURCE_PIN_WASM|SOURCE_PIN_DUCKDB|SOURCE_PIN_ARROW|SOURCE_TREE_CLEAN|SOURCE_SUBMODULES|CUSTODY_MANIFEST|CUSTODY_ASSETS|WEBDB_PATCH_INPUT|WEBDB_PATCH_APPLY|DUCKDB_PATCH_INPUT|DUCKDB_PATCH_APPLY|JSON_SENTINEL|PATH_PROBE|ZIP_AUTH|SEED|CONFIGURE|BUILD|OUTPUT_JOIN) ;; *) exit 2 ;; esac
             printf '{"schema":"tundra-eh-seeded-build/v1","status":"REFUSED","reason":"%s","condition":"image","actual_eh_linker_child":"UNPROVEN","linker_archive_read":"UNPROVEN","same_run_traced_outputs":"UNPROVEN","object_input_closure":"UNPROVEN","generator_input_closure":"UNPROVEN","selected_graph_exhaustive":"NO","legal_admission":"NO","product_admission":"NO","fleet_admission":"NO"}\n' "$1" > /work/image/receipt/refusal.json
           }
-          set_refusal SOURCE_PREP
+          set_refusal SOURCE_ENV
           test "$DUCKDB_EXCEL" = 0 && test "$DUCKDB_JSON" = 1 && test "$CCACHE_DISABLE" = 1
           test -z "${DUCKDB_WASM_LOADABLE_EXTENSIONS+x}"
           test "$EM_CACHE" = /work/image/cache && test ! -e "$EM_CACHE"
+          set_refusal SOURCE_GIT_SAFETY
           for root in gate source custody duckdb-upstream duckdb-upstream/submodules/duckdb duckdb-upstream/submodules/arrow; do
             git config --global --add safe.directory "$GITHUB_WORKSPACE/$root"
           done
           while IFS= read -r -d '' directory; do
             git config --global --add safe.directory "$directory"
           done < <(find "$GITHUB_WORKSPACE/duckdb-upstream" -type f -name .git -printf '%h\0')
+          set_refusal SOURCE_PIN_GATE
           test "$(git -C gate rev-parse HEAD)" = "$GITHUB_SHA"
+          set_refusal SOURCE_PIN_TUNDRA
           test "$(git -C source rev-parse HEAD)" = 0bb7c5237dc1b047de488d67ba30b5ed05c37383
+          set_refusal SOURCE_PIN_CUSTODY
           test "$(git -C custody rev-parse HEAD)" = 1d77df7776dca44731ae8267092e480a78f9f735
+          set_refusal SOURCE_PIN_WASM
           test "$(git -C duckdb-upstream rev-parse HEAD)" = f955138e5218942fb3fb097a8fdcb725222406ff
+          set_refusal SOURCE_PIN_DUCKDB
           test "$(git -C duckdb-upstream/submodules/duckdb rev-parse HEAD)" = 401c8061c6ece35949cac58c7770cc755710ca86
+          set_refusal SOURCE_PIN_ARROW
           test "$(git -C duckdb-upstream/submodules/arrow rev-parse HEAD)" = ca1c30f60d6419849dbc2a533bd0bcaff310185f
+          set_refusal SOURCE_TREE_CLEAN
           test -z "$(git -C duckdb-upstream status --porcelain)"
+          set_refusal SOURCE_SUBMODULES
           test -z "$(git -C duckdb-upstream submodule status --recursive | grep '^[+-U]' || true)"
+          set_refusal CUSTODY_MANIFEST
           test "$(sha256sum custody/custody/manifest.json | cut -d ' ' -f 1)" = 5ec157dc96c54326970029900129b044365d2e330a46fa5d9f3ea66741fb2d14
+          set_refusal CUSTODY_ASSETS
           for asset in duckdb-browser.mjs duckdb-browser-mvp.worker.js duckdb-browser-eh.worker.js duckdb-mvp.wasm duckdb-eh.wasm; do
             expected="$(python3 - "$asset" <<'PY'
           import json, sys
@@ -92,15 +103,20 @@ jobs:
             actual="$(sha256sum "custody/duckdb-runtime/$asset" | cut -d ' ' -f 1)"
             test "$actual" = "$expected"
           done
+          set_refusal WEBDB_PATCH_INPUT
           test "$(sha256sum gate/.github/receipts/duckdb-eh-webdb-fetch-error-pr138.patch | cut -d ' ' -f 1)" = 9fc2d55cc1eb02f274743f9990a5601cc35ce5688afec6edf01e7a3d40fc795c
           test "$(sha256sum duckdb-upstream/lib/src/webdb.cc | cut -d ' ' -f 1)" = 764b0bd6f433281bd38520fb5537e41a503435d5b456d54909526f1f15f791b7
+          set_refusal WEBDB_PATCH_APPLY
           git -C duckdb-upstream apply --check "$GITHUB_WORKSPACE/gate/.github/receipts/duckdb-eh-webdb-fetch-error-pr138.patch"
           git -C duckdb-upstream apply "$GITHUB_WORKSPACE/gate/.github/receipts/duckdb-eh-webdb-fetch-error-pr138.patch"
           test "$(sha256sum duckdb-upstream/lib/src/webdb.cc | cut -d ' ' -f 1)" = e935d57b7ccb3d45ed5509d092b7040b6a5bc12968e17792fd69da2a7586bfe0
+          set_refusal DUCKDB_PATCH_INPUT
           test "$(sha256sum duckdb-upstream/duckdb.patch | cut -d ' ' -f 1)" = fe8393c0bea3afea5f0cea63062d297945b5fe338d544622711de3dfb3eec3dd
+          set_refusal DUCKDB_PATCH_APPLY
           git -C duckdb-upstream/submodules/duckdb apply --check ../../duckdb.patch
           git -C duckdb-upstream/submodules/duckdb apply ../../duckdb.patch
           test -s duckdb-upstream/duckdb.patch
+          set_refusal JSON_SENTINEL
           extension_cache=duckdb-upstream/.ccache/extension
           test ! -e "$extension_cache"
           test ! -e "$extension_cache/json" && test ! -e "$extension_cache/excel"
