@@ -1,0 +1,32 @@
+{
+  "schema": "tundra-libnoexit-corpus-installed-behavior/v1",
+  "scope": "FOUR_PR151_PACKAGES_DISPOSABLE_OS_INSTALL_AND_32_CASE_BEHAVIOR_ONLY",
+  "repository": "ryanmaclean/tundra",
+  "repository_id": 1164936674,
+  "source_head": "44b1c2008c40ca3d64695d4e44a4e586b5360a17",
+  "run_id": 40576558123,
+  "run_attempt": 1,
+  "consumer_head": "ad0df7182cd4c9ea4a83bac04e5901de0218d9d0",
+  "harness_sha256": "57480e689cccfa26e8527dba3f566c275bfbfad7cb2c43c4cb3dd85263284b8e",
+  "archive_sha256": "fdaa14b94400917928bc73415535f02244549987beb92719882bcc905b4280fe",
+  "notice_sha256": "620a78084fc7ca97c0b5dea9abf891f3ffcadfdbf305276f099c9c4e12fc1d86",
+  "max_artifact_zip_bytes": 20971520,
+  "max_deb_bytes": 201326592,
+  "max_smoke_stdout_bytes": 1048576,
+  "max_smoke_stderr_bytes": 1048576,
+  "max_receipt_bytes": 131072,
+  "cells": [
+    {"condition":"image","profile":"default","artifact_id":12768422797,"artifact_zip_sha256":"c1940e60d46b0fa5e4152781d0d118be6393feacf05ad75d109c4cbb3a419528","deb_sha256":"7d03d22f2737711ece4654a83a60f07b563a66665913006445403faf267ccc78","elf_sha256":"7b5048e26fb407a9306a71c20dfd01261495c09c687eda1cd1c6b9c35e64d2ad","cell_resource_sha256":"b975a1f907dc3cef351889dda5c9fdd56f6e262de3d20bfbdfe3e302bd63caa0"},
+    {"condition":"image","profile":"sounds","artifact_id":12769480508,"artifact_zip_sha256":"a0fc825409a9b72d14ebc15151fc4f0d20d243c5ebfe2fe0fbfc8c7edeaff062","deb_sha256":"1ff71268e184113608fd7285a39d9fdb00b0dad2930639656898612eccf8327a","elf_sha256":"b6ebab12bfa69e6c420f2679ce974ce34e84f6fb05bb750073f3eb80150272f9","cell_resource_sha256":"7ffd1370750bc9f74b4015a0c219cea01088a27e3c29514b0d5003cb40310d8f"},
+    {"condition":"clean","profile":"default","artifact_id":12769209300,"artifact_zip_sha256":"3b90ffd74afac4833999debf4f33b62597df6d5f29a3320bd26571800a0e10df","deb_sha256":"0dd6573ca1f57a489e5a177416d56225a3b9e3345d38d36d050bc9e5db95b26f","elf_sha256":"7b5048e26fb407a9306a71c20dfd01261495c09c687eda1cd1c6b9c35e64d2ad","cell_resource_sha256":"12e2092a2e3e8406e922b6e22f03757816b1f45edc5529418b19d8f58448dd3b"},
+    {"condition":"clean","profile":"sounds","artifact_id":12770546922,"artifact_zip_sha256":"a54f3880d0765900d9ab4e974a579f74d185028811dfdf9bba4bd1932176239b","deb_sha256":"4454d4bf5e9bddc9e9da47016bc751c95f6627948b29487c8bc43904b49fd7bb","elf_sha256":"678ead688274527330e0dc1aae01f9f4edea9837b876b190876218f65538bc40","cell_resource_sha256":"2ae373426c38009ff278c4cb2d2d22b9a74b6d882003efe6483d7faaea61c412"}
+  ],
+  "package_install_verified": "PENDING_HOSTED_WITNESS",
+  "behavior_cases": "PENDING_HOSTED_WITNESS",
+  "linker_input": "UNPROVEN",
+  "generator_input_closure": "UNPROVEN",
+  "selected_graph_exhaustive": "NO",
+  "legal_admission": "NO",
+  "product_admission": "NO",
+  "fleet_admission": "NO"
+}

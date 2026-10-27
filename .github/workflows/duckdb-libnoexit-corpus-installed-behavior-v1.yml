@@ -1,0 +1,216 @@
+name: DuckDB PR151 corpus package disposable installed behavior v1
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  installed-behavior:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/diagnostic/pr152-corpus-installed-behavior-held-20261027' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        condition: [image, clean]
+        profile: [default, sounds]
+    steps:
+      - name: Initialize fixed refusal
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/corpus-install-output"
+          printf 'schema=tundra-libnoexit-corpus-installed-behavior/v1\nstatus=REFUSED\nreason=SOURCE_OR_AUTH_OR_INSTALL_OR_BEHAVIOR_FAILED\npackage_install_verified=NO\nbehavior_cases=NOT_RUN\nlinker_input=UNPROVEN\ngenerator_input_closure=UNPROVEN\nlegal_admission=NO\nproduct_admission=NO\nfleet_admission=NO\n' > "$RUNNER_TEMP/corpus-install-output/refusal.txt"
+      - name: Check out exact gate source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Pin source and disposable runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = workflow_dispatch
+          test "$GITHUB_REF" = refs/heads/diagnostic/pr152-corpus-installed-behavior-held-20261027
+          test "$RUNNER_OS" = Linux && test "$(uname -m)" = x86_64
+          test "$(. /etc/os-release; echo "$ID:$VERSION_ID")" = ubuntu:24.04
+          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test -f .git/HEAD && test ! -L .git/HEAD
+          printf '%s\n' "$GITHUB_SHA" | cmp -s - .git/HEAD
+          for path in .github/scripts/duckdb-libnoexit-corpus-installed-behavior-v1.nu \
+                      .github/receipts/duckdb-libnoexit-corpus-installed-behavior-v1.json; do
+            test -f "$path" && test ! -L "$path"
+          done
+          printf '%s  %s\n' \
+            0ca3511e3598f322866becec9aee3d382da77ecd63beb655d163a27f53adb2a0 .github/scripts/duckdb-libnoexit-corpus-installed-behavior-v1.nu \
+            56dff3313aa454dca6ad914d1ffa0b73c19b812aa158c80b4d0e397b78dab875 .github/receipts/duckdb-libnoexit-corpus-installed-behavior-v1.json \
+            | sha256sum --check --status
+      - name: Install checksum-pinned MIT Nushell
+        shell: bash
+        run: |
+          set -euo pipefail
+          tool="$RUNNER_TEMP/tundra-nu-0.115.1"
+          mkdir -p "$tool"
+          archive="$tool/nu.tar.gz"
+          timeout 180s curl --fail --location --silent --show-error \
+            --proto '=https' --proto-redir '=https' --max-time 120 --retry 1 \
+            --max-filesize 90000000 --output "$archive" \
+            https://github.com/nushell/nushell/releases/download/0.115.1/nu-0.115.1-x86_64-unknown-linux-musl.tar.gz
+          test "$(stat -c %s "$archive")" = 83545998
+          printf '%s  %s\n' 8a9722177ddd421eba927b4baae4ae341a4d1c3434504be7b1b17d998bafdd87 "$archive" | sha256sum --check --status
+          tar -xOzf "$archive" nu-0.115.1-x86_64-unknown-linux-musl/nu > "$tool/nu"
+          tar -xOzf "$archive" nu-0.115.1-x86_64-unknown-linux-musl/LICENSE > "$tool/LICENSE"
+          test "$(stat -c %s "$tool/nu")" = 70750360
+          printf '%s  %s\n' \
+            c343a927a2d4a45ebf9300d013b226bcdc2598ecb0178a8a79722ebffe71e56e "$tool/nu" \
+            ff5dcaaba6140ec57cafdd4f707cd0d329e727477cf7d5b9ba7a244ec2678b79 "$tool/LICENSE" \
+            | sha256sum --check --status
+          grep -Fxq 'MIT License' "$tool/LICENSE"
+          chmod 0700 "$tool/nu"
+          test "$("$tool/nu" --version)" = 0.115.1
+          echo "$tool" >> "$GITHUB_PATH"
+      - name: Authenticate four exact PR151 artifacts before selecting one package
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/corpus-install-input"
+          mkdir -p "$root"
+          gh api repos/ryanmaclean/tundra/actions/runs/40576558123 > "$root/run.json"
+          for cell in image-default image-sounds clean-default clean-sounds; do
+            case "$cell" in
+              image-default) id=12768422797 ;;
+              image-sounds) id=12769480508 ;;
+              clean-default) id=12769209300 ;;
+              clean-sounds) id=12770546922 ;;
+              *) exit 1 ;;
+            esac
+            mkdir "$root/$cell"
+            gh api "repos/ryanmaclean/tundra/actions/artifacts/$id" > "$root/$cell/artifact.json"
+            jq -e --argjson id "$id" '.id == $id and .expired == false and .size_in_bytes <= 20971520' "$root/$cell/artifact.json" >/dev/null
+            gh api "repos/ryanmaclean/tundra/actions/artifacts/$id/zip" > "$root/$cell/artifact.zip"
+            test "$(stat -c %s "$root/$cell/artifact.zip")" -le 20971520
+          done
+          nu .github/scripts/duckdb-libnoexit-corpus-installed-behavior-v1.nu authenticate \
+            .github/receipts/duckdb-libnoexit-corpus-installed-behavior-v1.json \
+            "$root/run.json" "$root" '${{ matrix.condition }}' '${{ matrix.profile }}' \
+            "$root/authenticated.json"
+          jq -e '.status == "FOUR_PR151_PACKAGES_AUTHENTICATED_ONLY" and (.cells | length) == 4 and .package_install_verified == "NO" and .behavior_cases == "NOT_RUN"' "$root/authenticated.json" >/dev/null
+      - name: Prepare exact Ubuntu package dependencies and GUI harness
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/corpus-install-input"
+          refuse() {
+            printf 'schema=tundra-libnoexit-corpus-installed-behavior/v1\nstatus=REFUSED\nreason=%s\npackage_install_verified=NO\nbehavior_cases=NOT_RUN\nlinker_input=UNPROVEN\nlegal_admission=NO\nproduct_admission=NO\nfleet_admission=NO\n' "$1" > "$RUNNER_TEMP/corpus-install-output/refusal.txt"
+            exit 1
+          }
+          if timeout 180s sudo -n apt-get update -qq > "$root/apt-update.stdout" 2> "$root/apt-update.stderr"; then :; else refuse PREREQ_UPDATE; fi
+          test "$(stat -c %s "$root/apt-update.stdout")" -le 262144 || refuse PREREQ_OUTPUT_CAP
+          test "$(stat -c %s "$root/apt-update.stderr")" -le 262144 || refuse PREREQ_OUTPUT_CAP
+          webkit_version="$(timeout 15s apt-cache policy libwebkit2gtk-4.1-0 | awk '$1 == "Candidate:" { print $2 }')"
+          gtk_version="$(timeout 15s apt-cache policy libgtk-3-0t64 | awk '$1 == "Candidate:" { print $2 }')"
+          [[ "$webkit_version" =~ ^[0-9][A-Za-z0-9.+:~_-]*$ ]] || refuse PREREQ_CANDIDATE
+          [[ "$gtk_version" =~ ^[0-9][A-Za-z0-9.+:~_-]*$ ]] || refuse PREREQ_CANDIDATE
+          timeout 15s apt-cache show "libgtk-3-0t64=$gtk_version" > "$root/gtk-provider.control" || refuse PREREQ_PROVIDER
+          test "$(stat -c %s "$root/gtk-provider.control")" -le 65536 || refuse PREREQ_PROVIDER_CAP
+          test "$(grep -Fxc 'Package: libgtk-3-0t64' "$root/gtk-provider.control" || true)" = 1 || refuse PREREQ_PROVIDER
+          test "$(grep -Fxc "Version: $gtk_version" "$root/gtk-provider.control" || true)" = 1 || refuse PREREQ_PROVIDER
+          test "$(grep -Fxc 'Architecture: amd64' "$root/gtk-provider.control" || true)" = 1 || refuse PREREQ_PROVIDER
+          provides="$(sed -n 's/^Provides: //p' "$root/gtk-provider.control")"
+          test "$(printf '%s\n' "$provides" | tr ',' '\n' | sed -E 's/^[[:space:]]+//;s/[[:space:]]+$//' | grep -Ec '^libgtk-3-0( \(= [^ )]+\))?$' || true)" = 1 || refuse PREREQ_PROVIDER
+          if timeout 600s sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            "libwebkit2gtk-4.1-0=$webkit_version" "libgtk-3-0t64=$gtk_version" xvfb xauth dbus-x11 \
+            > "$root/apt-install.stdout" 2> "$root/apt-install.stderr"; then :; else refuse PREREQ_INSTALL; fi
+          test "$(stat -c %s "$root/apt-install.stdout")" -le 262144 || refuse PREREQ_OUTPUT_CAP
+          test "$(stat -c %s "$root/apt-install.stderr")" -le 262144 || refuse PREREQ_OUTPUT_CAP
+          test "$(dpkg-query -W -f='${db:Status-Abbrev}\t${Version}' libwebkit2gtk-4.1-0)" = $'ii \t'"$webkit_version" || refuse PREREQ_STATUS
+          test "$(dpkg-query -W -f='${db:Status-Abbrev}\t${Version}' libgtk-3-0t64)" = $'ii \t'"$gtk_version" || refuse PREREQ_STATUS
+      - name: Install exact authenticated package and prove package-owned bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/corpus-install-input"
+          if timeout 180s sudo -n env DEBIAN_FRONTEND=noninteractive dpkg -i -- "$root/package.deb" \
+            > "$root/dpkg.stdout" 2> "$root/dpkg.stderr"; then :; else exit 1; fi
+          test "$(stat -c %s "$root/dpkg.stdout")" -le 65536
+          test "$(stat -c %s "$root/dpkg.stderr")" -le 65536
+          nu .github/scripts/duckdb-libnoexit-corpus-installed-behavior-v1.nu installed \
+            .github/receipts/duckdb-libnoexit-corpus-installed-behavior-v1.json \
+            '${{ matrix.condition }}' '${{ matrix.profile }}' "$root/package.deb" \
+            "$root/installed.json"
+      - name: Run PR137 corpus through installed package-owned executable
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/corpus-install-input"
+          home="$root/eh-smoke-home"
+          mkdir -m 0700 -p "$home/home" "$home/config" "$home/data" "$home/cache"
+          set +e
+          dbus-run-session -- xvfb-run -a -s '-screen 0 1280x800x24' \
+            env HOME="$home/home" XDG_CONFIG_HOME="$home/config" \
+              XDG_DATA_HOME="$home/data" XDG_CACHE_HOME="$home/cache" \
+              TUNDRA_SMOKE_HEAD_SHA=ad0df7182cd4c9ea4a83bac04e5901de0218d9d0 \
+              TUNDRA_SMOKE_PROFILE='${{ matrix.profile }}' TUNDRA_SMOKE_VARIANT=eh \
+              TUNDRA_SMOKE_ELF_SHA256="$(sha256sum /usr/bin/auto-tundra | cut -d ' ' -f1)" \
+              http_proxy=http://127.0.0.1:9 https_proxy=http://127.0.0.1:9 \
+              HTTP_PROXY=http://127.0.0.1:9 HTTPS_PROXY=http://127.0.0.1:9 \
+              NO_PROXY=localhost,127.0.0.1,tauri.localhost \
+            timeout 150s /usr/bin/auto-tundra --smoke-duckdb eh \
+            > "$root/webkit.stdout" 2> "$root/webkit.stderr"
+          status=$?
+          set -e
+          nu .github/scripts/duckdb-libnoexit-corpus-installed-behavior-v1.nu smoke \
+            .github/receipts/duckdb-libnoexit-corpus-installed-behavior-v1.json \
+            '${{ matrix.condition }}' '${{ matrix.profile }}' "$root/installed.json" \
+            "$root/webkit.stdout" "$root/webkit.stderr" "$status" \
+            "$RUNNER_TEMP/corpus-install-output/receipt.json"
+          test "$(stat -c %s "$RUNNER_TEMP/corpus-install-output/receipt.json")" -le 131072
+      - name: Prove ephemeral cleanup before positive artifact selection
+        if: always()
+        shell: bash
+        env:
+          PRIOR_JOB_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/corpus-install-input"
+          output="$RUNNER_TEMP/corpus-install-output"
+          if ! rm -rf -- "$root" || test -e "$root" || test -L "$root"; then
+            rm -f -- "$output/receipt.json" "$output/receipt-final.json"
+            printf 'schema=tundra-libnoexit-corpus-installed-behavior/v1\nstatus=REFUSED\nreason=EPHEMERAL_CLEANUP_UNPROVEN\npackage_install_verified=NO\nbehavior_cases=NOT_RUN\nlinker_input=UNPROVEN\nlegal_admission=NO\nproduct_admission=NO\nfleet_admission=NO\n' > "$output/refusal.txt"
+            exit 1
+          fi
+          if test "$PRIOR_JOB_STATUS" = success; then
+            test -f "$output/receipt.json" && test ! -L "$output/receipt.json"
+            jq -e 'select(.diagnostic_install.behavior_cases == "32_PASSED_DISPOSABLE_RUNNER_ONLY" and
+              .diagnostic_install.package_install_verified == "YES_DISPOSABLE_RUNNER_ONLY" and
+              .diagnostic_install.linker_input == "UNPROVEN" and
+              .diagnostic_install.product_admission == "NO" and .diagnostic_install.fleet_admission == "NO") |
+              . + {ephemeral_cleanup: "PROVEN"}' "$output/receipt.json" > "$output/receipt-final.tmp"
+            test "$(stat -c %s "$output/receipt-final.tmp")" -le 131072
+            mv -- "$output/receipt-final.tmp" "$output/receipt-final.json"
+            rm -f -- "$output/receipt.json" "$output/refusal.txt"
+          else
+            rm -f -- "$output/receipt.json" "$output/receipt-final.tmp" "$output/receipt-final.json"
+          fi
+      - name: Retain bounded installed corpus receipt only after cleanup
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: duckdb-libnoexit-corpus-installed-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.condition }}-${{ matrix.profile }}
+          path: ${{ runner.temp }}/corpus-install-output/receipt-final.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Retain fixed refusal only
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: duckdb-libnoexit-corpus-installed-refusal-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.condition }}-${{ matrix.profile }}
+          path: ${{ runner.temp }}/corpus-install-output/refusal.txt
+          if-no-files-found: error
+          retention-days: 14
