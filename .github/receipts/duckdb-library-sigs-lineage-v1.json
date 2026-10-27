@@ -1,0 +1,45 @@
+{
+  "schema": "tundra-library-sigs-lineage-ledger/v1",
+  "image": "emscripten/emsdk:3.1.48@sha256:c952f592577a428698cb990c9656f395ae34424740f9c40bed4c3ee6d4850d29",
+  "emscripten_commit": "e967e20b4727956a30592165a3c1cde5c67fa0a8",
+  "generator_path": "tools/maint/gen_sig_info.py",
+  "generator_sha256": "64f906f405eee71f56e1407acfc0074b9951d05fc0c03eaf72f14efdc48b1f52",
+  "output_path": "src/library_sigs.js",
+  "output_size": 65578,
+  "output_sha256": "9afa1c94db87290037090fbfc8b6ead6cd62955fca3d682a1b306a7783791f26",
+  "notice_path": "LICENSE",
+  "notice_sha256": "620a78084fc7ca97c0b5dea9abf891f3ffcadfdbf305276f099c9c4e12fc1d86",
+  "selected_license": "MIT",
+  "source_status": "REPO_SCOPE_MIT_GENERATOR_PROVENANCE_PENDING",
+  "pr134": {
+    "head": "1a2d2f0e24aead8dcb286bbf5ad509c01d6697c7",
+    "ledger_path": ".github/receipts/duckdb-eh-js-glue-observed-v2.tsv",
+    "ledger_sha256": "58f8a95afeb3d41499dd89bb37a00f8b1dbab99a78da39a5fc7e9cb56b9604ca"
+  },
+  "pr136": {
+    "head": "22637d141f67dc92510211d7d281f6591a12a5f5",
+    "run": 40434996466,
+    "attempt": 1,
+    "artifact_id": 12705817192,
+    "artifact_zip_sha256": "b25664ca46d4f4970aa7742e3e4927a2c55b53f9466bd5644854263e0b33ab6c",
+    "bill_sha256": "93c4637dcd0cf4527814267b38a242cc626ad64f92df0a9a52928d1edc036c0f"
+  },
+  "pr138": {
+    "head": "b8ad6e65da2da723aa8a6940232406375e038b63",
+    "run": 40454637228,
+    "attempt": 1,
+    "artifact_id": 12713404360,
+    "artifact_zip_sha256": "ec8540f8b0172613dd4f67188f74186f985061d56c77aad25788261a3cb5d71d"
+  },
+  "trace_cap_bytes": 16777216,
+  "scratch_cap_bytes": 67108864,
+  "manifest_cap_bytes": 1048576,
+  "input_file_cap": 4096,
+  "runtime_seconds": 600,
+  "selected_graph_exhaustive": "NO",
+  "generator_input_closure": "UNPROVEN",
+  "glue_legal_admission": "NO",
+  "legal_admission": "NO",
+  "product_admission": "NO",
+  "fleet_admission": "NO"
+}

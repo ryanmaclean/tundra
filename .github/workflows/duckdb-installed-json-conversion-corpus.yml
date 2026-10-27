@@ -17,6 +17,13 @@ permissions:
   actions: read
 
 jobs:
+  library-sigs-lineage-registered-dispatch:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/diagnostic/pr142-library-sigs-lineage-held-20261027' }}
+    uses: ./.github/workflows/duckdb-library-sigs-lineage.yml
+    permissions:
+      contents: read
+      actions: read
+
   sdk-dlmalloc-sockets-registered-dispatch:
     if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/diagnostic/pr141-sdk-dlmalloc-sockets-held-20261027' }}
     uses: ./.github/workflows/duckdb-sdk-dlmalloc-sockets.yml
@@ -39,7 +46,7 @@ jobs:
       actions: read
 
   selected-eh-webkit-semantic-trial:
-    if: ${{ github.ref != 'refs/heads/diagnostic/pr139-selected-notice-25-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr139-selected-notice-25-20261027' && github.ref != 'refs/heads/diagnostic/pr140-sdk-three-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr140-sdk-three-20261027' && github.ref != 'refs/heads/diagnostic/pr141-sdk-dlmalloc-sockets-held-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr141-sdk-dlmalloc-sockets-held-20261027' }}
+    if: ${{ github.ref != 'refs/heads/diagnostic/pr139-selected-notice-25-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr139-selected-notice-25-20261027' && github.ref != 'refs/heads/diagnostic/pr140-sdk-three-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr140-sdk-three-20261027' && github.ref != 'refs/heads/diagnostic/pr141-sdk-dlmalloc-sockets-held-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr141-sdk-dlmalloc-sockets-held-20261027' && github.ref != 'refs/heads/diagnostic/pr142-library-sigs-lineage-held-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr142-library-sigs-lineage-held-20261027' }}
     name: Installed EH semantics (${{ matrix.condition }}, ${{ matrix.profile }})
     runs-on: ubuntu-24.04
     timeout-minutes: 120
@@ -1278,7 +1285,7 @@ jobs:
 
   compare-selected-eh-webkit-semantics:
     name: Compare six installed EH observations and selected legal custody
-    if: ${{ always() && github.ref != 'refs/heads/diagnostic/pr139-selected-notice-25-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr139-selected-notice-25-20261027' && github.ref != 'refs/heads/diagnostic/pr140-sdk-three-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr140-sdk-three-20261027' && github.ref != 'refs/heads/diagnostic/pr141-sdk-dlmalloc-sockets-held-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr141-sdk-dlmalloc-sockets-held-20261027' }}
+    if: ${{ always() && github.ref != 'refs/heads/diagnostic/pr139-selected-notice-25-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr139-selected-notice-25-20261027' && github.ref != 'refs/heads/diagnostic/pr140-sdk-three-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr140-sdk-three-20261027' && github.ref != 'refs/heads/diagnostic/pr141-sdk-dlmalloc-sockets-held-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr141-sdk-dlmalloc-sockets-held-20261027' && github.ref != 'refs/heads/diagnostic/pr142-library-sigs-lineage-held-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr142-library-sigs-lineage-held-20261027' }}
     needs: [selected-eh-webkit-semantic-trial, old-selected-eh-webkit-baseline]
     runs-on: ubuntu-24.04
     permissions:
@@ -1688,7 +1695,7 @@ jobs:
           retention-days: 14
 
   old-selected-eh-webkit-baseline:
-    if: ${{ github.ref != 'refs/heads/diagnostic/pr139-selected-notice-25-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr139-selected-notice-25-20261027' && github.ref != 'refs/heads/diagnostic/pr140-sdk-three-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr140-sdk-three-20261027' && github.ref != 'refs/heads/diagnostic/pr141-sdk-dlmalloc-sockets-held-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr141-sdk-dlmalloc-sockets-held-20261027' }}
+    if: ${{ github.ref != 'refs/heads/diagnostic/pr139-selected-notice-25-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr139-selected-notice-25-20261027' && github.ref != 'refs/heads/diagnostic/pr140-sdk-three-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr140-sdk-three-20261027' && github.ref != 'refs/heads/diagnostic/pr141-sdk-dlmalloc-sockets-held-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr141-sdk-dlmalloc-sockets-held-20261027' && github.ref != 'refs/heads/diagnostic/pr142-library-sigs-lineage-held-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr142-library-sigs-lineage-held-20261027' }}
     name: PR119 installed old EH corpus (${{ matrix.profile }})
     runs-on: ubuntu-24.04
     timeout-minutes: 120
