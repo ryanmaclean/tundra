@@ -65,7 +65,7 @@ jobs:
             4ed8d49164418402f19528e2ee4e0c61db204f12cc6b1f3f1ba09f019afa005d gate-source/.github/receipts/duckdb-sdk-libnoexit-installed-preflight-v1.json \
             c240925a7fdaab81a4ee4b3e4e2f309001e3efd434fd046e197899a0c5a0ab7f gate-source/.github/scripts/duckdb-sdk-libnoexit-installed-cells-v1.nu \
             ca8cbbd0f65be4e9645ff2d308c24ba0cbe21172bfe20bf005d4a761c1f6e2eb gate-source/.github/receipts/duckdb-sdk-libnoexit-installed-cells-v1.json \
-            82c13f5be891cd6bda30e8c2c5963847482fd2d68ae765630f2e19ab22bdb5ee gate-source/.github/scripts/duckdb-libnoexit-corpus-package-source-v1.nu \
+            403ddf59d5e6924ba4754fc1cc92e2c756e4bfdf020a23b9245db47d5e784174 gate-source/.github/scripts/duckdb-libnoexit-corpus-package-source-v1.nu \
             80b4c8e2a6f42f3d8f8bab45d8fb65c7ed1639596b363d80216ee76dad4f71cf gate-source/.github/receipts/duckdb-libnoexit-corpus-package-source-v1.json \
             196ba238054a5b22e2a89d781eb7ed3844a416b71384f98fbc9c032eea551c0a gate-source/.github/scripts/duckdb-eh-corpus/eh-corpus.mjs \
             7895597e2417426c141dcbc7c5e002269fb5f7f3c3381a6612bdfba33af3acf4 gate-source/.github/scripts/duckdb-eh-corpus/apply-eh-corpus.nu \
@@ -232,12 +232,69 @@ jobs:
             "$RUNNER_TEMP/libnoexit-cell/corpus-source-ledger.json"
           bytes="$(du -sb "$RUNNER_TEMP/libnoexit-cell" | cut -f1)"
           test "$bytes" -le 201326592
+      - name: Seal exact artifact and prove transient cleanup before positive selection
+        if: always()
+        shell: bash
+        env:
+          PRIOR_JOB_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          candidate="$RUNNER_TEMP/libnoexit-cell"
+          quarantine="$RUNNER_TEMP/libnoexit-cell-quarantine"
+          selected="$RUNNER_TEMP/libnoexit-cell-final"
+          refusal="$RUNNER_TEMP/libnoexit-refusal/refusal.txt"
+          gone() { test ! -e "$1" && test ! -L "$1"; }
+          cleanup_ok=NO
+          if test "$GITHUB_WORKSPACE" != / && test -d "$GITHUB_WORKSPACE" && \
+             test ! -L "$GITHUB_WORKSPACE" && \
+             test "$(pwd -P)" = "$(realpath -- "$GITHUB_WORKSPACE")" && \
+             rm -rf -- "$RUNNER_TEMP/libnoexit-preflight" \
+               "$RUNNER_TEMP/libnoexit-old-ui" "$RUNNER_TEMP/libnoexit-corpus-source" \
+               "$RUNNER_TEMP/libnoexit-deb-root" "$GITHUB_WORKSPACE/app" \
+               "$GITHUB_WORKSPACE/target" >/dev/null 2>&1 && \
+             gone "$RUNNER_TEMP/libnoexit-preflight" && \
+             gone "$RUNNER_TEMP/libnoexit-old-ui" && \
+             gone "$RUNNER_TEMP/libnoexit-corpus-source" && \
+             gone "$RUNNER_TEMP/libnoexit-deb-root" && \
+             gone "$GITHUB_WORKSPACE/app" && \
+             gone "$GITHUB_WORKSPACE/target"; then
+            cleanup_ok=YES
+          fi
+          if test "$cleanup_ok" != YES; then
+            rm -rf -- "$candidate" "$quarantine" "$selected" || true
+            printf 'schema=tundra-libnoexit-corpus-package-refusal/v1\nstatus=REFUSED\nreason=EPHEMERAL_CLEANUP_UNPROVEN\npackage_install_verified=NO\nbehavior_cases=NOT_RUN\nlinker_input=UNPROVEN\ngenerator_input_closure=UNPROVEN\nlegal_admission=NO\nproduct_admission=NO\nfleet_admission=NO\n' > "$refusal"
+            exit 1
+          fi
+          if test "$PRIOR_JOB_STATUS" = success; then
+            printf '{"schema":"tundra-libnoexit-corpus-package-cleanup/v1","status":"BUILD_AND_DOWNLOAD_INPUTS_REMOVED","ephemeral_cleanup":"PROVEN","package_install_verified":"NO","behavior_cases":"NOT_RUN","product_admission":"NO","fleet_admission":"NO"}\n' \
+              > "$candidate/cleanup-proof.json"
+            if ! nu gate-source/.github/scripts/duckdb-libnoexit-corpus-package-source-v1.nu seal \
+              gate-source/.github/receipts/duckdb-libnoexit-corpus-package-source-v1.json \
+              "$candidate" "$quarantine" >/dev/null 2>&1; then
+              rm -rf -- "$candidate" "$quarantine" "$selected" || true
+              printf 'schema=tundra-libnoexit-corpus-package-refusal/v1\nstatus=REFUSED\nreason=ARTIFACT_SCOPE_REFUSED\npackage_install_verified=NO\nbehavior_cases=NOT_RUN\nlinker_input=UNPROVEN\ngenerator_input_closure=UNPROVEN\nlegal_admission=NO\nproduct_admission=NO\nfleet_admission=NO\n' > "$refusal"
+              exit 1
+            fi
+            if ! rm -rf -- "$candidate" "$GITHUB_WORKSPACE/gate-source" >/dev/null 2>&1 || \
+               ! gone "$candidate" || ! gone "$GITHUB_WORKSPACE/gate-source"; then
+              rm -rf -- "$quarantine" "$selected" || true
+              printf 'schema=tundra-libnoexit-corpus-package-refusal/v1\nstatus=REFUSED\nreason=EPHEMERAL_CLEANUP_UNPROVEN\npackage_install_verified=NO\nbehavior_cases=NOT_RUN\nlinker_input=UNPROVEN\ngenerator_input_closure=UNPROVEN\nlegal_admission=NO\nproduct_admission=NO\nfleet_admission=NO\n' > "$refusal"
+              exit 1
+            fi
+            test -d "$quarantine" && test ! -L "$quarantine"
+            test ! -e "$selected" && test ! -L "$selected"
+            mv -- "$quarantine" "$selected"
+            test -d "$selected" && test ! -L "$selected"
+            rm -f -- "$refusal"
+          else
+            rm -rf -- "$candidate" "$quarantine" "$selected" "$GITHUB_WORKSPACE/gate-source"
+          fi
       - name: Retain bounded new package and diagnostic witness
         if: success()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: duckdb-libnoexit-corpus-package-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.condition }}-${{ matrix.profile }}
-          path: ${{ runner.temp }}/libnoexit-cell/
+          path: ${{ runner.temp }}/libnoexit-cell-final/
           if-no-files-found: error
           retention-days: 14
       - name: Retain bounded refusal only

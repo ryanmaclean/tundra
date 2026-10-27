@@ -72,6 +72,57 @@ export def package [ledger_path: string, source_receipt: string, old_witness: st
   require ((regular $output) <= 8192) 'PACKAGE_RECEIPT_CAP'
 }
 
+def artifact_paths [] {
+  ['package.deb' 'preflight.json' 'old-resource-ledger.json' 'corpus-source-ledger.json' 'source-receipt.json' 'corpus-package-identity.json' 'cleanup-proof.json' 'witness/cell-witness.json' 'witness/installed-archive' 'witness/installed-cell.json' 'witness/installed-notice']
+}
+
+def exact_artifact [ledger_path: string, root: string] {
+  let l = (ledger $ledger_path)
+  let root_info = (try { ls -lD $root } catch { [] })
+  require (($root_info | length) == 1 and ($root_info | first).type == 'dir') 'ARTIFACT_ROOT_NOT_DIRECTORY'
+  let top = (ls -a $root | each {|row| $row.name | path basename } | sort)
+  require ($top == (['package.deb' 'preflight.json' 'old-resource-ledger.json' 'corpus-source-ledger.json' 'source-receipt.json' 'corpus-package-identity.json' 'cleanup-proof.json' 'witness'] | sort)) 'ARTIFACT_TOP_SCOPE'
+  let witness_dir = ($root | path join 'witness')
+  let witness_info = (try { ls -lD $witness_dir } catch { [] })
+  require (($witness_info | length) == 1 and ($witness_info | first).type == 'dir') 'ARTIFACT_WITNESS_DIRECTORY'
+  let nested = (ls -a $witness_dir | each {|row| $row.name | path basename } | sort)
+  require ($nested == (['cell-witness.json' 'installed-archive' 'installed-cell.json' 'installed-notice'] | sort)) 'ARTIFACT_WITNESS_SCOPE'
+  let caps = {package.deb: 201326592, preflight.json: 8192, old-resource-ledger.json: 65536, corpus-source-ledger.json: 65536, source-receipt.json: 8192, corpus-package-identity.json: 8192, cleanup-proof.json: 1024, cell-witness.json: 8192, installed-archive: 4096, installed-cell.json: 8192, installed-notice: 8192}
+  let sizes = (artifact_paths | each {|name|
+    let path = ($root | path join $name)
+    let size = (regular $path)
+    require ($size > 0 and $size <= ($caps | get ($name | path basename))) 'ARTIFACT_MEMBER_CAP'
+    $size
+  })
+  require (($sizes | math sum) <= 201326592) 'ARTIFACT_TOTAL_CAP'
+  require ((sha ($root | path join 'corpus-source-ledger.json')) == (sha $ledger_path) and (sha ($root | path join 'old-resource-ledger.json')) == 'ca8cbbd0f65be4e9645ff2d308c24ba0cbe21172bfe20bf005d4a761c1f6e2eb') 'ARTIFACT_LEDGER_HASH'
+  let identity = (open ($root | path join 'corpus-package-identity.json'))
+  let source = (open ($root | path join 'source-receipt.json'))
+  let old = (open ($root | path join 'witness/cell-witness.json'))
+  let preflight = (open ($root | path join 'preflight.json'))
+  let cleanup = (open ($root | path join 'cleanup-proof.json'))
+  require ($cleanup == {schema: 'tundra-libnoexit-corpus-package-cleanup/v1', status: 'BUILD_AND_DOWNLOAD_INPUTS_REMOVED', ephemeral_cleanup: 'PROVEN', package_install_verified: 'NO', behavior_cases: 'NOT_RUN', product_admission: 'NO', fleet_admission: 'NO'}) 'ARTIFACT_CLEANUP_SCOPE'
+  require ($identity.schema == 'tundra-libnoexit-corpus-package-identity/v1' and $identity.status == 'NEW_CORPUS_PACKAGE_BYTES_DIAGNOSTIC_ONLY' and $identity.package_install_verified == 'NO' and $identity.behavior_cases == 'NOT_RUN' and $identity.linker_input == 'UNPROVEN' and $identity.legal_admission == 'NO' and $identity.product_admission == 'NO' and $identity.fleet_admission == 'NO') 'ARTIFACT_IDENTITY_SCOPE'
+  require ($identity.package_sha256 not-in $l.retired_pr148_packages_sha256 and (sha ($root | path join 'package.deb')) == $identity.package_sha256 and $identity.package_bytes == (regular ($root | path join 'package.deb'))) 'ARTIFACT_PACKAGE_HASH'
+  require ($source.schema == $l.schema and $source.final_main_sha256 == $l.final_main_sha256 and $source.behavior_cases == 'NOT_RUN' and $source.product_admission == 'NO') 'ARTIFACT_SOURCE_SCOPE'
+  require ($identity.corpus_source_sha256 == $source.final_main_sha256 and $identity.semantic_patch_sha256 == $source.semantic_patch_sha256 and $identity.resource_witness_sha256 == (sha ($root | path join 'witness/cell-witness.json'))) 'ARTIFACT_SOURCE_JOIN'
+  require ($old.condition == $identity.condition and $old.profile == $identity.profile and $old.package_sha256 == $identity.package_sha256 and $old.archive_sha256 == $l.controlled_archive_sha256 and $old.notice_sha256 == $l.controlled_notice_sha256 and $old.cell_resource_sha256 == $identity.cell_resource_sha256) 'ARTIFACT_RESOURCE_JOIN'
+  require ((sha ($root | path join 'witness/installed-archive')) == $l.controlled_archive_sha256 and (sha ($root | path join 'witness/installed-notice')) == $l.controlled_notice_sha256 and (sha ($root | path join 'witness/installed-cell.json')) == $identity.cell_resource_sha256) 'ARTIFACT_RESOURCE_BYTES'
+  require ($preflight.status == 'PRODUCER_BYTES_AUTHENTICATED_ONLY' and $preflight.installed_cell_status == 'NOT_BUILT' and $preflight.legal_admission == 'NO' and $preflight.product_admission == 'NO' and $preflight.fleet_admission == 'NO') 'ARTIFACT_PREFLIGHT_SCOPE'
+}
+
+export def seal [ledger_path: string, candidate: string, selected: string] {
+  require (((try { ls -lD $selected } catch { [] }) | is-empty)) 'SELECTED_PREEXISTS'
+  exact_artifact $ledger_path $candidate
+  mkdir $selected
+  mkdir ($selected | path join 'witness')
+  for name in (artifact_paths) {
+    let copy = (^cp -- ($candidate | path join $name) ($selected | path join $name) | complete)
+    require ($copy.exit_code == 0) 'ARTIFACT_COPY_FAILED'
+  }
+  exact_artifact $ledger_path $selected
+}
+
 def main [mode: string, ...args: string] {
   match $mode {
     'patch' => {
@@ -81,6 +132,10 @@ def main [mode: string, ...args: string] {
     'package' => {
       require (($args | length) == 11) 'PACKAGE_ARGUMENTS'
       package $args.0 $args.1 $args.2 $args.3 $args.4 $args.5 $args.6 $args.7 ($args.8 | into int) ($args.9 | into int) $args.10
+    }
+    'seal' => {
+      require (($args | length) == 3) 'SEAL_ARGUMENTS'
+      seal $args.0 $args.1 $args.2
     }
     _ => { error make {msg: 'UNKNOWN_MODE'} }
   }
