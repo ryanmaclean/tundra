@@ -12,7 +12,7 @@ def regular [path: string] {
   require (($r | length) == 1 and ($r | first).type == 'file') 'INPUT_NOT_REGULAR'
   ($r | first).size | into int
 }
-def main [ledger_path: string, condition: string, profile: string, deb: string, preflight_path: string, receipt_path: string] {
+def main [ledger_path: string, condition: string, profile: string, deb: string, preflight_path: string, receipt_path: string, refusal_path: string] {
   let l = (open $ledger_path)
   require ($l.schema == 'tundra-sdk-libnoexit-os-install-witness/v1' and $l.scope == 'FOUR_AUTHENTICATED_PR148_PACKAGES_AND_DISPOSABLE_OS_INSTALL_ONLY') 'LEDGER_SCOPE'
   require ($l.run_id == 40548891504 and $l.run_attempt == 1 and $l.source_head == '2a50c1fedb04c1a62acc034dde956403550566f2' and $l.repository_id == 1164936674) 'LEDGER_RUN'
@@ -64,7 +64,14 @@ if cell.get("condition")!=condition or cell.get("profile")!=profile or cell.get(
 print(json.dumps({"schema":"tundra-sdk-libnoexit-os-install-witness/v1","status":"DISPOSABLE_DPKG_OWNERSHIP_AND_BYTES_ONLY","condition":condition,"profile":profile,"package_sha256":deb_sha,"installed_elf_sha256":elf_sha,"installed_archive_sha256":archive_sha,"installed_notice_sha256":notice_sha,"installed_cell_sha256":cell_sha,"package_install_verified":"YES_DISPOSABLE_RUNNER_ONLY","behavior_cases":"NOT_RUN","linker_input":"UNPROVEN","generator_input_closure":"UNPROVEN","legal_admission":"NO","product_admission":"NO","fleet_admission":"NO"},sort_keys=True))
 '
   let r = (^python3 -c $py $condition $profile $c.elf_sha256 $l.archive_sha256 $l.notice_sha256 $c.cell_resource_sha256 $c.deb_sha256 | complete)
-  require ($r.exit_code == 0 and ($r.stdout | str length) <= $l.max_receipt_bytes) 'INSTALLED_WITNESS_REFUSED'
+  if $r.exit_code != 0 {
+    let allowed = ['DPKG_QUERY_REFUSED' 'DPKG_STATUS' 'DPKG_LIST_MISSING' 'INSTALLED_SYMLINK' 'INSTALLED_PATH' 'DPKG_OWNER' 'INSTALLED_BYTES' 'INSTALLED_CELL_SCOPE']
+    let observed = ($r.stderr | str trim)
+    let detail = if $observed in $allowed { $observed } else { 'UNCLASSIFIED' }
+    $"schema=tundra-sdk-libnoexit-os-install-witness/v1\nstatus=REFUSED\nreason=OWNERSHIP_OR_BYTES_REFUSED\ndetail=($detail)\npackage_install_verified=NO\nbehavior_cases=NOT_RUN\nlinker_input=UNPROVEN\ngenerator_input_closure=UNPROVEN\nlegal_admission=NO\nproduct_admission=NO\nfleet_admission=NO\n" | save --force $refusal_path
+    error make {msg: 'INSTALLED_WITNESS_REFUSED'}
+  }
+  require (($r.stdout | str length) <= $l.max_receipt_bytes) 'INSTALLED_WITNESS_REFUSED'
   let receipt = ($r.stdout | from json)
   require ($receipt.status == 'DISPOSABLE_DPKG_OWNERSHIP_AND_BYTES_ONLY' and $receipt.package_install_verified == 'YES_DISPOSABLE_RUNNER_ONLY' and $receipt.linker_input == 'UNPROVEN' and $receipt.legal_admission == 'NO' and $receipt.product_admission == 'NO' and $receipt.fleet_admission == 'NO') 'RECEIPT_SCOPE'
   $receipt | to json --raw | save $receipt_path

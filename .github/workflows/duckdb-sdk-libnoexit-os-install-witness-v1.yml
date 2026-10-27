@@ -51,7 +51,7 @@ jobs:
           printf '%s  %s\n' \
             f070573bd130334ad2ccadb3661795bb6276a8547691616f00432ffc8cd79247 .github/scripts/duckdb-sdk-libnoexit-os-install-preflight-v1.nu \
             bed8ac3ef50793c49990db967d8bcedeb87d6a50be905f08c90c35148c290b58 .github/receipts/duckdb-sdk-libnoexit-os-install-preflight-v1.json \
-            2787e22d5c82ed3cf0f8cb3284b92104bd27177471732af8cc2b455cb411c477 .github/scripts/duckdb-sdk-libnoexit-os-install-witness-v1.nu \
+            8597b682a4fd8691b055e267243d22ddc2422b5601401936b7293b445aaf109a .github/scripts/duckdb-sdk-libnoexit-os-install-witness-v1.nu \
             1239e5b88b46d914c4a4a084ca7a614a138b65a88511c52ed9ae3bd31a6fdd0b .github/receipts/duckdb-sdk-libnoexit-os-install-witness-v1.json \
             | sha256sum --check --status
       - name: Install checksum-pinned MIT Nushell
@@ -121,14 +121,24 @@ jobs:
           set -euo pipefail
           root="$RUNNER_TEMP/libnoexit-install-input"
           ulimit -f 128
-          timeout 180s sudo -n env DEBIAN_FRONTEND=noninteractive dpkg -i -- "$root/package.deb" \
-            > "$root/dpkg.stdout" 2> "$root/dpkg.stderr"
+          if timeout 180s sudo -n env DEBIAN_FRONTEND=noninteractive dpkg -i -- "$root/package.deb" \
+            > "$root/dpkg.stdout" 2> "$root/dpkg.stderr"; then
+            install_rc=0
+          else
+            install_rc=$?
+          fi
           test "$(stat -c %s "$root/dpkg.stdout")" -le 65536
           test "$(stat -c %s "$root/dpkg.stderr")" -le 65536
+          if test "$install_rc" -ne 0; then
+            [[ "$install_rc" =~ ^[0-9]{1,3}$ ]] && test "$install_rc" -le 255
+            printf 'schema=tundra-sdk-libnoexit-os-install-witness/v1\nstatus=REFUSED\nreason=INSTALL_COMMAND_NONZERO\ninstall_exit_code=%s\npackage_install_verified=NO\nbehavior_cases=NOT_RUN\nlinker_input=UNPROVEN\ngenerator_input_closure=UNPROVEN\nlegal_admission=NO\nproduct_admission=NO\nfleet_admission=NO\n' "$install_rc" > "$RUNNER_TEMP/libnoexit-install-output/refusal.txt"
+            exit 1
+          fi
           nu .github/scripts/duckdb-sdk-libnoexit-os-install-witness-v1.nu \
             .github/receipts/duckdb-sdk-libnoexit-os-install-witness-v1.json \
             '${{ matrix.condition }}' '${{ matrix.profile }}' "$root/package.deb" \
-            "$root/four-preflight.json" "$RUNNER_TEMP/libnoexit-install-output/receipt.json"
+            "$root/four-preflight.json" "$RUNNER_TEMP/libnoexit-install-output/receipt.json" \
+            "$RUNNER_TEMP/libnoexit-install-output/refusal.txt"
           test "$(stat -c %s "$RUNNER_TEMP/libnoexit-install-output/receipt.json")" -le 8192
           rm -f -- "$root/dpkg.stdout" "$root/dpkg.stderr"
       - name: Prove ephemeral cleanup before selecting any artifact
