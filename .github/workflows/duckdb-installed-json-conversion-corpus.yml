@@ -49,8 +49,8 @@ jobs:
           printf '%s  %s\n' \
             f070573bd130334ad2ccadb3661795bb6276a8547691616f00432ffc8cd79247 .github/scripts/duckdb-sdk-libnoexit-os-install-preflight-v1.nu \
             bed8ac3ef50793c49990db967d8bcedeb87d6a50be905f08c90c35148c290b58 .github/receipts/duckdb-sdk-libnoexit-os-install-preflight-v1.json \
-            72426bdb2439158f75bfb2a6de4bd64280f48af13c6fa69c93f307e6da4dfd1a .github/workflows/duckdb-sdk-libnoexit-os-install-witness-v1.yml \
-            4d4a6eb10b5c158165c54330e82d2f8b521da52bb638147ed972b165b5ab852b .github/scripts/duckdb-sdk-libnoexit-os-install-witness-v1.nu \
+            1a26f24cbfdd4806bcb84c1500fd7879e481d86f1101885f8b6ecf20c9522731 .github/workflows/duckdb-sdk-libnoexit-os-install-witness-v1.yml \
+            5f1e4a50971df531a9a310bf902cff6ee82a763b28daaa9a117f7059cf749998 .github/scripts/duckdb-sdk-libnoexit-os-install-witness-v1.nu \
             1239e5b88b46d914c4a4a084ca7a614a138b65a88511c52ed9ae3bd31a6fdd0b .github/receipts/duckdb-sdk-libnoexit-os-install-witness-v1.json \
             | sha256sum --check --status
 
