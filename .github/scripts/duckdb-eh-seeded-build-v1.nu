@@ -23,6 +23,15 @@ def pinned [ledger_path: string] {
   $l
 }
 
+export def map_selection [map_path: string, expected_archive: string] {
+  let rows = (^grep -F 'libnoexit.a(atexit_dummy.o)' $map_path | complete)
+  require ($rows.exit_code == 0 and ($rows.stdout | lines | length) == 1) 'MAP_SELECTION_COUNT'
+  let fields = ($rows.stdout | str trim | split row ' ' | where $it != '')
+  let expected_row_tail = ($expected_archive + '(atexit_dummy.o):(__cxa_atexit)')
+  require (($fields | length) >= 2 and ($fields | last) == $expected_row_tail) 'MAP_SELECTION_ARCHIVE_PATH'
+  true
+}
+
 export def finalize [ledger_path: string, prereq_ledger: string, auth_path: string, seed_receipt: string, configured_path: string, settings_path: string, workspace: string, output: string] {
   let l = (pinned $ledger_path)
   require ($configured_path == $l.expected_archive and $settings_path == $configured_path and $env.EM_CACHE == $l.expected_cache) 'SETTINGS_OR_CACHE_DRIFT'
@@ -44,13 +53,12 @@ export def finalize [ledger_path: string, prereq_ledger: string, auth_path: stri
   require (($objects.map.bytes + $objects.js.bytes + $objects.wasm.bytes) <= 419430400) 'EH_OUTPUT_BUDGET'
   let command = (open --raw $objects.link.path)
   require (($command | lines | length) == 1 and ($command | str contains $"-Wl,-Map,($map)")) 'LINK_COMMAND_SHAPE'
-  let map_rows = (^grep -F 'libnoexit.a(atexit_dummy.o)' $map | complete)
-  require ($map_rows.exit_code == 0 and ($map_rows.stdout | lines | length) == 1 and ($map_rows.stdout | str contains '__cxa_atexit')) 'MAP_SELECTION'
+  map_selection $map $l.expected_archive | ignore
   let manifest = (info ($workspace | path join 'custody/custody/manifest.json') 1048576)
   require ($manifest.sha256 == $l.custody_manifest_sha256) 'CUSTODY_MANIFEST_DRIFT'
   let webdb = (info ($workspace | path join 'duckdb-upstream/lib/src/webdb.cc') 1048576)
   require ($webdb.sha256 == $l.webdb_postimage_sha256) 'WEBDB_POSTIMAGE_DRIFT'
-  {schema: $l.schema, status: 'SEEDED_EH_BUILD_DIAGNOSTIC_ONLY', condition: 'image', diagnostic_head: $env.GITHUB_SHA, source_heads: {source: $l.source_head, custody: $l.custody_head, duckdb_wasm: $l.duckdb_wasm_head, duckdb: $l.duckdb_head, arrow: $l.arrow_head}, producer_run_id: $l.producer_run_id, producer_attempt: $l.producer_attempt, producer_head: $l.producer_head, producer_artifact_id: $l.producer_artifact_id, producer_zip_sha256: $l.producer_zip_sha256, image_member: $l.image_member, seed: $seed.seed, target_cache_absent_before_shadow_probe: 'YES', cache_absent_before_seed: $seed.cache_absent_before_seed, cache_empty_before_seed: $seed.cache_empty_before_seed, settings_path_before_seed: $seed.settings_derived_path, settings_path_after_configure: $configured_path, settings_path_after_build: $settings_path, outputs: $objects, map_selection_class: 'ONE_LIBNOEXIT_ATEXIT_DUMMY_CXA_ATEXIT_ROW', custody_manifest: $manifest.sha256, webdb_postimage: $webdb.sha256, object_input_closure: 'UNPROVEN', actual_eh_linker_child: 'UNPROVEN', linker_archive_read: 'UNPROVEN', same_run_traced_outputs: 'UNPROVEN', other_sdk_archive_keys_pending: 8, generator_input_closure: 'UNPROVEN', selected_graph_exhaustive: 'NO', legal_admission: 'NO', product_admission: 'NO', fleet_admission: 'NO'} | to json --raw | save ($output | path join 'build.json')
+  {schema: $l.schema, status: 'SEEDED_EH_BUILD_DIAGNOSTIC_ONLY', condition: 'image', diagnostic_head: $env.GITHUB_SHA, source_heads: {source: $l.source_head, custody: $l.custody_head, duckdb_wasm: $l.duckdb_wasm_head, duckdb: $l.duckdb_head, arrow: $l.arrow_head}, producer_run_id: $l.producer_run_id, producer_attempt: $l.producer_attempt, producer_head: $l.producer_head, producer_artifact_id: $l.producer_artifact_id, producer_zip_sha256: $l.producer_zip_sha256, image_member: $l.image_member, seed: $seed.seed, target_cache_absent_before_shadow_probe: 'YES', cache_absent_before_seed: $seed.cache_absent_before_seed, cache_empty_before_seed: $seed.cache_empty_before_seed, settings_path_before_seed: $seed.settings_derived_path, settings_path_after_configure: $configured_path, settings_path_after_build: $settings_path, outputs: $objects, map_selection_class: 'ONE_EXACT_SEEDED_PATH_LIBNOEXIT_ATEXIT_DUMMY_CXA_ATEXIT_ROW', custody_manifest: $manifest.sha256, webdb_postimage: $webdb.sha256, object_input_closure: 'UNPROVEN', actual_eh_linker_child: 'UNPROVEN', linker_archive_read: 'UNPROVEN', same_run_traced_outputs: 'UNPROVEN', other_sdk_archive_keys_pending: 8, generator_input_closure: 'UNPROVEN', selected_graph_exhaustive: 'NO', legal_admission: 'NO', product_admission: 'NO', fleet_admission: 'NO'} | to json --raw | save ($output | path join 'build.json')
 }
 
 def main [ledger: string, prereq_ledger: string, auth: string, seed_receipt: string, configured_path: string, settings_path: string, workspace: string, output: string] {
