@@ -103,9 +103,60 @@ export def classify_python_execve_text [lines: list] {
   if ('ZERO_TEXT' in $classes) { 'PYTHON_EXECVE_ZERO_TEXT_PRESENT' } else { 'PYTHON_EXECVE_NONZERO_TEXT_ONLY' }
 }
 
+def trace_prefix_pid [line: string] {
+  let bracketed = ($line | parse -r '^\s*\[pid\s+(?<pid>[1-9][0-9]{0,9})\]\s+')
+  if ($bracketed | length) == 1 { return ($bracketed | first).pid }
+  let plain = ($line | parse -r '^\s*(?<pid>[1-9][0-9]{0,9})\s+')
+  if ($plain | length) == 1 { return ($plain | first).pid }
+  ''
+}
+
+export def classify_root_python_terminal [lines: list<string>, wrapper_status: int] {
+  let unknown = {root_python_terminal: 'ROOT_TERMINAL_UNPROVEN', root_python_signal: 'UNPROVEN', root_python_terminal_count: 0, root_python_wrapper_join: 'UNPROVEN'}
+  if ($lines | length) > 200000 { return ($unknown | merge {root_python_terminal: 'ROOT_TRACE_LINE_CAP'}) }
+  # -f with -o prefixes every tracee line with a PID. One successful Python
+  # execve is required before any terminal event can be attributed to it.
+  let python = ($lines | where {|line| $line =~ 'execve\("[^"\n]*/python3",'})
+  if ($python | length) != 1 { return ($unknown | merge {root_python_terminal: 'ROOT_EXECVE_COUNT_UNPROVEN'}) }
+  let root_line = ($python | first)
+  if (classify_python_execve_line $root_line) != 'ZERO_TEXT' { return ($unknown | merge {root_python_terminal: 'ROOT_EXECVE_RETURN_UNPROVEN'}) }
+  let root_pid = (trace_prefix_pid $root_line)
+  if $root_pid == '' { return ($unknown | merge {root_python_terminal: 'ROOT_PID_UNPROVEN'}) }
+  let terminal_lines = ($lines | where {|line| $line =~ '^\s*(\[pid\s+[0-9]+\]|[0-9]+)\s+\+\+\+ (exited with|killed by)'})
+  if ($terminal_lines | length) > 4096 { return ($unknown | merge {root_python_terminal: 'ROOT_TERMINAL_SCAN_CAP'}) }
+  let root_terminal = ($terminal_lines | where {|line| (trace_prefix_pid $line) == $root_pid})
+  let count = ($root_terminal | length)
+  if $count != 1 { return ($unknown | merge {root_python_terminal: 'ROOT_TERMINAL_COUNT_UNPROVEN', root_python_terminal_count: $count}) }
+  let body = ($root_terminal | first | str replace -r '^\s*(\[pid\s+[0-9]+\]|[0-9]+)\s+' '')
+  let exited = ($body | parse -r '^\+\+\+ exited with (?<code>0|[1-9][0-9]{0,2}) \+\+\+$')
+  if ($exited | length) == 1 {
+    let code = (($exited | first).code | into int)
+    if $code > 255 { return ($unknown | merge {root_python_terminal: 'ROOT_TERMINAL_FORMAT_UNPROVEN', root_python_terminal_count: 1}) }
+    let join = if $wrapper_status == $code { 'WRAPPER_STATUS_MATCH' } else { 'WRAPPER_STATUS_DIFFERENT' }
+    return {root_python_terminal: 'ROOT_EXIT_OBSERVED', root_python_signal: 'UNPROVEN', root_python_terminal_count: 1, root_python_wrapper_join: $join}
+  }
+  let killed = ($body | parse -r '^\+\+\+ killed by (?<signal>SIG[A-Z0-9]+)( \(core dumped\))? \+\+\+$')
+  if ($killed | length) == 1 {
+    let signal = ($killed | first).signal
+    let allowed = [
+      {name: 'SIGHUP', number: 1} {name: 'SIGINT', number: 2} {name: 'SIGQUIT', number: 3}
+      {name: 'SIGILL', number: 4} {name: 'SIGTRAP', number: 5} {name: 'SIGABRT', number: 6}
+      {name: 'SIGBUS', number: 7} {name: 'SIGKILL', number: 9} {name: 'SIGSEGV', number: 11}
+      {name: 'SIGPIPE', number: 13} {name: 'SIGTERM', number: 15} {name: 'SIGXCPU', number: 24}
+      {name: 'SIGXFSZ', number: 25} {name: 'SIGSYS', number: 31}
+    ]
+    let selected = ($allowed | where name == $signal)
+    if ($selected | length) != 1 { return ($unknown | merge {root_python_terminal: 'ROOT_SIGNAL_UNCLASSIFIED', root_python_terminal_count: 1}) }
+    let join = if $wrapper_status == (0 - ($selected | first).number) { 'WRAPPER_STATUS_MATCH' } else { 'WRAPPER_STATUS_DIFFERENT' }
+    return {root_python_terminal: 'ROOT_SIGNAL_OBSERVED', root_python_signal: $signal, root_python_terminal_count: 1, root_python_wrapper_join: $join}
+  }
+  $unknown | merge {root_python_terminal: 'ROOT_TERMINAL_FORMAT_UNPROVEN', root_python_terminal_count: 1}
+}
+
 export def classify_failed_invocation [exit_code: int, trace_path: string, trace_cap: int] {
   let exit_class = (exit_value_bucket $exit_code)
   mut python_stage = 'PYTHON_EXECVE_UNPROVEN'
+  mut terminal = {root_python_terminal: 'ROOT_TERMINAL_UNPROVEN', root_python_signal: 'UNPROVEN', root_python_terminal_count: 0, root_python_wrapper_join: 'UNPROVEN'}
   let trace_stage = if not ($trace_path | path exists) {
     'TRACE_MISSING'
   } else {
@@ -124,12 +175,13 @@ export def classify_failed_invocation [exit_code: int, trace_path: string, trace
           'TRACE_OVER_LINE_CAP'
         } else {
           $python_stage = (classify_python_execve_text $lines)
+          $terminal = (classify_root_python_terminal $lines $exit_code)
           if ($lines | any {|line| $line =~ 'execve\('}) { 'TRACE_BOUNDED_EXECVE_TEXT' } else { 'TRACE_BOUNDED_NO_EXECVE_TEXT' }
         }
       }
     }
   }
-  {invocation_exit_class: $exit_class, invocation_signed_status: (signed_invocation_status $exit_code), invocation_trace_stage: $trace_stage, invocation_python_execve: $python_stage}
+  {invocation_exit_class: $exit_class, invocation_signed_status: (signed_invocation_status $exit_code), invocation_trace_stage: $trace_stage, invocation_python_execve: $python_stage} | merge $terminal
 }
 
 export def classify_direct_output [path: string, expected_size: int, expected_sha: string, copies: list<string>] {
