@@ -20,6 +20,7 @@ def checked_ledger [path: string] {
   require ($l.archive_sha256 == 'fdaa14b94400917928bc73415535f02244549987beb92719882bcc905b4280fe' and $l.notice_sha256 == '620a78084fc7ca97c0b5dea9abf891f3ffcadfdbf305276f099c9c4e12fc1d86') 'LEDGER_RESOURCE'
   require ($l.ledger_member_sha256 == 'ca8cbbd0f65be4e9645ff2d308c24ba0cbe21172bfe20bf005d4a761c1f6e2eb' and $l.preflight_member_sha256 == 'd34398146682469b1f5d33d4a904ebfbedb8669ec562afc5d8a1f02f3237f34e') 'LEDGER_MEMBER'
   require ($l.max_artifact_zip_bytes == 20971520 and $l.max_deb_bytes == 201326592 and $l.max_data_members == 4096 and $l.max_data_expanded_bytes == 100663296 and $l.max_control_expanded_bytes == 131072) 'LEDGER_CAP'
+  require ($l.data_path_manifest_sha256 == '22036562c0db17f76a7fce50fd30021ee3eb782518e6bb59a8dbd52bdfb213f2') 'LEDGER_PATH_MANIFEST'
   require ($l.expected_package.name == 'auto-tundra' and $l.expected_package.version == '0.1.0' and $l.expected_package.architecture == 'amd64' and $l.expected_package.depends == 'libwebkit2gtk-4.1-0, libgtk-3-0') 'LEDGER_PACKAGE'
   require ($l.expected_zip_members == ['ledger.json' 'package.deb' 'preflight.json' 'witness/cell-witness.json' 'witness/installed-archive' 'witness/installed-cell.json' 'witness/installed-notice']) 'LEDGER_ZIP_MEMBERS'
   require (($l.cells | length) == 4 and ($l.cells | each {|c| $"($c.condition)/($c.profile)"}) == ['image/default' 'image/sounds' 'clean/default' 'clean/sounds']) 'LEDGER_CELLS'
@@ -30,14 +31,14 @@ def checked_ledger [path: string] {
 def deb_structure [deb: string, l: record, c: record] {
   # Python's stdlib parses ar and tar in memory; no package member is extracted or run.
   let py = '
-import hashlib, io, json, re, sys, tarfile
+import hashlib, io, json, re, struct, sys, tarfile
 
 def fail(code):
     print(code, file=sys.stderr)
     raise SystemExit(1)
 def sha(b): return hashlib.sha256(b).hexdigest()
 try:
-    p, condition, profile, cell_sha, notice_sha, archive_sha = sys.argv[1:7]
+    p, condition, profile, cell_sha, notice_sha, archive_sha, elf_sha, path_manifest_sha = sys.argv[1:9]
     b = open(p, "rb").read()
     if not b.startswith(b"!<arch>\n"): fail("DEB_AR_MAGIC")
     pos = 8; parts = {}
@@ -60,16 +61,24 @@ try:
         ms=t.getmembers(); names=[m.name.removeprefix("./") for m in ms]
         if set(names)!={"control","md5sums"} or len(names)!=2 or sum(m.size for m in ms)>131072 or any(not m.isfile() or m.pax_headers or m.uid!=0 or m.gid!=0 for m in ms): fail("MAINTAINER_SCRIPT_OR_CONTROL_DRIFT")
         control=t.extractfile(next(m for m in ms if m.name.removeprefix("./")=="control")).read().decode("utf-8")
-        fields={}
+        fields={}; previous=None
         for line in control.splitlines():
-            if not line or line.startswith(" "): continue
+            if not line: fail("CONTROL_SHAPE")
+            if line.startswith(" "):
+                if previous is None: fail("CONTROL_FOLDING")
+                fields[previous] += "\n" + line[1:]
+                continue
             if ": " not in line: fail("CONTROL_SHAPE")
             k,v=line.split(": ",1)
+            if not re.fullmatch(r"[A-Za-z0-9-]+",k): fail("CONTROL_SHAPE")
+            k=k.lower()
             if k in fields: fail("CONTROL_DUPLICATE")
-            fields[k]=v
-        if any(fields.get(k)!=v for k,v in {"Package":"auto-tundra","Version":"0.1.0","Architecture":"amd64","Depends":"libwebkit2gtk-4.1-0, libgtk-3-0"}.items()): fail("CONTROL_IDENTITY")
+            fields[k]=v; previous=k
+        if set(fields)!={"package","version","architecture","installed-size","maintainer","priority","depends","description"}: fail("CONTROL_FIELDS")
+        if any(fields.get(k)!=v for k,v in {"package":"auto-tundra","version":"0.1.0","architecture":"amd64","maintainer":"autotundra","priority":"optional","depends":"libwebkit2gtk-4.1-0, libgtk-3-0","description":"(none)\n(none)"}.items()): fail("CONTROL_IDENTITY")
+        if not re.fullmatch(r"[0-9]{1,8}",fields["installed-size"]): fail("CONTROL_INSTALLED_SIZE")
     with tarfile.open(fileobj=io.BytesIO(parts["data.tar.gz"]),mode="r:gz") as t:
-        seen=set(); total=0; count=0; wanted={
+        seen=set(); total=0; count=0; path_rows=[]; wanted={
           "usr/lib/auto-tundra/third-party-licenses/ui/duckdb-runtime/native-emscripten-LICENSE":notice_sha,
           "usr/lib/auto-tundra/third-party-licenses/ui/duckdb-runtime/native-emscripten-libnoexit.a":archive_sha,
           "usr/lib/auto-tundra/third-party-licenses/ui/duckdb-runtime/native-emscripten-libnoexit-cell.json":cell_sha}
@@ -82,6 +91,7 @@ try:
             if name in seen or m.pax_headers or m.uid!=0 or m.gid!=0 or m.mode & 0o6000: fail("DATA_METADATA")
             seen.add(name)
             if not (m.isfile() or m.isdir()) or not (name=="usr" or name.startswith("usr/")): fail("DATA_TYPE_SCOPE")
+            path_rows.append((name,"f" if m.isfile() else "d"))
             total += m.size
             if total>100663296: fail("DATA_EXPANDED_CAP")
             if name in wanted or name=="usr/bin/auto-tundra":
@@ -93,12 +103,17 @@ try:
                     if name.endswith("cell.json"):
                         cell=json.loads(data)
                         if cell.get("condition")!=condition or cell.get("profile")!=profile or cell.get("package_install_verified") not in (None,"NO") or cell.get("archive_linker_input")!="UNPROVEN" or any(cell.get(k)!="NO" for k in ("legal_admission","product_admission","fleet_admission")): fail("CELL_SCOPE")
-                else: elf.append(sha(data))
+                else:
+                    if m.mode != 0o755 or len(data)<64 or data[:7] != b"\x7fELF\x02\x01\x01" or struct.unpack_from("<HHI",data,16)!=(3,62,1): fail("ELF_FORMAT_MACHINE")
+                    if sha(data)!=elf_sha: fail("ELF_BYTES_DRIFT")
+                    elf.append(sha(data))
+        manifest="".join(f"{name}\t{kind}\n" for name,kind in sorted(path_rows)).encode()
+        if sha(manifest)!=path_manifest_sha: fail("DATA_PATH_MANIFEST")
         if set(found)!=set(wanted) or len(elf)!=1: fail("DATA_SELECTED_MISSING")
         print(json.dumps({"status":"DEB_STRUCTURE_ONLY","package_sha256":sha(b),"control_scripts":"NONE","data_members":count,"data_expanded_bytes":total,"installed_elf_sha256":elf[0],"selected_resource_sha256":found,"package_install_verified":"NO","linker_input":"UNPROVEN","legal_admission":"NO","product_admission":"NO","fleet_admission":"NO"},sort_keys=True))
 except (ValueError, UnicodeError, OSError, tarfile.TarError, KeyError, json.JSONDecodeError): fail("DEB_PARSE_REFUSED")
 '
-  let result = (^python3 -c $py $deb $c.condition $c.profile $c.cell_resource_sha256 $l.notice_sha256 $l.archive_sha256 | complete)
+  let result = (^python3 -c $py $deb $c.condition $c.profile $c.cell_resource_sha256 $l.notice_sha256 $l.archive_sha256 $c.elf_sha256 $l.data_path_manifest_sha256 | complete)
   require ($result.exit_code == 0) 'DEB_STRUCTURE_REFUSED'
   $result.stdout | from json
 }
@@ -108,7 +123,7 @@ export def inspect_cell [ledger_path: string, condition: string, profile: string
   let rows = ($l.cells | where condition == $condition and profile == $profile)
   require (($rows | length) == 1) 'CELL_NOT_UNIQUE'
   let c = ($rows | first)
-  require (($c.artifact_id | describe) == 'int' and ($c.artifact_zip_bytes | describe) == 'int' and $c.artifact_zip_sha256 =~ '^[0-9a-f]{64}$' and $c.deb_sha256 =~ '^[0-9a-f]{64}$' and $c.cell_resource_sha256 =~ '^[0-9a-f]{64}$') 'CELL_TUPLE_PENDING'
+  require (($c.artifact_id | describe) == 'int' and ($c.artifact_zip_bytes | describe) == 'int' and $c.artifact_zip_sha256 =~ '^[0-9a-f]{64}$' and $c.deb_sha256 =~ '^[0-9a-f]{64}$' and $c.cell_resource_sha256 =~ '^[0-9a-f]{64}$' and $c.elf_sha256 =~ '^[0-9a-f]{64}$') 'CELL_TUPLE_PENDING'
   require ($c.artifact_name == $"duckdb-libnoexit-installed-($l.run_id)-($l.run_attempt)-($condition)-($profile)" and $c.cell_key == $"($condition)/sdk/libnoexit.a/__archive__/1") 'CELL_IDENTITY'
   let run = (open $run_path)
   let artifact = (open $artifact_path)
@@ -158,7 +173,7 @@ export def inspect_deb [ledger_path: string, condition: string, profile: string,
   let rows = ($l.cells | where condition == $condition and profile == $profile)
   require (($rows | length) == 1) 'CELL_NOT_UNIQUE'
   let c = ($rows | first)
-  require (($c.deb_sha256 | describe) == 'string' and $c.deb_sha256 =~ '^[0-9a-f]{64}$') 'CELL_TUPLE_PENDING'
+  require (($c.deb_sha256 | describe) == 'string' and $c.deb_sha256 =~ '^[0-9a-f]{64}$' and $c.elf_sha256 =~ '^[0-9a-f]{64}$') 'CELL_TUPLE_PENDING'
   require ((regular_size $deb_path) <= $l.max_deb_bytes and (sha $deb_path) == $c.deb_sha256) 'DEB_BYTES_DRIFT'
   let structure = (deb_structure $deb_path $l $c)
   {schema: $l.schema, status: 'STANDALONE_DEB_STRUCTURE_ONLY', condition: $condition, profile: $profile, structure: $structure, package_install_verified: 'NO', linker_input: 'UNPROVEN', legal_admission: 'NO', product_admission: 'NO', fleet_admission: 'NO'} | to json --raw | save $receipt_path

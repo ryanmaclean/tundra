@@ -1,7 +1,7 @@
 {
   "schema": "tundra-sdk-libnoexit-os-install-preflight/v1",
   "scope": "FOUR_SAME_RUN_ARTIFACT_AND_DEB_STRUCTURE_ONLY",
-  "runnable": "NO",
+  "runnable": "YES",
   "repository": "ryanmaclean/tundra",
   "repository_id": 1164936674,
   "source_head": "2a50c1fedb04c1a62acc034dde956403550566f2",
@@ -44,7 +44,8 @@
       "artifact_zip_sha256": "87de597576f547720a6dcc63d10831af9e2a20550a4b92cfb565ed4aca9673f4",
       "deb_sha256": "7f4e468c35258fdec2f76704dcb3080917b77d8002b7616e70a58ac9688d25a8",
       "cell_resource_sha256": "b975a1f907dc3cef351889dda5c9fdd56f6e262de3d20bfbdfe3e302bd63caa0",
-      "cell_key": "image/sdk/libnoexit.a/__archive__/1"
+      "cell_key": "image/sdk/libnoexit.a/__archive__/1",
+      "elf_sha256": "e2057adb2a757b804b33024aea0ea7db025e5564c90fa67637674f14014511c3"
     },
     {
       "condition": "image",
@@ -55,7 +56,8 @@
       "artifact_zip_sha256": "df9fc36f2d2b0af193a025ab9b6f56dead4f28fd6f67504011f880189741d8fd",
       "deb_sha256": "f8c9e9468c2cf394edcd473ec319b896d9d821ae4757ddec1395406e887c9e26",
       "cell_resource_sha256": "7ffd1370750bc9f74b4015a0c219cea01088a27e3c29514b0d5003cb40310d8f",
-      "cell_key": "image/sdk/libnoexit.a/__archive__/1"
+      "cell_key": "image/sdk/libnoexit.a/__archive__/1",
+      "elf_sha256": "c38acb09084c3bfb5be0157a8106baa2a22aa7883afc22ef20b3fb40a8814025"
     },
     {
       "condition": "clean",
@@ -66,18 +68,20 @@
       "artifact_zip_sha256": "b448df0265257ac54c45642e7703264f36c21b2f499731386b2d2db38d08ea76",
       "deb_sha256": "3e853d30c5c53b70100ae9447880fe611ed7dd37b548bb5829f4f0d968c8d332",
       "cell_resource_sha256": "12e2092a2e3e8406e922b6e22f03757816b1f45edc5529418b19d8f58448dd3b",
-      "cell_key": "clean/sdk/libnoexit.a/__archive__/1"
+      "cell_key": "clean/sdk/libnoexit.a/__archive__/1",
+      "elf_sha256": "e2057adb2a757b804b33024aea0ea7db025e5564c90fa67637674f14014511c3"
     },
     {
       "condition": "clean",
       "profile": "sounds",
-      "artifact_id": "UNSET",
+      "artifact_id": 12757479434,
       "artifact_name": "duckdb-libnoexit-installed-40548891504-1-clean-sounds",
-      "artifact_zip_bytes": "UNSET",
-      "artifact_zip_sha256": "UNSET",
-      "deb_sha256": "UNSET",
-      "cell_resource_sha256": "UNSET",
-      "cell_key": "clean/sdk/libnoexit.a/__archive__/1"
+      "artifact_zip_bytes": 16047424,
+      "artifact_zip_sha256": "100f44ae4faa1764039b6f77a381bf7b990a14953d7ecc1e4268bb030ebba8e1",
+      "deb_sha256": "bdf9db89cb30721b1f4e94f03c900392198da017af1e0264c9e76546e3379679",
+      "cell_resource_sha256": "2ae373426c38009ff278c4cb2d2d22b9a74b6d882003efe6483d7faaea61c412",
+      "cell_key": "clean/sdk/libnoexit.a/__archive__/1",
+      "elf_sha256": "c38acb09084c3bfb5be0157a8106baa2a22aa7883afc22ef20b3fb40a8814025"
     }
   ],
   "package_install_verified": "NO",
@@ -86,5 +90,6 @@
   "selected_graph_exhaustive": "NO",
   "legal_admission": "NO",
   "product_admission": "NO",
-  "fleet_admission": "NO"
+  "fleet_admission": "NO",
+  "data_path_manifest_sha256": "22036562c0db17f76a7fce50fd30021ee3eb782518e6bb59a8dbd52bdfb213f2"
 }
