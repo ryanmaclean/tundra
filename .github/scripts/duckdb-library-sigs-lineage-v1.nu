@@ -62,6 +62,47 @@ export def classify_container_start_failure [stderr: string] {
   }
 }
 
+export def classify_failed_invocation [exit_code: int, trace_path: string, trace_cap: int] {
+  let exit_class = if $exit_code == 124 {
+    'EXIT_124_TIMEOUT_COMPATIBLE'
+  } else if $exit_code == 125 {
+    'EXIT_125'
+  } else if $exit_code in [126 127] {
+    'EXIT_126_OR_127'
+  } else if $exit_code >= 128 and $exit_code <= 255 {
+    'EXIT_128_TO_255'
+  } else if $exit_code >= 1 and $exit_code <= 123 {
+    'EXIT_1_TO_123'
+  } else {
+    'EXIT_OUT_OF_RANGE'
+  }
+  let trace_stage = if not ($trace_path | path exists) {
+    'TRACE_MISSING'
+  } else {
+    let item = (ls -l $trace_path | first)
+    if $item.type != 'file' {
+      'TRACE_NONREGULAR'
+    } else {
+      let size = ($item.size | into int)
+      if $size == 0 {
+        'TRACE_EMPTY'
+      } else if $size > $trace_cap {
+        'TRACE_OVER_CAP'
+      } else {
+        let lines = (open --raw $trace_path | lines)
+        if ($lines | length) > 200000 {
+          'TRACE_OVER_LINE_CAP'
+        } else if ($lines | any {|line| $line =~ 'execve\('}) {
+          'TRACE_BOUNDED_EXECVE_TEXT'
+        } else {
+          'TRACE_BOUNDED_NO_EXECVE_TEXT'
+        }
+      }
+    }
+  }
+  {invocation_exit_class: $exit_class, invocation_trace_stage: $trace_stage}
+}
+
 export def trace_shape [path: string, cap: int] {
   if not ($path | path exists) { error make {msg: 'TRACE_MISSING'} }
   let item = (ls -l $path | first)
@@ -116,9 +157,11 @@ def inside [ledger_path: string, receipt: string] {
     let pre = {generator: (file_sha $"($source)/($ledger.generator_path)"), tracked_output: (file_sha $"($source)/($ledger.output_path)"), notice: (file_sha $"($source)/($ledger.notice_path)")}
     cd /work
     let invocation = (^timeout 600s /tool/strace -f -yy -s 4096 -o /out/trace.raw -e 'trace=%file,%process,%network,read,readv,close,chdir,fchdir' python3 $"($source)/($ledger.generator_path)" -o /out/library_sigs.js | complete)
-    if $invocation.exit_code != 0 { error make {msg: 'GENERATOR_OR_TRACER_FAILED'} }
     if ($invocation.stdout | str length) > 1048576 or ($invocation.stderr | str length) > 1048576 {
       error make {msg: 'GENERATOR_LOG_CAP'}
+    }
+    if $invocation.exit_code != 0 {
+      refusal $receipt 'GENERATOR_OR_TRACER_FAILED' (classify_failed_invocation $invocation.exit_code /out/trace.raw $ledger.trace_cap_bytes)
     }
     let shape = (trace_shape /out/trace.raw $ledger.trace_cap_bytes)
     verify_required_file GENERATED_OUTPUT /out/library_sigs.js $ledger.output_size $ledger.output_sha256
@@ -162,6 +205,11 @@ def inside [ledger_path: string, receipt: string] {
     ($result | to json --raw) | save --force $"($receipt)/replay.json"
     rm $"($receipt)/refusal.json"
   } catch {|e|
+    # The bounded invocation diagnostic is already a complete refusal; retain its two fixed classes.
+    let existing = (open $"($receipt)/refusal.json")
+    if ($e.msg | default 'UNKNOWN') == 'GENERATOR_OR_TRACER_FAILED' and $existing.reason == 'GENERATOR_OR_TRACER_FAILED' {
+      error make {msg: 'GENERATOR_OR_TRACER_FAILED'}
+    }
     let allowed = [
       'FILE_MISSING' 'FILE_DRIFT' 'HASH_FAILED' 'NOTICE_DRIFT' 'IMAGE_DRIFT'
       'GENERATOR_OR_TRACER_FAILED' 'TRACE_MISSING' 'TRACE_CAP_OR_EMPTY'
