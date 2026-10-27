@@ -38,6 +38,13 @@ jobs:
           ref: 1d77df7776dca44731ae8267092e480a78f9f735
           path: custody
           persist-credentials: false
+      - name: Check out versioned observed glue notice ledger
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: legal-ledger
+          sparse-checkout: .github/receipts/duckdb-eh-js-glue-observed-v1.tsv
+          persist-credentials: false
       - name: Check out pinned DuckDB Wasm and submodules
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -976,7 +983,7 @@ jobs:
           out="$RUNNER_TEMP/combined-custody"
           python3 - "$out" "$EMSDK/upstream/emscripten" "$GITHUB_WORKSPACE/duckdb-upstream" <<'PY'
           from collections import defaultdict, deque
-          import gzip, hashlib, io, re, sys, tarfile
+          import csv, gzip, hashlib, io, re, sys, tarfile
           from pathlib import Path
           out, sdk, upstream = map(lambda x: Path(x).resolve(), sys.argv[1:])
           src, tools = sdk / 'src', sdk / 'tools'
@@ -1001,6 +1008,30 @@ jobs:
           require(sha(notice_bytes['duckdb-wasm']) ==
                   '3ad73e53243c374756dfc2eb5e780abd462ce99e89c84f9e46ada745db934107',
                   'pinned DuckDB-Wasm notice drift')
+          ledger_path = Path('legal-ledger/.github/receipts/duckdb-eh-js-glue-observed-v1.tsv')
+          ledger_bytes = regular(ledger_path)
+          require(sha(ledger_bytes) ==
+                  'e5517a52608c5a3e1690715ce8f8ce76b42d3b8ac4337f97975c86c7efb37bdb',
+                  'observed glue ledger drift')
+          ledger_text = ledger_bytes.decode('utf-8')
+          require('\r' not in ledger_text and '\x00' not in ledger_text,
+                  'unsafe ledger bytes')
+          ledger_rows = list(csv.DictReader(io.StringIO(ledger_text), delimiter='\t'))
+          columns = ('path', 'observed_role', 'sha256', 'origin', 'header_evidence',
+                     'selected_license', 'notice_path', 'notice_sha256',
+                     'association_status')
+          require(len(ledger_rows) == 36 and
+                  tuple(ledger_rows[0]) == columns and
+                  all(None not in row and None not in row.values() for row in ledger_rows),
+                  'observed glue ledger schema/count mismatch')
+          ledger = {row['path']: row for row in ledger_rows}
+          require(len(ledger) == 36, 'duplicate observed glue ledger path')
+          emsdk_origin = ('emscripten/emsdk:3.1.48@sha256:'
+                          'c952f592577a428698cb990c9656f395ae34424740f9c40bed4c3ee6d4850d29')
+          duckdb_origin = 'duckdb/duckdb-wasm@f955138e5218942fb3fb097a8fdcb725222406ff'
+          pending_paths = {'emscripten/src/library_math.js',
+                           'emscripten/src/library_sigs.js',
+                           'duckdb-wasm/lib/js-stubs.js'}
           require(src.is_dir() and tools.is_dir(), 'SDK generator roots missing')
           expected = {src / 'arrayUtils.js', src / 'IDBStore.js'}
           include_pattern = re.compile(r'^\s*#include\s+["<]([^">]+)[">]\s*$', re.M)
@@ -1050,6 +1081,47 @@ jobs:
                       queue.append(child)
               require(expected <= roles.keys() and all('TRANSITIVE_INCLUDE' in
                       roles[path] for path in expected), 'known transitive includes absent')
+              observed = {}
+              for path, flags in roles.items():
+                  if not ({'TRACE', 'TRANSITIVE_INCLUDE'} & flags): continue
+                  if path.is_relative_to(sdk):
+                      rel = 'emscripten/' + str(path.relative_to(sdk))
+                      origin = emsdk_origin
+                      notice_kind = 'emscripten'
+                  else:
+                      require(path == stub, f'unexpected observed user source: {path}')
+                      rel = 'duckdb-wasm/lib/js-stubs.js'
+                      origin = duckdb_origin
+                      notice_kind = 'duckdb-wasm'
+                  observed[rel] = path
+                  require(rel in ledger, f'ledger missing observed source: {rel}')
+                  row = ledger[rel]
+                  data = regular(path)
+                  head = data[:2048].decode('utf-8', errors='replace')
+                  spdx = re.search(r'SPDX-License-Identifier:\s*([^\s*]+)', head)
+                  selected_role = 'TRACE' if 'TRACE' in flags else 'TRANSITIVE_INCLUDE'
+                  require(row['observed_role'] == selected_role and
+                          row['sha256'] == sha(data) and row['origin'] == origin,
+                          f'ledger role/source/origin drift: {rel}')
+                  if rel in pending_paths:
+                      evidence = ('GENERATED_NO_FILE_HEADER' if rel.endswith('library_sigs.js')
+                                  else 'NO_FILE_HEADER')
+                      require(spdx is None and row['header_evidence'] == evidence and
+                              row['selected_license'] == 'UNRESOLVED' and
+                              row['notice_path'] == 'UNRESOLVED' and
+                              row['notice_sha256'] == 'UNRESOLVED' and
+                              row['association_status'] == 'PENDING_SOURCE_SCOPE',
+                              f'headerless source improperly promoted: {rel}')
+                  else:
+                      require(spdx is not None and spdx.group(1) == 'MIT' and
+                              row['header_evidence'] == 'EARLY_SPDX_MIT' and
+                              row['selected_license'] == 'MIT' and
+                              row['notice_path'] == notice_kind + '/LICENSE' and
+                              row['notice_sha256'] == sha(notice_bytes[notice_kind]) and
+                              row['association_status'] == 'HEADER_NOTICE_REVIEWED',
+                              f'header/notice association mismatch: {rel}')
+              require(len(observed) == 36 and set(observed) == set(ledger),
+                      'observed glue paths do not exactly match versioned ledger')
               # This is a bounded conservative SDK-source superset, not a
               # claim that emcc disclosed every generator read at runtime.
               for root in (src, tools):
@@ -1089,10 +1161,13 @@ jobs:
                       info.mode = 0o644
                       info.mtime = 0
                       tar.addfile(info, io.BytesIO(data))
+                      association = ('PENDING_SOURCE_SCOPE' if rel in pending_paths else
+                                     'HEADER_NOTICE_REVIEWED' if rel in observed else
+                                     'TOP_LEVEL_NOTICE_CANDIDATE_UNREVIEWED')
                       rows.append((rel, ','.join(sorted(roles[path])), str(len(data)),
                           sha(data), kind + '/LICENSE', sha(notice_bytes[kind]),
                           spdx.group(1) if spdx else 'NO_EARLY_SPDX_HEADER',
-                          'TOP_LEVEL_NOTICE_CANDIDATE_UNREVIEWED'))
+                          association))
               manifest = out / f'{condition}-js-generator-superset.tsv'
               manifest.write_text('path\troles\tbytes\tsha256\tnotice_path\tnotice_sha256\tspdx\tnotice_join_status\n' +
                                   ''.join('\t'.join(row) + '\n' for row in rows))
@@ -1115,6 +1190,13 @@ jobs:
                   f'superset_archive_sha256={sha(archive.read_bytes())}\n'
                   'generator_input_closure=UNPROVEN\n'
                   'source_to_notice_join=TOP_LEVEL_CANDIDATE_UNREVIEWED\n'
+                  'glue_legal_admission=NO\nproduct_admission=NO\n')
+              (out / f'{condition}-js-glue-legal-review.txt').write_text(
+                  'ledger_version=duckdb-eh-js-glue-observed-v1\n'
+                  f'ledger_sha256={sha(ledger_bytes)}\n'
+                  'observed_paths=36\nheader_notice_reviewed=33\n'
+                  'source_scope_pending=3\nsuperset_only_promoted=0\n'
+                  'generator_input_closure=UNPROVEN\n'
                   'glue_legal_admission=NO\nproduct_admission=NO\n')
           PY
           test -s "$out/image-js-generator-scope.txt"
