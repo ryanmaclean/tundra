@@ -37,6 +37,10 @@ jobs:
           test ! -e "$output"
           mkdir "$output"
           printf '%s\n' '{"schema":"tundra-eh-linker-preflight/v1","status":"REFUSED","reason":"NOT_COMPLETED","object_input_closure":"UNPROVEN","linker_archive_read":"UNPROVEN","same_run_eh_outputs":"UNPROVEN","sdk_archive_keys_pending_per_condition":9,"generator_input_closure":"UNPROVEN","selected_graph_exhaustive":"NO","glue_legal_admission":"NO","legal_admission":"NO","product_admission":"NO","fleet_admission":"NO"}' > "$output/refusal.json"
+          cleanup_failure="$RUNNER_TEMP/eh-linker-preflight-v1-cleanup-failure"
+          test ! -e "$cleanup_failure"
+          mkdir "$cleanup_failure"
+          printf '%s\n' '{"schema":"tundra-eh-linker-preflight/v1","status":"REFUSED","reason":"EPHEMERAL_CLEANUP_UNPROVEN","object_input_closure":"UNPROVEN","linker_archive_read":"UNPROVEN","same_run_eh_outputs":"UNPROVEN","sdk_archive_keys_pending_per_condition":9,"generator_input_closure":"UNPROVEN","selected_graph_exhaustive":"NO","glue_legal_admission":"NO","legal_admission":"NO","product_admission":"NO","fleet_admission":"NO"}' > "$cleanup_failure/refusal.json"
       - name: Install checksum-pinned MIT Nushell
         shell: bash
         run: |
@@ -83,6 +87,7 @@ jobs:
             "$private/run.json" "$private/artifact.json" "$private/producer.zip" \
             "$private/members" "$RUNNER_TEMP/eh-linker-preflight-v1-receipt/auth.json"
       - name: Probe only configured linker in pinned read-only image
+        id: probe
         shell: bash
         run: |
           set -euo pipefail
@@ -108,33 +113,63 @@ jobs:
             --entrypoint /tool/nu "$image" /tool/helper.nu probe \
             /tool/ledger.json /receipt/auth.json /receipt/preflight.json
           test -s "$output/preflight.json"
-          rm "$output/refusal.json"
       - name: Delete private bytes and enforce receipt cap
+        id: cleanup
         if: always()
         shell: bash
+        env:
+          PROBE_OUTCOME: ${{ steps.probe.outcome }}
         run: |
           set -euo pipefail
-          output="$RUNNER_TEMP/eh-linker-preflight-v1-receipt"; test -d "$output"
+          output="$RUNNER_TEMP/eh-linker-preflight-v1-receipt"
+          cleanup_ok=1
           rm -rf -- "$RUNNER_TEMP/eh-linker-preflight-v1-private" \
-            "$RUNNER_TEMP/eh-linker-preflight-v1-tool" "$RUNNER_TEMP/eh-linker-preflight-v1-nu"
+            "$RUNNER_TEMP/eh-linker-preflight-v1-tool" "$RUNNER_TEMP/eh-linker-preflight-v1-nu" || cleanup_ok=0
           for path in "$RUNNER_TEMP/eh-linker-preflight-v1-private" \
               "$RUNNER_TEMP/eh-linker-preflight-v1-tool" "$RUNNER_TEMP/eh-linker-preflight-v1-nu"; do
-            test ! -e "$path" && test ! -L "$path"
+            { test ! -e "$path" && test ! -L "$path"; } || cleanup_ok=0
           done
-          if test -f "$output/refusal.json"; then
-            find "$output" -mindepth 1 -maxdepth 1 ! -name refusal.json -delete
+          if test "$cleanup_ok" -ne 1 || test ! -d "$output"; then
+            if test -d "$output"; then
+              find "$output" -mindepth 1 -maxdepth 1 ! -name refusal.json -delete || true
+            fi
+            exit 1
           fi
+          test -f "$output/refusal.json" && test ! -L "$output/refusal.json"
+          if test "$PROBE_OUTCOME" != success; then
+            find "$output" -mindepth 1 -maxdepth 1 ! -name refusal.json -delete
+            exit 0
+          fi
+          test -f "$output/auth.json" && test ! -L "$output/auth.json"
+          test -f "$output/preflight.json" && test ! -L "$output/preflight.json"
           bytes="$(du -sb "$output" | cut -f 1)"
           if test "$bytes" -gt 2097152; then
             find "$output" -mindepth 1 -delete
             printf '%s\n' '{"schema":"tundra-eh-linker-preflight/v1","status":"REFUSED","reason":"DIAGNOSTIC_CAP","object_input_closure":"UNPROVEN","linker_archive_read":"UNPROVEN","same_run_eh_outputs":"UNPROVEN","sdk_archive_keys_pending_per_condition":9,"generator_input_closure":"UNPROVEN","selected_graph_exhaustive":"NO","glue_legal_admission":"NO","legal_admission":"NO","product_admission":"NO","fleet_admission":"NO"}' > "$output/refusal.json"
-            exit 1
+            exit 0
           fi
+          rm "$output/refusal.json"
       - name: Retain sanitized preflight receipt only
-        if: always()
+        if: ${{ always() && steps.cleanup.outcome == 'success' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: duckdb-eh-linker-preflight-v1-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/eh-linker-preflight-v1-receipt/
           if-no-files-found: error
           retention-days: 7
+      - name: Retain fixed cleanup refusal only
+        if: ${{ always() && steps.cleanup.outcome == 'failure' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: duckdb-eh-linker-preflight-v1-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/eh-linker-preflight-v1-cleanup-failure/
+          if-no-files-found: error
+          retention-days: 7
+      - name: Require positive receipt after upload
+        if: ${{ always() && steps.cleanup.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          output="$RUNNER_TEMP/eh-linker-preflight-v1-receipt"
+          test ! -e "$output/refusal.json"
+          test -f "$output/preflight.json" && test ! -L "$output/preflight.json"
