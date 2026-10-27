@@ -51,7 +51,7 @@ jobs:
           printf '%s  %s\n' \
             f070573bd130334ad2ccadb3661795bb6276a8547691616f00432ffc8cd79247 .github/scripts/duckdb-sdk-libnoexit-os-install-preflight-v1.nu \
             bed8ac3ef50793c49990db967d8bcedeb87d6a50be905f08c90c35148c290b58 .github/receipts/duckdb-sdk-libnoexit-os-install-preflight-v1.json \
-            bebc4717467d9ae42c568e8776ef3a57afb78538ebbc55ac4c911b4ed12ce9b5 .github/scripts/duckdb-sdk-libnoexit-os-install-witness-v1.nu \
+            8597b682a4fd8691b055e267243d22ddc2422b5601401936b7293b445aaf109a .github/scripts/duckdb-sdk-libnoexit-os-install-witness-v1.nu \
             1239e5b88b46d914c4a4a084ca7a614a138b65a88511c52ed9ae3bd31a6fdd0b .github/receipts/duckdb-sdk-libnoexit-os-install-witness-v1.json \
             | sha256sum --check --status
       - name: Install checksum-pinned MIT Nushell
@@ -115,44 +115,6 @@ jobs:
             .github/receipts/duckdb-sdk-libnoexit-os-install-witness-v1.json > "$root/expected-sha"
           test "$(wc -l < "$root/expected-sha")" -eq 1
           printf '%s  %s\n' "$(cat "$root/expected-sha")" "$root/package.deb" | sha256sum --check --status
-      - name: Prepare exact declared Ubuntu package prerequisites
-        shell: bash
-        run: |
-          set -euo pipefail
-          root="$RUNNER_TEMP/libnoexit-install-input"
-          output="$RUNNER_TEMP/libnoexit-install-output"
-          refuse_prereq() {
-            printf 'schema=tundra-sdk-libnoexit-os-install-witness/v1\nstatus=REFUSED\nreason=%s\npackage_install_verified=NO\nbehavior_cases=NOT_RUN\nlinker_input=UNPROVEN\ngenerator_input_closure=UNPROVEN\nlegal_admission=NO\nproduct_admission=NO\nfleet_admission=NO\n' "$1" > "$output/refusal.txt"
-            exit 1
-          }
-          # apt uses the disposable runner's configured signed package sources.
-          # Candidate versions are frozen for this job before installation.
-          ulimit -f 1024
-          if timeout 180s sudo -n apt-get update -qq > "$root/apt-update.stdout" 2> "$root/apt-update.stderr"; then
-            :
-          else
-            refuse_prereq PREREQ_APT_UPDATE_NONZERO
-          fi
-          test "$(stat -c %s "$root/apt-update.stdout")" -le 1048576 || refuse_prereq PREREQ_LOG_CAP
-          test "$(stat -c %s "$root/apt-update.stderr")" -le 1048576 || refuse_prereq PREREQ_LOG_CAP
-          webkit_version="$(apt-cache policy libwebkit2gtk-4.1-0 | awk '$1 == "Candidate:" { print $2 }')"
-          gtk_version="$(apt-cache policy libgtk-3-0 | awk '$1 == "Candidate:" { print $2 }')"
-          [[ "$webkit_version" =~ ^[0-9][A-Za-z0-9.+:~_-]*$ ]] || refuse_prereq PREREQ_CANDIDATE_MISSING
-          [[ "$gtk_version" =~ ^[0-9][A-Za-z0-9.+:~_-]*$ ]] || refuse_prereq PREREQ_CANDIDATE_MISSING
-          if timeout 300s sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-            "libwebkit2gtk-4.1-0=$webkit_version" "libgtk-3-0=$gtk_version" \
-            > "$root/apt-install.stdout" 2> "$root/apt-install.stderr"; then
-            :
-          else
-            refuse_prereq PREREQ_APT_INSTALL_NONZERO
-          fi
-          test "$(stat -c %s "$root/apt-install.stdout")" -le 1048576 || refuse_prereq PREREQ_LOG_CAP
-          test "$(stat -c %s "$root/apt-install.stderr")" -le 1048576 || refuse_prereq PREREQ_LOG_CAP
-          test "$(dpkg-query -W -f='${db:Status-Abbrev}\t${Version}' libwebkit2gtk-4.1-0)" = $'ii \t'"$webkit_version" || refuse_prereq PREREQ_STATUS_DRIFT
-          test "$(dpkg-query -W -f='${db:Status-Abbrev}\t${Version}' libgtk-3-0)" = $'ii \t'"$gtk_version" || refuse_prereq PREREQ_STATUS_DRIFT
-          jq -n --arg webkit "$webkit_version" --arg gtk "$gtk_version" \
-            '{schema:"tundra-sdk-install-prerequisites/v1",libwebkit2gtk_4_1_0:$webkit,libgtk_3_0:$gtk}' > "$root/prerequisites.json"
-          test "$(stat -c %s "$root/prerequisites.json")" -le 512 || refuse_prereq PREREQ_MANIFEST_CAP
       - name: Install authenticated package only on disposable GitHub runner
         shell: bash
         run: |
@@ -175,8 +137,7 @@ jobs:
           nu .github/scripts/duckdb-sdk-libnoexit-os-install-witness-v1.nu \
             .github/receipts/duckdb-sdk-libnoexit-os-install-witness-v1.json \
             '${{ matrix.condition }}' '${{ matrix.profile }}' "$root/package.deb" \
-            "$root/four-preflight.json" "$root/prerequisites.json" \
-            "$RUNNER_TEMP/libnoexit-install-output/receipt.json" \
+            "$root/four-preflight.json" "$RUNNER_TEMP/libnoexit-install-output/receipt.json" \
             "$RUNNER_TEMP/libnoexit-install-output/refusal.txt"
           test "$(stat -c %s "$RUNNER_TEMP/libnoexit-install-output/receipt.json")" -le 8192
           rm -f -- "$root/dpkg.stdout" "$root/dpkg.stderr"
