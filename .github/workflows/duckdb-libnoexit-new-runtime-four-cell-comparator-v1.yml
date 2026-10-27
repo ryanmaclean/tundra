@@ -1,0 +1,145 @@
+name: DuckDB PR154 four-cell installed corpus comparator v1
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  compare-four-cells:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/diagnostic/pr155-new-runtime-four-cell-comparator-held-20261027' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Initialize bounded refusal
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/four-cell-output"
+          printf 'schema=tundra-libnoexit-new-runtime-four-cell-comparator/v1\nstatus=REFUSED\nreason=AUTH_OR_COMPARISON_OR_CLEANUP_FAILED\npackage_install_verified=UNPROVEN_BY_COMPARATOR\nbehavior_cases=UNPROVEN_BY_COMPARATOR\nlinker_input=UNPROVEN\ngenerator_input_closure=UNPROVEN\nlegal_admission=NO\nproduct_admission=NO\nfleet_admission=NO\n' > "$RUNNER_TEMP/four-cell-output/refusal.txt"
+      - name: Check out exact comparator source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Pin exact source and reviewed files
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = workflow_dispatch
+          test "$GITHUB_REF" = refs/heads/diagnostic/pr155-new-runtime-four-cell-comparator-held-20261027
+          test "$RUNNER_OS" = Linux && test "$(uname -m)" = x86_64
+          test "$(. /etc/os-release; echo "$ID:$VERSION_ID")" = ubuntu:24.04
+          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test -f .git/HEAD && test ! -L .git/HEAD
+          printf '%s\n' "$GITHUB_SHA" | cmp -s - .git/HEAD
+          for path in .github/scripts/duckdb-libnoexit-new-runtime-four-cell-comparator-v1.nu \
+                      .github/receipts/duckdb-libnoexit-new-runtime-four-cell-comparator-v1.json; do
+            test -f "$path" && test ! -L "$path"
+          done
+          printf '%s  %s\n' \
+            7f95b40f75182220978265084b1b34b5cc24da47cd0637a7d9cb9fc6ae219145 .github/scripts/duckdb-libnoexit-new-runtime-four-cell-comparator-v1.nu \
+            b15994043ae5354859ec5b455d2c950c8527d3c1417845929e92f273a585061d .github/receipts/duckdb-libnoexit-new-runtime-four-cell-comparator-v1.json \
+            | sha256sum --check --status
+      - name: Install checksum-pinned MIT Nushell
+        shell: bash
+        run: |
+          set -euo pipefail
+          tool="$RUNNER_TEMP/tundra-nu-0.115.1"
+          mkdir -p "$tool"
+          archive="$tool/nu.tar.gz"
+          timeout 180s curl --fail --location --silent --show-error \
+            --proto '=https' --proto-redir '=https' --max-time 120 --retry 1 \
+            --max-filesize 90000000 --output "$archive" \
+            https://github.com/nushell/nushell/releases/download/0.115.1/nu-0.115.1-x86_64-unknown-linux-musl.tar.gz
+          test "$(stat -c %s "$archive")" = 83545998
+          printf '%s  %s\n' 8a9722177ddd421eba927b4baae4ae341a4d1c3434504be7b1b17d998bafdd87 "$archive" | sha256sum --check --status
+          tar -xOzf "$archive" nu-0.115.1-x86_64-unknown-linux-musl/nu > "$tool/nu"
+          tar -xOzf "$archive" nu-0.115.1-x86_64-unknown-linux-musl/LICENSE > "$tool/LICENSE"
+          test "$(stat -c %s "$tool/nu")" = 70750360
+          printf '%s  %s\n' \
+            c343a927a2d4a45ebf9300d013b226bcdc2598ecb0178a8a79722ebffe71e56e "$tool/nu" \
+            ff5dcaaba6140ec57cafdd4f707cd0d329e727477cf7d5b9ba7a244ec2678b79 "$tool/LICENSE" \
+            | sha256sum --check --status
+          grep -Fxq 'MIT License' "$tool/LICENSE"
+          chmod 0700 "$tool/nu"
+          test "$("$tool/nu" --version)" = 0.115.1
+          echo "$tool" >> "$GITHUB_PATH"
+      - name: Download four exact PR154 positive receipts
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/four-cell-input"
+          mkdir -p "$root"
+          gh api repos/ryanmaclean/tundra/actions/runs/40596646042 > "$root/run.json"
+          test "$(stat -c %s "$root/run.json")" -le 262144
+          for cell in image-default image-sounds clean-default clean-sounds; do
+            case "$cell" in
+              image-default) id=12777110869 ;;
+              image-sounds) id=12776881350 ;;
+              clean-default) id=12775774271 ;;
+              clean-sounds) id=12775963604 ;;
+              *) exit 1 ;;
+            esac
+            mkdir "$root/$cell"
+            gh api "repos/ryanmaclean/tundra/actions/artifacts/$id" > "$root/$cell/artifact.json"
+            test "$(stat -c %s "$root/$cell/artifact.json")" -le 262144
+            gh api "repos/ryanmaclean/tundra/actions/artifacts/$id/zip" > "$root/$cell/artifact.zip"
+            test "$(stat -c %s "$root/$cell/artifact.zip")" -le 65536
+          done
+      - name: Compare exact 28 semantic digests and four observed phase witnesses
+        shell: bash
+        run: |
+          set -euo pipefail
+          nu .github/scripts/duckdb-libnoexit-new-runtime-four-cell-comparator-v1.nu \
+            .github/receipts/duckdb-libnoexit-new-runtime-four-cell-comparator-v1.json \
+            "$RUNNER_TEMP/four-cell-input" "$RUNNER_TEMP/four-cell-output/candidate.json"
+          test "$(stat -c %s "$RUNNER_TEMP/four-cell-output/candidate.json")" -le 131072
+      - name: Remove downloaded receipts before positive selection
+        if: always()
+        shell: bash
+        env:
+          PRIOR_JOB_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/four-cell-input"
+          output="$RUNNER_TEMP/four-cell-output"
+          if ! rm -rf -- "$root" || test -e "$root" || test -L "$root"; then
+            rm -f -- "$output/candidate.json" "$output/aggregate-final.json"
+            printf 'schema=tundra-libnoexit-new-runtime-four-cell-comparator/v1\nstatus=REFUSED\nreason=EPHEMERAL_CLEANUP_UNPROVEN\npackage_install_verified=UNPROVEN_BY_COMPARATOR\nbehavior_cases=UNPROVEN_BY_COMPARATOR\nlinker_input=UNPROVEN\ngenerator_input_closure=UNPROVEN\nlegal_admission=NO\nproduct_admission=NO\nfleet_admission=NO\n' > "$output/refusal.txt"
+            exit 1
+          fi
+          if test "$PRIOR_JOB_STATUS" = success; then
+            test -f "$output/candidate.json" && test ! -L "$output/candidate.json"
+            jq -e 'select(.status == "FOUR_CELL_INSTALLED_CORPUS_COMPARISON_DIAGNOSTIC_ONLY" and
+              (.cells | length) == 4 and (.semantic_case_signatures | length) == 28 and
+              (.phase_only_cases | length) == 4 and .legal_admission == "NO" and
+              .product_admission == "NO" and .fleet_admission == "NO") |
+              . + {ephemeral_cleanup: "PROVEN"}' "$output/candidate.json" > "$output/aggregate-final.tmp"
+            test "$(stat -c %s "$output/aggregate-final.tmp")" -le 131072
+            mv -- "$output/aggregate-final.tmp" "$output/aggregate-final.json"
+            rm -f -- "$output/candidate.json" "$output/refusal.txt"
+          else
+            rm -f -- "$output/candidate.json" "$output/aggregate-final.tmp" "$output/aggregate-final.json"
+          fi
+      - name: Retain bounded aggregate only after cleanup
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: duckdb-libnoexit-new-runtime-four-cell-comparison-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/four-cell-output/aggregate-final.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Retain fixed refusal only
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: duckdb-libnoexit-new-runtime-four-cell-comparison-refusal-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/four-cell-output/refusal.txt
+          if-no-files-found: error
+          retention-days: 14

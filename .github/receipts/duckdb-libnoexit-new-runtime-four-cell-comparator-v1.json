@@ -1,0 +1,90 @@
+{
+  "schema": "tundra-libnoexit-new-runtime-four-cell-comparator/v1",
+  "scope": "EXACT_PR154_PHASE_BEARING_FOUR_CELL_DIAGNOSTIC_ONLY",
+  "repository": "ryanmaclean/tundra",
+  "repository_id": 1164936674,
+  "source_head": "f5bc996490857ac7c724e72f86f5aee69c0b5320",
+  "run_id": 40596646042,
+  "run_attempt": 1,
+  "consumer_head": "ad0df7182cd4c9ea4a83bac04e5901de0218d9d0",
+  "harness_sha256": "57480e689cccfa26e8527dba3f566c275bfbfad7cb2c43c4cb3dd85263284b8e",
+  "archive_sha256": "fdaa14b94400917928bc73415535f02244549987beb92719882bcc905b4280fe",
+  "notice_sha256": "620a78084fc7ca97c0b5dea9abf891f3ffcadfdbf305276f099c9c4e12fc1d86",
+  "assets": {
+    "duckdb-browser-eh.worker.js": "feec83f39202c08eb93e89df8c181bac32d4fb9ffb83a18bc277953e4d2945c4",
+    "duckdb-browser-mvp.worker.js": "d7920b73954d99ffa59175db35fe24e7936f8a003144386686b53c853c46eaef",
+    "duckdb-browser.mjs": "8ccf3fe3c6bd87d5c3e397f01d40cc11ea6373b016a9cf5e954d39ee22c3aa49",
+    "duckdb-eh.wasm": {
+      "clean": "d267671286a6f0718a6fe1d712cd209bda84ef53f5984d0303defeb55c9f5d99",
+      "image": "ac2022967687136ec63c8917d77842f3c01f69291d2d024626e42a34d17953b8"
+    },
+    "duckdb-mvp.wasm": "7cf852dcc3c399f34330072a422679f2a5b7fc58c5839d3de0035fc68d9b7791"
+  },
+  "semantic_sha256": "008589b5e6b4bf27adecb46b47b2945b7cdc015793cedc3e86c3939c6571ac79",
+  "max_artifact_zip_bytes": 65536,
+  "max_receipt_bytes": 131072,
+  "cells": [
+    {
+      "condition": "image",
+      "profile": "default",
+      "artifact_id": 12777110869,
+      "artifact_zip_sha256": "540616f2d37c941d517968b7100d625384775635b277a0e6c153c98c5195a18b",
+      "receipt_sha256": "f8bc99bc583f826db52a7572687c89d79485ca2a02691cc990e739e5bcd8097d",
+      "producer_artifact_id": 12773621404,
+      "package_sha256": "9fa725c7eb165a73feb502857d6c16253b554f236f641677e85e354a81fc279d",
+      "elf_sha256": "29ce27786d3aae8c64b1cf4160b344b723e78e1ce700eef063336802029b4192",
+      "bill_sha256": "edaa7fa45fdb1b4cd27e487fd9df0348d0d194c40414f6decfa6809d6c0bc3e3",
+      "cell_resource_sha256": "af7bb546448502bd06e4c3e5ea2be0a9b5ffeeadeed85eb1ab571608299dfc7b",
+      "pr137_artifact_id": 12707397953
+    },
+    {
+      "condition": "image",
+      "profile": "sounds",
+      "artifact_id": 12776881350,
+      "artifact_zip_sha256": "a1610fab90a1c554fc7510fd0036b18a11052dc057ddf99db734d379d994b2a7",
+      "receipt_sha256": "89b413f3784138a90c347b5d32d5e7501a2675c3f10d3d8e01be8da97a63d31e",
+      "producer_artifact_id": 12774470839,
+      "package_sha256": "773e5430587755428858df2d13b5cbb93f6da633d9669c7977681bbb30ae9039",
+      "elf_sha256": "00ae9b4de2f40fea768840918791497b6ace4c2348cdb2632fde8766dbfeccb0",
+      "bill_sha256": "29c4b00b87ec6c0ae2d216da23e883f5501d543fb9cdf25a250e02584c59950d",
+      "cell_resource_sha256": "3ac0c2fbe84da7accb8234d7a0e1b2420df6c37f5cee844f2e5786a4dc9b3db2",
+      "pr137_artifact_id": 12707094239
+    },
+    {
+      "condition": "clean",
+      "profile": "default",
+      "artifact_id": 12775774271,
+      "artifact_zip_sha256": "484fe0525a0d0ffa9013d39c2f2464fe98d293cde2241ae0040c6c8c4e88b18f",
+      "receipt_sha256": "789080ed3d4063038de98dc127871eea6b4025f724c2209142a3e11d45fb1a13",
+      "producer_artifact_id": 12774482677,
+      "package_sha256": "67948e6a67924980c338798e98dbcf38c7fed566ff4a1e25bf2f2fec929d294c",
+      "elf_sha256": "65b3812150712e8b69f53bb8fe9c7f4dd18eb548111c56b23c06c461b6fc9cba",
+      "bill_sha256": "e1d22a8a178d3c4472f6f4928b7b4f4c4756ff6d50411006987329582d3cfe61",
+      "cell_resource_sha256": "7bc5b40cd8aba588cd1272b13b61e3acd94e4b95026253f0a734aee354fc7e6a",
+      "pr137_artifact_id": 12708117533
+    },
+    {
+      "condition": "clean",
+      "profile": "sounds",
+      "artifact_id": 12775963604,
+      "artifact_zip_sha256": "316e773bfcfd05c610063a66bd7fccc28b92f57be71911adf1fb017cbc1441bb",
+      "receipt_sha256": "cc30791684314a5a570a3bb964f774659b24dad1f8138319663adfe4088ac11c",
+      "producer_artifact_id": 12775167850,
+      "package_sha256": "ddeccbf136a621b7e4d98760227a58e22bc121de3d98fc5b9b49ca7023224b78",
+      "elf_sha256": "4262f0266a03c9d63089f895169a21c2c284a8283d0ad2dd8a10b52f9fbe0e9d",
+      "bill_sha256": "6d6a5a1bda4acf009d02ce300b70996535caa733b17274551db38824fe8dbc0d",
+      "cell_resource_sha256": "d52930b70496487a96f780b2b568ff9fa86695c922e01bce8b05fff731df1fbb",
+      "pr137_artifact_id": 12708990037
+    }
+  ],
+  "package_install_verified": "FOUR_DISPOSABLE_RUNNERS_ONLY",
+  "behavior_cases": "32_PASSED_FOUR_DISPOSABLE_RUNNERS_ONLY",
+  "linker_input": "UNPROVEN",
+  "generator_input_closure": "UNPROVEN",
+  "selected_graph_exhaustive": "NO",
+  "legal_admission": "NO",
+  "product_admission": "NO",
+  "fleet_admission": "NO",
+  "producer_head": "1cf16aa6c5c0fa6265e06ccc03ad9ef5e3f35875",
+  "producer_run_id": 40588647258
+}
