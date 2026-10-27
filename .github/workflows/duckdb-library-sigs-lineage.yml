@@ -1,0 +1,246 @@
+name: DuckDB library_sigs generator lineage diagnostic
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  library-sigs-lineage:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out exact diagnostic source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Initialize bounded refusal receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/sigs-input" "$RUNNER_TEMP/sigs-receipt" \
+            "$RUNNER_TEMP/sigs-private/direct" "$RUNNER_TEMP/sigs-private/traced"
+          # These two output directories stay runner-owned. The pinned image's
+          # UID 1000 may create files in them, but cannot take directory
+          # ownership; the runner can then unlink those files on every outcome.
+          for directory in "$RUNNER_TEMP/sigs-private/direct" "$RUNNER_TEMP/sigs-private/traced"; do
+            test -d "$directory" && test ! -L "$directory"
+            test "$(stat -c %u "$directory")" = "$(id -u)"
+            chmod 0733 "$directory"
+          done
+          printf '%s\n' '{"schema":"tundra-library-sigs-lineage-diagnostic/v1","status":"REFUSED","reason":"NOT_COMPLETED","generator_source_mode":"NOT_ESTABLISHED","input_manifest":"UNPROVEN","generator_input_closure":"UNPROVEN","selected_graph_exhaustive":"NO","glue_legal_admission":"NO","legal_admission":"NO","product_admission":"NO","fleet_admission":"NO"}' > "$RUNNER_TEMP/sigs-receipt/refusal.json"
+      - name: Install checksum-pinned MIT Nushell
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -s)" = Linux && test "$(uname -m)" = x86_64
+          tool="$RUNNER_TEMP/tundra-nu-0.115.1"; mkdir -p "$tool"
+          archive="$tool/nu-0.115.1-x86_64-unknown-linux-musl.tar.gz"
+          timeout 180s curl --fail --location --silent --show-error --proto '=https' --proto-redir '=https' --max-time 120 --retry 1 --max-filesize 90000000 --output "$archive" https://github.com/nushell/nushell/releases/download/0.115.1/nu-0.115.1-x86_64-unknown-linux-musl.tar.gz
+          test "$(stat -c %s "$archive")" = 83545998
+          printf '%s  %s\n' 8a9722177ddd421eba927b4baae4ae341a4d1c3434504be7b1b17d998bafdd87 "$archive" | sha256sum --check --status
+          tar -xOzf "$archive" nu-0.115.1-x86_64-unknown-linux-musl/nu > "$tool/nu"
+          tar -xOzf "$archive" nu-0.115.1-x86_64-unknown-linux-musl/LICENSE > "$tool/LICENSE"
+          test "$(stat -c %s "$tool/nu")" = 70750360
+          printf '%s  %s\n' c343a927a2d4a45ebf9300d013b226bcdc2598ecb0178a8a79722ebffe71e56e "$tool/nu" ff5dcaaba6140ec57cafdd4f707cd0d329e727477cf7d5b9ba7a244ec2678b79 "$tool/LICENSE" | sha256sum --check --status
+          grep -Fxq 'MIT License' "$tool/LICENSE"
+          chmod 0700 "$tool/nu"
+          test "$("$tool/nu" --version)" = 0.115.1
+          echo "$tool" >> "$GITHUB_PATH"
+      - name: Authenticate frozen PR134, PR136, and PR138 bytes
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          input="$RUNNER_TEMP/sigs-input"
+          test -d "$GITHUB_WORKSPACE/.git" && test ! -L "$GITHUB_WORKSPACE/.git"
+          test -f "$GITHUB_WORKSPACE/.git/HEAD" && test ! -L "$GITHUB_WORKSPACE/.git/HEAD"
+          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
+          printf '%s\n' "$GITHUB_SHA" | cmp -s - "$GITHUB_WORKSPACE/.git/HEAD"
+          printf '%s  %s\n' \
+            923dbb4cf4a2fb4c8eb18a202bbfa05f9af0be5cc8723c22c3ab3f9f457b2cbe .github/receipts/duckdb-library-sigs-lineage-v1.json \
+            b7d2731c1ca79279e0affd046f0d109ead7cbb8f7ea90607d0c8fcde8b801be1 .github/scripts/duckdb-library-sigs-lineage-v1.nu \
+            | sha256sum --check --status
+          api=https://api.github.com/repos/ryanmaclean/tundra
+          api_get() {
+            printf 'header = "Authorization: Bearer %s"\n' "$GH_TOKEN" |
+              curl --config - --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --max-time 180 --retry 1 --max-filesize 80000000 --output "$2" "$1"
+          }
+          for run in 40434996466 40454637228; do api_get "$api/actions/runs/$run" "$input/run-$run.json"; done
+          for id in 12705817192 12713404360; do
+            api_get "$api/actions/artifacts/$id" "$input/artifact-$id.json"
+            api_get "$api/actions/artifacts/$id/zip" "$input/artifact-$id.zip"
+          done
+          timeout 120s curl --fail --location --silent --show-error --proto '=https' --proto-redir '=https' --max-time 100 --retry 1 --max-filesize 20000 --output "$input/pr134-ledger.tsv" \
+            https://raw.githubusercontent.com/ryanmaclean/tundra/1a2d2f0e24aead8dcb286bbf5ad509c01d6697c7/.github/receipts/duckdb-eh-js-glue-observed-v2.tsv
+          python3 - <<'PY'
+          import csv, hashlib, io, json, os, pathlib, tarfile, zipfile
+          root = pathlib.Path(os.environ['RUNNER_TEMP']) / 'sigs-input'
+          ledger = json.loads(pathlib.Path('.github/receipts/duckdb-library-sigs-lineage-v1.json').read_text())
+          sha = lambda b: hashlib.sha256(b).hexdigest()
+          assert sha((root / 'pr134-ledger.tsv').read_bytes()) == ledger['pr134']['ledger_sha256']
+          lines = list(csv.DictReader((root / 'pr134-ledger.tsv').open(), delimiter='\t'))
+          matches = [r for r in lines if r['path'] == 'emscripten/src/library_sigs.js']
+          assert len(lines) == 36 and len(matches) == 1
+          row = matches[0]
+          assert row['sha256'] == ledger['output_sha256']
+          assert row['association_status'] == ledger['source_status']
+          assert row['provenance_status'] == 'GENERATOR_INPUT_REPLAY_UNPROVEN'
+          assert row['selected_license'] == 'MIT' and row['notice_sha256'] == ledger['notice_sha256']
+          assert row['origin'] == ledger['image'] and row['official_commit'] == ledger['emscripten_commit']
+          auth = []
+          for label in ('pr136', 'pr138'):
+              expected = ledger[label]; run_id = expected['run']; artifact_id = expected['artifact_id']
+              run = json.loads((root / f'run-{run_id}.json').read_text())
+              assert run['id'] == run_id and run['run_attempt'] == expected['attempt']
+              assert run['head_sha'] == expected['head'] and run['event'] == 'workflow_dispatch'
+              assert run['status'] == 'completed' and run['conclusion'] == 'success'
+              meta = json.loads((root / f'artifact-{artifact_id}.json').read_text())
+              archive = root / f'artifact-{artifact_id}.zip'
+              assert meta['id'] == artifact_id and meta['name'] == 'duckdb-combined-custody-eh'
+              assert meta['digest'] == 'sha256:' + expected['artifact_zip_sha256'] and not meta['expired']
+              assert meta['workflow_run']['id'] == run_id and meta['workflow_run']['head_sha'] == expected['head']
+              assert archive.stat().st_size == meta['size_in_bytes'] <= 80000000
+              assert sha(archive.read_bytes()) == expected['artifact_zip_sha256']
+              with zipfile.ZipFile(archive) as z:
+                  infos = z.infolist(); names = [m.filename for m in infos]
+                  assert len(names) == len(set(names)) == (333 if label == 'pr136' else 356)
+                  assert sum(m.file_size for m in infos) <= 419430400 and z.testzip() is None
+                  for m in infos:
+                      assert not m.filename.startswith('/') and '\\' not in m.filename
+                      assert all(p not in ('', '.', '..') for p in m.filename.rstrip('/').split('/'))
+                      assert ((m.external_attr >> 16) & 0o170000) in (0, 0o100000, 0o040000)
+                  if label == 'pr136':
+                      bill = z.read('selected-native-glue-bill-v1.json')
+                      assert sha(bill) == expected['bill_sha256']
+                      bill = json.loads(bill)
+                      assert len(bill['rows']) == 142
+                      assert bill['generator_input_closure'] == 'UNPROVEN' and bill['glue_legal_admission'] == 'NO'
+                      for c in ('image', 'clean'):
+                          key = f'{c}/glue/emscripten/src/library_sigs.js/1'
+                          rows = [r for r in bill['rows'] if r['key'] == key]
+                          assert len(rows) == 1 and rows[0]['condition'] == c
+                          assert rows[0]['source_sha256'] == ledger['output_sha256']
+                          assert rows[0]['status'] == ledger['source_status']
+                          assert rows[0]['notice_sha256'] == ledger['notice_sha256']
+                  else:
+                      for c in ('image', 'clean'):
+                          tarbytes = z.read(f'{c}-js-glue-source-bytes.tar.gz')
+                          with tarfile.open(fileobj=io.BytesIO(tarbytes), mode='r:gz') as t:
+                              infos2 = t.getmembers(); paths = [m.name for m in infos2]
+                              assert len(paths) == 68 and len(set(paths)) == 34
+                              assert sum(m.size for m in infos2) <= 5000000
+                              assert all(not m.name.startswith('/') and '\\' not in m.name and
+                                         all(p not in ('', '.', '..') for p in m.name.split('/')) for m in infos2)
+                              assert all(sum(m.isfile() for m in infos2 if m.name == path) == 1 and
+                                         sum(m.islnk() and m.linkname == path and m.size == 0
+                                             for m in infos2 if m.name == path) == 1
+                                         for path in set(paths))
+                              target = 'emsdk/upstream/emscripten/src/library_sigs.js'
+                              m, = [m for m in infos2 if m.name == target and m.isfile()]
+                              assert m.size == ledger['output_size']
+                              data = t.extractfile(m).read()
+                              assert sha(data) == ledger['output_sha256']
+                              (root / f'{c}-library_sigs.js').write_bytes(data)
+                      binary = z.read('eh-generator-tracer-package/strace')
+                      assert len(binary) == 1972848 and sha(binary) == '38a5c75cb29dd85ddd7780d54f5bf595554d7a1b5c42524b23065f5dc4c4b01d'
+                      p = root / 'strace'; p.write_bytes(binary); p.chmod(0o500)
+                      for label, member, size, digest in (
+                          ('libunwind8', 'eh-libunwind-package/libunwind8_1.3.2-2build2.1_amd64.deb', 54518, '781e3eb86986ab93e8b4866fc571fdec780c3d9a8b56b490e9c2f10fb90978ce'),
+                          ('liblzma5', 'eh-runtime-dependencies-package/liblzma5_5.2.5-2ubuntu1_amd64.deb', 99544, '8f1c46e7d3f5102a5e4fdca7c949728a343ba71c2a7c124118df2c13d4c444f7'),
+                          ('libc6', 'eh-runtime-dependencies-package/libc6_2.35-0ubuntu3.4_amd64.deb', 3234380, '00e54c06bde8531d955b3fac7dc13f4bd69e5d03515f68a72db08f9cd4cc2c06'),
+                      ):
+                          package = z.read(member)
+                          assert len(package) == size and sha(package) == digest
+                          (root / f'{label}.deb').write_bytes(package)
+                      for member, size, digest in (
+                          ('eh-libunwind-package/copyright', 3613, '977d981f5677652884b09cccef6b62f992aa9c74b7a748bfe9863a703f5aed58'),
+                          ('eh-libunwind-package/COPYING', 1063, '6a0dbbdaec2b3136b7bf045586f4212bdf74e7af688bf9dfe9154607cf5ec156'),
+                          ('eh-runtime-dependencies-package/liblzma5-copyright', 15465, 'a2dc8fac0f496e1c58aff67018cf0c6b88336316afa5642f9335b71642e28aa8'),
+                          ('eh-runtime-dependencies-package/libc6-copyright', 26462, 'd3c95b56fa33e28b57860580f0baf4e4f4de2a268a2b80f1d031a5191bade265'),
+                      ):
+                          notice = z.read(member)
+                          assert len(notice) == size and sha(notice) == digest
+              auth.append({'run': run_id, 'attempt': expected['attempt'], 'head': expected['head'], 'artifact_id': artifact_id, 'artifact_zip_sha256': expected['artifact_zip_sha256']})
+          output = pathlib.Path(os.environ['RUNNER_TEMP']) / 'sigs-receipt' / 'auth.json'
+          output.write_text(json.dumps({'schema':'tundra-library-sigs-input-auth/v1','sources':auth,'pr134_head':ledger['pr134']['head'],'pr134_ledger_sha256':ledger['pr134']['ledger_sha256'],'admission':'NO'},sort_keys=True,separators=(',',':'))+'\n')
+          PY
+      - name: Stage exact package tracer runtime without installation
+        shell: bash
+        run: |
+          set -euo pipefail
+          input="$RUNNER_TEMP/sigs-input"; scratch="$RUNNER_TEMP/sigs-private/runtime-packages"
+          runtime="$input/tracer-runtime"; mkdir -p "$scratch" "$runtime"
+          for package in libunwind8 liblzma5 libc6; do
+            mkdir "$scratch/$package"
+            dpkg-deb --extract "$input/$package.deb" "$scratch/$package"
+          done
+          install -m 0444 "$scratch/libunwind8/usr/lib/x86_64-linux-gnu/libunwind-ptrace.so.0.0.0" "$runtime/libunwind-ptrace.so.0"
+          install -m 0444 "$scratch/libunwind8/usr/lib/x86_64-linux-gnu/libunwind-x86_64.so.8.0.1" "$runtime/libunwind-x86_64.so.8"
+          install -m 0444 "$scratch/libunwind8/usr/lib/x86_64-linux-gnu/libunwind.so.8.0.1" "$runtime/libunwind.so.8"
+          install -m 0444 "$scratch/liblzma5/lib/x86_64-linux-gnu/liblzma.so.5.2.5" "$runtime/liblzma.so.5"
+          install -m 0444 "$scratch/libc6/lib/x86_64-linux-gnu/libc.so.6" "$runtime/libc.so.6"
+          install -m 0555 "$scratch/libc6/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2" "$runtime/ld-linux-x86-64.so.2"
+          printf '%s  %s\n' \
+            f791a9b0b01faa13a65ee066d2351d2e38a23d6c3752f75eebeaf0fc5c7d56f4 "$runtime/libunwind-ptrace.so.0" \
+            1077e265bdd76ed4f2d628ea29150eb98f5c7c8f5a30004a561e6e93a2a6f097 "$runtime/libunwind-x86_64.so.8" \
+            5d1f6f104f79698e137c9f17c4b0317dfd96816c0eb6a87c50619a41472ca382 "$runtime/libunwind.so.8" \
+            493cb401ab4aa3bba611ca464d12996afb3b327940d29476f535f999e167439b "$runtime/liblzma.so.5" \
+            2e15e345ccba1e1e8bf3bc58938d13eb7ccc17044942f0376cd5bc771f429b79 "$runtime/libc.so.6" \
+            e833bd99168bea158d2f2e5d32462479cacfb624003304a9ea74a1607a144f1f "$runtime/ld-linux-x86-64.so.2" \
+            | sha256sum --check --status
+      - name: Supply exact official generator script as a verified read-only input
+        shell: bash
+        run: |
+          set -euo pipefail
+          script="$RUNNER_TEMP/sigs-input/gen_sig_info.py"
+          timeout 90s curl --fail --location --silent --show-error --proto '=https' --proto-redir '=https' --max-time 75 --retry 1 --max-filesize 20000 --output "$script" \
+            https://raw.githubusercontent.com/emscripten-core/emscripten/e967e20b4727956a30592165a3c1cde5c67fa0a8/tools/maint/gen_sig_info.py
+          test -f "$script" && test ! -L "$script"
+          test "$(stat -c %s "$script")" = 12317
+          printf '%s  %s\n' 64f906f405eee71f56e1407acfc0074b9951d05fc0c03eaf72f14efdc48b1f52 "$script" | sha256sum --check --status
+          chmod 0444 "$script"
+      - name: Run isolated pinned-image generator and conservative trace diagnostic
+        shell: bash
+        run: |
+          set -euo pipefail
+          nu .github/scripts/duckdb-library-sigs-lineage-v1.nu \
+            .github/receipts/duckdb-library-sigs-lineage-v1.json \
+            "$RUNNER_TEMP/sigs-input" "$RUNNER_TEMP/sigs-private" "$RUNNER_TEMP/sigs-receipt"
+      - name: Remove ephemeral input and trace bytes
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          cleanup_ok=YES
+          if ! rm -rf -- "$RUNNER_TEMP/sigs-private" "$RUNNER_TEMP/sigs-input" >/dev/null 2>&1; then
+            cleanup_ok=NO
+          fi
+          for directory in "$RUNNER_TEMP/sigs-private" "$RUNNER_TEMP/sigs-input"; do
+            if test -e "$directory" || test -L "$directory"; then cleanup_ok=NO; fi
+          done
+          output="$RUNNER_TEMP/sigs-receipt"; mkdir -p "$output"
+          if test "$cleanup_ok" != YES; then
+            rm -f -- "$output/replay.json"
+            printf '%s\n' '{"schema":"tundra-library-sigs-lineage-diagnostic/v1","status":"REFUSED","reason":"EPHEMERAL_CLEANUP_UNPROVEN","generator_source_mode":"NOT_ESTABLISHED","input_manifest":"UNPROVEN","generator_input_closure":"UNPROVEN","selected_graph_exhaustive":"NO","glue_legal_admission":"NO","legal_admission":"NO","product_admission":"NO","fleet_admission":"NO"}' > "$output/refusal.json"
+          fi
+          bytes="$(du -sb "$output" | cut -f 1)"
+          if test "$bytes" -gt 2097152; then
+            find "$output" -mindepth 1 -maxdepth 1 -type f -delete
+            printf '%s\n' '{"schema":"tundra-library-sigs-lineage-diagnostic/v1","status":"REFUSED","reason":"DIAGNOSTIC_CAP","generator_source_mode":"NOT_ESTABLISHED","input_manifest":"UNPROVEN","generator_input_closure":"UNPROVEN","selected_graph_exhaustive":"NO","glue_legal_admission":"NO","legal_admission":"NO","product_admission":"NO","fleet_admission":"NO"}' > "$output/refusal.json"
+            exit 1
+          fi
+          test "$cleanup_ok" = YES
+      - name: Retain sanitized diagnostic only
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: duckdb-library-sigs-lineage-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/sigs-receipt/
+          if-no-files-found: error
+          retention-days: 7
