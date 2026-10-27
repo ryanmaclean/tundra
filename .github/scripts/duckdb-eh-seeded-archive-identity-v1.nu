@@ -1,6 +1,7 @@
 #!/usr/bin/env nu
 
 # Held component: prove only the image archive seed's identity. It never runs an EH link.
+use ./duckdb-eh-linker-preflight-v1.nu authenticate
 def require [ok: bool, reason: string] { if not $ok { error make {msg: $reason} } }
 
 def file_sha [path: string] {
@@ -17,7 +18,7 @@ def identity [path: string] {
   {path: $path, stat: ($result.stdout | str trim), sha256: (file_sha $path)}
 }
 
-def inputs [ledger_path: string, auth_path: string, source: string, cache: string] {
+def inputs [ledger_path: string, auth_path: string, cache: string] {
   let ledger = (open $ledger_path)
   let auth = (open $auth_path)
   require ($ledger.schema == 'tundra-eh-seeded-link-prerequisites/v1' and $ledger.runnable == 'NO' and $ledger.scope == 'CONTROLLED_IMAGE_ONLY_FUTURE_EH_TRACE') 'LEDGER_SCOPE'
@@ -26,10 +27,14 @@ def inputs [ledger_path: string, auth_path: string, source: string, cache: strin
   require ($auth.status == 'PR143_ARTIFACT_AUTHENTICATED_ONLY' and $auth.producer_run_id == $ledger.producer.run_id and $auth.producer_attempt == $ledger.producer.attempt and $auth.producer_head == $ledger.producer.head and $auth.artifact_id == $ledger.producer.artifact_id and $auth.artifact_zip_sha256 == $ledger.producer.zip_sha256) 'AUTH_JOIN'
   require (($auth.member_sha256 | where name == 'image-libnoexit.a' | length) == 1 and ($auth.member_sha256 | where name == 'clean-libnoexit.a' | length) == 1) 'CONDITION_MEMBERS'
   require (($auth.member_sha256 | where name == 'image-libnoexit.a' | first).sha256 == $ledger.producer.selected_member_sha256) 'AUTH_IMAGE_HASH'
-  require (($source | path basename) == 'image-libnoexit.a' and (file_sha $source) == $ledger.producer.selected_member_sha256) 'IMAGE_SOURCE'
   require ($cache == '/work/image/cache') 'CACHE_ROOT'
   require ($ledger.linker_archive_read == 'UNPROVEN' and $ledger.same_run_eh_outputs == 'UNPROVEN' and $ledger.legal_admission == 'NO' and $ledger.product_admission == 'NO' and $ledger.fleet_admission == 'NO') 'ADMISSION_SCOPE'
   $ledger
+}
+
+export def selected_source [private: string, member: string] {
+  require ($private == '/work/image/pr143-auth' and $member == 'image-libnoexit.a') 'CONDITION_SOURCE_NOT_IMAGE'
+  $private | path join $member
 }
 
 def check_dir [path: string] {
@@ -50,10 +55,16 @@ def inventory [cache: string, expected: string] {
   require (($rows | length) == 1 and $rows.0 == $expected) 'ALTERNATE_OR_MISSING_ARCHIVE'
 }
 
-export def seed [ledger_path: string, auth_path: string, source: string, cache: string, settings_path: string, receipt_path: string] {
-  let ledger = (inputs $ledger_path $auth_path $source $cache)
+export def seed [ledger_path: string, preflight_ledger: string, run_api: string, artifact_api: string, zip: string, private: string, auth_path: string, cache: string, settings_path: string, receipt_path: string] {
   check_dir '/work'
   check_dir '/work/image'
+  require (not ($auth_path | path exists) and $auth_path == '/work/image/pr143-auth.json') 'AUTH_RECEIPT_PREEXISTS_OR_PATH'
+  let source = (selected_source $private 'image-libnoexit.a')
+  # Reauthenticate and extract the immutable ZIP in this same invocation. A
+  # caller cannot pass a renamed clean archive or an old extraction directory.
+  authenticate $preflight_ledger $run_api $artifact_api $zip $private $auth_path | ignore
+  let ledger = (inputs $ledger_path $auth_path $cache)
+  require ((file_sha $source) == $ledger.producer.selected_member_sha256) 'IMAGE_SOURCE'
   require (not ($cache | path exists)) 'CACHE_NOT_ABSENT'
   require ((try { ls -lD $cache } catch { [] } | length) == 0) 'CACHE_PATH_OCCUPIED'
   let expected = (selected $cache $settings_path)
@@ -76,16 +87,16 @@ export def seed [ledger_path: string, auth_path: string, source: string, cache: 
   require ($id.sha256 == $ledger.producer.selected_member_sha256 and (($id.stat | split row ':').2 | into int) == 1644) 'SEED_BYTES_DRIFT'
   let resolved = (^readlink -f -- $expected | complete)
   require ($resolved.exit_code == 0 and ($resolved.stdout | str trim) == $expected) 'SEED_SYMLINK_ESCAPE'
-  {schema: 'tundra-eh-seeded-archive-identity/v1', status: 'HELD_SEED_IDENTITY_ONLY', condition: 'image', producer_run_id: $ledger.producer.run_id, producer_artifact_id: $ledger.producer.artifact_id, image_member_name: $ledger.producer.selected_member, settings_derived_path: $settings_path, seed: $id, linker_archive_read: 'UNPROVEN', same_run_eh_outputs: 'UNPROVEN', object_input_closure: 'UNPROVEN', other_sdk_archive_keys_pending: 8, selected_graph_exhaustive: 'NO', legal_admission: 'NO', product_admission: 'NO', fleet_admission: 'NO'} | to json --raw | save $receipt_path
+  {schema: 'tundra-eh-seeded-archive-identity/v1', status: 'HELD_SEED_IDENTITY_ONLY', condition: 'image', producer_run_id: $ledger.producer.run_id, producer_artifact_id: $ledger.producer.artifact_id, image_member_name: $ledger.producer.selected_member, image_member_path: $source, auth_receipt_path: $auth_path, settings_derived_path: $settings_path, seed: $id, linker_archive_read: 'UNPROVEN', same_run_eh_outputs: 'UNPROVEN', object_input_closure: 'UNPROVEN', other_sdk_archive_keys_pending: 8, selected_graph_exhaustive: 'NO', legal_admission: 'NO', product_admission: 'NO', fleet_admission: 'NO'} | to json --raw | save $receipt_path
 }
 
-export def verify [ledger_path: string, auth_path: string, source: string, cache: string, settings_path: string, receipt_path: string] {
-  let ledger = (inputs $ledger_path $auth_path $source $cache)
+export def verify [ledger_path: string, auth_path: string, cache: string, settings_path: string, receipt_path: string] {
+  let ledger = (inputs $ledger_path $auth_path $cache)
   let expected = (selected $cache $settings_path)
   for dir in ['/work' '/work/image' $cache ($cache | path join 'sysroot') ($cache | path join 'sysroot/lib') ($cache | path join 'sysroot/lib/wasm32-emscripten')] { check_dir $dir }
   inventory $cache $expected
   let before = (open $receipt_path)
-  require ($before.schema == 'tundra-eh-seeded-archive-identity/v1' and $before.status == 'HELD_SEED_IDENTITY_ONLY' and $before.condition == 'image' and $before.settings_derived_path == $expected) 'SEED_RECEIPT'
+  require ($before.schema == 'tundra-eh-seeded-archive-identity/v1' and $before.status == 'HELD_SEED_IDENTITY_ONLY' and $before.condition == 'image' and $before.image_member_path == (selected_source '/work/image/pr143-auth' 'image-libnoexit.a') and $before.auth_receipt_path == $auth_path and $before.settings_derived_path == $expected) 'SEED_RECEIPT'
   let after = (identity $expected)
   require ($after == $before.seed and $after.sha256 == $ledger.producer.selected_member_sha256) 'SEED_IDENTITY_CHANGED'
   let resolved = (^readlink -f -- $expected | complete)
@@ -93,8 +104,12 @@ export def verify [ledger_path: string, auth_path: string, source: string, cache
   true
 }
 
-def main [mode: string, ledger: string, auth: string, source: string, cache: string, settings_path: string, receipt: string] {
-  if $mode == 'seed' { seed $ledger $auth $source $cache $settings_path $receipt }
-  else if $mode == 'verify' { verify $ledger $auth $source $cache $settings_path $receipt | ignore }
+def main [mode: string, ledger: string, first: string, second: string, third: string, fourth: string, fifth?: string, sixth?: string, seventh?: string, eighth?: string, ninth?: string] {
+  if $mode == 'seed' {
+    require ($fifth != null and $sixth != null and $seventh != null and $eighth != null and $ninth != null) 'SEED_ARGUMENTS'
+    seed $ledger $first $second $third $fourth $fifth $sixth $seventh $eighth $ninth
+  } else if $mode == 'verify' {
+    verify $ledger $first $second $third $fourth | ignore
+  }
   else { error make {msg: 'MODE'} }
 }
