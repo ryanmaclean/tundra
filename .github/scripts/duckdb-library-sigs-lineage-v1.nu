@@ -50,6 +50,16 @@ export def verify_required_file [stage: string, path: string, expected_size: int
   }
 }
 
+export def cleanup_direct_output [path: string] {
+  let removed = (^rm -f -- $path | complete)
+  if $removed.exit_code != 0 { error make {msg: 'DIRECT_OUTPUT_CLEANUP_REFUSED'} }
+  let present = (^test -e $path | complete)
+  let symlink = (^test -L $path | complete)
+  if $present.exit_code == 0 or $symlink.exit_code == 0 {
+    error make {msg: 'DIRECT_OUTPUT_CLEANUP_REFUSED'}
+  }
+}
+
 export def classify_container_start_failure [stderr: string] {
   let target = '/emsdk/upstream/emscripten/tools/maint/gen_sig_info.py'
   if ($stderr | str contains $target) and (
@@ -371,7 +381,8 @@ def inside [ledger_path: string, receipt: string] {
       classify_direct_output /out/direct/library_sigs.js $ledger.output_size $ledger.output_sha256 $copies
     }
     cd /work
-    rm -rf /work/direct /out/direct /tmp/direct-home /tmp/direct-emcache /tmp/direct-tmp
+    cleanup_direct_output /out/direct/library_sigs.js
+    rm -rf /work/direct /tmp/direct-home /tmp/direct-emcache /tmp/direct-tmp
     cd /work/traced
     let invocation = (with-env {HOME: '/tmp/traced-home', EM_CACHE: '/tmp/traced-emcache', TMPDIR: '/tmp/traced-tmp'} {
       ^timeout 600s $interpreter --library-path $runtime /tool/strace -f -yy -s 4096 -o /out/traced/trace.raw -e 'trace=%file,%process,%network,read,readv,close,chdir,fchdir' python3 $"($source)/($ledger.generator_path)" -o /out/traced/library_sigs.js | complete
@@ -424,7 +435,7 @@ def inside [ledger_path: string, receipt: string] {
       'COMPILER_JS_FILE_MISSING' 'COMPILER_JS_FILE_DRIFT' 'COMPILER_JS_HASH_FAILED'
       'TRACER_INTERPRETER_UNAVAILABLE' 'TRACER_LOADER_LOG_CAP' 'TRACER_LOADER_LIST_REFUSED'
       'TRACER_RUNTIME_DRIFT' 'TRACER_LOADER_LIST_DRIFT' 'TRACER_VERSION_LOG_CAP' 'TRACER_VERSION_REFUSED'
-      'TRACER_VERSION_DRIFT'
+      'TRACER_VERSION_DRIFT' 'DIRECT_OUTPUT_CLEANUP_REFUSED'
     ]
     if $message in $allowed { refusal $receipt $message } else { refusal $receipt 'UNCLASSIFIED_FAILURE' }
   }
