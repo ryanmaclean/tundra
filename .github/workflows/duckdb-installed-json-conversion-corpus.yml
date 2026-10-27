@@ -17,6 +17,59 @@ permissions:
   actions: read
 
 jobs:
+  eh-seeded-image-build-v1-source-pin:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/diagnostic/eh-seeded-link-input-held-20261027' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Check out exact held diagnostic source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Require direct child of reviewed source and exact file bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = workflow_dispatch
+          test "$GITHUB_REF" = refs/heads/diagnostic/eh-seeded-link-input-held-20261027
+          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test -f .git/HEAD && test ! -L .git/HEAD
+          printf '%s\n' "$GITHUB_SHA" | cmp -s - .git/HEAD
+          test "$(git rev-parse HEAD^)" = 1f7924abd1462a9efd81eb4684e8b1a16fb9940b
+          for source in \
+            .github/workflows/duckdb-eh-seeded-image-build-v1.yml \
+            .github/scripts/duckdb-eh-seeded-archive-identity-v1.nu \
+            .github/scripts/duckdb-eh-seeded-build-v1.nu \
+            .github/receipts/duckdb-eh-seeded-build-v1.json \
+            .github/receipts/duckdb-eh-seeded-link-prereqs-v1.json \
+            .github/receipts/duckdb-eh-linker-preflight-v1.json \
+            .github/scripts/duckdb-eh-linker-preflight-v1.nu \
+            .github/receipts/duckdb-eh-webdb-fetch-error-pr138.patch; do
+            test -f "$source" && test ! -L "$source"
+          done
+          printf '%s  %s\n' \
+            26cc33d40e84650e2ef1897bc5b038e6241845688dcf90155e89dd55588c52b9 .github/workflows/duckdb-eh-seeded-image-build-v1.yml \
+            83fa2ee3355c9e26732d94265e06ed23c8b7ba9c9b71cad05fa7b4d131e1a9ba .github/scripts/duckdb-eh-seeded-archive-identity-v1.nu \
+            9d445433aa4f8c46c057321413bfd6f24e2c05b1d45200f6385fdf346b210896 .github/scripts/duckdb-eh-seeded-build-v1.nu \
+            684e4f3d9abfc1f0451d32d7aa66b79431a726c47a41d1640e5f69ae8abacfc8 .github/receipts/duckdb-eh-seeded-build-v1.json \
+            799f3e08403d6b48a6afa7bb933d40f5455c168d7b1948237bf9d2a1415a339b .github/receipts/duckdb-eh-seeded-link-prereqs-v1.json \
+            28940f29c59dc2b2efa3bef89042f0e91101eb60184699ff44133b3efb6504b8 .github/receipts/duckdb-eh-linker-preflight-v1.json \
+            4a52e40fbc0f2d72d6cb43ec150676ed6e5d9b7950e0773e116e5f90feb00fcb .github/scripts/duckdb-eh-linker-preflight-v1.nu \
+            9fc2d55cc1eb02f274743f9990a5601cc35ce5688afec6edf01e7a3d40fc795c .github/receipts/duckdb-eh-webdb-fetch-error-pr138.patch \
+            | sha256sum --check --status
+
+  eh-seeded-image-build-v1-registered-dispatch:
+    needs: eh-seeded-image-build-v1-source-pin
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/diagnostic/eh-seeded-link-input-held-20261027' }}
+    uses: ./.github/workflows/duckdb-eh-seeded-image-build-v1.yml
+    permissions:
+      contents: read
+      actions: read
+
   eh-linker-preflight-v1-source-pin:
     if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/diagnostic/pr149-linker-preflight-held-20261027' }}
     runs-on: ubuntu-22.04
