@@ -51,7 +51,7 @@ jobs:
           printf '%s  %s\n' \
             f070573bd130334ad2ccadb3661795bb6276a8547691616f00432ffc8cd79247 .github/scripts/duckdb-sdk-libnoexit-os-install-preflight-v1.nu \
             bed8ac3ef50793c49990db967d8bcedeb87d6a50be905f08c90c35148c290b58 .github/receipts/duckdb-sdk-libnoexit-os-install-preflight-v1.json \
-            5f1e4a50971df531a9a310bf902cff6ee82a763b28daaa9a117f7059cf749998 .github/scripts/duckdb-sdk-libnoexit-os-install-witness-v1.nu \
+            bf4d361f52e354e38485c92f088069b79a43d20e4f916a55649fad3787fd4519 .github/scripts/duckdb-sdk-libnoexit-os-install-witness-v1.nu \
             1239e5b88b46d914c4a4a084ca7a614a138b65a88511c52ed9ae3bd31a6fdd0b .github/receipts/duckdb-sdk-libnoexit-os-install-witness-v1.json \
             | sha256sum --check --status
       - name: Install checksum-pinned MIT Nushell
@@ -161,7 +161,7 @@ jobs:
           else
             refuse_apt PREREQ_PROVIDER_RELATION 0
           fi
-          if timeout 300s sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+          if timeout 600s sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
             "libwebkit2gtk-4.1-0=$webkit_version" "libgtk-3-0t64=$gtk_version" \
             > "$root/apt-install.stdout" 2> "$root/apt-install.stderr"; then
             prepare_rc=0
