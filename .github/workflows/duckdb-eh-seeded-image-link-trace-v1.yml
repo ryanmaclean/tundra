@@ -1,0 +1,334 @@
+name: DuckDB EH seeded image linker FD trace diagnostic v1
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  seeded-image-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    container:
+      image: emscripten/emsdk:3.1.48@sha256:c952f592577a428698cb990c9656f395ae34424740f9c40bed4c3ee6d4850d29
+    env:
+      DUCKDB_EXCEL: '0'
+      DUCKDB_JSON: '1'
+      CCACHE_DISABLE: '1'
+      EM_CACHE: /work/image/cache
+    steps:
+      - name: Initialize fixed refusal before fetching sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e /work/image
+          mkdir -p /work/image/receipt
+          printf '%s\n' '{"schema":"tundra-eh-seeded-build/v1","status":"REFUSED","reason":"NOT_COMPLETED","condition":"image","actual_eh_linker_child":"UNPROVEN","linker_archive_read":"UNPROVEN","same_run_traced_outputs":"UNPROVEN","object_input_closure":"UNPROVEN","generator_input_closure":"UNPROVEN","selected_graph_exhaustive":"NO","legal_admission":"NO","product_admission":"NO","fleet_admission":"NO"}' > /work/image/receipt/refusal.json
+      - name: Check out exact held diagnostic source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.sha }}
+          path: gate
+          persist-credentials: false
+      - name: Check out pinned PR138 source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: 0bb7c5237dc1b047de488d67ba30b5ed05c37383
+          path: source
+          persist-credentials: false
+      - name: Check out pinned PR138 custody
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: 1d77df7776dca44731ae8267092e480a78f9f735
+          path: custody
+          persist-credentials: false
+      - name: Check out pinned DuckDB Wasm and recursive submodules
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: duckdb/duckdb-wasm
+          ref: f955138e5218942fb3fb097a8fdcb725222406ff
+          path: duckdb-upstream
+          submodules: recursive
+          persist-credentials: false
+      - name: Authenticate image archive, seed empty cache, and build EH
+        id: build
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          set_refusal() {
+            case "$1" in SOURCE_ENV|SOURCE_GIT_SAFETY|SOURCE_PIN_GATE|SOURCE_PIN_TUNDRA|SOURCE_PIN_CUSTODY|SOURCE_PIN_WASM|SOURCE_PIN_DUCKDB|SOURCE_PIN_ARROW|SOURCE_TREE_CLEAN|SOURCE_SUBMODULES|CUSTODY_MANIFEST|CUSTODY_ASSETS|WEBDB_PATCH_INPUT|WEBDB_PATCH_APPLY|DUCKDB_PATCH_INPUT|DUCKDB_PATCH_APPLY|JSON_SENTINEL|PATH_PROBE|NU_RUNTIME_FIXTURE|ZIP_AUTH|SEED|CONFIGURE|BUILD|OUTPUT_JOIN) ;; *) exit 2 ;; esac
+            printf '{"schema":"tundra-eh-seeded-build/v1","status":"REFUSED","reason":"%s","condition":"image","actual_eh_linker_child":"UNPROVEN","linker_archive_read":"UNPROVEN","same_run_traced_outputs":"UNPROVEN","object_input_closure":"UNPROVEN","generator_input_closure":"UNPROVEN","selected_graph_exhaustive":"NO","legal_admission":"NO","product_admission":"NO","fleet_admission":"NO"}\n' "$1" > /work/image/receipt/refusal.json
+          }
+          set_refusal SOURCE_ENV
+          test "$DUCKDB_EXCEL" = 0 && test "$DUCKDB_JSON" = 1 && test "$CCACHE_DISABLE" = 1
+          test -z "${DUCKDB_WASM_LOADABLE_EXTENSIONS+x}"
+          test "$EM_CACHE" = /work/image/cache && test ! -e "$EM_CACHE"
+          set_refusal SOURCE_GIT_SAFETY
+          for root in gate source custody duckdb-upstream duckdb-upstream/submodules/duckdb duckdb-upstream/submodules/arrow; do
+            git config --global --add safe.directory "$GITHUB_WORKSPACE/$root"
+          done
+          while IFS= read -r -d '' directory; do
+            git config --global --add safe.directory "$directory"
+          done < <(find "$GITHUB_WORKSPACE/duckdb-upstream" -type f -name .git -printf '%h\0')
+          set_refusal SOURCE_PIN_GATE
+          test "$(git -C gate rev-parse HEAD)" = "$GITHUB_SHA"
+          set_refusal SOURCE_PIN_TUNDRA
+          test "$(git -C source rev-parse HEAD)" = 0bb7c5237dc1b047de488d67ba30b5ed05c37383
+          set_refusal SOURCE_PIN_CUSTODY
+          test "$(git -C custody rev-parse HEAD)" = 1d77df7776dca44731ae8267092e480a78f9f735
+          set_refusal SOURCE_PIN_WASM
+          test "$(git -C duckdb-upstream rev-parse HEAD)" = f955138e5218942fb3fb097a8fdcb725222406ff
+          set_refusal SOURCE_PIN_DUCKDB
+          test "$(git -C duckdb-upstream/submodules/duckdb rev-parse HEAD)" = 401c8061c6ece35949cac58c7770cc755710ca86
+          set_refusal SOURCE_PIN_ARROW
+          test "$(git -C duckdb-upstream/submodules/arrow rev-parse HEAD)" = ca1c30f60d6419849dbc2a533bd0bcaff310185f
+          set_refusal SOURCE_TREE_CLEAN
+          test -z "$(git -C duckdb-upstream status --porcelain)"
+          set_refusal SOURCE_SUBMODULES
+          test -z "$(git -C duckdb-upstream submodule status --recursive | grep '^[+-U]' || true)"
+          set_refusal CUSTODY_MANIFEST
+          test "$(sha256sum custody/custody/manifest.json | cut -d ' ' -f 1)" = 5ec157dc96c54326970029900129b044365c2e330a46fa5d9f3ea66741fb2d14
+          set_refusal CUSTODY_ASSETS
+          for asset in duckdb-browser.mjs duckdb-browser-mvp.worker.js duckdb-browser-eh.worker.js duckdb-mvp.wasm duckdb-eh.wasm; do
+            expected="$(python3 - "$asset" <<'PY'
+          import json, sys
+          with open('custody/custody/manifest.json', encoding='utf-8') as source:
+              print(json.load(source)['assets']['duckdb-runtime/' + sys.argv[1]]['sha256'])
+          PY
+          )"
+            actual="$(sha256sum "custody/duckdb-runtime/$asset" | cut -d ' ' -f 1)"
+            test "$actual" = "$expected"
+          done
+          set_refusal WEBDB_PATCH_INPUT
+          test "$(sha256sum gate/.github/receipts/duckdb-eh-webdb-fetch-error-pr138.patch | cut -d ' ' -f 1)" = 9fc2d55cc1eb02f274743f9990a5601cc35ce5688afec6edf01e7a3d40fc795c
+          test "$(sha256sum duckdb-upstream/lib/src/webdb.cc | cut -d ' ' -f 1)" = 764b0bd6f433281bd38520fb5537e41a503435d5b456d54909526f1f15f791b7
+          set_refusal WEBDB_PATCH_APPLY
+          git -C duckdb-upstream apply --check "$GITHUB_WORKSPACE/gate/.github/receipts/duckdb-eh-webdb-fetch-error-pr138.patch"
+          git -C duckdb-upstream apply "$GITHUB_WORKSPACE/gate/.github/receipts/duckdb-eh-webdb-fetch-error-pr138.patch"
+          test "$(sha256sum duckdb-upstream/lib/src/webdb.cc | cut -d ' ' -f 1)" = e935d57b7ccb3d45ed5509d092b7040b6a5bc12968e17792fd69da2a7586bfe0
+          set_refusal DUCKDB_PATCH_INPUT
+          test "$(sha256sum duckdb-upstream/duckdb.patch | cut -d ' ' -f 1)" = fe8393c0bea3afea5f0cea63062d297945b5fe338d544622711de3dfb3eec3dd
+          set_refusal DUCKDB_PATCH_APPLY
+          git -C duckdb-upstream/submodules/duckdb apply --check ../../duckdb.patch
+          git -C duckdb-upstream/submodules/duckdb apply ../../duckdb.patch
+          test -s duckdb-upstream/duckdb.patch
+          set_refusal JSON_SENTINEL
+          extension_cache=duckdb-upstream/.ccache/extension
+          test ! -e "$extension_cache"
+          test ! -e "$extension_cache/json" && test ! -e "$extension_cache/excel"
+          mkdir -p "$extension_cache"
+          : > "$extension_cache/json"
+          test -f "$extension_cache/json" && test ! -L "$extension_cache/json" && test ! -s "$extension_cache/json"
+          test ! -e "$extension_cache/excel"
+          test "$(find "$extension_cache" -mindepth 1 -print)" = "$extension_cache/json"
+          set_refusal PATH_PROBE
+          test ! -e /work/image/path-probe && test ! -e "$EM_CACHE"
+          shadow="$(EM_CACHE=/work/image/path-probe/cache PYTHONPATH=/emsdk/upstream/emscripten python3 -c 'from tools import cache; print(cache.get_lib_name("libnoexit.a", absolute=True))')"
+          test "$shadow" = /work/image/path-probe/cache/sysroot/lib/wasm32-emscripten/libnoexit.a
+          test ! -e "$EM_CACHE"
+          settings_path="/work/image/cache${shadow#/work/image/path-probe/cache}"
+          test "$settings_path" = /work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a
+          rm -rf -- /work/image/path-probe
+          test ! -e /work/image/path-probe && test ! -e "$EM_CACHE"
+          mkdir -p /work/image/tool /work/image/api /work/image/build-output
+          timeout 180s curl --fail --location --silent --show-error --proto '=https' --proto-redir '=https' --max-time 120 --retry 1 --max-filesize 90000000 --output /work/image/tool/nu.tar.gz https://github.com/nushell/nushell/releases/download/0.115.1/nu-0.115.1-x86_64-unknown-linux-musl.tar.gz
+          test "$(stat -c %s /work/image/tool/nu.tar.gz)" = 83545998
+          printf '%s  %s\n' 8a9722177ddd421eba927b4baae4ae341a4d1c3434504be7b1b17d998bafdd87 /work/image/tool/nu.tar.gz | sha256sum --check --status
+          tar -xOzf /work/image/tool/nu.tar.gz nu-0.115.1-x86_64-unknown-linux-musl/nu > /work/image/tool/nu
+          tar -xOzf /work/image/tool/nu.tar.gz nu-0.115.1-x86_64-unknown-linux-musl/LICENSE > /work/image/tool/LICENSE
+          printf '%s  %s\n' c343a927a2d4a45ebf9300d013b226bcdc2598ecb0178a8a79722ebffe71e56e /work/image/tool/nu ff5dcaaba6140ec57cafdd4f707cd0d329e727477cf7d5b9ba7a244ec2678b79 /work/image/tool/LICENSE | sha256sum --check --status
+          grep -Fxq 'MIT License' /work/image/tool/LICENSE
+          chmod 0700 /work/image/tool/nu
+          test "$(/work/image/tool/nu --version)" = 0.115.1
+          set_refusal NU_RUNTIME_FIXTURE
+          /work/image/tool/nu gate/.github/scripts/duckdb-eh-seeded-archive-identity-v1-test.nu /work/image/tool/nu
+          set_refusal ZIP_AUTH
+          base=https://api.github.com/repos/ryanmaclean/tundra/actions
+          curl --fail --location --silent --show-error --proto '=https' --proto-redir '=https' --max-time 45 --max-filesize 65536 -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' --output /work/image/api/run.json "$base/runs/40536996581"
+          curl --fail --location --silent --show-error --proto '=https' --proto-redir '=https' --max-time 45 --max-filesize 16384 -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' --output /work/image/api/artifact.json "$base/artifacts/12748008032"
+          curl --fail --location --silent --show-error --proto '=https' --proto-redir '=https' --max-time 45 --max-filesize 32768 -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' --output /work/image/api/producer.zip "$base/artifacts/12748008032/zip"
+          test "$(stat -c %s /work/image/api/run.json)" -le 65536
+          test "$(stat -c %s /work/image/api/artifact.json)" -le 16384
+          test "$(stat -c %s /work/image/api/producer.zip)" -eq 7075
+          set_refusal SEED
+          /work/image/tool/nu gate/.github/scripts/duckdb-eh-seeded-archive-identity-v1.nu seed \
+            gate/.github/receipts/duckdb-eh-seeded-link-prereqs-v1.json \
+            gate/.github/receipts/duckdb-eh-linker-preflight-v1.json \
+            /work/image/api/run.json /work/image/api/artifact.json /work/image/api/producer.zip \
+            /work/image/pr143-auth /work/image/pr143-auth.json "$EM_CACHE" "$settings_path" \
+            /work/image/receipt/seed.json
+          cp /work/image/pr143-auth.json /work/image/receipt/auth.json
+          /work/image/tool/nu gate/.github/scripts/duckdb-eh-seeded-archive-identity-v1.nu verify \
+            gate/.github/receipts/duckdb-eh-seeded-link-prereqs-v1.json /work/image/pr143-auth.json \
+            "$EM_CACHE" "$settings_path" /work/image/receipt/seed.json
+          map=/work/image/build-output/image.map
+          build="$GITHUB_WORKSPACE/duckdb-upstream/build/integrated-eh-seeded-image"
+          test ! -e "$map" && test ! -e "$build"
+          flags=(-DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DDUCKDB_WASM_LOADABLE_EXTENSIONS=OFF \
+            -DDUCKDB_WASM_LOADABLE_EXTENSIONS_UNSIGNED=OFF \
+            -DDUCKDB_WASM_VERSION=v1.28.0 \
+            "-DDUCKDB_LOCATION=$GITHUB_WORKSPACE/duckdb-upstream/submodules/duckdb" \
+            "-DCMAKE_EXE_LINKER_FLAGS=-Wl,-Map,$map" \
+            -DWITH_WASM_EXCEPTIONS=1 -DDUCKDB_CUSTOM_PLATFORM=wasm_eh)
+          set_refusal CONFIGURE
+          EM_CACHE="$EM_CACHE" emcmake cmake -S duckdb-upstream/lib -B "$build" "${flags[@]}" > /work/image/build-output/configure.log 2>&1
+          after_config="$(EM_CACHE="$EM_CACHE" PYTHONPATH=/emsdk/upstream/emscripten python3 -c 'from tools import cache; print(cache.get_lib_name("libnoexit.a", absolute=True))')"
+          test "$after_config" = "$settings_path"
+          /work/image/tool/nu gate/.github/scripts/duckdb-eh-seeded-archive-identity-v1.nu verify \
+            gate/.github/receipts/duckdb-eh-seeded-link-prereqs-v1.json /work/image/pr143-auth.json \
+            "$EM_CACHE" "$after_config" /work/image/receipt/seed.json
+          set_refusal BUILD
+          EM_CACHE="$EM_CACHE" EMCC_DEBUG=1 EM_FORCE_RESPONSE_FILES=0 \
+            emmake make -C "$build" -j4 duckdb_wasm > /work/image/build-output/build.log 2>&1
+          after_build="$(EM_CACHE="$EM_CACHE" PYTHONPATH=/emsdk/upstream/emscripten python3 -c 'from tools import cache; print(cache.get_lib_name("libnoexit.a", absolute=True))')"
+          test "$after_build" = "$settings_path"
+          set_refusal OUTPUT_JOIN
+          /work/image/tool/nu gate/.github/scripts/duckdb-eh-seeded-build-v1.nu \
+            gate/.github/receipts/duckdb-eh-seeded-build-v1.json \
+            gate/.github/receipts/duckdb-eh-seeded-link-prereqs-v1.json \
+            /work/image/pr143-auth.json /work/image/receipt/seed.json "$after_config" "$after_build" \
+            "$GITHUB_WORKSPACE" /work/image/build-output
+          cp /work/image/build-output/build.json /work/image/receipt/build.json
+      - name: Trace fresh EH relink and join direct archive FD read
+        id: trace
+        shell: bash
+        run: |
+          set -euo pipefail
+          refuse() {
+            case "$1" in TRACE_TOOL|TRACE_CANARY|TRACE_PRE|TRACE_OUTPUTS_ABSENT|TRACE_RELINK|TRACE_PARSER|TRACE_FINALIZE) ;; *) exit 2 ;; esac
+            printf '{"schema":"tundra-eh-seeded-link-trace/v1","status":"REFUSED","reason":"%s","actual_eh_linker_child":"UNPROVEN","linker_archive_read":"UNPROVEN","same_run_traced_outputs":"UNPROVEN","other_sdk_archive_keys_pending":8,"object_input_closure":"UNPROVEN","generator_input_closure":"UNPROVEN","selected_graph_exhaustive":"NO","legal_admission":"NO","product_admission":"NO","fleet_admission":"NO"}\n' "$1" > /work/image/receipt/refusal.json
+          }
+          refuse TRACE_TOOL
+          /work/image/tool/nu gate/.github/scripts/duckdb-eh-seeded-link-trace-v1-test.nu
+          mkdir -p /work/image/trace-tool /work/image/trace-private /work/image/trace-raw
+          chmod 0700 /work/image/trace-tool /work/image/trace-private /work/image/trace-raw
+          test "$(stat -c %a /work/image/trace-private)" = 700
+          curl --fail --location --silent --show-error --proto '=https' --proto-redir '=https' --max-time 90 --max-filesize 600000 --output /work/image/trace-tool/strace.deb https://archive.ubuntu.com/ubuntu/pool/main/s/strace/strace_5.16-0ubuntu3_amd64.deb
+          test "$(stat -c %s /work/image/trace-tool/strace.deb)" = 566994
+          printf '%s  %s\n' 847a3535be015325f127f121d2ea5ac042b32bd20a5861a94cb7782b09857b1f /work/image/trace-tool/strace.deb | sha256sum --check --status
+          test "$(dpkg-deb -f /work/image/trace-tool/strace.deb Package)" = strace
+          test "$(dpkg-deb -f /work/image/trace-tool/strace.deb Version)" = 5.16-0ubuntu3
+          test "$(dpkg-deb -f /work/image/trace-tool/strace.deb Architecture)" = amd64
+          dpkg-deb -x /work/image/trace-tool/strace.deb /work/image/trace-tool/unpacked
+          tracer=/work/image/trace-tool/unpacked/usr/bin/strace
+          test -f "$tracer" && test ! -L "$tracer"
+          printf '%s  %s\n' 38a5c75cb29dd85ddd7780d54f5bf595554d7a1b5c42524b23065f5dc4c4b01d "$tracer" | sha256sum --check --status
+          test "$(sha256sum /work/image/trace-tool/unpacked/usr/share/doc/strace/copyright | cut -d ' ' -f 1)" = fb8db76eff2d56ed5cd2e36937e20138354ca7f0cb666207556196215ec644f6
+          test "$(dpkg-query -W -f='${Version}' libunwind8)" = 1.3.2-2build2.1
+          test "$(dpkg-query -W -f='${Version}' libc6)" = 2.35-0ubuntu3.4
+          test "$(timeout 10s "$tracer" --version | head -1)" = 'strace -- version 5.16'
+          test -L /emsdk/upstream/bin/wasm-ld
+          test "$(readlink -f /emsdk/upstream/bin/wasm-ld)" = /emsdk/upstream/bin/lld
+          test "$(sha256sum /emsdk/upstream/bin/lld | cut -d ' ' -f 1)" = 6e5c12aab29b80db118acd16c08953257683ed11c415970f8320ed777997eec7
+          refuse TRACE_CANARY
+          printf '%s\n' 'tundra-eh-trace-child-canary-v1' > /work/image/trace-private/canary.txt
+          timeout 20s "$tracer" -ff -yy -s 4096 -o /work/image/trace-private/canary.trace \
+            -e trace=execve,open,openat,read,close,exit_group \
+            python3 -c 'from pathlib import Path; assert Path("/work/image/trace-private/canary.txt").read_text() == "tundra-eh-trace-child-canary-v1\n"' \
+            > /work/image/trace-private/canary-output.log 2>&1
+          /work/image/tool/nu gate/.github/scripts/duckdb-eh-seeded-link-trace-v1.nu canary \
+            /work/image/trace-private /work/image/trace-private/canary.txt
+          refuse TRACE_PRE
+          /work/image/tool/nu gate/.github/scripts/duckdb-eh-seeded-link-trace-v1.nu pre \
+            gate/.github/receipts/duckdb-eh-seeded-link-trace-v1.json \
+            /work/image/receipt/build.json /work/image/receipt/seed.json /work/image/receipt/auth.json \
+            /work/image/trace-private /work/image/trace-private/pre.json
+          map=/work/image/build-output/image.map
+          build="$GITHUB_WORKSPACE/duckdb-upstream/build/integrated-eh-seeded-image"
+          link="$build/CMakeFiles/duckdb_wasm.dir/link.txt"
+          test -s "$link" && test "$(wc -l < "$link")" = 1
+          command_text="$(cat "$link")"
+          test -n "$command_text"
+          test "$(printf '%s' "$command_text" | grep -o -- '-Wl,-Map,/work/image/build-output/image.map' | wc -l)" = 1
+          test "$(sha256sum /emsdk/upstream/bin/lld | cut -d ' ' -f 1)" = 6e5c12aab29b80db118acd16c08953257683ed11c415970f8320ed777997eec7
+          refuse TRACE_OUTPUTS_ABSENT
+          rm -- "$map" "$build/duckdb_wasm.js" "$build/duckdb_wasm.wasm"
+          /work/image/tool/nu gate/.github/scripts/duckdb-eh-seeded-link-trace-v1.nu absent \
+            /work/image/trace-private/pre.json /work/image/trace-private/absent.json
+          refuse TRACE_RELINK
+          setsid timeout --signal=TERM --kill-after=5s 600s "$tracer" -ff -yy -s 4096 \
+            -e trace=execve,execveat,open,openat,read,pread64,readv,close,close_range,dup,dup2,dup3,fcntl,mmap,munmap,chdir,fchdir,exit_group \
+            -o /work/image/trace-raw/trace bash -euo pipefail -c "$command_text" \
+            > /work/image/trace-private/relink-output.log 2>&1 &
+          tracer_pid=$!
+          for ((tick=0; tick<620; tick++)); do
+            if ! kill -0 "$tracer_pid" 2>/dev/null; then break; fi
+            trace_bytes="$(du -sb /work/image/trace-raw | cut -f 1)"
+            if test "$trace_bytes" -gt 16777216; then
+              kill -TERM -- "-$tracer_pid" 2>/dev/null || true
+              wait "$tracer_pid" || true
+              exit 1
+            fi
+            sleep 1
+          done
+          if kill -0 "$tracer_pid" 2>/dev/null; then
+            kill -TERM -- "-$tracer_pid" 2>/dev/null || true
+            wait "$tracer_pid" || true
+            exit 1
+          fi
+          wait "$tracer_pid"
+          test -s "$map" && test -s "$build/duckdb_wasm.js" && test -s "$build/duckdb_wasm.wasm"
+          test "$(sha256sum /emsdk/upstream/bin/lld | cut -d ' ' -f 1)" = 6e5c12aab29b80db118acd16c08953257683ed11c415970f8320ed777997eec7
+          refuse TRACE_PARSER
+          /work/image/tool/nu gate/.github/scripts/duckdb-eh-linker-fd-witness-v1.nu \
+            gate/.github/receipts/duckdb-eh-linker-fd-witness-v1.json /work/image/trace-raw \
+            6e5c12aab29b80db118acd16c08953257683ed11c415970f8320ed777997eec7 \
+            /work/image/trace-private/parser.json > /work/image/trace-private/parser-output.log 2>&1
+          refuse TRACE_FINALIZE
+          /work/image/tool/nu gate/.github/scripts/duckdb-eh-seeded-link-trace-v1.nu finalize \
+            gate/.github/receipts/duckdb-eh-seeded-link-trace-v1.json \
+            /work/image/trace-private/pre.json /work/image/trace-private/absent.json \
+            /work/image/trace-private/parser.json /work/image/trace-private \
+            /work/image/receipt/trace.json
+      - name: Delete private bytes and enforce fixed receipt cap
+        id: cleanup
+        if: always()
+        shell: bash
+        env:
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
+          TRACE_OUTCOME: ${{ steps.trace.outcome }}
+        run: |
+          set -euo pipefail
+          if test ! -d /work/image/receipt; then exit 1; fi
+          ok=1
+          rm -rf -- /work/image/api /work/image/pr143-auth /work/image/pr143-auth.json \
+            /work/image/cache /work/image/path-probe /work/image/tool /work/image/build-output \
+            /work/image/trace-tool /work/image/trace-private /work/image/trace-raw \
+            "$GITHUB_WORKSPACE/duckdb-upstream/.ccache/extension" \
+            "$GITHUB_WORKSPACE/duckdb-upstream/build/integrated-eh-seeded-image" || ok=0
+          for path in /work/image/api /work/image/pr143-auth /work/image/pr143-auth.json \
+            /work/image/cache /work/image/path-probe /work/image/tool /work/image/build-output \
+            /work/image/trace-tool /work/image/trace-private /work/image/trace-raw \
+            "$GITHUB_WORKSPACE/duckdb-upstream/.ccache/extension" \
+            "$GITHUB_WORKSPACE/duckdb-upstream/build/integrated-eh-seeded-image"; do
+            { test ! -e "$path" && test ! -L "$path"; } || ok=0
+          done
+          if test "$ok" -ne 1; then
+            find /work/image/receipt -mindepth 1 -maxdepth 1 -delete || true
+            printf '%s\n' '{"schema":"tundra-eh-seeded-build/v1","status":"REFUSED","reason":"EPHEMERAL_CLEANUP_UNPROVEN","actual_eh_linker_child":"UNPROVEN","linker_archive_read":"UNPROVEN","same_run_traced_outputs":"UNPROVEN","legal_admission":"NO","product_admission":"NO","fleet_admission":"NO"}' > /work/image/receipt/refusal.json
+            exit 1
+          fi
+          if test "$BUILD_OUTCOME" != success || test "$TRACE_OUTCOME" != success; then
+            find /work/image/receipt -mindepth 1 -maxdepth 1 ! -name refusal.json -delete
+            exit 0
+          fi
+          if ! { test -s /work/image/receipt/build.json && test -s /work/image/receipt/seed.json && test -s /work/image/receipt/auth.json && test -s /work/image/receipt/trace.json && test "$(du -sb /work/image/receipt | cut -f 1)" -le 2097152; }; then
+            find /work/image/receipt -mindepth 1 -maxdepth 1 ! -name refusal.json -delete
+            printf '%s\n' '{"schema":"tundra-eh-seeded-build/v1","status":"REFUSED","reason":"RECEIPT_MISSING_OR_CAP","actual_eh_linker_child":"UNPROVEN","linker_archive_read":"UNPROVEN","same_run_traced_outputs":"UNPROVEN","legal_admission":"NO","product_admission":"NO","fleet_admission":"NO"}' > /work/image/receipt/refusal.json
+            exit 1
+          fi
+          printf '{"schema":"tundra-eh-seeded-link-trace-cleanup/v1","run_id":"%s","attempt":"%s","raw_trace_retained":"NO_AFTER_ABSENCE_CHECK","private_tool_retained":"NO_AFTER_ABSENCE_CHECK","legal_admission":"NO","product_admission":"NO","fleet_admission":"NO"}\n' "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" > /work/image/receipt/cleanup.json
+          rm /work/image/receipt/refusal.json
+      - name: Retain sanitized diagnostic or refusal
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: duckdb-eh-seeded-image-link-trace-v1-${{ github.run_id }}-${{ github.run_attempt }}
+          path: /work/image/receipt/
+          if-no-files-found: error
+          retention-days: 7

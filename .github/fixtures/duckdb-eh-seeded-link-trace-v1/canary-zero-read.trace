@@ -1,0 +1,4 @@
+execve("/usr/bin/python3", ["python3", "-c", "read sentinel"], 0x7fff) = 0
+openat(AT_FDCWD, "/work/image/trace-private/canary.txt", O_RDONLY|O_CLOEXEC) = 3</work/image/trace-private/canary.txt>
+read(3</work/image/trace-private/canary.txt>, "", 8192) = 0
++++ exited with 0 +++
