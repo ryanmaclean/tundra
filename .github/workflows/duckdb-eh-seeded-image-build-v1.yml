@@ -70,6 +70,9 @@ jobs:
           for root in gate source custody duckdb-upstream duckdb-upstream/submodules/duckdb duckdb-upstream/submodules/arrow; do
             git config --global --add safe.directory "$GITHUB_WORKSPACE/$root"
           done
+          while IFS= read -r -d '' directory; do
+            git config --global --add safe.directory "$directory"
+          done < <(find "$GITHUB_WORKSPACE/duckdb-upstream" -type f -name .git -printf '%h\0')
           test "$(git -C gate rev-parse HEAD)" = "$GITHUB_SHA"
           test "$(git -C source rev-parse HEAD)" = 0bb7c5237dc1b047de488d67ba30b5ed05c37383
           test "$(git -C custody rev-parse HEAD)" = 1d77df7776dca44731ae8267092e480a78f9f735
