@@ -78,8 +78,34 @@ export def exit_value_bucket [exit_code: int] {
   }
 }
 
+export def signed_invocation_status [exit_code: int] {
+  if $exit_code == -11 { 'NEGATIVE_SIGSEGV_COMPATIBLE' } else if $exit_code == -6 { 'NEGATIVE_SIGABRT_COMPATIBLE' } else if $exit_code == -9 { 'NEGATIVE_SIGKILL_COMPATIBLE' } else if $exit_code == -4 { 'NEGATIVE_SIGILL_COMPATIBLE' } else if $exit_code == -15 { 'NEGATIVE_SIGTERM_COMPATIBLE' } else if $exit_code < 0 and $exit_code >= -64 { 'NEGATIVE_OTHER_SIGNAL_COMPATIBLE' } else if $exit_code < -64 { 'NEGATIVE_OUT_OF_SIGNAL_RANGE' } else if $exit_code <= 255 { 'NONNEGATIVE_EXIT_VALUE' } else { 'NONNEGATIVE_OUT_OF_RANGE' }
+}
+
+export def classify_python_execve_line [line: string] {
+  let call = ($line | str replace -r '^\s*(\[pid\s+\d+\]\s*|\d+\s+)?execve\(' '')
+  if $call == $line { return 'UNPROVEN' }
+  let chars = ($call | split chars | enumerate)
+  let state = ($chars | reduce --fold {depth: 1, quoted: false, escaped: false, closed_at: -1} {|ch, acc|
+    if $acc.closed_at >= 0 { $acc } else if $acc.escaped { $acc | update escaped false } else if $acc.quoted and $ch.item == '\' { $acc | update escaped true } else if $ch.item == '"' { $acc | update quoted (not $acc.quoted) } else if not $acc.quoted and $ch.item == '(' { $acc | update depth ($acc.depth + 1) } else if not $acc.quoted and $ch.item == ')' { if $acc.depth == 1 { {depth: 0, quoted: false, escaped: false, closed_at: $ch.index} } else { $acc | update depth ($acc.depth - 1) } } else { $acc }
+  })
+  if $state.closed_at < 0 or $state.quoted or $state.escaped { return 'UNPROVEN' }
+  let suffix = ($chars | skip ($state.closed_at + 1) | each {|ch| $ch.item} | str join '')
+  if $suffix =~ '^\s+=\s+0\s*$' { 'ZERO_TEXT' } else if $suffix =~ '^\s+=\s+-1\s+[A-Z][A-Z0-9_]*(\s+\([^()\n]*\))?\s*$' { 'NONZERO_TEXT' } else { 'UNPROVEN' }
+}
+
+export def classify_python_execve_text [lines: list] {
+  let selected = ($lines | where {|line| $line =~ '^\s*(\[pid\s+\d+\]\s*|\d+\s+)?execve\("[^"\n]*/python3",'})
+  if ($selected | length) == 0 { return 'PYTHON_EXECVE_NOT_SEEN' }
+  if ($selected | length) > 64 { return 'PYTHON_EXECVE_COUNT_CAP' }
+  let classes = ($selected | each {|line| classify_python_execve_line $line})
+  if ('UNPROVEN' in $classes) { return 'PYTHON_EXECVE_RETURN_UNPROVEN' }
+  if ('ZERO_TEXT' in $classes) { 'PYTHON_EXECVE_ZERO_TEXT_PRESENT' } else { 'PYTHON_EXECVE_NONZERO_TEXT_ONLY' }
+}
+
 export def classify_failed_invocation [exit_code: int, trace_path: string, trace_cap: int] {
   let exit_class = (exit_value_bucket $exit_code)
+  mut python_stage = 'PYTHON_EXECVE_UNPROVEN'
   let trace_stage = if not ($trace_path | path exists) {
     'TRACE_MISSING'
   } else {
@@ -96,15 +122,14 @@ export def classify_failed_invocation [exit_code: int, trace_path: string, trace
         let lines = (open --raw $trace_path | lines)
         if ($lines | length) > 200000 {
           'TRACE_OVER_LINE_CAP'
-        } else if ($lines | any {|line| $line =~ 'execve\('}) {
-          'TRACE_BOUNDED_EXECVE_TEXT'
         } else {
-          'TRACE_BOUNDED_NO_EXECVE_TEXT'
+          $python_stage = (classify_python_execve_text $lines)
+          if ($lines | any {|line| $line =~ 'execve\('}) { 'TRACE_BOUNDED_EXECVE_TEXT' } else { 'TRACE_BOUNDED_NO_EXECVE_TEXT' }
         }
       }
     }
   }
-  {invocation_exit_class: $exit_class, invocation_trace_stage: $trace_stage}
+  {invocation_exit_class: $exit_class, invocation_signed_status: (signed_invocation_status $exit_code), invocation_trace_stage: $trace_stage, invocation_python_execve: $python_stage}
 }
 
 export def classify_tracer_loader_list [exit_code: int, stdout: string, stderr: string] {
