@@ -410,7 +410,33 @@ jobs:
           normalized = Path('/work/image/trace-raw')
           read_prefix = (b'read(', b'pread64(', b'readv(')
           read_shape = re.compile(rb'^(read|pread64|readv)\(([0-9]+<[^>\r\n]+>), .+\) = (-?[0-9]+)\n$')
+          def normalize_line(line):
+              if not line.startswith(read_prefix):
+                  return line
+              # The strict FD parser rejects these markers before examining an FD.
+              # Do not erase evidence of a split or abbreviated read payload.
+              if b'...' in line or b'resumed>' in line:
+                  raise ValueError()
+              match = read_shape.fullmatch(line)
+              if match is None:
+                  raise ValueError()
+              return match.group(1) + b'(' + match.group(2) + b', "") = ' + match.group(3) + b'\n'
           try:
+              for syscall in (b'read', b'pread64', b'readv'):
+                  complete = syscall + b'(3</fixture/archive.a>, "ABC", 4096) = 3\n'
+                  expected = syscall + b'(3</fixture/archive.a>, "") = 3\n'
+                  if normalize_line(complete) != expected:
+                      raise ValueError()
+                  for ambiguous in (
+                      syscall + b'(3</fixture/archive.a>, "ABC"..., 4096) = 3\n',
+                      syscall + b'(3</fixture/archive.a>, "ABC" <unfinished ...>\n',
+                  ):
+                      try:
+                          normalize_line(ambiguous)
+                      except ValueError:
+                          pass
+                      else:
+                          raise ValueError()
               entries = sorted(raw.iterdir())
               if not 0 < len(entries) <= 64 or list(normalized.iterdir()):
                   raise ValueError()
@@ -429,13 +455,7 @@ jobs:
                           records += 1
                           if records > 50000 or len(line) > 8192 or not line.endswith(b'\n'):
                               raise ValueError()
-                          if line.startswith(read_prefix):
-                              if b'<unfinished ...>' in line or b'resumed>' in line:
-                                  raise ValueError()
-                              match = read_shape.fullmatch(line)
-                              if match is None:
-                                  raise ValueError()
-                              line = match.group(1) + b'(' + match.group(2) + b', "") = ' + match.group(3) + b'\n'
+                          line = normalize_line(line)
                           file_bytes += len(line)
                           output_bytes += len(line)
                           if file_bytes > 4194304 or output_bytes > 16777216:
