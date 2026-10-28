@@ -32,8 +32,24 @@ def main [] {
   let flag_stage = (canary_diagnostic $other_flag $sentinel 'CANARY_DIRECT_OPEN')
   require ($flag_stage.exact_path_opens == 1 and $flag_stage.readonly_path_opens == 0) 'FLAG_STAGE'
   let annotated_fdcwd = ($positive | str replace 'openat(AT_FDCWD, "' 'openat(AT_FDCWD</work/image>, "')
+  require (canary_shape $annotated_fdcwd $sentinel) 'ANNOTATED_FDCWD_CANARY'
   let annotated_stage = (canary_diagnostic $annotated_fdcwd $sentinel 'CANARY_DIRECT_OPEN')
-  require ($annotated_stage.openat_lines == 1 and $annotated_stage.plain_at_fdcwd_open_lines == 0 and $annotated_stage.annotated_at_fdcwd_open_lines == 1 and $annotated_stage.plain_sentinel_open_lines == 0 and $annotated_stage.annotated_sentinel_open_lines == 1 and $annotated_stage.sentinel_quoted_path_lines == 1 and $annotated_stage.sentinel_quoted_argument_lines == 1 and $annotated_stage.sentinel_result_marker_lines == 1 and $annotated_stage.sentinel_numeric_result_lines == 1 and $annotated_stage.sentinel_fd_annotation_lines == 1 and $annotated_stage.parsed_at_fdcwd_opens == 0) 'ANNOTATED_FDCWD_STAGE'
+  require ($annotated_stage.openat_lines == 1 and $annotated_stage.plain_at_fdcwd_open_lines == 0 and $annotated_stage.annotated_at_fdcwd_open_lines == 1 and $annotated_stage.plain_sentinel_open_lines == 0 and $annotated_stage.annotated_sentinel_open_lines == 1 and $annotated_stage.sentinel_quoted_path_lines == 1 and $annotated_stage.sentinel_quoted_argument_lines == 1 and $annotated_stage.sentinel_result_marker_lines == 1 and $annotated_stage.sentinel_numeric_result_lines == 1 and $annotated_stage.sentinel_fd_annotation_lines == 1 and $annotated_stage.parsed_at_fdcwd_opens == 1 and $annotated_stage.exact_sentinel_opens == 1) 'ANNOTATED_FDCWD_STAGE'
+  let malformed_dirfd = ($annotated_fdcwd | str replace 'AT_FDCWD</work/image>' 'AT_FDCWD<work/image>')
+  let malformed_dirfd_refused = (try { canary_shape $malformed_dirfd $sentinel | ignore; false } catch {|err| $err.msg == 'CANARY_DIRECT_OPEN' })
+  require $malformed_dirfd_refused 'RELATIVE_DIRFD_ACCEPTED'
+  let wrong_fd_annotation = ($annotated_fdcwd | str replace '3</work/image/trace-private/canary.txt>' '3</another-file>')
+  let wrong_fd_refused = (try { canary_shape $wrong_fd_annotation $sentinel | ignore; false } catch {|err| $err.msg == 'CANARY_DIRECT_OPEN' })
+  require $wrong_fd_refused 'WRONG_FD_ANNOTATION_ACCEPTED'
+  let annotated_zero_read = ((open --raw ($root | path join 'canary-zero-read.trace')) | str replace 'openat(AT_FDCWD, "' 'openat(AT_FDCWD</work/image>, "')
+  let annotated_zero_refused = (try { canary_shape $annotated_zero_read $sentinel | ignore; false } catch {|err| $err.msg == 'CANARY_DIRECT_READ' })
+  require $annotated_zero_refused 'ANNOTATED_ZERO_READ_ACCEPTED'
+  let other_read_fd = ($annotated_fdcwd | str replace 'read(3<' 'read(4<')
+  let other_read_fd_refused = (try { canary_shape $other_read_fd $sentinel | ignore; false } catch {|err| $err.msg == 'CANARY_DIRECT_READ' })
+  require $other_read_fd_refused 'OTHER_READ_FD_ACCEPTED'
+  let missing_exit = ($annotated_fdcwd | str replace '+++ exited with 0 +++' '+++ exited with 1 +++')
+  let missing_exit_refused = (try { canary_shape $missing_exit $sentinel | ignore; false } catch {|err| $err.msg == 'CANARY_CHILD_EXIT' })
+  require $missing_exit_refused 'NONZERO_CHILD_EXIT_ACCEPTED'
   let unfinished_open = ($positive | str replace 'O_RDONLY|O_CLOEXEC) = 3</work/image/trace-private/canary.txt>' 'O_RDONLY|O_CLOEXEC <unfinished ...>')
   let unfinished_stage = (canary_diagnostic $unfinished_open $sentinel 'CANARY_DIRECT_OPEN')
   require ($unfinished_stage.sentinel_open_lines == 1 and $unfinished_stage.sentinel_quoted_argument_lines == 1 and $unfinished_stage.sentinel_unfinished_lines == 1 and $unfinished_stage.sentinel_result_marker_lines == 0 and $unfinished_stage.sentinel_numeric_result_lines == 0 and $unfinished_stage.sentinel_fd_annotation_lines == 0 and $unfinished_stage.parsed_at_fdcwd_opens == 0) 'UNFINISHED_OPEN_STAGE'

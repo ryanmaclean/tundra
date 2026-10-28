@@ -59,7 +59,7 @@ def outputs [] {
 export def canary_shape [raw: string, sentinel: string] {
   let lines = ($raw | lines)
   require (($lines | length) <= 10000 and ($lines | any {|line| ($line | str starts-with 'execve(') and ($line | str ends-with ') = 0')}) and ('+++ exited with 0 +++' in $lines)) 'CANARY_CHILD_EXIT'
-  let opens = ($lines | each {|line| $line | parse -r '^openat\(AT_FDCWD, "(?<path>[^"\\]+)", O_RDONLY[^)]*\) = (?<fd>[0-9]+)<(?<annotation>[^>]+)>$' } | flatten | where {|row| $row.path == $sentinel and $row.annotation == $sentinel })
+  let opens = ($lines | each {|line| $line | parse -r '^openat\(AT_FDCWD(?:</[^<>"\\]+>)?, "(?<path>[^"\\]+)", O_RDONLY[^)]*\) = (?<fd>[0-9]+)<(?<annotation>[^>]+)>$' } | flatten | where {|row| $row.path == $sentinel and $row.annotation == $sentinel })
   require (($opens | length) == 1) 'CANARY_DIRECT_OPEN'
   let fd = ($opens | first).fd
   let reads = ($lines | each {|line| $line | parse -r '^read\((?<fd>[0-9]+)<(?<annotation>[^>]+)>, .*\) = (?<count>[0-9]+)$' } | flatten | where {|row| $row.fd == $fd and $row.annotation == $sentinel and (($row.count | into int) > 0) })
@@ -79,9 +79,9 @@ export def canary_diagnostic [raw: string, sentinel: string, result: string] {
   let quoted_sentinel = ([$quote $sentinel $quote] | str join '')
   let quoted_argument = ([$quoted_sentinel ', '] | str join '')
   let annotated_sentinel = (['<' $sentinel '>'] | str join '')
-  let exact_open_pattern = '^openat\(AT_FDCWD, "(?<path>[^"\\]+)", O_RDONLY[^)]*\) = (?<fd>[0-9]+)<(?<annotation>[^>]+)>$'
+  let exact_open_pattern = '^openat\(AT_FDCWD(?:</[^<>"\\]+>)?, "(?<path>[^"\\]+)", O_RDONLY[^)]*\) = (?<fd>[0-9]+)<(?<annotation>[^>]+)>$'
   let exact_opens = ($lines | each {|line| $line | parse -r $exact_open_pattern } | flatten | where {|row| $row.path == $sentinel and $row.annotation == $sentinel })
-  let shaped = ($lines | each {|line| $line | parse -r '^openat\(AT_FDCWD, "(?<path>[^"\\]+)", (?<flags>[^)]*)\) = (?<tail>.+)$' } | flatten)
+  let shaped = ($lines | each {|line| $line | parse -r '^openat\(AT_FDCWD(?:</[^<>"\\]+>)?, "(?<path>[^"\\]+)", (?<flags>[^)]*)\) = (?<tail>.+)$' } | flatten)
   let exact_path = ($shaped | where {|row| $row.path == $sentinel })
   let readonly = ($exact_path | where {|row| $row.flags | str starts-with 'O_RDONLY' })
   let numeric_fd = ($readonly | each {|row| $row.tail | parse -r '^(?<fd>[0-9]+)(?:<(?<annotation>[^>]+)>)?$' } | flatten)
