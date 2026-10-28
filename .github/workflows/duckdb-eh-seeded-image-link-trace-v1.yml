@@ -285,7 +285,7 @@ jobs:
             cd "$build" || exit 1
             test "$PWD" = "$GITHUB_WORKSPACE/duckdb-upstream/build/integrated-eh-seeded-image" || exit 1
             setsid timeout --signal=TERM --kill-after=5s 600s "$loader" --library-path "$libdir" "$tracer" -ff -yy -s 4096 \
-              -e trace=execve,execveat,open,openat,read,pread64,readv,close,close_range,dup,dup2,dup3,fcntl,mmap,munmap,chdir,fchdir,exit_group \
+              -e trace=execve,execveat,open,openat,read,pread64,readv,close,close_range,dup,dup2,dup3,fcntl,mmap,chdir,fchdir,exit_group \
               -o /work/image/trace-raw/trace bash -euo pipefail -c "$command_text" \
               > /work/image/trace-private/relink-output.log 2>&1 &
             tracer_pid=$!
