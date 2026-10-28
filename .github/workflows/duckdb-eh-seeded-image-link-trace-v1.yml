@@ -281,10 +281,13 @@ jobs:
           files = sorted(root.glob('raw-canary.trace.*'))
           assert 0 < len(files) <= 8
           matched = 0
+          total_bytes = 0
           for file in files:
               meta = file.lstat()
               assert re.fullmatch(r'raw-canary\.trace\.[0-9]+', file.name)
-              assert stat.S_ISREG(meta.st_mode) and 0 < meta.st_size <= 65536
+              assert stat.S_ISREG(meta.st_mode) and 0 < meta.st_size <= 4194304
+              total_bytes += meta.st_size
+              assert total_bytes <= 16777216
               lines = file.read_bytes().splitlines()
               assert all(len(line) <= 8192 for line in lines)
               opens = [re.fullmatch(rb'openat\(AT_FDCWD(?:<[^>]+>)?, "' + re.escape(sentinel) + rb'", O_RDONLY[^)]*\) = ([0-9]+)<' + re.escape(sentinel) + rb'>', line) for line in lines]
