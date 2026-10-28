@@ -261,6 +261,44 @@ jobs:
             > /work/image/trace-private/canary-output.log 2>&1
           /work/image/tool/nu gate/.github/scripts/duckdb-eh-seeded-link-trace-v1.nu canary \
             /work/image/trace-private /work/image/trace-private/canary.txt
+          # A separate pinned-tool canary proves the raw read grammar without
+          # admitting a relink from an abbreviated decoded buffer.
+          python3 - <<'PY'
+          from pathlib import Path
+          Path('/work/image/trace-private/raw-canary.txt').write_bytes(b'R' * 1024)
+          PY
+          timeout 20s "$loader" --library-path "$libdir" "$tracer" -ff -yy -s 256 \
+            -e raw=read,pread64,readv -e trace=execve,open,openat,read,pread64,readv,close,exit_group \
+            -o /work/image/trace-private/raw-canary.trace \
+            python3 -c 'import os; p="/work/image/trace-private/raw-canary.txt"; fd=os.open(p, os.O_RDONLY); data=os.read(fd, 4096); os.close(fd); assert data == b"R" * 1024' \
+            > /work/image/trace-private/raw-canary-output.log 2>&1
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          import stat
+          root = Path('/work/image/trace-private')
+          sentinel = str(root / 'raw-canary.txt').encode()
+          files = sorted(root.glob('raw-canary.trace.*'))
+          assert 0 < len(files) <= 8
+          matched = 0
+          for file in files:
+              meta = file.lstat()
+              assert re.fullmatch(r'raw-canary\.trace\.[0-9]+', file.name)
+              assert stat.S_ISREG(meta.st_mode) and 0 < meta.st_size <= 65536
+              lines = file.read_bytes().splitlines()
+              assert all(len(line) <= 8192 for line in lines)
+              opens = [re.fullmatch(rb'openat\(AT_FDCWD(?:<[^>]+>)?, "' + re.escape(sentinel) + rb'", O_RDONLY[^)]*\) = ([0-9]+)<' + re.escape(sentinel) + rb'>', line) for line in lines]
+              fds = [int(opened.group(1)) for opened in opens if opened]
+              if not fds:
+                  continue
+              assert len(fds) == 1 and b'+++ exited with 0 +++' in lines
+              reads = [re.fullmatch(rb'read\(((?:0x[0-9a-f]+|[0-9]+))(?:<([^>]+)>)?, (0x[0-9a-f]+), (?:0x[0-9a-f]+|[0-9]+)\) = ([0-9]+)', line) for line in lines]
+              positive = [r for r in reads if r and int(r.group(1), 0) == fds[0] and (r.group(2) is None or r.group(2) == sentinel) and int(r.group(4)) == 1024]
+              assert len(positive) == 1
+              assert not any(b'...' in line for line in lines if line.startswith((b'read(', b'pread64(', b'readv(')))
+              matched += 1
+          assert matched == 1
+          PY
           refuse TRACE_PRE
           /work/image/tool/nu gate/.github/scripts/duckdb-eh-seeded-link-trace-v1.nu pre \
             gate/.github/receipts/duckdb-eh-seeded-link-trace-v1.json \
@@ -284,7 +322,7 @@ jobs:
           if (
             cd "$build" || exit 1
             test "$PWD" = "$GITHUB_WORKSPACE/duckdb-upstream/build/integrated-eh-seeded-image" || exit 1
-            setsid timeout --signal=TERM --kill-after=5s 600s "$loader" --library-path "$libdir" "$tracer" -ff -yy -s 256 \
+            setsid timeout --signal=TERM --kill-after=5s 600s "$loader" --library-path "$libdir" "$tracer" -ff -yy -s 256 -e raw=read,pread64,readv \
               -e trace=execve,execveat,open,openat,read,pread64,readv,close,close_range,dup,dup2,dup3,fcntl,mmap,chdir,fchdir,exit_group \
               -o /work/image/trace-private/raw/trace bash -euo pipefail -c "$command_text" \
               > /work/image/trace-private/relink-output.log 2>&1 &
@@ -409,7 +447,10 @@ jobs:
           raw = Path('/work/image/trace-private/raw')
           normalized = Path('/work/image/trace-raw')
           read_prefix = (b'read(', b'pread64(', b'readv(')
-          read_shape = re.compile(rb'^(read|pread64|readv)\(([0-9]+<[^>\r\n]+>), .+\) = (-?[0-9]+)\n$')
+          number = rb'(?:0x[0-9a-f]+|[0-9]+)'
+          # -e raw keeps buffer arguments as pointers; require its complete
+          # pinned grammar rather than accepting arbitrary data text.
+          read_shape = re.compile(rb'^(read|pread64|readv)\((' + number + rb')(?:<([^>\r\n]+)>)?, (0x[0-9a-f]+), (' + number + rb')(?:, (' + number + rb'))?\) = (-?[0-9]+)\n$')
           def normalize_line(line):
               if not line.startswith(read_prefix):
                   return line
@@ -420,16 +461,28 @@ jobs:
               match = read_shape.fullmatch(line)
               if match is None:
                   raise ValueError()
-              return match.group(1) + b'(' + match.group(2) + b', "") = ' + match.group(3) + b'\n'
+              syscall, fd_text, annotation, pointer, count, offset, result = match.groups()
+              if (syscall == b'pread64') != (offset is not None):
+                  raise ValueError()
+              if int(count, 0) == 0 or int(pointer, 16) == 0 or (offset is not None and int(offset, 0) < 0):
+                  raise ValueError()
+              fd = str(int(fd_text, 0)).encode()
+              if annotation is not None:
+                  fd += b'<' + annotation + b'>'
+              return syscall + b'(' + fd + b', "") = ' + result + b'\n'
           try:
               for syscall in (b'read', b'pread64', b'readv'):
-                  complete = syscall + b'(3</fixture/archive.a>, "ABC", 4096) = 3\n'
+                  arguments = b', 0x0' if syscall == b'pread64' else b''
+                  complete = syscall + b'(0x3</fixture/archive.a>, 0x1234, 0x1000' + arguments + b') = 3\n'
                   expected = syscall + b'(3</fixture/archive.a>, "") = 3\n'
                   if normalize_line(complete) != expected:
                       raise ValueError()
+                  if normalize_line(syscall + b'(0x3, 0x1234, 0x1000' + arguments + b') = 3\n') != syscall + b'(3, "") = 3\n':
+                      raise ValueError()
                   for ambiguous in (
                       syscall + b'(3</fixture/archive.a>, "ABC"..., 4096) = 3\n',
-                      syscall + b'(3</fixture/archive.a>, "ABC" <unfinished ...>\n',
+                      syscall + b'(3</fixture/archive.a>, 0x1234 <unfinished ...>\n',
+                      syscall + b'(3</fixture/archive.a>, 0x1234, 0x1000) = 3 <resumed>\n',
                   ):
                       try:
                           normalize_line(ambiguous)

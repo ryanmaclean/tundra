@@ -109,10 +109,12 @@ def parse_pid [raw: string, pid: int, l: record] {
     }
     if ($line | str starts-with 'fcntl(') { error make {msg: 'FCNTL_AMBIGUOUS'} }
     if ($line | str starts-with 'read(') or ($line | str starts-with 'pread64(') or ($line | str starts-with 'readv(') {
-      let r = (capture $line '^(?:read|pread64|readv)\((?<fd>[0-9]+)<(?<annotation>[^>]+)>, .*\) = (?<result>-?[0-9]+)$')
+      # A raw-pointer read may omit -yy's FD annotation. The same PID's
+      # exact-path open and active-FD lifetime still bind its positive result.
+      let r = (capture $line '^(?:read|pread64|readv)\((?<fd>[0-9]+)(?:<(?<annotation>[^>]+)>)?, .*\) = (?<result>-?[0-9]+)$')
       require ($r != null) 'READ_SHAPE_AMBIGUOUS'
       if (($r.fd | into int) in $active) {
-        require ($r.annotation == $l.archive_path) 'FD_ANNOTATION_DRIFT'
+        require ($r.annotation == null or $r.annotation == '' or $r.annotation == $l.archive_path) 'FD_ANNOTATION_DRIFT'
         if ($r.result | into int) > 0 { $read_positive = true; $reads += 1 }
       }
       continue
