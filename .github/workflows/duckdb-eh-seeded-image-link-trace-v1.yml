@@ -299,7 +299,9 @@ jobs:
           import re
           import stat
           class CanaryProofError(Exception):
-              pass
+              def __init__(self, reason, shape_class=None):
+                  super().__init__(reason)
+                  self.shape_class = shape_class
           def require(condition, reason):
               if not condition:
                   raise CanaryProofError(reason)
@@ -317,6 +319,26 @@ jobs:
           exact_open = re.compile(rb'openat\(AT_FDCWD(?:<[^>]+>)?, "' + re.escape(sentinel) + rb'", O_RDONLY[^)]*\) = ([0-9]+)<' + re.escape(sentinel) + rb'>')
           raw_read = re.compile(rb'read\(((?:0x[0-9a-f]+|[0-9]+))(?:<([^>]+)>)?, (0x[0-9a-f]+), (?:0x[0-9a-f]+|[0-9]+)\) = (0x[0-9a-f]+|[0-9]+)')
           close = re.compile(rb'close\(([0-9]+)(?:<([^>]+)>)?\) = 0')
+          def classify_read_shape(line):
+              # Called only after a bounded line has matched the exact open FD.
+              # Inspect private syntax; return one literal and never serialize captures.
+              if not line.startswith(b'read('):
+                  return 'READ_FAMILY_OTHER'
+              first_arg = line.split(b',', 1)[0]
+              if b'<' in first_arg and re.fullmatch(rb'read\((?:0x[0-9a-f]+|[0-9]+)<[^>\r\n]{1,4096}>', first_arg) is None:
+                  return 'READ_FD_ANNOTATION_SHAPE'
+              if b') = ' not in line:
+                  return 'READ_RESULT_SEPARATOR'
+              left, right = line.rsplit(b') = ', 1)
+              if re.fullmatch(rb'-[0-9]{1,20} [A-Z][A-Z0-9_]{0,31}(?: \([^()\r\n]{0,160}\))?', right):
+                  return 'READ_RESULT_ERROR_SUFFIX'
+              if re.fullmatch(rb'(?:0x[0-9a-f]{1,18}|[0-9]{1,20}) [^\r\n]+', right):
+                  return 'READ_RESULT_EXTRA_SUFFIX'
+              if re.fullmatch(rb'(?:0x[0-9a-f]{1,18}|[0-9]{1,20})', right) is None:
+                  return 'READ_RESULT_TOKEN_SHAPE'
+              if re.fullmatch(rb'read\((?:0x[0-9a-f]{1,18}|[0-9]{1,20})(?:<[^>\r\n]{1,4096}>)?, 0x[0-9a-f]{1,18}, (?:0x[0-9a-f]{1,18}|[0-9]{1,20})\)', left + b')') is None:
+                  return 'READ_ARGUMENT_SHAPE'
+              return 'READ_OTHER_SHAPE'
           def prove_sequence(lines):
               fd = None
               state = 'before'
@@ -339,7 +361,12 @@ jobs:
                   if read_fd and parse_number(read_fd.group(1), 'READ_FD') == fd:
                       read = raw_read.fullmatch(line)
                       require(state == 'open', 'READ_ORDER')
-                      require(read is not None, 'READ_SHAPE')
+                      if read is None:
+                          try:
+                              shape_class = classify_read_shape(line)
+                          except Exception:
+                              shape_class = 'READ_SHAPE_CLASSIFIER_ERROR'
+                          raise CanaryProofError('READ_SHAPE', shape_class)
                       require(parse_number(read.group(1), 'READ_FD') == fd, 'READ_FD')
                       require(read.group(2) is None or read.group(2) == sentinel, 'READ_ANNOTATION')
                       require(parse_number(read.group(4), 'READ_RESULT') == 1024, 'READ_RESULT')
@@ -396,6 +423,25 @@ jobs:
                   pass
               else:
                   raise AssertionError('recycled or unordered canary FD accepted')
+          shape_fixtures = (
+              (b'pread64(0x3, 0x1234, 0x1000, 0x0) = 0x400', 'READ_FAMILY_OTHER'),
+              (b'read(0x3</fixture/raw-canary.txt, 0x1234, 0x1000) = 0x400', 'READ_FD_ANNOTATION_SHAPE'),
+              (b'read(0x3, 0x1234, 0x1000) -> 0x400', 'READ_RESULT_SEPARATOR'),
+              (b'read(0x3, 0x1234, 0x1000) = -1 EINTR (Interrupted system call)', 'READ_RESULT_ERROR_SUFFIX'),
+              (fixture_read_suffix, 'READ_RESULT_EXTRA_SUFFIX'),
+              (b'read(0x3, 0x1234, 0x1000) = ?', 'READ_RESULT_TOKEN_SHAPE'),
+              (b'read(0x3, "private", 0x1000) = 0x400', 'READ_ARGUMENT_SHAPE'),
+          )
+          for private_line, expected_shape in shape_fixtures:
+              try:
+                  prove_sequence([fixture_open, private_line, fixture_close, fixture_exit])
+              except CanaryProofError as error:
+                  if str(error) != 'READ_SHAPE' or error.shape_class != expected_shape or str(private_line) in str(error):
+                      raise AssertionError('raw shape subclass fixture refused incorrectly') from None
+              else:
+                  raise AssertionError('raw shape subclass fixture accepted')
+          if classify_read_shape(fixture_read_hex) != 'READ_OTHER_SHAPE':
+              raise AssertionError('raw shape fallback fixture failed')
           exact_open, sentinel = saved_open, saved_sentinel
           try:
               try:
@@ -436,12 +482,21 @@ jobs:
                   'EXIT_MISSING', 'TRACE_MATCH_COUNT',
               }
               assert str(error) in allowed_classes
+              allowed_shape_classes = {
+                  'READ_FAMILY_OTHER', 'READ_FD_ANNOTATION_SHAPE', 'READ_RESULT_SEPARATOR',
+                  'READ_RESULT_ERROR_SUFFIX', 'READ_RESULT_EXTRA_SUFFIX',
+                  'READ_RESULT_TOKEN_SHAPE', 'READ_ARGUMENT_SHAPE', 'READ_OTHER_SHAPE',
+                  'READ_SHAPE_CLASSIFIER_ERROR',
+              }
+              assert (str(error) == 'READ_SHAPE' and error.shape_class in allowed_shape_classes) or (str(error) != 'READ_SHAPE' and error.shape_class is None)
               refusal_path = Path('/work/image/receipt/refusal.json')
               pending_path = Path('/work/image/receipt/refusal-class.tmp')
               try:
                   refusal = json.loads(refusal_path.read_text())
                   require(refusal['status'] == 'REFUSED' and refusal['reason'] == 'TRACE_CANARY', 'REFUSAL_STATE')
                   refusal['raw_canary_class'] = str(error)
+                  if str(error) == 'READ_SHAPE':
+                      refusal['raw_canary_shape_class'] = error.shape_class
                   pending_path.write_text(json.dumps(refusal, sort_keys=True) + '\n')
                   pending_path.replace(refusal_path)
               except (OSError, ValueError, KeyError, CanaryProofError):
