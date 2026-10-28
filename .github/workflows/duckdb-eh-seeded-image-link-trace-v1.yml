@@ -325,8 +325,8 @@ jobs:
                   # Any reuse or close of this number before the raw sentinel read refuses.
                   returned_fd = re.search(rb'\) = ([0-9]+)(?:<[^>]+>)?$', line) if line.startswith((b'open(', b'openat(')) else None
                   assert returned_fd is None or int(returned_fd.group(1)) != fd
-                  read_fd = re.match(rb'(?:read|pread64|readv)\(([0-9]+)', line)
-                  if read_fd and int(read_fd.group(1)) == fd:
+                  read_fd = re.match(rb'(?:read|pread64|readv)\(((?:0x[0-9a-f]+|[0-9]+))(?=<|,)', line)
+                  if read_fd and int(read_fd.group(1), 0) == fd:
                       read = raw_read.fullmatch(line)
                       assert state == 'open' and read and int(read.group(1), 0) == fd
                       assert read.group(2) is None or read.group(2) == sentinel
@@ -343,19 +343,20 @@ jobs:
               assert opens == 1 and reads == 1 and state == 'closed'
               assert b'+++ exited with 0 +++' in lines
           fixture = b'/fixture/raw-canary.txt'
-          saved_open, saved_read, saved_sentinel = exact_open, raw_read, sentinel
+          saved_open, saved_sentinel = exact_open, sentinel
           sentinel = fixture
           exact_open = re.compile(rb'openat\(AT_FDCWD, "' + re.escape(fixture) + rb'", O_RDONLY\|O_CLOEXEC\) = ([0-9]+)<' + re.escape(fixture) + rb'>')
-          raw_read = re.compile(rb'read\(([0-9]+)(?:<([^>]+)>)?, (0x[0-9a-f]+), (?:[0-9]+)\) = ([0-9]+)')
           fixture_open = b'openat(AT_FDCWD, "/fixture/raw-canary.txt", O_RDONLY|O_CLOEXEC) = 3</fixture/raw-canary.txt>'
-          fixture_read = b'read(3, 0x1234, 4096) = 1024'
+          fixture_read_hex = b'read(0x3, 0x1234, 0x1000) = 1024'
+          fixture_read_decimal = b'read(3, 0x1234, 4096) = 1024'
           fixture_close = b'close(3</fixture/raw-canary.txt>) = 0'
           fixture_exit = b'+++ exited with 0 +++'
-          prove_sequence([fixture_open, fixture_read, fixture_close, fixture_exit])
+          prove_sequence([fixture_open, fixture_read_hex, fixture_close, fixture_exit])
+          prove_sequence([fixture_open, fixture_read_decimal, fixture_close, fixture_exit])
           for rejected in (
-              [fixture_read, fixture_open, fixture_close, fixture_exit],
-              [fixture_open, fixture_close, fixture_read, fixture_exit],
-              [fixture_open, b'close(3</fixture/raw-canary.txt>) = 0', b'openat(AT_FDCWD, "/fixture/other", O_RDONLY) = 3</fixture/other>', fixture_read, fixture_exit],
+              [fixture_read_hex, fixture_open, fixture_close, fixture_exit],
+              [fixture_open, fixture_close, fixture_read_hex, fixture_exit],
+              [fixture_open, b'close(3</fixture/raw-canary.txt>) = 0', b'openat(AT_FDCWD, "/fixture/other", O_RDONLY) = 3</fixture/other>', fixture_read_hex, fixture_exit],
           ):
               try:
                   prove_sequence(rejected)
@@ -363,7 +364,7 @@ jobs:
                   pass
               else:
                   raise AssertionError('recycled or unordered canary FD accepted')
-          exact_open, raw_read, sentinel = saved_open, saved_read, saved_sentinel
+          exact_open, sentinel = saved_open, saved_sentinel
           for file in files:
               meta = file.lstat()
               assert re.fullmatch(r'trace\.[0-9]+', file.name)
