@@ -69,6 +69,16 @@ export def canary_shape [raw: string, sentinel: string] {
 
 export def canary_diagnostic [raw: string, sentinel: string, result: string] {
   let lines = ($raw | lines)
+  let openat_lines = ($lines | where {|line| $line | str starts-with 'openat(' })
+  let sentinel_lines = ($openat_lines | where {|line| $line | str contains $sentinel })
+  let at_fdcwd_plain = ($openat_lines | where {|line| $line | str starts-with 'openat(AT_FDCWD, ' })
+  let at_fdcwd_annotated = ($openat_lines | where {|line| $line | str starts-with 'openat(AT_FDCWD<' })
+  let sentinel_plain = ($sentinel_lines | where {|line| $line | str starts-with 'openat(AT_FDCWD, ' })
+  let sentinel_annotated = ($sentinel_lines | where {|line| $line | str starts-with 'openat(AT_FDCWD<' })
+  let quote = '"'
+  let quoted_sentinel = ([$quote $sentinel $quote] | str join '')
+  let quoted_argument = ([$quoted_sentinel ', '] | str join '')
+  let annotated_sentinel = (['<' $sentinel '>'] | str join '')
   let exact_open_pattern = '^openat\(AT_FDCWD, "(?<path>[^"\\]+)", O_RDONLY[^)]*\) = (?<fd>[0-9]+)<(?<annotation>[^>]+)>$'
   let exact_opens = ($lines | each {|line| $line | parse -r $exact_open_pattern } | flatten | where {|row| $row.path == $sentinel and $row.annotation == $sentinel })
   let shaped = ($lines | each {|line| $line | parse -r '^openat\(AT_FDCWD, "(?<path>[^"\\]+)", (?<flags>[^)]*)\) = (?<tail>.+)$' } | flatten)
@@ -80,10 +90,21 @@ export def canary_diagnostic [raw: string, sentinel: string, result: string] {
   {
     failure: $failure,
     trace_lines: ($lines | length),
-    openat_lines: ($lines | where {|line| $line | str starts-with 'openat(' } | length),
+    openat_lines: ($openat_lines | length),
     open_lines: ($lines | where {|line| $line | str starts-with 'open(' } | length),
     openat2_lines: ($lines | where {|line| $line | str starts-with 'openat2(' } | length),
-    sentinel_open_lines: ($lines | where {|line| ($line | str starts-with 'openat(') and ($line | str contains $sentinel) } | length),
+    sentinel_open_lines: ($sentinel_lines | length),
+    plain_at_fdcwd_open_lines: ($at_fdcwd_plain | length),
+    annotated_at_fdcwd_open_lines: ($at_fdcwd_annotated | length),
+    plain_sentinel_open_lines: ($sentinel_plain | length),
+    annotated_sentinel_open_lines: ($sentinel_annotated | length),
+    sentinel_quoted_path_lines: ($sentinel_lines | where {|line| $line | str contains $quoted_sentinel } | length),
+    sentinel_quoted_argument_lines: ($sentinel_lines | where {|line| $line | str contains $quoted_argument } | length),
+    sentinel_result_marker_lines: ($sentinel_lines | where {|line| $line | str contains ') = ' } | length),
+    sentinel_numeric_result_lines: ($sentinel_lines | where {|line| (($line | parse -r '\) = (?<fd>[0-9]+)' | length) > 0) } | length),
+    sentinel_fd_annotation_lines: ($sentinel_lines | where {|line| $line | str contains $annotated_sentinel } | length),
+    sentinel_unfinished_lines: ($sentinel_lines | where {|line| $line | str contains '<unfinished ...>' } | length),
+    sentinel_readonly_flag_lines: ($sentinel_lines | where {|line| $line | str contains 'O_RDONLY' } | length),
     parsed_at_fdcwd_opens: ($shaped | length),
     exact_path_opens: ($exact_path | length),
     readonly_path_opens: ($readonly | length),
