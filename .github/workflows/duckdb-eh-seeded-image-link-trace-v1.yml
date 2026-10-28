@@ -257,7 +257,7 @@ jobs:
           printf '%s\n' 'tundra-eh-trace-child-canary-v1' > /work/image/trace-private/canary.txt
           timeout 20s "$loader" --library-path "$libdir" "$tracer" -ff -yy -s 4096 -o /work/image/trace-private/canary.trace \
             -e trace=execve,open,openat,read,close,exit_group \
-            python3 -c 'from pathlib import Path; assert Path("/work/image/trace-private/canary.txt").read_text() == "tundra-eh-trace-child-canary-v1\n"' \
+            python3 -c 'import os; p="/work/image/trace-private/canary.txt"; fd=os.open(p, os.O_RDONLY); data=os.read(fd, 4096); os.close(fd); assert data == b"tundra-eh-trace-child-canary-v1\n"' \
             > /work/image/trace-private/canary-output.log 2>&1
           /work/image/tool/nu gate/.github/scripts/duckdb-eh-seeded-link-trace-v1.nu canary \
             /work/image/trace-private /work/image/trace-private/canary.txt

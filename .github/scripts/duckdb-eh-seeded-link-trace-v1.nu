@@ -67,11 +67,37 @@ export def canary_shape [raw: string, sentinel: string] {
   true
 }
 
+export def canary_diagnostic [raw: string, sentinel: string, result: string] {
+  let lines = ($raw | lines)
+  let exact_open_pattern = '^openat\(AT_FDCWD, "(?<path>[^"\\]+)", O_RDONLY[^)]*\) = (?<fd>[0-9]+)<(?<annotation>[^>]+)>$'
+  let exact_opens = ($lines | each {|line| $line | parse -r $exact_open_pattern } | flatten | where {|row| $row.path == $sentinel and $row.annotation == $sentinel })
+  let failure = (if $result in [CANARY_CHILD_EXIT CANARY_DIRECT_OPEN CANARY_DIRECT_READ] { $result } else { 'CANARY_OTHER' })
+  {
+    failure: $failure,
+    trace_lines: ($lines | length),
+    openat_lines: ($lines | where {|line| $line | str starts-with 'openat(' } | length),
+    open_lines: ($lines | where {|line| $line | str starts-with 'open(' } | length),
+    openat2_lines: ($lines | where {|line| $line | str starts-with 'openat2(' } | length),
+    sentinel_open_lines: ($lines | where {|line| ($line | str starts-with 'openat(') and ($line | str contains $sentinel) } | length),
+    exact_sentinel_opens: ($exact_opens | length),
+    read_lines: ($lines | where {|line| $line | str starts-with 'read(' } | length)
+  }
+}
+
 export def canary [trace_dir: string, sentinel: string] {
   require ($trace_dir == '/work/image/trace-private' and $sentinel == '/work/image/trace-private/canary.txt') 'CANARY_SCOPE'
   let entries = (ls -l $trace_dir | where {|row| ($row.name | path basename) =~ '^canary\.trace\.[0-9]+$' })
   require (($entries | length) == 1 and ($entries | first).type == 'file' and (($entries | first).size | into int) > 0 and (($entries | first).size | into int) <= 1048576) 'CANARY_TRACE_SCOPE'
-  canary_shape (open --raw ($entries | first).name) $sentinel | ignore
+  let raw = (open --raw ($entries | first).name)
+  let result = (try { canary_shape $raw $sentinel | ignore; 'PASS' } catch {|err| $err.msg })
+  if $result != 'PASS' {
+    let diagnostic = (canary_diagnostic $raw $sentinel $result)
+    let refusal_path = '/work/image/receipt/refusal.json'
+    let prior = (open $refusal_path)
+    require ($prior.schema == 'tundra-eh-seeded-link-trace/v1' and $prior.status == 'REFUSED' and $prior.reason == 'TRACE_CANARY') 'CANARY_REFUSAL_SCOPE'
+    $prior | merge {canary_diagnostic: $diagnostic} | to json --raw | save --force $refusal_path
+    error make {msg: $diagnostic.failure}
+  }
   print 'same-run tracer child canary: PASS'
 }
 
