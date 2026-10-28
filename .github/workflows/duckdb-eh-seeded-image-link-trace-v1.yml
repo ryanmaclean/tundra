@@ -303,10 +303,15 @@ jobs:
           def require(condition, reason):
               if not condition:
                   raise CanaryProofError(reason)
+          def parse_number(token, reason):
+              require(len(token) <= 20, reason)
+              try:
+                  return int(token[2:], 16) if token.startswith(b'0x') else int(token, 10)
+              except ValueError:
+                  raise CanaryProofError(reason) from None
           root = Path('/work/image/trace-private')
           sentinel = str(root / 'raw-canary.txt').encode()
           trace_root = root / 'raw-canary'
-          files = sorted(trace_root.iterdir())
           matched = 0
           total_bytes = 0
           exact_open = re.compile(rb'openat\(AT_FDCWD(?:<[^>]+>)?, "' + re.escape(sentinel) + rb'", O_RDONLY[^)]*\) = ([0-9]+)<' + re.escape(sentinel) + rb'>')
@@ -321,7 +326,7 @@ jobs:
                   opened = exact_open.fullmatch(line)
                   if opened:
                       require(state == 'before', 'OPEN_ORDER')
-                      fd = int(opened.group(1))
+                      fd = parse_number(opened.group(1), 'OPEN_SHAPE')
                       state = 'open'
                       opens += 1
                       continue
@@ -329,20 +334,20 @@ jobs:
                       continue
                   # Any reuse or close of this number before the raw sentinel read refuses.
                   returned_fd = re.search(rb'\) = ([0-9]+)(?:<[^>]+>)?$', line) if line.startswith((b'open(', b'openat(')) else None
-                  require(returned_fd is None or int(returned_fd.group(1)) != fd, 'OPEN_REUSE')
+                  require(returned_fd is None or parse_number(returned_fd.group(1), 'OPEN_SHAPE') != fd, 'OPEN_REUSE')
                   read_fd = re.match(rb'(?:read|pread64|readv)\(((?:0x[0-9a-f]+|[0-9]+))(?=<|,)', line)
-                  if read_fd and int(read_fd.group(1), 0) == fd:
+                  if read_fd and parse_number(read_fd.group(1), 'READ_FD') == fd:
                       read = raw_read.fullmatch(line)
                       require(state == 'open', 'READ_ORDER')
                       require(read is not None, 'READ_SHAPE')
-                      require(int(read.group(1), 0) == fd, 'READ_FD')
+                      require(parse_number(read.group(1), 'READ_FD') == fd, 'READ_FD')
                       require(read.group(2) is None or read.group(2) == sentinel, 'READ_ANNOTATION')
-                      require(int(read.group(4)) == 1024, 'READ_RESULT')
+                      require(parse_number(read.group(4), 'READ_RESULT') == 1024, 'READ_RESULT')
                       reads += 1
                       state = 'read'
                       continue
                   close_fd = re.match(rb'close\(([0-9]+)', line)
-                  if close_fd and int(close_fd.group(1)) == fd:
+                  if close_fd and parse_number(close_fd.group(1), 'CLOSE_SHAPE') == fd:
                       ended = close.fullmatch(line)
                       require(state == 'read', 'CLOSE_ORDER')
                       require(ended is not None, 'CLOSE_SHAPE')
@@ -359,10 +364,14 @@ jobs:
           fixture_open = b'openat(AT_FDCWD, "/fixture/raw-canary.txt", O_RDONLY|O_CLOEXEC) = 3</fixture/raw-canary.txt>'
           fixture_read_hex = b'read(0x3, 0x1234, 0x1000) = 1024'
           fixture_read_decimal = b'read(3, 0x1234, 4096) = 1024'
+          fixture_open_8 = b'openat(AT_FDCWD, "/fixture/raw-canary.txt", O_RDONLY|O_CLOEXEC) = 8</fixture/raw-canary.txt>'
+          fixture_read_leading_zero = b'read(08, 0x1234, 4096) = 1024'
           fixture_close = b'close(3</fixture/raw-canary.txt>) = 0'
+          fixture_close_8 = b'close(8</fixture/raw-canary.txt>) = 0'
           fixture_exit = b'+++ exited with 0 +++'
           prove_sequence([fixture_open, fixture_read_hex, fixture_close, fixture_exit])
           prove_sequence([fixture_open, fixture_read_decimal, fixture_close, fixture_exit])
+          prove_sequence([fixture_open_8, fixture_read_leading_zero, fixture_close_8, fixture_exit])
           for rejected in (
               [fixture_read_hex, fixture_open, fixture_close, fixture_exit],
               [fixture_open, fixture_close, fixture_read_hex, fixture_exit],
@@ -376,14 +385,24 @@ jobs:
                   raise AssertionError('recycled or unordered canary FD accepted')
           exact_open, sentinel = saved_open, saved_sentinel
           try:
+              try:
+                  files = sorted(trace_root.iterdir())
+              except OSError:
+                  raise CanaryProofError('TRACE_IO') from None
               require(0 < len(files) <= 8, 'TRACE_FILE_SET')
               for file in files:
-                  meta = file.lstat()
+                  try:
+                      meta = file.lstat()
+                  except OSError:
+                      raise CanaryProofError('TRACE_IO') from None
                   require(re.fullmatch(r'trace\.[0-9]+', file.name) is not None, 'TRACE_FILE_SHAPE')
                   require(stat.S_ISREG(meta.st_mode) and 0 < meta.st_size <= 4194304, 'TRACE_FILE_BOUNDS')
                   total_bytes += meta.st_size
                   require(total_bytes <= 16777216, 'TRACE_TOTAL_BOUNDS')
-                  lines = file.read_bytes().splitlines()
+                  try:
+                      lines = file.read_bytes().splitlines()
+                  except OSError:
+                      raise CanaryProofError('TRACE_IO') from None
                   require(all(len(line) <= 8192 for line in lines), 'TRACE_LINE_BOUNDS')
                   if not any(exact_open.fullmatch(line) for line in lines):
                       require(not any(line.startswith((b'open(', b'openat(')) and sentinel in line for line in lines), 'OPEN_SHAPE')
@@ -396,7 +415,7 @@ jobs:
           except CanaryProofError as error:
               allowed_classes = {
                   'TRACE_FILE_SET', 'TRACE_FILE_SHAPE', 'TRACE_FILE_BOUNDS', 'TRACE_TOTAL_BOUNDS',
-                  'TRACE_LINE_BOUNDS', 'READ_ABBREVIATED', 'OPEN_ORDER', 'OPEN_REUSE',
+                  'TRACE_LINE_BOUNDS', 'TRACE_IO', 'READ_ABBREVIATED', 'OPEN_ORDER', 'OPEN_REUSE',
                   'OPEN_SHAPE', 'OPEN_MISSING', 'OPEN_COUNT',
                   'READ_ORDER', 'READ_SHAPE', 'READ_FD', 'READ_ANNOTATION', 'READ_RESULT',
                   'READ_MISSING', 'CLOSE_ORDER', 'CLOSE_SHAPE', 'CLOSE_ANNOTATION',
@@ -405,10 +424,15 @@ jobs:
               }
               assert str(error) in allowed_classes
               refusal_path = Path('/work/image/receipt/refusal.json')
-              refusal = json.loads(refusal_path.read_text())
-              require(refusal['status'] == 'REFUSED' and refusal['reason'] == 'TRACE_CANARY', 'REFUSAL_STATE')
-              refusal['raw_canary_class'] = str(error)
-              refusal_path.write_text(json.dumps(refusal, sort_keys=True) + '\n')
+              pending_path = Path('/work/image/receipt/refusal-class.tmp')
+              try:
+                  refusal = json.loads(refusal_path.read_text())
+                  require(refusal['status'] == 'REFUSED' and refusal['reason'] == 'TRACE_CANARY', 'REFUSAL_STATE')
+                  refusal['raw_canary_class'] = str(error)
+                  pending_path.write_text(json.dumps(refusal, sort_keys=True) + '\n')
+                  pending_path.replace(refusal_path)
+              except (OSError, ValueError, KeyError, CanaryProofError):
+                  raise SystemExit('RAW_CANARY_RECEIPT_REFUSED') from None
               raise SystemExit('RAW_CANARY_REFUSED') from None
           PY
           refuse TRACE_PRE
