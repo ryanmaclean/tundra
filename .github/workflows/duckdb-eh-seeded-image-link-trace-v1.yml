@@ -267,38 +267,115 @@ jobs:
           from pathlib import Path
           Path('/work/image/trace-private/raw-canary.txt').write_bytes(b'R' * 1024)
           PY
-          timeout 20s "$loader" --library-path "$libdir" "$tracer" -ff -yy -s 256 \
+          raw_canary_dir=/work/image/trace-private/raw-canary
+          mkdir -m 0700 "$raw_canary_dir"
+          raw_canary_within_cap() {
+            local entries regular oversized bytes
+            entries=$(find "$raw_canary_dir" -mindepth 1 -maxdepth 1 | wc -l)
+            regular=$(find "$raw_canary_dir" -mindepth 1 -maxdepth 1 -type f | wc -l)
+            oversized=$(find "$raw_canary_dir" -mindepth 1 -maxdepth 1 -type f -size +4194304c | wc -l)
+            bytes=$(du -sb "$raw_canary_dir" | cut -f 1)
+            test "$entries" -le 8 && test "$entries" -eq "$regular" && test "$oversized" -eq 0 && test "$bytes" -le 16777216
+          }
+          setsid timeout --signal=TERM --kill-after=2s 20s "$loader" --library-path "$libdir" "$tracer" -ff -yy -s 256 \
             -e raw=read,pread64,readv -e trace=execve,open,openat,read,pread64,readv,close,exit_group \
-            -o /work/image/trace-private/raw-canary.trace \
+            -o "$raw_canary_dir/trace" \
             python3 -c 'import os; p="/work/image/trace-private/raw-canary.txt"; fd=os.open(p, os.O_RDONLY); data=os.read(fd, 4096); os.close(fd); assert data == b"R" * 1024' \
-            > /work/image/trace-private/raw-canary-output.log 2>&1
+            > /work/image/trace-private/raw-canary-output.log 2>&1 &
+          raw_canary_pid=$!
+          while kill -0 "$raw_canary_pid" 2>/dev/null; do
+            if ! raw_canary_within_cap; then
+              kill -TERM -- "-$raw_canary_pid" 2>/dev/null || true
+              wait "$raw_canary_pid" || true
+              exit 1
+            fi
+            sleep 0.1
+          done
+          raw_canary_within_cap
+          wait "$raw_canary_pid"
           python3 - <<'PY'
           from pathlib import Path
           import re
           import stat
           root = Path('/work/image/trace-private')
           sentinel = str(root / 'raw-canary.txt').encode()
-          files = sorted(root.glob('raw-canary.trace.*'))
+          trace_root = root / 'raw-canary'
+          files = sorted(trace_root.iterdir())
           assert 0 < len(files) <= 8
           matched = 0
           total_bytes = 0
+          exact_open = re.compile(rb'openat\(AT_FDCWD(?:<[^>]+>)?, "' + re.escape(sentinel) + rb'", O_RDONLY[^)]*\) = ([0-9]+)<' + re.escape(sentinel) + rb'>')
+          raw_read = re.compile(rb'read\(((?:0x[0-9a-f]+|[0-9]+))(?:<([^>]+)>)?, (0x[0-9a-f]+), (?:0x[0-9a-f]+|[0-9]+)\) = ([0-9]+)')
+          close = re.compile(rb'close\(([0-9]+)(?:<([^>]+)>)?\) = 0')
+          def prove_sequence(lines):
+              fd = None
+              state = 'before'
+              opens = 0
+              reads = 0
+              for line in lines:
+                  opened = exact_open.fullmatch(line)
+                  if opened:
+                      assert state == 'before'
+                      fd = int(opened.group(1))
+                      state = 'open'
+                      opens += 1
+                      continue
+                  if fd is None or state == 'closed':
+                      continue
+                  # Any reuse or close of this number before the raw sentinel read refuses.
+                  returned_fd = re.search(rb'\) = ([0-9]+)(?:<[^>]+>)?$', line) if line.startswith((b'open(', b'openat(')) else None
+                  assert returned_fd is None or int(returned_fd.group(1)) != fd
+                  read_fd = re.match(rb'(?:read|pread64|readv)\(([0-9]+)', line)
+                  if read_fd and int(read_fd.group(1)) == fd:
+                      read = raw_read.fullmatch(line)
+                      assert state == 'open' and read and int(read.group(1), 0) == fd
+                      assert read.group(2) is None or read.group(2) == sentinel
+                      assert int(read.group(4)) == 1024
+                      reads += 1
+                      state = 'read'
+                      continue
+                  close_fd = re.match(rb'close\(([0-9]+)', line)
+                  if close_fd and int(close_fd.group(1)) == fd:
+                      ended = close.fullmatch(line)
+                      assert state == 'read' and ended
+                      assert ended.group(2) is None or ended.group(2) == sentinel
+                      state = 'closed'
+              assert opens == 1 and reads == 1 and state == 'closed'
+              assert b'+++ exited with 0 +++' in lines
+          fixture = b'/fixture/raw-canary.txt'
+          saved_open, saved_read, saved_sentinel = exact_open, raw_read, sentinel
+          sentinel = fixture
+          exact_open = re.compile(rb'openat\(AT_FDCWD, "' + re.escape(fixture) + rb'", O_RDONLY\|O_CLOEXEC\) = ([0-9]+)<' + re.escape(fixture) + rb'>')
+          raw_read = re.compile(rb'read\(([0-9]+)(?:<([^>]+)>)?, (0x[0-9a-f]+), (?:[0-9]+)\) = ([0-9]+)')
+          fixture_open = b'openat(AT_FDCWD, "/fixture/raw-canary.txt", O_RDONLY|O_CLOEXEC) = 3</fixture/raw-canary.txt>'
+          fixture_read = b'read(3, 0x1234, 4096) = 1024'
+          fixture_close = b'close(3</fixture/raw-canary.txt>) = 0'
+          fixture_exit = b'+++ exited with 0 +++'
+          prove_sequence([fixture_open, fixture_read, fixture_close, fixture_exit])
+          for rejected in (
+              [fixture_read, fixture_open, fixture_close, fixture_exit],
+              [fixture_open, fixture_close, fixture_read, fixture_exit],
+              [fixture_open, b'close(3</fixture/raw-canary.txt>) = 0', b'openat(AT_FDCWD, "/fixture/other", O_RDONLY) = 3</fixture/other>', fixture_read, fixture_exit],
+          ):
+              try:
+                  prove_sequence(rejected)
+              except AssertionError:
+                  pass
+              else:
+                  raise AssertionError('recycled or unordered canary FD accepted')
+          exact_open, raw_read, sentinel = saved_open, saved_read, saved_sentinel
           for file in files:
               meta = file.lstat()
-              assert re.fullmatch(r'raw-canary\.trace\.[0-9]+', file.name)
+              assert re.fullmatch(r'trace\.[0-9]+', file.name)
               assert stat.S_ISREG(meta.st_mode) and 0 < meta.st_size <= 4194304
               total_bytes += meta.st_size
               assert total_bytes <= 16777216
               lines = file.read_bytes().splitlines()
               assert all(len(line) <= 8192 for line in lines)
-              opens = [re.fullmatch(rb'openat\(AT_FDCWD(?:<[^>]+>)?, "' + re.escape(sentinel) + rb'", O_RDONLY[^)]*\) = ([0-9]+)<' + re.escape(sentinel) + rb'>', line) for line in lines]
-              fds = [int(opened.group(1)) for opened in opens if opened]
-              if not fds:
+              if not any(exact_open.fullmatch(line) for line in lines):
                   continue
-              assert len(fds) == 1 and b'+++ exited with 0 +++' in lines
-              reads = [re.fullmatch(rb'read\(((?:0x[0-9a-f]+|[0-9]+))(?:<([^>]+)>)?, (0x[0-9a-f]+), (?:0x[0-9a-f]+|[0-9]+)\) = ([0-9]+)', line) for line in lines]
-              positive = [r for r in reads if r and int(r.group(1), 0) == fds[0] and (r.group(2) is None or r.group(2) == sentinel) and int(r.group(4)) == 1024]
-              assert len(positive) == 1
               assert not any(b'...' in line for line in lines if line.startswith((b'read(', b'pread64(', b'readv(')))
+              prove_sequence(lines)
               matched += 1
           assert matched == 1
           PY
