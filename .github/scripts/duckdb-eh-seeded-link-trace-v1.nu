@@ -10,6 +10,8 @@ def ledger [path: string] {
   require ($l.archive_path == '/work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a' and $l.archive_sha256 == 'fdaa14b94400917928bc73415535f02244549987beb92719882bcc905b4280fe' and $l.archive_member_sha256 == 'd58194aea8fda6a000d2aa479617837afc6a7d527dcc670060bd7faade9d2ea1') 'LEDGER_ARCHIVE'
   require ($l.configured_linker == '/emsdk/upstream/bin/wasm-ld' and $l.resolved_linker == '/emsdk/upstream/bin/lld' and $l.linker_elf_sha256 == '6e5c12aab29b80db118acd16c08953257683ed11c415970f8320ed777997eec7') 'LEDGER_LINKER'
   require ($l.tracer_package == 'strace=5.16-0ubuntu3:amd64' and $l.tracer_elf_sha256 == '38a5c75cb29dd85ddd7780d54f5bf595554d7a1b5c42524b23065f5dc4c4b01d') 'LEDGER_TRACER'
+  require ($l.libunwind_package == 'libunwind8=1.3.2-2build2.1:amd64' and $l.libunwind_deb_sha256 == '781e3eb86986ab93e8b4866fc571fdec780c3d9a8b56b490e9c2f10fb90978ce') 'LEDGER_LIBUNWIND'
+  require ($l.host_loader_sha256 == 'e833bd99168bea158d2f2e5d32462479cacfb624003304a9ea74a1607a144f1f' and $l.host_libc_sha256 == '2e15e345ccba1e1e8bf3bc58938d13eb7ccc17044942f0376cd5bc771f429b79' and $l.host_liblzma_sha256 == '493cb401ab4aa3bba611ca464d12996afb3b327940d29476f535f999e167439b') 'LEDGER_LOADER_ABI'
   require ($l.linker_archive_read == 'UNPROVEN' and $l.other_sdk_archive_keys_pending == 8 and $l.legal_admission == 'NO' and $l.product_admission == 'NO' and $l.fleet_admission == 'NO') 'LEDGER_ADMISSION'
   $l
 }
