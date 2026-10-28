@@ -71,6 +71,11 @@ export def canary_diagnostic [raw: string, sentinel: string, result: string] {
   let lines = ($raw | lines)
   let exact_open_pattern = '^openat\(AT_FDCWD, "(?<path>[^"\\]+)", O_RDONLY[^)]*\) = (?<fd>[0-9]+)<(?<annotation>[^>]+)>$'
   let exact_opens = ($lines | each {|line| $line | parse -r $exact_open_pattern } | flatten | where {|row| $row.path == $sentinel and $row.annotation == $sentinel })
+  let shaped = ($lines | each {|line| $line | parse -r '^openat\(AT_FDCWD, "(?<path>[^"\\]+)", (?<flags>[^)]*)\) = (?<tail>.+)$' } | flatten)
+  let exact_path = ($shaped | where {|row| $row.path == $sentinel })
+  let readonly = ($exact_path | where {|row| $row.flags | str starts-with 'O_RDONLY' })
+  let numeric_fd = ($readonly | each {|row| $row.tail | parse -r '^(?<fd>[0-9]+)(?:<(?<annotation>[^>]+)>)?$' } | flatten)
+  let annotated = ($numeric_fd | where {|row| $row.annotation == $sentinel })
   let failure = (if $result in [CANARY_CHILD_EXIT CANARY_DIRECT_OPEN CANARY_DIRECT_READ] { $result } else { 'CANARY_OTHER' })
   {
     failure: $failure,
@@ -79,6 +84,11 @@ export def canary_diagnostic [raw: string, sentinel: string, result: string] {
     open_lines: ($lines | where {|line| $line | str starts-with 'open(' } | length),
     openat2_lines: ($lines | where {|line| $line | str starts-with 'openat2(' } | length),
     sentinel_open_lines: ($lines | where {|line| ($line | str starts-with 'openat(') and ($line | str contains $sentinel) } | length),
+    parsed_at_fdcwd_opens: ($shaped | length),
+    exact_path_opens: ($exact_path | length),
+    readonly_path_opens: ($readonly | length),
+    numeric_fd_opens: ($numeric_fd | length),
+    matching_fd_annotation_opens: ($annotated | length),
     exact_sentinel_opens: ($exact_opens | length),
     read_lines: ($lines | where {|line| $line | str starts-with 'read(' } | length)
   }
