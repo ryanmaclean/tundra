@@ -295,13 +295,18 @@ jobs:
           wait "$raw_canary_pid"
           python3 - <<'PY'
           from pathlib import Path
+          import json
           import re
           import stat
+          class CanaryProofError(Exception):
+              pass
+          def require(condition, reason):
+              if not condition:
+                  raise CanaryProofError(reason)
           root = Path('/work/image/trace-private')
           sentinel = str(root / 'raw-canary.txt').encode()
           trace_root = root / 'raw-canary'
           files = sorted(trace_root.iterdir())
-          assert 0 < len(files) <= 8
           matched = 0
           total_bytes = 0
           exact_open = re.compile(rb'openat\(AT_FDCWD(?:<[^>]+>)?, "' + re.escape(sentinel) + rb'", O_RDONLY[^)]*\) = ([0-9]+)<' + re.escape(sentinel) + rb'>')
@@ -315,7 +320,7 @@ jobs:
               for line in lines:
                   opened = exact_open.fullmatch(line)
                   if opened:
-                      assert state == 'before'
+                      require(state == 'before', 'OPEN_ORDER')
                       fd = int(opened.group(1))
                       state = 'open'
                       opens += 1
@@ -324,24 +329,29 @@ jobs:
                       continue
                   # Any reuse or close of this number before the raw sentinel read refuses.
                   returned_fd = re.search(rb'\) = ([0-9]+)(?:<[^>]+>)?$', line) if line.startswith((b'open(', b'openat(')) else None
-                  assert returned_fd is None or int(returned_fd.group(1)) != fd
+                  require(returned_fd is None or int(returned_fd.group(1)) != fd, 'OPEN_REUSE')
                   read_fd = re.match(rb'(?:read|pread64|readv)\(((?:0x[0-9a-f]+|[0-9]+))(?=<|,)', line)
                   if read_fd and int(read_fd.group(1), 0) == fd:
                       read = raw_read.fullmatch(line)
-                      assert state == 'open' and read and int(read.group(1), 0) == fd
-                      assert read.group(2) is None or read.group(2) == sentinel
-                      assert int(read.group(4)) == 1024
+                      require(state == 'open', 'READ_ORDER')
+                      require(read is not None, 'READ_SHAPE')
+                      require(int(read.group(1), 0) == fd, 'READ_FD')
+                      require(read.group(2) is None or read.group(2) == sentinel, 'READ_ANNOTATION')
+                      require(int(read.group(4)) == 1024, 'READ_RESULT')
                       reads += 1
                       state = 'read'
                       continue
                   close_fd = re.match(rb'close\(([0-9]+)', line)
                   if close_fd and int(close_fd.group(1)) == fd:
                       ended = close.fullmatch(line)
-                      assert state == 'read' and ended
-                      assert ended.group(2) is None or ended.group(2) == sentinel
+                      require(state == 'read', 'CLOSE_ORDER')
+                      require(ended is not None, 'CLOSE_SHAPE')
+                      require(ended.group(2) is None or ended.group(2) == sentinel, 'CLOSE_ANNOTATION')
                       state = 'closed'
-              assert opens == 1 and reads == 1 and state == 'closed'
-              assert b'+++ exited with 0 +++' in lines
+              require(opens == 1, 'OPEN_COUNT')
+              require(reads == 1, 'READ_MISSING')
+              require(state == 'closed', 'CLOSE_MISSING')
+              require(b'+++ exited with 0 +++' in lines, 'EXIT_MISSING')
           fixture = b'/fixture/raw-canary.txt'
           saved_open, saved_sentinel = exact_open, sentinel
           sentinel = fixture
@@ -360,25 +370,46 @@ jobs:
           ):
               try:
                   prove_sequence(rejected)
-              except AssertionError:
+              except CanaryProofError:
                   pass
               else:
                   raise AssertionError('recycled or unordered canary FD accepted')
           exact_open, sentinel = saved_open, saved_sentinel
-          for file in files:
-              meta = file.lstat()
-              assert re.fullmatch(r'trace\.[0-9]+', file.name)
-              assert stat.S_ISREG(meta.st_mode) and 0 < meta.st_size <= 4194304
-              total_bytes += meta.st_size
-              assert total_bytes <= 16777216
-              lines = file.read_bytes().splitlines()
-              assert all(len(line) <= 8192 for line in lines)
-              if not any(exact_open.fullmatch(line) for line in lines):
-                  continue
-              assert not any(b'...' in line for line in lines if line.startswith((b'read(', b'pread64(', b'readv(')))
-              prove_sequence(lines)
-              matched += 1
-          assert matched == 1
+          try:
+              require(0 < len(files) <= 8, 'TRACE_FILE_SET')
+              for file in files:
+                  meta = file.lstat()
+                  require(re.fullmatch(r'trace\.[0-9]+', file.name) is not None, 'TRACE_FILE_SHAPE')
+                  require(stat.S_ISREG(meta.st_mode) and 0 < meta.st_size <= 4194304, 'TRACE_FILE_BOUNDS')
+                  total_bytes += meta.st_size
+                  require(total_bytes <= 16777216, 'TRACE_TOTAL_BOUNDS')
+                  lines = file.read_bytes().splitlines()
+                  require(all(len(line) <= 8192 for line in lines), 'TRACE_LINE_BOUNDS')
+                  if not any(exact_open.fullmatch(line) for line in lines):
+                      require(not any(line.startswith((b'open(', b'openat(')) and sentinel in line for line in lines), 'OPEN_SHAPE')
+                      continue
+                  require(not any(b'...' in line for line in lines if line.startswith((b'read(', b'pread64(', b'readv('))), 'READ_ABBREVIATED')
+                  prove_sequence(lines)
+                  matched += 1
+              require(matched > 0, 'OPEN_MISSING')
+              require(matched == 1, 'TRACE_MATCH_COUNT')
+          except CanaryProofError as error:
+              allowed_classes = {
+                  'TRACE_FILE_SET', 'TRACE_FILE_SHAPE', 'TRACE_FILE_BOUNDS', 'TRACE_TOTAL_BOUNDS',
+                  'TRACE_LINE_BOUNDS', 'READ_ABBREVIATED', 'OPEN_ORDER', 'OPEN_REUSE',
+                  'OPEN_SHAPE', 'OPEN_MISSING', 'OPEN_COUNT',
+                  'READ_ORDER', 'READ_SHAPE', 'READ_FD', 'READ_ANNOTATION', 'READ_RESULT',
+                  'READ_MISSING', 'CLOSE_ORDER', 'CLOSE_SHAPE', 'CLOSE_ANNOTATION',
+                  'CLOSE_MISSING',
+                  'EXIT_MISSING', 'TRACE_MATCH_COUNT',
+              }
+              assert str(error) in allowed_classes
+              refusal_path = Path('/work/image/receipt/refusal.json')
+              refusal = json.loads(refusal_path.read_text())
+              require(refusal['status'] == 'REFUSED' and refusal['reason'] == 'TRACE_CANARY', 'REFUSAL_STATE')
+              refusal['raw_canary_class'] = str(error)
+              refusal_path.write_text(json.dumps(refusal, sort_keys=True) + '\n')
+              raise SystemExit('RAW_CANARY_REFUSED') from None
           PY
           refuse TRACE_PRE
           /work/image/tool/nu gate/.github/scripts/duckdb-eh-seeded-link-trace-v1.nu pre \
