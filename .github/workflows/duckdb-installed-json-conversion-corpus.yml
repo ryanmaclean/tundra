@@ -2,6 +2,11 @@ name: DuckDB six-cell installed JSON and Conversion corpus candidate
 
 on:
   workflow_dispatch:
+    inputs:
+      eh_trace_canary_only:
+        description: 'Run the held EH tracer canary without the seeded build'
+        type: boolean
+        default: false
   pull_request:
     paths:
       - .github/workflows/duckdb-installed-json-conversion-corpus.yml
@@ -17,6 +22,82 @@ permissions:
   actions: read
 
 jobs:
+  eh-seeded-image-link-trace-v1-source-pin:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/diagnostic/eh-seeded-link-trace-held-20261027' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Check out exact held trace diagnostic
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require reviewed parent and exact trace source bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = workflow_dispatch
+          test "$GITHUB_REF" = refs/heads/diagnostic/eh-seeded-link-trace-held-20261027
+          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test -f .git/HEAD && test ! -L .git/HEAD
+          printf '%s\n' "$GITHUB_SHA" | cmp -s - .git/HEAD
+          test "$(git rev-list --parents -n 1 HEAD)" = "$GITHUB_SHA 098da45dbb8e86cd51d01b163d618370f79f9446"
+          git cat-file -e 'e1a6f0b43e3377be94d1c94784f982a88b83318f^{commit}'
+          test "$(git diff --name-only e1a6f0b43e3377be94d1c94784f982a88b83318f HEAD)" = "$(printf '%s\n' \
+            .github/fixtures/duckdb-eh-seeded-link-trace-v1/canary-positive.trace \
+            .github/fixtures/duckdb-eh-seeded-link-trace-v1/canary-zero-read.trace \
+            .github/receipts/duckdb-eh-linker-fd-witness-v1.json \
+            .github/receipts/duckdb-eh-seeded-link-trace-v1.json \
+            .github/scripts/duckdb-eh-linker-fd-witness-v1.nu \
+            .github/scripts/duckdb-eh-seeded-link-trace-v1-test.nu \
+            .github/scripts/duckdb-eh-seeded-link-trace-v1.nu \
+            .github/workflows/duckdb-eh-seeded-image-link-trace-v1.yml \
+            .github/workflows/duckdb-eh-trace-canary-only-v1.yml \
+            .github/workflows/duckdb-installed-json-conversion-corpus.yml)"
+          for source in \
+            .github/workflows/duckdb-eh-seeded-image-link-trace-v1.yml \
+            .github/scripts/duckdb-eh-seeded-link-trace-v1.nu \
+            .github/scripts/duckdb-eh-seeded-link-trace-v1-test.nu \
+            .github/workflows/duckdb-eh-trace-canary-only-v1.yml \
+            .github/receipts/duckdb-eh-linker-fd-witness-v1.json \
+            .github/receipts/duckdb-eh-seeded-link-trace-v1.json \
+            .github/fixtures/duckdb-eh-seeded-link-trace-v1/canary-positive.trace \
+            .github/fixtures/duckdb-eh-seeded-link-trace-v1/canary-zero-read.trace \
+            .github/workflows/duckdb-eh-seeded-image-build-v1.yml \
+            .github/scripts/duckdb-eh-linker-fd-witness-v1.nu; do
+            test -f "$source" && test ! -L "$source"
+          done
+          printf '%s  %s\n' \
+            5e6eb540a7fadc1f396917f6acd145ed20bff2f7edb3898ef761ef8ad2103f55 .github/workflows/duckdb-eh-seeded-image-link-trace-v1.yml \
+            f1875830abc17963380344aa8bd0c3acf3bfb95d1bd020c2c2c293e27a5bc35f .github/scripts/duckdb-eh-seeded-link-trace-v1.nu \
+            d0daafc57234d339aefab4bfa59370bdbb9a7c971e3082115839cbaddb20cc17 .github/scripts/duckdb-eh-seeded-link-trace-v1-test.nu \
+            e08ad976779e4059f3825255e528febfe54620822a3929344687c90b9718ecac .github/workflows/duckdb-eh-trace-canary-only-v1.yml \
+            a7838ad93ba51fd1326882affc83002aaadbbbdc3bafc7173077908e1a8b205e .github/receipts/duckdb-eh-linker-fd-witness-v1.json \
+            03dd7fd0a88c103134fd0a426ad603fe9877b39e96a89d2568f3e052297a87de .github/receipts/duckdb-eh-seeded-link-trace-v1.json \
+            31a888200a8095fbfa35dd3c9c22e193b3a65ccc52ea7052502c5d4c2d5e2b28 .github/fixtures/duckdb-eh-seeded-link-trace-v1/canary-positive.trace \
+            6928121e21adb4a5864023e933c21c4ae5cbbc0c19757a520acc51493d2f042b .github/fixtures/duckdb-eh-seeded-link-trace-v1/canary-zero-read.trace \
+            ccc983a248adab0ebacc0cb7f497e7cc4571a4fcdbc9387c49ff5cf1aa7afe25 .github/workflows/duckdb-eh-seeded-image-build-v1.yml \
+            7aaf8802514358fd0d2ec724332db20b54160051e95a33b5da611e443cf025d6 .github/scripts/duckdb-eh-linker-fd-witness-v1.nu \
+            | sha256sum --check --status
+
+  eh-seeded-image-link-trace-v1-registered-dispatch:
+    needs: eh-seeded-image-link-trace-v1-source-pin
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/diagnostic/eh-seeded-link-trace-held-20261027' && !inputs.eh_trace_canary_only }}
+    uses: ./.github/workflows/duckdb-eh-seeded-image-link-trace-v1.yml
+    permissions:
+      contents: read
+      actions: read
+
+  eh-trace-canary-only-v1-registered-dispatch:
+    needs: eh-seeded-image-link-trace-v1-source-pin
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/diagnostic/eh-seeded-link-trace-held-20261027' && inputs.eh_trace_canary_only }}
+    uses: ./.github/workflows/duckdb-eh-trace-canary-only-v1.yml
+    permissions:
+      contents: read
+
   eh-seeded-image-build-v1-source-pin:
     if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/diagnostic/eh-seeded-link-input-held-20261027' }}
     runs-on: ubuntu-22.04
@@ -337,7 +418,7 @@ jobs:
       actions: read
 
   selected-eh-webkit-semantic-trial:
-    if: ${{ github.ref != 'refs/heads/diagnostic/pr139-selected-notice-25-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr139-selected-notice-25-20261027' && github.ref != 'refs/heads/diagnostic/pr140-sdk-three-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr140-sdk-three-20261027' && github.ref != 'refs/heads/diagnostic/pr141-sdk-dlmalloc-sockets-held-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr141-sdk-dlmalloc-sockets-held-20261027' && github.ref != 'refs/heads/diagnostic/pr143-controlled-libnoexit-v2-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr143-controlled-libnoexit-v2-20261027' && github.ref != 'refs/heads/diagnostic/pr144-controlled-libstubs-held-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr144-controlled-libstubs-held-20261027' && github.ref != 'refs/heads/diagnostic/pr145-controlled-libunwind-held-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr145-controlled-libunwind-held-20261027' && github.ref != 'refs/heads/diagnostic/pr146-controlled-dlmalloc-held-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr146-controlled-dlmalloc-held-20261027' && github.ref != 'refs/heads/diagnostic/pr147-controlled-libsockets-held-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr147-controlled-libsockets-held-20261027' && github.ref != 'refs/heads/diagnostic/pr149-linker-preflight-held-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr149-linker-preflight-held-20261027' && github.ref != 'refs/heads/diagnostic/eh-seeded-link-input-held-20261027' && github.event.pull_request.head.ref != 'diagnostic/eh-seeded-link-input-held-20261027' }}
+    if: ${{ github.ref != 'refs/heads/diagnostic/pr139-selected-notice-25-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr139-selected-notice-25-20261027' && github.ref != 'refs/heads/diagnostic/pr140-sdk-three-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr140-sdk-three-20261027' && github.ref != 'refs/heads/diagnostic/pr141-sdk-dlmalloc-sockets-held-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr141-sdk-dlmalloc-sockets-held-20261027' && github.ref != 'refs/heads/diagnostic/pr143-controlled-libnoexit-v2-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr143-controlled-libnoexit-v2-20261027' && github.ref != 'refs/heads/diagnostic/pr144-controlled-libstubs-held-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr144-controlled-libstubs-held-20261027' && github.ref != 'refs/heads/diagnostic/pr145-controlled-libunwind-held-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr145-controlled-libunwind-held-20261027' && github.ref != 'refs/heads/diagnostic/pr146-controlled-dlmalloc-held-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr146-controlled-dlmalloc-held-20261027' && github.ref != 'refs/heads/diagnostic/pr147-controlled-libsockets-held-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr147-controlled-libsockets-held-20261027' && github.ref != 'refs/heads/diagnostic/pr149-linker-preflight-held-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr149-linker-preflight-held-20261027' && github.ref != 'refs/heads/diagnostic/eh-seeded-link-input-held-20261027' && github.event.pull_request.head.ref != 'diagnostic/eh-seeded-link-input-held-20261027' && github.ref != 'refs/heads/diagnostic/eh-seeded-link-trace-held-20261027' && github.event.pull_request.head.ref != 'diagnostic/eh-seeded-link-trace-held-20261027' }}
     name: Installed EH semantics (${{ matrix.condition }}, ${{ matrix.profile }})
     runs-on: ubuntu-24.04
     timeout-minutes: 120
@@ -1576,7 +1657,7 @@ jobs:
 
   compare-selected-eh-webkit-semantics:
     name: Compare six installed EH observations and selected legal custody
-    if: ${{ always() && github.ref != 'refs/heads/diagnostic/pr139-selected-notice-25-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr139-selected-notice-25-20261027' && github.ref != 'refs/heads/diagnostic/pr140-sdk-three-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr140-sdk-three-20261027' && github.ref != 'refs/heads/diagnostic/pr141-sdk-dlmalloc-sockets-held-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr141-sdk-dlmalloc-sockets-held-20261027' && github.ref != 'refs/heads/diagnostic/pr143-controlled-libnoexit-v2-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr143-controlled-libnoexit-v2-20261027' && github.ref != 'refs/heads/diagnostic/pr144-controlled-libstubs-held-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr144-controlled-libstubs-held-20261027' && github.ref != 'refs/heads/diagnostic/pr145-controlled-libunwind-held-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr145-controlled-libunwind-held-20261027' && github.ref != 'refs/heads/diagnostic/pr146-controlled-dlmalloc-held-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr146-controlled-dlmalloc-held-20261027' && github.ref != 'refs/heads/diagnostic/pr147-controlled-libsockets-held-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr147-controlled-libsockets-held-20261027' && github.ref != 'refs/heads/diagnostic/pr149-linker-preflight-held-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr149-linker-preflight-held-20261027' && github.ref != 'refs/heads/diagnostic/eh-seeded-link-input-held-20261027' && github.event.pull_request.head.ref != 'diagnostic/eh-seeded-link-input-held-20261027' }}
+    if: ${{ always() && github.ref != 'refs/heads/diagnostic/pr139-selected-notice-25-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr139-selected-notice-25-20261027' && github.ref != 'refs/heads/diagnostic/pr140-sdk-three-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr140-sdk-three-20261027' && github.ref != 'refs/heads/diagnostic/pr141-sdk-dlmalloc-sockets-held-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr141-sdk-dlmalloc-sockets-held-20261027' && github.ref != 'refs/heads/diagnostic/pr143-controlled-libnoexit-v2-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr143-controlled-libnoexit-v2-20261027' && github.ref != 'refs/heads/diagnostic/pr144-controlled-libstubs-held-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr144-controlled-libstubs-held-20261027' && github.ref != 'refs/heads/diagnostic/pr145-controlled-libunwind-held-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr145-controlled-libunwind-held-20261027' && github.ref != 'refs/heads/diagnostic/pr146-controlled-dlmalloc-held-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr146-controlled-dlmalloc-held-20261027' && github.ref != 'refs/heads/diagnostic/pr147-controlled-libsockets-held-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr147-controlled-libsockets-held-20261027' && github.ref != 'refs/heads/diagnostic/pr149-linker-preflight-held-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr149-linker-preflight-held-20261027' && github.ref != 'refs/heads/diagnostic/eh-seeded-link-input-held-20261027' && github.event.pull_request.head.ref != 'diagnostic/eh-seeded-link-input-held-20261027' && github.ref != 'refs/heads/diagnostic/eh-seeded-link-trace-held-20261027' && github.event.pull_request.head.ref != 'diagnostic/eh-seeded-link-trace-held-20261027' }}
     needs: [selected-eh-webkit-semantic-trial, old-selected-eh-webkit-baseline]
     runs-on: ubuntu-24.04
     permissions:
@@ -1986,7 +2067,7 @@ jobs:
           retention-days: 14
 
   old-selected-eh-webkit-baseline:
-    if: ${{ github.ref != 'refs/heads/diagnostic/pr139-selected-notice-25-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr139-selected-notice-25-20261027' && github.ref != 'refs/heads/diagnostic/pr140-sdk-three-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr140-sdk-three-20261027' && github.ref != 'refs/heads/diagnostic/pr141-sdk-dlmalloc-sockets-held-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr141-sdk-dlmalloc-sockets-held-20261027' && github.ref != 'refs/heads/diagnostic/pr143-controlled-libnoexit-v2-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr143-controlled-libnoexit-v2-20261027' && github.ref != 'refs/heads/diagnostic/pr144-controlled-libstubs-held-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr144-controlled-libstubs-held-20261027' && github.ref != 'refs/heads/diagnostic/pr145-controlled-libunwind-held-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr145-controlled-libunwind-held-20261027' && github.ref != 'refs/heads/diagnostic/pr146-controlled-dlmalloc-held-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr146-controlled-dlmalloc-held-20261027' && github.ref != 'refs/heads/diagnostic/pr147-controlled-libsockets-held-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr147-controlled-libsockets-held-20261027' && github.ref != 'refs/heads/diagnostic/pr149-linker-preflight-held-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr149-linker-preflight-held-20261027' && github.ref != 'refs/heads/diagnostic/eh-seeded-link-input-held-20261027' && github.event.pull_request.head.ref != 'diagnostic/eh-seeded-link-input-held-20261027' }}
+    if: ${{ github.ref != 'refs/heads/diagnostic/pr139-selected-notice-25-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr139-selected-notice-25-20261027' && github.ref != 'refs/heads/diagnostic/pr140-sdk-three-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr140-sdk-three-20261027' && github.ref != 'refs/heads/diagnostic/pr141-sdk-dlmalloc-sockets-held-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr141-sdk-dlmalloc-sockets-held-20261027' && github.ref != 'refs/heads/diagnostic/pr143-controlled-libnoexit-v2-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr143-controlled-libnoexit-v2-20261027' && github.ref != 'refs/heads/diagnostic/pr144-controlled-libstubs-held-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr144-controlled-libstubs-held-20261027' && github.ref != 'refs/heads/diagnostic/pr145-controlled-libunwind-held-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr145-controlled-libunwind-held-20261027' && github.ref != 'refs/heads/diagnostic/pr146-controlled-dlmalloc-held-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr146-controlled-dlmalloc-held-20261027' && github.ref != 'refs/heads/diagnostic/pr147-controlled-libsockets-held-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr147-controlled-libsockets-held-20261027' && github.ref != 'refs/heads/diagnostic/pr149-linker-preflight-held-20261027' && github.event.pull_request.head.ref != 'diagnostic/pr149-linker-preflight-held-20261027' && github.ref != 'refs/heads/diagnostic/eh-seeded-link-input-held-20261027' && github.event.pull_request.head.ref != 'diagnostic/eh-seeded-link-input-held-20261027' && github.ref != 'refs/heads/diagnostic/eh-seeded-link-trace-held-20261027' && github.event.pull_request.head.ref != 'diagnostic/eh-seeded-link-trace-held-20261027' }}
     name: PR119 installed old EH corpus (${{ matrix.profile }})
     runs-on: ubuntu-24.04
     timeout-minutes: 120

@@ -1,0 +1,871 @@
+name: DuckDB EH seeded image linker FD trace diagnostic v1
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  seeded-image-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    container:
+      image: emscripten/emsdk:3.1.48@sha256:c952f592577a428698cb990c9656f395ae34424740f9c40bed4c3ee6d4850d29
+    env:
+      DUCKDB_EXCEL: '0'
+      DUCKDB_JSON: '1'
+      CCACHE_DISABLE: '1'
+      EM_CACHE: /work/image/cache
+    steps:
+      - name: Initialize fixed refusal before fetching sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e /work/image
+          mkdir -p /work/image/receipt
+          printf '%s\n' '{"schema":"tundra-eh-seeded-build/v1","status":"REFUSED","reason":"NOT_COMPLETED","condition":"image","actual_eh_linker_child":"UNPROVEN","linker_archive_read":"UNPROVEN","same_run_traced_outputs":"UNPROVEN","object_input_closure":"UNPROVEN","generator_input_closure":"UNPROVEN","selected_graph_exhaustive":"NO","legal_admission":"NO","product_admission":"NO","fleet_admission":"NO"}' > /work/image/receipt/refusal.json
+      - name: Check out exact held diagnostic source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.sha }}
+          path: gate
+          persist-credentials: false
+      - name: Check out pinned PR138 source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: 0bb7c5237dc1b047de488d67ba30b5ed05c37383
+          path: source
+          persist-credentials: false
+      - name: Check out pinned PR138 custody
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: 1d77df7776dca44731ae8267092e480a78f9f735
+          path: custody
+          persist-credentials: false
+      - name: Check out pinned DuckDB Wasm and recursive submodules
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: duckdb/duckdb-wasm
+          ref: f955138e5218942fb3fb097a8fdcb725222406ff
+          path: duckdb-upstream
+          submodules: recursive
+          persist-credentials: false
+      - name: Authenticate image archive, seed empty cache, and build EH
+        id: build
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          set_refusal() {
+            case "$1" in SOURCE_ENV|SOURCE_GIT_SAFETY|SOURCE_PIN_GATE|SOURCE_PIN_TUNDRA|SOURCE_PIN_CUSTODY|SOURCE_PIN_WASM|SOURCE_PIN_DUCKDB|SOURCE_PIN_ARROW|SOURCE_TREE_CLEAN|SOURCE_SUBMODULES|CUSTODY_MANIFEST|CUSTODY_ASSETS|WEBDB_PATCH_INPUT|WEBDB_PATCH_APPLY|DUCKDB_PATCH_INPUT|DUCKDB_PATCH_APPLY|JSON_SENTINEL|PATH_PROBE|NU_RUNTIME_FIXTURE|ZIP_AUTH|SEED|CONFIGURE|BUILD|OUTPUT_JOIN) ;; *) exit 2 ;; esac
+            printf '{"schema":"tundra-eh-seeded-build/v1","status":"REFUSED","reason":"%s","condition":"image","actual_eh_linker_child":"UNPROVEN","linker_archive_read":"UNPROVEN","same_run_traced_outputs":"UNPROVEN","object_input_closure":"UNPROVEN","generator_input_closure":"UNPROVEN","selected_graph_exhaustive":"NO","legal_admission":"NO","product_admission":"NO","fleet_admission":"NO"}\n' "$1" > /work/image/receipt/refusal.json
+          }
+          set_refusal SOURCE_ENV
+          test "$DUCKDB_EXCEL" = 0 && test "$DUCKDB_JSON" = 1 && test "$CCACHE_DISABLE" = 1
+          test -z "${DUCKDB_WASM_LOADABLE_EXTENSIONS+x}"
+          test "$EM_CACHE" = /work/image/cache && test ! -e "$EM_CACHE"
+          set_refusal SOURCE_GIT_SAFETY
+          for root in gate source custody duckdb-upstream duckdb-upstream/submodules/duckdb duckdb-upstream/submodules/arrow; do
+            git config --global --add safe.directory "$GITHUB_WORKSPACE/$root"
+          done
+          while IFS= read -r -d '' directory; do
+            git config --global --add safe.directory "$directory"
+          done < <(find "$GITHUB_WORKSPACE/duckdb-upstream" -type f -name .git -printf '%h\0')
+          set_refusal SOURCE_PIN_GATE
+          test "$(git -C gate rev-parse HEAD)" = "$GITHUB_SHA"
+          set_refusal SOURCE_PIN_TUNDRA
+          test "$(git -C source rev-parse HEAD)" = 0bb7c5237dc1b047de488d67ba30b5ed05c37383
+          set_refusal SOURCE_PIN_CUSTODY
+          test "$(git -C custody rev-parse HEAD)" = 1d77df7776dca44731ae8267092e480a78f9f735
+          set_refusal SOURCE_PIN_WASM
+          test "$(git -C duckdb-upstream rev-parse HEAD)" = f955138e5218942fb3fb097a8fdcb725222406ff
+          set_refusal SOURCE_PIN_DUCKDB
+          test "$(git -C duckdb-upstream/submodules/duckdb rev-parse HEAD)" = 401c8061c6ece35949cac58c7770cc755710ca86
+          set_refusal SOURCE_PIN_ARROW
+          test "$(git -C duckdb-upstream/submodules/arrow rev-parse HEAD)" = ca1c30f60d6419849dbc2a533bd0bcaff310185f
+          set_refusal SOURCE_TREE_CLEAN
+          test -z "$(git -C duckdb-upstream status --porcelain)"
+          set_refusal SOURCE_SUBMODULES
+          test -z "$(git -C duckdb-upstream submodule status --recursive | grep '^[+-U]' || true)"
+          set_refusal CUSTODY_MANIFEST
+          test "$(sha256sum custody/custody/manifest.json | cut -d ' ' -f 1)" = 5ec157dc96c54326970029900129b044365c2e330a46fa5d9f3ea66741fb2d14
+          set_refusal CUSTODY_ASSETS
+          for asset in duckdb-browser.mjs duckdb-browser-mvp.worker.js duckdb-browser-eh.worker.js duckdb-mvp.wasm duckdb-eh.wasm; do
+            expected="$(python3 - "$asset" <<'PY'
+          import json, sys
+          with open('custody/custody/manifest.json', encoding='utf-8') as source:
+              print(json.load(source)['assets']['duckdb-runtime/' + sys.argv[1]]['sha256'])
+          PY
+          )"
+            actual="$(sha256sum "custody/duckdb-runtime/$asset" | cut -d ' ' -f 1)"
+            test "$actual" = "$expected"
+          done
+          set_refusal WEBDB_PATCH_INPUT
+          test "$(sha256sum gate/.github/receipts/duckdb-eh-webdb-fetch-error-pr138.patch | cut -d ' ' -f 1)" = 9fc2d55cc1eb02f274743f9990a5601cc35ce5688afec6edf01e7a3d40fc795c
+          test "$(sha256sum duckdb-upstream/lib/src/webdb.cc | cut -d ' ' -f 1)" = 764b0bd6f433281bd38520fb5537e41a503435d5b456d54909526f1f15f791b7
+          set_refusal WEBDB_PATCH_APPLY
+          git -C duckdb-upstream apply --check "$GITHUB_WORKSPACE/gate/.github/receipts/duckdb-eh-webdb-fetch-error-pr138.patch"
+          git -C duckdb-upstream apply "$GITHUB_WORKSPACE/gate/.github/receipts/duckdb-eh-webdb-fetch-error-pr138.patch"
+          test "$(sha256sum duckdb-upstream/lib/src/webdb.cc | cut -d ' ' -f 1)" = e935d57b7ccb3d45ed5509d092b7040b6a5bc12968e17792fd69da2a7586bfe0
+          set_refusal DUCKDB_PATCH_INPUT
+          test "$(sha256sum duckdb-upstream/duckdb.patch | cut -d ' ' -f 1)" = fe8393c0bea3afea5f0cea63062d297945b5fe338d544622711de3dfb3eec3dd
+          set_refusal DUCKDB_PATCH_APPLY
+          git -C duckdb-upstream/submodules/duckdb apply --check ../../duckdb.patch
+          git -C duckdb-upstream/submodules/duckdb apply ../../duckdb.patch
+          test -s duckdb-upstream/duckdb.patch
+          set_refusal JSON_SENTINEL
+          extension_cache=duckdb-upstream/.ccache/extension
+          test ! -e "$extension_cache"
+          test ! -e "$extension_cache/json" && test ! -e "$extension_cache/excel"
+          mkdir -p "$extension_cache"
+          : > "$extension_cache/json"
+          test -f "$extension_cache/json" && test ! -L "$extension_cache/json" && test ! -s "$extension_cache/json"
+          test ! -e "$extension_cache/excel"
+          test "$(find "$extension_cache" -mindepth 1 -print)" = "$extension_cache/json"
+          set_refusal PATH_PROBE
+          test ! -e /work/image/path-probe && test ! -e "$EM_CACHE"
+          shadow="$(EM_CACHE=/work/image/path-probe/cache PYTHONPATH=/emsdk/upstream/emscripten python3 -c 'from tools import cache; print(cache.get_lib_name("libnoexit.a", absolute=True))')"
+          test "$shadow" = /work/image/path-probe/cache/sysroot/lib/wasm32-emscripten/libnoexit.a
+          test ! -e "$EM_CACHE"
+          settings_path="/work/image/cache${shadow#/work/image/path-probe/cache}"
+          test "$settings_path" = /work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a
+          rm -rf -- /work/image/path-probe
+          test ! -e /work/image/path-probe && test ! -e "$EM_CACHE"
+          mkdir -p /work/image/tool /work/image/api /work/image/build-output
+          timeout 180s curl --fail --location --silent --show-error --proto '=https' --proto-redir '=https' --max-time 120 --retry 1 --max-filesize 90000000 --output /work/image/tool/nu.tar.gz https://github.com/nushell/nushell/releases/download/0.115.1/nu-0.115.1-x86_64-unknown-linux-musl.tar.gz
+          test "$(stat -c %s /work/image/tool/nu.tar.gz)" = 83545998
+          printf '%s  %s\n' 8a9722177ddd421eba927b4baae4ae341a4d1c3434504be7b1b17d998bafdd87 /work/image/tool/nu.tar.gz | sha256sum --check --status
+          tar -xOzf /work/image/tool/nu.tar.gz nu-0.115.1-x86_64-unknown-linux-musl/nu > /work/image/tool/nu
+          tar -xOzf /work/image/tool/nu.tar.gz nu-0.115.1-x86_64-unknown-linux-musl/LICENSE > /work/image/tool/LICENSE
+          printf '%s  %s\n' c343a927a2d4a45ebf9300d013b226bcdc2598ecb0178a8a79722ebffe71e56e /work/image/tool/nu ff5dcaaba6140ec57cafdd4f707cd0d329e727477cf7d5b9ba7a244ec2678b79 /work/image/tool/LICENSE | sha256sum --check --status
+          grep -Fxq 'MIT License' /work/image/tool/LICENSE
+          chmod 0700 /work/image/tool/nu
+          test "$(/work/image/tool/nu --version)" = 0.115.1
+          set_refusal NU_RUNTIME_FIXTURE
+          /work/image/tool/nu gate/.github/scripts/duckdb-eh-seeded-archive-identity-v1-test.nu /work/image/tool/nu
+          set_refusal ZIP_AUTH
+          base=https://api.github.com/repos/ryanmaclean/tundra/actions
+          curl --fail --location --silent --show-error --proto '=https' --proto-redir '=https' --max-time 45 --max-filesize 65536 -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' --output /work/image/api/run.json "$base/runs/40536996581"
+          curl --fail --location --silent --show-error --proto '=https' --proto-redir '=https' --max-time 45 --max-filesize 16384 -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' --output /work/image/api/artifact.json "$base/artifacts/12748008032"
+          curl --fail --location --silent --show-error --proto '=https' --proto-redir '=https' --max-time 45 --max-filesize 32768 -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' --output /work/image/api/producer.zip "$base/artifacts/12748008032/zip"
+          test "$(stat -c %s /work/image/api/run.json)" -le 65536
+          test "$(stat -c %s /work/image/api/artifact.json)" -le 16384
+          test "$(stat -c %s /work/image/api/producer.zip)" -eq 7075
+          set_refusal SEED
+          /work/image/tool/nu gate/.github/scripts/duckdb-eh-seeded-archive-identity-v1.nu seed \
+            gate/.github/receipts/duckdb-eh-seeded-link-prereqs-v1.json \
+            gate/.github/receipts/duckdb-eh-linker-preflight-v1.json \
+            /work/image/api/run.json /work/image/api/artifact.json /work/image/api/producer.zip \
+            /work/image/pr143-auth /work/image/pr143-auth.json "$EM_CACHE" "$settings_path" \
+            /work/image/receipt/seed.json
+          cp /work/image/pr143-auth.json /work/image/receipt/auth.json
+          /work/image/tool/nu gate/.github/scripts/duckdb-eh-seeded-archive-identity-v1.nu verify \
+            gate/.github/receipts/duckdb-eh-seeded-link-prereqs-v1.json /work/image/pr143-auth.json \
+            "$EM_CACHE" "$settings_path" /work/image/receipt/seed.json
+          map=/work/image/build-output/image.map
+          build="$GITHUB_WORKSPACE/duckdb-upstream/build/integrated-eh-seeded-image"
+          test ! -e "$map" && test ! -e "$build"
+          flags=(-DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DDUCKDB_WASM_LOADABLE_EXTENSIONS=OFF \
+            -DDUCKDB_WASM_LOADABLE_EXTENSIONS_UNSIGNED=OFF \
+            -DDUCKDB_WASM_VERSION=v1.28.0 \
+            "-DDUCKDB_LOCATION=$GITHUB_WORKSPACE/duckdb-upstream/submodules/duckdb" \
+            "-DCMAKE_EXE_LINKER_FLAGS=-Wl,-Map,$map" \
+            -DWITH_WASM_EXCEPTIONS=1 -DDUCKDB_CUSTOM_PLATFORM=wasm_eh)
+          set_refusal CONFIGURE
+          EM_CACHE="$EM_CACHE" emcmake cmake -S duckdb-upstream/lib -B "$build" "${flags[@]}" > /work/image/build-output/configure.log 2>&1
+          after_config="$(EM_CACHE="$EM_CACHE" PYTHONPATH=/emsdk/upstream/emscripten python3 -c 'from tools import cache; print(cache.get_lib_name("libnoexit.a", absolute=True))')"
+          test "$after_config" = "$settings_path"
+          /work/image/tool/nu gate/.github/scripts/duckdb-eh-seeded-archive-identity-v1.nu verify \
+            gate/.github/receipts/duckdb-eh-seeded-link-prereqs-v1.json /work/image/pr143-auth.json \
+            "$EM_CACHE" "$after_config" /work/image/receipt/seed.json
+          set_refusal BUILD
+          EM_CACHE="$EM_CACHE" EMCC_DEBUG=1 EM_FORCE_RESPONSE_FILES=0 \
+            emmake make -C "$build" -j4 duckdb_wasm > /work/image/build-output/build.log 2>&1
+          after_build="$(EM_CACHE="$EM_CACHE" PYTHONPATH=/emsdk/upstream/emscripten python3 -c 'from tools import cache; print(cache.get_lib_name("libnoexit.a", absolute=True))')"
+          test "$after_build" = "$settings_path"
+          set_refusal OUTPUT_JOIN
+          /work/image/tool/nu gate/.github/scripts/duckdb-eh-seeded-build-v1.nu \
+            gate/.github/receipts/duckdb-eh-seeded-build-v1.json \
+            gate/.github/receipts/duckdb-eh-seeded-link-prereqs-v1.json \
+            /work/image/pr143-auth.json /work/image/receipt/seed.json "$after_config" "$after_build" \
+            "$GITHUB_WORKSPACE" /work/image/build-output
+          cp /work/image/build-output/build.json /work/image/receipt/build.json
+      - name: Trace fresh EH relink and join direct archive FD read
+        id: trace
+        shell: bash
+        run: |
+          set -euo pipefail
+          refuse() {
+            case "$1" in TRACE_TOOL|TRACE_CANARY|TRACE_PRE|TRACE_OUTPUTS_ABSENT|TRACE_RELINK|TRACE_NORMALIZE|TRACE_PARSER|TRACE_FINALIZE) ;; *) exit 2 ;; esac
+            printf '{"schema":"tundra-eh-seeded-link-trace/v1","status":"REFUSED","reason":"%s","actual_eh_linker_child":"UNPROVEN","linker_archive_read":"UNPROVEN","same_run_traced_outputs":"UNPROVEN","other_sdk_archive_keys_pending":8,"object_input_closure":"UNPROVEN","generator_input_closure":"UNPROVEN","selected_graph_exhaustive":"NO","legal_admission":"NO","product_admission":"NO","fleet_admission":"NO"}\n' "$1" > /work/image/receipt/refusal.json
+          }
+          refuse TRACE_TOOL
+          /work/image/tool/nu gate/.github/scripts/duckdb-eh-seeded-link-trace-v1-test.nu
+          mkdir -p /work/image/trace-tool /work/image/trace-private/raw /work/image/trace-raw
+          chmod 0700 /work/image/trace-tool /work/image/trace-private /work/image/trace-private/raw /work/image/trace-raw
+          test "$(stat -c %a /work/image/trace-private)" = 700
+          curl --fail --location --silent --show-error --proto '=https' --proto-redir '=https' --max-time 90 --max-filesize 600000 --output /work/image/trace-tool/strace.deb https://archive.ubuntu.com/ubuntu/pool/main/s/strace/strace_5.16-0ubuntu3_amd64.deb
+          test "$(stat -c %s /work/image/trace-tool/strace.deb)" = 566994
+          printf '%s  %s\n' 847a3535be015325f127f121d2ea5ac042b32bd20a5861a94cb7782b09857b1f /work/image/trace-tool/strace.deb | sha256sum --check --status
+          test "$(dpkg-deb -f /work/image/trace-tool/strace.deb Package)" = strace
+          test "$(dpkg-deb -f /work/image/trace-tool/strace.deb Version)" = 5.16-0ubuntu3
+          test "$(dpkg-deb -f /work/image/trace-tool/strace.deb Architecture)" = amd64
+          dpkg-deb -x /work/image/trace-tool/strace.deb /work/image/trace-tool/unpacked
+          tracer=/work/image/trace-tool/unpacked/usr/bin/strace
+          test -f "$tracer" && test ! -L "$tracer"
+          printf '%s  %s\n' 38a5c75cb29dd85ddd7780d54f5bf595554d7a1b5c42524b23065f5dc4c4b01d "$tracer" | sha256sum --check --status
+          test "$(sha256sum /work/image/trace-tool/unpacked/usr/share/doc/strace/copyright | cut -d ' ' -f 1)" = fb8db76eff2d56ed5cd2e36937e20138354ca7f0cb666207556196215ec644f6
+          curl --fail --location --silent --show-error --proto '=https' --proto-redir '=https' --max-time 90 --max-filesize 60000 --output /work/image/trace-tool/libunwind.deb https://archive.ubuntu.com/ubuntu/pool/main/libu/libunwind/libunwind8_1.3.2-2build2.1_amd64.deb
+          test "$(stat -c %s /work/image/trace-tool/libunwind.deb)" = 54518
+          printf '%s  %s\n' 781e3eb86986ab93e8b4866fc571fdec780c3d9a8b56b490e9c2f10fb90978ce /work/image/trace-tool/libunwind.deb | sha256sum --check --status
+          test "$(dpkg-deb -f /work/image/trace-tool/libunwind.deb Package)" = libunwind8
+          test "$(dpkg-deb -f /work/image/trace-tool/libunwind.deb Version)" = 1.3.2-2build2.1
+          test "$(dpkg-deb -f /work/image/trace-tool/libunwind.deb Architecture)" = amd64
+          dpkg-deb -x /work/image/trace-tool/libunwind.deb /work/image/trace-tool/libunwind-unpacked
+          libdir=/work/image/trace-tool/libunwind-unpacked/usr/lib/x86_64-linux-gnu
+          test -d "$libdir" && test ! -L "$libdir"
+          printf '%s  %s\n' \
+            f791a9b0b01faa13a65ee066d2351d2e38a23d6c3752f75eebeaf0fc5c7d56f4 "$libdir/libunwind-ptrace.so.0.0.0" \
+            1077e265bdd76ed4f2d628ea29150eb98f5c7c8f5a30004a561e6e93a2a6f097 "$libdir/libunwind-x86_64.so.8.0.1" \
+            5d1f6f104f79698e137c9f17c4b0317dfd96816c0eb6a87c50619a41472ca382 "$libdir/libunwind.so.8.0.1" \
+            | sha256sum --check --status
+          test "$(readlink "$libdir/libunwind-ptrace.so.0")" = libunwind-ptrace.so.0.0.0
+          test "$(readlink "$libdir/libunwind-x86_64.so.8")" = libunwind-x86_64.so.8.0.1
+          test "$(readlink "$libdir/libunwind.so.8")" = libunwind.so.8.0.1
+          test "$(dpkg-query -W -f='${Version}' libc6)" = 2.35-0ubuntu3.4
+          test "$(dpkg-query -W -f='${Version}' liblzma5)" = 5.2.5-2ubuntu1
+          printf '%s  %s\n' \
+            e833bd99168bea158d2f2e5d32462479cacfb624003304a9ea74a1607a144f1f /lib/x86_64-linux-gnu/ld-linux-x86-64.so.2 \
+            2e15e345ccba1e1e8bf3bc58938d13eb7ccc17044942f0376cd5bc771f429b79 /lib/x86_64-linux-gnu/libc.so.6 \
+            493cb401ab4aa3bba611ca464d12996afb3b327940d29476f535f999e167439b /lib/x86_64-linux-gnu/liblzma.so.5 \
+            | sha256sum --check --status
+          loader=/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2
+          "$loader" --library-path "$libdir" --list "$tracer" > /work/image/trace-private/loader-list.txt
+          test "$(wc -c < /work/image/trace-private/loader-list.txt)" -le 8192
+          grep -Fq "libunwind-ptrace.so.0 => $libdir/libunwind-ptrace.so.0 " /work/image/trace-private/loader-list.txt
+          grep -Fq "libunwind-x86_64.so.8 => $libdir/libunwind-x86_64.so.8 " /work/image/trace-private/loader-list.txt
+          grep -Fq "libunwind.so.8 => $libdir/libunwind.so.8 " /work/image/trace-private/loader-list.txt
+          test "$(timeout 10s "$loader" --library-path "$libdir" "$tracer" --version | head -1)" = 'strace -- version 5.16'
+          test -L /emsdk/upstream/bin/wasm-ld
+          test "$(readlink -f /emsdk/upstream/bin/wasm-ld)" = /emsdk/upstream/bin/lld
+          test "$(sha256sum /emsdk/upstream/bin/lld | cut -d ' ' -f 1)" = 6e5c12aab29b80db118acd16c08953257683ed11c415970f8320ed777997eec7
+          refuse TRACE_CANARY
+          printf '%s\n' 'tundra-eh-trace-child-canary-v1' > /work/image/trace-private/canary.txt
+          timeout 20s "$loader" --library-path "$libdir" "$tracer" -ff -yy -s 4096 -o /work/image/trace-private/canary.trace \
+            -e trace=execve,open,openat,read,close,exit_group \
+            python3 -c 'import os; p="/work/image/trace-private/canary.txt"; fd=os.open(p, os.O_RDONLY); data=os.read(fd, 4096); os.close(fd); assert data == b"tundra-eh-trace-child-canary-v1\n"' \
+            > /work/image/trace-private/canary-output.log 2>&1
+          /work/image/tool/nu gate/.github/scripts/duckdb-eh-seeded-link-trace-v1.nu canary \
+            /work/image/trace-private /work/image/trace-private/canary.txt
+          # A separate pinned-tool canary proves the raw read grammar without
+          # admitting a relink from an abbreviated decoded buffer.
+          python3 - <<'PY'
+          from pathlib import Path
+          Path('/work/image/trace-private/raw-canary.txt').write_bytes(b'R' * 1024)
+          PY
+          raw_canary_dir=/work/image/trace-private/raw-canary
+          mkdir -m 0700 "$raw_canary_dir"
+          raw_canary_within_cap() {
+            local entries regular oversized bytes
+            entries=$(find "$raw_canary_dir" -mindepth 1 -maxdepth 1 | wc -l)
+            regular=$(find "$raw_canary_dir" -mindepth 1 -maxdepth 1 -type f | wc -l)
+            oversized=$(find "$raw_canary_dir" -mindepth 1 -maxdepth 1 -type f -size +4194304c | wc -l)
+            bytes=$(du -sb "$raw_canary_dir" | cut -f 1)
+            test "$entries" -le 8 && test "$entries" -eq "$regular" && test "$oversized" -eq 0 && test "$bytes" -le 16777216
+          }
+          setsid timeout --signal=TERM --kill-after=2s 20s "$loader" --library-path "$libdir" "$tracer" -ff -yy -s 256 \
+            -e raw=read,pread64,readv -e trace=execve,open,openat,read,pread64,readv,close,exit_group \
+            -o "$raw_canary_dir/trace" \
+            python3 -c 'import os; p="/work/image/trace-private/raw-canary.txt"; fd=os.open(p, os.O_RDONLY); data=os.read(fd, 4096); os.close(fd); assert data == b"R" * 1024' \
+            > /work/image/trace-private/raw-canary-output.log 2>&1 &
+          raw_canary_pid=$!
+          while kill -0 "$raw_canary_pid" 2>/dev/null; do
+            if ! raw_canary_within_cap; then
+              kill -TERM -- "-$raw_canary_pid" 2>/dev/null || true
+              wait "$raw_canary_pid" || true
+              exit 1
+            fi
+            sleep 0.1
+          done
+          raw_canary_within_cap
+          wait "$raw_canary_pid"
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+          import re
+          import stat
+          class CanaryProofError(Exception):
+              def __init__(self, reason, shape_class=None):
+                  super().__init__(reason)
+                  self.shape_class = shape_class
+          def require(condition, reason):
+              if not condition:
+                  raise CanaryProofError(reason)
+          def parse_number(token, reason):
+              require(len(token) <= 20, reason)
+              try:
+                  return int(token[2:], 16) if token.startswith(b'0x') else int(token, 10)
+              except ValueError:
+                  raise CanaryProofError(reason) from None
+          root = Path('/work/image/trace-private')
+          sentinel = str(root / 'raw-canary.txt').encode()
+          trace_root = root / 'raw-canary'
+          matched = 0
+          total_bytes = 0
+          exact_open = re.compile(rb'openat\(AT_FDCWD(?:<[^>]+>)?, "' + re.escape(sentinel) + rb'", O_RDONLY[^)]*\) = ([0-9]+)<' + re.escape(sentinel) + rb'>')
+          raw_read = re.compile(rb'read\(((?:0x[0-9a-f]+|[0-9]+))(?:<([^>]+)>)?, (0x[0-9a-f]+), (?:0x[0-9a-f]+|[0-9]+)\)[ \t]{1,32}=[ \t]{1,8}(0x[0-9a-f]+|[0-9]+)')
+          close = re.compile(rb'close\(([0-9]+)(?:<([^>]+)>)?\) = 0')
+          def classify_read_shape(line):
+              # Called only after a bounded line has matched the exact open FD.
+              # Inspect private syntax; return one literal and never serialize captures.
+              if not line.startswith(b'read('):
+                  return 'READ_FAMILY_OTHER'
+              first_arg = line.split(b',', 1)[0]
+              if b'<' in first_arg and re.fullmatch(rb'read\((?:0x[0-9a-f]+|[0-9]+)<[^>\r\n]{1,4096}>', first_arg) is None:
+                  return 'READ_FD_ANNOTATION_SHAPE'
+              if b') = ' not in line:
+                  return 'READ_RESULT_SEPARATOR'
+              left, right = line.rsplit(b') = ', 1)
+              if re.fullmatch(rb'-[0-9]{1,20} [A-Z][A-Z0-9_]{0,31}(?: \([^()\r\n]{0,160}\))?', right):
+                  return 'READ_RESULT_ERROR_SUFFIX'
+              if re.fullmatch(rb'(?:0x[0-9a-f]{1,18}|[0-9]{1,20}) [^\r\n]+', right):
+                  return 'READ_RESULT_EXTRA_SUFFIX'
+              if re.fullmatch(rb'(?:0x[0-9a-f]{1,18}|[0-9]{1,20})', right) is None:
+                  return 'READ_RESULT_TOKEN_SHAPE'
+              if re.fullmatch(rb'read\((?:0x[0-9a-f]{1,18}|[0-9]{1,20})(?:<[^>\r\n]{1,4096}>)?, 0x[0-9a-f]{1,18}, (?:0x[0-9a-f]{1,18}|[0-9]{1,20})\)', left + b')') is None:
+                  return 'READ_ARGUMENT_SHAPE'
+              return 'READ_OTHER_SHAPE'
+          def prove_sequence(lines):
+              fd = None
+              state = 'before'
+              opens = 0
+              reads = 0
+              for line in lines:
+                  opened = exact_open.fullmatch(line)
+                  if opened:
+                      require(state == 'before', 'OPEN_ORDER')
+                      fd = parse_number(opened.group(1), 'OPEN_SHAPE')
+                      state = 'open'
+                      opens += 1
+                      continue
+                  if fd is None or state == 'closed':
+                      continue
+                  # Any reuse or close of this number before the raw sentinel read refuses.
+                  returned_fd = re.search(rb'\) = ([0-9]+)(?:<[^>]+>)?$', line) if line.startswith((b'open(', b'openat(')) else None
+                  require(returned_fd is None or parse_number(returned_fd.group(1), 'OPEN_SHAPE') != fd, 'OPEN_REUSE')
+                  read_fd = re.match(rb'(?:read|pread64|readv)\(((?:0x[0-9a-f]+|[0-9]+))(?=<|,)', line)
+                  if read_fd and parse_number(read_fd.group(1), 'READ_FD') == fd:
+                      read = raw_read.fullmatch(line)
+                      require(state == 'open', 'READ_ORDER')
+                      if read is None:
+                          try:
+                              shape_class = classify_read_shape(line)
+                          except Exception:
+                              shape_class = 'READ_SHAPE_CLASSIFIER_ERROR'
+                          raise CanaryProofError('READ_SHAPE', shape_class)
+                      require(parse_number(read.group(1), 'READ_FD') == fd, 'READ_FD')
+                      require(read.group(2) is None or read.group(2) == sentinel, 'READ_ANNOTATION')
+                      require(parse_number(read.group(4), 'READ_RESULT') == 1024, 'READ_RESULT')
+                      reads += 1
+                      state = 'read'
+                      continue
+                  close_fd = re.match(rb'close\(([0-9]+)', line)
+                  if close_fd and parse_number(close_fd.group(1), 'CLOSE_SHAPE') == fd:
+                      ended = close.fullmatch(line)
+                      require(state == 'read', 'CLOSE_ORDER')
+                      require(ended is not None, 'CLOSE_SHAPE')
+                      require(ended.group(2) is None or ended.group(2) == sentinel, 'CLOSE_ANNOTATION')
+                      state = 'closed'
+              require(opens == 1, 'OPEN_COUNT')
+              require(reads == 1, 'READ_MISSING')
+              require(state == 'closed', 'CLOSE_MISSING')
+              require(b'+++ exited with 0 +++' in lines, 'EXIT_MISSING')
+          fixture = b'/fixture/raw-canary.txt'
+          saved_open, saved_sentinel = exact_open, sentinel
+          sentinel = fixture
+          exact_open = re.compile(rb'openat\(AT_FDCWD, "' + re.escape(fixture) + rb'", O_RDONLY\|O_CLOEXEC\) = ([0-9]+)<' + re.escape(fixture) + rb'>')
+          fixture_open = b'openat(AT_FDCWD, "/fixture/raw-canary.txt", O_RDONLY|O_CLOEXEC) = 3</fixture/raw-canary.txt>'
+          fixture_read_hex = b'read(0x3, 0x1234, 0x1000) = 0x400'
+          fixture_read_spaces = b'read(0x3, 0x1234, 0x1000)' + b' ' * 9 + b'= 0x400'
+          fixture_read_tabs = b'read(0x3, 0x1234, 0x1000)\t=\t0x400'
+          fixture_read_hex_annotated = b'read(0x3</fixture/raw-canary.txt>, 0x1234, 0x1000) = 0x400'
+          fixture_read_decimal = b'read(3, 0x1234, 4096) = 1024'
+          fixture_read_zero = b'read(0x3, 0x1234, 0x1000) = 0x0'
+          fixture_read_short = b'read(0x3, 0x1234, 0x1000) = 0x3ff'
+          fixture_read_wrong_fd = b'read(0x4, 0x1234, 0x1000) = 0x400'
+          fixture_read_suffix = b'read(0x3, 0x1234, 0x1000) = 0x400 extra'
+          fixture_read_wrong_annotation = b'read(0x3</fixture/other>, 0x1234, 0x1000) = 0x400'
+          fixture_open_8 = b'openat(AT_FDCWD, "/fixture/raw-canary.txt", O_RDONLY|O_CLOEXEC) = 8</fixture/raw-canary.txt>'
+          fixture_read_leading_zero = b'read(08, 0x1234, 4096) = 1024'
+          fixture_close = b'close(3</fixture/raw-canary.txt>) = 0'
+          fixture_close_8 = b'close(8</fixture/raw-canary.txt>) = 0'
+          fixture_exit = b'+++ exited with 0 +++'
+          prove_sequence([fixture_open, fixture_read_hex, fixture_close, fixture_exit])
+          prove_sequence([fixture_open, fixture_read_spaces, fixture_close, fixture_exit])
+          prove_sequence([fixture_open, fixture_read_tabs, fixture_close, fixture_exit])
+          prove_sequence([fixture_open, fixture_read_hex_annotated, fixture_close, fixture_exit])
+          prove_sequence([fixture_open, fixture_read_decimal, fixture_close, fixture_exit])
+          prove_sequence([fixture_open_8, fixture_read_leading_zero, fixture_close_8, fixture_exit])
+          for rejected in (
+              [fixture_read_hex, fixture_open, fixture_close, fixture_exit],
+              [fixture_open, fixture_close, fixture_read_hex, fixture_exit],
+              [fixture_open, b'close(3</fixture/raw-canary.txt>) = 0', b'openat(AT_FDCWD, "/fixture/other", O_RDONLY) = 3</fixture/other>', fixture_read_hex, fixture_exit],
+              [fixture_open, fixture_read_zero, fixture_close, fixture_exit],
+              [fixture_open, fixture_read_short, fixture_close, fixture_exit],
+              [fixture_open, fixture_read_wrong_fd, fixture_close, fixture_exit],
+              [fixture_open, fixture_read_suffix, fixture_close, fixture_exit],
+              [fixture_open, b'read(0x3, 0x1234, 0x1000)= 0x400', fixture_close, fixture_exit],
+              [fixture_open, b'read(0x3, 0x1234, 0x1000)' + b' ' * 33 + b'= 0x400', fixture_close, fixture_exit],
+              [fixture_open, b'read(0x3, 0x1234, 0x1000) = ' + b' ' * 8 + b'0x400', fixture_close, fixture_exit],
+              [fixture_open, b'read(0x3, 0x1234, 0x1000)\n= 0x400', fixture_close, fixture_exit],
+              [fixture_open, b'read(0x3, 0x1234, 0x1000)\r= 0x400', fixture_close, fixture_exit],
+              [fixture_open, b'read(0x3, 0x1234, 0x1000)\v= 0x400', fixture_close, fixture_exit],
+              [fixture_open, fixture_read_wrong_annotation, fixture_close, fixture_exit],
+              [fixture_open, fixture_read_hex, fixture_exit],
+          ):
+              try:
+                  prove_sequence(rejected)
+              except CanaryProofError:
+                  pass
+              else:
+                  raise AssertionError('recycled or unordered canary FD accepted')
+          shape_fixtures = (
+              (b'pread64(0x3, 0x1234, 0x1000, 0x0) = 0x400', 'READ_FAMILY_OTHER'),
+              (b'read(0x3</fixture/raw-canary.txt, 0x1234, 0x1000) = 0x400', 'READ_FD_ANNOTATION_SHAPE'),
+              (b'read(0x3, 0x1234, 0x1000) -> 0x400', 'READ_RESULT_SEPARATOR'),
+              (b'read(0x3, 0x1234, 0x1000) = -1 EINTR (Interrupted system call)', 'READ_RESULT_ERROR_SUFFIX'),
+              (fixture_read_suffix, 'READ_RESULT_EXTRA_SUFFIX'),
+              (b'read(0x3, 0x1234, 0x1000) = ?', 'READ_RESULT_TOKEN_SHAPE'),
+              (b'read(0x3, "private", 0x1000) = 0x400', 'READ_ARGUMENT_SHAPE'),
+          )
+          for private_line, expected_shape in shape_fixtures:
+              try:
+                  prove_sequence([fixture_open, private_line, fixture_close, fixture_exit])
+              except CanaryProofError as error:
+                  if str(error) != 'READ_SHAPE' or error.shape_class != expected_shape or str(private_line) in str(error):
+                      raise AssertionError('raw shape subclass fixture refused incorrectly') from None
+              else:
+                  raise AssertionError('raw shape subclass fixture accepted')
+          if classify_read_shape(fixture_read_hex) != 'READ_OTHER_SHAPE':
+              raise AssertionError('raw shape fallback fixture failed')
+          exact_open, sentinel = saved_open, saved_sentinel
+          try:
+              try:
+                  files = sorted(trace_root.iterdir())
+              except OSError:
+                  raise CanaryProofError('TRACE_IO') from None
+              require(0 < len(files) <= 8, 'TRACE_FILE_SET')
+              for file in files:
+                  try:
+                      meta = file.lstat()
+                  except OSError:
+                      raise CanaryProofError('TRACE_IO') from None
+                  require(re.fullmatch(r'trace\.[0-9]+', file.name) is not None, 'TRACE_FILE_SHAPE')
+                  require(stat.S_ISREG(meta.st_mode) and 0 < meta.st_size <= 4194304, 'TRACE_FILE_BOUNDS')
+                  total_bytes += meta.st_size
+                  require(total_bytes <= 16777216, 'TRACE_TOTAL_BOUNDS')
+                  try:
+                      lines = file.read_bytes().splitlines()
+                  except OSError:
+                      raise CanaryProofError('TRACE_IO') from None
+                  require(all(len(line) <= 8192 for line in lines), 'TRACE_LINE_BOUNDS')
+                  if not any(exact_open.fullmatch(line) for line in lines):
+                      require(not any(line.startswith((b'open(', b'openat(')) and sentinel in line for line in lines), 'OPEN_SHAPE')
+                      continue
+                  require(not any(b'...' in line for line in lines if line.startswith((b'read(', b'pread64(', b'readv('))), 'READ_ABBREVIATED')
+                  prove_sequence(lines)
+                  matched += 1
+              require(matched > 0, 'OPEN_MISSING')
+              require(matched == 1, 'TRACE_MATCH_COUNT')
+          except CanaryProofError as error:
+              allowed_classes = {
+                  'TRACE_FILE_SET', 'TRACE_FILE_SHAPE', 'TRACE_FILE_BOUNDS', 'TRACE_TOTAL_BOUNDS',
+                  'TRACE_LINE_BOUNDS', 'TRACE_IO', 'READ_ABBREVIATED', 'OPEN_ORDER', 'OPEN_REUSE',
+                  'OPEN_SHAPE', 'OPEN_MISSING', 'OPEN_COUNT',
+                  'READ_ORDER', 'READ_SHAPE', 'READ_FD', 'READ_ANNOTATION', 'READ_RESULT',
+                  'READ_MISSING', 'CLOSE_ORDER', 'CLOSE_SHAPE', 'CLOSE_ANNOTATION',
+                  'CLOSE_MISSING',
+                  'EXIT_MISSING', 'TRACE_MATCH_COUNT',
+              }
+              assert str(error) in allowed_classes
+              allowed_shape_classes = {
+                  'READ_FAMILY_OTHER', 'READ_FD_ANNOTATION_SHAPE', 'READ_RESULT_SEPARATOR',
+                  'READ_RESULT_ERROR_SUFFIX', 'READ_RESULT_EXTRA_SUFFIX',
+                  'READ_RESULT_TOKEN_SHAPE', 'READ_ARGUMENT_SHAPE', 'READ_OTHER_SHAPE',
+                  'READ_SHAPE_CLASSIFIER_ERROR',
+              }
+              assert (str(error) == 'READ_SHAPE' and error.shape_class in allowed_shape_classes) or (str(error) != 'READ_SHAPE' and error.shape_class is None)
+              refusal_path = Path('/work/image/receipt/refusal.json')
+              pending_path = Path('/work/image/receipt/refusal-class.tmp')
+              try:
+                  refusal = json.loads(refusal_path.read_text())
+                  require(refusal['status'] == 'REFUSED' and refusal['reason'] == 'TRACE_CANARY', 'REFUSAL_STATE')
+                  refusal['raw_canary_class'] = str(error)
+                  if str(error) == 'READ_SHAPE':
+                      refusal['raw_canary_shape_class'] = error.shape_class
+                  pending_path.write_text(json.dumps(refusal, sort_keys=True) + '\n')
+                  pending_path.replace(refusal_path)
+              except (OSError, ValueError, KeyError, CanaryProofError):
+                  raise SystemExit('RAW_CANARY_RECEIPT_REFUSED') from None
+              raise SystemExit('RAW_CANARY_REFUSED') from None
+          PY
+          refuse TRACE_PRE
+          /work/image/tool/nu gate/.github/scripts/duckdb-eh-seeded-link-trace-v1.nu pre \
+            gate/.github/receipts/duckdb-eh-seeded-link-trace-v1.json \
+            /work/image/receipt/build.json /work/image/receipt/seed.json /work/image/receipt/auth.json \
+            /work/image/trace-private /work/image/trace-private/pre.json
+          map=/work/image/build-output/image.map
+          build="$GITHUB_WORKSPACE/duckdb-upstream/build/integrated-eh-seeded-image"
+          link="$build/CMakeFiles/duckdb_wasm.dir/link.txt"
+          test -s "$link" && test "$(wc -l < "$link")" = 1
+          command_text="$(cat "$link")"
+          test -n "$command_text"
+          test "$(printf '%s' "$command_text" | grep -o -- '-Wl,-Map,/work/image/build-output/image.map' | wc -l)" = 1
+          test "$(sha256sum /emsdk/upstream/bin/lld | cut -d ' ' -f 1)" = 6e5c12aab29b80db118acd16c08953257683ed11c415970f8320ed777997eec7
+          refuse TRACE_OUTPUTS_ABSENT
+          rm -- "$map" "$build/duckdb_wasm.js" "$build/duckdb_wasm.wasm"
+          /work/image/tool/nu gate/.github/scripts/duckdb-eh-seeded-link-trace-v1.nu absent \
+            /work/image/trace-private/pre.json /work/image/trace-private/absent.json
+          refuse TRACE_RELINK
+          relink_state=/work/image/trace-private/relink-state
+          printf '%s\n' EXIT_NONZERO > "$relink_state"
+          if (
+            cd "$build" || exit 1
+            test "$PWD" = "$GITHUB_WORKSPACE/duckdb-upstream/build/integrated-eh-seeded-image" || exit 1
+            setsid timeout --signal=TERM --kill-after=5s 600s "$loader" --library-path "$libdir" "$tracer" -ff -yy -s 256 -e raw=read,pread64,readv \
+              -e trace=execve,execveat,open,openat,read,pread64,readv,close,close_range,dup,dup2,dup3,fcntl,mmap,chdir,fchdir,exit_group \
+              -o /work/image/trace-private/raw/trace bash -euo pipefail -c "$command_text" \
+              > /work/image/trace-private/relink-output.log 2>&1 &
+            tracer_pid=$!
+            for ((tick=0; tick<620; tick++)); do
+              if ! kill -0 "$tracer_pid" 2>/dev/null; then break; fi
+              trace_bytes="$(du -sb /work/image/trace-private/raw | cut -f 1)" || exit 1
+              trace_files_live="$(find /work/image/trace-private/raw -mindepth 1 -maxdepth 1 -type f | wc -l)" || exit 1
+              if test "$trace_bytes" -gt 16777216 || test "$trace_files_live" -gt 128; then
+                printf '%s\n' TRACE_CAP > "$relink_state"
+                kill -TERM -- "-$tracer_pid" 2>/dev/null || true
+                wait "$tracer_pid" || true
+                exit 1
+              fi
+              sleep 1
+            done
+            if kill -0 "$tracer_pid" 2>/dev/null; then
+              printf '%s\n' TIMEOUT > "$relink_state"
+              kill -TERM -- "-$tracer_pid" 2>/dev/null || true
+              wait "$tracer_pid" || true
+              exit 1
+            fi
+            if wait "$tracer_pid"; then
+              exit 0
+            else
+              relink_exit=$?
+              if test "$relink_exit" -eq 124 || test "$relink_exit" -eq 137; then
+                printf '%s\n' TIMEOUT > "$relink_state"
+              fi
+              exit 1
+            fi
+          ); then
+            relink_exit=0
+          else
+            relink_exit=$?
+          fi
+          trace_files="$(find /work/image/trace-private/raw -mindepth 1 -maxdepth 1 -type f | wc -l)"
+          trace_bytes="$(du -sb /work/image/trace-private/raw | cut -f 1)"
+          map_state=no; js_state=no; wasm_state=no
+          if test -f "$map" && test ! -L "$map" && test -s "$map"; then map_state=yes; fi
+          if test -f "$build/duckdb_wasm.js" && test ! -L "$build/duckdb_wasm.js" && test -s "$build/duckdb_wasm.js"; then js_state=yes; fi
+          if test -f "$build/duckdb_wasm.wasm" && test ! -L "$build/duckdb_wasm.wasm" && test -s "$build/duckdb_wasm.wasm"; then wasm_state=yes; fi
+          if test "$trace_files" -gt 128 || test "$trace_bytes" -gt 16777216; then
+            printf '%s\n' TRACE_CAP > "$relink_state"
+            relink_exit=1
+          fi
+          if test "$relink_exit" -eq 0 && { test "$map_state" = no || test "$js_state" = no || test "$wasm_state" = no; }; then
+            printf '%s\n' OUTPUT_ABSENT > "$relink_state"
+            relink_exit=1
+          fi
+          if test "$relink_exit" -ne 0; then
+            classification="$(cat "$relink_state")"
+            /work/image/tool/nu gate/.github/scripts/duckdb-eh-seeded-link-trace-v1.nu relink-diagnostic \
+              "$classification" "$((trace_files > 129 ? 129 : trace_files))" \
+              "$((trace_bytes > 16777217 ? 16777217 : trace_bytes))" \
+              "$map_state" "$js_state" "$wasm_state" /work/image/receipt/refusal.json
+            if test "$classification" = TRACE_CAP; then
+              python3 - <<'PY'
+          import json
+          from pathlib import Path
+          import re
+
+          base = Path('/work/image/trace-private/raw')
+          receipt = Path('/work/image/receipt/refusal.json')
+          entries = sorted(base.iterdir())
+          if len(entries) > 128 or any(entry.is_symlink() or not entry.is_file() for entry in entries):
+              raise SystemExit('trace volume input refused')
+          families = {name: {'records': 0, 'bytes': 0} for name in
+                      ('exec', 'open', 'read', 'memory', 'fd', 'cwd', 'exit', 'other')}
+          names = {
+              'execve': 'exec', 'execveat': 'exec',
+              'open': 'open', 'openat': 'open',
+              'read': 'read', 'pread64': 'read', 'readv': 'read',
+              'mmap': 'memory',
+              'close': 'fd', 'close_range': 'fd', 'dup': 'fd', 'dup2': 'fd',
+              'dup3': 'fd', 'fcntl': 'fd',
+              'chdir': 'cwd', 'fchdir': 'cwd', 'exit_group': 'exit',
+          }
+          total_bytes = 0
+          total_records = 0
+          for entry in entries:
+              try:
+                  with entry.open('rb') as source:
+                      while total_bytes < 16777216 and total_records < 250000:
+                          record = source.readline(min(16385, 16777216 - total_bytes))
+                          if not record:
+                              break
+                          total_bytes += len(record)
+                          total_records += 1
+                          match = re.match(rb'^(?:\[pid [0-9]+\]\s+)?([a-z][a-z0-9_]*)\(', record)
+                          if match is None:
+                              match = re.match(rb'^<\.\.\. ([a-z][a-z0-9_]*) resumed>', record)
+                          family = names.get(match.group(1).decode('ascii'), 'other') if match else 'other'
+                          families[family]['records'] += 1
+                          families[family]['bytes'] += len(record)
+              except OSError:
+                  raise SystemExit('trace volume input refused') from None
+              if total_bytes >= 16777216 or total_records >= 250000:
+                  break
+          data = json.loads(receipt.read_text())
+          if data.get('schema') != 'tundra-eh-seeded-link-trace/v1' or data.get('status') != 'REFUSED' or data.get('reason') != 'TRACE_RELINK' or data.get('relink_diagnostic', {}).get('classification') != 'TRACE_CAP':
+              raise SystemExit('trace volume receipt scope refused')
+          data['relink_diagnostic']['syscall_volume'] = {
+              'sample_bytes': total_bytes,
+              'sample_records': total_records,
+              'sample_capped': total_bytes >= 16777216 or total_records >= 250000,
+              'families': families,
+          }
+          encoded = json.dumps(data, separators=(',', ':'), sort_keys=True)
+          if len(encoded) > 4096:
+              raise SystemExit('trace volume receipt cap exceeded')
+          receipt.write_text(encoded + '\n')
+          PY
+            fi
+            exit 1
+          fi
+          refuse TRACE_NORMALIZE
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          import stat
+
+          raw = Path('/work/image/trace-private/raw')
+          normalized = Path('/work/image/trace-raw')
+          read_prefix = (b'read(', b'pread64(', b'readv(')
+          number = rb'(?:0x[0-9a-f]+|[0-9]+)'
+          # -e raw keeps buffer arguments as pointers; require its complete
+          # pinned grammar rather than accepting arbitrary data text.
+          read_shape = re.compile(rb'^(read|pread64|readv)\((' + number + rb')(?:<([^>\r\n]+)>)?, (0x[0-9a-f]+), (' + number + rb')(?:, (' + number + rb'))?\)[ \t]{1,32}=[ \t]{1,8}(0x[0-9a-f]+|-?[0-9]+)\n$')
+          def parse_unsigned(token):
+              if len(token) > 20:
+                  raise ValueError()
+              return int(token[2:], 16) if token.startswith(b'0x') else int(token, 10)
+          def parse_result(token):
+              if token.startswith(b'-'):
+                  if len(token) > 20:
+                      raise ValueError()
+                  return int(token, 10)
+              return parse_unsigned(token)
+          def normalize_line(line):
+              if not line.startswith(read_prefix):
+                  return line
+              # The strict FD parser rejects these markers before examining an FD.
+              # Do not erase evidence of a split or abbreviated read payload.
+              if b'...' in line or b'resumed>' in line:
+                  raise ValueError()
+              match = read_shape.fullmatch(line)
+              if match is None:
+                  raise ValueError()
+              syscall, fd_text, annotation, pointer, count, offset, result = match.groups()
+              if (syscall == b'pread64') != (offset is not None):
+                  raise ValueError()
+              if parse_unsigned(count) == 0 or parse_unsigned(pointer) == 0 or (offset is not None and parse_unsigned(offset) < 0):
+                  raise ValueError()
+              fd = str(parse_unsigned(fd_text)).encode()
+              result = str(parse_result(result)).encode()
+              if annotation is not None:
+                  fd += b'<' + annotation + b'>'
+              return syscall + b'(' + fd + b', "") = ' + result + b'\n'
+          try:
+              for syscall in (b'read', b'pread64', b'readv'):
+                  arguments = b', 0x0' if syscall == b'pread64' else b''
+                  complete = syscall + b'(0x3</fixture/archive.a>, 0x1234, 0x1000' + arguments + b') = 0x3\n'
+                  expected = syscall + b'(3</fixture/archive.a>, "") = 3\n'
+                  if normalize_line(complete) != expected:
+                      raise ValueError()
+                  aligned = syscall + b'(0x3</fixture/archive.a>, 0x1234, 0x1000' + arguments + b')' + b' ' * 9 + b'=\t0x3\n'
+                  if normalize_line(aligned) != expected:
+                      raise ValueError()
+                  if normalize_line(syscall + b'(0x3, 0x1234, 0x1000' + arguments + b')\t= 0x3\n') != syscall + b'(3, "") = 3\n':
+                      raise ValueError()
+                  if normalize_line(syscall + b'(0x3, 0x1234, 0x1000' + arguments + b') = 0x3\n') != syscall + b'(3, "") = 3\n':
+                      raise ValueError()
+                  if normalize_line(syscall + b'(08, 0x1234, 0x1000' + arguments + b') = 3\n') != syscall + b'(8, "") = 3\n':
+                      raise ValueError()
+                  for ambiguous in (
+                      syscall + b'(3</fixture/archive.a>, "ABC"..., 4096) = 3\n',
+                      syscall + b'(3</fixture/archive.a>, 0x1234 <unfinished ...>\n',
+                      syscall + b'(3</fixture/archive.a>, 0x1234, 0x1000) = 3 <resumed>\n',
+                      syscall + b'(3</fixture/archive.a>, 0x1234, 0x1000' + arguments + b') = 0x3 extra\n',
+                      syscall + b'(3</fixture/archive.a>, 0x1234, 0x1000' + arguments + b') = 0x' + b'f' * 21 + b'\n',
+                      syscall + b'(3</fixture/archive.a>, 0x1234, 0x1000' + arguments + b')= 0x3\n',
+                      syscall + b'(3</fixture/archive.a>, 0x1234, 0x1000' + arguments + b')' + b' ' * 33 + b'= 0x3\n',
+                      syscall + b'(3</fixture/archive.a>, 0x1234, 0x1000' + arguments + b') = ' + b' ' * 8 + b'0x3\n',
+                      syscall + b'(3</fixture/archive.a>, 0x1234, 0x1000' + arguments + b')\n= 0x3\n',
+                      syscall + b'(3</fixture/archive.a>, 0x1234, 0x1000' + arguments + b')\r= 0x3\n',
+                      syscall + b'(3</fixture/archive.a>, 0x1234, 0x1000' + arguments + b')\v= 0x3\n',
+                  ):
+                      try:
+                          normalize_line(ambiguous)
+                      except ValueError:
+                          pass
+                      else:
+                          raise ValueError()
+              entries = sorted(raw.iterdir())
+              if not 0 < len(entries) <= 128 or list(normalized.iterdir()):
+                  raise ValueError()
+              source_bytes = output_bytes = records = 0
+              for entry in entries:
+                  info = entry.lstat()
+                  if not re.fullmatch(r'trace\.[0-9]+', entry.name) or not stat.S_ISREG(info.st_mode) or not 0 < info.st_size <= 4194304:
+                      raise ValueError()
+                  source_bytes += info.st_size
+                  if source_bytes > 16777216:
+                      raise ValueError()
+                  destination = normalized / entry.name
+                  file_bytes = 0
+                  with entry.open('rb') as source, destination.open('xb') as target:
+                      while line := source.readline(8193):
+                          records += 1
+                          if records > 50000 or len(line) > 8192 or not line.endswith(b'\n'):
+                              raise ValueError()
+                          line = normalize_line(line)
+                          file_bytes += len(line)
+                          output_bytes += len(line)
+                          if file_bytes > 4194304 or output_bytes > 16777216:
+                              raise ValueError()
+                          target.write(line)
+                  if file_bytes == 0:
+                      raise ValueError()
+          except (OSError, ValueError):
+              raise SystemExit('trace normalization refused') from None
+          PY
+          test "$(sha256sum /emsdk/upstream/bin/lld | cut -d ' ' -f 1)" = 6e5c12aab29b80db118acd16c08953257683ed11c415970f8320ed777997eec7
+          refuse TRACE_PARSER
+          if /work/image/tool/nu gate/.github/scripts/duckdb-eh-linker-fd-witness-v1.nu \
+            gate/.github/receipts/duckdb-eh-linker-fd-witness-v1.json /work/image/trace-raw \
+            6e5c12aab29b80db118acd16c08953257683ed11c415970f8320ed777997eec7 \
+            /work/image/trace-private/parser.json /work/image/trace-private/parser-class.txt \
+            > /work/image/trace-private/parser-output.log 2>&1; then
+            test ! -e /work/image/trace-private/parser-class.txt
+          else
+            python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import re
+          import stat
+
+          allowed = frozenset('''
+          ARCHIVE_OPEN_NOT_READONLY_EXACT CLOSE_RANGE_AMBIGUOUS CLOSE_SHAPE_AMBIGUOUS
+          CWD_CHANGE_AMBIGUOUS DUP_RETURN_DRIFT DUP_SHAPE_AMBIGUOUS EVENT_AFTER_EXIT
+          EXECVEAT_AMBIGUOUS EXECVE_SHAPE FCNTL_AMBIGUOUS FD_ANNOTATION_DRIFT FD_CAP
+          LEDGER_ADMISSION LEDGER_ARCHIVE LEDGER_CAP LEDGER_LINKER LEDGER_PREFLIGHT
+          LEDGER_SCOPE LINKER_EXECVE_NOT_UNIQUE_SUCCESS LINKER_EXIT_NOT_PROVED
+          LINKER_EXIT_NOT_ZERO LINKER_PID_NOT_UNIQUE LINKER_PID_REEXEC
+          MMAP_SHAPE_AMBIGUOUS OPENAT_DIRFD_AMBIGUOUS OPEN_SHAPE_AMBIGUOUS
+          READ_SHAPE_AMBIGUOUS REFUSED_DIRECT_READ_NOT_PROVED REFUSED_MAPPED_ONLY
+          RELATIVE_OPEN_AMBIGUOUS RUNTIME_ELF_HASH_DRIFT SPLIT_SYSCALL_AMBIGUOUS
+          TRACE_BYTE_CAP TRACE_DIR TRACE_EVENT_CAP TRACE_FILE_CAP
+          TRACE_FILE_NOT_REGULAR TRACE_FILE_SCOPE TRACE_PID_DUPLICATE
+          TRUNCATED_OR_AMBIGUOUS UNRECOGNIZED_ACTIVE_FD_EVENT PARSER_OTHER
+          '''.split())
+          private = Path('/work/image/trace-private/parser-class.txt')
+          classification = 'PARSER_OTHER'
+          try:
+              info = private.lstat()
+              if stat.S_ISREG(info.st_mode) and 0 < info.st_size <= 64:
+                  raw = private.read_bytes()
+                  if re.fullmatch(rb'[A-Z_]+\n?', raw):
+                      candidate = raw.decode('ascii').strip()
+                      if candidate in allowed:
+                          classification = candidate
+          except OSError:
+              pass
+          receipt = Path('/work/image/receipt/refusal.json')
+          data = json.loads(receipt.read_text())
+          if data.get('schema') != 'tundra-eh-seeded-link-trace/v1' or data.get('status') != 'REFUSED' or data.get('reason') != 'TRACE_PARSER':
+              raise SystemExit('parser refusal scope rejected')
+          data['parser_diagnostic'] = {'failure_class': classification}
+          encoded = json.dumps(data, separators=(',', ':'), sort_keys=True) + '\n'
+          if len(encoded) > 4096:
+              raise SystemExit('parser refusal cap rejected')
+          pending = receipt.with_name('refusal-parser.tmp')
+          pending.write_text(encoded)
+          os.replace(pending, receipt)
+          PY
+            exit 1
+          fi
+          refuse TRACE_FINALIZE
+          /work/image/tool/nu gate/.github/scripts/duckdb-eh-seeded-link-trace-v1.nu finalize \
+            gate/.github/receipts/duckdb-eh-seeded-link-trace-v1.json \
+            /work/image/trace-private/pre.json /work/image/trace-private/absent.json \
+            /work/image/trace-private/parser.json /work/image/trace-private \
+            /work/image/receipt/trace.json
+      - name: Delete private bytes and enforce fixed receipt cap
+        id: cleanup
+        if: always()
+        shell: bash
+        env:
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
+          TRACE_OUTCOME: ${{ steps.trace.outcome }}
+        run: |
+          set -euo pipefail
+          if test ! -d /work/image/receipt; then exit 1; fi
+          ok=1
+          rm -rf -- /work/image/api /work/image/pr143-auth /work/image/pr143-auth.json \
+            /work/image/cache /work/image/path-probe /work/image/tool /work/image/build-output \
+            /work/image/trace-tool /work/image/trace-private /work/image/trace-raw \
+            "$GITHUB_WORKSPACE/duckdb-upstream/.ccache/extension" \
+            "$GITHUB_WORKSPACE/duckdb-upstream/build/integrated-eh-seeded-image" || ok=0
+          for path in /work/image/api /work/image/pr143-auth /work/image/pr143-auth.json \
+            /work/image/cache /work/image/path-probe /work/image/tool /work/image/build-output \
+            /work/image/trace-tool /work/image/trace-private /work/image/trace-raw \
+            "$GITHUB_WORKSPACE/duckdb-upstream/.ccache/extension" \
+            "$GITHUB_WORKSPACE/duckdb-upstream/build/integrated-eh-seeded-image"; do
+            { test ! -e "$path" && test ! -L "$path"; } || ok=0
+          done
+          if test "$ok" -ne 1; then
+            find /work/image/receipt -mindepth 1 -maxdepth 1 -delete || true
+            printf '%s\n' '{"schema":"tundra-eh-seeded-build/v1","status":"REFUSED","reason":"EPHEMERAL_CLEANUP_UNPROVEN","actual_eh_linker_child":"UNPROVEN","linker_archive_read":"UNPROVEN","same_run_traced_outputs":"UNPROVEN","legal_admission":"NO","product_admission":"NO","fleet_admission":"NO"}' > /work/image/receipt/refusal.json
+            exit 1
+          fi
+          if test "$BUILD_OUTCOME" != success || test "$TRACE_OUTCOME" != success; then
+            find /work/image/receipt -mindepth 1 -maxdepth 1 ! -name refusal.json -delete
+            exit 0
+          fi
+          if ! { test -s /work/image/receipt/build.json && test -s /work/image/receipt/seed.json && test -s /work/image/receipt/auth.json && test -s /work/image/receipt/trace.json && test "$(du -sb /work/image/receipt | cut -f 1)" -le 2097152; }; then
+            find /work/image/receipt -mindepth 1 -maxdepth 1 ! -name refusal.json -delete
+            printf '%s\n' '{"schema":"tundra-eh-seeded-build/v1","status":"REFUSED","reason":"RECEIPT_MISSING_OR_CAP","actual_eh_linker_child":"UNPROVEN","linker_archive_read":"UNPROVEN","same_run_traced_outputs":"UNPROVEN","legal_admission":"NO","product_admission":"NO","fleet_admission":"NO"}' > /work/image/receipt/refusal.json
+            exit 1
+          fi
+          printf '{"schema":"tundra-eh-seeded-link-trace-cleanup/v1","run_id":"%s","attempt":"%s","raw_trace_retained":"NO_AFTER_ABSENCE_CHECK","private_tool_retained":"NO_AFTER_ABSENCE_CHECK","legal_admission":"NO","product_admission":"NO","fleet_admission":"NO"}\n' "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" > /work/image/receipt/cleanup.json
+          rm /work/image/receipt/refusal.json
+      - name: Retain sanitized diagnostic or refusal
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: duckdb-eh-seeded-image-link-trace-v1-${{ github.run_id }}-${{ github.run_attempt }}
+          path: /work/image/receipt/
+          if-no-files-found: error
+          retention-days: 7

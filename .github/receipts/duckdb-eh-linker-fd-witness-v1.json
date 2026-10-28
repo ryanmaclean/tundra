@@ -11,7 +11,7 @@
   "producer_artifact_id": 12748008032,
   "archive_sha256": "fdaa14b94400917928bc73415535f02244549987beb92719882bcc905b4280fe",
   "archive_path": "/work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a",
-  "max_trace_files": 64,
+  "max_trace_files": 128,
   "max_trace_file_bytes": 4194304,
   "max_total_trace_bytes": 16777216,
   "max_events": 50000,

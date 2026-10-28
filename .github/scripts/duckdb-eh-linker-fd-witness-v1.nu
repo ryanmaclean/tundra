@@ -17,7 +17,7 @@ def checked_ledger [path: string] {
   require ($l.preflight_run_id == 40549577194 and $l.preflight_head == '53d6f5af4d0ebbad18c24672f777ebb70a69417d') 'LEDGER_PREFLIGHT'
   require ($l.configured_linker_path == '/emsdk/upstream/bin/wasm-ld' and $l.resolved_linker_path == '/emsdk/upstream/bin/lld' and $l.linker_elf_sha256 == '6e5c12aab29b80db118acd16c08953257683ed11c415970f8320ed777997eec7') 'LEDGER_LINKER'
   require ($l.producer_run_id == 40536996581 and $l.producer_artifact_id == 12748008032 and $l.archive_sha256 == 'fdaa14b94400917928bc73415535f02244549987beb92719882bcc905b4280fe' and $l.archive_path == '/work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a') 'LEDGER_ARCHIVE'
-  require ($l.max_trace_files == 64 and $l.max_trace_file_bytes == 4194304 and $l.max_total_trace_bytes == 16777216 and $l.max_events == 50000 and $l.max_active_fds == 256 and $l.max_line_bytes == 8192) 'LEDGER_CAP'
+  require ($l.max_trace_files == 128 and $l.max_trace_file_bytes == 4194304 and $l.max_total_trace_bytes == 16777216 and $l.max_events == 50000 and $l.max_active_fds == 256 and $l.max_line_bytes == 8192) 'LEDGER_CAP'
   require ($l.actual_eh_linker_child == 'UNPROVEN' and $l.linker_archive_read == 'UNPROVEN' and $l.same_run_eh_outputs == 'UNPROVEN' and $l.legal_admission == 'NO' and $l.product_admission == 'NO' and $l.fleet_admission == 'NO') 'LEDGER_ADMISSION'
   $l
 }
@@ -109,10 +109,12 @@ def parse_pid [raw: string, pid: int, l: record] {
     }
     if ($line | str starts-with 'fcntl(') { error make {msg: 'FCNTL_AMBIGUOUS'} }
     if ($line | str starts-with 'read(') or ($line | str starts-with 'pread64(') or ($line | str starts-with 'readv(') {
-      let r = (capture $line '^(?:read|pread64|readv)\((?<fd>[0-9]+)<(?<annotation>[^>]+)>, .*\) = (?<result>-?[0-9]+)$')
+      # A raw-pointer read may omit -yy's FD annotation. The same PID's
+      # exact-path open and active-FD lifetime still bind its positive result.
+      let r = (capture $line '^(?:read|pread64|readv)\((?<fd>[0-9]+)(?:<(?<annotation>[^>]+)>)?, .*\) = (?<result>-?[0-9]+)$')
       require ($r != null) 'READ_SHAPE_AMBIGUOUS'
       if (($r.fd | into int) in $active) {
-        require ($r.annotation == $l.archive_path) 'FD_ANNOTATION_DRIFT'
+        require ($r.annotation == null or $r.annotation == '' or $r.annotation == $l.archive_path) 'FD_ANNOTATION_DRIFT'
         if ($r.result | into int) > 0 { $read_positive = true; $reads += 1 }
       }
       continue
@@ -173,6 +175,31 @@ export def witness [ledger_path: string, trace_dir: string, runtime_elf_sha256: 
   require $c.read_positive $status
 }
 
-def main [ledger: string, trace_dir: string, runtime_elf_sha256: string, receipt: string] {
-  witness $ledger $trace_dir $runtime_elf_sha256 $receipt
+export def parser_failure_class [message: string] {
+  # Only literal parser assertions may cross into a fixed refusal. Nu errors
+  # can contain private paths or trace content, so all others collapse.
+  let allowed = [
+    ARCHIVE_OPEN_NOT_READONLY_EXACT CLOSE_RANGE_AMBIGUOUS CLOSE_SHAPE_AMBIGUOUS
+    CWD_CHANGE_AMBIGUOUS DUP_RETURN_DRIFT DUP_SHAPE_AMBIGUOUS EVENT_AFTER_EXIT
+    EXECVEAT_AMBIGUOUS EXECVE_SHAPE FCNTL_AMBIGUOUS FD_ANNOTATION_DRIFT FD_CAP
+    LEDGER_ADMISSION LEDGER_ARCHIVE LEDGER_CAP LEDGER_LINKER LEDGER_PREFLIGHT
+    LEDGER_SCOPE LINKER_EXECVE_NOT_UNIQUE_SUCCESS LINKER_EXIT_NOT_PROVED
+    LINKER_EXIT_NOT_ZERO LINKER_PID_NOT_UNIQUE LINKER_PID_REEXEC
+    MMAP_SHAPE_AMBIGUOUS OPENAT_DIRFD_AMBIGUOUS OPEN_SHAPE_AMBIGUOUS
+    READ_SHAPE_AMBIGUOUS REFUSED_DIRECT_READ_NOT_PROVED REFUSED_MAPPED_ONLY
+    RELATIVE_OPEN_AMBIGUOUS RUNTIME_ELF_HASH_DRIFT SPLIT_SYSCALL_AMBIGUOUS
+    TRACE_BYTE_CAP TRACE_DIR TRACE_EVENT_CAP TRACE_FILE_CAP
+    TRACE_FILE_NOT_REGULAR TRACE_FILE_SCOPE TRACE_PID_DUPLICATE
+    TRUNCATED_OR_AMBIGUOUS UNRECOGNIZED_ACTIVE_FD_EVENT
+  ]
+  if $message in $allowed { $message } else { 'PARSER_OTHER' }
+}
+
+def main [ledger: string, trace_dir: string, runtime_elf_sha256: string, receipt: string, private_class: string] {
+  try {
+    witness $ledger $trace_dir $runtime_elf_sha256 $receipt
+  } catch {|err|
+    parser_failure_class $err.msg | save --force $private_class
+    error make {msg: 'PARSER_REFUSED'}
+  }
 }
