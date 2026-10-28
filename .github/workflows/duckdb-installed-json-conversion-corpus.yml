@@ -44,7 +44,7 @@ jobs:
           [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
           test -f .git/HEAD && test ! -L .git/HEAD
           printf '%s\n' "$GITHUB_SHA" | cmp -s - .git/HEAD
-          test "$(git rev-list --parents -n 1 HEAD)" = "$GITHUB_SHA 3fdbcdd1f6369a9b433fe48aaeeac54388e0f0a7"
+          test "$(git rev-list --parents -n 1 HEAD)" = "$GITHUB_SHA 760803670d7e5a423b443c1c57ab9f0de2d6ea11"
           git cat-file -e 'e1a6f0b43e3377be94d1c94784f982a88b83318f^{commit}'
           test "$(git diff --name-only e1a6f0b43e3377be94d1c94784f982a88b83318f HEAD)" = "$(printf '%s\n' \
             .github/fixtures/duckdb-eh-seeded-link-trace-v1/canary-positive.trace \
@@ -69,7 +69,7 @@ jobs:
             test -f "$source" && test ! -L "$source"
           done
           printf '%s  %s\n' \
-            40fc0a11908f0dc36d20d367e012d7bdfe5e41374165c506d460c1b3291fb6d6 .github/workflows/duckdb-eh-seeded-image-link-trace-v1.yml \
+            250c4c49b5dc6dc01e4d67ea4d023b9d568f759b2cfd144ecff3047db9f6aa9d .github/workflows/duckdb-eh-seeded-image-link-trace-v1.yml \
             3964cdad1700a35a793e08b0a857aba4471391f2c7c52d1b702d82f58f0a5cc1 .github/scripts/duckdb-eh-seeded-link-trace-v1.nu \
             fd0912daaf55f9319285968340427b9aaa68b1dc4d469f226b8767c6ece8a552 .github/scripts/duckdb-eh-seeded-link-trace-v1-test.nu \
             e08ad976779e4059f3825255e528febfe54620822a3929344687c90b9718ecac .github/workflows/duckdb-eh-trace-canary-only-v1.yml \

@@ -317,7 +317,7 @@ jobs:
           matched = 0
           total_bytes = 0
           exact_open = re.compile(rb'openat\(AT_FDCWD(?:<[^>]+>)?, "' + re.escape(sentinel) + rb'", O_RDONLY[^)]*\) = ([0-9]+)<' + re.escape(sentinel) + rb'>')
-          raw_read = re.compile(rb'read\(((?:0x[0-9a-f]+|[0-9]+))(?:<([^>]+)>)?, (0x[0-9a-f]+), (?:0x[0-9a-f]+|[0-9]+)\) = (0x[0-9a-f]+|[0-9]+)')
+          raw_read = re.compile(rb'read\(((?:0x[0-9a-f]+|[0-9]+))(?:<([^>]+)>)?, (0x[0-9a-f]+), (?:0x[0-9a-f]+|[0-9]+)\)[ \t]{1,32}=[ \t]{1,8}(0x[0-9a-f]+|[0-9]+)')
           close = re.compile(rb'close\(([0-9]+)(?:<([^>]+)>)?\) = 0')
           def classify_read_shape(line):
               # Called only after a bounded line has matched the exact open FD.
@@ -390,6 +390,8 @@ jobs:
           exact_open = re.compile(rb'openat\(AT_FDCWD, "' + re.escape(fixture) + rb'", O_RDONLY\|O_CLOEXEC\) = ([0-9]+)<' + re.escape(fixture) + rb'>')
           fixture_open = b'openat(AT_FDCWD, "/fixture/raw-canary.txt", O_RDONLY|O_CLOEXEC) = 3</fixture/raw-canary.txt>'
           fixture_read_hex = b'read(0x3, 0x1234, 0x1000) = 0x400'
+          fixture_read_spaces = b'read(0x3, 0x1234, 0x1000)' + b' ' * 9 + b'= 0x400'
+          fixture_read_tabs = b'read(0x3, 0x1234, 0x1000)\t=\t0x400'
           fixture_read_hex_annotated = b'read(0x3</fixture/raw-canary.txt>, 0x1234, 0x1000) = 0x400'
           fixture_read_decimal = b'read(3, 0x1234, 4096) = 1024'
           fixture_read_zero = b'read(0x3, 0x1234, 0x1000) = 0x0'
@@ -403,6 +405,8 @@ jobs:
           fixture_close_8 = b'close(8</fixture/raw-canary.txt>) = 0'
           fixture_exit = b'+++ exited with 0 +++'
           prove_sequence([fixture_open, fixture_read_hex, fixture_close, fixture_exit])
+          prove_sequence([fixture_open, fixture_read_spaces, fixture_close, fixture_exit])
+          prove_sequence([fixture_open, fixture_read_tabs, fixture_close, fixture_exit])
           prove_sequence([fixture_open, fixture_read_hex_annotated, fixture_close, fixture_exit])
           prove_sequence([fixture_open, fixture_read_decimal, fixture_close, fixture_exit])
           prove_sequence([fixture_open_8, fixture_read_leading_zero, fixture_close_8, fixture_exit])
@@ -414,6 +418,12 @@ jobs:
               [fixture_open, fixture_read_short, fixture_close, fixture_exit],
               [fixture_open, fixture_read_wrong_fd, fixture_close, fixture_exit],
               [fixture_open, fixture_read_suffix, fixture_close, fixture_exit],
+              [fixture_open, b'read(0x3, 0x1234, 0x1000)= 0x400', fixture_close, fixture_exit],
+              [fixture_open, b'read(0x3, 0x1234, 0x1000)' + b' ' * 33 + b'= 0x400', fixture_close, fixture_exit],
+              [fixture_open, b'read(0x3, 0x1234, 0x1000) = ' + b' ' * 8 + b'0x400', fixture_close, fixture_exit],
+              [fixture_open, b'read(0x3, 0x1234, 0x1000)\n= 0x400', fixture_close, fixture_exit],
+              [fixture_open, b'read(0x3, 0x1234, 0x1000)\r= 0x400', fixture_close, fixture_exit],
+              [fixture_open, b'read(0x3, 0x1234, 0x1000)\v= 0x400', fixture_close, fixture_exit],
               [fixture_open, fixture_read_wrong_annotation, fixture_close, fixture_exit],
               [fixture_open, fixture_read_hex, fixture_exit],
           ):
@@ -654,7 +664,7 @@ jobs:
           number = rb'(?:0x[0-9a-f]+|[0-9]+)'
           # -e raw keeps buffer arguments as pointers; require its complete
           # pinned grammar rather than accepting arbitrary data text.
-          read_shape = re.compile(rb'^(read|pread64|readv)\((' + number + rb')(?:<([^>\r\n]+)>)?, (0x[0-9a-f]+), (' + number + rb')(?:, (' + number + rb'))?\) = (0x[0-9a-f]+|-?[0-9]+)\n$')
+          read_shape = re.compile(rb'^(read|pread64|readv)\((' + number + rb')(?:<([^>\r\n]+)>)?, (0x[0-9a-f]+), (' + number + rb')(?:, (' + number + rb'))?\)[ \t]{1,32}=[ \t]{1,8}(0x[0-9a-f]+|-?[0-9]+)\n$')
           def parse_unsigned(token):
               if len(token) > 20:
                   raise ValueError()
@@ -692,6 +702,11 @@ jobs:
                   expected = syscall + b'(3</fixture/archive.a>, "") = 3\n'
                   if normalize_line(complete) != expected:
                       raise ValueError()
+                  aligned = syscall + b'(0x3</fixture/archive.a>, 0x1234, 0x1000' + arguments + b')' + b' ' * 9 + b'=\t0x3\n'
+                  if normalize_line(aligned) != expected:
+                      raise ValueError()
+                  if normalize_line(syscall + b'(0x3, 0x1234, 0x1000' + arguments + b')\t= 0x3\n') != syscall + b'(3, "") = 3\n':
+                      raise ValueError()
                   if normalize_line(syscall + b'(0x3, 0x1234, 0x1000' + arguments + b') = 0x3\n') != syscall + b'(3, "") = 3\n':
                       raise ValueError()
                   if normalize_line(syscall + b'(08, 0x1234, 0x1000' + arguments + b') = 3\n') != syscall + b'(8, "") = 3\n':
@@ -702,6 +717,12 @@ jobs:
                       syscall + b'(3</fixture/archive.a>, 0x1234, 0x1000) = 3 <resumed>\n',
                       syscall + b'(3</fixture/archive.a>, 0x1234, 0x1000' + arguments + b') = 0x3 extra\n',
                       syscall + b'(3</fixture/archive.a>, 0x1234, 0x1000' + arguments + b') = 0x' + b'f' * 21 + b'\n',
+                      syscall + b'(3</fixture/archive.a>, 0x1234, 0x1000' + arguments + b')= 0x3\n',
+                      syscall + b'(3</fixture/archive.a>, 0x1234, 0x1000' + arguments + b')' + b' ' * 33 + b'= 0x3\n',
+                      syscall + b'(3</fixture/archive.a>, 0x1234, 0x1000' + arguments + b') = ' + b' ' * 8 + b'0x3\n',
+                      syscall + b'(3</fixture/archive.a>, 0x1234, 0x1000' + arguments + b')\n= 0x3\n',
+                      syscall + b'(3</fixture/archive.a>, 0x1234, 0x1000' + arguments + b')\r= 0x3\n',
+                      syscall + b'(3</fixture/archive.a>, 0x1234, 0x1000' + arguments + b')\v= 0x3\n',
                   ):
                       try:
                           normalize_line(ambiguous)
