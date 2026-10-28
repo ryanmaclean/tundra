@@ -132,6 +132,26 @@ export def canary [trace_dir: string, sentinel: string] {
   print 'same-run tracer child canary: PASS'
 }
 
+export def relink_diagnostic [classification: string, files_text: string, bytes_text: string, map_state: string, js_state: string, wasm_state: string, receipt_path: string] {
+  require ($classification in [TIMEOUT EXIT_NONZERO TRACE_CAP OUTPUT_ABSENT]) 'RELINK_CLASSIFICATION'
+  let files = ($files_text | into int)
+  let bytes = ($bytes_text | into int)
+  require ($files >= 0 and $files <= 65 and $bytes >= 0 and $bytes <= 16777217) 'RELINK_COUNT_CAP'
+  require ($map_state in ['yes' 'no'] and $js_state in ['yes' 'no'] and $wasm_state in ['yes' 'no']) 'RELINK_OUTPUT_STATE'
+  let prior = (open $receipt_path)
+  require ($prior.schema == 'tundra-eh-seeded-link-trace/v1' and $prior.status == 'REFUSED' and $prior.reason == 'TRACE_RELINK') 'RELINK_REFUSAL_SCOPE'
+  $prior | merge {relink_diagnostic: {
+    classification: $classification,
+    trace_file_count_capped: $files,
+    trace_bytes_capped: $bytes,
+    trace_file_cap_exceeded: ($files > 64),
+    trace_bytes_cap_exceeded: ($bytes > 16777216),
+    fresh_map_present: ($map_state == 'yes'),
+    fresh_js_present: ($js_state == 'yes'),
+    fresh_wasm_present: ($wasm_state == 'yes')
+  }} | to json --raw | save --force $receipt_path
+}
+
 export def pre [ledger_path: string, build_path: string, seed_path: string, auth_path: string, private_dir: string, output: string] {
   let l = (ledger $ledger_path)
   require ($env.EM_CACHE == '/work/image/cache' and $env.GITHUB_SHA != '' and $env.GITHUB_RUN_ID != '') 'RUN_SCOPE'
@@ -180,7 +200,7 @@ export def finalize [ledger_path: string, pre_path: string, absent_path: string,
   {schema: $l.schema, status: 'SEEDED_IMAGE_EH_DIRECT_FD_READ_DIAGNOSTIC_ONLY', condition: 'image', run_id: $env.GITHUB_RUN_ID, run_attempt: $env.GITHUB_RUN_ATTEMPT, diagnostic_head: $env.GITHUB_SHA, producer_run_id: $l.producer_run_id, producer_artifact_id: $l.producer_artifact_id, image_member: $l.image_member, linker: {configured_path: $l.configured_linker, resolved_path: $l.resolved_linker, elf_sha256: $l.linker_elf_sha256, pid: $shape.linker_pid}, archive_before_after: $ar, direct_archive_opens: $shape.direct_archive_opens, positive_archive_reads: $shape.positive_reads, parser_trace_files: $shape.trace_file_count, parser_trace_bytes: $shape.trace_bytes, baseline_outputs: $before.outputs, traced_outputs: $out, map_selection_class: 'ONE_EXACT_SEEDED_PATH_LIBNOEXIT_ATEXIT_DUMMY_CXA_ATEXIT_ROW', raw_trace_retained: 'PENDING_CLEANUP', actual_eh_linker_child: 'OBSERVED_EXECVE_ZERO_EXIT', linker_archive_read: 'OBSERVED_DIRECT_FD_POSITIVE_READ', same_run_traced_outputs: 'OBSERVED_FRESH_MAP_JS_WASM', other_sdk_archive_keys_pending: 8, object_input_closure: 'UNPROVEN', generator_input_closure: 'UNPROVEN', selected_graph_exhaustive: 'NO', legal_admission: 'NO', product_admission: 'NO', fleet_admission: 'NO'} | to json --raw | save $output
 }
 
-def main [mode: string, first: string, second: string, third?: string, fourth?: string, fifth?: string, sixth?: string] {
+def main [mode: string, first: string, second: string, third?: string, fourth?: string, fifth?: string, sixth?: string, seventh?: string] {
   if $mode == 'canary' {
     canary $first $second
   } else if $mode == 'pre' {
@@ -191,5 +211,8 @@ def main [mode: string, first: string, second: string, third?: string, fourth?: 
   } else if $mode == 'finalize' {
     require ($third != null and $fourth != null and $fifth != null and $sixth != null) 'FINAL_ARGS'
     finalize $first $second $third $fourth $fifth $sixth
+  } else if $mode == 'relink-diagnostic' {
+    require ($third != null and $fourth != null and $fifth != null and $sixth != null and $seventh != null) 'RELINK_DIAGNOSTIC_ARGS'
+    relink_diagnostic $first $second $third $fourth $fifth $sixth $seventh
   } else { error make {msg: 'MODE'} }
 }

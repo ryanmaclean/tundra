@@ -1,6 +1,6 @@
 #!/usr/bin/env nu
 
-use ./duckdb-eh-seeded-link-trace-v1.nu [canary_shape canary_diagnostic]
+use ./duckdb-eh-seeded-link-trace-v1.nu [canary_shape canary_diagnostic relink_diagnostic]
 def require [ok: bool, reason: string] { if not $ok { error make {msg: $reason} } }
 
 def main [] {
@@ -59,5 +59,19 @@ def main [] {
     false
   } catch {|err| $err.msg == 'CANARY_DIRECT_READ' })
   require $refused 'ZERO_READ_ACCEPTED'
+  let scratch = (^mktemp -d | str trim)
+  let receipt = ($scratch | path join 'refusal.json')
+  for classification in [TIMEOUT EXIT_NONZERO TRACE_CAP OUTPUT_ABSENT] {
+    {schema: 'tundra-eh-seeded-link-trace/v1', status: 'REFUSED', reason: 'TRACE_RELINK', legal_admission: 'NO'} | to json --raw | save --force $receipt
+    relink_diagnostic $classification '65' '16777217' 'no' 'yes' 'no' $receipt
+    let observed = (open $receipt)
+    require ($observed.reason == 'TRACE_RELINK' and $observed.legal_admission == 'NO' and $observed.relink_diagnostic.classification == $classification and $observed.relink_diagnostic.trace_file_count_capped == 65 and $observed.relink_diagnostic.trace_bytes_capped == 16777217 and $observed.relink_diagnostic.trace_file_cap_exceeded and $observed.relink_diagnostic.trace_bytes_cap_exceeded and not $observed.relink_diagnostic.fresh_map_present and $observed.relink_diagnostic.fresh_js_present and not $observed.relink_diagnostic.fresh_wasm_present) 'RELINK_DIAGNOSTIC_SHAPE'
+    require (not (($observed | to json --raw) | str contains $scratch)) 'RELINK_DIAGNOSTIC_PATH_LEAK'
+  }
+  let unbounded = (try { relink_diagnostic 'TIMEOUT' '66' '0' 'no' 'no' 'no' $receipt; false } catch {|err| $err.msg == 'RELINK_COUNT_CAP' })
+  require $unbounded 'RELINK_UNBOUNDED_COUNT_ACCEPTED'
+  let invalid = (try { relink_diagnostic 'RAW_TRACE' '1' '1' 'no' 'no' 'no' $receipt; false } catch {|err| $err.msg == 'RELINK_CLASSIFICATION' })
+  require $invalid 'RELINK_UNBOUNDED_CLASSIFICATION_ACCEPTED'
+  rm -r $scratch
   print 'trace canary positive and zero-read refusal: PASS'
 }

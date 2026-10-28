@@ -279,9 +279,11 @@ jobs:
           /work/image/tool/nu gate/.github/scripts/duckdb-eh-seeded-link-trace-v1.nu absent \
             /work/image/trace-private/pre.json /work/image/trace-private/absent.json
           refuse TRACE_RELINK
-          (
-            cd "$build"
-            test "$PWD" = "$GITHUB_WORKSPACE/duckdb-upstream/build/integrated-eh-seeded-image"
+          relink_state=/work/image/trace-private/relink-state
+          printf '%s\n' EXIT_NONZERO > "$relink_state"
+          if (
+            cd "$build" || exit 1
+            test "$PWD" = "$GITHUB_WORKSPACE/duckdb-upstream/build/integrated-eh-seeded-image" || exit 1
             setsid timeout --signal=TERM --kill-after=5s 600s "$loader" --library-path "$libdir" "$tracer" -ff -yy -s 4096 \
               -e trace=execve,execveat,open,openat,read,pread64,readv,close,close_range,dup,dup2,dup3,fcntl,mmap,munmap,chdir,fchdir,exit_group \
               -o /work/image/trace-raw/trace bash -euo pipefail -c "$command_text" \
@@ -289,8 +291,9 @@ jobs:
             tracer_pid=$!
             for ((tick=0; tick<620; tick++)); do
               if ! kill -0 "$tracer_pid" 2>/dev/null; then break; fi
-              trace_bytes="$(du -sb /work/image/trace-raw | cut -f 1)"
+              trace_bytes="$(du -sb /work/image/trace-raw | cut -f 1)" || exit 1
               if test "$trace_bytes" -gt 16777216; then
+                printf '%s\n' TRACE_CAP > "$relink_state"
                 kill -TERM -- "-$tracer_pid" 2>/dev/null || true
                 wait "$tracer_pid" || true
                 exit 1
@@ -298,13 +301,47 @@ jobs:
               sleep 1
             done
             if kill -0 "$tracer_pid" 2>/dev/null; then
+              printf '%s\n' TIMEOUT > "$relink_state"
               kill -TERM -- "-$tracer_pid" 2>/dev/null || true
               wait "$tracer_pid" || true
               exit 1
             fi
-            wait "$tracer_pid"
-          )
-          test -s "$map" && test -s "$build/duckdb_wasm.js" && test -s "$build/duckdb_wasm.wasm"
+            if wait "$tracer_pid"; then
+              exit 0
+            else
+              relink_exit=$?
+              if test "$relink_exit" -eq 124 || test "$relink_exit" -eq 137; then
+                printf '%s\n' TIMEOUT > "$relink_state"
+              fi
+              exit 1
+            fi
+          ); then
+            relink_exit=0
+          else
+            relink_exit=$?
+          fi
+          trace_files="$(find /work/image/trace-raw -mindepth 1 -maxdepth 1 -type f | wc -l)"
+          trace_bytes="$(du -sb /work/image/trace-raw | cut -f 1)"
+          map_state=no; js_state=no; wasm_state=no
+          if test -f "$map" && test ! -L "$map" && test -s "$map"; then map_state=yes; fi
+          if test -f "$build/duckdb_wasm.js" && test ! -L "$build/duckdb_wasm.js" && test -s "$build/duckdb_wasm.js"; then js_state=yes; fi
+          if test -f "$build/duckdb_wasm.wasm" && test ! -L "$build/duckdb_wasm.wasm" && test -s "$build/duckdb_wasm.wasm"; then wasm_state=yes; fi
+          if test "$trace_files" -gt 64 || test "$trace_bytes" -gt 16777216; then
+            printf '%s\n' TRACE_CAP > "$relink_state"
+            relink_exit=1
+          fi
+          if test "$relink_exit" -eq 0 && { test "$map_state" = no || test "$js_state" = no || test "$wasm_state" = no; }; then
+            printf '%s\n' OUTPUT_ABSENT > "$relink_state"
+            relink_exit=1
+          fi
+          if test "$relink_exit" -ne 0; then
+            classification="$(cat "$relink_state")"
+            /work/image/tool/nu gate/.github/scripts/duckdb-eh-seeded-link-trace-v1.nu relink-diagnostic \
+              "$classification" "$((trace_files > 65 ? 65 : trace_files))" \
+              "$((trace_bytes > 16777217 ? 16777217 : trace_bytes))" \
+              "$map_state" "$js_state" "$wasm_state" /work/image/receipt/refusal.json
+            exit 1
+          fi
           test "$(sha256sum /emsdk/upstream/bin/lld | cut -d ' ' -f 1)" = 6e5c12aab29b80db118acd16c08953257683ed11c415970f8320ed777997eec7
           refuse TRACE_PARSER
           /work/image/tool/nu gate/.github/scripts/duckdb-eh-linker-fd-witness-v1.nu \
