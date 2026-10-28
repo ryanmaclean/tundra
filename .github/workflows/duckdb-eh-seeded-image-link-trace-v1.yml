@@ -200,13 +200,13 @@ jobs:
         run: |
           set -euo pipefail
           refuse() {
-            case "$1" in TRACE_TOOL|TRACE_CANARY|TRACE_PRE|TRACE_OUTPUTS_ABSENT|TRACE_RELINK|TRACE_PARSER|TRACE_FINALIZE) ;; *) exit 2 ;; esac
+            case "$1" in TRACE_TOOL|TRACE_CANARY|TRACE_PRE|TRACE_OUTPUTS_ABSENT|TRACE_RELINK|TRACE_NORMALIZE|TRACE_PARSER|TRACE_FINALIZE) ;; *) exit 2 ;; esac
             printf '{"schema":"tundra-eh-seeded-link-trace/v1","status":"REFUSED","reason":"%s","actual_eh_linker_child":"UNPROVEN","linker_archive_read":"UNPROVEN","same_run_traced_outputs":"UNPROVEN","other_sdk_archive_keys_pending":8,"object_input_closure":"UNPROVEN","generator_input_closure":"UNPROVEN","selected_graph_exhaustive":"NO","legal_admission":"NO","product_admission":"NO","fleet_admission":"NO"}\n' "$1" > /work/image/receipt/refusal.json
           }
           refuse TRACE_TOOL
           /work/image/tool/nu gate/.github/scripts/duckdb-eh-seeded-link-trace-v1-test.nu
-          mkdir -p /work/image/trace-tool /work/image/trace-private /work/image/trace-raw
-          chmod 0700 /work/image/trace-tool /work/image/trace-private /work/image/trace-raw
+          mkdir -p /work/image/trace-tool /work/image/trace-private/raw /work/image/trace-raw
+          chmod 0700 /work/image/trace-tool /work/image/trace-private /work/image/trace-private/raw /work/image/trace-raw
           test "$(stat -c %a /work/image/trace-private)" = 700
           curl --fail --location --silent --show-error --proto '=https' --proto-redir '=https' --max-time 90 --max-filesize 600000 --output /work/image/trace-tool/strace.deb https://archive.ubuntu.com/ubuntu/pool/main/s/strace/strace_5.16-0ubuntu3_amd64.deb
           test "$(stat -c %s /work/image/trace-tool/strace.deb)" = 566994
@@ -284,14 +284,14 @@ jobs:
           if (
             cd "$build" || exit 1
             test "$PWD" = "$GITHUB_WORKSPACE/duckdb-upstream/build/integrated-eh-seeded-image" || exit 1
-            setsid timeout --signal=TERM --kill-after=5s 600s "$loader" --library-path "$libdir" "$tracer" -ff -yy -s 4096 \
+            setsid timeout --signal=TERM --kill-after=5s 600s "$loader" --library-path "$libdir" "$tracer" -ff -yy -s 256 \
               -e trace=execve,execveat,open,openat,read,pread64,readv,close,close_range,dup,dup2,dup3,fcntl,mmap,chdir,fchdir,exit_group \
-              -o /work/image/trace-raw/trace bash -euo pipefail -c "$command_text" \
+              -o /work/image/trace-private/raw/trace bash -euo pipefail -c "$command_text" \
               > /work/image/trace-private/relink-output.log 2>&1 &
             tracer_pid=$!
             for ((tick=0; tick<620; tick++)); do
               if ! kill -0 "$tracer_pid" 2>/dev/null; then break; fi
-              trace_bytes="$(du -sb /work/image/trace-raw | cut -f 1)" || exit 1
+              trace_bytes="$(du -sb /work/image/trace-private/raw | cut -f 1)" || exit 1
               if test "$trace_bytes" -gt 16777216; then
                 printf '%s\n' TRACE_CAP > "$relink_state"
                 kill -TERM -- "-$tracer_pid" 2>/dev/null || true
@@ -320,8 +320,8 @@ jobs:
           else
             relink_exit=$?
           fi
-          trace_files="$(find /work/image/trace-raw -mindepth 1 -maxdepth 1 -type f | wc -l)"
-          trace_bytes="$(du -sb /work/image/trace-raw | cut -f 1)"
+          trace_files="$(find /work/image/trace-private/raw -mindepth 1 -maxdepth 1 -type f | wc -l)"
+          trace_bytes="$(du -sb /work/image/trace-private/raw | cut -f 1)"
           map_state=no; js_state=no; wasm_state=no
           if test -f "$map" && test ! -L "$map" && test -s "$map"; then map_state=yes; fi
           if test -f "$build/duckdb_wasm.js" && test ! -L "$build/duckdb_wasm.js" && test -s "$build/duckdb_wasm.js"; then js_state=yes; fi
@@ -346,7 +346,7 @@ jobs:
           from pathlib import Path
           import re
 
-          base = Path('/work/image/trace-raw')
+          base = Path('/work/image/trace-private/raw')
           receipt = Path('/work/image/receipt/refusal.json')
           entries = sorted(base.iterdir())
           if len(entries) > 64 or any(entry.is_symlink() or not entry.is_file() for entry in entries):
@@ -400,6 +400,52 @@ jobs:
             fi
             exit 1
           fi
+          refuse TRACE_NORMALIZE
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          import stat
+
+          raw = Path('/work/image/trace-private/raw')
+          normalized = Path('/work/image/trace-raw')
+          read_prefix = (b'read(', b'pread64(', b'readv(')
+          read_shape = re.compile(rb'^(read|pread64|readv)\(([0-9]+<[^>\r\n]+>), .+\) = (-?[0-9]+)\n$')
+          try:
+              entries = sorted(raw.iterdir())
+              if not 0 < len(entries) <= 64 or list(normalized.iterdir()):
+                  raise ValueError()
+              source_bytes = output_bytes = records = 0
+              for entry in entries:
+                  info = entry.lstat()
+                  if not re.fullmatch(r'trace\.[0-9]+', entry.name) or not stat.S_ISREG(info.st_mode) or not 0 < info.st_size <= 4194304:
+                      raise ValueError()
+                  source_bytes += info.st_size
+                  if source_bytes > 16777216:
+                      raise ValueError()
+                  destination = normalized / entry.name
+                  file_bytes = 0
+                  with entry.open('rb') as source, destination.open('xb') as target:
+                      while line := source.readline(8193):
+                          records += 1
+                          if records > 50000 or len(line) > 8192 or not line.endswith(b'\n'):
+                              raise ValueError()
+                          if line.startswith(read_prefix):
+                              if b'<unfinished ...>' in line or b'resumed>' in line:
+                                  raise ValueError()
+                              match = read_shape.fullmatch(line)
+                              if match is None:
+                                  raise ValueError()
+                              line = match.group(1) + b'(' + match.group(2) + b', "") = ' + match.group(3) + b'\n'
+                          file_bytes += len(line)
+                          output_bytes += len(line)
+                          if file_bytes > 4194304 or output_bytes > 16777216:
+                              raise ValueError()
+                          target.write(line)
+                  if file_bytes == 0:
+                      raise ValueError()
+          except (OSError, ValueError):
+              raise SystemExit('trace normalization refused') from None
+          PY
           test "$(sha256sum /emsdk/upstream/bin/lld | cut -d ' ' -f 1)" = 6e5c12aab29b80db118acd16c08953257683ed11c415970f8320ed777997eec7
           refuse TRACE_PARSER
           /work/image/tool/nu gate/.github/scripts/duckdb-eh-linker-fd-witness-v1.nu \
