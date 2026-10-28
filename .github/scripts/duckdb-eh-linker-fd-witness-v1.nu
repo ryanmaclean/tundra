@@ -175,6 +175,31 @@ export def witness [ledger_path: string, trace_dir: string, runtime_elf_sha256: 
   require $c.read_positive $status
 }
 
-def main [ledger: string, trace_dir: string, runtime_elf_sha256: string, receipt: string] {
-  witness $ledger $trace_dir $runtime_elf_sha256 $receipt
+export def parser_failure_class [message: string] {
+  # Only literal parser assertions may cross into a fixed refusal. Nu errors
+  # can contain private paths or trace content, so all others collapse.
+  let allowed = [
+    ARCHIVE_OPEN_NOT_READONLY_EXACT CLOSE_RANGE_AMBIGUOUS CLOSE_SHAPE_AMBIGUOUS
+    CWD_CHANGE_AMBIGUOUS DUP_RETURN_DRIFT DUP_SHAPE_AMBIGUOUS EVENT_AFTER_EXIT
+    EXECVEAT_AMBIGUOUS EXECVE_SHAPE FCNTL_AMBIGUOUS FD_ANNOTATION_DRIFT FD_CAP
+    LEDGER_ADMISSION LEDGER_ARCHIVE LEDGER_CAP LEDGER_LINKER LEDGER_PREFLIGHT
+    LEDGER_SCOPE LINKER_EXECVE_NOT_UNIQUE_SUCCESS LINKER_EXIT_NOT_PROVED
+    LINKER_EXIT_NOT_ZERO LINKER_PID_NOT_UNIQUE LINKER_PID_REEXEC
+    MMAP_SHAPE_AMBIGUOUS OPENAT_DIRFD_AMBIGUOUS OPEN_SHAPE_AMBIGUOUS
+    READ_SHAPE_AMBIGUOUS REFUSED_DIRECT_READ_NOT_PROVED REFUSED_MAPPED_ONLY
+    RELATIVE_OPEN_AMBIGUOUS RUNTIME_ELF_HASH_DRIFT SPLIT_SYSCALL_AMBIGUOUS
+    TRACE_BYTE_CAP TRACE_DIR TRACE_EVENT_CAP TRACE_FILE_CAP
+    TRACE_FILE_NOT_REGULAR TRACE_FILE_SCOPE TRACE_PID_DUPLICATE
+    TRUNCATED_OR_AMBIGUOUS UNRECOGNIZED_ACTIVE_FD_EVENT
+  ]
+  if $message in $allowed { $message } else { 'PARSER_OTHER' }
+}
+
+def main [ledger: string, trace_dir: string, runtime_elf_sha256: string, receipt: string, private_class: string] {
+  try {
+    witness $ledger $trace_dir $runtime_elf_sha256 $receipt
+  } catch {|err|
+    parser_failure_class $err.msg | save --force $private_class
+    error make {msg: 'PARSER_REFUSED'}
+  }
 }

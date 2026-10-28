@@ -762,10 +762,60 @@ jobs:
           PY
           test "$(sha256sum /emsdk/upstream/bin/lld | cut -d ' ' -f 1)" = 6e5c12aab29b80db118acd16c08953257683ed11c415970f8320ed777997eec7
           refuse TRACE_PARSER
-          /work/image/tool/nu gate/.github/scripts/duckdb-eh-linker-fd-witness-v1.nu \
+          if /work/image/tool/nu gate/.github/scripts/duckdb-eh-linker-fd-witness-v1.nu \
             gate/.github/receipts/duckdb-eh-linker-fd-witness-v1.json /work/image/trace-raw \
             6e5c12aab29b80db118acd16c08953257683ed11c415970f8320ed777997eec7 \
-            /work/image/trace-private/parser.json > /work/image/trace-private/parser-output.log 2>&1
+            /work/image/trace-private/parser.json /work/image/trace-private/parser-class.txt \
+            > /work/image/trace-private/parser-output.log 2>&1; then
+            test ! -e /work/image/trace-private/parser-class.txt
+          else
+            python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import re
+          import stat
+
+          allowed = frozenset('''
+          ARCHIVE_OPEN_NOT_READONLY_EXACT CLOSE_RANGE_AMBIGUOUS CLOSE_SHAPE_AMBIGUOUS
+          CWD_CHANGE_AMBIGUOUS DUP_RETURN_DRIFT DUP_SHAPE_AMBIGUOUS EVENT_AFTER_EXIT
+          EXECVEAT_AMBIGUOUS EXECVE_SHAPE FCNTL_AMBIGUOUS FD_ANNOTATION_DRIFT FD_CAP
+          LEDGER_ADMISSION LEDGER_ARCHIVE LEDGER_CAP LEDGER_LINKER LEDGER_PREFLIGHT
+          LEDGER_SCOPE LINKER_EXECVE_NOT_UNIQUE_SUCCESS LINKER_EXIT_NOT_PROVED
+          LINKER_EXIT_NOT_ZERO LINKER_PID_NOT_UNIQUE LINKER_PID_REEXEC
+          MMAP_SHAPE_AMBIGUOUS OPENAT_DIRFD_AMBIGUOUS OPEN_SHAPE_AMBIGUOUS
+          READ_SHAPE_AMBIGUOUS REFUSED_DIRECT_READ_NOT_PROVED REFUSED_MAPPED_ONLY
+          RELATIVE_OPEN_AMBIGUOUS RUNTIME_ELF_HASH_DRIFT SPLIT_SYSCALL_AMBIGUOUS
+          TRACE_BYTE_CAP TRACE_DIR TRACE_EVENT_CAP TRACE_FILE_CAP
+          TRACE_FILE_NOT_REGULAR TRACE_FILE_SCOPE TRACE_PID_DUPLICATE
+          TRUNCATED_OR_AMBIGUOUS UNRECOGNIZED_ACTIVE_FD_EVENT PARSER_OTHER
+          '''.split())
+          private = Path('/work/image/trace-private/parser-class.txt')
+          classification = 'PARSER_OTHER'
+          try:
+              info = private.lstat()
+              if stat.S_ISREG(info.st_mode) and 0 < info.st_size <= 64:
+                  raw = private.read_bytes()
+                  if re.fullmatch(rb'[A-Z_]+\n?', raw):
+                      candidate = raw.decode('ascii').strip()
+                      if candidate in allowed:
+                          classification = candidate
+          except OSError:
+              pass
+          receipt = Path('/work/image/receipt/refusal.json')
+          data = json.loads(receipt.read_text())
+          if data.get('schema') != 'tundra-eh-seeded-link-trace/v1' or data.get('status') != 'REFUSED' or data.get('reason') != 'TRACE_PARSER':
+              raise SystemExit('parser refusal scope rejected')
+          data['parser_diagnostic'] = {'failure_class': classification}
+          encoded = json.dumps(data, separators=(',', ':'), sort_keys=True) + '\n'
+          if len(encoded) > 4096:
+              raise SystemExit('parser refusal cap rejected')
+          pending = receipt.with_name('refusal-parser.tmp')
+          pending.write_text(encoded)
+          os.replace(pending, receipt)
+          PY
+            exit 1
+          fi
           refuse TRACE_FINALIZE
           /work/image/tool/nu gate/.github/scripts/duckdb-eh-seeded-link-trace-v1.nu finalize \
             gate/.github/receipts/duckdb-eh-seeded-link-trace-v1.json \

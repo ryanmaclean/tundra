@@ -1,9 +1,14 @@
 #!/usr/bin/env nu
 
 use ./duckdb-eh-seeded-link-trace-v1.nu [canary_shape canary_diagnostic relink_diagnostic]
+use ./duckdb-eh-linker-fd-witness-v1.nu parser_failure_class
 def require [ok: bool, reason: string] { if not $ok { error make {msg: $reason} } }
 
 def main [] {
+  require ((parser_failure_class 'OPEN_SHAPE_AMBIGUOUS') == 'OPEN_SHAPE_AMBIGUOUS') 'PARSER_FIXED_CLASS'
+  require ((parser_failure_class 'REFUSED_DIRECT_READ_NOT_PROVED') == 'REFUSED_DIRECT_READ_NOT_PROVED') 'PARSER_MISSING_READ_CLASS'
+  require ((parser_failure_class 'private/path: OPEN_SHAPE_AMBIGUOUS') == 'PARSER_OTHER') 'PARSER_PRIVATE_ERROR_LEAK'
+  require ((parser_failure_class 'UNEXPECTED_NU_ERROR') == 'PARSER_OTHER') 'PARSER_UNLISTED_CLASS'
   let root = ($env.FILE_PWD | path join '../fixtures/duckdb-eh-seeded-link-trace-v1')
   let sentinel = '/work/image/trace-private/canary.txt'
   let positive = (open --raw ($root | path join 'canary-positive.trace'))
