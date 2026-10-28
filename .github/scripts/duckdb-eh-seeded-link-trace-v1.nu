@@ -136,7 +136,7 @@ export def relink_diagnostic [classification: string, files_text: string, bytes_
   require ($classification in [TIMEOUT EXIT_NONZERO TRACE_CAP OUTPUT_ABSENT]) 'RELINK_CLASSIFICATION'
   let files = ($files_text | into int)
   let bytes = ($bytes_text | into int)
-  require ($files >= 0 and $files <= 65 and $bytes >= 0 and $bytes <= 16777217) 'RELINK_COUNT_CAP'
+  require ($files >= 0 and $files <= 129 and $bytes >= 0 and $bytes <= 16777217) 'RELINK_COUNT_CAP'
   require ($map_state in ['yes' 'no'] and $js_state in ['yes' 'no'] and $wasm_state in ['yes' 'no']) 'RELINK_OUTPUT_STATE'
   let prior = (open $receipt_path)
   require ($prior.schema == 'tundra-eh-seeded-link-trace/v1' and $prior.status == 'REFUSED' and $prior.reason == 'TRACE_RELINK') 'RELINK_REFUSAL_SCOPE'
@@ -144,7 +144,7 @@ export def relink_diagnostic [classification: string, files_text: string, bytes_
     classification: $classification,
     trace_file_count_capped: $files,
     trace_bytes_capped: $bytes,
-    trace_file_cap_exceeded: ($files > 64),
+    trace_file_cap_exceeded: ($files > 128),
     trace_bytes_cap_exceeded: ($bytes > 16777216),
     fresh_map_present: ($map_state == 'yes'),
     fresh_js_present: ($js_state == 'yes'),

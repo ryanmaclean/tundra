@@ -27,7 +27,7 @@
   "host_libc_sha256": "2e15e345ccba1e1e8bf3bc58938d13eb7ccc17044942f0376cd5bc771f429b79",
   "host_liblzma_sha256": "493cb401ab4aa3bba611ca464d12996afb3b327940d29476f535f999e167439b",
   "tracer_scope": "EPHEMERAL_DIAGNOSTIC_TOOL_ONLY_NOT_SHIPPED",
-  "max_trace_files": 64,
+  "max_trace_files": 128,
   "max_trace_file_bytes": 4194304,
   "max_total_trace_bytes": 16777216,
   "max_events": 50000,

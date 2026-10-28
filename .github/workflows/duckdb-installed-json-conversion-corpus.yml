@@ -44,11 +44,12 @@ jobs:
           [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
           test -f .git/HEAD && test ! -L .git/HEAD
           printf '%s\n' "$GITHUB_SHA" | cmp -s - .git/HEAD
-          test "$(git rev-list --parents -n 1 HEAD)" = "$GITHUB_SHA 760803670d7e5a423b443c1c57ab9f0de2d6ea11"
+          test "$(git rev-list --parents -n 1 HEAD)" = "$GITHUB_SHA 6e85ffe2fd6cbf2b49d1431abd3764b7d4da9ac2"
           git cat-file -e 'e1a6f0b43e3377be94d1c94784f982a88b83318f^{commit}'
           test "$(git diff --name-only e1a6f0b43e3377be94d1c94784f982a88b83318f HEAD)" = "$(printf '%s\n' \
             .github/fixtures/duckdb-eh-seeded-link-trace-v1/canary-positive.trace \
             .github/fixtures/duckdb-eh-seeded-link-trace-v1/canary-zero-read.trace \
+            .github/receipts/duckdb-eh-linker-fd-witness-v1.json \
             .github/receipts/duckdb-eh-seeded-link-trace-v1.json \
             .github/scripts/duckdb-eh-linker-fd-witness-v1.nu \
             .github/scripts/duckdb-eh-seeded-link-trace-v1-test.nu \
@@ -61,6 +62,7 @@ jobs:
             .github/scripts/duckdb-eh-seeded-link-trace-v1.nu \
             .github/scripts/duckdb-eh-seeded-link-trace-v1-test.nu \
             .github/workflows/duckdb-eh-trace-canary-only-v1.yml \
+            .github/receipts/duckdb-eh-linker-fd-witness-v1.json \
             .github/receipts/duckdb-eh-seeded-link-trace-v1.json \
             .github/fixtures/duckdb-eh-seeded-link-trace-v1/canary-positive.trace \
             .github/fixtures/duckdb-eh-seeded-link-trace-v1/canary-zero-read.trace \
@@ -69,15 +71,16 @@ jobs:
             test -f "$source" && test ! -L "$source"
           done
           printf '%s  %s\n' \
-            250c4c49b5dc6dc01e4d67ea4d023b9d568f759b2cfd144ecff3047db9f6aa9d .github/workflows/duckdb-eh-seeded-image-link-trace-v1.yml \
-            3964cdad1700a35a793e08b0a857aba4471391f2c7c52d1b702d82f58f0a5cc1 .github/scripts/duckdb-eh-seeded-link-trace-v1.nu \
-            fd0912daaf55f9319285968340427b9aaa68b1dc4d469f226b8767c6ece8a552 .github/scripts/duckdb-eh-seeded-link-trace-v1-test.nu \
+            109d352cdf7e20684f612dfcca3098a4370f265df934c33fa65994fe2971cd29 .github/workflows/duckdb-eh-seeded-image-link-trace-v1.yml \
+            f1875830abc17963380344aa8bd0c3acf3bfb95d1bd020c2c2c293e27a5bc35f .github/scripts/duckdb-eh-seeded-link-trace-v1.nu \
+            304e25597e26c2e8404cd3fce2b2daf72f85171fa318065b4fa962ad351f83ee .github/scripts/duckdb-eh-seeded-link-trace-v1-test.nu \
             e08ad976779e4059f3825255e528febfe54620822a3929344687c90b9718ecac .github/workflows/duckdb-eh-trace-canary-only-v1.yml \
-            c90774daae3c00856cdf304590703b962632ac2804d0ae368bf744258fe6cfb7 .github/receipts/duckdb-eh-seeded-link-trace-v1.json \
+            a7838ad93ba51fd1326882affc83002aaadbbbdc3bafc7173077908e1a8b205e .github/receipts/duckdb-eh-linker-fd-witness-v1.json \
+            03dd7fd0a88c103134fd0a426ad603fe9877b39e96a89d2568f3e052297a87de .github/receipts/duckdb-eh-seeded-link-trace-v1.json \
             31a888200a8095fbfa35dd3c9c22e193b3a65ccc52ea7052502c5d4c2d5e2b28 .github/fixtures/duckdb-eh-seeded-link-trace-v1/canary-positive.trace \
             6928121e21adb4a5864023e933c21c4ae5cbbc0c19757a520acc51493d2f042b .github/fixtures/duckdb-eh-seeded-link-trace-v1/canary-zero-read.trace \
             ccc983a248adab0ebacc0cb7f497e7cc4571a4fcdbc9387c49ff5cf1aa7afe25 .github/workflows/duckdb-eh-seeded-image-build-v1.yml \
-            7889f67fb7d16f8485e7fe3649f74f7942800854c9900830b2eba0414e136c2c .github/scripts/duckdb-eh-linker-fd-witness-v1.nu \
+            1340c56a64caa924a67fc3ceb03cd99c71a551d8ac770987b3f783d6a7dc9b70 .github/scripts/duckdb-eh-linker-fd-witness-v1.nu \
             | sha256sum --check --status
 
   eh-seeded-image-link-trace-v1-registered-dispatch:

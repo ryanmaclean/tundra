@@ -17,7 +17,7 @@ def checked_ledger [path: string] {
   require ($l.preflight_run_id == 40549577194 and $l.preflight_head == '53d6f5af4d0ebbad18c24672f777ebb70a69417d') 'LEDGER_PREFLIGHT'
   require ($l.configured_linker_path == '/emsdk/upstream/bin/wasm-ld' and $l.resolved_linker_path == '/emsdk/upstream/bin/lld' and $l.linker_elf_sha256 == '6e5c12aab29b80db118acd16c08953257683ed11c415970f8320ed777997eec7') 'LEDGER_LINKER'
   require ($l.producer_run_id == 40536996581 and $l.producer_artifact_id == 12748008032 and $l.archive_sha256 == 'fdaa14b94400917928bc73415535f02244549987beb92719882bcc905b4280fe' and $l.archive_path == '/work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a') 'LEDGER_ARCHIVE'
-  require ($l.max_trace_files == 64 and $l.max_trace_file_bytes == 4194304 and $l.max_total_trace_bytes == 16777216 and $l.max_events == 50000 and $l.max_active_fds == 256 and $l.max_line_bytes == 8192) 'LEDGER_CAP'
+  require ($l.max_trace_files == 128 and $l.max_trace_file_bytes == 4194304 and $l.max_total_trace_bytes == 16777216 and $l.max_events == 50000 and $l.max_active_fds == 256 and $l.max_line_bytes == 8192) 'LEDGER_CAP'
   require ($l.actual_eh_linker_child == 'UNPROVEN' and $l.linker_archive_read == 'UNPROVEN' and $l.same_run_eh_outputs == 'UNPROVEN' and $l.legal_admission == 'NO' and $l.product_admission == 'NO' and $l.fleet_admission == 'NO') 'LEDGER_ADMISSION'
   $l
 }

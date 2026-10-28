@@ -544,7 +544,8 @@ jobs:
             for ((tick=0; tick<620; tick++)); do
               if ! kill -0 "$tracer_pid" 2>/dev/null; then break; fi
               trace_bytes="$(du -sb /work/image/trace-private/raw | cut -f 1)" || exit 1
-              if test "$trace_bytes" -gt 16777216; then
+              trace_files_live="$(find /work/image/trace-private/raw -mindepth 1 -maxdepth 1 -type f | wc -l)" || exit 1
+              if test "$trace_bytes" -gt 16777216 || test "$trace_files_live" -gt 128; then
                 printf '%s\n' TRACE_CAP > "$relink_state"
                 kill -TERM -- "-$tracer_pid" 2>/dev/null || true
                 wait "$tracer_pid" || true
@@ -578,7 +579,7 @@ jobs:
           if test -f "$map" && test ! -L "$map" && test -s "$map"; then map_state=yes; fi
           if test -f "$build/duckdb_wasm.js" && test ! -L "$build/duckdb_wasm.js" && test -s "$build/duckdb_wasm.js"; then js_state=yes; fi
           if test -f "$build/duckdb_wasm.wasm" && test ! -L "$build/duckdb_wasm.wasm" && test -s "$build/duckdb_wasm.wasm"; then wasm_state=yes; fi
-          if test "$trace_files" -gt 64 || test "$trace_bytes" -gt 16777216; then
+          if test "$trace_files" -gt 128 || test "$trace_bytes" -gt 16777216; then
             printf '%s\n' TRACE_CAP > "$relink_state"
             relink_exit=1
           fi
@@ -589,7 +590,7 @@ jobs:
           if test "$relink_exit" -ne 0; then
             classification="$(cat "$relink_state")"
             /work/image/tool/nu gate/.github/scripts/duckdb-eh-seeded-link-trace-v1.nu relink-diagnostic \
-              "$classification" "$((trace_files > 65 ? 65 : trace_files))" \
+              "$classification" "$((trace_files > 129 ? 129 : trace_files))" \
               "$((trace_bytes > 16777217 ? 16777217 : trace_bytes))" \
               "$map_state" "$js_state" "$wasm_state" /work/image/receipt/refusal.json
             if test "$classification" = TRACE_CAP; then
@@ -601,7 +602,7 @@ jobs:
           base = Path('/work/image/trace-private/raw')
           receipt = Path('/work/image/receipt/refusal.json')
           entries = sorted(base.iterdir())
-          if len(entries) > 64 or any(entry.is_symlink() or not entry.is_file() for entry in entries):
+          if len(entries) > 128 or any(entry.is_symlink() or not entry.is_file() for entry in entries):
               raise SystemExit('trace volume input refused')
           families = {name: {'records': 0, 'bytes': 0} for name in
                       ('exec', 'open', 'read', 'memory', 'fd', 'cwd', 'exit', 'other')}
@@ -731,7 +732,7 @@ jobs:
                       else:
                           raise ValueError()
               entries = sorted(raw.iterdir())
-              if not 0 < len(entries) <= 64 or list(normalized.iterdir()):
+              if not 0 < len(entries) <= 128 or list(normalized.iterdir()):
                   raise ValueError()
               source_bytes = output_bytes = records = 0
               for entry in entries:
