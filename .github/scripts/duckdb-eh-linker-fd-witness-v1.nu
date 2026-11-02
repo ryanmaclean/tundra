@@ -22,6 +22,19 @@ def checked_ledger [path: string] {
   $l
 }
 
+# Diagnostic categories only: none of these values changes the refusal or
+# establishes that an event occurred. Never return a path, PID, FD, or text.
+export def ellipsis_class [line: string, exec_ok: bool, exited: bool, active: list<int>, linker: string] {
+  let syscall = if ($line | str starts-with 'execve(') { 'EXECVE' } else if ($line | str starts-with 'openat(') { 'OPENAT' } else if ($line | str starts-with 'open(') { 'OPEN' } else if ($line | str starts-with 'pread64(') { 'PREAD64' } else if ($line | str starts-with 'readv(') { 'READV' } else if ($line | str starts-with 'read(') { 'READ' } else if ($line | str starts-with 'mmap(') { 'MMAP' } else if ($line | str starts-with 'close(') { 'CLOSE' } else if ($line | str starts-with 'dup(') or ($line | str starts-with 'dup2(') or ($line | str starts-with 'dup3(') { 'DUP' } else if ($line | str starts-with 'fcntl(') { 'FCNTL' } else { 'OTHER' }
+  let candidate_prefix = (['execve("' $linker '",'] | str join)
+  let context = if $exited { 'AFTER_EXIT' } else if $exec_ok and not ($active | is-empty) { 'LINKER_ACTIVE' } else if $exec_ok { 'LINKER_NO_ACTIVE' } else if ($line | str starts-with $candidate_prefix) { 'CANDIDATE_EXEC' } else { 'BEFORE_LINKER' }
+  # Only structurally located descriptor arguments qualify; an unparseable
+  # or excessively long number is UNKNOWN and never exposed.
+  let fd = if $syscall in [READ PREAD64 READV CLOSE DUP FCNTL] { capture $line '^[a-z0-9]+\((?<fd>[0-9]{1,9})(?:<[^>]*>)?[,)]' } else if $syscall == 'MMAP' { capture $line '^mmap\([^,]*, [^,]*, [^,]*, [^,]*, (?<fd>[0-9]{1,9})(?:<[^>]*>)?,' } else { null }
+  let descriptor = if $fd == null { 'UNKNOWN' } else if (($fd.fd | into int) in $active) { 'ACTIVE' } else { 'OTHER' }
+  $'TRUNCATED_OR_AMBIGUOUS|($syscall)|($context)|($descriptor)'
+}
+
 def parse_pid [raw: string, pid: int, l: record] {
   mut exec_ok = false
   mut exited_before_candidate = false
@@ -37,7 +50,9 @@ def parse_pid [raw: string, pid: int, l: record] {
     $events += 1
     require ($events <= $l.max_events and ($line | str length) <= $l.max_line_bytes) 'TRACE_EVENT_CAP'
     require (not ($line | str contains '<unfinished ...>') and not ($line | str contains 'resumed>')) 'SPLIT_SYSCALL_AMBIGUOUS'
-    require (not ($line | str contains '...') or ($line | str starts-with '+++ exited with ')) 'TRUNCATED_OR_AMBIGUOUS'
+    if ($line | str contains '...') and not ($line | str starts-with '+++ exited with ') {
+      error make {msg: (ellipsis_class $line $exec_ok $exited $active $l.configured_linker_path)}
+    }
     if ($line | str starts-with 'execve(') {
       let e = (capture $line '^execve\("(?<path>[^"\\]+)", .*\) = (?<result>-?[0-9]+)$')
       require ($e != null) 'EXECVE_SHAPE'
@@ -56,6 +71,10 @@ def parse_pid [raw: string, pid: int, l: record] {
     if ($line | str starts-with '+++ exited') or ($line | str starts-with '--- ') { error make {msg: 'LINKER_EXIT_NOT_ZERO'} }
     if ($line | str starts-with 'chdir(') or ($line | str starts-with 'fchdir(') { error make {msg: 'CWD_CHANGE_AMBIGUOUS'} }
     if ($line | str starts-with 'execveat(') { error make {msg: 'EXECVEAT_AMBIGUOUS'} }
+    # Per-task trace files cannot prove another task did not mutate a shared
+    # descriptor table. Refuse every post-exec creation attempt until the
+    # replacement tracer supplies and verifies complete FD-table lineage.
+    if (['clone(' 'clone3(' 'fork(' 'vfork('] | any {|prefix| $line | str starts-with $prefix }) { error make {msg: 'CHILD_CREATION_AMBIGUOUS'} }
     if ($line | str starts-with 'open(') or ($line | str starts-with 'openat(') {
       let o = if ($line | str starts-with 'openat(') {
         capture $line '^openat\((?<dirfd>[^,]+), "(?<path>[^"\\]+)", (?<flags>[^)]*)\) = (?<fd>[0-9]+)<(?<annotation>[^>]+)>$'
@@ -179,7 +198,7 @@ export def parser_failure_class [message: string] {
   # Only literal parser assertions may cross into a fixed refusal. Nu errors
   # can contain private paths or trace content, so all others collapse.
   let allowed = [
-    ARCHIVE_OPEN_NOT_READONLY_EXACT CLOSE_RANGE_AMBIGUOUS CLOSE_SHAPE_AMBIGUOUS
+    ARCHIVE_OPEN_NOT_READONLY_EXACT CHILD_CREATION_AMBIGUOUS CLOSE_RANGE_AMBIGUOUS CLOSE_SHAPE_AMBIGUOUS
     CWD_CHANGE_AMBIGUOUS DUP_RETURN_DRIFT DUP_SHAPE_AMBIGUOUS EVENT_AFTER_EXIT
     EXECVEAT_AMBIGUOUS EXECVE_SHAPE FCNTL_AMBIGUOUS FD_ANNOTATION_DRIFT FD_CAP
     LEDGER_ADMISSION LEDGER_ARCHIVE LEDGER_CAP LEDGER_LINKER LEDGER_PREFLIGHT
@@ -192,6 +211,10 @@ export def parser_failure_class [message: string] {
     TRACE_FILE_NOT_REGULAR TRACE_FILE_SCOPE TRACE_PID_DUPLICATE
     TRUNCATED_OR_AMBIGUOUS UNRECOGNIZED_ACTIVE_FD_EVENT
   ]
+  let parts = ($message | split row '|')
+  if ($parts | length) == 4 {
+    if $parts.0 == 'TRUNCATED_OR_AMBIGUOUS' and $parts.1 in [EXECVE OPENAT OPEN PREAD64 READV READ MMAP CLOSE DUP FCNTL OTHER] and $parts.2 in [AFTER_EXIT LINKER_ACTIVE LINKER_NO_ACTIVE CANDIDATE_EXEC BEFORE_LINKER] and $parts.3 in [UNKNOWN ACTIVE OTHER] { return $message }
+  }
   if $message in $allowed { $message } else { 'PARSER_OTHER' }
 }
 
