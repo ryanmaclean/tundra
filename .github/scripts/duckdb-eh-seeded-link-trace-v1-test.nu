@@ -108,6 +108,28 @@ def main [] {
     let failure = (try { witness $ledger $trace_dir $linker_hash $parser_receipt; 'ACCEPTED' } catch {|err| parser_failure_class $err.msg })
     require ($failure == 'CHILD_CREATION_AMBIGUOUS') 'SHARED_FD_CREATION_ACCEPTED'
   }
+  # Exercise descriptor lifetime, including replacement by dup2, rather than
+  # treating the matching descriptor number as permanent after an open.
+  let close_archive = ('close(3<ARCHIVE_PATH>) = 0' | str replace 'ARCHIVE_PATH' $archive)
+  let dup_archive = ('dup(3<ARCHIVE_PATH>) = 4<ARCHIVE_PATH>' | str replace --all 'ARCHIVE_PATH' $archive)
+  let replace_archive = ('dup2(4</fixture/other>, 3<ARCHIVE_PATH>) = 3</fixture/other>' | str replace 'ARCHIVE_PATH' $archive)
+  let fd_cases = [
+    {events: [$close_archive 'read(3, 0x1234, 10) = 10'], expected: 'REFUSED_DIRECT_READ_NOT_PROVED'},
+    {events: ['close_range(3, 3, 0) = 0' 'read(3, 0x1234, 10) = 10'], expected: 'REFUSED_DIRECT_READ_NOT_PROVED'},
+    {events: [$replace_archive 'read(3, 0x1234, 10) = 10'], expected: 'REFUSED_DIRECT_READ_NOT_PROVED'},
+    {events: ['fcntl(3, F_DUPFD, 4) = 4' 'read(3, 0x1234, 10) = 10'], expected: 'FCNTL_AMBIGUOUS'},
+    {events: ['read(3</fixture/other>, 0x1234, 10) = 10'], expected: 'FD_ANNOTATION_DRIFT'}
+  ]
+  for case in $fd_cases {
+    $base | append $case.events | append $exit_line | str join (char newline) | save --force $trace
+    let failure = (try { witness $ledger $trace_dir $linker_hash $parser_receipt; 'ACCEPTED' } catch {|err| parser_failure_class $err.msg })
+    require ($failure == $case.expected) 'FD_MUTATION_CASE'
+    rm --force $parser_receipt
+  }
+  $base | append [$dup_archive $close_archive 'read(4, 0x1234, 10) = 10' $exit_line] | str join (char newline) | save --force $trace
+  witness $ledger $trace_dir $linker_hash $parser_receipt
+  require ((open $parser_receipt).status == 'FIXTURE_DIRECT_READ_SHAPE') 'DUPLICATED_FD_READ_REFUSED'
+  rm $parser_receipt
   $base | append ['read(3, 0x1234, 10) = 10' $exit_line] | str join (char newline) | save --force $trace
   witness $ledger $trace_dir $linker_hash $parser_receipt
   require ((open $parser_receipt).status == 'FIXTURE_DIRECT_READ_SHAPE') 'POSITIVE_READ_WITHOUT_CLOSE_REFUSED'
