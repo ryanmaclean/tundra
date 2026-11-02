@@ -203,11 +203,113 @@ jobs:
             case "$1" in TRACE_TOOL|TRACE_CANARY|TRACE_PRE|TRACE_OUTPUTS_ABSENT|TRACE_RELINK|TRACE_NORMALIZE|TRACE_PARSER|TRACE_FINALIZE) ;; *) exit 2 ;; esac
             printf '{"schema":"tundra-eh-seeded-link-trace/v1","status":"REFUSED","reason":"%s","actual_eh_linker_child":"UNPROVEN","linker_archive_read":"UNPROVEN","same_run_traced_outputs":"UNPROVEN","other_sdk_archive_keys_pending":8,"object_input_closure":"UNPROVEN","generator_input_closure":"UNPROVEN","selected_graph_exhaustive":"NO","legal_admission":"NO","product_admission":"NO","fleet_admission":"NO"}\n' "$1" > /work/image/receipt/refusal.json
           }
+          parser_refusal() {
+            python3 - "$@" <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import re
+          import stat
+          import sys
+          import tempfile
+
+          allowed = frozenset('''
+          ARCHIVE_OPEN_NOT_READONLY_EXACT CHILD_CREATION_AMBIGUOUS CLOSE_RANGE_AMBIGUOUS CLOSE_SHAPE_AMBIGUOUS
+          CWD_CHANGE_AMBIGUOUS DUP_RETURN_DRIFT DUP_SHAPE_AMBIGUOUS EVENT_AFTER_EXIT
+          EXECVEAT_AMBIGUOUS EXECVE_SHAPE FCNTL_AMBIGUOUS FD_ANNOTATION_DRIFT FD_CAP
+          LEDGER_ADMISSION LEDGER_ARCHIVE LEDGER_CAP LEDGER_LINKER LEDGER_PREFLIGHT
+          LEDGER_SCOPE LINKER_EXECVE_NOT_UNIQUE_SUCCESS LINKER_EXIT_NOT_PROVED
+          LINKER_EXIT_NOT_ZERO LINKER_PID_NOT_UNIQUE LINKER_PID_REEXEC
+          MMAP_SHAPE_AMBIGUOUS OPENAT_DIRFD_AMBIGUOUS OPEN_SHAPE_AMBIGUOUS
+          READ_SHAPE_AMBIGUOUS REFUSED_DIRECT_READ_NOT_PROVED REFUSED_MAPPED_ONLY
+          RELATIVE_OPEN_AMBIGUOUS RUNTIME_ELF_HASH_DRIFT SPLIT_SYSCALL_AMBIGUOUS
+          TRACE_BYTE_CAP TRACE_DIR TRACE_EVENT_CAP TRACE_FILE_CAP
+          TRACE_FILE_NOT_REGULAR TRACE_FILE_SCOPE TRACE_PID_DUPLICATE
+          TRUNCATED_OR_AMBIGUOUS UNRECOGNIZED_ACTIVE_FD_EVENT PARSER_OTHER
+          '''.split())
+
+          def annotate(private, receipt):
+              classification = 'PARSER_OTHER'
+              ellipsis = None
+              try:
+                  info = private.lstat()
+                  if stat.S_ISREG(info.st_mode) and 0 < info.st_size <= 128:
+                      raw = private.read_bytes()
+                      if re.fullmatch(rb'[A-Z0-9_|]+\n?', raw):
+                          candidate = raw.decode('ascii').strip()
+                          if candidate in allowed:
+                              classification = candidate
+                          else:
+                              parts = candidate.split('|')
+                              if (len(parts) == 4 and parts[0] == 'TRUNCATED_OR_AMBIGUOUS'
+                                  and parts[1] in {'EXECVE', 'OPENAT', 'OPEN', 'PREAD64', 'READV', 'READ', 'MMAP', 'CLOSE', 'DUP', 'FCNTL', 'OTHER'}
+                                  and parts[2] in {'AFTER_EXIT', 'LINKER_ACTIVE', 'LINKER_NO_ACTIVE', 'CANDIDATE_EXEC', 'BEFORE_LINKER'}
+                                  and parts[3] in {'UNKNOWN', 'ACTIVE', 'OTHER'}):
+                                  classification = 'TRUNCATED_OR_AMBIGUOUS'
+                                  ellipsis = {'syscall': parts[1], 'context': parts[2], 'descriptor': parts[3]}
+              except OSError:
+                  pass
+              data = json.loads(receipt.read_text())
+              if data.get('schema') != 'tundra-eh-seeded-link-trace/v1' or data.get('status') != 'REFUSED' or data.get('reason') != 'TRACE_PARSER':
+                  raise SystemExit('parser refusal scope rejected')
+              data['parser_diagnostic'] = {'failure_class': classification}
+              if ellipsis is not None:
+                  data['parser_diagnostic']['ellipsis'] = ellipsis
+              encoded = json.dumps(data, separators=(',', ':'), sort_keys=True) + '\n'
+              if len(encoded) > 4096:
+                  raise SystemExit('parser refusal cap rejected')
+              pending = receipt.with_name('refusal-parser.tmp')
+              pending.write_text(encoded)
+              os.replace(pending, receipt)
+
+          if sys.argv[1:] == ['--self-test']:
+              with tempfile.TemporaryDirectory(dir='/work/image/trace-private') as temp:
+                  root = Path(temp)
+                  private = root / 'class'
+                  receipt = root / 'refusal.json'
+                  initial = {'schema': 'tundra-eh-seeded-link-trace/v1', 'status': 'REFUSED', 'reason': 'TRACE_PARSER', 'legal_admission': 'NO', 'product_admission': 'NO', 'fleet_admission': 'NO'}
+                  fixtures = [
+                      (b'TRUNCATED_OR_AMBIGUOUS|MMAP|LINKER_ACTIVE|ACTIVE', {'failure_class': 'TRUNCATED_OR_AMBIGUOUS', 'ellipsis': {'syscall': 'MMAP', 'context': 'LINKER_ACTIVE', 'descriptor': 'ACTIVE'}}),
+                      (b'OPEN_SHAPE_AMBIGUOUS', {'failure_class': 'OPEN_SHAPE_AMBIGUOUS'}),
+                      (b'TRUNCATED_OR_AMBIGUOUS|READ|LINKER_ACTIVE|PRIVATE_SECRET', {'failure_class': 'PARSER_OTHER'}),
+                      (b'/private/PRIVATE_SECRET\n', {'failure_class': 'PARSER_OTHER'}),
+                      (b'PRIVATE_SECRET' * 20, {'failure_class': 'PARSER_OTHER'}),
+                  ]
+                  for raw, expected in fixtures:
+                      private.write_bytes(raw)
+                      receipt.write_text(json.dumps(initial))
+                      annotate(private, receipt)
+                      encoded = receipt.read_text()
+                      data = json.loads(encoded)
+                      if (data.get('parser_diagnostic') != expected or any(data.get(k) != 'NO' for k in ('legal_admission', 'product_admission', 'fleet_admission')) or 'PRIVATE_SECRET' in encoded or '/private/' in encoded):
+                          raise SystemExit('parser serializer fixture failed')
+                  private.unlink()
+                  private.mkdir()
+                  receipt.write_text(json.dumps(initial))
+                  annotate(private, receipt)
+                  if json.loads(receipt.read_text()).get('parser_diagnostic') != {'failure_class': 'PARSER_OTHER'}:
+                      raise SystemExit('parser serializer fixture failed')
+          elif sys.argv[1:] == ['--normalizer-fixture']:
+              root = Path('/work/image/trace-private')
+              receipt = root / 'normalizer-fixture-refusal.json'
+              receipt.write_text(json.dumps({'schema': 'tundra-eh-seeded-link-trace/v1', 'status': 'REFUSED', 'reason': 'TRACE_PARSER', 'legal_admission': 'NO', 'product_admission': 'NO', 'fleet_admission': 'NO'}))
+              annotate(root / 'normalizer-fixture-class.txt', receipt)
+              encoded = receipt.read_text()
+              data = json.loads(encoded)
+              if (data.get('parser_diagnostic') != {'failure_class': 'TRUNCATED_OR_AMBIGUOUS', 'ellipsis': {'syscall': 'MMAP', 'context': 'LINKER_ACTIVE', 'descriptor': 'ACTIVE'}} or any(data.get(k) != 'NO' for k in ('legal_admission', 'product_admission', 'fleet_admission')) or '/work/image/' in encoded):
+                  raise SystemExit('normalizer-to-serializer fixture failed')
+          elif not sys.argv[1:]:
+              annotate(Path('/work/image/trace-private/parser-class.txt'), Path('/work/image/receipt/refusal.json'))
+          else:
+              raise SystemExit('parser serializer arguments rejected')
+          PY
+          }
           refuse TRACE_TOOL
           /work/image/tool/nu gate/.github/scripts/duckdb-eh-seeded-link-trace-v1-test.nu
           mkdir -p /work/image/trace-tool /work/image/trace-private/raw /work/image/trace-raw
           chmod 0700 /work/image/trace-tool /work/image/trace-private /work/image/trace-private/raw /work/image/trace-raw
           test "$(stat -c %a /work/image/trace-private)" = 700
+          parser_refusal --self-test
           curl --fail --location --silent --show-error --proto '=https' --proto-redir '=https' --max-time 90 --max-filesize 600000 --output /work/image/trace-tool/strace.deb https://archive.ubuntu.com/ubuntu/pool/main/s/strace/strace_5.16-0ubuntu3_amd64.deb
           test "$(stat -c %s /work/image/trace-tool/strace.deb)" = 566994
           printf '%s  %s\n' 847a3535be015325f127f121d2ea5ac042b32bd20a5861a94cb7782b09857b1f /work/image/trace-tool/strace.deb | sha256sum --check --status
@@ -537,7 +639,7 @@ jobs:
             cd "$build" || exit 1
             test "$PWD" = "$GITHUB_WORKSPACE/duckdb-upstream/build/integrated-eh-seeded-image" || exit 1
             setsid timeout --signal=TERM --kill-after=5s 600s "$loader" --library-path "$libdir" "$tracer" -ff -yy -s 256 -e raw=read,pread64,readv \
-              -e trace=execve,execveat,open,openat,read,pread64,readv,close,close_range,dup,dup2,dup3,fcntl,mmap,chdir,fchdir,exit_group \
+              -e trace=execve,execveat,clone,clone3,fork,vfork,open,openat,read,pread64,readv,close,close_range,dup,dup2,dup3,fcntl,mmap,chdir,fchdir,exit_group \
               -o /work/image/trace-private/raw/trace bash -euo pipefail -c "$command_text" \
               > /work/image/trace-private/relink-output.log 2>&1 &
             tracer_pid=$!
@@ -731,6 +833,16 @@ jobs:
                           pass
                       else:
                           raise ValueError()
+              # The normalizer rejects abbreviated reads above. Non-read
+              # ellipses pass unchanged and must still be refused by witness.
+              fixture = Path('/work/image/trace-private/normalizer-fixture')
+              fixture.mkdir(mode=0o700)
+              synthetic = (
+                  b'execve("/emsdk/upstream/bin/wasm-ld", ["wasm-ld"], 0x1234) = 0\n',
+                  b'openat(AT_FDCWD, "/work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a", O_RDONLY) = 3</work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a>\n',
+                  b'mmap(NULL, 100, PROT_READ, MAP_PRIVATE, 3</work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a>, ...) = 0x123\n',
+              )
+              (fixture / 'trace.123').write_bytes(b''.join(normalize_line(line) for line in synthetic))
               entries = sorted(raw.iterdir())
               if not 0 < len(entries) <= 128 or list(normalized.iterdir()):
                   raise ValueError()
@@ -760,6 +872,15 @@ jobs:
           except (OSError, ValueError):
               raise SystemExit('trace normalization refused') from None
           PY
+          if /work/image/tool/nu gate/.github/scripts/duckdb-eh-linker-fd-witness-v1.nu \
+            gate/.github/receipts/duckdb-eh-linker-fd-witness-v1.json /work/image/trace-private/normalizer-fixture \
+            6e5c12aab29b80db118acd16c08953257683ed11c415970f8320ed777997eec7 \
+            /work/image/trace-private/normalizer-fixture-receipt.json /work/image/trace-private/normalizer-fixture-class.txt \
+            > /work/image/trace-private/normalizer-fixture-output.log 2>&1; then
+            exit 1
+          fi
+          test "$(cat /work/image/trace-private/normalizer-fixture-class.txt)" = 'TRUNCATED_OR_AMBIGUOUS|MMAP|LINKER_ACTIVE|ACTIVE'
+          parser_refusal --normalizer-fixture
           test "$(sha256sum /emsdk/upstream/bin/lld | cut -d ' ' -f 1)" = 6e5c12aab29b80db118acd16c08953257683ed11c415970f8320ed777997eec7
           refuse TRACE_PARSER
           if /work/image/tool/nu gate/.github/scripts/duckdb-eh-linker-fd-witness-v1.nu \
@@ -769,51 +890,7 @@ jobs:
             > /work/image/trace-private/parser-output.log 2>&1; then
             test ! -e /work/image/trace-private/parser-class.txt
           else
-            python3 - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-          import re
-          import stat
-
-          allowed = frozenset('''
-          ARCHIVE_OPEN_NOT_READONLY_EXACT CLOSE_RANGE_AMBIGUOUS CLOSE_SHAPE_AMBIGUOUS
-          CWD_CHANGE_AMBIGUOUS DUP_RETURN_DRIFT DUP_SHAPE_AMBIGUOUS EVENT_AFTER_EXIT
-          EXECVEAT_AMBIGUOUS EXECVE_SHAPE FCNTL_AMBIGUOUS FD_ANNOTATION_DRIFT FD_CAP
-          LEDGER_ADMISSION LEDGER_ARCHIVE LEDGER_CAP LEDGER_LINKER LEDGER_PREFLIGHT
-          LEDGER_SCOPE LINKER_EXECVE_NOT_UNIQUE_SUCCESS LINKER_EXIT_NOT_PROVED
-          LINKER_EXIT_NOT_ZERO LINKER_PID_NOT_UNIQUE LINKER_PID_REEXEC
-          MMAP_SHAPE_AMBIGUOUS OPENAT_DIRFD_AMBIGUOUS OPEN_SHAPE_AMBIGUOUS
-          READ_SHAPE_AMBIGUOUS REFUSED_DIRECT_READ_NOT_PROVED REFUSED_MAPPED_ONLY
-          RELATIVE_OPEN_AMBIGUOUS RUNTIME_ELF_HASH_DRIFT SPLIT_SYSCALL_AMBIGUOUS
-          TRACE_BYTE_CAP TRACE_DIR TRACE_EVENT_CAP TRACE_FILE_CAP
-          TRACE_FILE_NOT_REGULAR TRACE_FILE_SCOPE TRACE_PID_DUPLICATE
-          TRUNCATED_OR_AMBIGUOUS UNRECOGNIZED_ACTIVE_FD_EVENT PARSER_OTHER
-          '''.split())
-          private = Path('/work/image/trace-private/parser-class.txt')
-          classification = 'PARSER_OTHER'
-          try:
-              info = private.lstat()
-              if stat.S_ISREG(info.st_mode) and 0 < info.st_size <= 64:
-                  raw = private.read_bytes()
-                  if re.fullmatch(rb'[A-Z_]+\n?', raw):
-                      candidate = raw.decode('ascii').strip()
-                      if candidate in allowed:
-                          classification = candidate
-          except OSError:
-              pass
-          receipt = Path('/work/image/receipt/refusal.json')
-          data = json.loads(receipt.read_text())
-          if data.get('schema') != 'tundra-eh-seeded-link-trace/v1' or data.get('status') != 'REFUSED' or data.get('reason') != 'TRACE_PARSER':
-              raise SystemExit('parser refusal scope rejected')
-          data['parser_diagnostic'] = {'failure_class': classification}
-          encoded = json.dumps(data, separators=(',', ':'), sort_keys=True) + '\n'
-          if len(encoded) > 4096:
-              raise SystemExit('parser refusal cap rejected')
-          pending = receipt.with_name('refusal-parser.tmp')
-          pending.write_text(encoded)
-          os.replace(pending, receipt)
-          PY
+            parser_refusal
             exit 1
           fi
           refuse TRACE_FINALIZE

@@ -1,7 +1,7 @@
 #!/usr/bin/env nu
 
 use ./duckdb-eh-seeded-link-trace-v1.nu [canary_shape canary_diagnostic relink_diagnostic]
-use ./duckdb-eh-linker-fd-witness-v1.nu parser_failure_class
+use ./duckdb-eh-linker-fd-witness-v1.nu [witness parser_failure_class ellipsis_class]
 def require [ok: bool, reason: string] { if not $ok { error make {msg: $reason} } }
 
 def main [] {
@@ -65,6 +65,60 @@ def main [] {
   } catch {|err| $err.msg == 'CANARY_DIRECT_READ' })
   require $refused 'ZERO_READ_ACCEPTED'
   let scratch = (^mktemp -d | str trim)
+  let linker = '/emsdk/upstream/bin/wasm-ld'
+  let archive = '/work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a'
+  let trace_dir = ($scratch | path join 'traces')
+  mkdir $trace_dir
+  let trace = ($trace_dir | path join 'trace.123')
+  let ledger = ($env.FILE_PWD | path join '../receipts/duckdb-eh-linker-fd-witness-v1.json')
+  let parser_receipt = ($scratch | path join 'parser.json')
+  let linker_hash = '6e5c12aab29b80db118acd16c08953257683ed11c415970f8320ed777997eec7'
+  let exec_line = ('execve("LINKER_PATH", ["wasm-ld"], 0x1234) = 0' | str replace 'LINKER_PATH' $linker)
+  let open_line = ('openat(AT_FDCWD, "ARCHIVE_PATH", O_RDONLY) = 3<ARCHIVE_PATH>' | str replace --all 'ARCHIVE_PATH' $archive)
+  let exit_line = '+++ exited with 0 +++'
+  let base = [$exec_line $open_line]
+  let cases = [
+    {input: ($base | append ['read(3, "PRIVATE_SECRET...", 20) = 20' $exit_line]), expected: 'TRUNCATED_OR_AMBIGUOUS|READ|LINKER_ACTIVE|ACTIVE'},
+    {input: ($base | append ['pread64(4, "PRIVATE_SECRET...", 20, 0) = 20' $exit_line]), expected: 'TRUNCATED_OR_AMBIGUOUS|PREAD64|LINKER_ACTIVE|OTHER'},
+    {input: ($base | append [('mmap(NULL, 100, PROT_READ, MAP_PRIVATE, 3<ARCHIVE_PATH>, ...) = 0x123' | str replace 'ARCHIVE_PATH' $archive) $exit_line]), expected: 'TRUNCATED_OR_AMBIGUOUS|MMAP|LINKER_ACTIVE|ACTIVE'},
+    {input: ($base | append ['mmap(NULL, 100, PROT_READ, MAP_PRIVATE, ..., 0) = 0x123' $exit_line]), expected: 'TRUNCATED_OR_AMBIGUOUS|MMAP|LINKER_ACTIVE|UNKNOWN'},
+    {input: ($base | append [('dup(3<ARCHIVE_PATH>) = 4<ARCHIVE_PATH>' | str replace --all 'ARCHIVE_PATH' $archive) 'read(4, "PRIVATE_SECRET...", 20) = 20' $exit_line]), expected: 'TRUNCATED_OR_AMBIGUOUS|READ|LINKER_ACTIVE|ACTIVE'},
+    {input: ($base | append [('close(3<ARCHIVE_PATH>) = 0' | str replace 'ARCHIVE_PATH' $archive) 'read(3, "PRIVATE_SECRET...", 20) = 20' $exit_line]), expected: 'TRUNCATED_OR_AMBIGUOUS|READ|LINKER_NO_ACTIVE|OTHER'},
+    {input: [('execve("LINKER_PATH", ["PRIVATE_SECRET", ...], 0x1234) = 0' | str replace 'LINKER_PATH' $linker)], expected: 'TRUNCATED_OR_AMBIGUOUS|EXECVE|CANDIDATE_EXEC|UNKNOWN'},
+    {input: ['openat(AT_FDCWD, "PRIVATE_SECRET...", O_RDONLY) = 4</private/path>'], expected: 'TRUNCATED_OR_AMBIGUOUS|OPENAT|BEFORE_LINKER|UNKNOWN'}
+  ]
+  for case in $cases {
+    $case.input | str join (char newline) | save --force $trace
+    let failure = (try { witness $ledger $trace_dir $linker_hash $parser_receipt; 'ACCEPTED' } catch {|err| parser_failure_class $err.msg })
+    require ($failure == $case.expected) 'ELLIPSIS_REFUSAL_CLASS'
+    require (not ($failure | str contains 'PRIVATE_SECRET') and not ($failure | str contains $archive) and not ($failure | str contains $scratch)) 'ELLIPSIS_PRIVATE_LEAK'
+  }
+  let unknown = (ellipsis_class 'read(999999999999999999999, "PRIVATE_SECRET...", 1) = 1' true false [3] $linker)
+  require ($unknown == 'TRUNCATED_OR_AMBIGUOUS|READ|LINKER_ACTIVE|UNKNOWN') 'ELLIPSIS_FD_UNKNOWN'
+  require ((parser_failure_class 'TRUNCATED_OR_AMBIGUOUS|READ|LINKER_ACTIVE|PRIVATE_SECRET') == 'PARSER_OTHER') 'ELLIPSIS_ALLOWLIST'
+  # A second task may share and mutate the FD table before the archive open.
+  # The single PID trace alone must not accept that archive/read sequence.
+  for creation in [
+    'clone(child_stack=NULL, flags=CLONE_VM|CLONE_FILES|SIGCHLD) = 124'
+    'clone3({flags=CLONE_FILES}, 88) = 124'
+    'fork() = 124'
+    'vfork() = 124'
+  ] {
+    [$exec_line $creation $open_line 'read(3, 0x1234, 10) = 10' $exit_line] | str join (char newline) | save --force $trace
+    let failure = (try { witness $ledger $trace_dir $linker_hash $parser_receipt; 'ACCEPTED' } catch {|err| parser_failure_class $err.msg })
+    require ($failure == 'CHILD_CREATION_AMBIGUOUS') 'SHARED_FD_CREATION_ACCEPTED'
+  }
+  $base | append ['read(3, 0x1234, 10) = 10' $exit_line] | str join (char newline) | save --force $trace
+  witness $ledger $trace_dir $linker_hash $parser_receipt
+  require ((open $parser_receipt).status == 'FIXTURE_DIRECT_READ_SHAPE') 'POSITIVE_READ_WITHOUT_CLOSE_REFUSED'
+  rm $parser_receipt
+  $base | append ['read(3, 0x1234, 10) = 0' $exit_line] | str join (char newline) | save --force $trace
+  let zero_failure = (try { witness $ledger $trace_dir $linker_hash $parser_receipt; 'ACCEPTED' } catch {|err| parser_failure_class $err.msg })
+  require ($zero_failure == 'REFUSED_DIRECT_READ_NOT_PROVED') 'ZERO_READ_PARSER_ACCEPTED'
+  rm $parser_receipt
+  $base | append ['read(3, 0x1234, 10 <unfinished ...>'] | str join (char newline) | save --force $trace
+  let split_failure = (try { witness $ledger $trace_dir $linker_hash $parser_receipt; 'ACCEPTED' } catch {|err| parser_failure_class $err.msg })
+  require ($split_failure == 'SPLIT_SYSCALL_AMBIGUOUS') 'SPLIT_SYSCALL_ACCEPTED'
   let receipt = ($scratch | path join 'refusal.json')
   for classification in [TIMEOUT EXIT_NONZERO TRACE_CAP OUTPUT_ABSENT] {
     {schema: 'tundra-eh-seeded-link-trace/v1', status: 'REFUSED', reason: 'TRACE_RELINK', legal_admission: 'NO'} | to json --raw | save --force $receipt
