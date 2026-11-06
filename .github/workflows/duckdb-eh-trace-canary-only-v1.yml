@@ -235,6 +235,40 @@ jobs:
           witness $ledger /work/image/trace-private/flags-good-with-read $digest /work/image/trace-private/flags-good-with-read.json
           NUFAILEDOPEN
           )"
+          # Fixed dummy FD only; capture remains private and is later deleted.
+          printf '%s\n' dummy > /work/image/trace-private/close-fixture-file
+          timeout 15s "$loader" --library-path "$libdir" "$tracer" -yy -s 256 -e trace=close \
+            -o /work/image/trace-private/close-dummy.trace python3 -c 'import os; f=os.open("/work/image/trace-private/close-fixture-file",os.O_RDONLY); os.dup2(f,200); os.close(f); os.close(200); exec("try:\n os.close(200)\nexcept OSError:\n pass")' \
+            > /work/image/trace-private/close-dummy.log 2>&1
+          python3 - <<'PYCLOSECANARY'
+          from pathlib import Path
+          import re
+          import stat
+          import textwrap
+          source = Path('gate/.github/workflows/duckdb-eh-seeded-image-link-trace-v1.yml').read_text()
+          start_marker = "          if classification == 'CLOSE_SHAPE_AMBIGUOUS':\n"
+          end_marker = "          encoded = json.dumps(data, separators=(',', ':'), sort_keys=True) + '\\n'\n"
+          if source.count(start_marker) != 1:
+              raise SystemExit('close diagnostic source refused')
+          start = source.index(start_marker)
+          end = source.index(end_marker, start)
+          block = textwrap.dedent(source[start:end])
+          dummy = Path('/work/image/trace-private/close-dummy.trace')
+          if dummy.is_symlink() or not dummy.is_file() or not 0 < dummy.stat().st_size <= 1048576:
+              raise SystemExit('close dummy refused')
+          records = [line for line in dummy.read_bytes().splitlines(keepends=True) if line.startswith(b'close(200')]
+          if len(records) != 2 or b'EBADF' not in records[1]:
+              raise SystemExit('close dummy refused')
+          fixture = Path('/work/image/trace-private/close-fixture')
+          fixture.mkdir(mode=0o700)
+          (fixture / 'trace.123').write_bytes(b'execve("/emsdk/upstream/bin/wasm-ld", [], 0x1) = 0\n' + records[1])
+          block = block.replace("Path('/work/image/trace-raw')", "Path('/work/image/trace-private/close-fixture')")
+          classification = 'CLOSE_SHAPE_AMBIGUOUS'
+          data = {'parser_diagnostic': {'failure_class': classification}}
+          exec(compile(block, '<fixed-close-diagnostic>', 'exec'))
+          if data['parser_diagnostic'].get('close_class') != 'FAILED_ERRNO_RETURN':
+              raise SystemExit('close fixture refused')
+          PYCLOSECANARY
           printf '%s\n' '{"schema":"tundra-eh-seeded-link-trace/v1","status":"REFUSED","reason":"TRACE_CANARY","actual_eh_linker_child":"UNPROVEN","linker_archive_read":"UNPROVEN","same_run_traced_outputs":"UNPROVEN","legal_admission":"NO","product_admission":"NO","fleet_admission":"NO"}' > /work/image/receipt/refusal.json
           printf '%s\n' 'tundra-eh-trace-child-canary-v1' > /work/image/trace-private/canary.txt
           timeout 20s "$loader" --library-path "$libdir" "$tracer" -ff -yy -s 4096 -o /work/image/trace-private/canary.trace \
