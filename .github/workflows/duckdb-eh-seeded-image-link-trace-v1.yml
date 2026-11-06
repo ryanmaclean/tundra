@@ -807,6 +807,57 @@ jobs:
           if data.get('schema') != 'tundra-eh-seeded-link-trace/v1' or data.get('status') != 'REFUSED' or data.get('reason') != 'TRACE_PARSER':
               raise SystemExit('parser refusal scope rejected')
           data['parser_diagnostic'] = {'failure_class': classification}
+          if classification == 'TRUNCATED_OR_AMBIGUOUS':
+              # Preserve no trace text, filenames or PID: report only the
+              # first lexical parser-visible ellipsis position as an enum.
+              # The parser checks files sorted by name and lines in order.
+              def ellipsis_kind(line):
+                  if b'...' not in line or line.startswith(b'+++ exited with '):
+                      return None
+                  if b'<unfinished ...>' in line or b'resumed>' in line:
+                      return 'INCONSISTENT_SPLIT'
+                  prefix = re.match(rb'^execve\("(?:[^"\\]|\\.)*", \[', line)
+                  if prefix is not None and line.find(b'...') >= prefix.end():
+                      return 'EXECVE_AFTER_PATH'
+                  if line.startswith(b'execve('):
+                      return 'EXECVE_PATH_OR_SHAPE'
+                  return 'OTHER_SYSCALL_OR_RECORD'
+
+              assert ellipsis_kind(b'execve("/x", ["abc"...], 0x1) = 0\n') == 'EXECVE_AFTER_PATH'
+              assert ellipsis_kind(b'execve("/x", ["literal...name"], 0x1) = 0\n') == 'EXECVE_AFTER_PATH'
+              assert ellipsis_kind(b'execve("/x...", ["a"], 0x1) = 0\n') == 'EXECVE_PATH_OR_SHAPE'
+              assert ellipsis_kind(b'open("/x...", O_RDONLY) = 3\n') == 'OTHER_SYSCALL_OR_RECORD'
+              assert ellipsis_kind(b'unknown-record...\n') == 'OTHER_SYSCALL_OR_RECORD'
+              assert ellipsis_kind(b'open("/x", O_RDONLY <unfinished ...>\n') == 'INCONSISTENT_SPLIT'
+              assert ellipsis_kind(b'+++ exited with 0 +++\n') is None
+              detail = 'UNAVAILABLE'
+              try:
+                  root = Path('/work/image/trace-raw')
+                  entries = sorted(root.iterdir())
+                  if not 0 < len(entries) <= 128:
+                      raise ValueError()
+                  total = records = 0
+                  for entry in entries:
+                      info = entry.lstat()
+                      if not re.fullmatch(r'trace\.[0-9]+', entry.name) or not stat.S_ISREG(info.st_mode) or not 0 < info.st_size <= 4194304:
+                          raise ValueError()
+                      total += info.st_size
+                      if total > 16777216:
+                          raise ValueError()
+                      with entry.open('rb') as stream:
+                          while line := stream.readline(8193):
+                              records += 1
+                              if records > 50000 or len(line) > 8192 or not line.endswith(b'\n'):
+                                  raise ValueError()
+                              found = ellipsis_kind(line)
+                              if found is not None:
+                                  detail = found
+                                  break
+                      if detail != 'UNAVAILABLE':
+                          break
+              except (OSError, ValueError):
+                  detail = 'UNAVAILABLE'
+              data['parser_diagnostic']['ellipsis_class'] = detail
           encoded = json.dumps(data, separators=(',', ':'), sort_keys=True) + '\n'
           if len(encoded) > 4096:
               raise SystemExit('parser refusal cap rejected')
