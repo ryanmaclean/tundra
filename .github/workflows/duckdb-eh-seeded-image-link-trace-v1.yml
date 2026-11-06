@@ -975,15 +975,17 @@ jobs:
               candidate_exec = re.compile(rb'^execve\("/emsdk/upstream/bin/wasm-ld", .*[)] = 0$')
               accepted_open = re.compile(rb'^open\("[^"\\]+", [^)]*\) = [0-9]+<[^>]+>$')
               accepted_openat = re.compile(rb'^openat\([^,]+, "[^"\\]+", [^)]*\) = [0-9]+<[^>]+>$')
+              accepted_missing_open = re.compile(rb'^open\("/[^"\\]*", O_RDONLY(?:\|O_CLOEXEC)?\) = -1 ENOENT \(No such file or directory\)$')
+              accepted_missing_openat = re.compile(rb'^openat\(AT_FDCWD(?:</[^>\\]*>)?, "/[^"\\]*", O_RDONLY(?:\|O_CLOEXEC)?\) = -1 ENOENT \(No such file or directory\)$')
               def open_kind(line):
                   line = line.removesuffix(b'\n')
                   if line.startswith(b'openat('):
-                      prefix, accepted = 'OPENAT_', accepted_openat
+                      prefix, accepted, missing = 'OPENAT_', accepted_openat, accepted_missing_openat
                   elif line.startswith(b'open('):
-                      prefix, accepted = 'OPEN_', accepted_open
+                      prefix, accepted, missing = 'OPEN_', accepted_open, accepted_missing_open
                   else:
                       return None
-                  if accepted.fullmatch(line):
+                  if accepted.fullmatch(line) or missing.fullmatch(line):
                       return None
                   if re.search(rb'\) = -1 [A-Z][A-Z0-9_]*(?: \([^\n]*\))?$', line):
                       return prefix + 'FAILED_RETURN'
@@ -992,7 +994,9 @@ jobs:
                   return prefix + 'OTHER_SHAPE'
               assert open_kind(b'open("/dummy", O_RDONLY) = 3</dummy>\n') is None
               assert open_kind(b'openat(AT_FDCWD, "/dummy", O_RDONLY) = 3</dummy>\n') is None
-              assert open_kind(b'openat(AT_FDCWD, "/dummy", O_RDONLY) = -1 ENOENT (No such file or directory)\n') == 'OPENAT_FAILED_RETURN'
+              assert open_kind(b'openat(AT_FDCWD, "/dummy", O_RDONLY) = -1 ENOENT (No such file or directory)\n') is None
+              assert open_kind(b'openat(AT_FDCWD</tmp>, "/dummy", O_RDONLY) = -1 ENOENT (No such file or directory)\n') is None
+              assert open_kind(b'openat(AT_FDCWD, "/dummy", O_RDONLY) = -1 EACCES (Permission denied)\n') == 'OPENAT_FAILED_RETURN'
               assert open_kind(b'open("/dummy", O_RDONLY) = 3\n') == 'OPEN_UNANNOTATED_SUCCESS'
               assert open_kind(b'openat(broken\n') == 'OPENAT_OTHER_SHAPE'
               detail = 'UNAVAILABLE'

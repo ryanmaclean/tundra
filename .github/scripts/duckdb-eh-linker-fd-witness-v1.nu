@@ -61,6 +61,14 @@ def parse_pid [raw: string, pid: int, l: record] {
     if ($line | str starts-with 'chdir(') or ($line | str starts-with 'fchdir(') { error make {msg: 'CWD_CHANGE_AMBIGUOUS'} }
     if ($line | str starts-with 'execveat(') { error make {msg: 'EXECVEAT_AMBIGUOUS'} }
     if ($line | str starts-with 'open(') or ($line | str starts-with 'openat(') {
+      # A completed read-only ENOENT allocates no FD and proves no read.
+      # Preserve all existing FD and archive witness state.
+      let missing = if ($line | str starts-with 'openat(') {
+        capture $line '^openat\(AT_FDCWD(?:</[^>\\]*>)?, "(?<path>/[^"\\]*)", O_RDONLY(?:\|O_CLOEXEC)?\) = -1 ENOENT \(No such file or directory\)$'
+      } else {
+        capture $line '^open\("(?<path>/[^"\\]*)", O_RDONLY(?:\|O_CLOEXEC)?\) = -1 ENOENT \(No such file or directory\)$'
+      }
+      if $missing != null { continue }
       let o = if ($line | str starts-with 'openat(') {
         capture $line '^openat\((?<dirfd>[^,]+), "(?<path>[^"\\]+)", (?<flags>[^)]*)\) = (?<fd>[0-9]+)<(?<annotation>[^>]+)>$'
       } else {
@@ -292,6 +300,53 @@ export def anonymous_mmap_self_test [ledger_path: string] {
     require ($actual == 'MMAP_SHAPE_AMBIGUOUS') 'SELF_TEST_ANON_REFUSAL'
   }
   'anonymous mmap parser fixtures passed'
+}
+
+export def failed_open_self_test [ledger_path: string] {
+  let l = (checked_ledger $ledger_path)
+  let exec = 'execve("/emsdk/upstream/bin/wasm-ld", [], 0x1) = 0'
+  let opened = 'openat(AT_FDCWD, "/work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a", O_RDONLY) = 3</work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a>'
+  let read = 'read(3</work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a>, "") = 1'
+  let close = 'close(3</work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a>) = 0'
+  let finish = '+++ exited with 0 +++'
+  let archive_missing = 'openat(AT_FDCWD, "/work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a", O_RDONLY) = -1 ENOENT (No such file or directory)'
+  let missing = 'openat(AT_FDCWD, "/tmp/fixture-missing", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)'
+  let annotated_missing = 'openat(AT_FDCWD</tmp>, "/tmp/fixture-missing", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)'
+  let other_missing = 'open("/tmp/fixture-missing", O_RDONLY) = -1 ENOENT (No such file or directory)'
+  for absent in [$archive_missing $missing $annotated_missing $other_missing] {
+    let no_read = (parse_pid ([$exec $absent $finish] | str join "\n") 123 $l)
+    require (not $no_read.read_positive and $no_read.direct_archive_opens == 0) 'SELF_TEST_FAILED_OPEN_NO_PROOF'
+    let before_read = (parse_pid ([$exec $opened $absent $read $finish] | str join "\n") 123 $l)
+    require ($before_read.read_positive and $before_read.direct_archive_opens == 1) 'SELF_TEST_FAILED_OPEN_ACTIVE'
+    let stale = (parse_pid ([$exec $opened $close $absent $read $finish] | str join "\n") 123 $l)
+    require (not $stale.read_positive) 'SELF_TEST_FAILED_OPEN_STALE'
+  }
+  let reused = 'openat(AT_FDCWD, "/tmp/other", O_RDONLY) = 3</tmp/other>'
+  let reused_read = 'read(3</tmp/other>, "") = 1'
+  let reuse = (parse_pid ([$exec $opened $close $missing $reused $reused_read $finish] | str join "\n") 123 $l)
+  require (not $reuse.read_positive) 'SELF_TEST_FAILED_OPEN_REUSED'
+  let invalid = [
+    'openat(AT_FDCWD, "relative", O_RDONLY) = -1 ENOENT (No such file or directory)'
+    'openat(3</tmp>, "/tmp/x", O_RDONLY) = -1 ENOENT (No such file or directory)'
+    'openat(AT_FDCWD, "/tmp/x\"y", O_RDONLY) = -1 ENOENT (No such file or directory)'
+    'openat(AT_FDCWD, "/tmp/x", O_WRONLY) = -1 ENOENT (No such file or directory)'
+    'openat(AT_FDCWD, "/tmp/x", O_RDONLY|O_CREAT) = -1 ENOENT (No such file or directory)'
+    'openat(AT_FDCWD, "/tmp/x", O_RDONLY) = -1 EACCES (Permission denied)'
+    'openat(AT_FDCWD, "/tmp/x", O_RDONLY) = -1 EINTR (Interrupted system call)'
+    'openat(AT_FDCWD, "/tmp/x", O_RDONLY) = ? ERESTARTSYS (To be restarted if SA_RESTART is set)'
+    'openat(AT_FDCWD, "/tmp/x", O_RDONLY) = -1 ENOENT (No such file or directory) extra'
+  ]
+  for line in $invalid {
+    let actual = (try { parse_pid ([$exec $line] | str join "\n") 123 $l; 'ACCEPTED' } catch {|err| $err.msg })
+    require ($actual == 'OPEN_SHAPE_AMBIGUOUS') 'SELF_TEST_FAILED_OPEN_REFUSAL'
+  }
+  let dotted = 'openat(AT_FDCWD, "/tmp/absent...", O_RDONLY) = -1 ENOENT (No such file or directory)'
+  let split = 'openat(AT_FDCWD, "/tmp/absent", O_RDONLY <unfinished ...>'
+  for case in [{line: $dotted, reason: TRUNCATED_OR_AMBIGUOUS} {line: $split, reason: SPLIT_SYSCALL_AMBIGUOUS}] {
+    let actual = (try { parse_pid ([$exec $case.line] | str join "\n") 123 $l; 'ACCEPTED' } catch {|err| $err.msg })
+    require ($actual == $case.reason) 'SELF_TEST_FAILED_OPEN_PRECHECK'
+  }
+  'failed open parser fixtures passed'
 }
 
 def main [ledger: string, trace_dir: string, runtime_elf_sha256: string, receipt: string, private_class: string] {
