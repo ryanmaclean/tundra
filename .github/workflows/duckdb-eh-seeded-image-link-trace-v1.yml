@@ -261,6 +261,31 @@ jobs:
             > /work/image/trace-private/canary-output.log 2>&1
           /work/image/tool/nu gate/.github/scripts/duckdb-eh-seeded-link-trace-v1.nu canary \
             /work/image/trace-private /work/image/trace-private/canary.txt
+          # Fixed stage names only; never retain command output or trace text.
+          mark_raw_stage() {
+            python3 - "$1" <<'PYSTAGE'
+          import json
+          from pathlib import Path
+          import sys
+          allowed = {'RAW_PREPARE', 'RAW_LAUNCH', 'RAW_MONITOR', 'RAW_CHILD_WAIT',
+                     'RAW_CHILD_TIMEOUT', 'RAW_CHILD_GE128', 'RAW_CHILD_FAILURE', 'RAW_VERIFY'}
+          stage = sys.argv[1]
+          if stage not in allowed:
+              raise SystemExit('stage refused')
+          receipt = Path('/work/image/receipt/refusal.json')
+          data = json.loads(receipt.read_text())
+          if data.get('status') != 'REFUSED' or data.get('reason') != 'TRACE_CANARY':
+              raise SystemExit('receipt refused')
+          data['raw_canary_stage'] = stage
+          encoded = json.dumps(data, sort_keys=True, separators=(',', ':')) + '\n'
+          if len(encoded) > 4096:
+              raise SystemExit('receipt cap refused')
+          pending = receipt.with_name('refusal-stage.tmp')
+          pending.write_text(encoded)
+          pending.replace(receipt)
+          PYSTAGE
+          }
+          mark_raw_stage RAW_PREPARE
           # A separate pinned-tool canary proves the raw read grammar without
           # admitting a relink from an abbreviated decoded buffer.
           python3 - <<'PY'
@@ -277,6 +302,8 @@ jobs:
             bytes=$(du -sb "$raw_canary_dir" | cut -f 1)
             test "$entries" -le 8 && test "$entries" -eq "$regular" && test "$oversized" -eq 0 && test "$bytes" -le 16777216
           }
+          mark_raw_stage RAW_LAUNCH
+          mark_raw_stage RAW_MONITOR
           setsid timeout --signal=TERM --kill-after=2s 20s "$loader" --library-path "$libdir" "$tracer" -ff -yy -s 256 \
             -e raw=read,pread64,readv -e trace=execve,open,openat,read,pread64,readv,close,exit_group \
             -o "$raw_canary_dir/trace" \
@@ -292,7 +319,19 @@ jobs:
             sleep 0.1
           done
           raw_canary_within_cap
-          wait "$raw_canary_pid"
+          mark_raw_stage RAW_CHILD_WAIT
+          if wait "$raw_canary_pid"; then
+            :
+          else
+            raw_canary_rc=$?
+            case "$raw_canary_rc" in
+              124) mark_raw_stage RAW_CHILD_TIMEOUT ;;
+              12[89]|1[3-9][0-9]|2[0-5][0-9]) mark_raw_stage RAW_CHILD_GE128 ;;
+              *) mark_raw_stage RAW_CHILD_FAILURE ;;
+            esac
+            exit 1
+          fi
+          mark_raw_stage RAW_VERIFY
           python3 - <<'PY'
           from pathlib import Path
           import json
