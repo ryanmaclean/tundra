@@ -162,8 +162,9 @@ jobs:
           )"
           # Exercise only fixed dummy paths and keep all trace bytes private.
           printf '%s\n' dummy > /work/image/trace-private/open-fixture-file
+          printf '%s\n' dummy > /work/image/trace-private/open-trunc-file
           timeout 15s "$loader" --library-path "$libdir" "$tracer" -yy -s 256 -e trace=open,openat \
-            -o /work/image/trace-private/open-dummy.trace python3 -c 'import os; p="/work/image/trace-private/"; f=os.open(p+"open-fixture-file",os.O_RDONLY); os.close(f); exec("try:\n os.open(p+\"open-absent-file\",os.O_RDONLY)\nexcept FileNotFoundError:\n pass\ntry:\n os.open(p+\"open-fixture-file\",os.O_RDONLY|os.O_DIRECTORY)\nexcept NotADirectoryError:\n pass")' \
+            -o /work/image/trace-private/open-dummy.trace python3 -c 'import os; p="/work/image/trace-private/"; f=os.open(p+"open-fixture-file",os.O_RDONLY); os.close(f); t=os.open(p+"open-trunc-file",os.O_RDONLY|os.O_TRUNC); os.close(t); exec("try:\n os.open(p+\"open-absent-file\",os.O_RDONLY)\nexcept FileNotFoundError:\n pass\ntry:\n os.open(p+\"open-fixture-file\",os.O_RDONLY|os.O_DIRECTORY)\nexcept NotADirectoryError:\n pass")' \
             > /work/image/trace-private/open-dummy.log 2>&1
           python3 - <<'PYOPENCANARY'
           import os
@@ -184,9 +185,10 @@ jobs:
               raise SystemExit('open dummy refused')
           records = dummy.read_bytes().splitlines(keepends=True)
           good = [line for line in records if b'/work/image/trace-private/open-fixture-file' in line and b'O_DIRECTORY' not in line]
+          trunc = [line for line in records if b'/work/image/trace-private/open-trunc-file' in line and b'O_TRUNC' in line]
           missing = [line for line in records if b'/work/image/trace-private/open-absent-file' in line]
           failed = [line for line in records if b'/work/image/trace-private/open-fixture-file' in line and b'O_DIRECTORY' in line]
-          if len(good) != 1 or len(missing) != 1 or len(failed) != 1:
+          if len(good) != 1 or len(trunc) != 1 or len(missing) != 1 or len(failed) != 1:
               raise SystemExit('open dummy refused')
           fixture = Path('/work/image/trace-private/open-fixture')
           fixture.mkdir(mode=0o700)
@@ -204,7 +206,20 @@ jobs:
               directory = Path('/work/image/trace-private') / name
               directory.mkdir(mode=0o700)
               (directory / 'trace.123').write_bytes(begin + tail + end)
+          for name, record, dummy in (('flags-good', good[0], b'/work/image/trace-private/open-fixture-file'), ('flags-trunc', trunc[0], b'/work/image/trace-private/open-trunc-file')):
+              if not re.match(rb'^openat\(AT_FDCWD</[^>]+>, "', record):
+                  raise SystemExit('cwd annotation fixture refused')
+              fd = re.search(rb'\) = ([0-9]+)<', record)
+              if fd is None or record.count(dummy) != 2:
+                  raise SystemExit('open fd fixture refused')
+              synthetic = record.replace(dummy, archive)
+              prefix = b'execve("/emsdk/upstream/bin/wasm-ld", [], 0x1) = 0\n' + synthetic
+              for suffix, tail in (('no-read', b''), ('with-read', b'read(' + fd.group(1) + b'<' + archive + b'>, "") = 1\n')):
+                  directory = Path('/work/image/trace-private') / (name + '-' + suffix)
+                  directory.mkdir(mode=0o700)
+                  (directory / 'trace.123').write_bytes(prefix + tail + end)
           PYOPENCANARY
+          /work/image/tool/nu -c 'use gate/.github/scripts/duckdb-eh-linker-fd-witness-v1.nu [openat_cwd_self_test archive_flags_self_test]; openat_cwd_self_test gate/.github/receipts/duckdb-eh-linker-fd-witness-v1.json; archive_flags_self_test gate/.github/receipts/duckdb-eh-linker-fd-witness-v1.json'
           /work/image/tool/nu -c 'use gate/.github/scripts/duckdb-eh-linker-fd-witness-v1.nu failed_open_self_test; failed_open_self_test gate/.github/receipts/duckdb-eh-linker-fd-witness-v1.json'
           /work/image/tool/nu -c "$(cat <<'NUFAILEDOPEN'
           use gate/.github/scripts/duckdb-eh-linker-fd-witness-v1.nu [witness parser_failure_class]
@@ -213,6 +228,11 @@ jobs:
           let result = (try { witness $ledger /work/image/trace-private/missing-no-read $digest /work/image/trace-private/missing-no-read.json; 'ACCEPTED' } catch {|e| parser_failure_class $e.msg })
           if $result != 'REFUSED_DIRECT_READ_NOT_PROVED' { error make {msg: 'missing-open no-read control refused'} }
           witness $ledger /work/image/trace-private/missing-with-read $digest /work/image/trace-private/missing-with-read.json
+          let good = (try { witness $ledger /work/image/trace-private/flags-good-no-read $digest /work/image/trace-private/flags-good-no-read.json; 'ACCEPTED' } catch {|e| parser_failure_class $e.msg })
+          if $good != 'REFUSED_DIRECT_READ_NOT_PROVED' { error make {msg: 'readonly no-read control refused'} }
+          let bad = (try { witness $ledger /work/image/trace-private/flags-trunc-with-read $digest /work/image/trace-private/flags-trunc.json; 'ACCEPTED' } catch {|e| parser_failure_class $e.msg })
+          if $bad != 'ARCHIVE_OPEN_NOT_READONLY_EXACT' { error make {msg: 'mutation flag control refused'} }
+          witness $ledger /work/image/trace-private/flags-good-with-read $digest /work/image/trace-private/flags-good-with-read.json
           NUFAILEDOPEN
           )"
           printf '%s\n' '{"schema":"tundra-eh-seeded-link-trace/v1","status":"REFUSED","reason":"TRACE_CANARY","actual_eh_linker_child":"UNPROVEN","linker_archive_read":"UNPROVEN","same_run_traced_outputs":"UNPROVEN","legal_admission":"NO","product_admission":"NO","fleet_admission":"NO"}' > /work/image/receipt/refusal.json

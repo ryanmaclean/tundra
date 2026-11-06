@@ -76,11 +76,13 @@ def parse_pid [raw: string, pid: int, l: record] {
       }
       require ($o != null) 'OPEN_SHAPE_AMBIGUOUS'
       require ($o.path | str starts-with '/') 'RELATIVE_OPEN_AMBIGUOUS'
-      if 'dirfd' in $o { require ($o.dirfd == 'AT_FDCWD') 'OPENAT_DIRFD_AMBIGUOUS' }
+      if 'dirfd' in $o { require ($o.dirfd =~ '^AT_FDCWD(?:</[^>\\]*>)?$') 'OPENAT_DIRFD_AMBIGUOUS' }
       let fd = ($o.fd | into int)
       $active = ($active | where $it != $fd)
       if $o.path == $l.archive_path {
-        require ($o.annotation == $l.archive_path and ($o.flags | str starts-with 'O_RDONLY') and not ($o.flags | str contains 'O_WRONLY') and not ($o.flags | str contains 'O_RDWR')) 'ARCHIVE_OPEN_NOT_READONLY_EXACT'
+        # Only known, nonmutating read flags may establish archive custody.
+        let flags = ($o.flags | split row '|')
+        require ($o.annotation == $l.archive_path and ($flags | first) == 'O_RDONLY' and (($flags | uniq | length) == ($flags | length)) and ($flags | all {|f| $f in [O_RDONLY O_CLOEXEC O_NOFOLLOW O_NONBLOCK O_LARGEFILE]})) 'ARCHIVE_OPEN_NOT_READONLY_EXACT'
         $active = ($active | append $fd)
         $opens += 1
       }
@@ -347,6 +349,65 @@ export def failed_open_self_test [ledger_path: string] {
     require ($actual == $case.reason) 'SELF_TEST_FAILED_OPEN_PRECHECK'
   }
   'failed open parser fixtures passed'
+}
+
+export def openat_cwd_self_test [ledger_path: string] {
+  let l = (checked_ledger $ledger_path)
+  let exec = 'execve("/emsdk/upstream/bin/wasm-ld", [], 0x1) = 0'
+  let opened = 'openat(AT_FDCWD</tmp>, "/work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a", O_RDONLY|O_CLOEXEC) = 3</work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a>'
+  let legacy = 'openat(AT_FDCWD, "/work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a", O_RDONLY) = 3</work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a>'
+  let read = 'read(3</work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a>, "") = 1'
+  let close = 'close(3</work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a>) = 0'
+  let finish = '+++ exited with 0 +++'
+  for open in [$opened $legacy] {
+    let no_read = (parse_pid ([$exec $open $finish] | str join "\n") 123 $l)
+    require ($no_read.direct_archive_opens == 1 and not $no_read.read_positive) 'SELF_TEST_CWD_NO_READ'
+    let positive = (parse_pid ([$exec $open $read $finish] | str join "\n") 123 $l)
+    require ($positive.direct_archive_opens == 1 and $positive.read_positive) 'SELF_TEST_CWD_READ'
+    let stale = (parse_pid ([$exec $open $close $read $finish] | str join "\n") 123 $l)
+    require (not $stale.read_positive) 'SELF_TEST_CWD_STALE'
+    let other = 'openat(AT_FDCWD</tmp>, "/tmp/other", O_RDONLY) = 3</tmp/other>'
+    let other_read = 'read(3</tmp/other>, "") = 1'
+    let reused = (parse_pid ([$exec $open $close $other $other_read $finish] | str join "\n") 123 $l)
+    require (not $reused.read_positive) 'SELF_TEST_CWD_REUSED'
+  }
+  let invalid = [
+    {line: 'openat(3</tmp>, "/tmp/a", O_RDONLY) = 4</tmp/a>', reason: OPENAT_DIRFD_AMBIGUOUS}
+    {line: 'openat(AT_FDCWD<relative>, "/tmp/a", O_RDONLY) = 4</tmp/a>', reason: OPENAT_DIRFD_AMBIGUOUS}
+    {line: 'openat(AT_FDCWD</tmp\x>, "/tmp/a", O_RDONLY) = 4</tmp/a>', reason: OPENAT_DIRFD_AMBIGUOUS}
+    {line: 'openat(AT_FDCWD</tmp>, "relative", O_RDONLY) = 4</tmp/a>', reason: RELATIVE_OPEN_AMBIGUOUS}
+    {line: 'openat(AT_FDCWD</tmp>, "/tmp/a\"b", O_RDONLY) = 4</tmp/a>', reason: OPEN_SHAPE_AMBIGUOUS}
+    {line: 'openat(AT_FDCWD</tmp>, "/work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a", O_RDONLY) = 3</tmp/other>', reason: ARCHIVE_OPEN_NOT_READONLY_EXACT}
+    {line: 'openat(AT_FDCWD</tmp>, "/work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a", O_WRONLY) = 3</work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a>', reason: ARCHIVE_OPEN_NOT_READONLY_EXACT}
+    {line: 'openat(AT_FDCWD</tmp>, "/tmp/a", O_RDONLY) = -1 EACCES (Permission denied)', reason: OPEN_SHAPE_AMBIGUOUS}
+    {line: 'openat(AT_FDCWD</tmp>, "/tmp/a", O_RDONLY)', reason: OPEN_SHAPE_AMBIGUOUS}
+    {line: 'openat(AT_FDCWD</tmp>, "/tmp/absent...", O_RDONLY) = 4</tmp/a>', reason: TRUNCATED_OR_AMBIGUOUS}
+    {line: 'openat(AT_FDCWD</tmp>, "/tmp/a", O_RDONLY <unfinished ...>', reason: SPLIT_SYSCALL_AMBIGUOUS}
+  ]
+  for case in $invalid {
+    let actual = (try { parse_pid ([$exec $case.line] | str join "\n") 123 $l; 'ACCEPTED' } catch {|err| $err.msg })
+    require ($actual == $case.reason) 'SELF_TEST_CWD_REFUSAL'
+  }
+  'openat cwd annotation fixtures passed'
+}
+
+export def archive_flags_self_test [ledger_path: string] {
+  let l = (checked_ledger $ledger_path)
+  let exec = 'execve("/emsdk/upstream/bin/wasm-ld", [], 0x1) = 0'
+  let path = '/work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a'
+  let read = 'read(3</work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a>, "") = 1'
+  let finish = '+++ exited with 0 +++'
+  for flags in ['O_RDONLY' 'O_RDONLY|O_CLOEXEC' 'O_RDONLY|O_NOFOLLOW' 'O_RDONLY|O_NONBLOCK' 'O_RDONLY|O_LARGEFILE' 'O_RDONLY|O_NOFOLLOW|O_NONBLOCK|O_LARGEFILE'] {
+    let open = (['openat(AT_FDCWD</tmp>, "' $path '", ' $flags ') = 3<' $path '>'] | str join)
+    let result = (parse_pid ([$exec $open $read $finish] | str join "\n") 123 $l)
+    require ($result.direct_archive_opens == 1 and $result.read_positive) 'SELF_TEST_FLAGS_READ'
+  }
+  for flags in ['O_RDONLY|O_TRUNC' 'O_RDONLY|O_CREAT' 'O_RDONLY|O_TMPFILE' 'O_RDONLY|O_PATH' 'O_RDONLY|O_RDWR' 'O_RDONLY|O_WRONLY' 'O_RDONLY|O_UNKNOWN' 'O_RDONLY|O_CLOEXEC|O_CLOEXEC' 'O_RDONLY|0x1' 'O_RDONLY|' 'O_RDONLY| O_CLOEXEC' 'O_CLOEXEC|O_RDONLY' 'O_CLOEXEC' 'O_RDWR'] {
+    let open = (['openat(AT_FDCWD</tmp>, "' $path '", ' $flags ') = 3<' $path '>'] | str join)
+    let actual = (try { parse_pid ([$exec $open] | str join "\n") 123 $l; 'ACCEPTED' } catch {|err| $err.msg })
+    require ($actual == 'ARCHIVE_OPEN_NOT_READONLY_EXACT') 'SELF_TEST_FLAGS_REFUSAL'
+  }
+  'archive open flag fixtures passed'
 }
 
 def main [ledger: string, trace_dir: string, runtime_elf_sha256: string, receipt: string, private_class: string] {
