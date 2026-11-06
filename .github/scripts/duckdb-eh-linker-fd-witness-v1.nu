@@ -37,16 +37,20 @@ def parse_pid [raw: string, pid: int, l: record] {
     $events += 1
     require ($events <= $l.max_events and ($line | str length) <= $l.max_line_bytes) 'TRACE_EVENT_CAP'
     require (not ($line | str contains '<unfinished ...>') and not ($line | str contains 'resumed>')) 'SPLIT_SYSCALL_AMBIGUOUS'
-    require (not ($line | str contains '...') or ($line | str starts-with '+++ exited with ')) 'TRUNCATED_OR_AMBIGUOUS'
     if ($line | str starts-with 'execve(') {
-      let e = (capture $line '^execve\("(?<path>[^"\\]+)", .*\) = (?<result>-?[0-9]+)$')
+      # Accept only a bounded strace argv list and the pointer-style env form.
+      # Truncation of argv is immaterial to executable-path identity.
+      let e = (capture $line '^execve\("(?<path>[^"\\]+)", \[(?:(?:"(?:[^"\\]|\\.)*"(?:\.\.\.)?|\.\.\.)(?:, (?:"(?:[^"\\]|\\.)*"(?:\.\.\.)?|\.\.\.))*)?\], (?:0x[0-9a-f]+(?: /\* [0-9]+ vars \*/)?|NULL)\) = (?<result>-?[0-9]+)$')
       require ($e != null) 'EXECVE_SHAPE'
+      # Only argv/environment are opaque; the executable path must be complete.
+      require (not ($e.path | str contains '...')) 'TRUNCATED_OR_AMBIGUOUS'
       if $e.path == $l.configured_linker_path {
         require (not $exec_ok and not $exited_before_candidate and $e.result == '0') 'LINKER_EXECVE_NOT_UNIQUE_SUCCESS'
         $exec_ok = true
       } else if $exec_ok { error make {msg: 'LINKER_PID_REEXEC'} }
       continue
     }
+    require (not ($line | str contains '...') or ($line | str starts-with '+++ exited with ')) 'TRUNCATED_OR_AMBIGUOUS'
     if not $exec_ok {
       if ($line | str starts-with '+++ exited with ') { $exited_before_candidate = true }
       continue
@@ -193,6 +197,45 @@ export def parser_failure_class [message: string] {
     TRUNCATED_OR_AMBIGUOUS UNRECOGNIZED_ACTIVE_FD_EVENT
   ]
   if $message in $allowed { $message } else { 'PARSER_OTHER' }
+}
+
+export def execve_ellipsis_self_test [ledger_path: string] {
+  let l = (checked_ledger $ledger_path)
+  let good = 'execve("/emsdk/upstream/bin/wasm-ld", ["arg"...], 0x1) = 0'
+  let before = 'execve("/usr/bin/tool", ["literal...name"], 0x1) = 0'
+  let open = 'openat(AT_FDCWD, "/work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a", O_RDONLY) = 3</work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a>'
+  let read = 'read(3</work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a>, "") = 1'
+  let finish = '+++ exited with 0 +++'
+  let valid = ([$before $good $open $read $finish] | str join "\n")
+  let result = (parse_pid $valid 123 $l)
+  require ($result.exec_ok and $result.exited and $result.read_positive) 'SELF_TEST_VALID'
+  for prefix in [
+    'execve("/usr/bin/tool", [], 0x1 /* 12 vars */) = 0'
+    'execve("/usr/bin/tool", ["a\"b", "c\\d", ...], 0x1) = 0'
+  ] {
+    let observed = (parse_pid ([$prefix $good $open $read $finish] | str join "\n") 123 $l)
+    require ($observed.exec_ok and $observed.exited and $observed.read_positive) 'SELF_TEST_VALID'
+  }
+  let cases = [
+    {line: 'execve("/emsdk/upstream/bin/wasm-ld...", ["x"], 0x1) = 0', reason: TRUNCATED_OR_AMBIGUOUS}
+    {line: 'execve("/emsdk/upstream/bin/wasm-ld\"x", ["x"...], 0x1) = 0', reason: EXECVE_SHAPE}
+    {line: 'execve("/emsdk/upstream/bin/wasm-ld", ["x"...], 0x1)', reason: EXECVE_SHAPE}
+    {line: 'execve("/emsdk/upstream/bin/wasm-ld", garbage..., 0x1) = 0', reason: EXECVE_SHAPE}
+    {line: 'execve("/emsdk/upstream/bin/wasm-ld", ["x"...], 0x1) = 0 extra', reason: EXECVE_SHAPE}
+    {line: 'execve("/emsdk/upstream/bin/wasm-ld", ["unterminated...], 0x1) = 0', reason: EXECVE_SHAPE}
+    {line: 'execve("/emsdk/upstream/bin/wasm-ld", ["x"...], 0x1) = -1', reason: LINKER_EXECVE_NOT_UNIQUE_SUCCESS}
+    {line: 'execve("/emsdk/upstream/bin/wasm-ld", ["x" <unfinished ...>', reason: SPLIT_SYSCALL_AMBIGUOUS}
+    {line: '<... execve resumed>) = 0', reason: SPLIT_SYSCALL_AMBIGUOUS}
+    {line: 'open("/tmp/literal...", O_RDONLY) = 3', reason: TRUNCATED_OR_AMBIGUOUS}
+    {line: 'notexecve("/x", ["x"...], 0x1) = 0', reason: TRUNCATED_OR_AMBIGUOUS}
+    {line: $"($good)\n($good)", reason: LINKER_EXECVE_NOT_UNIQUE_SUCCESS}
+    {line: $"($good)\n($before)", reason: LINKER_PID_REEXEC}
+  ]
+  for case in $cases {
+    let actual = (try { parse_pid $case.line 123 $l; 'ACCEPTED' } catch {|err| $err.msg })
+    require ($actual == $case.reason) 'SELF_TEST_REFUSAL'
+  }
+  'execve ellipsis parser fixtures passed'
 }
 
 def main [ledger: string, trace_dir: string, runtime_elf_sha256: string, receipt: string, private_class: string] {

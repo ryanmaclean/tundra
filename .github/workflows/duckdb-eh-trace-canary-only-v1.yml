@@ -77,6 +77,34 @@ jobs:
             | sha256sum --check --status
           loader=/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2
           test "$(timeout 10s "$loader" --library-path "$libdir" "$tracer" --version | head -1)" = 'strace -- version 5.16'
+          # Bounded parser controls; all captured bytes are fixed dummy inputs.
+          /work/image/tool/nu -c 'use gate/.github/scripts/duckdb-eh-linker-fd-witness-v1.nu execve_ellipsis_self_test; execve_ellipsis_self_test gate/.github/receipts/duckdb-eh-linker-fd-witness-v1.json'
+          mkdir -m 0700 /work/image/trace-private/execve-fixture
+          printf -v execve_dummy '%0300d' 0
+          timeout 15s "$loader" --library-path "$libdir" "$tracer" -s 256 -e trace=execve \
+            -o /work/image/trace-private/execve-fixture/trace.123 /bin/true "$execve_dummy" \
+            > /work/image/trace-private/execve-canary.log 2>&1
+          python3 - <<'PYEXEC'
+          from pathlib import Path
+          p = Path('/work/image/trace-private/execve-fixture/trace.123')
+          if p.is_symlink() or not p.is_file() or p.stat().st_size > 8192:
+              raise SystemExit('execve fixture refused')
+          rows = p.read_bytes().splitlines()
+          if not rows or not rows[0].startswith(b'execve("/bin/true",') or b'...' not in rows[0] or rows[-1] != b'+++ exited with 0 +++':
+              raise SystemExit('execve fixture refused')
+          archive = b'/work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a'
+          first = rows[0].replace(b'/bin/true', b'/emsdk/upstream/bin/wasm-ld', 1)
+          p.write_bytes(first + b'\nopenat(AT_FDCWD, "' + archive + b'", O_RDONLY) = 3<' + archive + b'>\nread(3<' + archive + b'>, "") = 1\n' + rows[-1] + b'\n')
+          PYEXEC
+          /work/image/tool/nu -c 'use gate/.github/scripts/duckdb-eh-linker-fd-witness-v1.nu witness; witness gate/.github/receipts/duckdb-eh-linker-fd-witness-v1.json /work/image/trace-private/execve-fixture 6e5c12aab29b80db118acd16c08953257683ed11c415970f8320ed777997eec7 /work/image/trace-private/execve-fixture-receipt.json'
+          python3 - <<'PYEXECRESULT'
+          import json
+          from pathlib import Path
+          p = Path('/work/image/trace-private/execve-fixture-receipt.json')
+          data = json.loads(p.read_text())
+          if data.get('status') != 'FIXTURE_DIRECT_READ_SHAPE' or data.get('actual_eh_linker_child') != 'UNPROVEN' or data.get('linker_archive_read') != 'UNPROVEN':
+              raise SystemExit('execve fixture receipt refused')
+          PYEXECRESULT
           printf '%s\n' '{"schema":"tundra-eh-seeded-link-trace/v1","status":"REFUSED","reason":"TRACE_CANARY","actual_eh_linker_child":"UNPROVEN","linker_archive_read":"UNPROVEN","same_run_traced_outputs":"UNPROVEN","legal_admission":"NO","product_admission":"NO","fleet_admission":"NO"}' > /work/image/receipt/refusal.json
           printf '%s\n' 'tundra-eh-trace-child-canary-v1' > /work/image/trace-private/canary.txt
           timeout 20s "$loader" --library-path "$libdir" "$tracer" -ff -yy -s 4096 -o /work/image/trace-private/canary.trace \
