@@ -902,11 +902,19 @@ jobs:
               # in parser file/line order. Never retain arguments or PID.
               candidate_exec = re.compile(rb'^execve\("/emsdk/upstream/bin/wasm-ld", .*[)] = 0$')
               accepted_map = re.compile(rb'^mmap\([^,]+, [0-9]+, [^,]+, [^,]+, [0-9]+<[^>]+>, [^)]*\) = 0x[0-9a-f]+$')
+              accepted_anon = re.compile(rb'^mmap\(NULL, [1-9][0-9]{0,17}, (PROT_[A-Z]+(?:\|PROT_[A-Z]+)*), (?:MAP_PRIVATE\|MAP_ANONYMOUS|MAP_ANONYMOUS\|MAP_PRIVATE), -1, 0\) = 0x[0-9a-f]{1,16}$')
               structured_map = re.compile(rb'^mmap\([^,\n]+, [^,\n]+, [^,\n]+, [^,\n]+, ([^,\n]+), [^)]*\) = (.+)$')
               def mmap_kind(line):
                   line = line.removesuffix(b'\n')
                   if not line.startswith(b'mmap(') or accepted_map.fullmatch(line):
                       return None
+                  anon = accepted_anon.fullmatch(line)
+                  if anon:
+                      prot = anon.group(1).split(b'|')
+                      if (all(p in (b'PROT_NONE', b'PROT_READ', b'PROT_WRITE', b'PROT_EXEC') for p in prot)
+                              and len(prot) == len(set(prot))
+                              and (b'PROT_NONE' not in prot or len(prot) == 1)):
+                          return None
                   match = structured_map.fullmatch(line)
                   if not match:
                       return 'OTHER_SHAPE'
@@ -923,7 +931,8 @@ jobs:
                       return 'ANNOTATED_FD_OTHER_SHAPE'
                   return 'OTHER_FD_SUCCESS'
               assert mmap_kind(b'mmap(NULL, 4096, PROT_READ, MAP_PRIVATE, 3</x>, 0) = 0x1000\n') is None
-              assert mmap_kind(b'mmap(NULL, 4096, PROT_READ, MAP_PRIVATE, -1, 0) = 0x1000\n') == 'NEGATIVE_FD_SUCCESS'
+              assert mmap_kind(b'mmap(NULL, 4096, PROT_READ, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x1000\n') is None
+              assert mmap_kind(b'mmap(NULL, 4096, PROT_READ, MAP_SHARED|MAP_ANONYMOUS, -1, 0) = 0x1000\n') == 'NEGATIVE_FD_SUCCESS'
               assert mmap_kind(b'mmap(NULL, 4096, PROT_READ, MAP_PRIVATE, 3, 0) = 0x1000\n') == 'UNANNOTATED_FD_SUCCESS'
               assert mmap_kind(b'mmap(NULL, 4096, PROT_READ, MAP_PRIVATE, 3</x>, 0) = -1 ENOMEM (Cannot allocate memory)\n') == 'FAILED_RETURN'
               assert mmap_kind(b'mmap(broken\n') == 'OTHER_SHAPE'

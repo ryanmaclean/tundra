@@ -124,6 +124,14 @@ def parse_pid [raw: string, pid: int, l: record] {
       continue
     }
     if ($line | str starts-with 'mmap(') {
+      # A successful, kernel-selected private anonymous mapping does not use
+      # an FD and is not evidence of an archive read or mapping.
+      let anon = (capture $line '^mmap\(NULL, (?<length>[1-9][0-9]{0,17}), (?<prot>PROT_[A-Z]+(?:\|PROT_[A-Z]+)*), (?<flags>MAP_PRIVATE\|MAP_ANONYMOUS|MAP_ANONYMOUS\|MAP_PRIVATE), -1, 0\) = 0x[0-9a-f]{1,16}$')
+      if $anon != null {
+        let protection = ($anon.prot | split row '|')
+        require (($protection | all {|p| $p in [PROT_NONE PROT_READ PROT_WRITE PROT_EXEC]}) and (($protection | uniq | length) == ($protection | length)) and (not ('PROT_NONE' in $protection) or ($protection | length) == 1)) 'MMAP_SHAPE_AMBIGUOUS'
+        continue
+      }
       let m = (capture $line '^mmap\([^,]+, (?<length>[0-9]+), (?<prot>[^,]+), (?<flags>[^,]+), (?<fd>[0-9]+)<(?<annotation>[^>]+)>, [^)]*\) = (?<result>0x[0-9a-f]+)$')
       require ($m != null) 'MMAP_SHAPE_AMBIGUOUS'
       if (($m.fd | into int) in $active) {
@@ -236,6 +244,54 @@ export def execve_ellipsis_self_test [ledger_path: string] {
     require ($actual == $case.reason) 'SELF_TEST_REFUSAL'
   }
   'execve ellipsis parser fixtures passed'
+}
+
+export def anonymous_mmap_self_test [ledger_path: string] {
+  let l = (checked_ledger $ledger_path)
+  let exec = 'execve("/emsdk/upstream/bin/wasm-ld", [], 0x1) = 0'
+  let open = 'openat(AT_FDCWD, "/work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a", O_RDONLY) = 3</work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a>'
+  let read = 'read(3</work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a>, "") = 1'
+  let exit = '+++ exited with 0 +++'
+  let mapping = 'mmap(NULL, 4096, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x1000'
+  for map in [$mapping 'mmap(NULL, 1, PROT_NONE, MAP_ANONYMOUS|MAP_PRIVATE, -1, 0) = 0x10'] {
+    let without_read = (parse_pid ([$exec $open $map $exit] | str join "\n") 123 $l)
+    require ($without_read.exec_ok and $without_read.exited and not $without_read.read_positive and not $without_read.mapped) 'SELF_TEST_ANON_NO_PROOF'
+    let with_read = (parse_pid ([$exec $open $map $read $exit] | str join "\n") 123 $l)
+    require ($with_read.exec_ok and $with_read.exited and $with_read.read_positive and not $with_read.mapped) 'SELF_TEST_ANON_WITH_READ'
+  }
+  let close = 'close(3</work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a>) = 0'
+  let stale = (parse_pid ([$exec $open $mapping $close $read $exit] | str join "\n") 123 $l)
+  require (not $stale.read_positive and not $stale.mapped) 'SELF_TEST_ANON_STALE_FD'
+  let reused = 'openat(AT_FDCWD, "/tmp/other", O_RDONLY) = 3</tmp/other>'
+  let reused_read = 'read(3</tmp/other>, "") = 1'
+  let reuse = (parse_pid ([$exec $open $mapping $close $reused $reused_read $exit] | str join "\n") 123 $l)
+  require (not $reuse.read_positive and not $reuse.mapped) 'SELF_TEST_ANON_REUSED_FD'
+  let file_map = 'mmap(NULL, 4096, PROT_READ, MAP_PRIVATE, 3</work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a>, 0) = 0x1000'
+  let annotated = (parse_pid ([$exec $open $mapping $file_map $exit] | str join "\n") 123 $l)
+  require ($annotated.mapped and not $annotated.read_positive) 'SELF_TEST_ANNOTATED_MAP'
+  let invalid = [
+    'mmap(NULL, 4096, PROT_READ, MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED, -1, 0) = 0x1000'
+    'mmap(NULL, 4096, PROT_READ, MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED_NOREPLACE, -1, 0) = 0x1000'
+    'mmap(NULL, 4096, PROT_READ, MAP_SHARED|MAP_ANONYMOUS, -1, 0) = 0x1000'
+    'mmap(NULL, 4096, PROT_READ, MAP_PRIVATE, -1, 0) = 0x1000'
+    'mmap(NULL, 4096, PROT_READ, MAP_PRIVATE|MAP_ANONYMOUS, 3, 0) = 0x1000'
+    'mmap(NULL, 4096, PROT_READ, MAP_PRIVATE|MAP_ANONYMOUS, -1, 1) = 0x1000'
+    'mmap(0x1000, 4096, PROT_READ, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x1000'
+    'mmap(NULL, 0, PROT_READ, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x1000'
+    'mmap(NULL, 9999999999999999999, PROT_READ, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x1000'
+    'mmap(NULL, 4096, PROT_READ, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x10000000000000000'
+    'mmap(NULL, 4096, PROT_READ, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x1000 extra'
+    'mmap(NULL, 4096, PROT_READ, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = -1 ENOMEM (Cannot allocate memory)'
+    'mmap(NULL, 4096, PROT_NONE|PROT_READ, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x1000'
+    'mmap(NULL, 4096, PROT_READ|PROT_READ, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x1000'
+    'mmap(NULL, 4096, PROT_OTHER, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x1000'
+    'mmap(NULL, 4096, PROT_READ, MAP_PRIVATE|MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x1000'
+  ]
+  for map in $invalid {
+    let actual = (try { parse_pid ([$exec $map] | str join "\n") 123 $l; 'ACCEPTED' } catch {|err| $err.msg })
+    require ($actual == 'MMAP_SHAPE_AMBIGUOUS') 'SELF_TEST_ANON_REFUSAL'
+  }
+  'anonymous mmap parser fixtures passed'
 }
 
 def main [ledger: string, trace_dir: string, runtime_elf_sha256: string, receipt: string, private_class: string] {
