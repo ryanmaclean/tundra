@@ -160,6 +160,43 @@ jobs:
           witness $ledger /work/image/trace-private/anon-with-read $digest /work/image/trace-private/anon-with-read.json
           NUANON
           )"
+          # Exercise only fixed dummy paths and keep all trace bytes private.
+          printf '%s\n' dummy > /work/image/trace-private/open-fixture-file
+          timeout 15s "$loader" --library-path "$libdir" "$tracer" -yy -s 256 -e trace=open,openat \
+            -o /work/image/trace-private/open-dummy.trace python3 -c 'import os; p="/work/image/trace-private/"; f=os.open(p+"open-fixture-file",os.O_RDONLY); os.close(f); exec("try:\n os.open(p+\"open-absent-file\",os.O_RDONLY)\nexcept FileNotFoundError:\n pass")' \
+            > /work/image/trace-private/open-dummy.log 2>&1
+          python3 - <<'PYOPENCANARY'
+          import os
+          from pathlib import Path
+          import re
+          import stat
+          import textwrap
+          source = Path('gate/.github/workflows/duckdb-eh-seeded-image-link-trace-v1.yml').read_text()
+          start_marker = "          if classification == 'OPEN_SHAPE_AMBIGUOUS':\n"
+          end_marker = "          encoded = json.dumps(data, separators=(',', ':'), sort_keys=True) + '\\n'\n"
+          if source.count(start_marker) != 1:
+              raise SystemExit('open diagnostic source refused')
+          start = source.index(start_marker)
+          end = source.index(end_marker, start)
+          block = textwrap.dedent(source[start:end])
+          dummy = Path('/work/image/trace-private/open-dummy.trace')
+          if dummy.is_symlink() or not dummy.is_file() or not 0 < dummy.stat().st_size <= 1048576:
+              raise SystemExit('open dummy refused')
+          records = dummy.read_bytes().splitlines(keepends=True)
+          good = [line for line in records if b'/work/image/trace-private/open-fixture-file' in line]
+          failed = [line for line in records if b'/work/image/trace-private/open-absent-file' in line]
+          if len(good) != 1 or len(failed) != 1:
+              raise SystemExit('open dummy refused')
+          fixture = Path('/work/image/trace-private/open-fixture')
+          fixture.mkdir(mode=0o700)
+          (fixture / 'trace.123').write_bytes(b'execve("/emsdk/upstream/bin/wasm-ld", [], 0x1) = 0\n' + good[0] + failed[0])
+          block = block.replace("Path('/work/image/trace-raw')", "Path('/work/image/trace-private/open-fixture')")
+          classification = 'OPEN_SHAPE_AMBIGUOUS'
+          data = {'parser_diagnostic': {'failure_class': classification}}
+          exec(compile(block, '<fixed-open-diagnostic>', 'exec'))
+          if data['parser_diagnostic'].get('open_class') != 'OPENAT_FAILED_RETURN':
+              raise SystemExit('open fixture refused')
+          PYOPENCANARY
           printf '%s\n' '{"schema":"tundra-eh-seeded-link-trace/v1","status":"REFUSED","reason":"TRACE_CANARY","actual_eh_linker_child":"UNPROVEN","linker_archive_read":"UNPROVEN","same_run_traced_outputs":"UNPROVEN","legal_admission":"NO","product_admission":"NO","fleet_admission":"NO"}' > /work/image/receipt/refusal.json
           printf '%s\n' 'tundra-eh-trace-child-canary-v1' > /work/image/trace-private/canary.txt
           timeout 20s "$loader" --library-path "$libdir" "$tracer" -ff -yy -s 4096 -o /work/image/trace-private/canary.trace \

@@ -969,6 +969,65 @@ jobs:
               except (OSError, ValueError):
                   detail = 'UNAVAILABLE'
               data['parser_diagnostic']['mmap_class'] = detail
+          if classification == 'OPEN_SHAPE_AMBIGUOUS':
+              # Fixed classes only; do not export path, flags, errno or PID.
+              # This scan approximates parser order and is diagnostic only.
+              candidate_exec = re.compile(rb'^execve\("/emsdk/upstream/bin/wasm-ld", .*[)] = 0$')
+              accepted_open = re.compile(rb'^open\("[^"\\]+", [^)]*\) = [0-9]+<[^>]+>$')
+              accepted_openat = re.compile(rb'^openat\([^,]+, "[^"\\]+", [^)]*\) = [0-9]+<[^>]+>$')
+              def open_kind(line):
+                  line = line.removesuffix(b'\n')
+                  if line.startswith(b'openat('):
+                      prefix, accepted = 'OPENAT_', accepted_openat
+                  elif line.startswith(b'open('):
+                      prefix, accepted = 'OPEN_', accepted_open
+                  else:
+                      return None
+                  if accepted.fullmatch(line):
+                      return None
+                  if re.search(rb'\) = -1 [A-Z][A-Z0-9_]*(?: \([^\n]*\))?$', line):
+                      return prefix + 'FAILED_RETURN'
+                  if re.search(rb'\) = [0-9]+$', line):
+                      return prefix + 'UNANNOTATED_SUCCESS'
+                  return prefix + 'OTHER_SHAPE'
+              assert open_kind(b'open("/dummy", O_RDONLY) = 3</dummy>\n') is None
+              assert open_kind(b'openat(AT_FDCWD, "/dummy", O_RDONLY) = 3</dummy>\n') is None
+              assert open_kind(b'openat(AT_FDCWD, "/dummy", O_RDONLY) = -1 ENOENT (No such file or directory)\n') == 'OPENAT_FAILED_RETURN'
+              assert open_kind(b'open("/dummy", O_RDONLY) = 3\n') == 'OPEN_UNANNOTATED_SUCCESS'
+              assert open_kind(b'openat(broken\n') == 'OPENAT_OTHER_SHAPE'
+              detail = 'UNAVAILABLE'
+              try:
+                  root = Path('/work/image/trace-raw')
+                  entries = sorted(root.iterdir())
+                  if not 0 < len(entries) <= 128:
+                      raise ValueError()
+                  total = records = 0
+                  for entry in entries:
+                      info = entry.lstat()
+                      if not re.fullmatch(r'trace\.[0-9]+', entry.name) or not stat.S_ISREG(info.st_mode) or not 0 < info.st_size <= 4194304:
+                          raise ValueError()
+                      total += info.st_size
+                      if total > 16777216:
+                          raise ValueError()
+                      candidate = False
+                      with entry.open('rb') as stream:
+                          while line := stream.readline(8193):
+                              records += 1
+                              if records > 50000 or len(line) > 8192 or not line.endswith(b'\n'):
+                                  raise ValueError()
+                              record = line[:-1]
+                              if candidate_exec.fullmatch(record):
+                                  candidate = True
+                              elif candidate:
+                                  found = open_kind(line)
+                                  if found is not None:
+                                      detail = found
+                                      break
+                      if detail != 'UNAVAILABLE':
+                          break
+              except (OSError, ValueError):
+                  detail = 'UNAVAILABLE'
+              data['parser_diagnostic']['open_class'] = detail
           encoded = json.dumps(data, separators=(',', ':'), sort_keys=True) + '\n'
           if len(encoded) > 4096:
               raise SystemExit('parser refusal cap rejected')
