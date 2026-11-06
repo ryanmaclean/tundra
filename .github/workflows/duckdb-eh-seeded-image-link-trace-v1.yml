@@ -858,6 +858,69 @@ jobs:
               except (OSError, ValueError):
                   detail = 'UNAVAILABLE'
               data['parser_diagnostic']['ellipsis_class'] = detail
+          if classification == 'MMAP_SHAPE_AMBIGUOUS':
+              # Locate only the first nonmatching mmap after a candidate exec
+              # in parser file/line order. Never retain arguments or PID.
+              candidate_exec = re.compile(rb'^execve\("/emsdk/upstream/bin/wasm-ld", .*[)] = 0$')
+              accepted_map = re.compile(rb'^mmap\([^,]+, [0-9]+, [^,]+, [^,]+, [0-9]+<[^>]+>, [^)]*\) = 0x[0-9a-f]+$')
+              structured_map = re.compile(rb'^mmap\([^,\n]+, [^,\n]+, [^,\n]+, [^,\n]+, ([^,\n]+), [^)]*\) = (.+)$')
+              def mmap_kind(line):
+                  line = line.removesuffix(b'\n')
+                  if not line.startswith(b'mmap(') or accepted_map.fullmatch(line):
+                      return None
+                  match = structured_map.fullmatch(line)
+                  if not match:
+                      return 'OTHER_SHAPE'
+                  fd, result = match.groups()
+                  if result.startswith(b'-1 '):
+                      return 'FAILED_RETURN'
+                  if not re.fullmatch(rb'0x[0-9a-f]+', result):
+                      return 'OTHER_RETURN'
+                  if fd == b'-1':
+                      return 'NEGATIVE_FD_SUCCESS'
+                  if re.fullmatch(rb'[0-9]+', fd):
+                      return 'UNANNOTATED_FD_SUCCESS'
+                  if re.fullmatch(rb'[0-9]+<[^>]+>', fd):
+                      return 'ANNOTATED_FD_OTHER_SHAPE'
+                  return 'OTHER_FD_SUCCESS'
+              assert mmap_kind(b'mmap(NULL, 4096, PROT_READ, MAP_PRIVATE, 3</x>, 0) = 0x1000\n') is None
+              assert mmap_kind(b'mmap(NULL, 4096, PROT_READ, MAP_PRIVATE, -1, 0) = 0x1000\n') == 'NEGATIVE_FD_SUCCESS'
+              assert mmap_kind(b'mmap(NULL, 4096, PROT_READ, MAP_PRIVATE, 3, 0) = 0x1000\n') == 'UNANNOTATED_FD_SUCCESS'
+              assert mmap_kind(b'mmap(NULL, 4096, PROT_READ, MAP_PRIVATE, 3</x>, 0) = -1 ENOMEM (Cannot allocate memory)\n') == 'FAILED_RETURN'
+              assert mmap_kind(b'mmap(broken\n') == 'OTHER_SHAPE'
+              detail = 'UNAVAILABLE'
+              try:
+                  root = Path('/work/image/trace-raw')
+                  entries = sorted(root.iterdir())
+                  if not 0 < len(entries) <= 128:
+                      raise ValueError()
+                  total = records = 0
+                  for entry in entries:
+                      info = entry.lstat()
+                      if not re.fullmatch(r'trace\.[0-9]+', entry.name) or not stat.S_ISREG(info.st_mode) or not 0 < info.st_size <= 4194304:
+                          raise ValueError()
+                      total += info.st_size
+                      if total > 16777216:
+                          raise ValueError()
+                      candidate = False
+                      with entry.open('rb') as stream:
+                          while line := stream.readline(8193):
+                              records += 1
+                              if records > 50000 or len(line) > 8192 or not line.endswith(b'\n'):
+                                  raise ValueError()
+                              record = line[:-1]
+                              if candidate_exec.fullmatch(record):
+                                  candidate = True
+                              elif candidate:
+                                  found = mmap_kind(line)
+                                  if found is not None:
+                                      detail = found
+                                      break
+                      if detail != 'UNAVAILABLE':
+                          break
+              except (OSError, ValueError):
+                  detail = 'UNAVAILABLE'
+              data['parser_diagnostic']['mmap_class'] = detail
           encoded = json.dumps(data, separators=(',', ':'), sort_keys=True) + '\n'
           if len(encoded) > 4096:
               raise SystemExit('parser refusal cap rejected')
