@@ -22,7 +22,7 @@ def inputs [ledger_path: string, auth_path: string, cache: string] {
   let ledger = (open $ledger_path)
   let auth = (open $auth_path)
   require ($ledger.schema == 'tundra-eh-seeded-link-prerequisites/v1' and $ledger.runnable == 'NO' and $ledger.scope == 'CONTROLLED_IMAGE_ONLY_FUTURE_EH_TRACE') 'LEDGER_SCOPE'
-  require ($ledger.producer.run_id == 40536996581 and $ledger.producer.attempt == 1 and $ledger.producer.head == '7c8a9cbad78e1fbcdfedb301b8e579c98dbec7d8' and $ledger.producer.artifact_id == 12748008032 and $ledger.producer.zip_sha256 == '0f051bf7adec09d86d786e5642c4ef89018da6958ab04094264c52ae8bd7ab57') 'PRODUCER_PIN'
+  require ($ledger.producer.run_id == 42243113451 and $ledger.producer.attempt == 1 and $ledger.producer.head == '7c8a9cbad78e1fbcdfedb301b8e579c98dbec7d8' and $ledger.producer.artifact_id == 13516402432 and $ledger.producer.zip_sha256 == '033d6faeef12e46849ac223d29562571953492d6fcc228e0e6b8535b4ce2f3fc') 'PRODUCER_PIN'
   require ($ledger.producer.selected_member == 'image-libnoexit.a' and $ledger.producer.selected_member_sha256 == 'fdaa14b94400917928bc73415535f02244549987beb92719882bcc905b4280fe') 'IMAGE_SELECTION'
   require ($auth.status == 'PR143_ARTIFACT_AUTHENTICATED_ONLY' and $auth.producer_run_id == $ledger.producer.run_id and $auth.producer_attempt == $ledger.producer.attempt and $auth.producer_head == $ledger.producer.head and $auth.artifact_id == $ledger.producer.artifact_id and $auth.artifact_zip_sha256 == $ledger.producer.zip_sha256) 'AUTH_JOIN'
   require (($auth.member_sha256 | where name == 'image-libnoexit.a' | length) == 1 and ($auth.member_sha256 | where name == 'clean-libnoexit.a' | length) == 1) 'CONDITION_MEMBERS'

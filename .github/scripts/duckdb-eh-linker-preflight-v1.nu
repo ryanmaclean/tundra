@@ -14,8 +14,8 @@ def digest [path: string] {
 
 def ledger_gate [ledger: record] {
   require ($ledger.schema == 'tundra-eh-linker-preflight/v1' and $ledger.scope == 'PR143_ARTIFACT_AND_PINNED_LINKER_EXECVE_SMOKE_ONLY') 'LEDGER_SCOPE'
-  require ($ledger.repository == 'ryanmaclean/tundra' and $ledger.repository_id == 1164936674 and $ledger.producer_run_id == 40536996581 and $ledger.producer_attempt == 1 and $ledger.producer_head == '7c8a9cbad78e1fbcdfedb301b8e579c98dbec7d8') 'LEDGER_PRODUCER'
-  require ($ledger.artifact_id == 12748008032 and $ledger.artifact_zip_size == 7075 and $ledger.artifact_zip_sha256 == '0f051bf7adec09d86d786e5642c4ef89018da6958ab04094264c52ae8bd7ab57') 'LEDGER_ARTIFACT'
+  require ($ledger.repository == 'ryanmaclean/tundra' and $ledger.repository_id == 1164936674 and $ledger.producer_run_id == 42243113451 and $ledger.producer_attempt == 1 and $ledger.producer_head == '7c8a9cbad78e1fbcdfedb301b8e579c98dbec7d8') 'LEDGER_PRODUCER'
+  require ($ledger.artifact_id == 13516402432 and $ledger.artifact_zip_size == 7075 and $ledger.artifact_zip_sha256 == '033d6faeef12e46849ac223d29562571953492d6fcc228e0e6b8535b4ce2f3fc') 'LEDGER_ARTIFACT'
   require (($ledger.members | length) == 6 and ($ledger.members | get name | uniq | length) == 6) 'LEDGER_MEMBERS'
   require ($ledger.image == 'emscripten/emsdk:3.1.48@sha256:c952f592577a428698cb990c9656f395ae34424740f9c40bed4c3ee6d4850d29' and $ledger.configured_linker_path == '/emsdk/upstream/bin/wasm-ld') 'LEDGER_IMAGE'
   require ($ledger.object_input_closure == 'UNPROVEN' and $ledger.linker_archive_read == 'UNPROVEN' and $ledger.same_run_eh_outputs == 'UNPROVEN' and $ledger.sdk_archive_keys_pending_per_condition == 9 and $ledger.generator_input_closure == 'UNPROVEN' and $ledger.selected_graph_exhaustive == 'NO') 'LEDGER_ADMISSION'

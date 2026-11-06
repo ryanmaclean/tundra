@@ -4,11 +4,11 @@
   "runnable": "NO",
   "scope": "CONTROLLED_IMAGE_ONLY_FUTURE_EH_TRACE",
   "producer": {
-    "run_id": 40536996581,
+    "run_id": 42243113451,
     "attempt": 1,
     "head": "7c8a9cbad78e1fbcdfedb301b8e579c98dbec7d8",
-    "artifact_id": 12748008032,
-    "zip_sha256": "0f051bf7adec09d86d786e5642c4ef89018da6958ab04094264c52ae8bd7ab57",
+    "artifact_id": 13516402432,
+    "zip_sha256": "033d6faeef12e46849ac223d29562571953492d6fcc228e0e6b8535b4ce2f3fc",
     "selected_member": "image-libnoexit.a",
     "selected_member_sha256": "fdaa14b94400917928bc73415535f02244549987beb92719882bcc905b4280fe"
   },

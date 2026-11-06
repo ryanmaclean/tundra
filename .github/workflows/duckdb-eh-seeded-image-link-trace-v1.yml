@@ -148,9 +148,9 @@ jobs:
           /work/image/tool/nu gate/.github/scripts/duckdb-eh-seeded-archive-identity-v1-test.nu /work/image/tool/nu
           set_refusal ZIP_AUTH
           base=https://api.github.com/repos/ryanmaclean/tundra/actions
-          curl --fail --location --silent --show-error --proto '=https' --proto-redir '=https' --max-time 45 --max-filesize 65536 -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' --output /work/image/api/run.json "$base/runs/40536996581"
-          curl --fail --location --silent --show-error --proto '=https' --proto-redir '=https' --max-time 45 --max-filesize 16384 -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' --output /work/image/api/artifact.json "$base/artifacts/12748008032"
-          curl --fail --location --silent --show-error --proto '=https' --proto-redir '=https' --max-time 45 --max-filesize 32768 -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' --output /work/image/api/producer.zip "$base/artifacts/12748008032/zip"
+          curl --fail --location --silent --show-error --proto '=https' --proto-redir '=https' --max-time 45 --max-filesize 65536 -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' --output /work/image/api/run.json "$base/runs/42243113451"
+          curl --fail --location --silent --show-error --proto '=https' --proto-redir '=https' --max-time 45 --max-filesize 16384 -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' --output /work/image/api/artifact.json "$base/artifacts/13516402432"
+          curl --fail --location --silent --show-error --proto '=https' --proto-redir '=https' --max-time 45 --max-filesize 32768 -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' --output /work/image/api/producer.zip "$base/artifacts/13516402432/zip"
           test "$(stat -c %s /work/image/api/run.json)" -le 65536
           test "$(stat -c %s /work/image/api/artifact.json)" -le 16384
           test "$(stat -c %s /work/image/api/producer.zip)" -eq 7075
