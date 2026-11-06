@@ -136,12 +136,13 @@ def parse_pid [raw: string, pid: int, l: record] {
       continue
     }
     if ($line | str starts-with 'mmap(') {
-      # A successful, kernel-selected private anonymous mapping does not use
-      # an FD and is not evidence of an archive read or mapping.
-      let anon = (capture $line '^mmap\(NULL, (?<length>[1-9][0-9]{0,17}), (?<prot>PROT_[A-Z]+(?:\|PROT_[A-Z]+)*), (?<flags>MAP_PRIVATE\|MAP_ANONYMOUS|MAP_ANONYMOUS\|MAP_PRIVATE), -1, 0\) = 0x[0-9a-f]{1,16}$')
+      # An anonymous fd=-1 map does not use an FD and proves no archive read.
+      let anon = (capture $line '^mmap\((?<address>NULL|0x[0-9a-f]{1,16}), (?<length>[1-9][0-9]{0,17}), (?<prot>PROT_[A-Z]+(?:\|PROT_[A-Z]+)*), (?<flags>MAP_[A-Z]+(?:\|MAP_[A-Z]+)*), -1, 0\) = (?<result>0x[0-9a-f]{1,16})$')
       if $anon != null {
         let protection = ($anon.prot | split row '|')
+        let mapflags = ($anon.flags | split row '|')
         require (($protection | all {|p| $p in [PROT_NONE PROT_READ PROT_WRITE PROT_EXEC]}) and (($protection | uniq | length) == ($protection | length)) and (not ('PROT_NONE' in $protection) or ($protection | length) == 1)) 'MMAP_SHAPE_AMBIGUOUS'
+        require (($mapflags | all {|f| $f in [MAP_PRIVATE MAP_SHARED MAP_ANONYMOUS MAP_FIXED]}) and (($mapflags | uniq | length) == ($mapflags | length)) and ('MAP_ANONYMOUS' in $mapflags) and (('MAP_PRIVATE' in $mapflags) != ('MAP_SHARED' in $mapflags)) and (not ('MAP_FIXED' in $mapflags) or ($anon.address != 'NULL' and $anon.address == $anon.result))) 'MMAP_SHAPE_AMBIGUOUS'
         continue
       }
       let m = (capture $line '^mmap\([^,]+, (?<length>[0-9]+), (?<prot>[^,]+), (?<flags>[^,]+), (?<fd>[0-9]+)<(?<annotation>[^>]+)>, [^)]*\) = (?<result>0x[0-9a-f]+)$')
@@ -265,7 +266,7 @@ export def anonymous_mmap_self_test [ledger_path: string] {
   let read = 'read(3</work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a>, "") = 1'
   let exit = '+++ exited with 0 +++'
   let mapping = 'mmap(NULL, 4096, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x1000'
-  for map in [$mapping 'mmap(NULL, 1, PROT_NONE, MAP_ANONYMOUS|MAP_PRIVATE, -1, 0) = 0x10'] {
+  for map in [$mapping 'mmap(NULL, 1, PROT_NONE, MAP_ANONYMOUS|MAP_PRIVATE, -1, 0) = 0x10' 'mmap(NULL, 4096, PROT_READ, MAP_SHARED|MAP_ANONYMOUS, -1, 0) = 0x1000' 'mmap(0x1000, 4096, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_FIXED|MAP_ANONYMOUS, -1, 0) = 0x1000' 'mmap(0x2000, 4096, PROT_READ, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x3000'] {
     let without_read = (parse_pid ([$exec $open $map $exit] | str join "\n") 123 $l)
     require ($without_read.exec_ok and $without_read.exited and not $without_read.read_positive and not $without_read.mapped) 'SELF_TEST_ANON_NO_PROOF'
     let with_read = (parse_pid ([$exec $open $map $read $exit] | str join "\n") 123 $l)
@@ -274,6 +275,11 @@ export def anonymous_mmap_self_test [ledger_path: string] {
   let close = 'close(3</work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a>) = 0'
   let stale = (parse_pid ([$exec $open $mapping $close $read $exit] | str join "\n") 123 $l)
   require (not $stale.read_positive and not $stale.mapped) 'SELF_TEST_ANON_STALE_FD'
+  let fixed = 'mmap(0x1000, 4096, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_FIXED|MAP_ANONYMOUS, -1, 0) = 0x1000'
+  let fixed_prior = (parse_pid ([$exec $open $read $fixed $close $exit] | str join "\n") 123 $l)
+  require ($fixed_prior.read_positive and not $fixed_prior.mapped) 'SELF_TEST_ANON_FIXED_PRIOR'
+  let fixed_stale = (parse_pid ([$exec $open $fixed $close $read $exit] | str join "\n") 123 $l)
+  require (not $fixed_stale.read_positive and not $fixed_stale.mapped) 'SELF_TEST_ANON_FIXED_STALE'
   let reused = 'openat(AT_FDCWD, "/tmp/other", O_RDONLY) = 3</tmp/other>'
   let reused_read = 'read(3</tmp/other>, "") = 1'
   let reuse = (parse_pid ([$exec $open $mapping $close $reused $reused_read $exit] | str join "\n") 123 $l)
@@ -283,12 +289,12 @@ export def anonymous_mmap_self_test [ledger_path: string] {
   require ($annotated.mapped and not $annotated.read_positive) 'SELF_TEST_ANNOTATED_MAP'
   let invalid = [
     'mmap(NULL, 4096, PROT_READ, MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED, -1, 0) = 0x1000'
+    'mmap(0x1000, 4096, PROT_READ, MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED, -1, 0) = 0x2000'
     'mmap(NULL, 4096, PROT_READ, MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED_NOREPLACE, -1, 0) = 0x1000'
-    'mmap(NULL, 4096, PROT_READ, MAP_SHARED|MAP_ANONYMOUS, -1, 0) = 0x1000'
+    'mmap(NULL, 4096, PROT_READ, MAP_SHARED|MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x1000'
     'mmap(NULL, 4096, PROT_READ, MAP_PRIVATE, -1, 0) = 0x1000'
     'mmap(NULL, 4096, PROT_READ, MAP_PRIVATE|MAP_ANONYMOUS, 3, 0) = 0x1000'
     'mmap(NULL, 4096, PROT_READ, MAP_PRIVATE|MAP_ANONYMOUS, -1, 1) = 0x1000'
-    'mmap(0x1000, 4096, PROT_READ, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x1000'
     'mmap(NULL, 0, PROT_READ, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x1000'
     'mmap(NULL, 9999999999999999999, PROT_READ, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x1000'
     'mmap(NULL, 4096, PROT_READ, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x10000000000000000'
