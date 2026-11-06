@@ -33,7 +33,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git -C gate rev-parse HEAD)" = "$GITHUB_SHA"
-          test "$GITHUB_REF" = refs/heads/diagnostic/eh-seeded-link-trace-held-20261027
+          test "$GITHUB_REF" = refs/heads/diagnostic/eh-seeded-link-repin-20261106
           timeout 180s curl --fail --location --silent --show-error --proto '=https' --proto-redir '=https' --max-time 120 --retry 1 --max-filesize 90000000 --output /work/image/tool/nu.tar.gz https://github.com/nushell/nushell/releases/download/0.115.1/nu-0.115.1-x86_64-unknown-linux-musl.tar.gz
           test "$(stat -c %s /work/image/tool/nu.tar.gz)" = 83545998
           printf '%s  %s\n' 8a9722177ddd421eba927b4baae4ae341a4d1c3434504be7b1b17d998bafdd87 /work/image/tool/nu.tar.gz | sha256sum --check --status
