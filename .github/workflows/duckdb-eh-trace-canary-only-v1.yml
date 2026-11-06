@@ -85,6 +85,297 @@ jobs:
             > /work/image/trace-private/canary-output.log 2>&1
           /work/image/tool/nu gate/.github/scripts/duckdb-eh-seeded-link-trace-v1.nu canary \
             /work/image/trace-private /work/image/trace-private/canary.txt
+          # Fixed stage names only; never retain command output or trace text.
+          mark_raw_stage() {
+            python3 - "$1" <<'PYSTAGE'
+          import json
+          from pathlib import Path
+          import sys
+          allowed = {'RAW_PREPARE', 'RAW_LAUNCH', 'RAW_MONITOR', 'RAW_CHILD_WAIT',
+                     'RAW_CHILD_TIMEOUT', 'RAW_CHILD_GE128', 'RAW_CHILD_FAILURE', 'RAW_VERIFY'}
+          stage = sys.argv[1]
+          if stage not in allowed:
+              raise SystemExit('stage refused')
+          receipt = Path('/work/image/receipt/refusal.json')
+          data = json.loads(receipt.read_text())
+          if data.get('status') != 'REFUSED' or data.get('reason') != 'TRACE_CANARY':
+              raise SystemExit('receipt refused')
+          data['raw_canary_stage'] = stage
+          encoded = json.dumps(data, sort_keys=True, separators=(',', ':')) + '\n'
+          if len(encoded) > 4096:
+              raise SystemExit('receipt cap refused')
+          pending = receipt.with_name('refusal-stage.tmp')
+          pending.write_text(encoded)
+          pending.replace(receipt)
+          PYSTAGE
+          }
+          mark_raw_stage RAW_PREPARE
+          # A separate pinned-tool canary proves the raw read grammar without
+          # admitting a relink from an abbreviated decoded buffer.
+          python3 - <<'PY'
+          from pathlib import Path
+          Path('/work/image/trace-private/raw-canary.txt').write_bytes(b'R' * 1024)
+          PY
+          raw_canary_dir=/work/image/trace-private/raw-canary
+          mkdir -m 0700 "$raw_canary_dir"
+          raw_canary_within_cap() {
+            local entries regular oversized bytes
+            entries=$(find "$raw_canary_dir" -mindepth 1 -maxdepth 1 | wc -l)
+            regular=$(find "$raw_canary_dir" -mindepth 1 -maxdepth 1 -type f | wc -l)
+            oversized=$(find "$raw_canary_dir" -mindepth 1 -maxdepth 1 -type f -size +4194304c | wc -l)
+            bytes=$(du -sb "$raw_canary_dir" | cut -f 1)
+            test "$entries" -le 8 && test "$entries" -eq "$regular" && test "$oversized" -eq 0 && test "$bytes" -le 16777216
+          }
+          mark_raw_stage RAW_LAUNCH
+          mark_raw_stage RAW_MONITOR
+          setsid timeout --signal=TERM --kill-after=2s 20s "$loader" --library-path "$libdir" "$tracer" -ff -yy -s 256 \
+            -e raw=read,pread64,readv -e trace=execve,open,openat,read,pread64,readv,close,exit_group \
+            -o "$raw_canary_dir/trace" \
+            python3 -c 'import os; p="/work/image/trace-private/raw-canary.txt"; fd=os.open(p, os.O_RDONLY); data=os.read(fd, 4096); os.close(fd); assert data == b"R" * 1024' \
+            > /work/image/trace-private/raw-canary-output.log 2>&1 &
+          raw_canary_pid=$!
+          while kill -0 "$raw_canary_pid" 2>/dev/null; do
+            if ! raw_canary_within_cap; then
+              kill -TERM -- "-$raw_canary_pid" 2>/dev/null || true
+              wait "$raw_canary_pid" || true
+              exit 1
+            fi
+            sleep 0.1
+          done
+          raw_canary_within_cap
+          mark_raw_stage RAW_CHILD_WAIT
+          if wait "$raw_canary_pid"; then
+            :
+          else
+            raw_canary_rc=$?
+            case "$raw_canary_rc" in
+              124) mark_raw_stage RAW_CHILD_TIMEOUT ;;
+              12[89]|1[3-9][0-9]|2[0-5][0-9]) mark_raw_stage RAW_CHILD_GE128 ;;
+              *) mark_raw_stage RAW_CHILD_FAILURE ;;
+            esac
+            exit 1
+          fi
+          mark_raw_stage RAW_VERIFY
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+          import re
+          import stat
+          class CanaryProofError(Exception):
+              def __init__(self, reason, shape_class=None):
+                  super().__init__(reason)
+                  self.shape_class = shape_class
+          def require(condition, reason):
+              if not condition:
+                  raise CanaryProofError(reason)
+          def parse_number(token, reason):
+              require(len(token) <= 20, reason)
+              try:
+                  return int(token[2:], 16) if token.startswith(b'0x') else int(token, 10)
+              except ValueError:
+                  raise CanaryProofError(reason) from None
+          root = Path('/work/image/trace-private')
+          sentinel = str(root / 'raw-canary.txt').encode()
+          trace_root = root / 'raw-canary'
+          matched = 0
+          total_bytes = 0
+          exact_open = re.compile(rb'openat\(AT_FDCWD(?:<[^>]+>)?, "' + re.escape(sentinel) + rb'", O_RDONLY[^)]*\) = ([0-9]+)<' + re.escape(sentinel) + rb'>')
+          raw_read = re.compile(rb'read\(((?:0x[0-9a-f]+|[0-9]+))(?:<([^>]+)>)?, (0x[0-9a-f]+), (?:0x[0-9a-f]+|[0-9]+)\)[ \t]{1,32}=[ \t]{1,8}(0x[0-9a-f]+|[0-9]+)')
+          close = re.compile(rb'close\(([0-9]+)(?:<([^>]+)>)?\) = 0')
+          def classify_read_shape(line):
+              # Called only after a bounded line has matched the exact open FD.
+              # Inspect private syntax; return one literal and never serialize captures.
+              if not line.startswith(b'read('):
+                  return 'READ_FAMILY_OTHER'
+              first_arg = line.split(b',', 1)[0]
+              if b'<' in first_arg and re.fullmatch(rb'read\((?:0x[0-9a-f]+|[0-9]+)<[^>\r\n]{1,4096}>', first_arg) is None:
+                  return 'READ_FD_ANNOTATION_SHAPE'
+              if b') = ' not in line:
+                  return 'READ_RESULT_SEPARATOR'
+              left, right = line.rsplit(b') = ', 1)
+              if re.fullmatch(rb'-[0-9]{1,20} [A-Z][A-Z0-9_]{0,31}(?: \([^()\r\n]{0,160}\))?', right):
+                  return 'READ_RESULT_ERROR_SUFFIX'
+              if re.fullmatch(rb'(?:0x[0-9a-f]{1,18}|[0-9]{1,20}) [^\r\n]+', right):
+                  return 'READ_RESULT_EXTRA_SUFFIX'
+              if re.fullmatch(rb'(?:0x[0-9a-f]{1,18}|[0-9]{1,20})', right) is None:
+                  return 'READ_RESULT_TOKEN_SHAPE'
+              if re.fullmatch(rb'read\((?:0x[0-9a-f]{1,18}|[0-9]{1,20})(?:<[^>\r\n]{1,4096}>)?, 0x[0-9a-f]{1,18}, (?:0x[0-9a-f]{1,18}|[0-9]{1,20})\)', left + b')') is None:
+                  return 'READ_ARGUMENT_SHAPE'
+              return 'READ_OTHER_SHAPE'
+          def prove_sequence(lines):
+              fd = None
+              state = 'before'
+              opens = 0
+              reads = 0
+              for line in lines:
+                  opened = exact_open.fullmatch(line)
+                  if opened:
+                      require(state == 'before', 'OPEN_ORDER')
+                      fd = parse_number(opened.group(1), 'OPEN_SHAPE')
+                      state = 'open'
+                      opens += 1
+                      continue
+                  if fd is None or state == 'closed':
+                      continue
+                  # Any reuse or close of this number before the raw sentinel read refuses.
+                  returned_fd = re.search(rb'\) = ([0-9]+)(?:<[^>]+>)?$', line) if line.startswith((b'open(', b'openat(')) else None
+                  require(returned_fd is None or parse_number(returned_fd.group(1), 'OPEN_SHAPE') != fd, 'OPEN_REUSE')
+                  read_fd = re.match(rb'(?:read|pread64|readv)\(((?:0x[0-9a-f]+|[0-9]+))(?=<|,)', line)
+                  if read_fd and parse_number(read_fd.group(1), 'READ_FD') == fd:
+                      read = raw_read.fullmatch(line)
+                      require(state == 'open', 'READ_ORDER')
+                      if read is None:
+                          try:
+                              shape_class = classify_read_shape(line)
+                          except Exception:
+                              shape_class = 'READ_SHAPE_CLASSIFIER_ERROR'
+                          raise CanaryProofError('READ_SHAPE', shape_class)
+                      require(parse_number(read.group(1), 'READ_FD') == fd, 'READ_FD')
+                      require(read.group(2) is None or read.group(2) == sentinel, 'READ_ANNOTATION')
+                      require(parse_number(read.group(4), 'READ_RESULT') == 1024, 'READ_RESULT')
+                      reads += 1
+                      state = 'read'
+                      continue
+                  close_fd = re.match(rb'close\(([0-9]+)', line)
+                  if close_fd and parse_number(close_fd.group(1), 'CLOSE_SHAPE') == fd:
+                      ended = close.fullmatch(line)
+                      require(state == 'read', 'CLOSE_ORDER')
+                      require(ended is not None, 'CLOSE_SHAPE')
+                      require(ended.group(2) is None or ended.group(2) == sentinel, 'CLOSE_ANNOTATION')
+                      state = 'closed'
+              require(opens == 1, 'OPEN_COUNT')
+              require(reads == 1, 'READ_MISSING')
+              require(state == 'closed', 'CLOSE_MISSING')
+              require(b'+++ exited with 0 +++' in lines, 'EXIT_MISSING')
+          fixture = b'/fixture/raw-canary.txt'
+          saved_open, saved_sentinel = exact_open, sentinel
+          sentinel = fixture
+          exact_open = re.compile(rb'openat\(AT_FDCWD, "' + re.escape(fixture) + rb'", O_RDONLY\|O_CLOEXEC\) = ([0-9]+)<' + re.escape(fixture) + rb'>')
+          fixture_open = b'openat(AT_FDCWD, "/fixture/raw-canary.txt", O_RDONLY|O_CLOEXEC) = 3</fixture/raw-canary.txt>'
+          fixture_read_hex = b'read(0x3, 0x1234, 0x1000) = 0x400'
+          fixture_read_spaces = b'read(0x3, 0x1234, 0x1000)' + b' ' * 9 + b'= 0x400'
+          fixture_read_tabs = b'read(0x3, 0x1234, 0x1000)\t=\t0x400'
+          fixture_read_hex_annotated = b'read(0x3</fixture/raw-canary.txt>, 0x1234, 0x1000) = 0x400'
+          fixture_read_decimal = b'read(3, 0x1234, 4096) = 1024'
+          fixture_read_zero = b'read(0x3, 0x1234, 0x1000) = 0x0'
+          fixture_read_short = b'read(0x3, 0x1234, 0x1000) = 0x3ff'
+          fixture_read_wrong_fd = b'read(0x4, 0x1234, 0x1000) = 0x400'
+          fixture_read_suffix = b'read(0x3, 0x1234, 0x1000) = 0x400 extra'
+          fixture_read_wrong_annotation = b'read(0x3</fixture/other>, 0x1234, 0x1000) = 0x400'
+          fixture_open_8 = b'openat(AT_FDCWD, "/fixture/raw-canary.txt", O_RDONLY|O_CLOEXEC) = 8</fixture/raw-canary.txt>'
+          fixture_read_leading_zero = b'read(08, 0x1234, 4096) = 1024'
+          fixture_close = b'close(3</fixture/raw-canary.txt>) = 0'
+          fixture_close_8 = b'close(8</fixture/raw-canary.txt>) = 0'
+          fixture_exit = b'+++ exited with 0 +++'
+          prove_sequence([fixture_open, fixture_read_hex, fixture_close, fixture_exit])
+          prove_sequence([fixture_open, fixture_read_spaces, fixture_close, fixture_exit])
+          prove_sequence([fixture_open, fixture_read_tabs, fixture_close, fixture_exit])
+          prove_sequence([fixture_open, fixture_read_hex_annotated, fixture_close, fixture_exit])
+          prove_sequence([fixture_open, fixture_read_decimal, fixture_close, fixture_exit])
+          prove_sequence([fixture_open_8, fixture_read_leading_zero, fixture_close_8, fixture_exit])
+          for rejected in (
+              [fixture_read_hex, fixture_open, fixture_close, fixture_exit],
+              [fixture_open, fixture_close, fixture_read_hex, fixture_exit],
+              [fixture_open, b'close(3</fixture/raw-canary.txt>) = 0', b'openat(AT_FDCWD, "/fixture/other", O_RDONLY) = 3</fixture/other>', fixture_read_hex, fixture_exit],
+              [fixture_open, fixture_read_zero, fixture_close, fixture_exit],
+              [fixture_open, fixture_read_short, fixture_close, fixture_exit],
+              [fixture_open, fixture_read_wrong_fd, fixture_close, fixture_exit],
+              [fixture_open, fixture_read_suffix, fixture_close, fixture_exit],
+              [fixture_open, b'read(0x3, 0x1234, 0x1000)= 0x400', fixture_close, fixture_exit],
+              [fixture_open, b'read(0x3, 0x1234, 0x1000)' + b' ' * 33 + b'= 0x400', fixture_close, fixture_exit],
+              [fixture_open, b'read(0x3, 0x1234, 0x1000) = ' + b' ' * 8 + b'0x400', fixture_close, fixture_exit],
+              [fixture_open, b'read(0x3, 0x1234, 0x1000)\n= 0x400', fixture_close, fixture_exit],
+              [fixture_open, b'read(0x3, 0x1234, 0x1000)\r= 0x400', fixture_close, fixture_exit],
+              [fixture_open, b'read(0x3, 0x1234, 0x1000)\v= 0x400', fixture_close, fixture_exit],
+              [fixture_open, fixture_read_wrong_annotation, fixture_close, fixture_exit],
+              [fixture_open, fixture_read_hex, fixture_exit],
+          ):
+              try:
+                  prove_sequence(rejected)
+              except CanaryProofError:
+                  pass
+              else:
+                  raise AssertionError('recycled or unordered canary FD accepted')
+          shape_fixtures = (
+              (b'pread64(0x3, 0x1234, 0x1000, 0x0) = 0x400', 'READ_FAMILY_OTHER'),
+              (b'read(0x3</fixture/raw-canary.txt, 0x1234, 0x1000) = 0x400', 'READ_FD_ANNOTATION_SHAPE'),
+              (b'read(0x3, 0x1234, 0x1000) -> 0x400', 'READ_RESULT_SEPARATOR'),
+              (b'read(0x3, 0x1234, 0x1000) = -1 EINTR (Interrupted system call)', 'READ_RESULT_ERROR_SUFFIX'),
+              (fixture_read_suffix, 'READ_RESULT_EXTRA_SUFFIX'),
+              (b'read(0x3, 0x1234, 0x1000) = ?', 'READ_RESULT_TOKEN_SHAPE'),
+              (b'read(0x3, "private", 0x1000) = 0x400', 'READ_ARGUMENT_SHAPE'),
+          )
+          for private_line, expected_shape in shape_fixtures:
+              try:
+                  prove_sequence([fixture_open, private_line, fixture_close, fixture_exit])
+              except CanaryProofError as error:
+                  if str(error) != 'READ_SHAPE' or error.shape_class != expected_shape or str(private_line) in str(error):
+                      raise AssertionError('raw shape subclass fixture refused incorrectly') from None
+              else:
+                  raise AssertionError('raw shape subclass fixture accepted')
+          if classify_read_shape(fixture_read_hex) != 'READ_OTHER_SHAPE':
+              raise AssertionError('raw shape fallback fixture failed')
+          exact_open, sentinel = saved_open, saved_sentinel
+          try:
+              try:
+                  files = sorted(trace_root.iterdir())
+              except OSError:
+                  raise CanaryProofError('TRACE_IO') from None
+              require(0 < len(files) <= 8, 'TRACE_FILE_SET')
+              for file in files:
+                  try:
+                      meta = file.lstat()
+                  except OSError:
+                      raise CanaryProofError('TRACE_IO') from None
+                  require(re.fullmatch(r'trace\.[0-9]+', file.name) is not None, 'TRACE_FILE_SHAPE')
+                  require(stat.S_ISREG(meta.st_mode) and 0 < meta.st_size <= 4194304, 'TRACE_FILE_BOUNDS')
+                  total_bytes += meta.st_size
+                  require(total_bytes <= 16777216, 'TRACE_TOTAL_BOUNDS')
+                  try:
+                      lines = file.read_bytes().splitlines()
+                  except OSError:
+                      raise CanaryProofError('TRACE_IO') from None
+                  require(all(len(line) <= 8192 for line in lines), 'TRACE_LINE_BOUNDS')
+                  if not any(exact_open.fullmatch(line) for line in lines):
+                      require(not any(line.startswith((b'open(', b'openat(')) and sentinel in line for line in lines), 'OPEN_SHAPE')
+                      continue
+                  require(not any(b'...' in line for line in lines if line.startswith((b'read(', b'pread64(', b'readv('))), 'READ_ABBREVIATED')
+                  prove_sequence(lines)
+                  matched += 1
+              require(matched > 0, 'OPEN_MISSING')
+              require(matched == 1, 'TRACE_MATCH_COUNT')
+          except CanaryProofError as error:
+              allowed_classes = {
+                  'TRACE_FILE_SET', 'TRACE_FILE_SHAPE', 'TRACE_FILE_BOUNDS', 'TRACE_TOTAL_BOUNDS',
+                  'TRACE_LINE_BOUNDS', 'TRACE_IO', 'READ_ABBREVIATED', 'OPEN_ORDER', 'OPEN_REUSE',
+                  'OPEN_SHAPE', 'OPEN_MISSING', 'OPEN_COUNT',
+                  'READ_ORDER', 'READ_SHAPE', 'READ_FD', 'READ_ANNOTATION', 'READ_RESULT',
+                  'READ_MISSING', 'CLOSE_ORDER', 'CLOSE_SHAPE', 'CLOSE_ANNOTATION',
+                  'CLOSE_MISSING',
+                  'EXIT_MISSING', 'TRACE_MATCH_COUNT',
+              }
+              assert str(error) in allowed_classes
+              allowed_shape_classes = {
+                  'READ_FAMILY_OTHER', 'READ_FD_ANNOTATION_SHAPE', 'READ_RESULT_SEPARATOR',
+                  'READ_RESULT_ERROR_SUFFIX', 'READ_RESULT_EXTRA_SUFFIX',
+                  'READ_RESULT_TOKEN_SHAPE', 'READ_ARGUMENT_SHAPE', 'READ_OTHER_SHAPE',
+                  'READ_SHAPE_CLASSIFIER_ERROR',
+              }
+              assert (str(error) == 'READ_SHAPE' and error.shape_class in allowed_shape_classes) or (str(error) != 'READ_SHAPE' and error.shape_class is None)
+              refusal_path = Path('/work/image/receipt/refusal.json')
+              pending_path = Path('/work/image/receipt/refusal-class.tmp')
+              try:
+                  refusal = json.loads(refusal_path.read_text())
+                  require(refusal['status'] == 'REFUSED' and refusal['reason'] == 'TRACE_CANARY', 'REFUSAL_STATE')
+                  refusal['raw_canary_class'] = str(error)
+                  if str(error) == 'READ_SHAPE':
+                      refusal['raw_canary_shape_class'] = error.shape_class
+                  pending_path.write_text(json.dumps(refusal, sort_keys=True) + '\n')
+                  pending_path.replace(refusal_path)
+              except (OSError, ValueError, KeyError, CanaryProofError):
+                  raise SystemExit('RAW_CANARY_RECEIPT_REFUSED') from None
+              raise SystemExit('RAW_CANARY_REFUSED') from None
+          PY
           printf '%s\n' '{"schema":"tundra-eh-seeded-link-trace/v1","status":"CANARY_SHAPE_DIAGNOSTIC_ONLY","actual_eh_linker_child":"UNPROVEN","linker_archive_read":"UNPROVEN","same_run_traced_outputs":"UNPROVEN","legal_admission":"NO","product_admission":"NO","fleet_admission":"NO"}' > /work/image/receipt/canary.json
           rm /work/image/receipt/refusal.json
       - name: Delete private tracer bytes and cap receipt
