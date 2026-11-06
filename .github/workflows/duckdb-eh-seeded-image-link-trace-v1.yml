@@ -1036,7 +1036,7 @@ jobs:
               # Fixed classes only; do not export FD, annotation, errno or PID.
               # The scan approximates parser order and is diagnostic only.
               candidate_exec = re.compile(rb'^execve\("/emsdk/upstream/bin/wasm-ld", .*[)] = 0$')
-              accepted_close = re.compile(rb'^close\([0-9]+(?:<[^>]+>)?\) = -?[0-9]+$')
+              accepted_close = re.compile(rb'^close\([0-9]+(?:<[^>]+>)?\)[ \t]{1,64}=[ \t]{1,8}0$')
               failed_close = re.compile(rb'^close\([0-9]+(?:<[^>]+>)?\)[ \t]{1,64}=[ \t]{1,8}-1 [A-Z][A-Z0-9_]*(?: \([^\n]*\))?$')
               aligned_close = re.compile(rb'^close\([0-9]+(?:<[^>]+>)?\)[ \t]{1,64}=[ \t]{1,8}-?[0-9]+$')
               def close_kind(line):
@@ -1046,12 +1046,13 @@ jobs:
                   if failed_close.fullmatch(line):
                       return 'FAILED_ERRNO_RETURN'
                   if aligned_close.fullmatch(line):
-                      return 'ALIGNED_NUMERIC_RETURN'
+                      return 'NONZERO_NUMERIC_RETURN'
                   return 'OTHER_SHAPE'
               assert close_kind(b'close(3</dummy>) = 0\n') is None
               assert close_kind(b'close(3</dummy>) = -1 EBADF (Bad file descriptor)\n') == 'FAILED_ERRNO_RETURN'
               assert close_kind(b'close(200)' + b' ' * 30 + b'= -1 EBADF (Bad file descriptor)\n') == 'FAILED_ERRNO_RETURN'
-              assert close_kind(b'close(200)' + b' ' * 30 + b'= 0\n') == 'ALIGNED_NUMERIC_RETURN'
+              assert close_kind(b'close(200)' + b' ' * 30 + b'= 0\n') is None
+              assert close_kind(b'close(200)' + b' ' * 30 + b'= -1\n') == 'NONZERO_NUMERIC_RETURN'
               assert close_kind(b'close(broken\n') == 'OTHER_SHAPE'
               detail = 'UNAVAILABLE'
               try:

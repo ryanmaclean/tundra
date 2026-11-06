@@ -240,6 +240,9 @@ jobs:
           timeout 15s "$loader" --library-path "$libdir" "$tracer" -yy -s 256 -e trace=close \
             -o /work/image/trace-private/close-dummy.trace python3 -c 'import os; f=os.open("/work/image/trace-private/close-fixture-file",os.O_RDONLY); os.dup2(f,200); os.close(f); os.close(200); exec("try:\n os.close(200)\nexcept OSError:\n pass")' \
             > /work/image/trace-private/close-dummy.log 2>&1
+          timeout 15s "$loader" --library-path "$libdir" "$tracer" -yy -s 256 -e trace=close \
+            -o /work/image/trace-private/close-aligned.trace python3 -c 'import os; r,w=os.pipe(); os.dup2(r,200); os.close(r); os.close(w); os.close(200)' \
+            > /work/image/trace-private/close-aligned.log 2>&1
           python3 - <<'PYCLOSECANARY'
           from pathlib import Path
           import re
@@ -268,7 +271,32 @@ jobs:
           exec(compile(block, '<fixed-close-diagnostic>', 'exec'))
           if data['parser_diagnostic'].get('close_class') != 'FAILED_ERRNO_RETURN':
               raise SystemExit('close fixture refused')
+          aligned = Path('/work/image/trace-private/close-aligned.trace')
+          if aligned.is_symlink() or not aligned.is_file() or not 0 < aligned.stat().st_size <= 1048576:
+              raise SystemExit('close aligned dummy refused')
+          lines = [line for line in aligned.read_bytes().splitlines(keepends=True) if line.startswith(b'close(200<')]
+          if len(lines) != 1 or not re.search(rb'\)[ \t]{2,64}=[ \t]{1,8}0\n$', lines[0]):
+              raise SystemExit('close aligned dummy refused')
+          archive = b'/work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a'
+          close = re.sub(rb'^close\(200<[^>]+>', b'close(200<' + archive + b'>', lines[0], count=1)
+          start = b'execve("/emsdk/upstream/bin/wasm-ld", [], 0x1) = 0\nopenat(AT_FDCWD, "' + archive + b'", O_RDONLY) = 200<' + archive + b'>\n'
+          read = b'read(200<' + archive + b'>, "") = 1\n'
+          finish = b'+++ exited with 0 +++\n'
+          for name, body in (('close-before-read', close + read), ('read-before-close', read + close)):
+              directory = Path('/work/image/trace-private') / name
+              directory.mkdir(mode=0o700)
+              (directory / 'trace.123').write_bytes(start + body + finish)
           PYCLOSECANARY
+          /work/image/tool/nu -c 'use gate/.github/scripts/duckdb-eh-linker-fd-witness-v1.nu close_alignment_self_test; close_alignment_self_test gate/.github/receipts/duckdb-eh-linker-fd-witness-v1.json'
+          /work/image/tool/nu -c "$(cat <<'NUCLOSE'
+          use gate/.github/scripts/duckdb-eh-linker-fd-witness-v1.nu [witness parser_failure_class]
+          let ledger = 'gate/.github/receipts/duckdb-eh-linker-fd-witness-v1.json'
+          let digest = '6e5c12aab29b80db118acd16c08953257683ed11c415970f8320ed777997eec7'
+          let result = (try { witness $ledger /work/image/trace-private/close-before-read $digest /work/image/trace-private/close-before-read.json; 'ACCEPTED' } catch {|e| parser_failure_class $e.msg })
+          if $result != 'REFUSED_DIRECT_READ_NOT_PROVED' { error make {msg: 'closed fd control refused'} }
+          witness $ledger /work/image/trace-private/read-before-close $digest /work/image/trace-private/read-before-close.json
+          NUCLOSE
+          )"
           printf '%s\n' '{"schema":"tundra-eh-seeded-link-trace/v1","status":"REFUSED","reason":"TRACE_CANARY","actual_eh_linker_child":"UNPROVEN","linker_archive_read":"UNPROVEN","same_run_traced_outputs":"UNPROVEN","legal_admission":"NO","product_admission":"NO","fleet_admission":"NO"}' > /work/image/receipt/refusal.json
           printf '%s\n' 'tundra-eh-trace-child-canary-v1' > /work/image/trace-private/canary.txt
           timeout 20s "$loader" --library-path "$libdir" "$tracer" -ff -yy -s 4096 -o /work/image/trace-private/canary.trace \

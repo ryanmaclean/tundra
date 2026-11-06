@@ -90,7 +90,9 @@ def parse_pid [raw: string, pid: int, l: record] {
       continue
     }
     if ($line | str starts-with 'close(') {
-      let c = (capture $line '^close\((?<fd>[0-9]+)(?:<(?<annotation>[^>]+)>)?\) = (?<result>-?[0-9]+)$')
+      # Recognize only completed successful closes; an error may leave the
+      # descriptor lifetime ambiguous and must not leave it tracked.
+      let c = (capture $line '^close\((?<fd>[0-9]+)(?:<(?<annotation>[^>]+)>)?\)[ \t]{1,64}=[ \t]{1,8}(?<result>0)$')
       require ($c != null) 'CLOSE_SHAPE_AMBIGUOUS'
       if (($c.fd | into int) in $active) { require ($c.annotation == $l.archive_path) 'FD_ANNOTATION_DRIFT' }
       if $c.result == '0' { $active = ($active | where $it != ($c.fd | into int)) }
@@ -408,6 +410,47 @@ export def archive_flags_self_test [ledger_path: string] {
     require ($actual == 'ARCHIVE_OPEN_NOT_READONLY_EXACT') 'SELF_TEST_FLAGS_REFUSAL'
   }
   'archive open flag fixtures passed'
+}
+
+export def close_alignment_self_test [ledger_path: string] {
+  let l = (checked_ledger $ledger_path)
+  let exec = 'execve("/emsdk/upstream/bin/wasm-ld", [], 0x1) = 0'
+  let opened = 'openat(AT_FDCWD</tmp>, "/work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a", O_RDONLY) = 3</work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a>'
+  let read = 'read(3</work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a>, "") = 1'
+  let other = 'openat(AT_FDCWD</tmp>, "/tmp/other", O_RDONLY) = 3</tmp/other>'
+  let other_read = 'read(3</tmp/other>, "") = 1'
+  let finish = '+++ exited with 0 +++'
+  let close = 'close(3</work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a>)'
+  let aligned = ([$close (' ' | fill -w 30) '= 0'] | str join)
+  let tabs = ([$close "\t=\t0"] | str join)
+  for line in [$aligned $tabs] {
+    let stale = (parse_pid ([$exec $opened $line $read $finish] | str join "\n") 123 $l)
+    require (not $stale.read_positive) 'SELF_TEST_CLOSE_STALE'
+    let earlier = (parse_pid ([$exec $opened $read $line $finish] | str join "\n") 123 $l)
+    require $earlier.read_positive 'SELF_TEST_CLOSE_PRIOR_READ'
+    let reused = (parse_pid ([$exec $opened $line $other $other_read $finish] | str join "\n") 123 $l)
+    require (not $reused.read_positive) 'SELF_TEST_CLOSE_REUSED'
+    let reopened = (parse_pid ([$exec $opened $line $opened $read $finish] | str join "\n") 123 $l)
+    require $reopened.read_positive 'SELF_TEST_CLOSE_REOPENED'
+  }
+  let invalid = [
+    'close(3</work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a>) = -1'
+    'close(3</work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a>) = 1'
+    'close(3</work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a>) = -1 EINTR (Interrupted system call)'
+    'close(3</work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a>) = -1 EBADF (Bad file descriptor)'
+    'close(3</bad) = 0'
+    'close(3</work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a>)=0'
+    ([$close (' ' | fill -w 65) '= 0'] | str join)
+    ([$close '= ' (' ' | fill -w 9) '0'] | str join)
+  ]
+  for line in $invalid {
+    let actual = (try { parse_pid ([$exec $opened $line] | str join "\n") 123 $l; 'ACCEPTED' } catch {|err| $err.msg })
+    require ($actual == 'CLOSE_SHAPE_AMBIGUOUS') 'SELF_TEST_CLOSE_REFUSAL'
+  }
+  let drift = 'close(3</tmp/other>) = 0'
+  let drift_result = (try { parse_pid ([$exec $opened $drift] | str join "\n") 123 $l; 'ACCEPTED' } catch {|err| $err.msg })
+  require ($drift_result == 'FD_ANNOTATION_DRIFT') 'SELF_TEST_CLOSE_ANNOTATION'
+  'close alignment parser fixtures passed'
 }
 
 def main [ledger: string, trace_dir: string, runtime_elf_sha256: string, receipt: string, private_class: string] {
