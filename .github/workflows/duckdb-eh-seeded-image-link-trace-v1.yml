@@ -1038,6 +1038,18 @@ jobs:
                           return prefix + 'ANNOTATED_SUCCESS_OTHER_GRAMMAR'
                       if re.fullmatch(rb'[0-9]+', result):
                           return prefix + 'NUMERIC_SUCCESS_OTHER_GRAMMAR'
+                      # Fixed appearance categories only; none authenticates
+                      # an FD, errno, annotation or completed syscall.
+                      if re.fullmatch(rb'[0-9]+<[^\n]*<[^\n]*>[^\n]*>', result):
+                          return prefix + 'NESTED_ANNOTATION_LIKE'
+                      if re.match(rb'^\?', result):
+                          return prefix + 'QUESTION_RESULT_LIKE'
+                      if re.match(rb'^0x[0-9a-f]+', result):
+                          return prefix + 'HEX_RESULT_LIKE'
+                      if re.match(rb'^-1[ \t]', result):
+                          return prefix + 'ERRNO_RESULT_LIKE'
+                      if re.match(rb'^[0-9]+', result):
+                          return prefix + 'NUMERIC_RESULT_LIKE'
                       return prefix + 'OTHER_RESULT'
                   return prefix + 'OTHER_SHAPE'
               assert open_kind(b'open("/dummy", O_RDONLY) = 3</dummy>\n') is None
@@ -1049,7 +1061,13 @@ jobs:
               assert open_kind(b'openat(AT_FDCWD, "/dummy", O_RDONLY)' + b' ' * 20 + b'= 3</dummy>\n') == 'OPENAT_ANNOTATED_SUCCESS_OTHER_GRAMMAR'
               assert open_kind(b'openat(AT_FDCWD, "/dummy", O_RDONLY)' + b' ' * 20 + b'= -1 ENOENT (No such file or directory)\n') == 'OPENAT_FAILED_RETURN_OTHER_GRAMMAR'
               assert open_kind(b'openat(AT_FDCWD, "/dummy", O_RDONLY)' + b' ' * 20 + b'= 3\n') == 'OPENAT_NUMERIC_SUCCESS_OTHER_GRAMMAR'
-              assert open_kind(b'openat(AT_FDCWD, "/dummy", O_RDONLY)' + b' ' * 20 + b'= ?\n') == 'OPENAT_OTHER_RESULT'
+              assert open_kind(b'openat(AT_FDCWD, "/dummy", O_RDONLY)' + b' ' * 20 + b'= ?\n') == 'OPENAT_QUESTION_RESULT_LIKE'
+              assert open_kind(b'openat(AT_FDCWD, "/dummy", O_RDONLY) = 3</dev/null<char 1:3>>\n') == 'OPENAT_NESTED_ANNOTATION_LIKE'
+              assert open_kind(b'openat(AT_FDCWD, "/dummy", O_RDONLY) = 0x10\n') == 'OPENAT_HEX_RESULT_LIKE'
+              assert open_kind(b'openat(AT_FDCWD, "/dummy", O_RDONLY) = -1 ???\n') == 'OPENAT_ERRNO_RESULT_LIKE'
+              assert open_kind(b'openat(AT_FDCWD, "/dummy", O_RDONLY) = 3<partial\n') == 'OPENAT_NUMERIC_RESULT_LIKE'
+              assert open_kind(b'openat(AT_FDCWD, "/dummy", O_RDONLY) = ???\n') == 'OPENAT_QUESTION_RESULT_LIKE'
+              assert open_kind(b'openat(AT_FDCWD, "/dummy", O_RDONLY) = unknown\n') == 'OPENAT_OTHER_RESULT'
               assert open_kind(b'openat(broken\n') == 'OPENAT_OTHER_SHAPE'
               detail = 'UNAVAILABLE'
               try:
