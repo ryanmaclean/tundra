@@ -678,6 +678,11 @@ fn default_poker_round_duration_seconds() -> u64 {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TerminalConfig {
+    /// Server startup terminal program override; selecting it does not admit its license graph.
+    #[serde(default)]
+    pub program: Option<String>,
+    #[serde(default)]
+    pub args: Vec<String>,
     #[serde(default = "default_term_font_family")]
     pub font_family: String,
     #[serde(default = "default_term_font_size")]
@@ -689,6 +694,8 @@ pub struct TerminalConfig {
 impl Default for TerminalConfig {
     fn default() -> Self {
         Self {
+            program: None,
+            args: Vec::new(),
             font_family: default_term_font_family(),
             font_size: default_term_font_size(),
             cursor_style: default_cursor_style(),
@@ -1154,5 +1161,21 @@ impl CredentialProvider {
             providers.push("linear");
         }
         providers
+    }
+}
+
+#[cfg(test)]
+mod terminal_native_command_config_tests {
+    use super::TerminalConfig;
+    #[test]
+    fn old_terminal_settings_keep_optional_startup_command_unset() {
+        let config: TerminalConfig = serde_json::from_str(r#"{"font_family":"mono","font_size":12,"cursor_style":"block"}"#).unwrap();
+        assert!(config.program.is_none()); assert!(config.args.is_empty());
+    }
+    #[test]
+    fn terminal_program_arguments_keep_boundaries() {
+        let config: TerminalConfig = serde_json::from_str(r#"{"program":"fixture","args":["a b","x&y"]}"#).unwrap();
+        assert_eq!(config.program.as_deref(), Some("fixture"));
+        assert_eq!(config.args, vec!["a b", "x&y"]);
     }
 }

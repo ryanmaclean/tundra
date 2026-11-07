@@ -204,8 +204,8 @@ fn test_pool_max_capacity() {
     }
 }
 
-#[test]
-fn test_pool_remove_session() {
+#[tokio::test]
+async fn test_pool_remove_session() {
     let pool = PtyPool::new(4);
 
     let h1 = pool.spawn("/bin/cat", &[], &[]).expect("spawn 1");
@@ -214,7 +214,8 @@ fn test_pool_remove_session() {
 
     let h1_id = h1.id;
     h1.kill().expect("kill h1");
-    pool.kill(h1_id).expect("remove h1 from pool");
+    pool.kill(h1_id).expect("request h1 retirement");
+    h1.wait_retired(Duration::from_secs(10)).await.expect("h1 retirement");
 
     assert_eq!(pool.active_count(), 1);
 
@@ -223,8 +224,8 @@ fn test_pool_remove_session() {
     let _ = h2.kill();
 }
 
-#[test]
-fn test_pool_list_active_sessions() {
+#[tokio::test]
+async fn test_pool_list_active_sessions() {
     let pool = PtyPool::new(4);
 
     assert_eq!(pool.active_count(), 0);
@@ -237,12 +238,14 @@ fn test_pool_list_active_sessions() {
 
     let h1_id = h1.id;
     let _ = h1.kill();
-    pool.kill(h1_id).expect("remove from pool");
+    pool.kill(h1_id).expect("request retirement");
+    h1.wait_retired(Duration::from_secs(10)).await.expect("h1 retirement");
     assert_eq!(pool.active_count(), 1);
 
     let h2_id = h2.id;
     let _ = h2.kill();
-    pool.kill(h2_id).expect("remove from pool");
+    pool.kill(h2_id).expect("request retirement");
+    h2.wait_retired(Duration::from_secs(10)).await.expect("h2 retirement");
     assert_eq!(pool.active_count(), 0);
 }
 
@@ -278,17 +281,18 @@ fn test_pool_session_isolation() {
     let _ = h2.kill();
 }
 
-#[test]
-fn test_pool_release_frees_slot() {
+#[tokio::test]
+async fn test_pool_release_frees_slot() {
     let pool = PtyPool::new(2);
 
     let h1 = pool.spawn("/bin/cat", &[], &[]).expect("spawn 1");
     let _h2 = pool.spawn("/bin/cat", &[], &[]).expect("spawn 2");
     assert_eq!(pool.active_count(), 2);
 
-    // Release h1 (without kill — simulates process that already exited).
+    // Release requests native retirement; capacity waits for acknowledgement.
     let h1_id = h1.id;
     pool.release(h1_id);
+    h1.wait_retired(Duration::from_secs(10)).await.expect("release retirement");
     assert_eq!(pool.active_count(), 1);
 
     // Should now be able to spawn a third.
@@ -459,8 +463,8 @@ fn test_pty_handle_debug_format() {
         "debug should contain 'PtyHandle', got: {debug_str}"
     );
     assert!(
-        debug_str.contains("alive"),
-        "debug should contain 'alive', got: {debug_str}"
+        debug_str.contains("liveness: Alive"),
+        "debug should contain the live liveness state, got: {debug_str}"
     );
 
     let _ = handle.kill();

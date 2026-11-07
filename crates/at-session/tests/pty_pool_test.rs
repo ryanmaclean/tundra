@@ -63,8 +63,8 @@ fn capacity_limit_enforced() {
     }
 }
 
-#[test]
-fn kill_handle_from_pool() {
+#[tokio::test]
+async fn kill_handle_from_pool() {
     let pool = PtyPool::new(4);
     let handle = pool
         .spawn("/bin/cat", &[], &[])
@@ -73,7 +73,8 @@ fn kill_handle_from_pool() {
     assert_eq!(pool.active_count(), 1);
 
     handle.kill().expect("failed to kill handle");
-    pool.kill(hid).expect("failed to remove from pool");
+    pool.kill(hid).expect("failed to request retirement");
+    handle.wait_retired(Duration::from_secs(10)).await.expect("native retirement");
     assert_eq!(pool.active_count(), 0);
 }
 

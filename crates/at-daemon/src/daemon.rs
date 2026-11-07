@@ -38,6 +38,55 @@ impl Default for DaemonIntervals {
     }
 }
 
+type DaemonTaskSlot = Arc<tokio::sync::Mutex<Option<tokio::task::JoinHandle<()>>>>;
+
+struct DaemonTaskState {
+    accepting: bool,
+    slots: Vec<DaemonTaskSlot>,
+}
+
+struct DaemonTasks { state: std::sync::Mutex<DaemonTaskState> }
+impl Default for DaemonTasks {
+    fn default() -> Self {
+        Self { state: std::sync::Mutex::new(DaemonTaskState { accepting: true, slots: Vec::new() }) }
+    }
+}
+impl DaemonTasks {
+    fn spawn(&self, future: impl std::future::Future<Output = ()> + Send + 'static) -> Result<tokio::sync::watch::Receiver<bool>> {
+        let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
+        if !state.accepting { anyhow::bail!("daemon task admission is closed"); }
+        let (done, receipt) = tokio::sync::watch::channel(false);
+        let task = tokio::spawn(async move {
+            future.await;
+            let _ = done.send(true);
+        });
+        state.slots.push(Arc::new(tokio::sync::Mutex::new(Some(task))));
+        Ok(receipt)
+    }
+
+    fn close(&self) {
+        self.state.lock().unwrap_or_else(|p| p.into_inner()).accepting = false;
+    }
+
+    async fn abort_and_join(&self) {
+        let slots = {
+            let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
+            state.accepting = false;
+            state.slots.clone()
+        };
+        for slot in &slots {
+            let slot = slot.lock().await;
+            if let Some(task) = slot.as_ref() { task.abort(); }
+        }
+        for slot in slots {
+            let mut slot = slot.lock().await;
+            if let Some(task) = slot.as_mut() { let _ = task.await; }
+            // A cancelled join future leaves the task retained for retry.
+            *slot = None;
+        }
+    }
+}
+
 /// The main auto-tundra background daemon.
 ///
 /// Runs patrol loops, heartbeat monitoring, and KPI snapshots on
@@ -50,6 +99,7 @@ pub struct Daemon {
     shutdown: ShutdownSignal,
     event_bus: EventBus,
     api_state: Arc<ApiState>,
+    owned_tasks: DaemonTasks,
 }
 
 impl Daemon {
@@ -61,7 +111,9 @@ impl Daemon {
             ..DaemonIntervals::default()
         };
         let event_bus = EventBus::new();
-        let api_state = Arc::new(ApiState::new(event_bus.clone()));
+        let pool = Arc::new(at_session::pty_pool::PtyPool::new(config.agents.max_concurrent as usize));
+        let api_state = Arc::new(ApiState::with_pty_pool(event_bus.clone(), pool)
+            .with_terminal_command(config.terminal.program.as_deref(), &config.terminal.args));
         Self {
             config,
             cache,
@@ -69,6 +121,7 @@ impl Daemon {
             shutdown,
             event_bus,
             api_state,
+            owned_tasks: DaemonTasks::default(),
         }
     }
 
@@ -93,7 +146,26 @@ impl Daemon {
 
     /// Send the shutdown signal.
     pub fn shutdown(&self) {
+        self.owned_tasks.close();
+        if let Some(pool) = &self.api_state.pty_pool { pool.stop_accepting(); }
         self.shutdown.trigger();
+    }
+
+    /// A failed barrier leaves native owners retained and must not authorize exit.
+    pub async fn shutdown_and_wait(&self) -> Result<()> {
+        self.shutdown.trigger();
+        if let Some(pool) = &self.api_state.pty_pool { pool.stop_accepting(); }
+        self.owned_tasks.abort_and_join().await;
+        let pending = self.api_state.shutdown_terminals(Duration::from_secs(10)).await;
+        if !pending.is_empty() { anyhow::bail!("native retirement still pending: {pending:?}"); }
+        Ok(())
+    }
+
+    async fn wait_until_retired(&self) {
+        while let Err(error) = self.shutdown_and_wait().await {
+            warn!(%error, "shutdown incomplete; retaining owner runtime for retry");
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
     }
 
     /// Returns a reference to the event bus.
@@ -155,36 +227,47 @@ impl Daemon {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
         let port = listener.local_addr()?.port();
 
-        tokio::spawn(async move {
+        self.owned_tasks.spawn(async move {
             if let Err(e) = axum::serve(listener, api_router).await {
                 error!(error = %e, "API server error");
             }
-        });
+        })?;
         info!(port, "embedded API server listening");
 
         // Note: Background cleanup task is spawned in spawn_background_loops()
-        self.spawn_background_loops();
+        self.spawn_background_loops()?;
         Ok(port)
     }
 
     /// Spawn patrol, heartbeat, and KPI loops as background tasks.
-    fn spawn_background_loops(&self) {
+    fn spawn_background_loops(&self) -> Result<()> {
+        at_bridge::http_api::spawn_oauth_token_refresh_monitor(self.api_state.clone());
+        self.api_state.start_cleanup_task();
+        self.spawn_owned_loops()?;
+        Ok(())
+    }
+
+    fn spawn_owned_loops(&self) -> Result<tokio::sync::watch::Receiver<bool>> {
         let cache = self.cache.clone();
         let api_state = self.api_state.clone();
         let event_bus = self.event_bus.clone();
         let config = self.config.clone();
         let intervals = self.intervals.clone();
         let shutdown = self.shutdown.clone();
-
-        // Spawn OAuth token refresh monitor
-        at_bridge::http_api::spawn_oauth_token_refresh_monitor(api_state.clone());
-
-        // Spawn background cleanup task for memory retention
-        api_state.start_cleanup_task();
-
-        tokio::spawn(async move {
+        self.owned_tasks.spawn(async move {
             Self::run_loops(cache, api_state, event_bus, config, intervals, shutdown).await;
-        });
+        })
+    }
+
+    async fn wait_for_loops(mut receipt: tokio::sync::watch::Receiver<bool>) {
+        while !*receipt.borrow() {
+            if receipt.changed().await.is_err() {
+                // Closed false is interruption, not a successful join. The
+                // caller must still enter the retained shared shutdown barrier.
+                warn!("daemon loop completion receipt closed before normal completion");
+                break;
+            }
+        }
     }
 
     /// The inner event loop shared by both standalone and embedded modes.
@@ -216,6 +299,9 @@ impl Daemon {
         let mut shutdown_rx = shutdown.subscribe();
 
         loop {
+            // Subscribe before checking the persistent flag: a trigger before
+            // subscription is remembered, and a later trigger is queued.
+            if shutdown.is_shutting_down() { break; }
             tokio::select! {
                 _ = patrol_interval.tick() => {
                     let reaped = reap_orphan_ptys(&api_state).await;
@@ -363,28 +449,24 @@ impl Daemon {
             allowed_origins,
         );
         let bind_addr = listener.local_addr()?;
-        let api_handle = tokio::spawn(async move {
+        self.owned_tasks.spawn(async move {
             if let Err(e) = axum::serve(listener, api_router).await {
                 error!(error = %e, "API server error");
             }
-        });
+        })?;
         info!(%bind_addr, "API server listening");
 
         // Spawn background cleanup task for memory retention
         self.api_state.start_cleanup_task();
 
-        // Run loops inline (blocking) for standalone mode.
-        Self::run_loops(
-            self.cache.clone(),
-            self.api_state.clone(),
-            self.event_bus.clone(),
-            self.config.clone(),
-            self.intervals.clone(),
-            self.shutdown.clone(),
-        )
-        .await;
+        // Completion observation does not borrow the retained join slot, so a
+        // concurrent shutdown can abort and join this loop. Cancelling run()
+        // leaves both the server and loop slots reachable from the daemon.
+        let loops = self.spawn_owned_loops()?;
+        Self::wait_for_loops(loops).await;
 
-        api_handle.abort();
+        if let Some(pool) = &self.api_state.pty_pool { pool.stop_accepting(); }
+        self.wait_until_retired().await;
         info!("daemon stopped");
         Ok(())
     }
@@ -441,29 +523,90 @@ impl Daemon {
             allowed_origins,
         );
         let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
-        let api_handle = tokio::spawn(async move {
+        self.owned_tasks.spawn(async move {
             if let Err(e) = axum::serve(listener, api_router).await {
                 error!(error = %e, "API server error");
             }
-        });
+        })?;
         info!(%bind_addr, "API server listening");
 
         // Spawn background cleanup task for memory retention
         self.api_state.start_cleanup_task();
 
-        // Run loops inline (blocking) for standalone mode.
-        Self::run_loops(
-            self.cache.clone(),
-            self.api_state.clone(),
-            self.event_bus.clone(),
-            self.config.clone(),
-            self.intervals.clone(),
-            self.shutdown.clone(),
-        )
-        .await;
+        // Completion observation does not borrow the retained join slot, so a
+        // concurrent shutdown can abort and join this loop. Cancelling run()
+        // leaves both the server and loop slots reachable from the daemon.
+        let loops = self.spawn_owned_loops()?;
+        Self::wait_for_loops(loops).await;
 
-        api_handle.abort();
+        if let Some(pool) = &self.api_state.pty_pool { pool.stop_accepting(); }
+        self.wait_until_retired().await;
         info!("daemon stopped");
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod owned_task_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct Dropped(Arc<AtomicUsize>);
+    impl Drop for Dropped { fn drop(&mut self) { self.0.fetch_add(1, Ordering::SeqCst); } }
+
+    #[tokio::test]
+    async fn cancelled_shutdown_retry_joins_task_and_rejects_late_admission() {
+        let tasks = DaemonTasks::default();
+        let dropped = Arc::new(AtomicUsize::new(0));
+        let guard = Dropped(dropped.clone());
+        let _receipt = tasks.spawn(async move {
+            let _guard = guard;
+            std::future::pending::<()>().await;
+        }).unwrap();
+        let mut first = Box::pin(tasks.abort_and_join());
+        // On the current-thread runtime the aborted task has not yet been
+        // scheduled to finish. Cancel precisely at its pending join.
+        assert!(matches!(futures_util::poll!(first.as_mut()), std::task::Poll::Pending));
+        drop(first);
+        assert_eq!(dropped.load(Ordering::SeqCst), 0);
+        let polled = Arc::new(AtomicUsize::new(0));
+        let observed = polled.clone();
+        assert!(tasks.spawn(async move { observed.fetch_add(1, Ordering::SeqCst); }).is_err());
+        tasks.abort_and_join().await;
+        assert_eq!(dropped.load(Ordering::SeqCst), 1,
+            "retry must wait for the original task's destruction, not an empty registry");
+        assert_eq!(polled.load(Ordering::SeqCst), 0, "closed admission never spawns the future");
+    }
+
+    #[tokio::test]
+    async fn cancelled_completion_wait_keeps_task_owned_until_shared_barrier() {
+        let tasks = DaemonTasks::default();
+        let dropped = Arc::new(AtomicUsize::new(0));
+        let guard = Dropped(dropped.clone());
+        let receipt = tasks.spawn(async move {
+            let _guard = guard;
+            std::future::pending::<()>().await;
+        }).unwrap();
+        let mut waiting = Box::pin(Daemon::wait_for_loops(receipt));
+        assert!(matches!(futures_util::poll!(waiting.as_mut()), std::task::Poll::Pending));
+        drop(waiting); // Same wait used by both standalone run entry points.
+        assert_eq!(dropped.load(Ordering::SeqCst), 0);
+        tasks.abort_and_join().await;
+        assert_eq!(dropped.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn loop_started_after_shutdown_trigger_observes_persistent_flag() {
+        let cache = Arc::new(CacheDb::new_in_memory().await.unwrap());
+        let daemon = Daemon::with_cache(Config::default(), cache);
+        // Trigger through the public shared handle before any loop subscribes.
+        daemon.shutdown_handle().trigger();
+        let mut receipt = daemon.spawn_owned_loops().unwrap();
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while !*receipt.borrow() { receipt.changed().await.unwrap(); }
+        }).await.expect("a pre-triggered loop must finish without another broadcast");
+        assert!(*receipt.borrow(), "normal loop completion was observed");
+        // Observation alone never substitutes for joining the retained task.
+        daemon.shutdown_and_wait().await.unwrap();
     }
 }

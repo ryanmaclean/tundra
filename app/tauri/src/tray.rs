@@ -221,7 +221,7 @@ fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, menu_id: &str) {
         }
         menu_ids::QUIT => {
             info!("tray: quit requested");
-            // Gracefully exit the app (daemon cleanup happens in Drop).
+            // Main intercepts ExitRequested and awaits native retirement first.
             app.exit(0);
         }
         menu_ids::STATUS => {

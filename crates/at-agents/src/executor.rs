@@ -244,7 +244,7 @@ impl ToolFallbackMap {
 #[async_trait::async_trait]
 pub trait PtySpawner: Send + Sync {
     /// Spawn a process and return a handle for I/O.
-    fn spawn(
+    async fn spawn(
         &self,
         cmd: &str,
         args: &[&str],
@@ -255,68 +255,81 @@ pub trait PtySpawner: Send + Sync {
 /// A handle to a spawned process, abstracting over PtyHandle.
 pub struct SpawnedProcess {
     pub id: Uuid,
-    pub reader: flume::Receiver<Vec<u8>>,
-    pub writer: flume::Sender<Vec<u8>>,
-    alive: Arc<std::sync::Mutex<bool>>,
+    backend: ProcessBackend,
+}
+
+enum ProcessBackend {
+    Native(at_session::pty_pool::PtyHandle),
+    Channels {
+        reader: flume::Receiver<Vec<u8>>,
+        writer: flume::Sender<Vec<u8>>,
+        alive: Arc<std::sync::Mutex<bool>>,
+    },
 }
 
 impl SpawnedProcess {
-    /// Create a new SpawnedProcess with the given channels.
-    pub fn new(
-        id: Uuid,
-        reader: flume::Receiver<Vec<u8>>,
-        writer: flume::Sender<Vec<u8>>,
-        alive: bool,
-    ) -> Self {
-        Self {
-            id,
-            reader,
-            writer,
-            alive: Arc::new(std::sync::Mutex::new(alive)),
-        }
+    /// Channel-only injection for existing test spawners; not native proof.
+    pub fn new(id: Uuid, reader: flume::Receiver<Vec<u8>>, writer: flume::Sender<Vec<u8>>, alive: bool) -> Self {
+        Self { id, backend: ProcessBackend::Channels { reader, writer, alive: Arc::new(std::sync::Mutex::new(alive)) } }
     }
-
-    /// Check if the process is still alive.
+    fn native(handle: at_session::pty_pool::PtyHandle) -> Self {
+        Self { id: handle.id, backend: ProcessBackend::Native(handle) }
+    }
     pub fn is_alive(&self) -> bool {
-        *self.alive.lock().unwrap_or_else(|e| {
-            warn!("executor lock was poisoned, recovering");
-            e.into_inner()
-        })
-    }
-
-    /// Mark the process as dead (for testing).
-    pub fn set_dead(&self) {
-        *self.alive.lock().unwrap_or_else(|e| {
-            warn!("executor lock was poisoned, recovering");
-            e.into_inner()
-        }) = false;
-    }
-
-    /// Send a line to the process stdin.
-    pub fn send_line(&self, line: &str) -> std::result::Result<(), String> {
-        let mut data = line.as_bytes().to_vec();
-        data.push(b'\n');
-        self.writer
-            .send(data)
-            .map_err(|e| format!("writer closed: {e}"))
-    }
-
-    /// Read with a timeout, returning None on timeout.
-    pub async fn read_timeout(&self, timeout: Duration) -> Option<Vec<u8>> {
-        let rx = self.reader.clone();
-        tokio::time::timeout(timeout, async move { rx.recv_async().await.ok() })
-            .await
-            .ok()
-            .flatten()
-    }
-
-    /// Drain all currently available output.
-    pub fn try_read_all(&self) -> Vec<u8> {
-        let mut buf = Vec::new();
-        while let Ok(chunk) = self.reader.try_recv() {
-            buf.extend_from_slice(&chunk);
+        match &self.backend {
+            ProcessBackend::Native(handle) => handle.is_alive(),
+            ProcessBackend::Channels { alive, .. } => *alive.lock().unwrap_or_else(|p| p.into_inner()),
         }
-        buf
+    }
+    fn native_retired(&self) -> bool {
+        match &self.backend { ProcessBackend::Native(handle) => handle.retirement() == at_session::pty_pool::Retirement::Retired, _ => false }
+    }
+    fn lost_output_bytes(&self) -> u64 {
+        match &self.backend { ProcessBackend::Native(handle) => handle.lost_output_bytes(), _ => 0 }
+    }
+    fn native_exit_code(&self) -> Option<Option<i32>> {
+        match &self.backend {
+            ProcessBackend::Native(handle) => Some(handle.exit_code()),
+            ProcessBackend::Channels { .. } => None,
+        }
+    }
+    pub fn set_dead(&self) {
+        match &self.backend {
+            ProcessBackend::Native(handle) => { let _ = handle.kill(); }
+            ProcessBackend::Channels { alive, .. } => *alive.lock().unwrap_or_else(|p| p.into_inner()) = false,
+        }
+    }
+    pub async fn retire(&self) -> std::result::Result<(), String> {
+        match &self.backend {
+            ProcessBackend::Native(handle) => {
+                handle.kill().map_err(|error| error.to_string())?;
+                handle.wait_retired(Duration::from_secs(10)).await.map_err(|error| error.to_string())
+            }
+            ProcessBackend::Channels { .. } => { self.set_dead(); Ok(()) }
+        }
+    }
+    pub async fn send_line(&self, line: &str) -> std::result::Result<(), String> {
+        let mut bytes = line.as_bytes().to_vec(); bytes.push(10);
+        match &self.backend {
+            ProcessBackend::Native(handle) => handle.send_async(&bytes).await.map_err(|error| error.to_string()),
+            ProcessBackend::Channels { writer, .. } => writer.send_async(bytes).await.map_err(|error| format!("writer closed: {error}")),
+        }
+    }
+    pub async fn read_timeout(&self, timeout: Duration) -> Option<Vec<u8>> {
+        match &self.backend {
+            ProcessBackend::Native(handle) => handle.read_timeout(timeout).await,
+            ProcessBackend::Channels { reader, .. } => tokio::time::timeout(timeout, reader.recv_async()).await.ok().and_then(std::result::Result::ok),
+        }
+    }
+    pub fn try_read_all(&self) -> Vec<u8> {
+        match &self.backend {
+            ProcessBackend::Native(handle) => handle.try_read_all(),
+            ProcessBackend::Channels { reader, .. } => {
+                let mut bytes = Vec::new();
+                while let Ok(chunk) = reader.try_recv() { bytes.extend(chunk); }
+                bytes
+            }
+        }
     }
 }
 
@@ -337,20 +350,15 @@ impl PtyPoolSpawner {
 
 #[async_trait::async_trait]
 impl PtySpawner for PtyPoolSpawner {
-    fn spawn(
+    async fn spawn(
         &self,
         cmd: &str,
         args: &[&str],
         env: &[(&str, &str)],
     ) -> std::result::Result<SpawnedProcess, String> {
-        let handle = self.pool.spawn(cmd, args, env).map_err(|e| e.to_string())?;
+        let handle = self.pool.spawn_async(cmd, args, env).await.map_err(|e| e.to_string())?;
 
-        Ok(SpawnedProcess::new(
-            handle.id,
-            handle.reader,
-            handle.writer,
-            true,
-        ))
+        Ok(SpawnedProcess::native(handle))
     }
 }
 
@@ -507,13 +515,19 @@ impl AgentExecutor {
         let process = self
             .spawner
             .spawn(agent_config.binary_name(), &args_refs, &env_refs)
+            .await
             .map_err(ExecutorError::PtyPool)?;
 
         let process = Arc::new(process);
+        // Cancellation signals retirement even while an active-map Arc remains.
+        struct RetireOnCancel(Arc<SpawnedProcess>);
+        impl Drop for RetireOnCancel { fn drop(&mut self) { self.0.set_dead(); } }
+        let _retire_on_cancel = RetireOnCancel(process.clone());
 
         // Track as active
         {
             let mut active = self.active_tasks.lock().await;
+            active.retain(|_, process| !process.native_retired());
             active.insert(task.id, Arc::clone(&process));
         }
 
@@ -521,7 +535,11 @@ impl AgentExecutor {
         self.publish_event(task, "task_execution_start");
 
         // Send the prompt to stdin
-        process.send_line(prompt).map_err(ExecutorError::Internal)?;
+        if let Err(error) = process.send_line(prompt).await {
+            let cleanup = process.retire().await;
+            if cleanup.is_ok() { self.active_tasks.lock().await.remove(&task.id); }
+            return Err(ExecutorError::Internal(format!("{error}; retirement: {cleanup:?}")));
+        }
 
         // Collect output with timeout
         let timeout = Duration::from_secs(agent_config.timeout_secs);
@@ -571,6 +589,18 @@ impl AgentExecutor {
             output_buf.extend_from_slice(&remaining);
         }
 
+        let native_exit_code = process.native_exit_code();
+        // Retain uncertain retirement in the active map for explicit retry.
+        process.retire().await.map_err(ExecutorError::Internal)?;
+        // Retirement can drain additional bytes after direct process exit.
+        let final_output = process.try_read_all();
+        for line in String::from_utf8_lossy(&final_output).lines() {
+            if let Some(event) = parse_agent_event(line) { events.push(event); }
+        }
+        output_buf.extend_from_slice(&final_output);
+        let lost_output_bytes = process.lost_output_bytes();
+        if lost_output_bytes > 0 { warn!(lost_output_bytes, "executor output exceeded bounded retention; result incomplete"); }
+
         // Remove from active tasks
         {
             let mut active = self.active_tasks.lock().await;
@@ -601,7 +631,7 @@ impl AgentExecutor {
             self.publish_event(task, "task_execution_timeout");
         }
 
-        let success = !timed_out && !output.is_empty();
+        let success = !timed_out && lost_output_bytes == 0 && match native_exit_code { Some(code) => code == Some(0), None => !output.is_empty() };
 
         // Publish completion event
         self.publish_event(
@@ -629,7 +659,7 @@ impl AgentExecutor {
             events,
             tool_errors,
             duration_ms,
-            exit_code: if success { Some(0) } else { None },
+            exit_code: native_exit_code.unwrap_or_else(|| if success { Some(0) } else { None }),
         })
     }
 
@@ -677,16 +707,13 @@ impl AgentExecutor {
 
     /// Abort a running task by its ID.
     pub async fn abort_task(&self, task_id: Uuid) -> Result<()> {
-        let mut active = self.active_tasks.lock().await;
-        if let Some(process) = active.remove(&task_id) {
-            info!(%task_id, "aborting task execution");
-            process.set_dead();
+        let process = self.active_tasks.lock().await.get(&task_id).cloned();
+        if let Some(process) = process {
+            process.retire().await.map_err(ExecutorError::Internal)?;
+            self.active_tasks.lock().await.remove(&task_id);
             Ok(())
         } else {
-            warn!(%task_id, "task not found in active tasks");
-            Err(ExecutorError::Internal(format!(
-                "task {task_id} not found in active tasks"
-            )))
+            Err(ExecutorError::Internal(format!("task {task_id} not found in active tasks")))
         }
     }
 
@@ -869,7 +896,7 @@ mod tests {
 
     #[async_trait::async_trait]
     impl PtySpawner for MockSpawner {
-        fn spawn(
+        async fn spawn(
             &self,
             _cmd: &str,
             _args: &[&str],

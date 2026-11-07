@@ -1,8 +1,9 @@
 //! Cryptographic utilities for encrypting and decrypting sensitive data.
 //!
 //! Uses ChaCha20-Poly1305 AEAD (Authenticated Encryption with Associated Data)
-//! for secure encryption with authentication. Keys and sensitive data are
-//! automatically zeroed from memory when dropped using the `zeroize` crate.
+//! for secure encryption with authentication. `EncryptionKey` zeroizes its
+//! owned key bytes on drop through the `zeroize` derive.
+//! Temporary key copies and plaintext buffers require separate handling.
 
 use ring::aead::{
     Aad, BoundKey, Nonce, NonceSequence, OpeningKey, SealingKey, UnboundKey, CHACHA20_POLY1305,
@@ -106,7 +107,6 @@ impl From<Unspecified> for CryptoError {
 /// A cryptographic key that is automatically zeroed from memory when dropped.
 #[derive(Clone, Zeroize, ZeroizeOnDrop)]
 pub struct EncryptionKey {
-    #[zeroize(skip)]
     bytes: [u8; KEY_LEN],
 }
 
@@ -394,16 +394,9 @@ mod tests {
     }
 
     #[test]
-    fn test_key_zeroized_on_drop() {
-        let key_bytes = {
-            let key = EncryptionKey::generate().unwrap();
-            let bytes = *key.as_bytes();
-            // key is dropped here
-            bytes
-        };
-
-        // We can't directly verify the original memory was zeroed,
-        // but we can verify the key was created with non-zero bytes
-        assert_ne!(key_bytes, [0u8; KEY_LEN]);
+    fn test_key_zeroize_clears_bytes() {
+        let mut key = EncryptionKey::from_bytes(&[0xA5; KEY_LEN]).unwrap();
+        key.zeroize();
+        assert!(key.as_bytes().iter().all(|byte| *byte == 0));
     }
 }

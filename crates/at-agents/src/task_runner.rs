@@ -193,6 +193,11 @@ impl TaskRunner {
         ];
 
         for phase in &phases {
+            if let at_session::pty_pool::Liveness::Unknown(reason) = session.liveness() {
+                let msg = format!("agent session observation failed: {reason}");
+                self.transition_to_error(task, bus, &msg);
+                return Err(TaskRunnerError::SessionError(msg));
+            }
             if !session.is_alive() {
                 let msg = "agent session died unexpectedly";
                 error!(task_id = %task.id, msg);
@@ -249,7 +254,8 @@ impl TaskRunner {
 
         // Send to agent
         session
-            .send_command(&prompt)
+            .send_command_async(&prompt)
+            .await
             .map_err(|e| TaskRunnerError::SessionError(e.to_string()))?;
 
         // Read agent output with timeout
@@ -906,7 +912,7 @@ mod pipeline_tests {
     // -----------------------------------------------------------------------
 
     #[tokio::test]
-    async fn run_dead_session_mid_pipeline_returns_error() {
+    async fn run_dead_session_before_first_phase_returns_error() {
         let (session, _read_tx, write_rx) = make_fake_session(FakeChild::dead_from_start());
         let bus = EventBus::new();
         let mut task = make_test_task();
@@ -1021,11 +1027,10 @@ mod pipeline_tests {
 
     #[tokio::test]
     async fn run_session_dies_mid_pipeline_terminates_early() {
-        // FakeChild::alive_for(1): alive for the 1st is_alive() check
-        // (Discovery's pre-check), dead for the 2nd (ContextGathering's
-        // pre-check).  This means Discovery runs to completion but
-        // ContextGathering and later phases are never entered.
-        let (session, read_tx, write_rx) = make_fake_session(FakeChild::alive_for(1));
+        // Each phase checks liveness() and then is_alive(), so Discovery
+        // needs two successful try_wait() calls. The next observation, at
+        // ContextGathering's pre-check, reports exit.
+        let (session, read_tx, write_rx) = make_fake_session(FakeChild::alive_for(2));
         let bus = EventBus::new();
         let mut task = make_test_task();
         let mut runner = TaskRunner::new().with_timeout(Duration::from_millis(50));

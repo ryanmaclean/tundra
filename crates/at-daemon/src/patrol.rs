@@ -130,49 +130,45 @@ impl PatrolRunner {
 /// `pty_handles` entry for liveness via `PtyHandle::is_alive()`, and removes
 /// dead entries from both maps. Returns the number of orphans reaped.
 pub async fn reap_orphan_ptys(state: &Arc<ApiState>) -> usize {
-    // Collect terminal IDs that have a registered PTY handle.
-    let terminal_ids: Vec<uuid::Uuid> = {
-        let registry = state.terminal_registry.read().await;
-        registry.list().iter().map(|t| t.id).collect()
-    };
-
-    let mut orphan_count = 0;
-
-    for tid in &terminal_ids {
-        let is_dead = {
-            let handles = state.pty_handles.read().await;
-            match handles.get(tid) {
-                Some(handle) => !handle.is_alive(),
-                // Terminal registered but no PTY handle at all — also an orphan.
-                None => true,
-            }
-        };
-
-        if is_dead {
-            orphan_count += 1;
-            warn!(terminal_id = %tid, "orphaned PTY detected — reaping");
-
-            // Remove from pty_handles (and kill if still present).
-            {
-                let mut handles = state.pty_handles.write().await;
-                if let Some(handle) = handles.remove(tid) {
-                    let _ = handle.kill();
+    use at_session::pty_pool::{Liveness, Retirement};
+    let _lifecycle = state.terminal_lifecycle.lock().await;
+    // Handle-only terminals are included; pool-only agent sessions are not
+    // misclassified as terminal orphans merely because they have no UI row.
+    let mut ids = std::collections::HashSet::new();
+    ids.extend(state.terminal_registry.read().await.list().iter().map(|info| info.id));
+    ids.extend(state.pty_handles.read().await.keys().copied());
+    let mut reaped = 0;
+    for id in ids {
+        let handle = state.pty_handles.read().await.get(&id).cloned()
+            .or_else(|| state.pty_pool.as_ref().and_then(|pool| pool.get(id)));
+        match handle {
+            Some(handle) => {
+                let metadata_present = state.terminal_registry.read().await.get(&id).is_some();
+                if handle.liveness() == Liveness::Exited || !metadata_present {
+                    if handle.kill().is_err() { continue; }
                 }
-            }
-
-            // Mark as closed in the registry and remove.
-            {
+                if handle.retirement() != Retirement::Retired { continue; }
+                state.pty_handles.write().await.remove(&id);
                 let mut registry = state.terminal_registry.write().await;
-                registry.unregister(tid);
+                let disconnected = registry.get(&id).is_some_and(|info| matches!(info.status, at_bridge::terminal::TerminalStatus::Disconnected { .. } | at_bridge::terminal::TerminalStatus::Dead));
+                if disconnected {
+                    registry.update_status(&id, at_bridge::terminal::TerminalStatus::Dead);
+                } else { registry.unregister(&id); }
+                state.disconnect_buffers.write().await.remove(&id);
+                reaped += 1;
+            }
+            None => {
+                // Existing report counts orphan entries, not exclusively native
+                // processes. Keep confirmed Dead tombstones for reconnect 410.
+                let mut registry = state.terminal_registry.write().await;
+                if !registry.get(&id).is_some_and(|info| matches!(info.status, at_bridge::terminal::TerminalStatus::Dead)) {
+                    if registry.unregister(&id).is_some() { reaped += 1; }
+                }
             }
         }
     }
-
-    if orphan_count > 0 {
-        info!(orphan_count, "orphan PTY reaping complete");
-    }
-
-    orphan_count
+    if let Some(pool) = &state.pty_pool { pool.active_count(); }
+    reaped
 }
 
 #[cfg(test)]
@@ -415,7 +411,7 @@ mod tests {
     /// is an orphan.  The function must call kill() on the handle and remove it
     /// from both maps.
     #[tokio::test]
-    async fn reap_orphan_ptys_kills_orphan_pty_with_no_terminal() {
+    async fn reap_orphan_ptys_kills_dead_pty_and_removes_terminal() {
         let tid = Uuid::new_v4();
 
         let mut registry = TerminalRegistry::new();
@@ -470,8 +466,7 @@ mod tests {
     }
 
     /// When `kill()` fails on the underlying child, `reap_orphan_ptys` must NOT
-    /// panic.  The production code uses `let _ = handle.kill()` which discards
-    /// the error, so the entry is removed regardless of kill outcome.
+    /// panic or erase the owner. Both maps remain available for a later retry.
     #[tokio::test]
     async fn reap_orphan_ptys_handles_kill_failure_gracefully() {
         let tid = Uuid::new_v4();
@@ -489,19 +484,19 @@ mod tests {
         // Must NOT panic even though kill() returns Err.
         let reaped = reap_orphan_ptys(&state).await;
 
-        assert_eq!(reaped, 1, "orphan count must be 1 even after kill failure");
+        assert_eq!(reaped, 0, "failed retirement is not a reaped orphan");
         assert!(
             mock_child.kill_was_called(),
             "kill() must still be attempted on the orphaned handle"
         );
-        // Graceful degradation: entry is removed regardless of kill outcome.
+        // Failed retirement keeps both identity views for retry.
         assert!(
-            state.pty_handles.read().await.is_empty(),
-            "handle must be removed from pty_handles even when kill() fails"
+            state.pty_handles.read().await.contains_key(&tid),
+            "failed retirement must preserve the native handle"
         );
         assert!(
-            state.terminal_registry.read().await.list().is_empty(),
-            "terminal must be removed from terminal_registry even when kill() fails"
+            state.terminal_registry.read().await.get(&tid).is_some(),
+            "failed retirement must preserve terminal metadata"
         );
     }
 
