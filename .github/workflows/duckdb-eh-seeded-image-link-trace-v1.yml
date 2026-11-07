@@ -860,6 +860,7 @@ jobs:
           private = Path('/work/image/trace-private/parser-class.txt')
           classification = 'PARSER_OTHER'
           direct_open_detail = 'UNAVAILABLE'
+          direct_close_detail = 'UNAVAILABLE'
           try:
               info = private.lstat()
               if stat.S_ISREG(info.st_mode) and 0 < info.st_size <= 64:
@@ -868,10 +869,17 @@ jobs:
                       candidate, detail = raw.decode('ascii').strip().split(' ')
                       permitted_details = {'OPEN_REFUSAL_NULL_FLAGS', 'OPEN_REFUSAL_NESTED_NULL',
                                            'OPEN_REFUSAL_NESTED_OTHER', 'OPEN_REFUSAL_OTHER'}
+                      close_details = {'CLOSE_REFUSAL_NESTED', 'CLOSE_REFUSAL_PLAIN_ERRNO',
+                                       'CLOSE_REFUSAL_ANNOTATED_ERRNO', 'CLOSE_REFUSAL_NUMERIC_OTHER',
+                                       'CLOSE_REFUSAL_OTHER'}
                       if candidate in allowed and (detail == 'UNAVAILABLE' or
-                                                   (candidate == 'OPEN_SHAPE_AMBIGUOUS' and detail in permitted_details)):
+                                                   (candidate == 'OPEN_SHAPE_AMBIGUOUS' and detail in permitted_details) or
+                                                   (candidate == 'CLOSE_SHAPE_AMBIGUOUS' and detail in close_details)):
                           classification = candidate
-                          direct_open_detail = detail
+                          if candidate == 'OPEN_SHAPE_AMBIGUOUS':
+                              direct_open_detail = detail
+                          if candidate == 'CLOSE_SHAPE_AMBIGUOUS':
+                              direct_close_detail = detail
           except OSError:
               pass
           receipt = Path('/work/image/receipt/refusal.json')
@@ -1161,7 +1169,7 @@ jobs:
                           break
               except (OSError, ValueError):
                   detail = 'UNAVAILABLE'
-              data['parser_diagnostic']['close_class'] = detail
+              data['parser_diagnostic']['close_class'] = direct_close_detail if direct_close_detail != 'UNAVAILABLE' else detail
           encoded = json.dumps(data, separators=(',', ':'), sort_keys=True) + '\n'
           if len(encoded) > 4096:
               raise SystemExit('parser refusal cap rejected')

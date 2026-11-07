@@ -323,6 +323,24 @@ jobs:
           (d / 'trace.111').write_text('execve("/usr/bin/true", [], 0x1) = 0\n+++ exited with 0 +++\n')
           (d / 'trace.222').write_text('execve("/emsdk/upstream/bin/wasm-ld", [], 0x1) = 0\nopenat(AT_FDCWD, "/dev/null", O_RDONLY) = 3</dev/null<char 1:3>>\nopenat(AT_FDCWD, "/dummy-secret", O_RDONLY) = 4</dummy-secret<block 1:5>>\n')
           PYDIRECTDETAIL
+          /work/image/tool/nu -c 'use gate/.github/scripts/duckdb-eh-linker-fd-witness-v1.nu close_refusal_detail_self_test; close_refusal_detail_self_test gate/.github/receipts/duckdb-eh-linker-fd-witness-v1.json'
+          python3 - <<'PYCLOSEDIRECT'
+          from pathlib import Path
+          d = Path('/work/image/trace-private/close-direct-detail')
+          d.mkdir(mode=0o700)
+          (d / 'trace.111').write_text('execve("/usr/bin/true", [], 0x1) = 0\n+++ exited with 0 +++\n')
+          (d / 'trace.222').write_text('execve("/emsdk/upstream/bin/wasm-ld", [], 0x1) = 0\nclose(7</tmp/fixture>) = 0\nclose(4</dummy-secret<char 1:5>>) = 0\n')
+          PYCLOSEDIRECT
+          if /work/image/tool/nu gate/.github/scripts/duckdb-eh-linker-fd-witness-v1.nu \
+            gate/.github/receipts/duckdb-eh-linker-fd-witness-v1.json /work/image/trace-private/close-direct-detail \
+            6e5c12aab29b80db118acd16c08953257683ed11c415970f8320ed777997eec7 \
+            /work/image/trace-private/close-direct-receipt.json /work/image/trace-private/close-direct-class.txt \
+            > /work/image/trace-private/close-direct-stdout.txt 2> /work/image/trace-private/close-direct-stderr.txt; then
+            exit 1
+          fi
+          test "$(cat /work/image/trace-private/close-direct-class.txt)" = 'CLOSE_SHAPE_AMBIGUOUS CLOSE_REFUSAL_NESTED'
+          test ! -e /work/image/trace-private/close-direct-receipt.json
+          if grep -q 'dummy-secret' /work/image/trace-private/close-direct-{stdout,stderr,class}.txt; then exit 1; fi
           if /work/image/tool/nu gate/.github/scripts/duckdb-eh-linker-fd-witness-v1.nu \
             gate/.github/receipts/duckdb-eh-linker-fd-witness-v1.json /work/image/trace-private/direct-detail \
             6e5c12aab29b80db118acd16c08953257683ed11c415970f8320ed777997eec7 \
@@ -538,10 +556,15 @@ jobs:
           (fixture / 'trace.123').write_bytes(b'execve("/emsdk/upstream/bin/wasm-ld", [], 0x1) = 0\n' + records[1])
           block = block.replace("Path('/work/image/trace-raw')", "Path('/work/image/trace-private/close-fixture')")
           classification = 'CLOSE_SHAPE_AMBIGUOUS'
+          direct_close_detail = 'UNAVAILABLE'
           data = {'parser_diagnostic': {'failure_class': classification}}
           exec(compile(block, '<fixed-close-diagnostic>', 'exec'))
           if data['parser_diagnostic'].get('close_class') != 'FAILED_ERRNO_RETURN':
               raise SystemExit('close fixture refused')
+          direct_close_detail = 'CLOSE_REFUSAL_OTHER'
+          exec(compile(block, '<fixed-close-diagnostic>', 'exec'))
+          if data['parser_diagnostic'].get('close_class') != 'CLOSE_REFUSAL_OTHER':
+              raise SystemExit('direct close detail precedence refused')
           aligned = Path('/work/image/trace-private/close-aligned.trace')
           if aligned.is_symlink() or not aligned.is_file() or not 0 < aligned.stat().st_size <= 1048576:
               raise SystemExit('close aligned dummy refused')

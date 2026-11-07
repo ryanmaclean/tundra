@@ -119,7 +119,7 @@ def parse_pid [raw: string, pid: int, l: record] {
       # Recognize only completed successful closes; an error may leave the
       # descriptor lifetime ambiguous and must not leave it tracked.
       let c = (capture $line '^close\((?<fd>[0-9]+)(?:<(?<annotation>[^>]+)>)?\)[ \t]{1,64}=[ \t]{1,8}(?<result>0)$')
-      require ($c != null) 'CLOSE_SHAPE_AMBIGUOUS'
+      if $c == null { error make {msg: (close_refusal_detail $line)} }
       if (($c.fd | into int) in $active) { require ($c.annotation == $l.archive_path) 'FD_ANNOTATION_DRIFT' }
       if $c.result == '0' { $active = ($active | where $it != ($c.fd | into int)) }
       continue
@@ -233,8 +233,14 @@ def open_refusal_detail [line: string] {
   } else { 'OPEN_REFUSAL_OTHER' }
 }
 
+def close_refusal_detail [line: string] {
+  # Syntax appearance only, from the actual refused record; never emit data.
+  if ($line =~ '^close\([0-9]+<[^<>\n]*<[^<>\n]+>[^<>\n]*>\)[ \t]{1,64}=[ \t]{1,8}0$') { 'CLOSE_REFUSAL_NESTED' } else if ($line =~ '^close\([0-9]+\)[ \t]{1,64}=[ \t]{1,8}-1 [A-Z][A-Z0-9_]*(?: \([^\n]*\))?$') { 'CLOSE_REFUSAL_PLAIN_ERRNO' } else if ($line =~ '^close\([0-9]+<[^<>\n]+>\)[ \t]{1,64}=[ \t]{1,8}-1 [A-Z][A-Z0-9_]*(?: \([^\n]*\))?$') { 'CLOSE_REFUSAL_ANNOTATED_ERRNO' } else if ($line =~ '^close\([0-9]+(?:<[^<>\n]+>)?\)[ \t]{1,64}=[ \t]{1,8}-?[0-9]+$') { 'CLOSE_REFUSAL_NUMERIC_OTHER' } else { 'CLOSE_REFUSAL_OTHER' }
+}
+
 export def parser_failure_class [message: string] {
   if $message in [OPEN_REFUSAL_NULL_FLAGS OPEN_REFUSAL_NESTED_NULL OPEN_REFUSAL_NESTED_OTHER OPEN_REFUSAL_OTHER] { return 'OPEN_SHAPE_AMBIGUOUS' }
+  if $message in [CLOSE_REFUSAL_NESTED CLOSE_REFUSAL_PLAIN_ERRNO CLOSE_REFUSAL_ANNOTATED_ERRNO CLOSE_REFUSAL_NUMERIC_OTHER CLOSE_REFUSAL_OTHER] { return 'CLOSE_SHAPE_AMBIGUOUS' }
   # Only literal parser assertions may cross into a fixed refusal. Nu errors
   # can contain private paths or trace content, so all others collapse.
   let allowed = [
@@ -485,7 +491,7 @@ export def close_alignment_self_test [ledger_path: string] {
   ]
   for line in $invalid {
     let actual = (try { parse_pid ([$exec $opened $line] | str join "\n") 123 $l; 'ACCEPTED' } catch {|err| $err.msg })
-    require ($actual == 'CLOSE_SHAPE_AMBIGUOUS') 'SELF_TEST_CLOSE_REFUSAL'
+    require ((parser_failure_class $actual) == 'CLOSE_SHAPE_AMBIGUOUS') 'SELF_TEST_CLOSE_REFUSAL'
   }
   let drift = 'close(3</tmp/other>) = 0'
   let drift_result = (try { parse_pid ([$exec $opened $drift] | str join "\n") 123 $l; 'ACCEPTED' } catch {|err| $err.msg })
@@ -607,12 +613,32 @@ export def char_device_self_test [ledger_path: string] {
   'character device non-witness fixtures passed'
 }
 
+export def close_refusal_detail_self_test [ledger_path: string] {
+  let l = (checked_ledger $ledger_path)
+  let exec = 'execve("/emsdk/upstream/bin/wasm-ld", [], 0x1) = 0'
+  let accepted = 'close(7</tmp/fixture>) = 0'
+  let cases = [
+    {line: 'close(4</dummy-secret<char 1:5>>) = 0', detail: CLOSE_REFUSAL_NESTED}
+    {line: 'close(4) = -1 EBADF (Bad file descriptor)', detail: CLOSE_REFUSAL_PLAIN_ERRNO}
+    {line: 'close(4</dummy-secret>) = -1 EINTR (Interrupted system call)', detail: CLOSE_REFUSAL_ANNOTATED_ERRNO}
+    {line: 'close(4) = 9', detail: CLOSE_REFUSAL_NUMERIC_OTHER}
+    {line: 'close(broken)', detail: CLOSE_REFUSAL_OTHER}
+  ]
+  for case in $cases {
+    let actual = (try { parse_pid ([$exec $accepted $case.line] | str join "\n") 123 $l; 'ACCEPTED' } catch {|err| $err.msg })
+    require ($actual == $case.detail and (parser_failure_class $actual) == 'CLOSE_SHAPE_AMBIGUOUS') 'SELF_TEST_DIRECT_CLOSE_DETAIL'
+  }
+  let split = (try { parse_pid ([$exec $accepted 'close(4 <unfinished ...>'] | str join "\n") 123 $l; 'ACCEPTED' } catch {|err| $err.msg })
+  require ($split == 'SPLIT_SYSCALL_AMBIGUOUS') 'SELF_TEST_DIRECT_CLOSE_SPLIT'
+  'direct close refusal detail fixtures passed'
+}
+
 def main [ledger: string, trace_dir: string, runtime_elf_sha256: string, receipt: string, private_class: string] {
   try {
     witness $ledger $trace_dir $runtime_elf_sha256 $receipt
   } catch {|err|
     let class = (parser_failure_class $err.msg)
-    let detail = if $err.msg in [OPEN_REFUSAL_NULL_FLAGS OPEN_REFUSAL_NESTED_NULL OPEN_REFUSAL_NESTED_OTHER OPEN_REFUSAL_OTHER] { $err.msg } else { 'UNAVAILABLE' }
+    let detail = if $err.msg in [OPEN_REFUSAL_NULL_FLAGS OPEN_REFUSAL_NESTED_NULL OPEN_REFUSAL_NESTED_OTHER OPEN_REFUSAL_OTHER CLOSE_REFUSAL_NESTED CLOSE_REFUSAL_PLAIN_ERRNO CLOSE_REFUSAL_ANNOTATED_ERRNO CLOSE_REFUSAL_NUMERIC_OTHER CLOSE_REFUSAL_OTHER] { $err.msg } else { 'UNAVAILABLE' }
     $"($class) ($detail)" | save --force $private_class
     error make {msg: 'PARSER_REFUSED'}
   }
