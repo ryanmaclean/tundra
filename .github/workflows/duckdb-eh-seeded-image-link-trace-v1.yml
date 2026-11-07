@@ -294,13 +294,40 @@ jobs:
           PY
           raw_canary_dir=/work/image/trace-private/raw-canary
           mkdir -m 0700 "$raw_canary_dir"
+          raw_canary_root_id="$(stat -c '%d:%i' "$raw_canary_dir")"
           raw_canary_within_cap() {
-            local entries regular oversized bytes
-            entries=$(find "$raw_canary_dir" -mindepth 1 -maxdepth 1 | wc -l)
-            regular=$(find "$raw_canary_dir" -mindepth 1 -maxdepth 1 -type f | wc -l)
-            oversized=$(find "$raw_canary_dir" -mindepth 1 -maxdepth 1 -type f -size +4194304c | wc -l)
-            bytes=$(du -sb "$raw_canary_dir" | cut -f 1)
-            test "$entries" -le 8 && test "$entries" -eq "$regular" && test "$oversized" -eq 0 && test "$bytes" -le 16777216
+            python3 - "$raw_canary_dir" "$raw_canary_root_id" <<'PYCAP'
+          import os
+          import stat
+          import sys
+          path, expected = sys.argv[1:]
+          fd = None
+          try:
+              dev, ino = (int(x) for x in expected.split(':'))
+              fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+              root = os.fstat(fd)
+              if not stat.S_ISDIR(root.st_mode) or (root.st_dev, root.st_ino) != (dev, ino):
+                  raise ValueError()
+              count = total = 0
+              with os.scandir(fd) as entries:
+                  for entry in entries:
+                      count += 1
+                      info = os.stat(entry.name, dir_fd=fd, follow_symlinks=False)
+                      if count > 8 or not stat.S_ISREG(info.st_mode) or info.st_size > 4194304:
+                          raise ValueError()
+                      total += info.st_size
+              after = os.fstat(fd)
+              named = os.stat(path, follow_symlinks=False)
+              if (not stat.S_ISDIR(named.st_mode) or (named.st_dev, named.st_ino) != (dev, ino)
+                      or (after.st_dev, after.st_ino) != (dev, ino)
+                      or total + after.st_size > 16777216):
+                  raise ValueError()
+          except (OSError, ValueError):
+              raise SystemExit(1) from None
+          finally:
+              if fd is not None:
+                  os.close(fd)
+          PYCAP
           }
           mark_raw_stage RAW_LAUNCH
           mark_raw_stage RAW_MONITOR
@@ -331,6 +358,7 @@ jobs:
             esac
             exit 1
           fi
+          raw_canary_within_cap
           mark_raw_stage RAW_VERIFY
           python3 - <<'PY'
           from pathlib import Path
