@@ -1027,6 +1027,18 @@ jobs:
                       return prefix + 'FAILED_RETURN'
                   if re.search(rb'\) = [0-9]+$', line):
                       return prefix + 'UNANNOTATED_SUCCESS'
+                  # These categories describe only a bounded result suffix;
+                  # they do not assert that the preceding arguments parsed.
+                  suffix = re.search(rb'\)[ \t]{1,64}=[ \t]{1,8}([^\n]+)$', line)
+                  if suffix:
+                      result = suffix.group(1)
+                      if re.fullmatch(rb'-1 [A-Z][A-Z0-9_]*(?: \([^\n]*\))?', result):
+                          return prefix + 'FAILED_RETURN_OTHER_GRAMMAR'
+                      if re.fullmatch(rb'[0-9]+<[^>]+>', result):
+                          return prefix + 'ANNOTATED_SUCCESS_OTHER_GRAMMAR'
+                      if re.fullmatch(rb'[0-9]+', result):
+                          return prefix + 'NUMERIC_SUCCESS_OTHER_GRAMMAR'
+                      return prefix + 'OTHER_RESULT'
                   return prefix + 'OTHER_SHAPE'
               assert open_kind(b'open("/dummy", O_RDONLY) = 3</dummy>\n') is None
               assert open_kind(b'openat(AT_FDCWD, "/dummy", O_RDONLY) = 3</dummy>\n') is None
@@ -1034,6 +1046,10 @@ jobs:
               assert open_kind(b'openat(AT_FDCWD</tmp>, "/dummy", O_RDONLY) = -1 ENOENT (No such file or directory)\n') is None
               assert open_kind(b'openat(AT_FDCWD, "/dummy", O_RDONLY) = -1 EACCES (Permission denied)\n') == 'OPENAT_FAILED_RETURN'
               assert open_kind(b'open("/dummy", O_RDONLY) = 3\n') == 'OPEN_UNANNOTATED_SUCCESS'
+              assert open_kind(b'openat(AT_FDCWD, "/dummy", O_RDONLY)' + b' ' * 20 + b'= 3</dummy>\n') == 'OPENAT_ANNOTATED_SUCCESS_OTHER_GRAMMAR'
+              assert open_kind(b'openat(AT_FDCWD, "/dummy", O_RDONLY)' + b' ' * 20 + b'= -1 ENOENT (No such file or directory)\n') == 'OPENAT_FAILED_RETURN_OTHER_GRAMMAR'
+              assert open_kind(b'openat(AT_FDCWD, "/dummy", O_RDONLY)' + b' ' * 20 + b'= 3\n') == 'OPENAT_NUMERIC_SUCCESS_OTHER_GRAMMAR'
+              assert open_kind(b'openat(AT_FDCWD, "/dummy", O_RDONLY)' + b' ' * 20 + b'= ?\n') == 'OPENAT_OTHER_RESULT'
               assert open_kind(b'openat(broken\n') == 'OPENAT_OTHER_SHAPE'
               detail = 'UNAVAILABLE'
               try:

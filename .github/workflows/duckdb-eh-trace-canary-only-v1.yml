@@ -237,6 +237,44 @@ jobs:
           witness $ledger /work/image/trace-private/flags-good-with-read $digest /work/image/trace-private/flags-good-with-read.json
           NUFAILEDOPEN
           )"
+          # Fixed dummy calls, intentionally aligned to exercise suffix enums.
+          printf '%s\n' dummy > /work/image/trace-private/suffix-present
+          timeout 15s "$loader" --library-path "$libdir" "$tracer" -yy -s 256 -a 115 -e trace=open,openat \
+            -o /work/image/trace-private/suffix-dummy.trace python3 -c 'import os; os.chdir("/work/image/trace-private"); f=os.open("suffix-present",os.O_RDONLY); os.close(f); exec("try:\n os.open(\"suffix-absent\",os.O_RDONLY)\nexcept FileNotFoundError:\n pass")' \
+            > /work/image/trace-private/suffix-dummy.log 2>&1
+          python3 - <<'PYSUFFIXCANARY'
+          from pathlib import Path
+          import re
+          import stat
+          import textwrap
+          source = Path('gate/.github/workflows/duckdb-eh-seeded-image-link-trace-v1.yml').read_text()
+          start_marker = "          if classification == 'OPEN_SHAPE_AMBIGUOUS':\n"
+          end_marker = "          encoded = json.dumps(data, separators=(',', ':'), sort_keys=True) + '\\n'\n"
+          if source.count(start_marker) != 1:
+              raise SystemExit('open suffix source refused')
+          start = source.index(start_marker)
+          end = source.index(end_marker, start)
+          block = textwrap.dedent(source[start:end])
+          dummy = Path('/work/image/trace-private/suffix-dummy.trace')
+          if dummy.is_symlink() or not dummy.is_file() or not 0 < dummy.stat().st_size <= 1048576:
+              raise SystemExit('open suffix dummy refused')
+          records = dummy.read_bytes().splitlines(keepends=True)
+          for name, needle, expected in (
+              ('suffix-success', b'"suffix-present"', 'OPENAT_ANNOTATED_SUCCESS_OTHER_GRAMMAR'),
+              ('suffix-failed', b'"suffix-absent"', 'OPENAT_FAILED_RETURN_OTHER_GRAMMAR')):
+              matches = [line for line in records if needle in line]
+              if len(matches) != 1:
+                  raise SystemExit('open suffix dummy refused')
+              fixture = Path('/work/image/trace-private') / name
+              fixture.mkdir(mode=0o700)
+              (fixture / 'trace.123').write_bytes(b'execve("/emsdk/upstream/bin/wasm-ld", [], 0x1) = 0\n' + matches[0])
+              local_block = block.replace("Path('/work/image/trace-raw')", f'Path({str(fixture)!r})')
+              classification = 'OPEN_SHAPE_AMBIGUOUS'
+              data = {'parser_diagnostic': {'failure_class': classification}}
+              exec(compile(local_block, '<fixed-open-suffix>', 'exec'))
+              if data['parser_diagnostic'].get('open_class') != expected:
+                  raise SystemExit('open suffix fixture refused')
+          PYSUFFIXCANARY
           printf '%s\n' dummy > /work/image/trace-private/relative-fixture-file
           timeout 15s "$loader" --library-path "$libdir" "$tracer" -yy -s 256 -e trace=open,openat \
             -o /work/image/trace-private/relative-dummy.trace python3 -c 'import os; os.chdir("/work/image/trace-private"); f=os.open("relative-fixture-file",os.O_RDONLY); os.close(f)' \
