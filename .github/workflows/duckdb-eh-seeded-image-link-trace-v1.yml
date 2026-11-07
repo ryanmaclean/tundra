@@ -197,7 +197,6 @@ jobs:
           cp /work/image/build-output/build.json /work/image/receipt/build.json
       - name: Trace fresh EH relink and join direct archive FD read
         id: trace
-        if: ${{ false }}
         shell: bash
         run: |
           set -euo pipefail
@@ -606,7 +605,7 @@ jobs:
             cd "$build" || exit 1
             test "$PWD" = "$GITHUB_WORKSPACE/duckdb-upstream/build/integrated-eh-seeded-image" || exit 1
             setsid timeout --signal=TERM --kill-after=5s 600s "$loader" --library-path "$libdir" "$tracer" -ff -yy -s 256 -e raw=read,pread64,readv \
-              -e trace=execve,execveat,open,openat,read,pread64,readv,close,close_range,dup,dup2,dup3,fcntl,mmap,chdir,fchdir,exit_group \
+              -e trace=all \
               -o /work/image/trace-private/raw/trace bash -euo pipefail -c "$command_text" \
               > /work/image/trace-private/relink-output.log 2>&1 &
             tracer_pid=$!
@@ -722,6 +721,120 @@ jobs:
             fi
             exit 1
           fi
+          # Diagnostic appearance scan only. It cannot authorize a read witness.
+          python3 - 2>/dev/null <<'PY'
+          import hashlib, json, os, re, stat
+          from pathlib import Path
+
+          base = Path('/work/image/trace-private/raw')
+          receipt = Path('/work/image/receipt/refusal.json')
+          pre = json.loads(Path('/work/image/trace-private/pre.json').read_text())
+          result = {'schema':'tundra-eh-fulltrace-observation/v1', 'status':'REFUSED',
+                    'reason':'FULL_TRACE_DIAGNOSTIC_ONLY', 'actual_eh_linker_child':'UNPROVEN',
+                    'linker_archive_read':'UNPROVEN', 'same_run_traced_outputs':'UNPROVEN',
+                    'legal_admission':'NO', 'product_admission':'NO', 'fleet_admission':'NO'}
+          target = re.compile(rb'^execve\("/emsdk/upstream/bin/wasm-ld", .*\) = 0$')
+          archive = b'/work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a'
+          opened = re.compile(rb'^openat\(AT_FDCWD(?:</[^<>\\]*>)?, "' + re.escape(archive) +
+                              rb'", O_RDONLY(?:\|O_CLOEXEC)?\)\s+= ([0-9]+)<' + re.escape(archive) + rb'>$')
+          num = rb'(0x[0-9a-f]+|[0-9]+)'
+          read = re.compile(rb'^(?:read|pread64)\(' + num + rb', ' + num + rb', ' + num +
+                            rb'(?:, ' + num + rb')?\)\s+= ' + num + rb'$')
+          close = re.compile(rb'^close\(([0-9]+)(?:<[^>]*>)?\)\s+= 0$')
+          def parse_number(value):
+              return int(value, 16 if value.startswith(b'0x') else 10)
+          def scan(lines):
+              seen_exec = False
+              active = set()
+              positive = False
+              clone = False
+              split = False
+              for line in lines:
+                  if b'<unfinished ...>' in line or b' resumed>' in line:
+                      if seen_exec: split = True
+                  if line.startswith(b'execve('):
+                      seen_exec = bool(target.fullmatch(line))
+                      active.clear()
+                  if not seen_exec:
+                      continue
+                  if line.startswith((b'clone(', b'clone3(', b'fork(', b'vfork(')):
+                      clone = True
+                  match = opened.fullmatch(line)
+                  if match:
+                      active.add(int(match.group(1)))
+                  match = read.fullmatch(line)
+                  if match:
+                      fd, address, count = map(parse_number, match.groups()[:3])
+                      outcome = parse_number(match.groups()[-1])
+                      if fd in active and address and count and 0 < outcome <= count:
+                          positive = True
+                  match = close.fullmatch(line)
+                  if match:
+                      active.discard(int(match.group(1)))
+              return positive, clone, split
+          # Controls are fixed synthetic data and never emitted.
+          marker = b'execve("/emsdk/upstream/bin/wasm-ld", ["lld"], 0x0) = 0'
+          fixture_open = b'openat(AT_FDCWD, "' + archive + b'", O_RDONLY) = 3<' + archive + b'>'
+          fixture_read = b'pread64(0x3, 0x1000, 0x8, 0x0) = 0x8'
+          assert scan([marker, fixture_open, fixture_read])[0]
+          assert not scan([marker, fixture_open, b'close(3) = 0', fixture_read])[0]
+          assert not scan([marker, fixture_open, b'pread64(0x3, 0x1000, 0x8, 0x0) = 0x0'])[0]
+          entries = []
+          with os.scandir(base) as it:
+              for entry in it:
+                  if len(entries) >= 128 or not re.fullmatch(r'trace\.[0-9]+', entry.name):
+                      raise SystemExit('TRACE_OBSERVATION_REFUSED')
+                  if not entry.is_file(follow_symlinks=False):
+                      raise SystemExit('TRACE_OBSERVATION_REFUSED')
+                  entries.append(entry.path)
+          if not entries:
+              raise SystemExit('TRACE_OBSERVATION_REFUSED')
+          total = events = executions = 0
+          observations = []
+          for name in sorted(entries):
+              st = os.stat(name, follow_symlinks=False)
+              if not stat.S_ISREG(st.st_mode) or st.st_size > 4194304:
+                  raise SystemExit('TRACE_OBSERVATION_REFUSED')
+              total += st.st_size
+              if total > 16777216:
+                  raise SystemExit('TRACE_OBSERVATION_REFUSED')
+              with open(name, 'rb') as source:
+                  data = source.read(4194305)
+              if len(data) != st.st_size or len(data) > 4194304:
+                  raise SystemExit('TRACE_OBSERVATION_REFUSED')
+              lines = data.splitlines(keepends=True)
+              if any(len(line) > 8192 or not line.endswith(b'\n') for line in lines):
+                  raise SystemExit('TRACE_OBSERVATION_REFUSED')
+              events += len(lines)
+              if events > 50000:
+                  raise SystemExit('TRACE_OBSERVATION_REFUSED')
+              lines = [line[:-1] for line in lines]
+              executions += sum(bool(target.fullmatch(line)) for line in lines)
+              observations.append(scan(lines))
+          result['target_exec_shape'] = 'ONE' if executions == 1 else 'ZERO_OR_MULTIPLE'
+          result['seed_read_shape'] = 'PRESENT' if any(x[0] for x in observations) else 'NOT_OBSERVED'
+          result['target_clone_shape'] = 'PRESENT' if any(x[1] for x in observations) else 'NOT_OBSERVED'
+          result['target_split_shape'] = 'PRESENT' if any(x[2] for x in observations) else 'NOT_OBSERVED'
+          for key in ('map', 'js', 'wasm'):
+              item = pre['outputs'][key]
+              path = Path(item['path'])
+              if not path.is_file() or path.is_symlink() or path.stat().st_size > 104857600:
+                  raise SystemExit('TRACE_OBSERVATION_REFUSED')
+              digest = hashlib.sha256()
+              with path.open('rb') as source:
+                  while True:
+                      block = source.read(1048576)
+                      if not block: break
+                      digest.update(block)
+              result[key + '_hash_comparison'] = 'SAME' if digest.hexdigest() == item['sha256'] else 'DIFFERENT'
+          encoded = json.dumps(result, sort_keys=True, separators=(',', ':')) + '\n'
+          if len(encoded) > 4096:
+              raise SystemExit('TRACE_OBSERVATION_REFUSED')
+          pending = receipt.with_name('observation.tmp')
+          pending.write_text(encoded)
+          os.replace(pending, receipt)
+          PY
+          exit 1
           refuse TRACE_NORMALIZE
           python3 - <<'PY'
           from pathlib import Path
@@ -1226,14 +1339,6 @@ jobs:
             find /work/image/receipt -mindepth 1 -maxdepth 1 -delete || true
             printf '%s\n' '{"schema":"tundra-eh-seeded-build/v1","status":"REFUSED","reason":"EPHEMERAL_CLEANUP_UNPROVEN","actual_eh_linker_child":"UNPROVEN","linker_archive_read":"UNPROVEN","same_run_traced_outputs":"UNPROVEN","legal_admission":"NO","product_admission":"NO","fleet_admission":"NO"}' > /work/image/receipt/refusal.json
             exit 1
-          fi
-          if test "$BUILD_OUTCOME" = success && test "$TRACE_OUTCOME" = skipped; then
-            test -s /work/image/receipt/build.json && test -s /work/image/receipt/seed.json && test -s /work/image/receipt/auth.json
-            test "$(du -sb /work/image/receipt | cut -d ' ' -f 1)" -le 2097152
-            printf '%s\n' '{"schema":"tundra-eh-single-thread-build-control/v1","status":"BUILD_DIAGNOSTIC_ONLY","actual_eh_linker_child":"UNPROVEN","linker_archive_read":"UNPROVEN","same_run_traced_outputs":"UNPROVEN","legal_admission":"NO","product_admission":"NO","fleet_admission":"NO"}' > /work/image/receipt/single-thread-control.json
-            test "$(du -sb /work/image/receipt | cut -d ' ' -f 1)" -le 2097152
-            rm /work/image/receipt/refusal.json
-            exit 0
           fi
           if test "$BUILD_OUTCOME" != success || test "$TRACE_OUTCOME" != success; then
             find /work/image/receipt -mindepth 1 -maxdepth 1 ! -name refusal.json -delete
