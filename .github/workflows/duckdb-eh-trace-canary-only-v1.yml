@@ -329,7 +329,7 @@ jobs:
           d = Path('/work/image/trace-private/close-direct-detail')
           d.mkdir(mode=0o700)
           (d / 'trace.111').write_text('execve("/usr/bin/true", [], 0x1) = 0\n+++ exited with 0 +++\n')
-          (d / 'trace.222').write_text('execve("/emsdk/upstream/bin/wasm-ld", [], 0x1) = 0\nclose(7</tmp/fixture>) = 0\nclose(4</dummy-secret<char 1:5>>) = 0\n')
+          (d / 'trace.222').write_text('execve("/emsdk/upstream/bin/wasm-ld", [], 0x1) = 0\nclose(7</tmp/fixture>) = 0\nclose(4</dummy-secret<block 1:5>>) = 0\n')
           PYCLOSEDIRECT
           if /work/image/tool/nu gate/.github/scripts/duckdb-eh-linker-fd-witness-v1.nu \
             gate/.github/receipts/duckdb-eh-linker-fd-witness-v1.json /work/image/trace-private/close-direct-detail \
@@ -474,6 +474,47 @@ jobs:
           }
           witness $ledger /work/image/trace-private/char-other $digest /work/image/trace-private/char-other.json
           NUCHAR
+          )"
+          # Fixed /dev/zero dummy provides an actual nested char-close record.
+          timeout 15s "$loader" --library-path "$libdir" "$tracer" -yy -s 256 -e trace=open,openat,close \
+            -o /work/image/trace-private/nested-close.trace python3 -c 'import os; f=os.open("/dev/zero",os.O_RDONLY); os.close(f)' \
+            > /work/image/trace-private/nested-close.log 2>&1
+          python3 - <<'PYNESTEDCLOSE'
+          from pathlib import Path
+          import re
+          p = Path('/work/image/trace-private/nested-close.trace')
+          if p.is_symlink() or not p.is_file() or not 0 < p.stat().st_size <= 1048576:
+              raise SystemExit('nested close dummy refused')
+          shape = rb'close\(([0-9]{1,9})</dev/zero<char 1:5>>\)[ \t]{1,64}=[ \t]{1,8}0\n'
+          matches = [(line, re.fullmatch(shape, line)) for line in p.read_bytes().splitlines(keepends=True)]
+          matches = [(line, match) for line, match in matches if match is not None]
+          if not matches:
+              raise SystemExit('nested close dummy refused')
+          line, match = matches[-1]
+          fd = match.group(1)
+          if fd == b'201':
+              raise SystemExit('nested close dummy refused')
+          a = b'/work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a'
+          e = b'execve("/emsdk/upstream/bin/wasm-ld", [], 0x1) = 0\n'
+          end = b'+++ exited with 0 +++\n'
+          def opened(n): return b'openat(AT_FDCWD, "' + a + b'", O_RDONLY) = ' + n + b'<' + a + b'>\n'
+          def read(n): return b'read(' + n + b', "") = 1\n'
+          for name, body in [('nested-close-only', line + read(fd)), ('nested-close-tracked', opened(fd) + line + read(fd)), ('nested-close-other', opened(b'201') + line + read(b'201'))]:
+              d = Path('/work/image/trace-private') / name
+              d.mkdir(mode=0o700)
+              (d / 'trace.123').write_bytes(e + body + end)
+          PYNESTEDCLOSE
+          /work/image/tool/nu -c 'use gate/.github/scripts/duckdb-eh-linker-fd-witness-v1.nu nested_close_self_test; nested_close_self_test gate/.github/receipts/duckdb-eh-linker-fd-witness-v1.json'
+          /work/image/tool/nu -c "$(cat <<'NUNESTEDCLOSE'
+          use gate/.github/scripts/duckdb-eh-linker-fd-witness-v1.nu [witness parser_failure_class]
+          let ledger = 'gate/.github/receipts/duckdb-eh-linker-fd-witness-v1.json'
+          let digest = '6e5c12aab29b80db118acd16c08953257683ed11c415970f8320ed777997eec7'
+          let no = (try { witness $ledger /work/image/trace-private/nested-close-only $digest /work/image/trace-private/nested-close-only.json; 'ACCEPTED' } catch {|e| parser_failure_class $e.msg })
+          if $no != 'REFUSED_DIRECT_READ_NOT_PROVED' { error make {msg: 'nested close no-witness control refused'} }
+          let tracked = (try { witness $ledger /work/image/trace-private/nested-close-tracked $digest /work/image/trace-private/nested-close-tracked.json; 'ACCEPTED' } catch {|e| parser_failure_class $e.msg })
+          if $tracked != 'FD_ANNOTATION_DRIFT' { error make {msg: 'nested close tracked control refused'} }
+          witness $ledger /work/image/trace-private/nested-close-other $digest /work/image/trace-private/nested-close-other.json
+          NUNESTEDCLOSE
           )"
           # Run exact pinned cap implementation on private bounded fixtures.
           python3 - <<'PYCAPTEST'

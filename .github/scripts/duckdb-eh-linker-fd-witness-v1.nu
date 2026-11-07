@@ -118,6 +118,12 @@ def parse_pid [raw: string, pid: int, l: record] {
     if ($line | str starts-with 'close(') {
       # Recognize only completed successful closes; an error may leave the
       # descriptor lifetime ambiguous and must not leave it tracked.
+      let char_close = (capture $line '^close\((?<fd>[0-9]{1,9})</[^<>\\\r\n]+<char [0-9]{1,10}:[0-9]{1,10}>>\)[ \t]{1,64}=[ \t]{1,8}0$')
+      if $char_close != null {
+        # Nested annotation cannot equal the tracked archive annotation.
+        require (not (($char_close.fd | into int) in $active)) 'FD_ANNOTATION_DRIFT'
+        continue
+      }
       let c = (capture $line '^close\((?<fd>[0-9]+)(?:<(?<annotation>[^>]+)>)?\)[ \t]{1,64}=[ \t]{1,8}(?<result>0)$')
       if $c == null { error make {msg: (close_refusal_detail $line)} }
       if (($c.fd | into int) in $active) { require ($c.annotation == $l.archive_path) 'FD_ANNOTATION_DRIFT' }
@@ -618,7 +624,7 @@ export def close_refusal_detail_self_test [ledger_path: string] {
   let exec = 'execve("/emsdk/upstream/bin/wasm-ld", [], 0x1) = 0'
   let accepted = 'close(7</tmp/fixture>) = 0'
   let cases = [
-    {line: 'close(4</dummy-secret<char 1:5>>) = 0', detail: CLOSE_REFUSAL_NESTED}
+    {line: 'close(4</dummy-secret<block 1:5>>) = 0', detail: CLOSE_REFUSAL_NESTED}
     {line: 'close(4) = -1 EBADF (Bad file descriptor)', detail: CLOSE_REFUSAL_PLAIN_ERRNO}
     {line: 'close(4</dummy-secret>) = -1 EINTR (Interrupted system call)', detail: CLOSE_REFUSAL_ANNOTATED_ERRNO}
     {line: 'close(4) = 9', detail: CLOSE_REFUSAL_NUMERIC_OTHER}
@@ -631,6 +637,39 @@ export def close_refusal_detail_self_test [ledger_path: string] {
   let split = (try { parse_pid ([$exec $accepted 'close(4 <unfinished ...>'] | str join "\n") 123 $l; 'ACCEPTED' } catch {|err| $err.msg })
   require ($split == 'SPLIT_SYSCALL_AMBIGUOUS') 'SELF_TEST_DIRECT_CLOSE_SPLIT'
   'direct close refusal detail fixtures passed'
+}
+
+export def nested_close_self_test [ledger_path: string] {
+  let l = (checked_ledger $ledger_path)
+  let exec = 'execve("/emsdk/upstream/bin/wasm-ld", [], 0x1) = 0'
+  let archive = 'openat(AT_FDCWD, "/work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a", O_RDONLY) = 3</work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a>'
+  let char_close = 'close(4</dev/zero<char 1:5>>) = 0'
+  let tracked_close = 'close(3</dev/zero<char 1:5>>) = 0'
+  let read = 'read(3, "") = 1'
+  let end = '+++ exited with 0 +++'
+  let no_archive = (parse_pid ([$exec $char_close $end] | str join "\n") 123 $l)
+  require (not $no_archive.read_positive and $no_archive.direct_archive_opens == 0) 'SELF_TEST_NESTED_CLOSE_NO_WITNESS'
+  let independent = (parse_pid ([$exec $archive $char_close $read $end] | str join "\n") 123 $l)
+  require $independent.read_positive 'SELF_TEST_NESTED_CLOSE_OTHER_FD'
+  for lines in [[$exec $archive $tracked_close] [$exec $archive $read $tracked_close]] {
+    let actual = (try { parse_pid ($lines | str join "\n") 123 $l; 'ACCEPTED' } catch {|err| $err.msg })
+    require ($actual == 'FD_ANNOTATION_DRIFT') 'SELF_TEST_NESTED_CLOSE_TRACKED'
+  }
+  let reopened = (parse_pid ([$exec $char_close $archive $read $end] | str join "\n") 123 $l)
+  require $reopened.read_positive 'SELF_TEST_NESTED_CLOSE_REOPEN'
+  for line in [
+    'close(4</dev/zero<block 1:5>>) = 0'
+    'close(4</dev/zero<char 1:5>>) = -1 EBADF (Bad file descriptor)'
+    'close(4</dev/zero<char 1:5>>) = 1'
+    'close(1234567890</dev/zero<char 1:5>>) = 0'
+    'close(4</dev/zero<char 12345678901:5>>) = 0'
+    'close(4</dev/zero<char 1:5>>) = 0 junk'
+    'close(4</dev\\zero<char 1:5>>) = 0'
+  ] {
+    let actual = (try { parse_pid ([$exec $line] | str join "\n") 123 $l; 'ACCEPTED' } catch {|err| parser_failure_class $err.msg })
+    require ($actual == 'CLOSE_SHAPE_AMBIGUOUS') 'SELF_TEST_NESTED_CLOSE_REFUSAL'
+  }
+  'nested close non-witness fixtures passed'
 }
 
 def main [ledger: string, trace_dir: string, runtime_elf_sha256: string, receipt: string, private_class: string] {
