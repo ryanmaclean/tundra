@@ -103,7 +103,7 @@ def parse_pid [raw: string, pid: int, l: record] {
         # It may reuse an FD number, so invalidate that number first.
         let flags = ($o.flags | split row '|')
         if not (($o.annotation | str starts-with '/') and not ($o.annotation =~ '\\')) { error make {msg: 'RELATIVE_REFUSAL_ANNOTATION'} }
-        if ($flags | first) != 'O_RDONLY' { error make {msg: 'RELATIVE_REFUSAL_ACCESS'} }
+        if ($flags | first) != 'O_RDONLY' { error make {msg: (relative_access_detail ($flags | first))} }
         if (($flags | uniq | length) != ($flags | length)) { error make {msg: 'RELATIVE_REFUSAL_DUPLICATE'} }
         if not ($flags | all {|f| $f in [O_RDONLY O_CLOEXEC O_NOFOLLOW O_NONBLOCK O_LARGEFILE]}) { error make {msg: 'RELATIVE_REFUSAL_OTHER_FLAG'} }
         continue
@@ -242,6 +242,10 @@ def open_refusal_detail [line: string] {
   } else { 'OPEN_REFUSAL_OTHER' }
 }
 
+def relative_access_detail [token: string] {
+  if $token == 'O_WRONLY' { 'RELATIVE_ACCESS_WRONLY' } else if $token == 'O_RDWR' { 'RELATIVE_ACCESS_RDWR' } else if $token == 'O_PATH' { 'RELATIVE_ACCESS_PATH' } else if ($token =~ '^(?:[0-9]+|0x[0-9a-fA-F]+)$') { 'RELATIVE_ACCESS_NUMERIC' } else if ($token =~ '^O_[A-Z0-9_]+$') { 'RELATIVE_ACCESS_SYMBOLIC' } else { 'RELATIVE_ACCESS_OTHER' }
+}
+
 def close_refusal_detail [line: string] {
   # Syntax appearance only, from the actual refused record; never emit data.
   if ($line =~ '^close\([0-9]+<[^<>\n]*<[^<>\n]+>[^<>\n]*>\)[ \t]{1,64}=[ \t]{1,8}0$') { 'CLOSE_REFUSAL_NESTED' } else if ($line =~ '^close\([0-9]+\)[ \t]{1,64}=[ \t]{1,8}-1 [A-Z][A-Z0-9_]*(?: \([^\n]*\))?$') { 'CLOSE_REFUSAL_PLAIN_ERRNO' } else if ($line =~ '^close\([0-9]+<[^<>\n]+>\)[ \t]{1,64}=[ \t]{1,8}-1 [A-Z][A-Z0-9_]*(?: \([^\n]*\))?$') { 'CLOSE_REFUSAL_ANNOTATED_ERRNO' } else if ($line =~ '^close\([0-9]+(?:<[^<>\n]+>)?\)[ \t]{1,64}=[ \t]{1,8}-?[0-9]+$') { 'CLOSE_REFUSAL_NUMERIC_OTHER' } else { 'CLOSE_REFUSAL_OTHER' }
@@ -250,7 +254,7 @@ def close_refusal_detail [line: string] {
 export def parser_failure_class [message: string] {
   if $message in [OPEN_REFUSAL_NULL_FLAGS OPEN_REFUSAL_NESTED_NULL OPEN_REFUSAL_NESTED_OTHER OPEN_REFUSAL_OTHER] { return 'OPEN_SHAPE_AMBIGUOUS' }
   if $message in [CLOSE_REFUSAL_NESTED CLOSE_REFUSAL_PLAIN_ERRNO CLOSE_REFUSAL_ANNOTATED_ERRNO CLOSE_REFUSAL_NUMERIC_OTHER CLOSE_REFUSAL_OTHER] { return 'CLOSE_SHAPE_AMBIGUOUS' }
-  if $message in [RELATIVE_REFUSAL_ANNOTATION RELATIVE_REFUSAL_ACCESS RELATIVE_REFUSAL_DUPLICATE RELATIVE_REFUSAL_OTHER_FLAG] { return 'RELATIVE_OPEN_AMBIGUOUS' }
+  if $message in [RELATIVE_REFUSAL_ANNOTATION RELATIVE_ACCESS_WRONLY RELATIVE_ACCESS_RDWR RELATIVE_ACCESS_PATH RELATIVE_ACCESS_NUMERIC RELATIVE_ACCESS_SYMBOLIC RELATIVE_ACCESS_OTHER RELATIVE_REFUSAL_DUPLICATE RELATIVE_REFUSAL_OTHER_FLAG] { return 'RELATIVE_OPEN_AMBIGUOUS' }
   # Only literal parser assertions may cross into a fixed refusal. Nu errors
   # can contain private paths or trace content, so all others collapse.
   let allowed = [
@@ -682,7 +686,12 @@ export def relative_refusal_detail_self_test [ledger_path: string] {
   let accepted = 'openat(AT_FDCWD, "relative", O_RDONLY) = 3</tmp/fixture>'
   let cases = [
     {line: 'openat(AT_FDCWD, "secret", O_RDONLY) = 3<relative>', detail: RELATIVE_REFUSAL_ANNOTATION}
-    {line: 'openat(AT_FDCWD, "secret", O_WRONLY) = 3</tmp/secret>', detail: RELATIVE_REFUSAL_ACCESS}
+    {line: 'openat(AT_FDCWD, "secret", O_WRONLY) = 3</tmp/secret>', detail: RELATIVE_ACCESS_WRONLY}
+    {line: 'openat(AT_FDCWD, "secret", O_RDWR|O_CLOEXEC) = 3</tmp/secret>', detail: RELATIVE_ACCESS_RDWR}
+    {line: 'openat(AT_FDCWD, "secret", O_PATH) = 3</tmp/secret>', detail: RELATIVE_ACCESS_PATH}
+    {line: 'openat(AT_FDCWD, "secret", 0x100) = 3</tmp/secret>', detail: RELATIVE_ACCESS_NUMERIC}
+    {line: 'openat(AT_FDCWD, "secret", O_DIRECTORY|O_RDONLY) = 3</tmp/secret>', detail: RELATIVE_ACCESS_SYMBOLIC}
+    {line: 'openat(AT_FDCWD, "secret", broken) = 3</tmp/secret>', detail: RELATIVE_ACCESS_OTHER}
     {line: 'openat(AT_FDCWD, "secret", O_RDONLY|O_CLOEXEC|O_CLOEXEC) = 3</tmp/secret>', detail: RELATIVE_REFUSAL_DUPLICATE}
     {line: 'openat(AT_FDCWD, "secret", O_RDONLY|O_DIRECTORY) = 3</tmp/secret>', detail: RELATIVE_REFUSAL_OTHER_FLAG}
   ]
@@ -700,7 +709,7 @@ def main [ledger: string, trace_dir: string, runtime_elf_sha256: string, receipt
     witness $ledger $trace_dir $runtime_elf_sha256 $receipt
   } catch {|err|
     let class = (parser_failure_class $err.msg)
-    let detail = if $err.msg in [OPEN_REFUSAL_NULL_FLAGS OPEN_REFUSAL_NESTED_NULL OPEN_REFUSAL_NESTED_OTHER OPEN_REFUSAL_OTHER CLOSE_REFUSAL_NESTED CLOSE_REFUSAL_PLAIN_ERRNO CLOSE_REFUSAL_ANNOTATED_ERRNO CLOSE_REFUSAL_NUMERIC_OTHER CLOSE_REFUSAL_OTHER RELATIVE_REFUSAL_ANNOTATION RELATIVE_REFUSAL_ACCESS RELATIVE_REFUSAL_DUPLICATE RELATIVE_REFUSAL_OTHER_FLAG] { $err.msg } else { 'UNAVAILABLE' }
+    let detail = if $err.msg in [OPEN_REFUSAL_NULL_FLAGS OPEN_REFUSAL_NESTED_NULL OPEN_REFUSAL_NESTED_OTHER OPEN_REFUSAL_OTHER CLOSE_REFUSAL_NESTED CLOSE_REFUSAL_PLAIN_ERRNO CLOSE_REFUSAL_ANNOTATED_ERRNO CLOSE_REFUSAL_NUMERIC_OTHER CLOSE_REFUSAL_OTHER RELATIVE_REFUSAL_ANNOTATION RELATIVE_ACCESS_WRONLY RELATIVE_ACCESS_RDWR RELATIVE_ACCESS_PATH RELATIVE_ACCESS_NUMERIC RELATIVE_ACCESS_SYMBOLIC RELATIVE_ACCESS_OTHER RELATIVE_REFUSAL_DUPLICATE RELATIVE_REFUSAL_OTHER_FLAG] { $err.msg } else { 'UNAVAILABLE' }
     $"($class) ($detail)" | save --force $private_class
     error make {msg: 'PARSER_REFUSED'}
   }

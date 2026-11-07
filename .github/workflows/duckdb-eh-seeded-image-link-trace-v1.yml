@@ -873,8 +873,11 @@ jobs:
                       close_details = {'CLOSE_REFUSAL_NESTED', 'CLOSE_REFUSAL_PLAIN_ERRNO',
                                        'CLOSE_REFUSAL_ANNOTATED_ERRNO', 'CLOSE_REFUSAL_NUMERIC_OTHER',
                                        'CLOSE_REFUSAL_OTHER'}
-                      relative_details = {'RELATIVE_REFUSAL_ANNOTATION', 'RELATIVE_REFUSAL_ACCESS',
-                                          'RELATIVE_REFUSAL_DUPLICATE', 'RELATIVE_REFUSAL_OTHER_FLAG'}
+                      relative_details = {'RELATIVE_REFUSAL_ANNOTATION', 'RELATIVE_ACCESS_WRONLY',
+                                          'RELATIVE_ACCESS_RDWR', 'RELATIVE_ACCESS_PATH',
+                                          'RELATIVE_ACCESS_NUMERIC', 'RELATIVE_ACCESS_SYMBOLIC',
+                                          'RELATIVE_ACCESS_OTHER', 'RELATIVE_REFUSAL_DUPLICATE',
+                                          'RELATIVE_REFUSAL_OTHER_FLAG'}
                       if candidate in allowed and (detail == 'UNAVAILABLE' or
                                                    (candidate == 'OPEN_SHAPE_AMBIGUOUS' and detail in permitted_details) or
                                                    (candidate == 'CLOSE_SHAPE_AMBIGUOUS' and detail in close_details) or
