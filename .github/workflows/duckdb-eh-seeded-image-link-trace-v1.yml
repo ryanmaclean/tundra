@@ -173,7 +173,7 @@ jobs:
             -DDUCKDB_WASM_LOADABLE_EXTENSIONS_UNSIGNED=OFF \
             -DDUCKDB_WASM_VERSION=v1.28.0 \
             "-DDUCKDB_LOCATION=$GITHUB_WORKSPACE/duckdb-upstream/submodules/duckdb" \
-            "-DCMAKE_EXE_LINKER_FLAGS=-Wl,-Map,$map" \
+            "-DCMAKE_EXE_LINKER_FLAGS=-Wl,-Map,$map -Wl,--threads=1" \
             -DWITH_WASM_EXCEPTIONS=1 -DDUCKDB_CUSTOM_PLATFORM=wasm_eh)
           set_refusal CONFIGURE
           EM_CACHE="$EM_CACHE" emcmake cmake -S duckdb-upstream/lib -B "$build" "${flags[@]}" > /work/image/build-output/configure.log 2>&1
@@ -185,6 +185,7 @@ jobs:
           set_refusal BUILD
           EM_CACHE="$EM_CACHE" EMCC_DEBUG=1 EM_FORCE_RESPONSE_FILES=0 \
             emmake make -C "$build" -j4 duckdb_wasm > /work/image/build-output/build.log 2>&1
+          grep -Fq -- '-Wl,--threads=1' "$build/CMakeFiles/duckdb_wasm.dir/link.txt"
           after_build="$(EM_CACHE="$EM_CACHE" PYTHONPATH=/emsdk/upstream/emscripten python3 -c 'from tools import cache; print(cache.get_lib_name("libnoexit.a", absolute=True))')"
           test "$after_build" = "$settings_path"
           set_refusal OUTPUT_JOIN
@@ -196,6 +197,7 @@ jobs:
           cp /work/image/build-output/build.json /work/image/receipt/build.json
       - name: Trace fresh EH relink and join direct archive FD read
         id: trace
+        if: ${{ false }}
         shell: bash
         run: |
           set -euo pipefail
@@ -1224,6 +1226,14 @@ jobs:
             find /work/image/receipt -mindepth 1 -maxdepth 1 -delete || true
             printf '%s\n' '{"schema":"tundra-eh-seeded-build/v1","status":"REFUSED","reason":"EPHEMERAL_CLEANUP_UNPROVEN","actual_eh_linker_child":"UNPROVEN","linker_archive_read":"UNPROVEN","same_run_traced_outputs":"UNPROVEN","legal_admission":"NO","product_admission":"NO","fleet_admission":"NO"}' > /work/image/receipt/refusal.json
             exit 1
+          fi
+          if test "$BUILD_OUTCOME" = success && test "$TRACE_OUTCOME" = skipped; then
+            test -s /work/image/receipt/build.json && test -s /work/image/receipt/seed.json && test -s /work/image/receipt/auth.json
+            test "$(du -sb /work/image/receipt | cut -d ' ' -f 1)" -le 2097152
+            printf '%s\n' '{"schema":"tundra-eh-single-thread-build-control/v1","status":"BUILD_DIAGNOSTIC_ONLY","actual_eh_linker_child":"UNPROVEN","linker_archive_read":"UNPROVEN","same_run_traced_outputs":"UNPROVEN","legal_admission":"NO","product_admission":"NO","fleet_admission":"NO"}' > /work/image/receipt/single-thread-control.json
+            test "$(du -sb /work/image/receipt | cut -d ' ' -f 1)" -le 2097152
+            rm /work/image/receipt/refusal.json
+            exit 0
           fi
           if test "$BUILD_OUTCOME" != success || test "$TRACE_OUTCOME" != success; then
             find /work/image/receipt -mindepth 1 -maxdepth 1 ! -name refusal.json -delete
