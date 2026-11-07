@@ -69,6 +69,17 @@ def parse_pid [raw: string, pid: int, l: record] {
         capture $line '^open\("(?<path>/[^"\\]*)", O_RDONLY(?:\|O_CLOEXEC)?\) = -1 ENOENT \(No such file or directory\)$'
       }
       if $missing != null { continue }
+      # A fully parsed successful character-device-annotated open is never
+      # an archive witness, even if either path aliases the archive. It may
+      # reuse a tracked FD number, which must be invalidated before continuing.
+      let char_open = (capture $line '^open(?:at\(AT_FDCWD(?:</[^>\\]*>)?, |\()"(?<path>/[^"\\<>]+)", (?<flags>[^)]*)\) = (?<fd>[0-9]{1,9})<(?<annotation>/[^<>\\]+)<char [0-9]{1,10}:[0-9]{1,10}>>$')
+      if $char_open != null {
+        let flags = ($char_open.flags | split row '|')
+        if (($flags | first) == 'O_RDONLY' and (($flags | uniq | length) == ($flags | length)) and ($flags | all {|f| $f in [O_RDONLY O_CLOEXEC O_NOFOLLOW O_NONBLOCK O_LARGEFILE]})) {
+          $active = ($active | where $it != ($char_open.fd | into int))
+          continue
+        }
+      }
       # A known successful /dev/null open is not an archive witness. Its
       # returned descriptor may replace a previously tracked descriptor.
       let null_open = (capture $line '^open(?:at\(AT_FDCWD(?:</[^>\\]*>)?, |\()"/dev/null", (?<flags>[^)]*)\) = (?<fd>[0-9]{1,9})</dev/null<char 1:3>>$')
@@ -532,8 +543,8 @@ export def nested_device_self_test [ledger_path: string] {
   require $independent.read_positive 'SELF_TEST_DEVICE_OTHER_FD'
   for line in [
     'openat(3</tmp>, "/dev/null", O_RDONLY) = 3</dev/null<char 1:3>>'
-    'openat(AT_FDCWD, "/dev/zero", O_RDONLY) = 3</dev/zero<char 1:5>>'
-    'openat(AT_FDCWD, "/dev/null", O_RDONLY) = 3</dev/null<char 1:5>>'
+    'openat(AT_FDCWD, "/dev/zero", O_RDONLY) = 3</dev/zero<block 1:5>>'
+    'openat(AT_FDCWD, "/dev/null", O_RDONLY) = 3</dev/null<block 1:5>>'
     'openat(AT_FDCWD, "/dev/null", O_RDONLY|O_TRUNC) = 3</dev/null<char 1:3>>'
     'openat(AT_FDCWD, "/dev/null", O_RDONLY|O_RDONLY) = 3</dev/null<char 1:3>>'
     'openat(AT_FDCWD, "/dev/null", O_RDONLY) = -1 EBADF (Bad file descriptor)'
@@ -551,8 +562,8 @@ export def open_refusal_detail_self_test [ledger_path: string] {
   let accepted = 'openat(AT_FDCWD, "/dev/null", O_RDONLY) = 3</dev/null<char 1:3>>'
   let cases = [
     {line: 'openat(AT_FDCWD, "/dev/null", O_RDONLY|O_TRUNC) = 3</dev/null<char 1:3>>', detail: OPEN_REFUSAL_NULL_FLAGS}
-    {line: 'openat(AT_FDCWD, "/dev/null", O_RDONLY) = 3</dev/null<char 1:5>>', detail: OPEN_REFUSAL_NESTED_NULL}
-    {line: 'openat(AT_FDCWD, "/dummy-secret", O_RDONLY) = 3</dummy-secret<char 1:5>>', detail: OPEN_REFUSAL_NESTED_OTHER}
+    {line: 'openat(AT_FDCWD, "/dev/null", O_RDONLY) = 3</dev/null<block 1:5>>', detail: OPEN_REFUSAL_NESTED_NULL}
+    {line: 'openat(AT_FDCWD, "/dummy-secret", O_RDONLY) = 3</dummy-secret<block 1:5>>', detail: OPEN_REFUSAL_NESTED_OTHER}
     {line: 'openat(AT_FDCWD, "/dummy-secret", O_RDONLY) = -1 EACCES (Permission denied)', detail: OPEN_REFUSAL_OTHER}
   ]
   for case in $cases {
@@ -562,6 +573,38 @@ export def open_refusal_detail_self_test [ledger_path: string] {
   let split = (try { parse_pid ([$exec $accepted 'openat(AT_FDCWD, "/dummy", O_RDONLY <unfinished ...>'] | str join "\n") 123 $l; 'ACCEPTED' } catch {|err| $err.msg })
   require ($split == 'SPLIT_SYSCALL_AMBIGUOUS') 'SELF_TEST_DIRECT_OPEN_SPLIT'
   'direct open refusal detail fixtures passed'
+}
+
+export def char_device_self_test [ledger_path: string] {
+  let l = (checked_ledger $ledger_path)
+  let exec = 'execve("/emsdk/upstream/bin/wasm-ld", [], 0x1) = 0'
+  let open = 'openat(AT_FDCWD, "/work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a", O_RDONLY) = 3</work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a>'
+  let alias = 'openat(AT_FDCWD</tmp>, "/work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a", O_RDONLY|O_CLOEXEC) = 3</work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a<char 1:5>>'
+  let other = 'open("/dev/zero", O_RDONLY) = 4</dev/zero<char 1:5>>'
+  let read = 'read(3, "") = 1'
+  let end = '+++ exited with 0 +++'
+  let only = (parse_pid ([$exec $alias $read $end] | str join "\n") 123 $l)
+  require ($only.direct_archive_opens == 0 and not $only.read_positive) 'SELF_TEST_CHAR_ALIAS'
+  let reuse = (parse_pid ([$exec $open $alias $read $end] | str join "\n") 123 $l)
+  require (not $reuse.read_positive) 'SELF_TEST_CHAR_REUSE'
+  let separate = (parse_pid ([$exec $open $other $read $end] | str join "\n") 123 $l)
+  require $separate.read_positive 'SELF_TEST_CHAR_OTHER_FD'
+  let reopen = (parse_pid ([$exec $alias $open $read $end] | str join "\n") 123 $l)
+  require $reopen.read_positive 'SELF_TEST_CHAR_REOPEN'
+  for line in [
+    'openat(3</tmp>, "/dev/zero", O_RDONLY) = 4</dev/zero<char 1:5>>'
+    'openat(AT_FDCWD, "relative", O_RDONLY) = 4</dev/zero<char 1:5>>'
+    'openat(AT_FDCWD, "/dev/zero", O_RDONLY|O_TRUNC) = 4</dev/zero<char 1:5>>'
+    'openat(AT_FDCWD, "/dev/zero", O_RDONLY|O_RDONLY) = 4</dev/zero<char 1:5>>'
+    'openat(AT_FDCWD, "/dev/zero", O_RDONLY) = 4</dev/zero<block 1:5>>'
+    'openat(AT_FDCWD, "/dev/zero", O_RDONLY) = 4</dev/zero<char 12345678901:5>>'
+    'openat(AT_FDCWD, "/dev/zero", O_RDONLY) = -1 EACCES (Permission denied)'
+    'openat(AT_FDCWD, "/dev/zero", O_RDONLY) = 4</dev/zero<char 1:5>> junk'
+  ] {
+    let actual = (try { parse_pid ([$exec $line] | str join "\n") 123 $l; 'ACCEPTED' } catch {|err| parser_failure_class $err.msg })
+    require ($actual == 'OPEN_SHAPE_AMBIGUOUS') 'SELF_TEST_CHAR_REFUSAL'
+  }
+  'character device non-witness fixtures passed'
 }
 
 def main [ledger: string, trace_dir: string, runtime_elf_sha256: string, receipt: string, private_class: string] {
