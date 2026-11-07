@@ -74,7 +74,7 @@ def parse_pid [raw: string, pid: int, l: record] {
       let null_open = (capture $line '^open(?:at\(AT_FDCWD(?:</[^>\\]*>)?, |\()"/dev/null", (?<flags>[^)]*)\) = (?<fd>[0-9]{1,9})</dev/null<char 1:3>>$')
       if $null_open != null {
         let flags = ($null_open.flags | split row '|')
-        require (($flags | first) == 'O_RDONLY' and (($flags | uniq | length) == ($flags | length)) and ($flags | all {|f| $f in [O_RDONLY O_CLOEXEC O_NOFOLLOW O_NONBLOCK O_LARGEFILE]})) 'OPEN_SHAPE_AMBIGUOUS'
+        require (($flags | first) == 'O_RDONLY' and (($flags | uniq | length) == ($flags | length)) and ($flags | all {|f| $f in [O_RDONLY O_CLOEXEC O_NOFOLLOW O_NONBLOCK O_LARGEFILE]})) 'OPEN_REFUSAL_NULL_FLAGS'
         $active = ($active | where $it != ($null_open.fd | into int))
         continue
       }
@@ -83,7 +83,7 @@ def parse_pid [raw: string, pid: int, l: record] {
       } else {
         capture $line '^open\("(?<path>[^"\\]+)", (?<flags>[^)]*)\) = (?<fd>[0-9]+)<(?<annotation>[^>]+)>$'
       }
-      require ($o != null) 'OPEN_SHAPE_AMBIGUOUS'
+      if $o == null { error make {msg: (open_refusal_detail $line)} }
       if 'dirfd' in $o { require ($o.dirfd =~ '^AT_FDCWD(?:</[^>\\]*>)?$') 'OPENAT_DIRFD_AMBIGUOUS' }
       let fd = ($o.fd | into int)
       $active = ($active | where $it != $fd)
@@ -215,7 +215,15 @@ export def witness [ledger_path: string, trace_dir: string, runtime_elf_sha256: 
   require $c.read_positive $status
 }
 
+def open_refusal_detail [line: string] {
+  # Classify only fixed appearance categories; never include trace contents.
+  if ($line =~ ' = [0-9]+<[^\n]*<[^\n]*>[^\n]*>$') {
+    if ($line | str contains '"/dev/null"') { 'OPEN_REFUSAL_NESTED_NULL' } else { 'OPEN_REFUSAL_NESTED_OTHER' }
+  } else { 'OPEN_REFUSAL_OTHER' }
+}
+
 export def parser_failure_class [message: string] {
+  if $message in [OPEN_REFUSAL_NULL_FLAGS OPEN_REFUSAL_NESTED_NULL OPEN_REFUSAL_NESTED_OTHER OPEN_REFUSAL_OTHER] { return 'OPEN_SHAPE_AMBIGUOUS' }
   # Only literal parser assertions may cross into a fixed refusal. Nu errors
   # can contain private paths or trace content, so all others collapse.
   let allowed = [
@@ -363,7 +371,7 @@ export def failed_open_self_test [ledger_path: string] {
   ]
   for line in $invalid {
     let actual = (try { parse_pid ([$exec $line] | str join "\n") 123 $l; 'ACCEPTED' } catch {|err| $err.msg })
-    require ($actual == 'OPEN_SHAPE_AMBIGUOUS') 'SELF_TEST_FAILED_OPEN_REFUSAL'
+    require ((parser_failure_class $actual) == 'OPEN_SHAPE_AMBIGUOUS') 'SELF_TEST_FAILED_OPEN_REFUSAL'
   }
   let dotted = 'openat(AT_FDCWD, "/tmp/absent...", O_RDONLY) = -1 ENOENT (No such file or directory)'
   let split = 'openat(AT_FDCWD, "/tmp/absent", O_RDONLY <unfinished ...>'
@@ -409,7 +417,7 @@ export def openat_cwd_self_test [ledger_path: string] {
   ]
   for case in $invalid {
     let actual = (try { parse_pid ([$exec $case.line] | str join "\n") 123 $l; 'ACCEPTED' } catch {|err| $err.msg })
-    require ($actual == $case.reason) 'SELF_TEST_CWD_REFUSAL'
+    require ((parser_failure_class $actual) == $case.reason) 'SELF_TEST_CWD_REFUSAL'
   }
   'openat cwd annotation fixtures passed'
 }
@@ -503,7 +511,7 @@ export def relative_open_self_test [ledger_path: string] {
   ]
   for case in $invalid {
     let actual = (try { parse_pid ([$exec $case.line] | str join "\n") 123 $l; 'ACCEPTED' } catch {|err| $err.msg })
-    require ($actual == $case.reason) 'SELF_TEST_RELATIVE_REFUSAL'
+    require ((parser_failure_class $actual) == $case.reason) 'SELF_TEST_RELATIVE_REFUSAL'
   }
   'relative non-witness open fixtures passed'
 }
@@ -532,16 +540,37 @@ export def nested_device_self_test [ledger_path: string] {
     'openat(AT_FDCWD, "/dev/null", O_RDONLY) = 3</dev/null<char 1:3>> trailing'
   ] {
     let actual = (try { parse_pid ([$exec $line] | str join "\n") 123 $l; 'ACCEPTED' } catch {|err| $err.msg })
-    require ($actual == 'OPEN_SHAPE_AMBIGUOUS') 'SELF_TEST_DEVICE_REFUSAL'
+    require ((parser_failure_class $actual) == 'OPEN_SHAPE_AMBIGUOUS') 'SELF_TEST_DEVICE_REFUSAL'
   }
   'nested device non-witness fixtures passed'
+}
+
+export def open_refusal_detail_self_test [ledger_path: string] {
+  let l = (checked_ledger $ledger_path)
+  let exec = 'execve("/emsdk/upstream/bin/wasm-ld", [], 0x1) = 0'
+  let accepted = 'openat(AT_FDCWD, "/dev/null", O_RDONLY) = 3</dev/null<char 1:3>>'
+  let cases = [
+    {line: 'openat(AT_FDCWD, "/dev/null", O_RDONLY|O_TRUNC) = 3</dev/null<char 1:3>>', detail: OPEN_REFUSAL_NULL_FLAGS}
+    {line: 'openat(AT_FDCWD, "/dev/null", O_RDONLY) = 3</dev/null<char 1:5>>', detail: OPEN_REFUSAL_NESTED_NULL}
+    {line: 'openat(AT_FDCWD, "/dummy-secret", O_RDONLY) = 3</dummy-secret<char 1:5>>', detail: OPEN_REFUSAL_NESTED_OTHER}
+    {line: 'openat(AT_FDCWD, "/dummy-secret", O_RDONLY) = -1 EACCES (Permission denied)', detail: OPEN_REFUSAL_OTHER}
+  ]
+  for case in $cases {
+    let actual = (try { parse_pid ([$exec $accepted $case.line] | str join "\n") 123 $l; 'ACCEPTED' } catch {|err| $err.msg })
+    require ($actual == $case.detail and (parser_failure_class $actual) == 'OPEN_SHAPE_AMBIGUOUS') 'SELF_TEST_DIRECT_OPEN_DETAIL'
+  }
+  let split = (try { parse_pid ([$exec $accepted 'openat(AT_FDCWD, "/dummy", O_RDONLY <unfinished ...>'] | str join "\n") 123 $l; 'ACCEPTED' } catch {|err| $err.msg })
+  require ($split == 'SPLIT_SYSCALL_AMBIGUOUS') 'SELF_TEST_DIRECT_OPEN_SPLIT'
+  'direct open refusal detail fixtures passed'
 }
 
 def main [ledger: string, trace_dir: string, runtime_elf_sha256: string, receipt: string, private_class: string] {
   try {
     witness $ledger $trace_dir $runtime_elf_sha256 $receipt
   } catch {|err|
-    parser_failure_class $err.msg | save --force $private_class
+    let class = (parser_failure_class $err.msg)
+    let detail = if $err.msg in [OPEN_REFUSAL_NULL_FLAGS OPEN_REFUSAL_NESTED_NULL OPEN_REFUSAL_NESTED_OTHER OPEN_REFUSAL_OTHER] { $err.msg } else { 'UNAVAILABLE' }
+    $"($class) ($detail)" | save --force $private_class
     error make {msg: 'PARSER_REFUSED'}
   }
 }
