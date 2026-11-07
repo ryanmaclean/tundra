@@ -1072,8 +1072,92 @@ jobs:
                      'FSVERITY_ENABLE_REFUSED', 'FSVERITY_DUMMY_CONTROLS_PASS', 'FSVERITY_DUMMY_CONTROLS_REFUSED'}
           if status not in allowed:
               raise SystemExit('verity probe refused')
+          # Apply Landlock only to a forked child and fixed disposable files.
+          # A pass is a capability probe, not an admission or writer fence.
+          import ctypes
+          import platform
+          import signal
+          import time
+          ll_status = 'LANDLOCK_UNAVAILABLE'
+          if platform.machine() == 'x86_64':
+              libc = ctypes.CDLL(None, use_errno=True)
+              abi = libc.syscall(444, 0, 0, 1)
+              if abi >= 0 and abi < 3:
+                  ll_status = 'LANDLOCK_ABI_TOO_OLD'
+              elif abi >= 3:
+                  root = Path('/work/image/trace-private/landlock-probe')
+                  root.mkdir(mode=0o700)
+                  protected, writable = root / 'protected', root / 'writable'
+                  protected.mkdir(mode=0o700)
+                  writable.mkdir(mode=0o700)
+                  seed, fresh = protected / 'seed', protected / 'fresh'
+                  seed.write_bytes(b'original')
+                  fresh.write_bytes(b'fresh')
+                  assert fresh.stat().st_nlink == 1
+                  alias = writable / 'alias'
+                  os.link(seed, alias)
+                  pre = os.open(seed, os.O_RDWR)
+                  pid = os.fork()
+                  if pid == 0:
+                      try:
+                          handled = (1 << 1) | sum(1 << i for i in range(4, 15))
+                          class Rules(ctypes.Structure):
+                              _fields_ = [('handled', ctypes.c_uint64)]
+                          class Beneath(ctypes.Structure):
+                              _fields_ = [('access', ctypes.c_uint64), ('parent_fd', ctypes.c_int32)]
+                          rules = Rules(handled)
+                          rs = libc.syscall(444, ctypes.byref(rules), ctypes.sizeof(rules), 0)
+                          assert rs >= 0
+                          directory = os.open(writable, os.O_PATH | os.O_CLOEXEC)
+                          rule = Beneath(handled, directory)
+                          assert libc.syscall(445, rs, 1, ctypes.byref(rule), 0) == 0
+                          assert libc.prctl(38, 1, 0, 0, 0) == 0
+                          assert libc.syscall(446, rs, 0) == 0
+                          os.close(directory)
+                          os.close(rs)
+                          assert fresh.read_bytes() == b'fresh'
+                          (writable / 'normal').write_bytes(b'allowed')
+                          for operation in (lambda: os.open(fresh, os.O_RDWR),
+                                            lambda: os.open(fresh, os.O_RDONLY | os.O_TRUNC),
+                                            lambda: os.truncate(fresh, 0),
+                                            lambda: os.link(fresh, writable / 'newalias'),
+                                            lambda: os.rename(protected, root / 'moved')):
+                              try:
+                                  result = operation()
+                              except OSError as error:
+                                  if error.errno in (errno.EACCES, errno.EPERM, errno.EXDEV):
+                                      continue
+                                  raise
+                              if isinstance(result, int):
+                                  os.close(result)
+                              raise ValueError()
+                          assert os.pwrite(pre, b'P', 0) == 1
+                          assert seed.read_bytes() == b'Priginal'
+                          with open(alias, 'r+b') as stream:
+                              stream.write(b'A')
+                          assert seed.read_bytes().startswith(b'A') and fresh.read_bytes() == b'fresh'
+                          os._exit(0)
+                      except BaseException:
+                          os._exit(1)
+                  deadline = time.monotonic() + 10
+                  timed_out = False
+                  while True:
+                      done, child_status = os.waitpid(pid, os.WNOHANG)
+                      if done == pid:
+                          break
+                      if time.monotonic() >= deadline:
+                          timed_out = True
+                          try:
+                              os.kill(pid, signal.SIGKILL)
+                          except ProcessLookupError:
+                              pass
+                          _, child_status = os.waitpid(pid, 0)
+                          break
+                      time.sleep(0.05)
+                  os.close(pre)
+                  ll_status = 'LANDLOCK_DUMMY_CONTROLS_PASS' if not timed_out and os.WIFEXITED(child_status) and os.WEXITSTATUS(child_status) == 0 else 'LANDLOCK_DUMMY_CONTROLS_REFUSED'
           data = {'schema':'tundra-eh-seeded-link-trace/v1', 'status':'CANARY_SHAPE_DIAGNOSTIC_ONLY',
-                  'fsverity_probe':status, 'actual_eh_linker_child':'UNPROVEN', 'linker_archive_read':'UNPROVEN',
+                  'fsverity_probe':status, 'landlock_probe':ll_status, 'actual_eh_linker_child':'UNPROVEN', 'linker_archive_read':'UNPROVEN',
                   'same_run_traced_outputs':'UNPROVEN', 'legal_admission':'NO', 'product_admission':'NO', 'fleet_admission':'NO'}
           Path('/work/image/receipt/canary.json').write_text(json.dumps(data, separators=(',', ':'), sort_keys=True) + '\n')
           PYFSVERITY
