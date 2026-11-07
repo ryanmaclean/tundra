@@ -106,6 +106,7 @@ jobs:
       - name: Start daemon
         run: |
           rm -f ~/.auto-tundra/daemon.lock
+          cargo build -p at-daemon  # build outside the readiness window (cold cache > 60s)
           nohup cargo run -p at-daemon -- --replace >/tmp/at-daemon.log 2>&1 &
           for _ in {1..60}; do
             if curl -sf http://127.0.0.1:9090/api/status >/dev/null; then
@@ -175,6 +176,7 @@ jobs:
       - name: Start daemon
         run: |
           rm -f ~/.auto-tundra/daemon.lock
+          cargo build -p at-daemon  # build outside the readiness window (cold cache > 60s)
           nohup cargo run -p at-daemon -- --replace >/tmp/at-daemon.log 2>&1 &
           for _ in {1..45}; do
             if curl -sf http://127.0.0.1:9090/api/status >/dev/null; then
