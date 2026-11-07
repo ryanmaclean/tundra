@@ -389,7 +389,7 @@ export def openat_cwd_self_test [ledger_path: string] {
     {line: 'openat(3</tmp>, "/tmp/a", O_RDONLY) = 4</tmp/a>', reason: OPENAT_DIRFD_AMBIGUOUS}
     {line: 'openat(AT_FDCWD<relative>, "/tmp/a", O_RDONLY) = 4</tmp/a>', reason: OPENAT_DIRFD_AMBIGUOUS}
     {line: 'openat(AT_FDCWD</tmp\x>, "/tmp/a", O_RDONLY) = 4</tmp/a>', reason: OPENAT_DIRFD_AMBIGUOUS}
-    {line: 'openat(AT_FDCWD</tmp>, "relative", O_RDONLY) = 4</tmp/a>', reason: RELATIVE_OPEN_AMBIGUOUS}
+    {line: 'openat(AT_FDCWD</tmp>, "relative", O_RDONLY|O_TRUNC) = 4</tmp/a>', reason: RELATIVE_OPEN_AMBIGUOUS}
     {line: 'openat(AT_FDCWD</tmp>, "/tmp/a\"b", O_RDONLY) = 4</tmp/a>', reason: OPEN_SHAPE_AMBIGUOUS}
     {line: 'openat(AT_FDCWD</tmp>, "/work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a", O_RDONLY) = 3</tmp/other>', reason: ARCHIVE_OPEN_NOT_READONLY_EXACT}
     {line: 'openat(AT_FDCWD</tmp>, "/work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a", O_WRONLY) = 3</work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a>', reason: ARCHIVE_OPEN_NOT_READONLY_EXACT}
