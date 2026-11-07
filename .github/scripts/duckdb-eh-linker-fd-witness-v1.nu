@@ -102,7 +102,10 @@ def parse_pid [raw: string, pid: int, l: record] {
         # A relative path cannot establish the literal absolute archive open.
         # It may reuse an FD number, so invalidate that number first.
         let flags = ($o.flags | split row '|')
-        require (($o.annotation | str starts-with '/') and not ($o.annotation =~ '\\') and ($flags | first) == 'O_RDONLY' and (($flags | uniq | length) == ($flags | length)) and ($flags | all {|f| $f in [O_RDONLY O_CLOEXEC O_NOFOLLOW O_NONBLOCK O_LARGEFILE]})) 'RELATIVE_OPEN_AMBIGUOUS'
+        if not (($o.annotation | str starts-with '/') and not ($o.annotation =~ '\\')) { error make {msg: 'RELATIVE_REFUSAL_ANNOTATION'} }
+        if ($flags | first) != 'O_RDONLY' { error make {msg: 'RELATIVE_REFUSAL_ACCESS'} }
+        if (($flags | uniq | length) != ($flags | length)) { error make {msg: 'RELATIVE_REFUSAL_DUPLICATE'} }
+        if not ($flags | all {|f| $f in [O_RDONLY O_CLOEXEC O_NOFOLLOW O_NONBLOCK O_LARGEFILE]}) { error make {msg: 'RELATIVE_REFUSAL_OTHER_FLAG'} }
         continue
       }
       if $o.path == $l.archive_path {
@@ -247,6 +250,7 @@ def close_refusal_detail [line: string] {
 export def parser_failure_class [message: string] {
   if $message in [OPEN_REFUSAL_NULL_FLAGS OPEN_REFUSAL_NESTED_NULL OPEN_REFUSAL_NESTED_OTHER OPEN_REFUSAL_OTHER] { return 'OPEN_SHAPE_AMBIGUOUS' }
   if $message in [CLOSE_REFUSAL_NESTED CLOSE_REFUSAL_PLAIN_ERRNO CLOSE_REFUSAL_ANNOTATED_ERRNO CLOSE_REFUSAL_NUMERIC_OTHER CLOSE_REFUSAL_OTHER] { return 'CLOSE_SHAPE_AMBIGUOUS' }
+  if $message in [RELATIVE_REFUSAL_ANNOTATION RELATIVE_REFUSAL_ACCESS RELATIVE_REFUSAL_DUPLICATE RELATIVE_REFUSAL_OTHER_FLAG] { return 'RELATIVE_OPEN_AMBIGUOUS' }
   # Only literal parser assertions may cross into a fixed refusal. Nu errors
   # can contain private paths or trace content, so all others collapse.
   let allowed = [
@@ -672,12 +676,31 @@ export def nested_close_self_test [ledger_path: string] {
   'nested close non-witness fixtures passed'
 }
 
+export def relative_refusal_detail_self_test [ledger_path: string] {
+  let l = (checked_ledger $ledger_path)
+  let exec = 'execve("/emsdk/upstream/bin/wasm-ld", [], 0x1) = 0'
+  let accepted = 'openat(AT_FDCWD, "relative", O_RDONLY) = 3</tmp/fixture>'
+  let cases = [
+    {line: 'openat(AT_FDCWD, "secret", O_RDONLY) = 3<relative>', detail: RELATIVE_REFUSAL_ANNOTATION}
+    {line: 'openat(AT_FDCWD, "secret", O_WRONLY) = 3</tmp/secret>', detail: RELATIVE_REFUSAL_ACCESS}
+    {line: 'openat(AT_FDCWD, "secret", O_RDONLY|O_CLOEXEC|O_CLOEXEC) = 3</tmp/secret>', detail: RELATIVE_REFUSAL_DUPLICATE}
+    {line: 'openat(AT_FDCWD, "secret", O_RDONLY|O_DIRECTORY) = 3</tmp/secret>', detail: RELATIVE_REFUSAL_OTHER_FLAG}
+  ]
+  for case in $cases {
+    let actual = (try { parse_pid ([$exec $accepted $case.line] | str join "\n") 123 $l; 'ACCEPTED' } catch {|err| $err.msg })
+    require ($actual == $case.detail and (parser_failure_class $actual) == 'RELATIVE_OPEN_AMBIGUOUS') 'SELF_TEST_RELATIVE_DIRECT_DETAIL'
+  }
+  let split = (try { parse_pid ([$exec $accepted 'openat(AT_FDCWD, "secret", O_RDONLY <unfinished ...>'] | str join "\n") 123 $l; 'ACCEPTED' } catch {|err| $err.msg })
+  require ($split == 'SPLIT_SYSCALL_AMBIGUOUS') 'SELF_TEST_RELATIVE_DIRECT_SPLIT'
+  'direct relative refusal detail fixtures passed'
+}
+
 def main [ledger: string, trace_dir: string, runtime_elf_sha256: string, receipt: string, private_class: string] {
   try {
     witness $ledger $trace_dir $runtime_elf_sha256 $receipt
   } catch {|err|
     let class = (parser_failure_class $err.msg)
-    let detail = if $err.msg in [OPEN_REFUSAL_NULL_FLAGS OPEN_REFUSAL_NESTED_NULL OPEN_REFUSAL_NESTED_OTHER OPEN_REFUSAL_OTHER CLOSE_REFUSAL_NESTED CLOSE_REFUSAL_PLAIN_ERRNO CLOSE_REFUSAL_ANNOTATED_ERRNO CLOSE_REFUSAL_NUMERIC_OTHER CLOSE_REFUSAL_OTHER] { $err.msg } else { 'UNAVAILABLE' }
+    let detail = if $err.msg in [OPEN_REFUSAL_NULL_FLAGS OPEN_REFUSAL_NESTED_NULL OPEN_REFUSAL_NESTED_OTHER OPEN_REFUSAL_OTHER CLOSE_REFUSAL_NESTED CLOSE_REFUSAL_PLAIN_ERRNO CLOSE_REFUSAL_ANNOTATED_ERRNO CLOSE_REFUSAL_NUMERIC_OTHER CLOSE_REFUSAL_OTHER RELATIVE_REFUSAL_ANNOTATION RELATIVE_REFUSAL_ACCESS RELATIVE_REFUSAL_DUPLICATE RELATIVE_REFUSAL_OTHER_FLAG] { $err.msg } else { 'UNAVAILABLE' }
     $"($class) ($detail)" | save --force $private_class
     error make {msg: 'PARSER_REFUSED'}
   }

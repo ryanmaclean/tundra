@@ -861,6 +861,7 @@ jobs:
           classification = 'PARSER_OTHER'
           direct_open_detail = 'UNAVAILABLE'
           direct_close_detail = 'UNAVAILABLE'
+          direct_relative_detail = 'UNAVAILABLE'
           try:
               info = private.lstat()
               if stat.S_ISREG(info.st_mode) and 0 < info.st_size <= 64:
@@ -872,14 +873,19 @@ jobs:
                       close_details = {'CLOSE_REFUSAL_NESTED', 'CLOSE_REFUSAL_PLAIN_ERRNO',
                                        'CLOSE_REFUSAL_ANNOTATED_ERRNO', 'CLOSE_REFUSAL_NUMERIC_OTHER',
                                        'CLOSE_REFUSAL_OTHER'}
+                      relative_details = {'RELATIVE_REFUSAL_ANNOTATION', 'RELATIVE_REFUSAL_ACCESS',
+                                          'RELATIVE_REFUSAL_DUPLICATE', 'RELATIVE_REFUSAL_OTHER_FLAG'}
                       if candidate in allowed and (detail == 'UNAVAILABLE' or
                                                    (candidate == 'OPEN_SHAPE_AMBIGUOUS' and detail in permitted_details) or
-                                                   (candidate == 'CLOSE_SHAPE_AMBIGUOUS' and detail in close_details)):
+                                                   (candidate == 'CLOSE_SHAPE_AMBIGUOUS' and detail in close_details) or
+                                                   (candidate == 'RELATIVE_OPEN_AMBIGUOUS' and detail in relative_details)):
                           classification = candidate
                           if candidate == 'OPEN_SHAPE_AMBIGUOUS':
                               direct_open_detail = detail
                           if candidate == 'CLOSE_SHAPE_AMBIGUOUS':
                               direct_close_detail = detail
+                          if candidate == 'RELATIVE_OPEN_AMBIGUOUS':
+                              direct_relative_detail = detail
           except OSError:
               pass
           receipt = Path('/work/image/receipt/refusal.json')
@@ -887,6 +893,8 @@ jobs:
           if data.get('schema') != 'tundra-eh-seeded-link-trace/v1' or data.get('status') != 'REFUSED' or data.get('reason') != 'TRACE_PARSER':
               raise SystemExit('parser refusal scope rejected')
           data['parser_diagnostic'] = {'failure_class': classification}
+          if classification == 'RELATIVE_OPEN_AMBIGUOUS':
+              data['parser_diagnostic']['relative_class'] = direct_relative_detail
           if classification == 'TRUNCATED_OR_AMBIGUOUS':
               # Preserve no trace text, filenames or PID: report only the
               # first lexical parser-visible ellipsis position as an enum.

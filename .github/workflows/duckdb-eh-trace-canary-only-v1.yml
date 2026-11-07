@@ -323,6 +323,24 @@ jobs:
           (d / 'trace.111').write_text('execve("/usr/bin/true", [], 0x1) = 0\n+++ exited with 0 +++\n')
           (d / 'trace.222').write_text('execve("/emsdk/upstream/bin/wasm-ld", [], 0x1) = 0\nopenat(AT_FDCWD, "/dev/null", O_RDONLY) = 3</dev/null<char 1:3>>\nopenat(AT_FDCWD, "/dummy-secret", O_RDONLY) = 4</dummy-secret<block 1:5>>\n')
           PYDIRECTDETAIL
+          /work/image/tool/nu -c 'use gate/.github/scripts/duckdb-eh-linker-fd-witness-v1.nu relative_refusal_detail_self_test; relative_refusal_detail_self_test gate/.github/receipts/duckdb-eh-linker-fd-witness-v1.json'
+          python3 - <<'PYRELATIVEDIRECT'
+          from pathlib import Path
+          d = Path('/work/image/trace-private/relative-direct-detail')
+          d.mkdir(mode=0o700)
+          (d / 'trace.111').write_text('execve("/usr/bin/true", [], 0x1) = 0\n+++ exited with 0 +++\n')
+          (d / 'trace.222').write_text('execve("/emsdk/upstream/bin/wasm-ld", [], 0x1) = 0\nopenat(AT_FDCWD, "fixture", O_RDONLY) = 3</tmp/fixture>\nopenat(AT_FDCWD, "dummy-secret", O_RDONLY|O_DIRECTORY) = 3</tmp/dummy-secret>\n')
+          PYRELATIVEDIRECT
+          if /work/image/tool/nu gate/.github/scripts/duckdb-eh-linker-fd-witness-v1.nu \
+            gate/.github/receipts/duckdb-eh-linker-fd-witness-v1.json /work/image/trace-private/relative-direct-detail \
+            6e5c12aab29b80db118acd16c08953257683ed11c415970f8320ed777997eec7 \
+            /work/image/trace-private/relative-direct-receipt.json /work/image/trace-private/relative-direct-class.txt \
+            > /work/image/trace-private/relative-direct-stdout.txt 2> /work/image/trace-private/relative-direct-stderr.txt; then
+            exit 1
+          fi
+          test "$(cat /work/image/trace-private/relative-direct-class.txt)" = 'RELATIVE_OPEN_AMBIGUOUS RELATIVE_REFUSAL_OTHER_FLAG'
+          test ! -e /work/image/trace-private/relative-direct-receipt.json
+          if grep -q 'dummy-secret' /work/image/trace-private/relative-direct-{stdout,stderr,class}.txt; then exit 1; fi
           /work/image/tool/nu -c 'use gate/.github/scripts/duckdb-eh-linker-fd-witness-v1.nu close_refusal_detail_self_test; close_refusal_detail_self_test gate/.github/receipts/duckdb-eh-linker-fd-witness-v1.json'
           python3 - <<'PYCLOSEDIRECT'
           from pathlib import Path
