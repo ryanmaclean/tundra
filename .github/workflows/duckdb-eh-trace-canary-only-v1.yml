@@ -1011,7 +1011,72 @@ jobs:
                   raise SystemExit('RAW_CANARY_RECEIPT_REFUSED') from None
               raise SystemExit('RAW_CANARY_REFUSED') from None
           PY
-          printf '%s\n' '{"schema":"tundra-eh-seeded-link-trace/v1","status":"CANARY_SHAPE_DIAGNOSTIC_ONLY","actual_eh_linker_child":"UNPROVEN","linker_archive_read":"UNPROVEN","same_run_traced_outputs":"UNPROVEN","legal_admission":"NO","product_admission":"NO","fleet_admission":"NO"}' > /work/image/receipt/canary.json
+          # Probe only a fixed disposable file on this worker's actual filesystem.
+          # The fixed enum does not admit a linker read or certify path custody.
+          python3 - <<'PYFSVERITY'
+          import errno
+          import fcntl
+          import json
+          import os
+          import stat
+          import struct
+          from pathlib import Path
+          d = Path('/work/image/trace-private/verity-probe')
+          d.mkdir(mode=0o700)
+          p = d / 'dummy'
+          p.write_bytes(b'tundra-verity-dummy')
+          alias = d / 'alias'
+          os.link(p, alias)
+          arg = struct.pack('<IIIIQIIQ11Q', 1, 1, 0, 0, 0, 0, 0, 0, *([0] * 11))
+          assert len(arg) == 128
+          request = 0x40806685  # FS_IOC_ENABLE_VERITY
+          w = os.open(p, os.O_RDWR)
+          r = os.open(p, os.O_RDONLY)
+          try:
+              try:
+                  fcntl.ioctl(r, request, arg)
+                  status = 'FSVERITY_WRITER_GUARD_REFUSED'
+              except OSError as error:
+                  status = 'FSVERITY_WRITER_GUARD_PASS' if error.errno == errno.ETXTBSY else ('FSVERITY_UNSUPPORTED' if error.errno == errno.EOPNOTSUPP else 'FSVERITY_UNAVAILABLE')
+              os.close(w)
+              w = None
+              if status == 'FSVERITY_WRITER_GUARD_PASS':
+                  try:
+                      fcntl.ioctl(r, request, arg)
+                  except OSError:
+                      status = 'FSVERITY_ENABLE_REFUSED'
+                  else:
+                      try:
+                          assert os.pread(r, 64, 0) == b'tundra-verity-dummy'
+                          first, second, pinned = p.stat(), alias.stat(), os.fstat(r)
+                          assert all(stat.S_ISREG(s.st_mode) for s in (first, second, pinned))
+                          assert (first.st_dev, first.st_ino) == (second.st_dev, second.st_ino) == (pinned.st_dev, pinned.st_ino)
+                          for target in (p, alias):
+                              for flags in (os.O_RDWR, os.O_WRONLY | os.O_TRUNC):
+                                  try:
+                                      fd = os.open(target, flags)
+                                  except OSError as error:
+                                      if error.errno == errno.EPERM:
+                                          continue
+                                      raise
+                                  os.close(fd)
+                                  raise ValueError()
+                          status = 'FSVERITY_DUMMY_CONTROLS_PASS'
+                      except (OSError, AssertionError, ValueError):
+                          status = 'FSVERITY_DUMMY_CONTROLS_REFUSED'
+          finally:
+              if w is not None:
+                  os.close(w)
+              os.close(r)
+          allowed = {'FSVERITY_WRITER_GUARD_REFUSED', 'FSVERITY_UNSUPPORTED', 'FSVERITY_UNAVAILABLE',
+                     'FSVERITY_ENABLE_REFUSED', 'FSVERITY_DUMMY_CONTROLS_PASS', 'FSVERITY_DUMMY_CONTROLS_REFUSED'}
+          if status not in allowed:
+              raise SystemExit('verity probe refused')
+          data = {'schema':'tundra-eh-seeded-link-trace/v1', 'status':'CANARY_SHAPE_DIAGNOSTIC_ONLY',
+                  'fsverity_probe':status, 'actual_eh_linker_child':'UNPROVEN', 'linker_archive_read':'UNPROVEN',
+                  'same_run_traced_outputs':'UNPROVEN', 'legal_admission':'NO', 'product_admission':'NO', 'fleet_admission':'NO'}
+          Path('/work/image/receipt/canary.json').write_text(json.dumps(data, separators=(',', ':'), sort_keys=True) + '\n')
+          PYFSVERITY
           rm /work/image/receipt/refusal.json
       - name: Delete private tracer bytes and cap receipt
         id: cleanup
