@@ -69,6 +69,15 @@ def parse_pid [raw: string, pid: int, l: record] {
         capture $line '^open\("(?<path>/[^"\\]*)", O_RDONLY(?:\|O_CLOEXEC)?\) = -1 ENOENT \(No such file or directory\)$'
       }
       if $missing != null { continue }
+      # A known successful /dev/null open is not an archive witness. Its
+      # returned descriptor may replace a previously tracked descriptor.
+      let null_open = (capture $line '^open(?:at\(AT_FDCWD(?:</[^>\\]*>)?, |\()"/dev/null", (?<flags>[^)]*)\) = (?<fd>[0-9]{1,9})</dev/null<char 1:3>>$')
+      if $null_open != null {
+        let flags = ($null_open.flags | split row '|')
+        require (($flags | first) == 'O_RDONLY' and (($flags | uniq | length) == ($flags | length)) and ($flags | all {|f| $f in [O_RDONLY O_CLOEXEC O_NOFOLLOW O_NONBLOCK O_LARGEFILE]})) 'OPEN_SHAPE_AMBIGUOUS'
+        $active = ($active | where $it != ($null_open.fd | into int))
+        continue
+      }
       let o = if ($line | str starts-with 'openat(') {
         capture $line '^openat\((?<dirfd>[^,]+), "(?<path>[^"\\]+)", (?<flags>[^)]*)\) = (?<fd>[0-9]+)<(?<annotation>[^>]+)>$'
       } else {
@@ -497,6 +506,35 @@ export def relative_open_self_test [ledger_path: string] {
     require ($actual == $case.reason) 'SELF_TEST_RELATIVE_REFUSAL'
   }
   'relative non-witness open fixtures passed'
+}
+
+export def nested_device_self_test [ledger_path: string] {
+  let l = (checked_ledger $ledger_path)
+  let exec = 'execve("/emsdk/upstream/bin/wasm-ld", [], 0x1) = 0'
+  let archive = 'openat(AT_FDCWD</tmp>, "/work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a", O_RDONLY) = 3</work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a>'
+  let device = 'openat(AT_FDCWD</tmp>, "/dev/null", O_RDONLY|O_CLOEXEC) = 3</dev/null<char 1:3>>'
+  let read = 'read(3, "") = 1'
+  let end = '+++ exited with 0 +++'
+  let alone = (parse_pid ([$exec $device $read $end] | str join "\n") 123 $l)
+  require ($alone.direct_archive_opens == 0 and not $alone.read_positive) 'SELF_TEST_DEVICE_NO_WITNESS'
+  let reused = (parse_pid ([$exec $archive $device $read $end] | str join "\n") 123 $l)
+  require (not $reused.read_positive) 'SELF_TEST_DEVICE_REUSE'
+  let other = 'open("/dev/null", O_RDONLY) = 4</dev/null<char 1:3>>'
+  let independent = (parse_pid ([$exec $archive $other $read $end] | str join "\n") 123 $l)
+  require $independent.read_positive 'SELF_TEST_DEVICE_OTHER_FD'
+  for line in [
+    'openat(3</tmp>, "/dev/null", O_RDONLY) = 3</dev/null<char 1:3>>'
+    'openat(AT_FDCWD, "/dev/zero", O_RDONLY) = 3</dev/zero<char 1:5>>'
+    'openat(AT_FDCWD, "/dev/null", O_RDONLY) = 3</dev/null<char 1:5>>'
+    'openat(AT_FDCWD, "/dev/null", O_RDONLY|O_TRUNC) = 3</dev/null<char 1:3>>'
+    'openat(AT_FDCWD, "/dev/null", O_RDONLY|O_RDONLY) = 3</dev/null<char 1:3>>'
+    'openat(AT_FDCWD, "/dev/null", O_RDONLY) = -1 EBADF (Bad file descriptor)'
+    'openat(AT_FDCWD, "/dev/null", O_RDONLY) = 3</dev/null<char 1:3>> trailing'
+  ] {
+    let actual = (try { parse_pid ([$exec $line] | str join "\n") 123 $l; 'ACCEPTED' } catch {|err| $err.msg })
+    require ($actual == 'OPEN_SHAPE_AMBIGUOUS') 'SELF_TEST_DEVICE_REFUSAL'
+  }
+  'nested device non-witness fixtures passed'
 }
 
 def main [ledger: string, trace_dir: string, runtime_elf_sha256: string, receipt: string, private_class: string] {
