@@ -874,7 +874,8 @@ jobs:
                                        'CLOSE_REFUSAL_ANNOTATED_ERRNO', 'CLOSE_REFUSAL_NUMERIC_OTHER',
                                        'CLOSE_REFUSAL_OTHER'}
                       relative_details = {'RELATIVE_REFUSAL_ANNOTATION', 'RELATIVE_ACCESS_WRONLY',
-                                          'RELATIVE_ACCESS_RDWR', 'RELATIVE_ACCESS_PATH',
+                                          'RDWR_ARCHIVE_TRUNC_TOKEN', 'RDWR_ARCHIVE_NO_TRUNC_TOKEN',
+                                          'RDWR_OTHER_TRUNC_TOKEN', 'RDWR_OTHER_NO_TRUNC_TOKEN', 'RELATIVE_ACCESS_PATH',
                                           'RELATIVE_ACCESS_NUMERIC', 'RELATIVE_ACCESS_SYMBOLIC',
                                           'RELATIVE_ACCESS_OTHER', 'RELATIVE_REFUSAL_DUPLICATE',
                                           'RELATIVE_REFUSAL_OTHER_FLAG'}
