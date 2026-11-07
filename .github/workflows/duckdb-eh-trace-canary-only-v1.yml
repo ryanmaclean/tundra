@@ -269,10 +269,10 @@ jobs:
               fixture.mkdir(mode=0o700)
               (fixture / 'trace.123').write_bytes(b'execve("/emsdk/upstream/bin/wasm-ld", [], 0x1) = 0\n' + matches[0])
               local_block = block.replace("Path('/work/image/trace-raw')", f'Path({str(fixture)!r})')
-              classification = 'OPEN_SHAPE_AMBIGUOUS'
-              data = {'parser_diagnostic': {'failure_class': classification}}
-              exec(compile(local_block, '<fixed-open-suffix>', 'exec'))
-              if data['parser_diagnostic'].get('open_class') != expected:
+              scope = {'Path': Path, 're': re, 'stat': stat, 'classification': 'OPEN_SHAPE_AMBIGUOUS',
+                       'data': {'parser_diagnostic': {'failure_class': 'OPEN_SHAPE_AMBIGUOUS'}}}
+              exec(compile(local_block, '<fixed-open-suffix>', 'exec'), scope)
+              if scope['data']['parser_diagnostic'].get('open_class') != expected:
                   raise SystemExit('open suffix fixture refused')
           PYSUFFIXCANARY
           printf '%s\n' dummy > /work/image/trace-private/relative-fixture-file
