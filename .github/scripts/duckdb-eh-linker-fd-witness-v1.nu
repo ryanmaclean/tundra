@@ -75,10 +75,16 @@ def parse_pid [raw: string, pid: int, l: record] {
         capture $line '^open\("(?<path>[^"\\]+)", (?<flags>[^)]*)\) = (?<fd>[0-9]+)<(?<annotation>[^>]+)>$'
       }
       require ($o != null) 'OPEN_SHAPE_AMBIGUOUS'
-      require ($o.path | str starts-with '/') 'RELATIVE_OPEN_AMBIGUOUS'
       if 'dirfd' in $o { require ($o.dirfd =~ '^AT_FDCWD(?:</[^>\\]*>)?$') 'OPENAT_DIRFD_AMBIGUOUS' }
       let fd = ($o.fd | into int)
       $active = ($active | where $it != $fd)
+      if not ($o.path | str starts-with '/') {
+        # A relative path cannot establish the literal absolute archive open.
+        # It may reuse an FD number, so invalidate that number first.
+        let flags = ($o.flags | split row '|')
+        require (($o.annotation | str starts-with '/') and not ($o.annotation =~ '\\') and ($flags | first) == 'O_RDONLY' and (($flags | uniq | length) == ($flags | length)) and ($flags | all {|f| $f in [O_RDONLY O_CLOEXEC O_NOFOLLOW O_NONBLOCK O_LARGEFILE]})) 'RELATIVE_OPEN_AMBIGUOUS'
+        continue
+      }
       if $o.path == $l.archive_path {
         # Only known, nonmutating read flags may establish archive custody.
         let flags = ($o.flags | split row '|')
@@ -457,6 +463,40 @@ export def close_alignment_self_test [ledger_path: string] {
   let drift_result = (try { parse_pid ([$exec $opened $drift] | str join "\n") 123 $l; 'ACCEPTED' } catch {|err| $err.msg })
   require ($drift_result == 'FD_ANNOTATION_DRIFT') 'SELF_TEST_CLOSE_ANNOTATION'
   'close alignment parser fixtures passed'
+}
+
+export def relative_open_self_test [ledger_path: string] {
+  let l = (checked_ledger $ledger_path)
+  let exec = 'execve("/emsdk/upstream/bin/wasm-ld", [], 0x1) = 0'
+  let archive = 'openat(AT_FDCWD</tmp>, "/work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a", O_RDONLY) = 3</work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a>'
+  let alias = 'openat(AT_FDCWD</tmp>, "relative/libnoexit.a", O_RDONLY|O_CLOEXEC) = 3</work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a>'
+  let alias_read = 'read(3</work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a>, "") = 1'
+  let plain_read = 'read(3, "") = 1'
+  let finish = '+++ exited with 0 +++'
+  let only_alias = (parse_pid ([$exec $alias $alias_read $finish] | str join "\n") 123 $l)
+  require ($only_alias.direct_archive_opens == 0 and not $only_alias.read_positive) 'SELF_TEST_RELATIVE_ALIAS'
+  let reused = (parse_pid ([$exec $archive $alias $plain_read $finish] | str join "\n") 123 $l)
+  require (not $reused.read_positive) 'SELF_TEST_RELATIVE_REUSED'
+  let other = 'openat(AT_FDCWD</tmp>, "relative/other", O_RDONLY) = 4</tmp/other>'
+  let independent = (parse_pid ([$exec $archive $other $alias_read $finish] | str join "\n") 123 $l)
+  require $independent.read_positive 'SELF_TEST_RELATIVE_OTHER_FD'
+  let after = (parse_pid ([$exec $alias $archive $alias_read $finish] | str join "\n") 123 $l)
+  require $after.read_positive 'SELF_TEST_RELATIVE_SEPARATE_ARCHIVE'
+  let invalid = [
+    {line: 'openat(3</tmp>, "relative", O_RDONLY) = 4</tmp/other>', reason: OPENAT_DIRFD_AMBIGUOUS}
+    {line: 'openat(AT_FDCWD</tmp>, "relative\\path", O_RDONLY) = 4</tmp/other>', reason: OPEN_SHAPE_AMBIGUOUS}
+    {line: 'openat(AT_FDCWD</tmp>, "relative", O_RDONLY|O_TRUNC) = 4</tmp/other>', reason: RELATIVE_OPEN_AMBIGUOUS}
+    {line: 'openat(AT_FDCWD</tmp>, "relative", O_RDONLY|O_CREAT) = 4</tmp/other>', reason: RELATIVE_OPEN_AMBIGUOUS}
+    {line: 'openat(AT_FDCWD</tmp>, "relative", O_RDONLY) = 4<relative>', reason: RELATIVE_OPEN_AMBIGUOUS}
+    {line: 'openat(AT_FDCWD</tmp>, "relative", O_RDONLY) = 4</tmp\other>', reason: RELATIVE_OPEN_AMBIGUOUS}
+    {line: 'openat(AT_FDCWD</tmp>, "relative...", O_RDONLY) = 4</tmp/other>', reason: TRUNCATED_OR_AMBIGUOUS}
+    {line: 'openat(AT_FDCWD</tmp>, "relative", O_RDONLY <unfinished ...>', reason: SPLIT_SYSCALL_AMBIGUOUS}
+  ]
+  for case in $invalid {
+    let actual = (try { parse_pid ([$exec $case.line] | str join "\n") 123 $l; 'ACCEPTED' } catch {|err| $err.msg })
+    require ($actual == $case.reason) 'SELF_TEST_RELATIVE_REFUSAL'
+  }
+  'relative non-witness open fixtures passed'
 }
 
 def main [ledger: string, trace_dir: string, runtime_elf_sha256: string, receipt: string, private_class: string] {

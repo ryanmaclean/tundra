@@ -237,6 +237,51 @@ jobs:
           witness $ledger /work/image/trace-private/flags-good-with-read $digest /work/image/trace-private/flags-good-with-read.json
           NUFAILEDOPEN
           )"
+          printf '%s\n' dummy > /work/image/trace-private/relative-fixture-file
+          timeout 15s "$loader" --library-path "$libdir" "$tracer" -yy -s 256 -e trace=open,openat \
+            -o /work/image/trace-private/relative-dummy.trace python3 -c 'import os; os.chdir("/work/image/trace-private"); f=os.open("relative-fixture-file",os.O_RDONLY); os.close(f)' \
+            > /work/image/trace-private/relative-dummy.log 2>&1
+          python3 - <<'PYRELATIVECANARY'
+          from pathlib import Path
+          import re
+          p = Path('/work/image/trace-private/relative-dummy.trace')
+          if p.is_symlink() or not p.is_file() or not 0 < p.stat().st_size <= 1048576:
+              raise SystemExit('relative dummy refused')
+          lines = [line for line in p.read_bytes().splitlines(keepends=True) if b'"relative-fixture-file"' in line]
+          if len(lines) != 1 or not re.match(rb'^openat\(AT_FDCWD</[^>]+>, "relative-fixture-file", O_RDONLY', lines[0]):
+              raise SystemExit('relative dummy refused')
+          match = re.search(rb'\) = ([0-9]+)<([^>]+)>\n$', lines[0])
+          if match is None:
+              raise SystemExit('relative dummy refused')
+          fd, annotation = match.groups()
+          archive = b'/work/image/cache/sysroot/lib/wasm32-emscripten/libnoexit.a'
+          relative = lines[0].replace(annotation, archive)
+          exec_line = b'execve("/emsdk/upstream/bin/wasm-ld", [], 0x1) = 0\n'
+          finish = b'+++ exited with 0 +++\n'
+          open_same = b'openat(AT_FDCWD, "' + archive + b'", O_RDONLY) = ' + fd + b'<' + archive + b'>\n'
+          read_same = b'read(' + fd + b', "") = 1\n'
+          open_other = b'openat(AT_FDCWD, "' + archive + b'", O_RDONLY) = 201<' + archive + b'>\n'
+          read_other = b'read(201<' + archive + b'>, "") = 1\n'
+          if fd == b'201':
+              raise SystemExit('relative dummy refused')
+          for name, body in (('relative-alias', relative + read_same), ('relative-reuse', open_same + relative + read_same), ('relative-other-fd', open_other + relative + read_other)):
+              directory = Path('/work/image/trace-private') / name
+              directory.mkdir(mode=0o700)
+              (directory / 'trace.123').write_bytes(exec_line + body + finish)
+          PYRELATIVECANARY
+          /work/image/tool/nu -c 'use gate/.github/scripts/duckdb-eh-linker-fd-witness-v1.nu relative_open_self_test; relative_open_self_test gate/.github/receipts/duckdb-eh-linker-fd-witness-v1.json'
+          /work/image/tool/nu -c "$(cat <<'NURELATIVE'
+          use gate/.github/scripts/duckdb-eh-linker-fd-witness-v1.nu [witness parser_failure_class]
+          let ledger = 'gate/.github/receipts/duckdb-eh-linker-fd-witness-v1.json'
+          let digest = '6e5c12aab29b80db118acd16c08953257683ed11c415970f8320ed777997eec7'
+          for case in ['relative-alias' 'relative-reuse'] {
+            let out = $'/work/image/trace-private/($case).json'
+            let result = (try { witness $ledger $'/work/image/trace-private/($case)' $digest $out; 'ACCEPTED' } catch {|e| parser_failure_class $e.msg })
+            if $result != 'REFUSED_DIRECT_READ_NOT_PROVED' { error make {msg: 'relative open non-witness control refused'} }
+          }
+          witness $ledger /work/image/trace-private/relative-other-fd $digest /work/image/trace-private/relative-other-fd.json
+          NURELATIVE
+          )"
           # Fixed dummy FD only; capture remains private and is later deleted.
           printf '%s\n' dummy > /work/image/trace-private/close-fixture-file
           timeout 15s "$loader" --library-path "$libdir" "$tracer" -yy -s 256 -e trace=close \
