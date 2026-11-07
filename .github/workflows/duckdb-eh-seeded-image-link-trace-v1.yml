@@ -605,7 +605,7 @@ jobs:
             cd "$build" || exit 1
             test "$PWD" = "$GITHUB_WORKSPACE/duckdb-upstream/build/integrated-eh-seeded-image" || exit 1
             setsid timeout --signal=TERM --kill-after=5s 600s "$loader" --library-path "$libdir" "$tracer" -ff -yy -s 256 -e raw=read,pread64,readv \
-              -e trace=all \
+              -e trace=execve,execveat,open,openat,openat2,creat,read,pread64,readv,preadv,preadv2,close,close_range,dup,dup2,dup3,fcntl,mmap,mprotect,munmap,mremap,chdir,fchdir,exit,exit_group,clone,clone3,fork,vfork,unshare,setns,ptrace,recvmsg,recvmmsg,pidfd_getfd,io_uring_setup,io_uring_enter,io_uring_register,write,pwrite64,writev,pwritev,pwritev2,truncate,ftruncate,fallocate,unlink,unlinkat,rename,renameat,renameat2,link,linkat,symlink,symlinkat,mount,umount2,process_vm_writev,sendfile,splice,vmsplice,copy_file_range,landlock_create_ruleset,landlock_add_rule,landlock_restrict_self,prctl \
               -o /work/image/trace-private/raw/trace bash -euo pipefail -c "$command_text" \
               > /work/image/trace-private/relink-output.log 2>&1 &
             tracer_pid=$!
@@ -729,8 +729,8 @@ jobs:
           base = Path('/work/image/trace-private/raw')
           receipt = Path('/work/image/receipt/refusal.json')
           pre = json.loads(Path('/work/image/trace-private/pre.json').read_text())
-          result = {'schema':'tundra-eh-fulltrace-observation/v1', 'status':'REFUSED',
-                    'reason':'FULL_TRACE_DIAGNOSTIC_ONLY', 'actual_eh_linker_child':'UNPROVEN',
+          result = {'schema':'tundra-eh-selectedtrace-observation/v1', 'status':'REFUSED',
+                    'reason':'SELECTED_TRACE_DIAGNOSTIC_ONLY', 'trace_scope':'SELECTED_SYSCALLS_FILTER_INCOMPLETE', 'actual_eh_linker_child':'UNPROVEN',
                     'linker_archive_read':'UNPROVEN', 'same_run_traced_outputs':'UNPROVEN',
                     'legal_admission':'NO', 'product_admission':'NO', 'fleet_admission':'NO'}
           target = re.compile(rb'^execve\("/emsdk/upstream/bin/wasm-ld", .*\) = 0$')
@@ -811,10 +811,10 @@ jobs:
               lines = [line[:-1] for line in lines]
               executions += sum(bool(target.fullmatch(line)) for line in lines)
               observations.append(scan(lines))
-          result['target_exec_shape'] = 'ONE' if executions == 1 else 'ZERO_OR_MULTIPLE'
-          result['seed_read_shape'] = 'PRESENT' if any(x[0] for x in observations) else 'NOT_OBSERVED'
-          result['target_clone_shape'] = 'PRESENT' if any(x[1] for x in observations) else 'NOT_OBSERVED'
-          result['target_split_shape'] = 'PRESENT' if any(x[2] for x in observations) else 'NOT_OBSERVED'
+          result['selected_target_exec_shape'] = 'ONE' if executions == 1 else 'ZERO_OR_MULTIPLE'
+          result['selected_seed_read_shape'] = 'PRESENT' if any(x[0] for x in observations) else 'NOT_OBSERVED'
+          result['selected_target_clone_shape'] = 'PRESENT' if any(x[1] for x in observations) else 'NOT_OBSERVED'
+          result['selected_target_split_shape'] = 'PRESENT' if any(x[2] for x in observations) else 'NOT_OBSERVED'
           for key in ('map', 'js', 'wasm'):
               item = pre['outputs'][key]
               path = Path(item['path'])
