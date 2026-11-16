@@ -6,8 +6,8 @@
 //!
 //! Run with: cargo test -p at-tui --test e2e_test
 //!
-//! Tests are gated behind a connectivity check — if the daemon is unreachable,
-//! tests are skipped (not failed) so CI doesn't break without a running daemon.
+//! Set AUTO_TUNDRA_API_KEY to the isolated test daemon's credential.
+//! Missing services or credentials fail this explicit integration gate.
 
 #[path = "../src/api_client.rs"]
 #[allow(dead_code)]
@@ -22,15 +22,41 @@ const OLLAMA_URL: &str = "http://localhost:11434";
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Check if the daemon is reachable. If not, skip the test.
+fn daemon_client() -> ApiClient {
+    let key = std::env::var("AUTO_TUNDRA_API_KEY").expect("E2E daemon credential required");
+    assert!(!key.is_empty(), "E2E daemon credential must not be empty");
+    ApiClient::with_api_key(DAEMON_URL, Some(&key))
+}
+
+fn raw_client(url: &str, timeout_secs: u64) -> Result<reqwest::blocking::Client, String> {
+    let mut headers = reqwest::header::HeaderMap::new();
+    // Never attach the daemon credential to Ollama requests.
+    if url.starts_with(&format!("{DAEMON_URL}/")) {
+        let key = std::env::var("AUTO_TUNDRA_API_KEY")
+            .map_err(|_| "E2E daemon credential required".to_string())?;
+        if key.is_empty() {
+            return Err("E2E daemon credential must not be empty".into());
+        }
+        let mut value = reqwest::header::HeaderValue::from_str(&key)
+            .map_err(|_| "invalid E2E daemon credential".to_string())?;
+        value.set_sensitive(true);
+        headers.insert("x-api-key", value);
+    }
+    reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(timeout_secs))
+        .default_headers(headers)
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|e| format!("client build: {e}"))
+}
+
+/// Require authenticated access to the daemon; unavailable services fail the gate.
 fn require_daemon() -> ApiClient {
-    let client = ApiClient::new(DAEMON_URL);
+    let client = daemon_client();
     match client.fetch_agents() {
         Ok(_) => client,
         Err(e) => {
-            eprintln!("SKIPPED: daemon not reachable at {DAEMON_URL}: {e}");
-            // Use a special panic message that test harnesses can filter
-            panic!("SKIPPED: daemon not available");
+            panic!("daemon not reachable at {DAEMON_URL}: {e}");
         }
     }
 }
@@ -43,16 +69,13 @@ fn require_ollama() {
         .unwrap();
     match client.get(format!("{OLLAMA_URL}/api/tags")).send() {
         Ok(resp) if resp.status().is_success() => {}
-        _ => panic!("SKIPPED: Ollama not available at {OLLAMA_URL}"),
+        _ => panic!("Ollama not available at {OLLAMA_URL}"),
     }
 }
 
 /// POST JSON to an endpoint and return the response body.
 fn post_json(url: &str, body: &serde_json::Value) -> Result<serde_json::Value, String> {
-    let client = reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
-        .build()
-        .map_err(|e| format!("client build: {e}"))?;
+    let client = raw_client(url, 10)?;
     let resp = client
         .post(url)
         .json(body)
@@ -68,10 +91,7 @@ fn post_json(url: &str, body: &serde_json::Value) -> Result<serde_json::Value, S
 
 /// GET JSON from an endpoint.
 fn get_json(url: &str) -> Result<serde_json::Value, String> {
-    let client = reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(5))
-        .build()
-        .map_err(|e| format!("client build: {e}"))?;
+    let client = raw_client(url, 5)?;
     let resp = client
         .get(url)
         .header("Accept", "application/json")
@@ -88,6 +108,23 @@ fn get_json(url: &str) -> Result<serde_json::Value, String> {
 // ===========================================================================
 // Connectivity Tests
 // ===========================================================================
+
+#[test]
+fn e2e_daemon_rejects_missing_and_wrong_credentials() {
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .expect("negative-control HTTP client");
+    for key in [None, Some("deliberately-wrong-e2e-key")] {
+        let mut request = client.get(format!("{DAEMON_URL}/api/status"));
+        if let Some(key) = key {
+            request = request.header("x-api-key", key);
+        }
+        let response = request.send().expect("negative-control daemon response");
+        assert_eq!(response.status(), reqwest::StatusCode::UNAUTHORIZED);
+    }
+}
 
 #[test]
 fn e2e_daemon_reachable() {
@@ -365,7 +402,7 @@ fn e2e_create_and_fetch_bead() {
     assert!(!bead_id.is_empty());
 
     // Verify it appears in the list
-    let client = ApiClient::new(DAEMON_URL);
+    let client = daemon_client();
     let beads = client.fetch_beads().expect("fetch_beads after create");
     let found = beads.iter().any(|b| b.id == bead_id);
     assert!(found, "Created bead {} not found in bead list", bead_id);
@@ -609,7 +646,7 @@ fn e2e_websocket_endpoint_exists() {
 
     // Verify the WebSocket upgrade endpoint responds (should return 400 without
     // proper upgrade headers, but not 404)
-    let client = reqwest::blocking::Client::new();
+    let client = raw_client(&format!("{DAEMON_URL}/ws"), 5).expect("daemon HTTP client");
     let resp = client
         .get(format!("{DAEMON_URL}/ws"))
         .send()
@@ -634,7 +671,7 @@ fn e2e_concurrent_fetch_all() {
     let handles: Vec<_> = (0..5)
         .map(|_| {
             std::thread::spawn(|| {
-                let client = ApiClient::new(DAEMON_URL);
+                let client = daemon_client();
                 client.fetch_all()
             })
         })
@@ -658,7 +695,8 @@ fn e2e_concurrent_fetch_all() {
 #[test]
 fn e2e_invalid_endpoint_returns_404() {
     require_daemon();
-    let client = reqwest::blocking::Client::new();
+    let client = raw_client(&format!("{DAEMON_URL}/api/nonexistent"), 5)
+        .expect("daemon HTTP client");
     let resp = client
         .get(format!("{DAEMON_URL}/api/nonexistent"))
         .send()
