@@ -1,0 +1,8 @@
+id: command-injection-risk
+valid:
+  - 'fn f() { std::process::Command::new("git").arg("status"); }'
+  - 'fn f() { std::process::Command::new("git").env("KEY", "value").arg("status"); }'
+invalid:
+  - 'fn f() { std::process::Command::new("sh").arg(command); }'
+  - 'fn f() { std::process::Command::new("bash").arg("-c").arg(command); }'
+  - 'fn f() { std::process::Command::new("sh").env("KEY", "value").arg(command); }'

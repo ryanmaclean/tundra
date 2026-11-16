@@ -1,0 +1,9 @@
+id: unwrap-in-lib
+valid:
+  - 'mod tests { fn f() { value.unwrap(); } }'
+  - 'fn f() { value?; }'
+  - '#[cfg(test)] fn fixture() { value.unwrap(); }'
+  - '#[cfg(test)] mod fixture { fn f() { value.expect("fixture"); } }'
+invalid:
+  - 'fn f() { value.unwrap(); }'
+  - 'fn f() { value.expect("required"); }'
