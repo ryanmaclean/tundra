@@ -103,14 +103,19 @@ jobs:
           port = 9090
           EOF
 
+      - name: Verify rate limiter controls without E2E feature
+        run: |
+          cargo test -p at-harness --test rate_limiter_test
+          cargo test -p at-bridge --test default_rate_limits_test
+
       - name: Start daemon
         run: |
           rm -f ~/.auto-tundra/daemon.lock
-          cargo build -p at-daemon  # build outside the readiness window (cold cache > 60s)
+          cargo build -p at-daemon --features e2e-test  # disposable functional E2E limiter
           export AUTO_TUNDRA_API_KEY="$(cat /proc/sys/kernel/random/uuid)"
           echo "::add-mask::$AUTO_TUNDRA_API_KEY"
           echo "AUTO_TUNDRA_API_KEY=$AUTO_TUNDRA_API_KEY" >> "$GITHUB_ENV"
-          nohup cargo run -p at-daemon -- --replace >/tmp/at-daemon.log 2>&1 &
+          nohup cargo run -p at-daemon --features e2e-test -- --replace >/tmp/at-daemon.log 2>&1 &
           for _ in {1..60}; do
             if curl -sf -H "x-api-key: $AUTO_TUNDRA_API_KEY" http://127.0.0.1:9090/api/status >/dev/null; then
               exit 0
@@ -176,14 +181,19 @@ jobs:
           port = 9090
           EOF
 
+      - name: Verify rate limiter controls without E2E feature
+        run: |
+          cargo test -p at-harness --test rate_limiter_test
+          cargo test -p at-bridge --test default_rate_limits_test
+
       - name: Start daemon
         run: |
           rm -f ~/.auto-tundra/daemon.lock
-          cargo build -p at-daemon  # build outside the readiness window (cold cache > 60s)
+          cargo build -p at-daemon --features e2e-test  # disposable functional E2E limiter
           export AUTO_TUNDRA_API_KEY="$(cat /proc/sys/kernel/random/uuid)"
           echo "::add-mask::$AUTO_TUNDRA_API_KEY"
           echo "AUTO_TUNDRA_API_KEY=$AUTO_TUNDRA_API_KEY" >> "$GITHUB_ENV"
-          nohup cargo run -p at-daemon -- --replace >/tmp/at-daemon.log 2>&1 &
+          nohup cargo run -p at-daemon --features e2e-test -- --replace >/tmp/at-daemon.log 2>&1 &
           for _ in {1..45}; do
             if curl -sf -H "x-api-key: $AUTO_TUNDRA_API_KEY" http://127.0.0.1:9090/api/status >/dev/null; then
               exit 0

@@ -695,8 +695,8 @@ fn e2e_concurrent_fetch_all() {
 #[test]
 fn e2e_invalid_endpoint_returns_404() {
     require_daemon();
-    let client = raw_client(&format!("{DAEMON_URL}/api/nonexistent"), 5)
-        .expect("daemon HTTP client");
+    let client =
+        raw_client(&format!("{DAEMON_URL}/api/nonexistent"), 5).expect("daemon HTTP client");
     let resp = client
         .get(format!("{DAEMON_URL}/api/nonexistent"))
         .send()

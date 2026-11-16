@@ -8,6 +8,10 @@ publish = false
 name = "at-daemon"
 path = "src/main.rs"
 
+[features]
+# Only affects debug builds on disposable functional E2E runners.
+e2e-test = []
+
 [dependencies]
 at-core = { path = "../at-core" }
 at-telemetry = { path = "../at-telemetry" }
