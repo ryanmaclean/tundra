@@ -36,10 +36,24 @@ pub struct AppData {
 
 impl ApiClient {
     pub fn new(base: &str) -> Self {
+        Self::with_api_key(base, None)
+    }
+
+    /// Build a client with an explicitly supplied daemon credential.
+    pub fn with_api_key(base: &str, api_key: Option<&str>) -> Self {
+        let mut headers = reqwest::header::HeaderMap::new();
+        if let Some(key) = api_key {
+            let mut value = reqwest::header::HeaderValue::from_str(key)
+                .expect("daemon API key must be a valid HTTP header");
+            value.set_sensitive(true);
+            headers.insert("x-api-key", value);
+        }
         let client = reqwest::blocking::Client::builder()
             .timeout(std::time::Duration::from_secs(5))
+            .default_headers(headers)
+            .redirect(reqwest::redirect::Policy::none())
             .build()
-            .unwrap_or_else(|_| reqwest::blocking::Client::new());
+            .expect("build daemon HTTP client");
         Self {
             client,
             base: base.trim_end_matches('/').to_string(),

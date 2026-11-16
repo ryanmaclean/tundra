@@ -61,7 +61,12 @@ impl Daemon {
             ..DaemonIntervals::default()
         };
         let event_bus = EventBus::new();
-        let api_state = Arc::new(ApiState::new(event_bus.clone()));
+        let api_state = ApiState::new(event_bus.clone());
+        // Functional E2E tests issue bursts across the whole API. The default
+        // production limiter remains unchanged in ordinary daemon builds.
+        #[cfg(all(feature = "e2e-test", debug_assertions))]
+        let api_state = api_state.with_relaxed_rate_limits();
+        let api_state = Arc::new(api_state);
         Self {
             config,
             cache,
