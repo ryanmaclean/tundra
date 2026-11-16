@@ -175,6 +175,7 @@ jobs:
         run: cargo audit
 
       - name: Install ast-grep
+        id: ast_grep_install
         run: cargo install ast-grep --locked
 
       - name: ast-grep SAST
@@ -182,12 +183,19 @@ jobs:
         run: ast-grep scan --config .ast-grep.yml crates/
 
       - name: ast-grep SAST (SARIF output)
-        if: always()
+        if: ${{ always() && steps.ast_grep_install.outcome == 'success' }}
+        id: ast_grep_sarif
         continue-on-error: true
         run: ast-grep scan --config .ast-grep.yml --format sarif crates/ > ast-grep-results.sarif
 
+      - name: Validate ast-grep SARIF
+        if: ${{ always() && steps.ast_grep_install.outcome == 'success' }}
+        id: ast_grep_sarif_valid
+        # A scan can exit nonzero for findings while still producing valid SARIF.
+        run: jq -e '.version == "2.1.0" and (.runs | type == "array")' ast-grep-results.sarif
+
       - name: Upload ast-grep results to Datadog
-        if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && env.DATADOG_API_KEY != ''
+        if: ${{ always() && steps.ast_grep_sarif_valid.outcome == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/main' && env.DATADOG_API_KEY != '' }}
         env:
           DATADOG_API_KEY: ${{ secrets.DATADOG_API_KEY }}
           DD_API_KEY: ${{ secrets.DATADOG_API_KEY }}

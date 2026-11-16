@@ -11,8 +11,8 @@ uuid = { workspace = true }
 chrono = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
-rusqlite = { version = "0.32", features = ["bundled"] }
-tokio-rusqlite = "0.6"
+rusqlite = { version = "0.42", features = ["bundled", "fallible_uint"] }
+tokio-rusqlite = "0.9"
 tokio = { workspace = true }
 toml = "0.8"
 dirs = "6"
