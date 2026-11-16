@@ -14,6 +14,11 @@ invalid:
   - 'fn f() { unsafe { work(); } }'
   - |
     fn f() {
+      // TODO: missing SAFETY: justification.
+      unsafe { work(); }
+    }
+  - |
+    fn f() {
       unsafe { work(); }
       // SAFETY: a following comment does not justify the preceding block.
     }

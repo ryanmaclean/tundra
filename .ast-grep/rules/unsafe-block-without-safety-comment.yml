@@ -9,7 +9,7 @@ rule:
         any:
           - follows:
               kind: line_comment
-              regex: 'SAFETY:'
+              regex: '^//\s*SAFETY:'
               stopBy: neighbor
           - inside:
               any:
@@ -17,7 +17,7 @@ rule:
                 - kind: let_declaration
               follows:
                 kind: line_comment
-                regex: 'SAFETY:'
+                regex: '^//\s*SAFETY:'
                 stopBy: neighbor
               stopBy: neighbor
 metadata:
