@@ -62,7 +62,6 @@
         "bannerPath": null
       },
       "nsis": {
-        "license": null,
         "headerImage": null,
         "sidebarImage": null,
         "installerIcon": null,
