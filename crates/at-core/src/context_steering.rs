@@ -456,10 +456,8 @@ impl MemoryWeight {
         let frequency_bonus = (self.access_count as f64 * 0.02).min(0.1);
 
         let recency_bonus =
-            if let Ok(last) = chrono::DateTime::parse_from_rfc3339(&self.last_accessed) {
-                let age_hours = (chrono::Utc::now() - last.with_timezone(&chrono::Utc))
-                    .num_hours()
-                    .max(0) as f64;
+            if let Some(age_hours) = crate::utc_clock::rfc3339_age_hours(&self.last_accessed) {
+                let age_hours = age_hours as f64;
                 let decay_hours = 7.0 * 24.0; // 7-day half-life
                 (0.1 * (-age_hours / decay_hours).exp()).max(0.0)
             } else {

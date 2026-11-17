@@ -9,7 +9,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
-time = "0.3.47"
+time = { version = "0.3.47", features = ["parsing"] }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 rusqlite = { version = "0.42", features = ["bundled", "fallible_uint"] }
