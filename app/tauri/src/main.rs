@@ -85,6 +85,7 @@ fn main() {
     );
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_notification::init())
         .manage(state)
         .manage(sound_engine)
         .invoke_handler(tauri::generate_handler![

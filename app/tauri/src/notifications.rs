@@ -3,6 +3,8 @@ use at_bridge::protocol::BridgeMessage;
 use at_core::types::BeadStatus;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
+#[cfg(not(test))]
+use tauri_plugin_notification::NotificationExt;
 
 /// Notification levels matching at-bridge::notifications::NotificationLevel.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
