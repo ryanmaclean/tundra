@@ -148,11 +148,9 @@ pub enum NotificationError {
 /// ```no_run
 /// use at_tauri::notifications::start_notification_listener;
 ///
-/// # tauri::async_runtime::block_on(async {
-/// # let app = tauri::test::mock_app();
-/// # let event_bus = at_bridge::event_bus::EventBus::new();
-/// start_notification_listener(&app, &event_bus);
-/// # });
+/// # fn example(app: &tauri::AppHandle, event_bus: &at_bridge::event_bus::EventBus) {
+/// start_notification_listener(app, event_bus);
+/// # }
 /// ```
 pub fn start_notification_listener(app: &AppHandle, event_bus: &EventBus) {
     let rx = event_bus.subscribe_filtered(|msg| matches!(msg, BridgeMessage::BeadUpdated(_)));
