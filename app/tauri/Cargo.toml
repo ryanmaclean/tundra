@@ -21,7 +21,7 @@ at-bridge = { path = "../../crates/at-bridge" }
 at-integrations = { path = "../../crates/at-integrations" }
 at-intelligence = { path = "../../crates/at-intelligence" }
 tauri = { workspace = true }
-tauri-plugin-notification = "2"
+tauri-plugin-notification = "=2.4.0"
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
