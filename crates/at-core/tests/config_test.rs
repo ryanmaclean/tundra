@@ -83,8 +83,12 @@ fn historical_environment_configs_match_legacy_parser() {
             serde_json::to_value(&legacy).unwrap(),
             serde_json::to_value(&current).unwrap()
         );
-        current.validate().expect("validate historical configuration");
-        let saved = current.to_toml().expect("serialize historical configuration");
+        current
+            .validate()
+            .expect("validate historical configuration");
+        let saved = current
+            .to_toml()
+            .expect("serialize historical configuration");
         let restored: Config = toml::from_str(&saved).expect("reload serialized configuration");
         assert_eq!(
             serde_json::to_value(&current).unwrap(),
