@@ -151,7 +151,7 @@ async fn load_tasks(client: &DuckDbClient) -> Result<(), crate::duckdb::DuckDbEr
     // Clear existing data to avoid duplicates on refresh
     client.execute("DELETE FROM tasks").await.ok();
 
-    let now = chrono::Utc::now().to_rfc3339();
+    let now = crate::utc_clock::now_rfc3339();
     let rows: Vec<TaskRow> = beads
         .iter()
         .map(|b| {
@@ -181,7 +181,7 @@ async fn load_kpi(client: &DuckDbClient) -> Result<(), crate::duckdb::DuckDbErro
 
     client.execute("DELETE FROM kpi_snapshots").await.ok();
 
-    let now = chrono::Utc::now().to_rfc3339();
+    let now = crate::utc_clock::now_rfc3339();
     let rows = vec![
         KpiRow {
             timestamp: now.clone(),
@@ -233,7 +233,7 @@ async fn load_costs(client: &DuckDbClient) -> Result<(), crate::duckdb::DuckDbEr
 
     client.execute("DELETE FROM costs").await.ok();
 
-    let now = chrono::Utc::now().to_rfc3339();
+    let now = crate::utc_clock::now_rfc3339();
     let input_cost_per_m = 3.0_f64;
     let output_cost_per_m = 15.0_f64;
 

@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/at-time",
     "crates/at-core",
     "crates/at-harness",
     "crates/at-session",

@@ -485,6 +485,7 @@ dependencies = [
 name = "at-core"
 version = "0.1.0"
 dependencies = [
+ "at-time",
  "chrono",
  "crossbeam-channel",
  "dirs",
@@ -605,7 +606,7 @@ name = "at-leptos-ui"
 version = "0.1.0"
 dependencies = [
  "at-api-types",
- "chrono",
+ "at-time",
  "console_error_panic_hook",
  "fluent",
  "fluent-bundle 0.16.0",
@@ -687,6 +688,15 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
+]
+
+[[package]]
+name = "at-time"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "js-sys",
+ "time",
 ]
 
 [[package]]
