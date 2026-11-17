@@ -18,11 +18,55 @@
 //! `AsyncGitOps`.
 
 use std::path::Path;
+use std::time::{SystemTime, UNIX_EPOCH};
 
-use chrono;
 use serde::{Deserialize, Serialize};
+use time::OffsetDateTime;
 
 use crate::repo::{DiffEntry, DiffStatus, RepoError};
+
+// Chrono's DateTime range, retained for compatibility with existing heatmaps.
+const MIN_ACTIVITY_YEAR: i32 = -262_143;
+const MAX_ACTIVITY_YEAR: i32 = 262_142;
+
+// The proleptic Gregorian calendar repeats every 400 years. Map the day into
+// 1970..2369 so `time` can resolve month/day without enabling its global
+// `large-dates` feature, then restore the year and enforce Chrono's range.
+fn activity_calendar(timestamp: i64) -> Option<(i32, u8, u8)> {
+    const SECONDS_PER_DAY: i64 = 86_400;
+    const DAYS_PER_CYCLE: i64 = 146_097;
+    let day = timestamp.div_euclid(SECONDS_PER_DAY);
+    let cycles = day.div_euclid(DAYS_PER_CYCLE);
+    let reduced_day = day.rem_euclid(DAYS_PER_CYCLE);
+    let date = OffsetDateTime::from_unix_timestamp(reduced_day * SECONDS_PER_DAY).ok()?;
+    let year = i64::from(date.year()) + cycles * 400;
+    if !(i64::from(MIN_ACTIVITY_YEAR)..=i64::from(MAX_ACTIVITY_YEAR)).contains(&year) {
+        return None;
+    }
+    Some((year as i32, u8::from(date.month()), date.day()))
+}
+
+fn activity_cutoff(now: i64, days: u32) -> i64 {
+    activity_calendar(now).expect("current time outside supported range");
+    let cutoff = now
+        .checked_sub(i64::from(days) * 86_400)
+        .expect("activity cutoff outside supported range");
+    activity_calendar(cutoff).expect("activity cutoff outside supported range");
+    cutoff
+}
+
+fn activity_date(timestamp: i64, cutoff: i64) -> String {
+    let (year, month, day) = activity_calendar(timestamp)
+        .or_else(|| activity_calendar(cutoff))
+        .expect("activity cutoff outside supported range");
+    let year = match year {
+        0..=9999 => format!("{year:04}"),
+        -9999..=-1 => format!("-{:04}", -year),
+        10000.. => format!("+{year}"),
+        _ => year.to_string(),
+    };
+    format!("{year}-{month:02}-{day:02}")
+}
 
 // ---------------------------------------------------------------------------
 // Error bridging
@@ -691,9 +735,12 @@ impl Git2ReadOps {
             .set_sorting(git2::Sort::TIME)
             .map_err(RepoError::from)?;
 
-        let now = chrono::Utc::now();
-        let cutoff = now - chrono::Duration::days(days as i64);
-        let cutoff_ts = cutoff.timestamp();
+        // Chrono's native UTC clock rejects a pre-epoch system clock. Keep
+        // that behavior while converting the same clock sample to `time`.
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time before Unix epoch");
+        let cutoff_ts = activity_cutoff(now.as_secs() as i64, days);
 
         let mut daily: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
 
@@ -706,8 +753,7 @@ impl Git2ReadOps {
                 break; // Commits are time-sorted, so we can stop early
             }
 
-            let dt = chrono::DateTime::from_timestamp(ts, 0).unwrap_or(cutoff);
-            let date_str = dt.format("%Y-%m-%d").to_string();
+            let date_str = activity_date(ts, cutoff_ts);
             *daily.entry(date_str).or_insert(0) += 1;
         }
 
@@ -862,6 +908,97 @@ pub struct RepoSummary {
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    #[test]
+    fn activity_dates_match_legacy_chrono_boundaries_and_fallback() {
+        let cutoff_seconds = 1_700_000_000;
+        let legacy_cutoff = chrono::DateTime::from_timestamp(cutoff_seconds, 0).unwrap();
+        let min = chrono::DateTime::<chrono::Utc>::MIN_UTC.timestamp();
+        let max = chrono::DateTime::<chrono::Utc>::MAX_UTC.timestamp();
+        for seconds in [
+            i64::MIN,
+            min - 1,
+            min,
+            -62_167_219_200,
+            -1,
+            0,
+            951_782_400,
+            253_402_300_799,
+            253_402_300_800,
+            max,
+            max + 1,
+            i64::MAX,
+        ] {
+            let legacy = chrono::DateTime::from_timestamp(seconds, 0).unwrap_or(legacy_cutoff);
+            assert_eq!(
+                activity_date(seconds, cutoff_seconds),
+                legacy.format("%Y-%m-%d").to_string(),
+                "timestamp {seconds}"
+            );
+        }
+        // Sample across the entire legacy range, including negative epochs and
+        // Gregorian 400-year cycle boundaries.
+        let span = max - min;
+        for i in 0..=10_000 {
+            let seconds = min + span * i / 10_000;
+            let expected = chrono::DateTime::from_timestamp(seconds, 0)
+                .unwrap()
+                .format("%Y-%m-%d")
+                .to_string();
+            assert_eq!(activity_date(seconds, cutoff_seconds), expected);
+        }
+    }
+
+    #[test]
+    fn activity_cutoff_matches_legacy_calendar_arithmetic() {
+        for (seconds, days) in [(0, 0), (951_868_800, 1), (1_700_000_000, 365), (0, 10_000)] {
+            let candidate = activity_cutoff(seconds, days);
+            let legacy = chrono::DateTime::from_timestamp(seconds, 0).unwrap()
+                - chrono::Duration::days(i64::from(days));
+            assert_eq!(candidate, legacy.timestamp());
+            assert_eq!(
+                activity_date(candidate, candidate),
+                legacy.format("%Y-%m-%d").to_string()
+            );
+        }
+        assert!(std::panic::catch_unwind(|| activity_cutoff(0, u32::MAX)).is_err());
+        assert!(std::panic::catch_unwind(|| {
+            chrono::DateTime::from_timestamp(0, 0).unwrap()
+                - chrono::Duration::days(i64::from(u32::MAX))
+        })
+        .is_err());
+    }
+
+    #[test]
+    fn commit_activity_groups_a_real_repository_commit_by_utc_day() {
+        let directory = tempfile::tempdir().unwrap();
+        let repo = git2::Repository::init(directory.path()).unwrap();
+        let tree_id = repo.treebuilder(None).unwrap().write().unwrap();
+        let tree = repo.find_tree(tree_id).unwrap();
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        let signature = git2::Signature::new(
+            "Tundra test",
+            "test@example.test",
+            &git2::Time::new(timestamp, 0),
+        )
+        .unwrap();
+        repo.commit(Some("HEAD"), &signature, &signature, "fixture", &tree, &[])
+            .unwrap();
+
+        let activity = Git2ReadOps::commit_activity(directory.path(), 1).unwrap();
+        assert_eq!(activity.len(), 1);
+        assert_eq!(activity[0].count, 1);
+        assert_eq!(
+            activity[0].date,
+            chrono::DateTime::from_timestamp(timestamp, 0)
+                .unwrap()
+                .format("%Y-%m-%d")
+                .to_string()
+        );
+    }
 
     /// Get the workspace root (which is a git repo).
     fn workspace_root() -> PathBuf {
