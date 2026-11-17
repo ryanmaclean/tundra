@@ -419,7 +419,6 @@ dependencies = [
 name = "at-api-types"
 version = "0.1.0"
 dependencies = [
- "chrono",
  "hex",
  "proptest",
  "serde",
@@ -683,7 +682,6 @@ version = "0.1.0"
 dependencies = [
  "ahash",
  "axum",
- "chrono",
  "serde",
  "serde_json",
  "tokio",
