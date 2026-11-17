@@ -6,8 +6,7 @@
 //!
 //! # Architecture
 //!
-//! The audio output stream (`OutputStream`) is `!Send`, so we spawn a
-//! dedicated audio thread that owns the stream and receives play commands
+//! A dedicated audio thread owns the audio device sink and receives play commands
 //! over a channel. This makes `SoundEngine` `Send + Sync` for Tauri state.
 //!
 //! ```text
@@ -64,7 +63,7 @@ impl Default for SoundSettings {
 mod engine {
     use super::*;
     use rodio::source::Source;
-    use rodio::{OutputStream, Sink};
+    use rodio::{ChannelCount, DeviceSinkBuilder, Player, SampleRate};
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
@@ -82,7 +81,7 @@ mod engine {
     }
 
     // SoundEngine is Send + Sync because it only holds a Sender (Send+Sync)
-    // and an Arc<Mutex<_>> (Send+Sync). The !Send OutputStream lives on the
+    // and an Arc<Mutex<_>> (Send+Sync). The audio device sink lives on the
     // audio thread.
 
     impl SoundEngine {
@@ -97,11 +96,11 @@ mod engine {
             std::thread::Builder::new()
                 .name("sound-engine".into())
                 .spawn(move || {
-                    let stream_result = OutputStream::try_default();
-                    let (stream, handle) = match stream_result {
-                        Ok(pair) => {
+                    let sink_result = DeviceSinkBuilder::open_default_sink();
+                    let device_sink = match sink_result {
+                        Ok(sink) => {
                             ready_tx.send(true).ok();
-                            pair
+                            sink
                         }
                         Err(_) => {
                             ready_tx.send(false).ok();
@@ -109,8 +108,7 @@ mod engine {
                         }
                     };
 
-                    // Keep stream alive for the lifetime of this thread.
-                    let _stream = stream;
+                    // Keep the device sink alive for the lifetime of this thread.
 
                     while let Ok(cmd) = rx.recv() {
                         match cmd {
@@ -123,11 +121,10 @@ mod engine {
                                     SoundEffect::Whoosh => synth_whoosh(),
                                     SoundEffect::Chip => synth_chip(),
                                 };
-                                if let Ok(sink) = Sink::try_new(&handle) {
-                                    sink.set_volume(volume);
-                                    sink.append(source);
-                                    sink.detach();
-                                }
+                                let player = Player::connect_new(device_sink.mixer());
+                                player.set_volume(volume);
+                                player.append(source);
+                                player.detach();
                             }
                             AudioCmd::Shutdown => break,
                         }
@@ -236,15 +233,15 @@ mod engine {
     }
 
     impl Source for SineWave {
-        fn current_frame_len(&self) -> Option<usize> {
+        fn current_span_len(&self) -> Option<usize> {
             let remaining = self.total_samples.saturating_sub(self.sample_idx);
             Some(remaining as usize)
         }
-        fn channels(&self) -> u16 {
-            1
+        fn channels(&self) -> ChannelCount {
+            ChannelCount::MIN
         }
-        fn sample_rate(&self) -> u32 {
-            self.sample_rate
+        fn sample_rate(&self) -> SampleRate {
+            SampleRate::new(self.sample_rate).expect("sample rate is fixed and nonzero")
         }
         fn total_duration(&self) -> Option<Duration> {
             Some(Duration::from_millis(
@@ -281,6 +278,23 @@ mod engine {
     /// Chip: Balatro-inspired chip shuffle — fast 600→1200 Hz chirp, 60ms.
     fn synth_chip() -> SineWave {
         SineWave::new(600.0, 1200.0, 60, 0.25)
+    }
+
+    #[cfg(test)]
+    mod source_tests {
+        use super::*;
+
+        #[test]
+        fn procedural_source_reports_and_consumes_its_span() {
+            let mut source = synth_click();
+            assert_eq!(source.channels().get(), 1);
+            assert_eq!(source.sample_rate().get(), 44_100);
+            assert_eq!(source.total_duration(), Some(Duration::from_millis(30)));
+            assert_eq!(source.current_span_len(), Some(1_323));
+            assert!(source.next().is_some());
+            assert_eq!(source.current_span_len(), Some(1_322));
+            assert_eq!(source.count(), 1_322);
+        }
     }
 }
 
