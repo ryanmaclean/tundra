@@ -60,6 +60,40 @@ fn historical_documented_config_roundtrips() {
 }
 
 #[test]
+fn historical_environment_configs_match_legacy_parser() {
+    // Development, staging, and production examples from docs at b88bb7b.
+    for (text, name) in [
+        (
+            include_str!("fixtures/config-development-2026-03-01.toml"),
+            "auto-tundra-dev",
+        ),
+        (
+            include_str!("fixtures/config-staging-2026-03-01.toml"),
+            "auto-tundra-staging",
+        ),
+        (
+            include_str!("fixtures/config-production-2026-03-01.toml"),
+            "auto-tundra-prod",
+        ),
+    ] {
+        let legacy: Config = toml_legacy::from_str(text).expect("parse with TOML 0.8");
+        let current: Config = toml::from_str(text).expect("parse with TOML 0.9");
+        assert_eq!(current.general.project_name, name);
+        assert_eq!(
+            serde_json::to_value(&legacy).unwrap(),
+            serde_json::to_value(&current).unwrap()
+        );
+        current.validate().expect("validate historical configuration");
+        let saved = current.to_toml().expect("serialize historical configuration");
+        let restored: Config = toml::from_str(&saved).expect("reload serialized configuration");
+        assert_eq!(
+            serde_json::to_value(&current).unwrap(),
+            serde_json::to_value(&restored).unwrap()
+        );
+    }
+}
+
+#[test]
 fn config_partial_toml() {
     let partial = r#"
 [general]
