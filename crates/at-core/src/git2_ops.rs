@@ -21,30 +21,9 @@ use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
-use time::OffsetDateTime;
 
 use crate::repo::{DiffEntry, DiffStatus, RepoError};
-
-// Chrono's DateTime range, retained for compatibility with existing heatmaps.
-const MIN_ACTIVITY_YEAR: i32 = -262_143;
-const MAX_ACTIVITY_YEAR: i32 = 262_142;
-
-// The proleptic Gregorian calendar repeats every 400 years. Map the day into
-// 1970..2369 so `time` can resolve month/day without enabling its global
-// `large-dates` feature, then restore the year and enforce Chrono's range.
-fn activity_calendar(timestamp: i64) -> Option<(i32, u8, u8)> {
-    const SECONDS_PER_DAY: i64 = 86_400;
-    const DAYS_PER_CYCLE: i64 = 146_097;
-    let day = timestamp.div_euclid(SECONDS_PER_DAY);
-    let cycles = day.div_euclid(DAYS_PER_CYCLE);
-    let reduced_day = day.rem_euclid(DAYS_PER_CYCLE);
-    let date = OffsetDateTime::from_unix_timestamp(reduced_day * SECONDS_PER_DAY).ok()?;
-    let year = i64::from(date.year()) + cycles * 400;
-    if !(i64::from(MIN_ACTIVITY_YEAR)..=i64::from(MAX_ACTIVITY_YEAR)).contains(&year) {
-        return None;
-    }
-    Some((year as i32, u8::from(date.month()), date.day()))
-}
+use crate::utc_clock::{calendar as activity_calendar, format_year};
 
 fn activity_cutoff(now: i64, days: u32) -> i64 {
     activity_calendar(now).expect("current time outside supported range");
@@ -59,12 +38,7 @@ fn activity_date(timestamp: i64, cutoff: i64) -> String {
     let (year, month, day) = activity_calendar(timestamp)
         .or_else(|| activity_calendar(cutoff))
         .expect("activity cutoff outside supported range");
-    let year = match year {
-        0..=9999 => format!("{year:04}"),
-        -9999..=-1 => format!("-{:04}", -year),
-        10000.. => format!("+{year}"),
-        _ => year.to_string(),
-    };
+    let year = format_year(year);
     format!("{year}-{month:02}-{day:02}")
 }
 

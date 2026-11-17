@@ -387,12 +387,12 @@ pub struct MemoryWeight {
 }
 
 fn default_timestamp() -> String {
-    chrono::Utc::now().to_rfc3339()
+    crate::utc_clock::now_rfc3339()
 }
 
 impl Default for MemoryWeight {
     fn default() -> Self {
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = crate::utc_clock::now_rfc3339();
         Self {
             tier: MemoryTier::L1,
             access_count: 0,
@@ -434,7 +434,7 @@ impl MemoryWeight {
     /// Record an access and recalculate weight.
     pub fn record_access(&mut self) {
         self.access_count += 1;
-        self.last_accessed = chrono::Utc::now().to_rfc3339();
+        self.last_accessed = crate::utc_clock::now_rfc3339();
         self.recompute();
     }
 
