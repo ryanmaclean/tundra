@@ -45,7 +45,7 @@ pub(crate) async fn create_project(
         id: Uuid::new_v4(),
         name: req.name,
         path: req.path,
-        created_at: chrono::Utc::now().to_rfc3339(),
+        created_at: at_time::now_rfc3339(),
         is_active: false,
     };
     let mut projects = state.projects.write().await;
