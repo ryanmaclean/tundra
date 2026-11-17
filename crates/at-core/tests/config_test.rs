@@ -35,6 +35,31 @@ fn config_roundtrip() {
 }
 
 #[test]
+fn historical_documented_config_roundtrips() {
+    // The complete example published in docs at commit b88bb7b (2026-03-01).
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/config-reference-2026-03-01.toml");
+    let original = std::fs::read_to_string(&path).expect("read historical configuration");
+    let legacy: Config = toml_legacy::from_str(&original).expect("parse with TOML 0.8");
+    let cfg = Config::load_from(path).expect("load historical configuration with TOML 0.9");
+    assert_eq!(
+        serde_json::to_value(&legacy).unwrap(),
+        serde_json::to_value(&cfg).unwrap()
+    );
+    assert_eq!(cfg.general.project_name, "auto-tundra");
+    assert_eq!(cfg.daemon.port, 9090);
+    assert_eq!(cfg.cache.max_size_mb, 512);
+    assert_eq!(cfg.integrations.github_owner.as_deref(), Some("your-org"));
+
+    let saved = cfg.to_toml().expect("serialize historical configuration");
+    let restored: Config = toml::from_str(&saved).expect("reload serialized configuration");
+    assert_eq!(
+        serde_json::to_value(&cfg).unwrap(),
+        serde_json::to_value(&restored).unwrap()
+    );
+}
+
+#[test]
 fn config_partial_toml() {
     let partial = r#"
 [general]

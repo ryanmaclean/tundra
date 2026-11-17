@@ -34,3 +34,4 @@ test-utils = []
 [dev-dependencies]
 tokio = { workspace = true }
 tempfile = "3"
+toml_legacy = { package = "toml", version = "0.8.23", default-features = false, features = ["parse"] }
