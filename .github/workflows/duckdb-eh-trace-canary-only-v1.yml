@@ -35,7 +35,7 @@ jobs:
           test "$(git -C gate rev-parse HEAD)" = "$GITHUB_SHA"
           case "$GITHUB_REF" in refs/heads/diagnostic/eh-seeded-link-repin-20261106|refs/heads/diagnostic/eh-trace-volume-20261117) ;; *) exit 1 ;; esac
           fetch_pinned() {
-            timeout 180s python3 - "$@" <<'PYFETCH'
+            timeout --signal=TERM --kill-after=5s 180s python3 - "$@" <<'PYFETCH'
           import hashlib
           import os
           import signal
@@ -61,6 +61,8 @@ jobs:
           created = False
 
           def interrupted(signum, frame):
+              # Prevent a second termination from interrupting cleanup.
+              signal.signal(signal.SIGTERM, signal.SIG_IGN)
               raise TimeoutError('download interrupted')
 
           signal.signal(signal.SIGTERM, interrupted)
@@ -69,8 +71,13 @@ jobs:
                   require_https(response.geturl())
                   if response.status != 200:
                       raise ValueError('unexpected HTTP status')
-                  fd = os.open(output, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
-                  created = True
+                  # Record ownership before a pending SIGTERM can run cleanup.
+                  previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM})
+                  try:
+                      fd = os.open(output, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+                      created = True
+                  finally:
+                      signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
                   digest = hashlib.sha256()
                   count = 0
                   with os.fdopen(fd, 'wb') as dst:
