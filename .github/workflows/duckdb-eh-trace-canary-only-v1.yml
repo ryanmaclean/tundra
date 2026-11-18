@@ -38,6 +38,7 @@ jobs:
             timeout 180s python3 - "$@" <<'PYFETCH'
           import hashlib
           import os
+          import signal
           import sys
           import urllib.parse
           import urllib.request
@@ -58,6 +59,11 @@ jobs:
           require_https(url)
           opener = urllib.request.build_opener(HttpsRedirect())
           created = False
+
+          def interrupted(signum, frame):
+              raise TimeoutError('download interrupted')
+
+          signal.signal(signal.SIGTERM, interrupted)
           try:
               with opener.open(url, timeout=30) as response:
                   require_https(response.geturl())

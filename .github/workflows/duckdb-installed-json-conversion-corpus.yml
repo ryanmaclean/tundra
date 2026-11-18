@@ -42,7 +42,7 @@ jobs:
           test "$GITHUB_EVENT_NAME" = workflow_dispatch
           case "$GITHUB_REF" in
             refs/heads/diagnostic/eh-seeded-link-repin-20261106) expected_parent=61243a50d53492834ae4360b997515ed063239b9; canary_hash=e57976ea18b304c842c745b23b9974c34b12c03045b99b9c776b41f671904fb5 ;;
-            refs/heads/diagnostic/eh-trace-volume-20261117) expected_parent=09e564c368be3be2ff85c7c5f16bdd00d78b2231; canary_hash=06ecc5f22440e7b7daa1b1be828a07403a758e654309dfe0ccdaaa61aca242cd ;;
+            refs/heads/diagnostic/eh-trace-volume-20261117) expected_parent=867ae06c9cf6d877b18b8e58201a4307f33be082; canary_hash=3668af23a5fc4f112e43f9e0b16f48dc8eb373c1ad7277d22fac508d682e9cc2 ;;
             *) exit 1 ;;
           esac
           [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
