@@ -34,7 +34,58 @@ jobs:
           set -euo pipefail
           test "$(git -C gate rev-parse HEAD)" = "$GITHUB_SHA"
           case "$GITHUB_REF" in refs/heads/diagnostic/eh-seeded-link-repin-20261106|refs/heads/diagnostic/eh-trace-volume-20261117) ;; *) exit 1 ;; esac
-          timeout 180s curl --fail --location --silent --show-error --proto '=https' --proto-redir '=https' --max-time 120 --retry 1 --max-filesize 90000000 --output /work/image/tool/nu.tar.gz https://github.com/nushell/nushell/releases/download/0.115.1/nu-0.115.1-x86_64-unknown-linux-musl.tar.gz
+          fetch_pinned() {
+            timeout 180s python3 - "$@" <<'PYFETCH'
+          import hashlib
+          import os
+          import sys
+          import urllib.parse
+          import urllib.request
+
+          url, output, size_text, expected_hash = sys.argv[1:]
+          expected_size = int(size_text)
+
+          def require_https(value):
+              parsed = urllib.parse.urlsplit(value)
+              if parsed.scheme != 'https' or not parsed.hostname or parsed.username or parsed.password:
+                  raise ValueError('HTTPS URL required')
+
+          class HttpsRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, req, fp, code, msg, headers, newurl):
+                  require_https(newurl)
+                  return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+          require_https(url)
+          opener = urllib.request.build_opener(HttpsRedirect())
+          created = False
+          try:
+              with opener.open(url, timeout=30) as response:
+                  require_https(response.geturl())
+                  if response.status != 200:
+                      raise ValueError('unexpected HTTP status')
+                  fd = os.open(output, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+                  created = True
+                  digest = hashlib.sha256()
+                  count = 0
+                  with os.fdopen(fd, 'wb') as dst:
+                      while True:
+                          chunk = response.read(min(1048576, expected_size - count + 1))
+                          if not chunk:
+                              break
+                          count += len(chunk)
+                          if count > expected_size:
+                              raise ValueError('download exceeds pinned size')
+                          digest.update(chunk)
+                          dst.write(chunk)
+                  if count != expected_size or digest.hexdigest() != expected_hash:
+                      raise ValueError('download does not match pin')
+          except Exception:
+              if created:
+                  os.unlink(output)
+              raise
+          PYFETCH
+          }
+          fetch_pinned https://github.com/nushell/nushell/releases/download/0.115.1/nu-0.115.1-x86_64-unknown-linux-musl.tar.gz /work/image/tool/nu.tar.gz 83545998 8a9722177ddd421eba927b4baae4ae341a4d1c3434504be7b1b17d998bafdd87
           test "$(stat -c %s /work/image/tool/nu.tar.gz)" = 83545998
           printf '%s  %s\n' 8a9722177ddd421eba927b4baae4ae341a4d1c3434504be7b1b17d998bafdd87 /work/image/tool/nu.tar.gz | sha256sum --check --status
           tar -xOzf /work/image/tool/nu.tar.gz nu-0.115.1-x86_64-unknown-linux-musl/nu > /work/image/tool/nu
@@ -43,7 +94,7 @@ jobs:
           chmod 0700 /work/image/tool/nu
           test "$(/work/image/tool/nu --version)" = 0.115.1
           /work/image/tool/nu gate/.github/scripts/duckdb-eh-seeded-link-trace-v1-test.nu
-          timeout 90s curl --fail --location --silent --show-error --proto '=https' --proto-redir '=https' --max-time 90 --max-filesize 600000 --output /work/image/tool/strace.deb https://archive.ubuntu.com/ubuntu/pool/main/s/strace/strace_5.16-0ubuntu3_amd64.deb
+          fetch_pinned https://archive.ubuntu.com/ubuntu/pool/main/s/strace/strace_5.16-0ubuntu3_amd64.deb /work/image/tool/strace.deb 566994 847a3535be015325f127f121d2ea5ac042b32bd20a5861a94cb7782b09857b1f
           test "$(stat -c %s /work/image/tool/strace.deb)" = 566994
           printf '%s  %s\n' 847a3535be015325f127f121d2ea5ac042b32bd20a5861a94cb7782b09857b1f /work/image/tool/strace.deb | sha256sum --check --status
           test "$(dpkg-deb -f /work/image/tool/strace.deb Package)" = strace
@@ -52,7 +103,7 @@ jobs:
           dpkg-deb -x /work/image/tool/strace.deb /work/image/tool/strace
           tracer=/work/image/tool/strace/usr/bin/strace
           printf '%s  %s\n' 38a5c75cb29dd85ddd7780d54f5bf595554d7a1b5c42524b23065f5dc4c4b01d "$tracer" | sha256sum --check --status
-          timeout 90s curl --fail --location --silent --show-error --proto '=https' --proto-redir '=https' --max-time 90 --max-filesize 60000 --output /work/image/tool/libunwind.deb https://archive.ubuntu.com/ubuntu/pool/main/libu/libunwind/libunwind8_1.3.2-2build2.1_amd64.deb
+          fetch_pinned https://archive.ubuntu.com/ubuntu/pool/main/libu/libunwind/libunwind8_1.3.2-2build2.1_amd64.deb /work/image/tool/libunwind.deb 54518 781e3eb86986ab93e8b4866fc571fdec780c3d9a8b56b490e9c2f10fb90978ce
           test "$(stat -c %s /work/image/tool/libunwind.deb)" = 54518
           printf '%s  %s\n' 781e3eb86986ab93e8b4866fc571fdec780c3d9a8b56b490e9c2f10fb90978ce /work/image/tool/libunwind.deb | sha256sum --check --status
           test "$(dpkg-deb -f /work/image/tool/libunwind.deb Package)" = libunwind8

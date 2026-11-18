@@ -40,7 +40,11 @@ jobs:
         run: |
           set -euo pipefail
           test "$GITHUB_EVENT_NAME" = workflow_dispatch
-          case "$GITHUB_REF" in refs/heads/diagnostic/eh-seeded-link-repin-20261106) expected_parent=61243a50d53492834ae4360b997515ed063239b9 ;; refs/heads/diagnostic/eh-trace-volume-20261117) expected_parent=11e35bb9595a0dbb424ecf1003e7364eb1a605f2 ;; *) exit 1 ;; esac
+          case "$GITHUB_REF" in
+            refs/heads/diagnostic/eh-seeded-link-repin-20261106) expected_parent=61243a50d53492834ae4360b997515ed063239b9; canary_hash=e57976ea18b304c842c745b23b9974c34b12c03045b99b9c776b41f671904fb5 ;;
+            refs/heads/diagnostic/eh-trace-volume-20261117) expected_parent=09e564c368be3be2ff85c7c5f16bdd00d78b2231; canary_hash=06ecc5f22440e7b7daa1b1be828a07403a758e654309dfe0ccdaaa61aca242cd ;;
+            *) exit 1 ;;
+          esac
           [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
           test -f .git/HEAD && test ! -L .git/HEAD
           printf '%s\n' "$GITHUB_SHA" | cmp -s - .git/HEAD
@@ -84,7 +88,7 @@ jobs:
             fbdd628922b9927e3930a6639b12ef03d4d073e30402b4819c3cab7bffd81747 .github/workflows/duckdb-eh-seeded-image-link-trace-v1.yml \
             f1875830abc17963380344aa8bd0c3acf3bfb95d1bd020c2c2c293e27a5bc35f .github/scripts/duckdb-eh-seeded-link-trace-v1.nu \
             d0daafc57234d339aefab4bfa59370bdbb9a7c971e3082115839cbaddb20cc17 .github/scripts/duckdb-eh-seeded-link-trace-v1-test.nu \
-            e57976ea18b304c842c745b23b9974c34b12c03045b99b9c776b41f671904fb5 .github/workflows/duckdb-eh-trace-canary-only-v1.yml \
+            "$canary_hash" .github/workflows/duckdb-eh-trace-canary-only-v1.yml \
             e7eadbab142b0298645785ef7f15a051f2c871dff0e920b1efaed7bf769c409f .github/receipts/duckdb-eh-linker-fd-witness-v1.json \
             b18530da46283e5ce5784bef7452c280c6e6076936c9ff11e61389f15e2646b1 .github/receipts/duckdb-eh-linker-preflight-v1.json \
             a1dffa5afb7dd6acd6561eec3533ba0f9e3dffa1d84bfa0b3a48433be6b69d63 .github/receipts/duckdb-eh-seeded-build-v1.json \
