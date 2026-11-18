@@ -672,8 +672,19 @@ jobs:
           entries = sorted(base.iterdir())
           if len(entries) > 128 or any(entry.is_symlink() or not entry.is_file() for entry in entries):
               raise SystemExit('trace volume input refused')
+          legacy_names = {
+              'execve': 'exec', 'execveat': 'exec',
+              'open': 'open', 'openat': 'open',
+              'read': 'read', 'pread64': 'read', 'readv': 'read',
+              'mmap': 'memory',
+              'close': 'fd', 'close_range': 'fd', 'dup': 'fd', 'dup2': 'fd',
+              'dup3': 'fd', 'fcntl': 'fd',
+              'chdir': 'cwd', 'fchdir': 'cwd', 'exit_group': 'exit',
+          }
+          legacy_families = {name: {'records': 0, 'bytes': 0} for name in
+                             ('exec', 'open', 'read', 'memory', 'fd', 'cwd', 'exit', 'other')}
           families = {name: {'records': 0, 'bytes': 0} for name in
-                      ('exec', 'open', 'read', 'memory', 'fd', 'cwd', 'exit', 'other')}
+                      ('exec', 'open', 'read', 'memory', 'fd', 'cwd', 'exit', 'process', 'write', 'filesystem', 'security', 'transfer', 'unknown', 'unparsed')}
           names = {
               'execve': 'exec', 'execveat': 'exec',
               'open': 'open', 'openat': 'open',
@@ -682,6 +693,30 @@ jobs:
               'close': 'fd', 'close_range': 'fd', 'dup': 'fd', 'dup2': 'fd',
               'dup3': 'fd', 'fcntl': 'fd',
               'chdir': 'cwd', 'fchdir': 'cwd', 'exit_group': 'exit',
+              'openat2': 'open', 'creat': 'open',
+              'preadv': 'read', 'preadv2': 'read',
+              'mprotect': 'memory', 'munmap': 'memory', 'mremap': 'memory',
+              'exit': 'exit', 'clone': 'process', 'clone3': 'process',
+              'fork': 'process', 'vfork': 'process', 'unshare': 'process',
+              'setns': 'process', 'ptrace': 'process', 'pidfd_getfd': 'fd',
+              'recvmsg': 'transfer', 'recvmmsg': 'transfer',
+              'io_uring_setup': 'transfer', 'io_uring_enter': 'transfer',
+              'io_uring_register': 'transfer',
+              'write': 'write', 'pwrite64': 'write', 'writev': 'write',
+              'pwritev': 'write', 'pwritev2': 'write',
+              'truncate': 'filesystem', 'ftruncate': 'filesystem',
+              'fallocate': 'filesystem', 'unlink': 'filesystem',
+              'unlinkat': 'filesystem', 'rename': 'filesystem',
+              'renameat': 'filesystem', 'renameat2': 'filesystem',
+              'link': 'filesystem', 'linkat': 'filesystem',
+              'symlink': 'filesystem', 'symlinkat': 'filesystem',
+              'mount': 'filesystem', 'umount2': 'filesystem',
+              'process_vm_writev': 'write', 'sendfile': 'transfer',
+              'splice': 'transfer', 'vmsplice': 'transfer',
+              'copy_file_range': 'transfer',
+              'landlock_create_ruleset': 'security',
+              'landlock_add_rule': 'security',
+              'landlock_restrict_self': 'security', 'prctl': 'security',
           }
           total_bytes = 0
           total_records = 0
@@ -697,9 +732,12 @@ jobs:
                           match = re.match(rb'^(?:\[pid [0-9]+\]\s+)?([a-z][a-z0-9_]*)\(', record)
                           if match is None:
                               match = re.match(rb'^<\.\.\. ([a-z][a-z0-9_]*) resumed>', record)
-                          family = names.get(match.group(1).decode('ascii'), 'other') if match else 'other'
+                          family = names.get(match.group(1).decode('ascii'), 'unknown') if match else 'unparsed'
                           families[family]['records'] += 1
                           families[family]['bytes'] += len(record)
+                          legacy_family = legacy_names.get(match.group(1).decode('ascii'), 'other') if match else 'other'
+                          legacy_families[legacy_family]['records'] += 1
+                          legacy_families[legacy_family]['bytes'] += len(record)
               except OSError:
                   raise SystemExit('trace volume input refused') from None
               if total_bytes >= 16777216 or total_records >= 250000:
@@ -711,7 +749,9 @@ jobs:
               'sample_bytes': total_bytes,
               'sample_records': total_records,
               'sample_capped': total_bytes >= 16777216 or total_records >= 250000,
-              'families': families,
+              'families': legacy_families,
+              'families_v2_schema': 'selected-syscall-families/v2',
+              'families_v2': families,
           }
           encoded = json.dumps(data, separators=(',', ':'), sort_keys=True)
           if len(encoded) > 4096:
