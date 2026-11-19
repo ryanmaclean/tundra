@@ -629,8 +629,7 @@ pub fn ChangelogPage() -> impl IntoView {
 }
 
 fn default_version() -> String {
-    let now = chrono::Utc::now();
-    now.format("%Y.%m.%d").to_string()
+    crate::utc_clock::date_version()
 }
 
 /// Group sections by category, preserving order of first appearance.

@@ -1,0 +1,16 @@
+[package]
+name = "at-time"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+time = { version = "0.3.47", features = ["parsing"] }
+
+[target.'cfg(all(target_arch = "wasm32", not(any(target_os = "emscripten", target_os = "wasi", target_os = "linux"))))'.dependencies]
+js-sys = "0.3"
+
+[dev-dependencies]
+chrono = { workspace = true }

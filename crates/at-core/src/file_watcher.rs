@@ -134,7 +134,7 @@ impl FileWatcher {
     /// and return them as `FileChangeEvent`s.
     pub fn recv_events(&self) -> Vec<FileChangeEvent> {
         let mut events = Vec::new();
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = crate::utc_clock::now_rfc3339();
 
         while let Ok(result) = self.rx.try_recv() {
             if let Ok(event) = result {

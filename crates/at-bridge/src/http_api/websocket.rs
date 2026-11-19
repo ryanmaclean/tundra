@@ -9,6 +9,10 @@ use crate::origin_validation::{get_default_allowed_origins, validate_websocket_o
 
 use super::state::ApiState;
 
+fn heartbeat_message() -> serde_json::Value {
+    serde_json::json!({"type": "ping", "timestamp": at_time::now_rfc3339()})
+}
+
 /// WebSocket GET /ws -- legacy real-time event streaming endpoint.
 pub(crate) async fn ws_handler(
     ws: WebSocketUpgrade,
@@ -80,7 +84,7 @@ async fn handle_events_ws(socket: WebSocket, state: Arc<ApiState>) {
 
             // Send heartbeat ping every 30s
             _ = heartbeat.tick() => {
-                let ping_msg = serde_json::json!({"type": "ping", "timestamp": chrono::Utc::now().to_rfc3339()});
+                let ping_msg = heartbeat_message();
                 if ws_tx.send(Message::Text(ping_msg.to_string().into())).await.is_err() {
                     break;
                 }
@@ -95,5 +99,17 @@ async fn handle_events_ws(socket: WebSocket, state: Arc<ApiState>) {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn heartbeat_timestamp_uses_legacy_utc_text() {
+        let message = super::heartbeat_message();
+        assert_eq!(message["type"], "ping");
+        let text = message["timestamp"].as_str().unwrap();
+        let parsed = chrono::DateTime::parse_from_rfc3339(text).unwrap();
+        assert_eq!(text, parsed.with_timezone(&chrono::Utc).to_rfc3339());
     }
 }

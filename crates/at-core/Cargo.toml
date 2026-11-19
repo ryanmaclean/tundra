@@ -9,6 +9,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
+at-time = { path = "../at-time" }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 rusqlite = { version = "0.42", features = ["bundled", "fallible_uint"] }
@@ -34,3 +35,4 @@ test-utils = []
 [dev-dependencies]
 tokio = { workspace = true }
 tempfile = "3"
+time = { version = "0.3.47", features = ["formatting", "parsing", "serde", "serde-well-known"] }
