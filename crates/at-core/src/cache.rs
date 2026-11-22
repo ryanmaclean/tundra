@@ -673,6 +673,49 @@ mod tests {
     const GOOD_STATUS: &str = "backlog";
     const GOOD_LANE: &str = "standard";
 
+    // These rows model timestamps written by older clients. Preserve both the
+    // instant and nanosecond precision when reading and writing them again.
+    #[tokio::test]
+    async fn legacy_timestamp_rows_preserve_instants_and_wire_format() {
+        let db = CacheDb::new_in_memory().await.unwrap();
+        insert_raw_bead(
+            &db,
+            GOOD_UUID,
+            GOOD_STATUS,
+            GOOD_LANE,
+            "2024-01-01T01:02:03.123456789+01:00",
+            "1969-12-31T23:59:59Z",
+        )
+        .await;
+
+        let id = Uuid::parse_str(GOOD_UUID).unwrap();
+        let mut bead = db.get_bead(id).await.unwrap().unwrap();
+        let json = serde_json::to_value(&bead).unwrap();
+        assert_eq!(json["created_at"], "2024-01-01T00:02:03.123456789Z");
+        assert_eq!(json["updated_at"], "1969-12-31T23:59:59Z");
+        bead.updated_at = chrono::DateTime::parse_from_rfc3339("1970-01-01T01:00:00.123+01:00")
+            .unwrap()
+            .with_timezone(&Utc);
+        db.upsert_bead(&bead).await.unwrap();
+        let reread = db.get_bead(id).await.unwrap().unwrap();
+        assert_eq!(reread.created_at, bead.created_at);
+        assert_eq!(reread.updated_at, bead.updated_at);
+
+        let stored: (String, String) = db
+            .conn
+            .call(move |conn| {
+                conn.query_row(
+                    "SELECT created_at, updated_at FROM beads WHERE id = ?1",
+                    [id.to_string()],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+            })
+            .await
+            .unwrap();
+        assert_eq!(stored.0, "2024-01-01T01:02:03.123456789+01:00");
+        assert_eq!(stored.1, "1970-01-01T00:00:00.123+00:00");
+    }
+
     /// Test 1: a bead with an unknown status string must return
     /// `Err(CacheError::InvalidRow)` — not panic.
     #[tokio::test]

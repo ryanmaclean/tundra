@@ -13,7 +13,6 @@ tracing = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 dashmap = { workspace = true }
-chrono = { workspace = true }
 uuid = { workspace = true }
 regex = "1"
 sha2 = "0.10"

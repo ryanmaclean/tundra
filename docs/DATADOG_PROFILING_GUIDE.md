@@ -1,7 +1,10 @@
 # Datadog Profiling Setup for Rust
 
 ## 🎯 Overview
-This guide shows how to set up Datadog Continuous Profiling for your Rust application to get real-time performance insights.
+This document describes a proposed Datadog profiling setup. The current
+`at-daemon` initialization logs configuration and creates tracing spans; it
+does not install a Datadog exporter or a continuous profiler. The setup and
+outputs described below have not been verified for the current daemon.
 
 ## 📋 Prerequisites
 - ✅ Datadog agent installed and running
@@ -39,26 +42,24 @@ sudo launchctl start com.datadog.agent
 
 ## 🦀 Step 2: Add Datadog Dependencies to Rust
 
-Your workspace now includes:
+The workspace currently declares:
 ```toml
 [workspace.dependencies]
-datadog-tracing = "0.3"
-datadog-apm-sync = "0.8"
 tracing-datadog = "0.6"
 ```
 
 And the daemon crate has these dependencies:
 ```toml
 [dependencies]
-datadog-tracing = { workspace = true }
-datadog-apm-sync = { workspace = true }
 tracing-datadog = { workspace = true }
 ```
+
+Declaring this dependency alone does not initialize an exporter or profiler.
 
 ## 📊 Step 3: Initialize Datadog in Your Application
 
 The `profiling.rs` module provides:
-- `init_datadog()` - Initialize APM and profiling
+- `init_datadog_telemetry()` - Log the intended service and agent settings
 - `traced_span!` macro - Create traced spans
 - `profile_async!` macro - Profile async functions
 
