@@ -299,7 +299,10 @@ mod tests {
 
     #[test]
     fn bootstrap_fragment_round_trips_and_rejects_junk() {
-        assert_eq!(bootstrap_code_from_fragment("#bootstrap=abc-1_Z"), Some("abc-1_Z"));
+        assert_eq!(
+            bootstrap_code_from_fragment("#bootstrap=abc-1_Z"),
+            Some("abc-1_Z")
+        );
         for bad in [
             "",
             "#",

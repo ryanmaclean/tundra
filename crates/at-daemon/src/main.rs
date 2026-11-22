@@ -267,11 +267,7 @@ async fn frontend_isolation_headers_middleware(
 ///
 /// **Hot-reload friendly**: index.html is read from disk on every request so
 /// that `trunk build` takes effect immediately without restarting the daemon.
-async fn serve_frontend(
-    api_port: u16,
-    host: String,
-    port_tx: tokio::sync::oneshot::Sender<u16>,
-) {
+async fn serve_frontend(api_port: u16, host: String, port_tx: tokio::sync::oneshot::Sender<u16>) {
     let _span = traced_span!("serve_frontend", component = "http_server");
 
     profiling::record_event("frontend_server_start", &[]);
@@ -413,7 +409,10 @@ mod frontend_tests {
     fn assert_no_credential(html: &str) {
         let lower = html.to_ascii_lowercase();
         for needle in ["__tundra_api_key__", "bootstrap=", "api_key", "x-api-key"] {
-            assert!(!lower.contains(needle), "HTML must not mention {needle}: {html}");
+            assert!(
+                !lower.contains(needle),
+                "HTML must not mention {needle}: {html}"
+            );
         }
     }
 

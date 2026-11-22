@@ -209,7 +209,11 @@ mod router {
         let sessions = Arc::new(SessionStore::new());
         let protected = protected
             .layer(rate_limit.clone())
-            .layer(AuthLayer::with_stores(api_key, ws_tickets.clone(), sessions.clone()));
+            .layer(AuthLayer::with_stores(
+                api_key,
+                ws_tickets.clone(),
+                sessions.clone(),
+            ));
         // Unauthenticated routes (the catalog): rate limited only.
         let public = public.layer(rate_limit);
         // `merge` keeps `protected`'s (auth-layered) fallback, so unmatched

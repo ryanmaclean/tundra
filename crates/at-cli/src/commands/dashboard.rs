@@ -120,9 +120,13 @@ mod tests {
     #[tokio::test]
     async fn mints_a_code_with_the_key_and_puts_it_in_the_fragment() {
         let base = mock("k-1").await;
-        let url = mint_bootstrap_url(&api_client_with_key(Some("k-1")), &base, "http://127.0.0.1:5173/")
-            .await
-            .unwrap();
+        let url = mint_bootstrap_url(
+            &api_client_with_key(Some("k-1")),
+            &base,
+            "http://127.0.0.1:5173/",
+        )
+        .await
+        .unwrap();
         assert_eq!(url, "http://127.0.0.1:5173/#bootstrap=abc123");
         // The key itself never appears in the URL.
         assert!(!url.contains("k-1"));
@@ -131,10 +135,14 @@ mod tests {
     #[tokio::test]
     async fn wrong_key_is_a_clear_error_and_yields_no_url() {
         let base = mock("k-1").await;
-        let err = mint_bootstrap_url(&api_client_with_key(Some("nope")), &base, "http://127.0.0.1:5173")
-            .await
-            .unwrap_err()
-            .to_string();
+        let err = mint_bootstrap_url(
+            &api_client_with_key(Some("nope")),
+            &base,
+            "http://127.0.0.1:5173",
+        )
+        .await
+        .unwrap_err()
+        .to_string();
         assert!(err.contains("401"), "{err}");
     }
 }

@@ -430,8 +430,7 @@ pub async fn exchange_session(
     )
         .into_response();
     if let Ok(v) = HeaderValue::from_str(&cookie) {
-        resp.headers_mut()
-            .insert(axum::http::header::SET_COOKIE, v);
+        resp.headers_mut().insert(axum::http::header::SET_COOKIE, v);
     }
     resp
 }
@@ -464,8 +463,7 @@ pub async fn end_session(
     let mut resp = (StatusCode::OK, Json(session_response(false, 0))).into_response();
     let clear = format!("{SESSION_COOKIE_NAME}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0");
     if let Ok(v) = HeaderValue::from_str(&clear) {
-        resp.headers_mut()
-            .insert(axum::http::header::SET_COOKIE, v);
+        resp.headers_mut().insert(axum::http::header::SET_COOKIE, v);
     }
     resp
 }
@@ -1011,7 +1009,11 @@ mod tests {
         );
         // Another origin riding the cookie: refused.
         assert_eq!(
-            status(&app, cookie_req("/ping", &tok, Some("http://127.0.0.1:9999"))).await,
+            status(
+                &app,
+                cookie_req("/ping", &tok, Some("http://127.0.0.1:9999"))
+            )
+            .await,
             StatusCode::UNAUTHORIZED
         );
         assert_eq!(
@@ -1058,7 +1060,12 @@ mod tests {
     #[test]
     fn session_cookie_parsing_ignores_lookalikes() {
         let mut h = HeaderMap::new();
-        h.insert("cookie", "a=1; tundra_session_x=bad; tundra_session=good; z=2".parse().unwrap());
+        h.insert(
+            "cookie",
+            "a=1; tundra_session_x=bad; tundra_session=good; z=2"
+                .parse()
+                .unwrap(),
+        );
         assert_eq!(session_cookie(&h).as_deref(), Some("good"));
         let mut empty = HeaderMap::new();
         empty.insert("cookie", "tundra_session=".parse().unwrap());
