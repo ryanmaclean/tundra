@@ -13,8 +13,11 @@ tracing = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 dashmap = { workspace = true }
-chrono = { workspace = true }
 uuid = { workspace = true }
+# audit_chain timestamps (RFC 3339, millis, Z). Removed with the rest of chrono in #168.
+chrono = { workspace = true }
+regex = "1"
+sha2 = "0.10"
 
 [dev-dependencies]
 tokio = { workspace = true }

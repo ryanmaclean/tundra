@@ -17,11 +17,15 @@ pub mod crypto;
 pub mod file_watcher;
 pub mod git_read_adapter;
 pub mod lockfile;
+pub mod merge_gate;
+pub mod paths;
 pub mod repo;
 pub mod rlm;
 pub mod session_store;
 pub mod settings;
+pub mod tls;
 pub mod types;
+mod utc_clock;
 pub mod worktree;
 pub mod worktree_manager;
 

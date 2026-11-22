@@ -129,8 +129,8 @@ impl ApiProfile {
 
 fn default_model_for(provider: ProviderKind) -> String {
     match provider {
-        ProviderKind::Anthropic => "claude-sonnet-4-20250514".into(),
-        ProviderKind::OpenRouter => "anthropic/claude-sonnet-4-20250514".into(),
+        ProviderKind::Anthropic => "claude-sonnet-4-6".into(),
+        ProviderKind::OpenRouter => "anthropic/claude-sonnet-4-6".into(),
         ProviderKind::OpenAi => "gpt-4o".into(),
         ProviderKind::Local => "qwen2.5-coder:14b".into(),
         ProviderKind::Custom => "default".into(),
@@ -359,6 +359,7 @@ impl ProviderState {
             success_threshold: 2,
             timeout: Duration::from_secs(60),
             call_timeout: Duration::from_secs(30),
+            half_open_max_calls: 1,
         });
 
         let rpm_limiter = profile
@@ -514,6 +515,11 @@ pub enum ResilientCallError {
     Inner(String),
 }
 
+/// Priority of the implicit (default-URL) local profile: after every cloud
+/// and custom profile, so it is used only when nothing with credentials is
+/// available.
+pub const LOCAL_FALLBACK_PRIORITY: u32 = 10_000;
+
 /// Caller-supplied verdict on whether a failure should fall back to the next
 /// `ApiProfile` or short-circuit immediately.
 ///
@@ -548,7 +554,13 @@ impl ResilientRegistry {
     /// Build a profile registry from runtime config.
     ///
     /// Bootstrap order:
-    /// 1. Local provider profile from `providers.*` (priority 0)
+    /// 1. Local provider profile from `providers.*`: priority 0 only when
+    ///    `providers.local_base_url` was explicitly pointed somewhere other
+    ///    than the default (`http://127.0.0.1:11434`); otherwise it is a
+    ///    last-resort fallback ([`LOCAL_FALLBACK_PRIORITY`]). The Local
+    ///    profile needs no key, so at priority 0 it would always win
+    ///    [`ProfileRegistry::best_available`] and route every call to a
+    ///    local server that may not exist, even with cloud keys set.
     /// 2. Anthropic/OpenAI defaults (with env overrides from providers config)
     /// 3. OpenRouter default (OPENROUTER_API_KEY)
     /// 4. Custom entries from `api_profiles.profiles`
@@ -556,7 +568,13 @@ impl ResilientRegistry {
         let mut reg = Self::new();
 
         let mut local = ApiProfile::local_from_providers("local-runtime", &config.providers);
-        local.priority = 0;
+        let local_explicit = config.providers.local_base_url.trim_end_matches('/')
+            != ProviderKind::Local.default_base_url();
+        local.priority = if local_explicit {
+            0
+        } else {
+            LOCAL_FALLBACK_PRIORITY
+        };
         reg.add_profile(local);
 
         let mut anthropic = ApiProfile::new("anthropic-primary", ProviderKind::Anthropic);
@@ -878,6 +896,46 @@ mod tests {
         assert_eq!(openrouter.api_key_env, "OPENROUTER_API_KEY");
         assert_eq!(openrouter.default_model, "anthropic/claude-sonnet-4-20250514");
         assert_eq!(openrouter.priority, 30);
+    }
+
+    #[test]
+    fn best_available_prefers_keyed_cloud_profile_over_default_local() {
+        // Unique env var names so parallel tests cannot interfere.
+        let anth_env = format!("AT_TEST_ANTHROPIC_KEY_{}", Uuid::new_v4().simple());
+        let oai_env = format!("AT_TEST_OPENAI_KEY_{}", Uuid::new_v4().simple());
+        let mut cfg = at_core::config::Config::default();
+        cfg.providers.anthropic_key_env = Some(anth_env.clone());
+        cfg.providers.openai_key_env = Some(oai_env);
+
+        // No cloud keys: the default local profile is the fallback.
+        let reg = ResilientRegistry::from_config(&cfg);
+        assert_eq!(
+            reg.registry.best_available().map(|p| p.provider),
+            Some(ProviderKind::Local)
+        );
+
+        // With an Anthropic key, Anthropic wins over the implicit local profile.
+        std::env::set_var(&anth_env, "sk-test");
+        let reg = ResilientRegistry::from_config(&cfg);
+        let best = reg.registry.best_available().unwrap();
+        std::env::remove_var(&anth_env);
+        assert_eq!(best.provider, ProviderKind::Anthropic);
+        assert_eq!(best.name, "anthropic-primary");
+    }
+
+    #[test]
+    fn explicitly_configured_local_runtime_keeps_top_priority() {
+        let anth_env = format!("AT_TEST_ANTHROPIC_KEY_{}", Uuid::new_v4().simple());
+        let mut cfg = at_core::config::Config::default();
+        cfg.providers.anthropic_key_env = Some(anth_env.clone());
+        cfg.providers.local_base_url = "http://gpu-box:8000".into();
+
+        std::env::set_var(&anth_env, "sk-test");
+        let reg = ResilientRegistry::from_config(&cfg);
+        let best = reg.registry.best_available().unwrap();
+        std::env::remove_var(&anth_env);
+        assert_eq!(best.provider, ProviderKind::Local);
+        assert_eq!(best.base_url, "http://gpu-box:8000");
     }
 
     #[test]
@@ -1206,6 +1264,7 @@ mod tests {
             success_threshold: 1,
             timeout: Duration::from_secs(30),
             call_timeout: Duration::from_secs(10),
+            half_open_max_calls: 1,
         };
         let _state = ProviderState::with_breaker_config(profile, config);
         // Just verify it doesn't panic.
@@ -1245,6 +1304,7 @@ mod tests {
             success_threshold: 3,
             timeout: Duration::from_secs(120),
             call_timeout: Duration::from_secs(60),
+            half_open_max_calls: 1,
         };
         let id = reg.add_profile_with_config(profile, config);
         assert!(reg.get_state(&id).is_some());
@@ -1424,6 +1484,7 @@ mod tests {
             success_threshold: 1,
             timeout: Duration::from_secs(60),
             call_timeout: Duration::from_secs(30),
+            half_open_max_calls: 1,
         };
         let id = reg.add_profile_with_config(p, config);
 
@@ -2011,6 +2072,7 @@ mod fallback_tests {
             success_threshold: 1,
             timeout: Duration::from_secs(60),
             call_timeout: Duration::from_secs(30),
+            half_open_max_calls: 1,
         };
         let id_primary = reg.add_profile_with_config(local_profile("primary", 0), breaker_cfg);
         let id_secondary = reg.add_profile(local_profile("secondary", 1));

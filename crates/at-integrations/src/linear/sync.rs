@@ -56,6 +56,55 @@ impl Default for SyncConfig {
     }
 }
 
+/// The actual data a [`PendingChange`] should push to Linear.
+///
+/// Carrying the real new value (rather than deriving it from `entity_id` or
+/// a fixed placeholder string) is what lets [`LinearSyncEngine::sync`] push
+/// the change the caller actually queued instead of overwriting the remote
+/// issue with garbage.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+pub enum ChangePayload {
+    /// Set the issue's title to this value.
+    Title(String),
+    /// Set the issue's description to this value.
+    Description(String),
+    /// Set the issue's workflow state to this Linear state ID (a UUID from
+    /// `workflowStates`, not a display name).
+    State { state_id: String },
+}
+
+impl ChangePayload {
+    /// A short label for this payload's kind, used where a human-readable
+    /// change type is still useful (logs, dead-letter inspection). This
+    /// replaces the old free-form `change_type: String` field, which drove
+    /// the push logic directly and could disagree with the actual payload.
+    pub fn label(&self) -> &'static str {
+        match self {
+            ChangePayload::Title(_) => "title_update",
+            ChangePayload::Description(_) => "description_update",
+            ChangePayload::State { .. } => "status_update",
+        }
+    }
+}
+
+/// Map a [`ChangePayload`] to the `(title, state_id, description)` arguments
+/// [`LinearClient::update_issue`] expects.
+///
+/// This used to be inlined as a `match` on a free-form `change_type: String`
+/// field that ignored the actual new value: `"title_update"` sent the
+/// entity's own ID as the title, `"description_update"` always sent the
+/// literal string `"updated via sync"`, and every other change type
+/// (including `"status_update"`) sent the literal string `"Updated"` as a
+/// state ID, which is never a valid Linear workflow-state UUID.
+fn payload_to_update_args(payload: &ChangePayload) -> (Option<&str>, Option<&str>, Option<&str>) {
+    match payload {
+        ChangePayload::Title(t) => (Some(t.as_str()), None, None),
+        ChangePayload::Description(d) => (None, None, Some(d.as_str())),
+        ChangePayload::State { state_id } => (None, Some(state_id.as_str()), None),
+    }
+}
+
 /// A pending change that hasn't been synced yet.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PendingChange {
@@ -63,7 +112,8 @@ pub struct PendingChange {
     pub direction: SyncDirection,
     pub entity_type: String,
     pub entity_id: String,
-    pub change_type: String,
+    /// The real value to push. See [`ChangePayload`].
+    pub payload: ChangePayload,
     pub created_at: DateTime<Utc>,
 }
 
@@ -126,25 +176,29 @@ impl LinearSyncEngine {
         let mut conflicts: u32 = 0;
 
         // -- Push phase: process pending changes --------------------------------
-        let changes = std::mem::take(&mut self.pending_changes);
-
-        // Collect entity_ids that were pushed so we can detect conflicts later.
-        let mut pushed_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
-
         let should_push = matches!(
             self.config.direction,
             SyncDirection::Push | SyncDirection::Bidirectional
         );
 
+        // Only drain pending_changes when we are actually going to push them.
+        // In Pull-only mode there is nothing to push this cycle, but the
+        // changes are still pending — mem::take-ing them unconditionally
+        // used to empty the queue and silently drop them.
+        let changes = if should_push {
+            std::mem::take(&mut self.pending_changes)
+        } else {
+            Vec::new()
+        };
+
+        // Collect entity_ids that were pushed so we can detect conflicts later.
+        let mut pushed_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+
         if should_push {
             for change in changes {
-                // Map change_type to update_issue parameters.
-                let (title, state, desc) = match change.change_type.as_str() {
-                    "title_update" => (Some(change.entity_id.as_str()), None, None),
-                    "status_update" => (None, Some("Updated"), None),
-                    "description_update" => (None, None, Some("updated via sync")),
-                    _ => (None, Some("Updated"), None),
-                };
+                // Send the real value the caller queued, not a placeholder
+                // derived from the entity id or change type.
+                let (title, state, desc) = payload_to_update_args(&change.payload);
 
                 // In test builds, honour the fail_ids set to simulate errors.
                 #[cfg(test)]
@@ -302,7 +356,7 @@ mod tests {
     use super::*;
 
     fn test_client() -> LinearClient {
-        LinearClient::new("test_key").unwrap()
+        LinearClient::stub("test_key")
     }
 
     #[test]
@@ -312,6 +366,56 @@ mod tests {
         assert_eq!(cfg.interval_seconds, 300);
         assert!(cfg.team_id.is_none());
         assert!(!cfg.auto_resolve_conflicts);
+    }
+
+    /// Regression test: the push phase must send the change's real value,
+    /// not a placeholder derived from the entity id, change type, or a
+    /// fixed string like "Updated".
+    #[test]
+    fn payload_maps_to_the_real_value_not_a_placeholder() {
+        let title = ChangePayload::Title("Fix the login bug".to_string());
+        assert_eq!(
+            payload_to_update_args(&title),
+            (Some("Fix the login bug"), None, None)
+        );
+
+        let desc = ChangePayload::Description("Actual description text".to_string());
+        assert_eq!(
+            payload_to_update_args(&desc),
+            (None, None, Some("Actual description text"))
+        );
+
+        let state = ChangePayload::State {
+            state_id: "state-uuid-123".to_string(),
+        };
+        assert_eq!(
+            payload_to_update_args(&state),
+            (None, Some("state-uuid-123"), None)
+        );
+    }
+
+    /// Regression test: `sync()` in Pull-only mode used to `mem::take` the
+    /// pending-change queue unconditionally, even though the push branch
+    /// that would have drained it was skipped — silently dropping queued
+    /// changes on the floor.
+    #[tokio::test]
+    async fn pull_only_sync_keeps_pending_changes() {
+        let client = test_client();
+        let cfg = SyncConfig {
+            direction: SyncDirection::Pull,
+            ..Default::default()
+        };
+        let mut engine = LinearSyncEngine::new(client, cfg);
+        engine.queue_change(make_change("ch-1", "entity-1"));
+
+        let result = engine.sync().await.unwrap();
+
+        assert_eq!(result.pushed, 0);
+        assert_eq!(
+            engine.pending_changes().len(),
+            1,
+            "a Pull-only sync must not drop queued changes"
+        );
     }
 
     #[tokio::test]
@@ -336,7 +440,9 @@ mod tests {
             direction: SyncDirection::Push,
             entity_type: "task".into(),
             entity_id: "task-001".into(),
-            change_type: "status_update".into(),
+            payload: ChangePayload::State {
+                state_id: "state-in-progress".into(),
+            },
             created_at: Utc::now(),
         });
 
@@ -376,7 +482,9 @@ mod tests {
             direction: SyncDirection::Push,
             entity_type: "task".into(),
             entity_id: entity_id.into(),
-            change_type: "status_update".into(),
+            payload: ChangePayload::State {
+                state_id: "state-in-progress".into(),
+            },
             created_at: Utc::now(),
         }
     }

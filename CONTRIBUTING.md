@@ -181,7 +181,7 @@ pub fn new(role: AgentRole, config: Config) -> Result<Self> {
 
 ### Test Coverage
 
-Auto-Tundra has **1,483+ tests** across the workspace. New code must include tests.
+Auto-Tundra has **2,944 tests** across the workspace (nextest, excluding at-tauri and at-leptos-ui). New code must include tests.
 
 ### Running Tests
 

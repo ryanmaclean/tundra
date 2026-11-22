@@ -15,16 +15,26 @@
 //! This protects the server from being overwhelmed by total traffic.
 //!
 //! ## 2. Per-User Rate Limit
-//! Applies to each unique client IP address. Client IP is extracted from:
-//! - `X-Forwarded-For` header (preferred, uses first IP in comma-separated list)
-//! - `X-Real-IP` header (fallback)
-//! - "unknown" if no IP headers are present
+//! Applies to each client identity. The identity is the socket peer IP taken
+//! from axum's `ConnectInfo<SocketAddr>` (the server must be started with
+//! `into_make_service_with_connect_info::<SocketAddr>()`). `X-Forwarded-For` /
+//! `X-Real-IP` are honoured **only** when [`RateLimitPolicy::trust_proxy_headers`]
+//! is set, because any client can forge them. Without connect info the
+//! identity falls back to `"unknown"`.
 //!
 //! This prevents any single client from monopolizing server resources.
 //!
 //! ## 3. Per-Endpoint Rate Limit
-//! Applies to each unique URI path (e.g., `/api/tasks`, `/api/beads`).
-//! Each endpoint has its own independent rate limit bucket per client.
+//! Applies to each `(client, method, route template)` triple, using axum's
+//! `MatchedPath` (e.g. `/api/beads/{id}/status`) rather than the raw URI so
+//! the bucket map cannot grow without bound. Unmatched paths share a single
+//! `<unmatched>` bucket per client.
+//!
+//! ## Loopback exemption
+//! When [`RateLimitPolicy::exempt_loopback`] is set (the default), direct
+//! connections from a loopback peer (the local TUI, desktop app, CLI and MCP
+//! clients) skip the per-user and per-endpoint tiers. They still count toward
+//! the global tier, which protects the daemon as a whole.
 //!
 //! This protects expensive endpoints (like AI generation or GitHub sync) from abuse
 //! while allowing high-frequency polling of lightweight endpoints like status checks.
@@ -75,16 +85,108 @@
 
 use axum::{
     body::Body,
-    extract::Request,
+    extract::{ConnectInfo, MatchedPath, Request},
     http::{Response, StatusCode},
     response::IntoResponse,
 };
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use tower::{Layer, Service};
 use tracing::warn;
 
 use at_harness::rate_limiter::MultiKeyRateLimiter;
+
+// ---------------------------------------------------------------------------
+// Policy
+// ---------------------------------------------------------------------------
+
+/// How the middleware derives client identity and which clients are exempt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RateLimitPolicy {
+    /// Skip the per-user and per-endpoint tiers for direct loopback peers.
+    pub exempt_loopback: bool,
+    /// Trust `X-Forwarded-For` / `X-Real-IP` for client identity. Only enable
+    /// this behind a reverse proxy that overwrites those headers.
+    pub trust_proxy_headers: bool,
+}
+
+impl Default for RateLimitPolicy {
+    fn default() -> Self {
+        Self {
+            exempt_loopback: true,
+            trust_proxy_headers: false,
+        }
+    }
+}
+
+/// Resolved client identity for one request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ClientIdentity {
+    key: String,
+    exempt: bool,
+}
+
+fn forwarded_ip(req: &Request<Body>) -> Option<String> {
+    req.headers()
+        .get("x-forwarded-for")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.split(',').next())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            req.headers()
+                .get("x-real-ip")
+                .and_then(|v| v.to_str().ok())
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+        })
+}
+
+fn client_identity(req: &Request<Body>, policy: RateLimitPolicy) -> ClientIdentity {
+    let peer: Option<IpAddr> = req
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|ConnectInfo(addr)| addr.ip());
+
+    if policy.trust_proxy_headers {
+        if let Some(ip) = forwarded_ip(req) {
+            return ClientIdentity {
+                key: ip,
+                exempt: false,
+            };
+        }
+    }
+
+    match peer {
+        Some(ip) => ClientIdentity {
+            key: ip.to_string(),
+            exempt: policy.exempt_loopback && is_loopback(ip),
+        },
+        None => ClientIdentity {
+            key: "unknown".to_string(),
+            exempt: false,
+        },
+    }
+}
+
+fn is_loopback(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => v4.is_loopback(),
+        IpAddr::V6(v6) => {
+            v6.is_loopback() || v6.to_ipv4_mapped().is_some_and(|v4| v4.is_loopback())
+        }
+    }
+}
+
+fn endpoint_key(req: &Request<Body>, client: &str) -> String {
+    let route = req
+        .extensions()
+        .get::<MatchedPath>()
+        .map(|p| p.as_str())
+        .unwrap_or("<unmatched>");
+    format!("{client}|{} {route}", req.method())
+}
 
 // ---------------------------------------------------------------------------
 // RateLimitLayer
@@ -94,12 +196,23 @@ use at_harness::rate_limiter::MultiKeyRateLimiter;
 #[derive(Clone)]
 pub struct RateLimitLayer {
     rate_limiter: Arc<MultiKeyRateLimiter>,
+    policy: RateLimitPolicy,
 }
 
 impl RateLimitLayer {
-    /// Create a new `RateLimitLayer` with the given rate limiter.
+    /// Create a new `RateLimitLayer` with the given rate limiter and the
+    /// default [`RateLimitPolicy`].
     pub fn new(rate_limiter: Arc<MultiKeyRateLimiter>) -> Self {
-        Self { rate_limiter }
+        Self {
+            rate_limiter,
+            policy: RateLimitPolicy::default(),
+        }
+    }
+
+    /// Override the identity / exemption policy.
+    pub fn with_policy(mut self, policy: RateLimitPolicy) -> Self {
+        self.policy = policy;
+        self
     }
 }
 
@@ -110,6 +223,7 @@ impl<S> Layer<S> for RateLimitLayer {
         RateLimitMiddleware {
             inner,
             rate_limiter: self.rate_limiter.clone(),
+            policy: self.policy,
         }
     }
 }
@@ -123,6 +237,7 @@ impl<S> Layer<S> for RateLimitLayer {
 pub struct RateLimitMiddleware<S> {
     inner: S,
     rate_limiter: Arc<MultiKeyRateLimiter>,
+    policy: RateLimitPolicy,
 }
 
 impl<S> Service<Request<Body>> for RateLimitMiddleware<S>
@@ -142,29 +257,22 @@ where
 
     fn call(&mut self, req: Request<Body>) -> Self::Future {
         let rate_limiter = self.rate_limiter.clone();
+        let policy = self.policy;
         let mut inner = self.inner.clone();
 
         Box::pin(async move {
-            // Extract client IP from X-Forwarded-For (leftmost), falling back to X-Real-IP, then "unknown".
-            let client_ip = req
-                .headers()
-                .get("x-forwarded-for")
-                .and_then(|v| v.to_str().ok())
-                .and_then(|s| s.split(',').next())
-                .map(|s| s.trim().to_string())
-                .or_else(|| {
-                    req.headers()
-                        .get("x-real-ip")
-                        .and_then(|v| v.to_str().ok())
-                        .map(|s| s.trim().to_string())
-                })
-                .unwrap_or_else(|| "unknown".to_string());
+            let client = client_identity(&req, policy);
+            let client_ip = client.key.clone();
+            let endpoint = endpoint_key(&req, &client.key);
 
-            // Extract endpoint path for per-endpoint limiting.
-            let endpoint = req.uri().path().to_string();
+            // Exempt clients only count toward the global tier.
+            let result = if client.exempt {
+                rate_limiter.check_tiers(None, None, 1.0)
+            } else {
+                rate_limiter.check_all(&client.key, &endpoint)
+            };
 
-            // Check all three rate limit tiers.
-            match rate_limiter.check_all(&client_ip, &endpoint) {
+            match result {
                 Ok(()) => {
                     // Rate limit not exceeded, pass through.
                     inner.call(req).await
@@ -218,6 +326,27 @@ mod tests {
         Router::new()
             .route("/ping", get(|| async { "pong" }))
             .layer(RateLimitLayer::new(rate_limiter))
+    }
+
+    /// Like [`test_router`], but with `trust_proxy_headers: true`.
+    ///
+    /// The middleware only reads `X-Forwarded-For` / `X-Real-IP` when a
+    /// reverse proxy is explicitly trusted (`client_identity`'s default is to
+    /// key on the real `ConnectInfo` peer address instead, since blindly
+    /// trusting client-supplied headers would let any caller pick its own
+    /// rate-limit bucket). Tests that specifically exercise the header
+    /// parsing logic need this policy; a synthetic `oneshot()` request has no
+    /// `ConnectInfo` extension at all, so without it every request falls
+    /// into the shared "unknown" bucket regardless of its headers.
+    fn test_router_trusting_proxy(rate_limiter: Arc<MultiKeyRateLimiter>) -> Router {
+        Router::new()
+            .route("/ping", get(|| async { "pong" }))
+            .layer(
+                RateLimitLayer::new(rate_limiter).with_policy(RateLimitPolicy {
+                    trust_proxy_headers: true,
+                    ..Default::default()
+                }),
+            )
     }
 
     #[tokio::test]
@@ -291,6 +420,171 @@ mod tests {
         assert!(retry_after.to_str().unwrap().parse::<u64>().is_ok());
     }
 
+    fn req_from(uri: &str, peer: Option<&str>) -> Request<Body> {
+        let mut req = Request::builder().uri(uri).body(Body::empty()).unwrap();
+        if let Some(peer) = peer {
+            let addr: SocketAddr = peer.parse().unwrap();
+            req.extensions_mut().insert(ConnectInfo(addr));
+        }
+        req
+    }
+
+    fn tight_limiter() -> Arc<MultiKeyRateLimiter> {
+        Arc::new(MultiKeyRateLimiter::new(
+            RateLimitConfig::per_minute(1000),
+            RateLimitConfig::per_minute(2),
+            RateLimitConfig::per_minute(1000),
+        ))
+    }
+
+    #[tokio::test]
+    async fn loopback_peer_is_exempt_from_per_client_tiers() {
+        let app = test_router(tight_limiter());
+        for peer in ["127.0.0.1:50000", "[::1]:50001", "[::ffff:127.0.0.1]:50002"] {
+            for _ in 0..10 {
+                let resp = app
+                    .clone()
+                    .oneshot(req_from("/ping", Some(peer)))
+                    .await
+                    .unwrap();
+                assert_eq!(resp.status(), StatusCode::OK, "peer {peer}");
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn loopback_exemption_can_be_disabled() {
+        let app = Router::new()
+            .route("/ping", get(|| async { "pong" }))
+            .layer(
+                RateLimitLayer::new(tight_limiter()).with_policy(RateLimitPolicy {
+                    exempt_loopback: false,
+                    trust_proxy_headers: false,
+                }),
+            );
+        for _ in 0..2 {
+            let resp = app
+                .clone()
+                .oneshot(req_from("/ping", Some("127.0.0.1:1")))
+                .await
+                .unwrap();
+            assert_eq!(resp.status(), StatusCode::OK);
+        }
+        let resp = app
+            .oneshot(req_from("/ping", Some("127.0.0.1:1")))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
+    }
+
+    #[tokio::test]
+    async fn remote_peers_get_independent_buckets() {
+        let app = test_router(tight_limiter());
+        for _ in 0..2 {
+            let resp = app
+                .clone()
+                .oneshot(req_from("/ping", Some("10.0.0.1:1")))
+                .await
+                .unwrap();
+            assert_eq!(resp.status(), StatusCode::OK);
+        }
+        let resp = app
+            .clone()
+            .oneshot(req_from("/ping", Some("10.0.0.1:2")))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
+        // A different client is unaffected.
+        let resp = app
+            .oneshot(req_from("/ping", Some("10.0.0.2:1")))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn forwarded_headers_ignored_unless_trusted() {
+        let app = test_router(tight_limiter());
+        // Rotating a spoofed X-Forwarded-For must not mint fresh buckets.
+        let mut statuses = Vec::new();
+        for i in 0..3 {
+            let mut req = req_from("/ping", Some("10.0.0.9:1"));
+            req.headers_mut()
+                .insert("x-forwarded-for", format!("1.2.3.{i}").parse().unwrap());
+            statuses.push(app.clone().oneshot(req).await.unwrap().status());
+        }
+        assert_eq!(statuses[2], StatusCode::TOO_MANY_REQUESTS);
+
+        // Behind a trusted proxy the forwarded address is the identity, and a
+        // forwarded loopback peer is not exempt.
+        let trusted = Router::new()
+            .route("/ping", get(|| async { "pong" }))
+            .layer(
+                RateLimitLayer::new(tight_limiter()).with_policy(RateLimitPolicy {
+                    exempt_loopback: true,
+                    trust_proxy_headers: true,
+                }),
+            );
+        for i in 0..3 {
+            let mut req = req_from("/ping", Some("127.0.0.1:1"));
+            req.headers_mut()
+                .insert("x-forwarded-for", format!("1.2.3.{i}").parse().unwrap());
+            assert_eq!(
+                trusted.clone().oneshot(req).await.unwrap().status(),
+                StatusCode::OK
+            );
+        }
+        for _ in 0..2 {
+            let mut req = req_from("/ping", Some("127.0.0.1:1"));
+            req.headers_mut()
+                .insert("x-forwarded-for", "9.9.9.9".parse().unwrap());
+            assert_eq!(
+                trusted.clone().oneshot(req).await.unwrap().status(),
+                StatusCode::OK
+            );
+        }
+        let mut req = req_from("/ping", Some("127.0.0.1:1"));
+        req.headers_mut()
+            .insert("x-forwarded-for", "9.9.9.9".parse().unwrap());
+        assert_eq!(
+            trusted.oneshot(req).await.unwrap().status(),
+            StatusCode::TOO_MANY_REQUESTS
+        );
+    }
+
+    #[tokio::test]
+    async fn per_endpoint_tier_keys_on_route_template() {
+        let limiter = Arc::new(MultiKeyRateLimiter::new(
+            RateLimitConfig::per_minute(1000),
+            RateLimitConfig::per_minute(1000),
+            RateLimitConfig::per_minute(2),
+        ));
+        let app = Router::new()
+            .route("/items/{id}", get(|| async { "item" }))
+            .layer(RateLimitLayer::new(limiter));
+        for id in ["a", "b"] {
+            let resp = app
+                .clone()
+                .oneshot(req_from(&format!("/items/{id}"), Some("10.0.0.1:1")))
+                .await
+                .unwrap();
+            assert_eq!(resp.status(), StatusCode::OK);
+        }
+        // Third distinct id hits the same `/items/{id}` bucket.
+        let resp = app
+            .clone()
+            .oneshot(req_from("/items/c", Some("10.0.0.1:1")))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
+        // Per-endpoint buckets are per client.
+        let resp = app
+            .oneshot(req_from("/items/c", Some("10.0.0.2:1")))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
     #[tokio::test]
     async fn different_endpoints_have_separate_limits() {
         let limiter = Arc::new(MultiKeyRateLimiter::new(
@@ -340,7 +634,7 @@ mod tests {
             RateLimitConfig::per_second(1),   // per-user — the limit under test
             RateLimitConfig::per_second(100), // per-endpoint — not the bottleneck
         ));
-        let app = test_router(limiter);
+        let app = test_router_trusting_proxy(limiter);
 
         let make_req = || {
             Request::builder()
@@ -384,7 +678,7 @@ mod tests {
             RateLimitConfig::per_second(1), // per-user limit under test
             RateLimitConfig::per_second(100),
         ));
-        let app = test_router(limiter);
+        let app = test_router_trusting_proxy(limiter);
 
         // Request A: full multi-hop list — leftmost is 198.51.100.7.
         let req_multi = Request::builder()
@@ -445,7 +739,7 @@ mod tests {
             RateLimitConfig::per_second(1), // per-user limit under test
             RateLimitConfig::per_second(100),
         ));
-        let app = test_router(limiter);
+        let app = test_router_trusting_proxy(limiter);
 
         let make_req = || {
             Request::builder()
@@ -529,7 +823,7 @@ mod tests {
             RateLimitConfig::per_second(1), // per-user limit under test
             RateLimitConfig::per_second(100),
         ));
-        let app = test_router(limiter);
+        let app = test_router_trusting_proxy(limiter);
 
         // Request A: both headers present — should be keyed on XFF IP.
         let req_both = Request::builder()
@@ -590,7 +884,7 @@ mod tests {
             RateLimitConfig::per_second(1), // per-user limit under test
             RateLimitConfig::per_second(100),
         ));
-        let app = test_router(limiter);
+        let app = test_router_trusting_proxy(limiter);
 
         // Request A: padded whitespace around the IP.
         let req_padded = Request::builder()
@@ -631,7 +925,7 @@ mod tests {
             RateLimitConfig::per_second(1),
             RateLimitConfig::per_second(100),
         ));
-        let app = test_router(limiter);
+        let app = test_router_trusting_proxy(limiter);
 
         let req_padded = Request::builder()
             .uri("/ping")

@@ -6,7 +6,8 @@ use axum::{
 use std::sync::Arc;
 use uuid::Uuid;
 
-use at_core::types::{Task, TaskSource};
+use at_core::merge_gate::validate_criteria;
+use at_core::types::{Task, TaskPhase, TaskSource};
 
 use super::state::ApiState;
 use super::types::{CreateTaskRequest, TaskListQuery, UpdateTaskPhaseRequest, UpdateTaskRequest};
@@ -56,6 +57,12 @@ pub(crate) async fn list_tasks(
     let filtered: Vec<Task> = tasks
         .values()
         .filter(|task| {
+            if let Some(bead_id) = query.bead_id {
+                if task.bead_id != bead_id {
+                    return false;
+                }
+            }
+
             // Filter by phase if specified
             if let Some(ref phase_str) = query.phase {
                 let task_phase_str = serde_json::to_string(&task.phase)
@@ -143,17 +150,36 @@ pub(crate) async fn create_task(
     State(state): State<Arc<ApiState>>,
     Json(req): Json<CreateTaskRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    // Validate title
-    if let Err(e) = validate_text_field(&req.title) {
-        return Err(ApiError::BadRequest(e.to_string()));
+    let task = create_task_checked(&state, req).await?;
+    Ok((
+        axum::http::StatusCode::CREATED,
+        Json(serde_json::json!(task)),
+    )
+        .into_response())
+}
+
+/// Shared by `POST /api/tasks` and the MCP `create_task` tool: validates
+/// `title`/`description`, resolves `acceptance_criteria` (explicit value, or
+/// inherited from the bead's `metadata.acceptance_criteria` -- never from
+/// issue bodies or spec prose), validates them, inserts the task and returns
+/// it. Does not publish a `TaskUpdate` (there is nothing to update yet).
+pub(crate) async fn create_task_checked(
+    state: &ApiState,
+    req: CreateTaskRequest,
+) -> Result<Task, ApiError> {
+    validate_text_field(&req.title).map_err(|e| ApiError::BadRequest(e.to_string()))?;
+    if let Some(ref description) = req.description {
+        validate_text_field(description).map_err(|e| ApiError::BadRequest(e.to_string()))?;
     }
 
-    // Validate description if present
-    if let Some(ref description) = req.description {
-        if let Err(e) = validate_text_field(description) {
-            return Err(ApiError::BadRequest(e.to_string()));
-        }
-    }
+    // Explicit criteria win; otherwise inherit the bead's (set via
+    // POST /api/beads or the MCP create_bead tool). Criteria are never
+    // derived from issue bodies or spec prose.
+    let acceptance_criteria = match req.acceptance_criteria {
+        Some(criteria) => criteria,
+        None => bead_acceptance_criteria(state, req.bead_id).await,
+    };
+    validate_criteria(&acceptance_criteria).map_err(ApiError::BadRequest)?;
 
     let mut task = Task::new(
         req.title,
@@ -162,6 +188,7 @@ pub(crate) async fn create_task(
         req.priority,
         req.complexity,
     );
+    task.acceptance_criteria = acceptance_criteria;
     task.description = req.description;
     task.impact = req.impact;
     task.agent_profile = req.agent_profile;
@@ -170,14 +197,29 @@ pub(crate) async fn create_task(
         task.phase_configs = configs;
     }
 
-    let mut tasks = state.tasks.write().await;
-    tasks.insert(task.id, task.clone());
+    state.tasks.write().await.insert(task.id, task.clone());
+    Ok(task)
+}
 
-    Ok((
-        axum::http::StatusCode::CREATED,
-        Json(serde_json::json!(task)),
+/// Criteria stored on a bead as `metadata.acceptance_criteria` (empty when
+/// the bead is unknown or has none).
+async fn bead_acceptance_criteria(state: &ApiState, bead_id: Uuid) -> Vec<String> {
+    let beads = state.beads.read().await;
+    beads
+        .get(&bead_id)
+        .and_then(|b| b.metadata.as_ref())
+        .and_then(|m| m.get("acceptance_criteria"))
+        .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok())
+        .unwrap_or_default()
+}
+
+/// `true` while the execute pipeline may be reading a task's acceptance
+/// criteria; changes are refused so the gate never runs a moving target.
+pub(crate) fn criteria_locked(phase: &TaskPhase) -> bool {
+    matches!(
+        phase,
+        TaskPhase::Coding | TaskPhase::Qa | TaskPhase::Fixing | TaskPhase::Merging
     )
-        .into_response())
 }
 
 /// GET /api/tasks/{id} -- retrieve a specific task by ID.
@@ -207,15 +249,34 @@ pub(crate) async fn get_task(
 /// **Path Parameters:** `id` - UUID of the task to update.
 /// **Request Body:** UpdateTaskRequest JSON object with optional fields.
 /// **Response:** 200 OK with updated Task, 404 if not found, 400 if validation fails.
+///
+/// `acceptance_criteria`: omitted = unchanged, `[]` = clear, list = replace.
+/// While the task is in Coding, Qa, Fixing or Merging a criteria change is
+/// refused with 409 `{"error": "acceptance_criteria_locked", "phase"}` and
+/// nothing else in the request is applied.
 pub(crate) async fn update_task(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateTaskRequest>,
-) -> Result<impl IntoResponse, ApiError> {
+) -> Result<axum::response::Response, ApiError> {
+    if let Some(ref criteria) = req.acceptance_criteria {
+        validate_criteria(criteria).map_err(ApiError::BadRequest)?;
+    }
     let mut tasks = state.tasks.write().await;
     let Some(task) = tasks.get_mut(&id) else {
         return Err(ApiError::NotFound("task not found".into()));
     };
+    if req.acceptance_criteria.is_some() && criteria_locked(&task.phase) {
+        return Ok((
+            axum::http::StatusCode::CONFLICT,
+            Json(serde_json::json!({
+                "error": "acceptance_criteria_locked",
+                "phase": task.phase,
+                "message": "acceptance criteria cannot change while the pipeline runs",
+            })),
+        )
+            .into_response());
+    }
 
     if let Some(title) = req.title {
         if title.is_empty() {
@@ -252,6 +313,9 @@ pub(crate) async fn update_task(
     if let Some(configs) = req.phase_configs {
         task.phase_configs = configs;
     }
+    if let Some(criteria) = req.acceptance_criteria {
+        task.acceptance_criteria = criteria;
+    }
     task.updated_at = chrono::Utc::now();
 
     let task_snapshot = task.clone();
@@ -262,7 +326,7 @@ pub(crate) async fn update_task(
         .publish(crate::protocol::BridgeMessage::TaskUpdate(Box::new(
             task_snapshot,
         )));
-    Ok((axum::http::StatusCode::OK, Json(response_json)))
+    Ok((axum::http::StatusCode::OK, Json(response_json)).into_response())
 }
 
 /// DELETE /api/tasks/{id} -- delete a task.

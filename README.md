@@ -22,9 +22,9 @@ Auto-Tundra is a Rust-based system that orchestrates AI agents to execute comple
 **Key Capabilities:**
 - 🤖 **Multi-Agent Orchestration** - Specialized agents (Spec, QA, Build, Utility, Ideation) work together
 - 🧠 **Context-Aware Intelligence** - Progressive context disclosure with token budget management
-- 🔌 **Multi-Provider Support** - Anthropic Claude, OpenRouter, OpenAI with automatic failover
+- 🔌 **Multi-Provider Support** - Anthropic Claude, OpenRouter, OpenAI via API profiles (automatic failover not wired yet)
 - 📝 **Markdown-Defined Extensibility** - Define agents and skills in simple markdown files
-- 🏗️ **Production-Ready** - 1,483+ tests, CI/CD with Datadog, security scanning, comprehensive telemetry
+- 🏗️ **Tested** - 2,944 tests, CI/CD with Datadog, security scanning, comprehensive telemetry (not production-ready; see Project Status)
 - 🌐 **API-First** - HTTP/WebSocket bridge for external integrations
 
 ---
@@ -42,7 +42,7 @@ Auto-Tundra is a Rust-based system that orchestrates AI agents to execute comple
 
 ```bash
 # 1. Clone and navigate
-cd /Users/studio/rust-harness
+git clone https://github.com/ryanmaclean/tundra.git && cd tundra
 
 # 2. Set API key (choose one or more)
 export ANTHROPIC_API_KEY=sk-ant-...
@@ -55,9 +55,16 @@ make build
 # 4. Run tests to verify setup
 make test
 
-# 5. Check system status
+# 5. Start the daemon (writes ~/.auto-tundra/daemon.lock and ~/.auto-tundra/daemon.key)
+cargo run --bin at-daemon &
+
+# 6. Check system status (finds the daemon via the lockfile, sends the key as X-API-Key)
 cargo run --bin at -- status
 ```
+
+The CLI and TUI locate the daemon through `~/.auto-tundra/daemon.lock` and read the API key from `AUTO_TUNDRA_API_KEY` or `~/.auto-tundra/daemon.key`. Pass `--api-url` (CLI) or `--api` (TUI) to override the lockfile; `http://127.0.0.1:9090` is only the fallback when no daemon is running.
+
+Claude Code connects to the daemon's MCP server (`GET /mcp/sse`) through the tracked `.mcp.json`, which sends the key as `x-api-key: ${AUTO_TUNDRA_API_KEY}`. Export the variable before starting Claude Code, e.g. `export AUTO_TUNDRA_API_KEY="$(cat ~/.auto-tundra/daemon.key)"`; the key itself is never written to the repo.
 
 **🎉 Success!** You're ready to orchestrate agents.
 
@@ -231,7 +238,7 @@ cargo nextest run -p at-agents
 ```
 
 **Test Coverage:**
-- 1,483+ tests across the workspace
+- 2,944 tests (cargo nextest, workspace excluding at-tauri and at-leptos-ui, 2026-09-22)
 - Unit tests in each crate
 - Integration tests for cross-crate functionality
 - Doc tests for API examples
@@ -306,7 +313,7 @@ RUST_LOG=debug cargo run ...    # Debug logging
 
 ## 🔗 Multi-Provider AI Support
 
-Auto-Tundra supports multiple LLM providers with automatic failover:
+Auto-Tundra supports multiple LLM providers through API profiles (`crates/at-intelligence/src/api_profiles.rs`):
 
 | Provider | Models | Setup |
 |----------|--------|-------|
@@ -314,7 +321,7 @@ Auto-Tundra supports multiple LLM providers with automatic failover:
 | **OpenRouter** | 100+ models | `export OPENROUTER_API_KEY=sk-or-v1-...` |
 | **OpenAI** | GPT-3.5/4 | `export OPENAI_API_KEY=sk-...` |
 
-Failover is automatic - if one provider fails, the system tries the next configured provider.
+Each profile can name a failover target (`ProfileRegistry::failover_for`), but automatic failover is not wired into the request path yet; see the provider failover item in `todo.md`.
 
 ---
 
@@ -338,7 +345,7 @@ MIT OR Apache-2.0 (dual license)
 
 **Current Version:** 0.1.0 (demo/test only)
 **Rust Version:** 1.91+
-**Test Count:** 2,190+
+**Test Count:** 2,944 (nextest, workspace excluding at-tauri and at-leptos-ui)
 **Purpose:** CI/CD pipeline testing, SAST scanning, PR bot demos
 **Production Ready:** No — this is a vibecoded test scaffold
 

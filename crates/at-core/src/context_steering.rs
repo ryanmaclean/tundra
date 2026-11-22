@@ -387,12 +387,12 @@ pub struct MemoryWeight {
 }
 
 fn default_timestamp() -> String {
-    chrono::Utc::now().to_rfc3339()
+    crate::utc_clock::now_rfc3339()
 }
 
 impl Default for MemoryWeight {
     fn default() -> Self {
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = crate::utc_clock::now_rfc3339();
         Self {
             tier: MemoryTier::L1,
             access_count: 0,
@@ -434,7 +434,7 @@ impl MemoryWeight {
     /// Record an access and recalculate weight.
     pub fn record_access(&mut self) {
         self.access_count += 1;
-        self.last_accessed = chrono::Utc::now().to_rfc3339();
+        self.last_accessed = crate::utc_clock::now_rfc3339();
         self.recompute();
     }
 
@@ -456,10 +456,8 @@ impl MemoryWeight {
         let frequency_bonus = (self.access_count as f64 * 0.02).min(0.1);
 
         let recency_bonus =
-            if let Ok(last) = chrono::DateTime::parse_from_rfc3339(&self.last_accessed) {
-                let age_hours = (chrono::Utc::now() - last.with_timezone(&chrono::Utc))
-                    .num_hours()
-                    .max(0) as f64;
+            if let Some(age_hours) = crate::utc_clock::rfc3339_age_hours(&self.last_accessed) {
+                let age_hours = age_hours as f64;
                 let decay_hours = 7.0 * 24.0; // 7-day half-life
                 (0.1 * (-age_hours / decay_hours).exp()).max(0.0)
             } else {
@@ -632,8 +630,12 @@ impl ContextSteerer {
             blocks.push(block);
         }
 
-        // L1: Project context (CLAUDE.md, AGENTS.md) — filtered by profile
-        if profile.min_level <= DisclosureLevel::Project {
+        // L1: Project context (CLAUDE.md, AGENTS.md). `min_level` is the
+        // lowest level a phase *must* reach, not a floor that excludes lower
+        // levels: project rules are always loaded first (budget permitting)
+        // for every phase whose ceiling reaches Project.
+        let include_project = profile.max_level >= DisclosureLevel::Project;
+        if include_project {
             for ctx in &self.project_context {
                 if ctx.level <= profile.max_level {
                     if total_tokens + ctx.estimated_tokens <= token_budget {
@@ -647,7 +649,7 @@ impl ContextSteerer {
         }
 
         // L1: Conventions (extracted from CLAUDE.md)
-        if !self.conventions.is_empty() && profile.min_level <= DisclosureLevel::Project {
+        if !self.conventions.is_empty() && include_project {
             let conv_text = self.conventions.join("\n- ");
             let conv_block = ContextBlock::new(
                 "conventions",
@@ -1166,6 +1168,67 @@ mod tests {
         let ctx = steerer.assemble("coder", "coding", Some("Fix the login bug"), 8000);
         assert!(ctx.total_tokens > 0);
         assert!(ctx.metadata.blocks_included > 0);
+    }
+
+    #[test]
+    fn project_rules_included_in_every_phase() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("CLAUDE.md"),
+            "# Rules\n- Never use GPL deps\n",
+        )
+        .unwrap();
+
+        let mut steerer = ContextSteerer::new(dir.path());
+        steerer.load_project();
+
+        for phase in [
+            "discovery",
+            "spec_creation",
+            "planning",
+            "coding",
+            "fixing",
+            "qa",
+            "merging",
+        ] {
+            let ctx = steerer.assemble("coder", phase, Some("Fix the login bug"), 8000);
+            let labels: Vec<&str> = ctx.blocks.iter().map(|b| b.label.as_str()).collect();
+            assert!(
+                labels.contains(&"CLAUDE.md"),
+                "phase {phase} missing CLAUDE.md: {labels:?}"
+            );
+            assert!(
+                labels.contains(&"conventions"),
+                "phase {phase} missing conventions: {labels:?}"
+            );
+            assert!(
+                ctx.blocks
+                    .iter()
+                    .any(|b| b.content.contains("Never use GPL deps")),
+                "phase {phase} lost the project rule: {labels:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn claude_md_present_for_coding_and_qa() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("CLAUDE.md"), "- Always run clippy\n").unwrap();
+        let mut steerer = ContextSteerer::new(dir.path());
+        steerer.load_project();
+
+        for phase in ["coding", "qa"] {
+            let ctx = steerer.assemble("coder", phase, Some("spec"), 8000);
+            assert!(
+                ctx.blocks.iter().any(|b| b.label == "CLAUDE.md"),
+                "{phase}: {:?}",
+                ctx.blocks.iter().map(|b| &b.label).collect::<Vec<_>>()
+            );
+            // Project rules come before the task spec.
+            let claude_idx = ctx.blocks.iter().position(|b| b.label == "CLAUDE.md");
+            let spec_idx = ctx.blocks.iter().position(|b| b.label == "task_spec");
+            assert!(claude_idx < spec_idx, "{phase}: rules must precede spec");
+        }
     }
 
     #[test]

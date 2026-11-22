@@ -1,4 +1,5 @@
 use serde_json::json;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::info;
 
 use crate::mcp::{McpTool, ToolAnnotations, ToolCallRequest, ToolCallResult};
@@ -12,6 +13,15 @@ use crate::mcp::{McpTool, ToolAnnotations, ToolCallRequest, ToolCallResult};
 
 /// Server name used when registering built-in tools.
 pub const BUILTIN_SERVER_NAME: &str = "tundra-tools";
+
+// Match the native Chrono clock's pre-epoch behavior while allowing the
+// destination field's existing UTC type to perform the conversion.
+fn current_system_time() -> SystemTime {
+    let now = SystemTime::now();
+    now.duration_since(UNIX_EPOCH)
+        .expect("system time before Unix epoch");
+    now
+}
 
 /// Return the complete list of built-in MCP tool definitions.
 pub fn builtin_tool_definitions() -> Vec<McpTool> {
@@ -261,8 +271,8 @@ async fn exec_run_task(ctx: &BuiltinToolContext, args: &serde_json::Value) -> To
 
     task.phase = TaskPhase::ContextGathering;
     task.progress_percent = TaskPhase::ContextGathering.progress_percent();
-    task.updated_at = chrono::Utc::now();
-    task.started_at = Some(chrono::Utc::now());
+    task.updated_at = current_system_time().into();
+    task.started_at = Some(current_system_time().into());
 
     ToolCallResult::text(
         json!({
@@ -401,13 +411,29 @@ async fn exec_manage_beads(ctx: &BuiltinToolContext, args: &serde_json::Value) -
             }
 
             bead.status = new_status;
-            bead.updated_at = chrono::Utc::now();
+            bead.updated_at = current_system_time().into();
             ToolCallResult::text(serde_json::to_string(&*bead).unwrap())
         }
 
         other => ToolCallResult::error(format!(
             "unknown action: {other}. Valid actions: list, get, create, update_status"
         )),
+    }
+}
+
+/// `{schema, passed, summary, head, merged}` from the task's last merge-gate
+/// report (`null` when the gate never ran). The full `at.merge_gate.report/v1`
+/// document is at `GET /api/tasks/{id}/merge-gate`.
+fn merge_gate_status(task: &Task) -> serde_json::Value {
+    match &task.merge_gate_report {
+        Some(r) => json!({
+            "schema": r.schema,
+            "passed": r.passed,
+            "summary": r.summary(),
+            "head": r.head,
+            "merged": task.merged_at.is_some(),
+        }),
+        None => serde_json::Value::Null,
     }
 }
 
@@ -431,6 +457,8 @@ async fn exec_get_build_status(
                     "progress_percent": task.progress_percent,
                     "started_at": task.started_at,
                     "error": task.error,
+                    "acceptance_criteria_count": task.acceptance_criteria.len(),
+                    "merge_gate": merge_gate_status(task),
                 })
                 .to_string(),
             ),
@@ -452,6 +480,8 @@ async fn exec_get_build_status(
                     "title": t.title,
                     "phase": t.phase,
                     "progress_percent": t.progress_percent,
+                    "acceptance_criteria_count": t.acceptance_criteria.len(),
+                    "merge_gate": merge_gate_status(t),
                 })
             })
             .collect();
@@ -502,6 +532,19 @@ mod tests {
             agents: Arc::new(RwLock::new(HashMap::new())),
             tasks: Arc::new(RwLock::new(HashMap::new())),
         }
+    }
+
+    #[test]
+    fn system_time_conversion_preserves_utc_wire_precision() {
+        let mut bead = Bead::new("timestamp", Lane::Standard);
+        bead.updated_at = (UNIX_EPOCH + std::time::Duration::from_nanos(123_456_789)).into();
+        let json = serde_json::to_value(&bead).unwrap();
+        assert_eq!(json["updated_at"], "1970-01-01T00:00:00.123456789Z");
+        let decoded: Bead = serde_json::from_value(json).unwrap();
+        assert_eq!(
+            SystemTime::from(decoded.updated_at),
+            UNIX_EPOCH + std::time::Duration::from_nanos(123_456_789)
+        );
     }
 
     #[test]
@@ -638,7 +681,8 @@ mod tests {
     #[tokio::test]
     async fn exec_manage_beads_update_status() {
         let ctx = make_ctx();
-        let bead = Bead::new("Test bead", Lane::Standard);
+        let mut bead = Bead::new("Test bead", Lane::Standard);
+        bead.updated_at = UNIX_EPOCH.into();
         let bead_id = bead.id;
         ctx.beads.write().await.insert(bead_id, bead);
 
@@ -655,6 +699,9 @@ mod tests {
         let parsed: serde_json::Value =
             serde_json::from_str(result.text_content().unwrap()).unwrap();
         assert_eq!(parsed["status"], "hooked");
+        let bead: Bead = serde_json::from_value(parsed).unwrap();
+        let updated = SystemTime::from(bead.updated_at);
+        assert!(updated > UNIX_EPOCH);
     }
 
     #[tokio::test]
@@ -693,13 +740,15 @@ mod tests {
     async fn exec_run_task_success() {
         let ctx = make_ctx();
         let bead = Bead::new("parent", Lane::Standard);
-        let task = Task::new(
+        let mut task = Task::new(
             "Implement feature",
             bead.id,
             TaskCategory::Feature,
             TaskPriority::Medium,
             TaskComplexity::Medium,
         );
+        task.updated_at = UNIX_EPOCH.into();
+        task.started_at = None;
         let task_id = task.id;
         ctx.tasks.write().await.insert(task_id, task);
 
@@ -712,6 +761,10 @@ mod tests {
         let parsed: serde_json::Value =
             serde_json::from_str(result.text_content().unwrap()).unwrap();
         assert_eq!(parsed["status"], "started");
+        let tasks = ctx.tasks.read().await;
+        let task = &tasks[&task_id];
+        assert!(SystemTime::from(task.updated_at) > UNIX_EPOCH);
+        assert!(SystemTime::from(task.started_at.unwrap()) > UNIX_EPOCH);
     }
 
     #[tokio::test]
@@ -772,6 +825,67 @@ mod tests {
         let parsed: serde_json::Value =
             serde_json::from_str(result.text_content().unwrap()).unwrap();
         assert_eq!(parsed["count"], 1);
+    }
+
+    #[tokio::test]
+    async fn exec_get_build_status_includes_merge_gate() {
+        let ctx = make_ctx();
+        let mut task = Task::new(
+            "Gated",
+            Uuid::new_v4(),
+            TaskCategory::Feature,
+            TaskPriority::Medium,
+            TaskComplexity::Small,
+        );
+        task.acceptance_criteria = vec!["cargo test".into(), "true".into()];
+        let id = task.id;
+        ctx.tasks.write().await.insert(id, task);
+
+        let req = ToolCallRequest {
+            name: "get_build_status".into(),
+            arguments: json!({"task_id": id.to_string()}),
+        };
+        let parsed: serde_json::Value = serde_json::from_str(
+            execute_builtin_tool(&ctx, &req)
+                .await
+                .unwrap()
+                .text_content()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(parsed["acceptance_criteria_count"], 2);
+        assert!(parsed["merge_gate"].is_null(), "gate never ran");
+
+        let mut report = at_core::merge_gate::MergeGateReport::new("task/g", "main", "/wt");
+        report.results.push(at_core::merge_gate::CommandResult {
+            cmd: "cargo test".into(),
+            exit_code: Some(101),
+            timed_out: false,
+            duration_ms: 1,
+            stdout_tail: String::new(),
+            stderr_tail: String::new(),
+        });
+        ctx.tasks
+            .write()
+            .await
+            .get_mut(&id)
+            .unwrap()
+            .merge_gate_report = Some(report);
+        let parsed: serde_json::Value = serde_json::from_str(
+            execute_builtin_tool(&ctx, &req)
+                .await
+                .unwrap()
+                .text_content()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(parsed["merge_gate"]["passed"], false);
+        assert_eq!(parsed["merge_gate"]["schema"], "at.merge_gate.report/v1");
+        assert!(parsed["merge_gate"]["summary"]
+            .as_str()
+            .unwrap()
+            .contains("exited 101"));
+        assert_eq!(parsed["merge_gate"]["merged"], false);
     }
 
     #[tokio::test]

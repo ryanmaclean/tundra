@@ -16,11 +16,21 @@ async fn test_daemon_start_embedded_returns_port() {
     // Port must be non-zero (OS-assigned)
     assert!(port > 0, "expected a non-zero port, got {port}");
 
-    // API should be reachable
+    // API should be reachable, and (auth is always on) only with the key
+    // clients discover the same way the CLI/TUI do.
     let url = format!("http://localhost:{port}/api/status");
     let resp = reqwest::get(&url).await;
     assert!(resp.is_ok(), "API server should be reachable at {url}");
-    let resp = resp.unwrap();
+    assert_eq!(resp.unwrap().status(), 401, "unauthenticated request");
+
+    let key = at_core::config::CredentialProvider::read_daemon_api_key()
+        .expect("start_embedded must leave a discoverable API key");
+    let resp = reqwest::Client::new()
+        .get(&url)
+        .header(at_core::lockfile::API_KEY_HEADER, key)
+        .send()
+        .await
+        .expect("authenticated request");
     assert_eq!(resp.status(), 200);
 
     daemon.shutdown();

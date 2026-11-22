@@ -11,6 +11,92 @@ use crate::state::{use_app_state, DisplayMode};
 use leptos::ev::KeyboardEvent;
 use leptos::prelude::*;
 
+// ── Settings persistence ──
+//
+// The page only edits a subset of the server `Config` (no providers, daemon,
+// kanban, allowed_origins, execution profiles, ...) and fills the fields it
+// does not edit with hardcoded placeholders. PUTting the page's struct used to
+// reset everything else to defaults. Instead we PATCH /api/settings with only
+// the fields the user changed since the settings were loaded; the server
+// deep-merges them into the existing config.
+
+/// Recursively diff two JSON values, returning only what changed in `new`.
+/// Objects are diffed key by key; any other changed value (including arrays)
+/// is returned whole. Returns `None` when nothing changed.
+fn settings_json_diff(
+    old: &serde_json::Value,
+    new: &serde_json::Value,
+) -> Option<serde_json::Value> {
+    match (old, new) {
+        (serde_json::Value::Object(o), serde_json::Value::Object(n)) => {
+            let mut out = serde_json::Map::new();
+            for (key, new_val) in n {
+                match o.get(key) {
+                    Some(old_val) => {
+                        if let Some(d) = settings_json_diff(old_val, new_val) {
+                            out.insert(key.clone(), d);
+                        }
+                    }
+                    None => {
+                        out.insert(key.clone(), new_val.clone());
+                    }
+                }
+            }
+            if out.is_empty() {
+                None
+            } else {
+                Some(serde_json::Value::Object(out))
+            }
+        }
+        _ if old == new => None,
+        _ => Some(new.clone()),
+    }
+}
+
+/// PATCH /api/settings with a partial config (deep-merged server-side).
+///
+/// The request is built with [`api::new_request`] so the daemon API key is
+/// attached in one place, like every other API call.
+async fn patch_settings(patch: &serde_json::Value) -> Result<(), String> {
+    use wasm_bindgen::{JsCast, JsValue};
+    use wasm_bindgen_futures::JsFuture;
+
+    let url = format!("{}/api/settings", api::get_api_base());
+    let body = serde_json::to_string(patch).map_err(|e| format!("Serialize: {e}"))?;
+    let opts = web_sys::RequestInit::new();
+    opts.set_method("PATCH");
+    opts.set_body(&JsValue::from_str(&body));
+    let request = api::new_request(&url, &opts)?;
+    let headers = request.headers();
+    let _ = headers.set("Content-Type", "application/json");
+    let _ = headers.set("Accept", "application/json");
+    let window = web_sys::window().ok_or("no global window")?;
+
+    let resp_value = JsFuture::from(window.fetch_with_request(&request))
+        .await
+        .map_err(|_| format!("Failed to connect to {}", api::get_api_base()))?;
+    let resp: web_sys::Response = resp_value
+        .dyn_into()
+        .map_err(|_| "unexpected fetch response".to_string())?;
+    if resp.ok() {
+        return Ok(());
+    }
+    // Surface the server's error message (e.g. 409: settings file invalid).
+    let status = resp.status();
+    let detail = match resp.json() {
+        Ok(promise) => JsFuture::from(promise)
+            .await
+            .ok()
+            .and_then(|v| serde_wasm_bindgen::from_value::<serde_json::Value>(v).ok())
+            .and_then(|v| v.get("error").and_then(|e| e.as_str()).map(str::to_string)),
+        Err(_) => None,
+    };
+    Err(match detail {
+        Some(msg) => format!("HTTP {status}: {msg}"),
+        None => format!("HTTP {status}"),
+    })
+}
+
 fn settings_tab_icon_svg(label: &str) -> &'static str {
     match label {
         "Appearance" => {
@@ -563,7 +649,9 @@ pub fn ConfigPage(#[prop(optional)] on_close: Option<Callback<()>>) -> impl Into
     let (debug_textarea_visible, set_debug_textarea_visible) = signal(false);
     let (debug_paste_content, set_debug_paste_content) = signal(String::new());
 
-    let collect_settings = move || build_settings_from_signals(
+    // Builds the page's settings struct from the current signal values.
+    let build_current = move || {
+        build_settings_from_signals(
             &appearance_mode,
             &color_theme,
             &fine_scale,
@@ -610,9 +698,11 @@ pub fn ConfigPage(#[prop(optional)] on_close: Option<Callback<()>>) -> impl Into
             &gh_pr_thinking,
             &utility_model,
             &utility_thinking,
-        );
-    let (edit_session, set_edit_session) = signal(None::<api::SettingsEditSession>);
-    let (save_pending, set_save_pending) = signal(false);
+        )
+    };
+    // Page settings as last loaded/saved (JSON), used to PATCH only the
+    // fields the user changed. `None` until the initial load succeeds.
+    let baseline = StoredValue::new(None::<serde_json::Value>);
 
     // -- Load settings from API on mount --
     leptos::task::spawn_local(async move {
@@ -657,18 +747,7 @@ pub fn ConfigPage(#[prop(optional)] on_close: Option<Callback<()>>) -> impl Into
                     set_embedding_provider,
                     set_embedding_model,
                 );
-                for phase in &s.agent_profile.phase_configs {
-                    match phase.phase.as_str() {
-                        "Spec Creation" => { set_spec_model.set(phase.model.clone()); set_spec_thinking.set(phase.thinking_level.clone()); }
-                        "Ideation" => { set_ideation_model.set(phase.model.clone()); set_ideation_thinking.set(phase.thinking_level.clone()); }
-                        "Roadmap" => { set_roadmap_model.set(phase.model.clone()); set_roadmap_thinking.set(phase.thinking_level.clone()); }
-                        "GitHub Issues" => { set_gh_issues_model.set(phase.model.clone()); set_gh_issues_thinking.set(phase.thinking_level.clone()); }
-                        "GitHub PR Review" => { set_gh_pr_model.set(phase.model.clone()); set_gh_pr_thinking.set(phase.thinking_level.clone()); }
-                        "Utility" => { set_utility_model.set(phase.model.clone()); set_utility_thinking.set(phase.thinking_level.clone()); }
-                        _ => {}
-                    }
-                }
-                set_edit_session.set(Some(api::SettingsEditSession::new(s, collect_settings())));
+                baseline.set_value(serde_json::to_value(build_current()).ok());
             }
             Err(e) => {
                 web_sys::console::warn_1(&format!("Failed to load settings: {e}").into());
@@ -721,25 +800,29 @@ pub fn ConfigPage(#[prop(optional)] on_close: Option<Callback<()>>) -> impl Into
         });
     };
 
-    let on_save = move |_| {
-        if save_pending.get() { return; }
-        let settings = collect_settings();
-        let partial = match api::settings_edit_patch(edit_session.get().as_ref(), &settings) {
-            Ok(partial) => partial,
-            Err(error) => {
-                set_toast_msg.set(error);
-                set_show_toast.set(true);
-                return;
-            }
+    // PATCH the fields changed since load; returns a user-facing message on
+    // error. Refuses to save if the settings never loaded, because the page's
+    // placeholders for unloaded fields would overwrite the real settings.
+    let persist_changes = move || async move {
+        let Some(old) = baseline.get_value() else {
+            return Err(
+                "settings were not loaded from the server; not saving to avoid \
+                        overwriting them (reload the page)"
+                    .to_string(),
+            );
         };
-        set_save_pending.set(true);
+        let new = serde_json::to_value(build_current()).map_err(|e| e.to_string())?;
+        if let Some(patch) = settings_json_diff(&old, &new) {
+            patch_settings(&patch).await?;
+        }
+        baseline.set_value(Some(new));
+        Ok(())
+    };
+
+    let on_save = move |_| {
         leptos::task::spawn_local(async move {
-            let result = api::patch_settings(&partial).await;
-            set_save_pending.set(false);
-            match result {
-                Ok(saved) => {
-                    // Bind the acknowledgement to this submitted draft, not later edits.
-                    set_edit_session.set(Some(api::SettingsEditSession::new(saved, settings)));
+            match persist_changes().await {
+                Ok(()) => {
                     set_toast_msg.set("Settings saved successfully!".to_string());
                     set_show_toast.set(true);
                     let set_show = set_show_toast;
@@ -859,15 +942,11 @@ pub fn ConfigPage(#[prop(optional)] on_close: Option<Callback<()>>) -> impl Into
         set_local_probe_status.set(None);
         set_local_probe_models.set(Vec::new());
 
-        let settings = ApiSettings::default();
-        let reset_draft = collect_settings();
-        set_save_pending.set(true);
+        // Persist only the fields this page manages (as just reset above);
+        // never PUT a default struct, which would wipe unrelated settings.
         leptos::task::spawn_local(async move {
-            let result = api::save_settings(&settings).await;
-            set_save_pending.set(false);
-            match result {
-                Ok(saved) => {
-                    set_edit_session.set(Some(api::SettingsEditSession::new(saved, reset_draft)));
+            match persist_changes().await {
+                Ok(()) => {
                     set_toast_msg.set("Settings reset to defaults".to_string());
                     set_show_toast.set(true);
                     let set_show = set_show_toast;
@@ -2444,4 +2523,46 @@ fn event_target_checked(ev: &leptos::ev::Event) -> bool {
         .and_then(|t| t.dyn_into::<web_sys::HtmlInputElement>().ok())
         .map(|el| el.checked())
         .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod settings_diff_tests {
+    use super::settings_json_diff;
+    use serde_json::json;
+
+    #[test]
+    fn unchanged_settings_produce_no_patch() {
+        let v = json!({"display": {"theme": "dark"}, "general": {"project_name": "x"}});
+        assert_eq!(settings_json_diff(&v, &v), None);
+    }
+
+    #[test]
+    fn patch_contains_only_changed_leaves() {
+        // Placeholders the page never edits (general.project_name,
+        // api_profiles) are identical in baseline and current, so they are
+        // not sent and cannot overwrite the server's real values.
+        let old = json!({
+            "general": {"project_name": "auto-tundra"},
+            "display": {"theme": "dark", "font_size": 14},
+            "api_profiles": {"profiles": []},
+            "integrations": {"github_owner": "org"}
+        });
+        let new = json!({
+            "general": {"project_name": "auto-tundra"},
+            "display": {"theme": "light", "font_size": 14},
+            "api_profiles": {"profiles": []},
+            "integrations": {"github_owner": null}
+        });
+        assert_eq!(
+            settings_json_diff(&old, &new),
+            Some(json!({"display": {"theme": "light"}, "integrations": {"github_owner": null}}))
+        );
+    }
+
+    #[test]
+    fn changed_arrays_are_sent_whole() {
+        let old = json!({"agent_profile": {"phase_configs": [{"model": "a"}, {"model": "b"}]}});
+        let new = json!({"agent_profile": {"phase_configs": [{"model": "a"}, {"model": "c"}]}});
+        assert_eq!(settings_json_diff(&old, &new), Some(new.clone()));
+    }
 }

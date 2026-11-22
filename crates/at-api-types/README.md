@@ -57,6 +57,11 @@ Common API request structures:
 - `CreateProjectRequest` / `UpdateProjectRequest` - Project management
 - And more...
 
+### Wire Contracts
+
+- `auth` - how clients present the daemon API key (header, bearer, WebSocket query param)
+- `catalog` - `ApiCatalog` / `ApiCatalogRoute` returned by `GET /api/catalog` (and `/api/v1/catalog`): every route with method, path, auth, description and request/response type names; bop `catalog.v1`-compatible (`schema_version`, `generated_at`, `cards[]`)
+
 ## Design Principles
 
 All types in this crate:

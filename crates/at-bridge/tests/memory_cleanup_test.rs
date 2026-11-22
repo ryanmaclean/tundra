@@ -154,7 +154,7 @@ async fn test_cleanup_only_affects_archived_tasks() {
     // Archive only the first task
     {
         let mut archived = state.archived_tasks.write().await;
-        archived.push(old_archived_id);
+        archived.insert(old_archived_id);
     }
 
     // Run cleanup with 7 days TTL
@@ -202,8 +202,8 @@ async fn test_cleanup_respects_completed_at_field() {
         tasks.insert(task_without_timestamp, task2);
 
         let mut archived = state.archived_tasks.write().await;
-        archived.push(task_with_timestamp);
-        archived.push(task_without_timestamp);
+        archived.insert(task_with_timestamp);
+        archived.insert(task_without_timestamp);
     }
 
     // Run cleanup with 7 days TTL
@@ -314,7 +314,7 @@ async fn test_memory_usage_endpoint() {
         tasks.insert(task_id, task);
 
         let mut archived = state.archived_tasks.write().await;
-        archived.push(task_id);
+        archived.insert(task_id);
     }
 
     // Query memory usage endpoint
@@ -352,7 +352,7 @@ async fn test_background_cleanup_task_integration() {
         tasks.insert(old_task_id, task);
 
         let mut archived = state.archived_tasks.write().await;
-        archived.push(old_task_id);
+        archived.insert(old_task_id);
     }
 
     // Manually trigger one cleanup cycle

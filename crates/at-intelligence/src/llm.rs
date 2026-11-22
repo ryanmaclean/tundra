@@ -145,7 +145,7 @@ pub struct LlmConfig {
 impl Default for LlmConfig {
     fn default() -> Self {
         Self {
-            model: "claude-sonnet-4-20250514".to_string(),
+            model: "claude-sonnet-4-6".to_string(),
             max_tokens: 1024,
             temperature: 0.7,
             system_prompt: None,
@@ -158,9 +158,31 @@ impl Default for LlmConfig {
 pub struct LlmResponse {
     pub content: String,
     pub model: String,
+    /// Uncached input tokens. For Anthropic this excludes prompt-cache
+    /// writes and reads, which are reported in the two fields below.
     pub input_tokens: u64,
     pub output_tokens: u64,
     pub finish_reason: String,
+    /// Input tokens written to the prompt cache (Anthropic
+    /// `usage.cache_creation_input_tokens`; billed at a premium).
+    #[serde(default)]
+    pub cache_creation_input_tokens: u64,
+    /// Input tokens served from the prompt cache (Anthropic
+    /// `usage.cache_read_input_tokens`; billed at a discount).
+    #[serde(default)]
+    pub cache_read_input_tokens: u64,
+}
+
+impl LlmResponse {
+    /// All input tokens the model processed: uncached + cache writes + cache reads.
+    pub fn total_input_tokens(&self) -> u64 {
+        self.input_tokens + self.cache_creation_input_tokens + self.cache_read_input_tokens
+    }
+
+    /// All tokens for this call (total input + output).
+    pub fn total_tokens(&self) -> u64 {
+        self.total_input_tokens() + self.output_tokens
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -186,6 +208,35 @@ pub trait LlmProvider: Send + Sync {
         messages: &[LlmMessage],
         config: &LlmConfig,
     ) -> Result<Pin<Box<dyn Stream<Item = Result<String, LlmError>> + Send>>, LlmError>;
+
+    /// Vendor this provider talks to, matching `ModelPricing::provider`
+    /// (e.g. `"anthropic"`, `"openai"`). Model routing uses it to pick only
+    /// models this provider can serve. `None` means "unknown / any".
+    fn provider_name(&self) -> Option<&str> {
+        None
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Shared HTTP client for cloud providers
+// ---------------------------------------------------------------------------
+
+/// Connect timeout for cloud LLM APIs.
+pub const CLOUD_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Default total request timeout for non-streaming cloud LLM calls. Sized for
+/// large `max_tokens` completions; a stalled connection fails with
+/// [`LlmError::Timeout`] instead of hanging the caller forever.
+pub const CLOUD_REQUEST_TIMEOUT: Duration = Duration::from_secs(300);
+
+/// Build the reqwest client used by the cloud providers, with connect and
+/// total-request timeouts (reqwest's `Client::new()` has neither).
+fn cloud_client(timeout: Duration) -> reqwest::Client {
+    reqwest::Client::builder()
+        .connect_timeout(CLOUD_CONNECT_TIMEOUT)
+        .timeout(timeout)
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new())
 }
 
 /// Build a completion endpoint from an HTTP(S) service root or a root whose
@@ -231,14 +282,20 @@ impl AnthropicProvider {
     /// `api_key` is the Anthropic API key (x-api-key header).
     pub fn new(api_key: impl Into<String>) -> Self {
         Self {
-            client: reqwest::Client::new(),
+            client: cloud_client(CLOUD_REQUEST_TIMEOUT),
             api_key: api_key.into(),
             base_url: "https://api.anthropic.com".to_string(),
         }
     }
 
-    /// Override the HTTP(S) service root or terminal /v1 root.
-    /// Proxy prefixes/query are preserved; fragments are discarded.
+    /// Override the total request timeout (default [`CLOUD_REQUEST_TIMEOUT`]).
+    /// A request exceeding it fails with [`LlmError::Timeout`].
+    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.client = cloud_client(timeout);
+        self
+    }
+
+    /// Override the base URL (useful for testing with a mock server).
     pub fn with_base_url(mut self, base_url: impl Into<String>) -> Self {
         self.base_url = base_url.into();
         self
@@ -274,15 +331,69 @@ impl AnthropicProvider {
         let mut body = serde_json::json!({
             "model": config.model,
             "max_tokens": config.max_tokens,
-            "temperature": config.temperature,
             "messages": api_messages,
         });
+        // Opus 4.7+ and other newer models reject sampling parameters with a 400.
+        if !anthropic_rejects_sampling_params(&config.model) {
+            body["temperature"] = serde_json::json!(config.temperature);
+        }
 
         if let Some(system) = system_text {
-            body["system"] = serde_json::Value::String(system);
+            // Anthropic Messages API: system as content-block array.
+            // cache_control is injected only when the system text is at least
+            // 1024 tokens (~4096 chars). Shorter prompts are billed normally;
+            // injecting cache_control on them pays the 25% cache-write surcharge
+            // with zero cache-read benefit.
+            const MIN_CACHE_CHARS: usize = 4096; // ~1024 tokens at 4 chars/token
+            if system.len() >= MIN_CACHE_CHARS {
+                body["system"] = serde_json::json!([{
+                    "type": "text",
+                    "text": system,
+                    "cache_control": { "type": "ephemeral" }
+                }]);
+            } else {
+                body["system"] = serde_json::json!([{
+                    "type": "text",
+                    "text": system,
+                }]);
+            }
         }
 
         body
+    }
+}
+
+/// Whether an Anthropic model rejects `temperature`/`top_p`/`top_k`
+/// (HTTP 400). True for Claude Opus 4.7 and later Opus models, Sonnet 5 and
+/// later, and the Fable / Mythos families.
+pub fn anthropic_rejects_sampling_params(model: &str) -> bool {
+    // Tolerate platform prefixes such as `anthropic.claude-...`.
+    let id = model.rsplit_once('.').map_or(model, |(_, rest)| rest);
+    let Some(rest) = id.strip_prefix("claude-") else {
+        return false;
+    };
+    if rest.starts_with("fable") || rest.starts_with("mythos") {
+        return true;
+    }
+    let (family, version) = match rest.split_once('-') {
+        Some(parts) => parts,
+        None => return false,
+    };
+    let mut parts = version.split(['-', '@']);
+    let major: u32 = match parts.next().and_then(|m| m.parse().ok()) {
+        Some(m) => m,
+        None => return false,
+    };
+    // A second short numeric segment is the minor version; an 8-digit one is a date.
+    let minor: u32 = parts
+        .next()
+        .filter(|m| m.len() <= 2)
+        .and_then(|m| m.parse().ok())
+        .unwrap_or(0);
+    match family {
+        "opus" => major > 4 || (major == 4 && minor >= 7),
+        "sonnet" => major >= 5,
+        _ => false,
     }
 }
 
@@ -306,6 +417,10 @@ struct AnthropicContentBlock {
 struct AnthropicUsage {
     input_tokens: u64,
     output_tokens: u64,
+    #[serde(default)]
+    cache_creation_input_tokens: u64,
+    #[serde(default)]
+    cache_read_input_tokens: u64,
 }
 
 #[async_trait]
@@ -366,6 +481,8 @@ impl LlmProvider for AnthropicProvider {
             model: api_resp.model,
             input_tokens: api_resp.usage.input_tokens,
             output_tokens: api_resp.usage.output_tokens,
+            cache_creation_input_tokens: api_resp.usage.cache_creation_input_tokens,
+            cache_read_input_tokens: api_resp.usage.cache_read_input_tokens,
             finish_reason: api_resp.stop_reason.unwrap_or_else(|| "unknown".into()),
         })
     }
@@ -378,6 +495,10 @@ impl LlmProvider for AnthropicProvider {
         Err(LlmError::Unsupported(
             "streaming not yet implemented for AnthropicProvider".into(),
         ))
+    }
+
+    fn provider_name(&self) -> Option<&str> {
+        Some("anthropic")
     }
 }
 
@@ -396,15 +517,20 @@ impl OpenAiProvider {
     /// Create a new OpenAI provider.
     pub fn new(api_key: impl Into<String>) -> Self {
         Self {
-            client: reqwest::Client::new(),
+            client: cloud_client(CLOUD_REQUEST_TIMEOUT),
             api_key: api_key.into(),
             base_url: "https://api.openai.com".to_string(),
         }
     }
 
-    /// Override the HTTP(S) service root or terminal /v1 root.
-    /// Proxy prefixes/query are preserved; fragments are discarded.
-    /// This does not infer Azure deployment-specific routes or full endpoints.
+    /// Override the total request timeout (default [`CLOUD_REQUEST_TIMEOUT`]).
+    /// A request exceeding it fails with [`LlmError::Timeout`].
+    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.client = cloud_client(timeout);
+        self
+    }
+
+    /// Override the base URL (useful for testing or Azure OpenAI).
     pub fn with_base_url(mut self, base_url: impl Into<String>) -> Self {
         self.base_url = base_url.into();
         self
@@ -519,6 +645,8 @@ impl LlmProvider for OpenAiProvider {
             model: api_resp.model,
             input_tokens: api_resp.usage.prompt_tokens,
             output_tokens: api_resp.usage.completion_tokens,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
             finish_reason: choice
                 .finish_reason
                 .clone()
@@ -534,6 +662,10 @@ impl LlmProvider for OpenAiProvider {
         Err(LlmError::Unsupported(
             "streaming not yet implemented for OpenAiProvider".into(),
         ))
+    }
+
+    fn provider_name(&self) -> Option<&str> {
+        Some("openai")
     }
 }
 
@@ -732,6 +864,8 @@ impl LlmProvider for LocalProvider {
             model: api_resp.model.unwrap_or_else(|| config.model.clone()),
             input_tokens: usage.and_then(|u| u.prompt_tokens).unwrap_or(0),
             output_tokens: usage.and_then(|u| u.completion_tokens).unwrap_or(0),
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
             finish_reason: choice
                 .finish_reason
                 .clone()
@@ -747,6 +881,10 @@ impl LlmProvider for LocalProvider {
         Err(LlmError::Unsupported(
             "streaming not yet implemented for LocalProvider".into(),
         ))
+    }
+
+    fn provider_name(&self) -> Option<&str> {
+        Some("local")
     }
 }
 
@@ -797,6 +935,8 @@ impl MockProvider {
             model: model.to_string(),
             input_tokens: 10,
             output_tokens: 5,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
             finish_reason: "end_turn".to_string(),
         }
     }
@@ -846,9 +986,14 @@ impl LlmProvider for MockProvider {
 /// Simple tracker for cumulative LLM usage across multiple requests.
 #[derive(Debug, Clone, Default)]
 pub struct LlmUsageTracker {
+    /// All input tokens processed, including prompt-cache writes and reads.
     pub total_input_tokens: u64,
     pub total_output_tokens: u64,
     pub total_requests: u64,
+    /// Portion of `total_input_tokens` written to the prompt cache.
+    pub total_cache_creation_input_tokens: u64,
+    /// Portion of `total_input_tokens` read from the prompt cache.
+    pub total_cache_read_input_tokens: u64,
 }
 
 impl LlmUsageTracker {
@@ -859,9 +1004,11 @@ impl LlmUsageTracker {
 
     /// Record usage from an [`LlmResponse`].
     pub fn record(&mut self, response: &LlmResponse) {
-        self.total_input_tokens += response.input_tokens;
+        self.total_input_tokens += response.total_input_tokens();
         self.total_output_tokens += response.output_tokens;
         self.total_requests += 1;
+        self.total_cache_creation_input_tokens += response.cache_creation_input_tokens;
+        self.total_cache_read_input_tokens += response.cache_read_input_tokens;
     }
 
     /// Total tokens (input + output) across all tracked requests.
@@ -909,6 +1056,8 @@ mod tests {
             model: "custom-model".to_string(),
             input_tokens: 42,
             output_tokens: 99,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
             finish_reason: "stop".to_string(),
         };
         let provider = MockProvider::new().with_response(custom);
@@ -1005,6 +1154,8 @@ mod tests {
             model: "claude-3".to_string(),
             input_tokens: 100,
             output_tokens: 50,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
             finish_reason: "end_turn".to_string(),
         };
         let json = serde_json::to_string(&resp).unwrap();
@@ -1056,16 +1207,35 @@ mod tests {
             model: "claude-sonnet-4-20250514".to_string(),
             max_tokens: 512,
             temperature: 0.5,
+            // Short prompt — no cache_control (below 4096-char / ~1024-token threshold).
             system_prompt: Some("You are a helpful assistant".to_string()),
         };
 
         let body = AnthropicProvider::build_request_body(&messages, &config);
 
-        assert_eq!(body["system"], "You are a helpful assistant");
+        assert_eq!(body["system"][0]["text"], "You are a helpful assistant");
+        assert_eq!(body["system"][0]["type"], "text");
+        // Short prompt: cache_control must NOT be injected to avoid cache-write surcharge.
+        assert!(body["system"][0].get("cache_control").is_none());
         let msgs = body["messages"].as_array().unwrap();
         assert_eq!(msgs.len(), 1);
         // System message should NOT appear in messages array for Anthropic.
         assert_eq!(msgs[0]["role"], "user");
+    }
+
+    #[test]
+    fn anthropic_request_body_with_large_system_prompt_gets_cache_control() {
+        // Prompts >= 4096 chars (~1024 tokens) get cache_control: ephemeral.
+        let large_system = "x".repeat(4096);
+        let config = LlmConfig {
+            model: "claude-sonnet-4-6".to_string(),
+            max_tokens: 512,
+            temperature: 0.0,
+            system_prompt: Some(large_system),
+        };
+        let body = AnthropicProvider::build_request_body(&[], &config);
+        assert_eq!(body["system"][0]["type"], "text");
+        assert_eq!(body["system"][0]["cache_control"]["type"], "ephemeral");
     }
 
     #[test]
@@ -1085,8 +1255,10 @@ mod tests {
 
         let body = AnthropicProvider::build_request_body(&messages, &config);
 
-        // System messages should be extracted to the top-level system field.
-        assert_eq!(body["system"], "Be concise");
+        // System messages should be extracted to the top-level system content-block array.
+        // Short prompt ("Be concise") — no cache_control injected.
+        assert_eq!(body["system"][0]["text"], "Be concise");
+        assert!(body["system"][0].get("cache_control").is_none());
         let msgs = body["messages"].as_array().unwrap();
         assert_eq!(msgs.len(), 3); // user, assistant, user (no system)
         assert_eq!(msgs[0]["role"], "user");
@@ -1109,10 +1281,12 @@ mod tests {
 
         let body = AnthropicProvider::build_request_body(&messages, &config);
 
-        // Both should be concatenated.
-        let system = body["system"].as_str().unwrap();
-        assert!(system.contains("Base system prompt"));
-        assert!(system.contains("Additional instruction"));
+        // Both should be concatenated in the content-block array.
+        // Combined text is short — no cache_control injected.
+        let system_text = body["system"][0]["text"].as_str().unwrap();
+        assert!(system_text.contains("Base system prompt"));
+        assert!(system_text.contains("Additional instruction"));
+        assert!(body["system"][0].get("cache_control").is_none());
     }
 
     // -- OpenAiProvider request body tests -----------------------------------
@@ -1304,6 +1478,8 @@ mod tests {
             model: "test".to_string(),
             input_tokens: 100,
             output_tokens: 50,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
             finish_reason: "end_turn".to_string(),
         };
 
@@ -1319,6 +1495,8 @@ mod tests {
             model: "test".to_string(),
             input_tokens: 200,
             output_tokens: 75,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
             finish_reason: "end_turn".to_string(),
         };
         tracker.record(&resp2);
@@ -1427,6 +1605,190 @@ mod tests {
         let usage = resp.usage.unwrap();
         assert_eq!(usage.prompt_tokens, Some(42));
         assert_eq!(usage.completion_tokens, Some(10));
+    }
+
+    // -- Cloud client timeout tests (finding #19) ----------------------------
+
+    /// Accept connections but never answer, simulating a stalled upstream.
+    async fn stalled_server() -> (String, tokio::task::JoinHandle<()>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let handle = tokio::spawn(async move {
+            let mut held = Vec::new();
+            while let Ok((sock, _)) = listener.accept().await {
+                held.push(sock); // keep the socket open, never respond
+            }
+        });
+        (format!("http://{addr}"), handle)
+    }
+
+    #[tokio::test]
+    async fn anthropic_stalled_request_times_out() {
+        let (url, server) = stalled_server().await;
+        let provider = AnthropicProvider::new("k")
+            .with_base_url(url)
+            .with_timeout(Duration::from_millis(200));
+        let res = tokio::time::timeout(
+            Duration::from_secs(5),
+            provider.complete(&[LlmMessage::user("hi")], &default_config()),
+        )
+        .await
+        .expect("request must not hang past the client timeout");
+        assert!(matches!(res, Err(LlmError::Timeout)), "got {res:?}");
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn openai_stalled_request_times_out() {
+        let (url, server) = stalled_server().await;
+        let provider = OpenAiProvider::new("k")
+            .with_base_url(url)
+            .with_timeout(Duration::from_millis(200));
+        let res = tokio::time::timeout(
+            Duration::from_secs(5),
+            provider.complete(&[LlmMessage::user("hi")], &default_config()),
+        )
+        .await
+        .expect("request must not hang past the client timeout");
+        assert!(matches!(res, Err(LlmError::Timeout)), "got {res:?}");
+        server.abort();
+    }
+
+    // -- Prompt-cache usage accounting (finding #15) -------------------------
+
+    /// Serve exactly one HTTP request with a fixed JSON body.
+    async fn one_shot_json_server(body: &'static str) -> String {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let (mut sock, _) = listener.accept().await.unwrap();
+            let mut buf = Vec::new();
+            let mut chunk = [0u8; 4096];
+            loop {
+                let n = sock.read(&mut chunk).await.unwrap();
+                if n == 0 {
+                    break;
+                }
+                buf.extend_from_slice(&chunk[..n]);
+                let text = String::from_utf8_lossy(&buf);
+                if let Some(idx) = text.find("\r\n\r\n") {
+                    let len = text[..idx]
+                        .lines()
+                        .find_map(|l| {
+                            let (k, v) = l.split_once(':')?;
+                            k.eq_ignore_ascii_case("content-length")
+                                .then(|| v.trim().parse::<usize>().ok())
+                                .flatten()
+                        })
+                        .unwrap_or(0);
+                    if buf.len() >= idx + 4 + len {
+                        break;
+                    }
+                }
+            }
+            let resp = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            sock.write_all(resp.as_bytes()).await.unwrap();
+            sock.shutdown().await.ok();
+        });
+        format!("http://{addr}")
+    }
+
+    #[tokio::test]
+    async fn anthropic_parses_prompt_cache_usage() {
+        let url = one_shot_json_server(
+            r#"{"content":[{"type":"text","text":"ok"}],"model":"claude-sonnet-4-6",
+                "stop_reason":"end_turn",
+                "usage":{"input_tokens":12,"output_tokens":7,
+                         "cache_creation_input_tokens":3000,"cache_read_input_tokens":500}}"#,
+        )
+        .await;
+        let provider = AnthropicProvider::new("k").with_base_url(url);
+        let resp = provider
+            .complete(&[LlmMessage::user("hi")], &default_config())
+            .await
+            .unwrap();
+        assert_eq!(resp.input_tokens, 12);
+        assert_eq!(resp.cache_creation_input_tokens, 3000);
+        assert_eq!(resp.cache_read_input_tokens, 500);
+        assert_eq!(resp.total_input_tokens(), 3512);
+        assert_eq!(resp.total_tokens(), 3519);
+
+        let mut tracker = LlmUsageTracker::new();
+        tracker.record(&resp);
+        assert_eq!(tracker.total_input_tokens, 3512);
+        assert_eq!(tracker.total_cache_creation_input_tokens, 3000);
+        assert_eq!(tracker.total_cache_read_input_tokens, 500);
+        assert_eq!(tracker.total_tokens(), 3519);
+    }
+
+    #[test]
+    fn llm_response_without_cache_fields_deserializes() {
+        let json = r#"{"content":"a","model":"m","input_tokens":1,"output_tokens":2,"finish_reason":"stop"}"#;
+        let resp: LlmResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(resp.cache_creation_input_tokens, 0);
+        assert_eq!(resp.cache_read_input_tokens, 0);
+        assert_eq!(resp.total_input_tokens(), 1);
+    }
+
+    // -- Sampling parameters on newer Anthropic models (finding #17) ---------
+
+    #[test]
+    fn sampling_param_rejection_by_model() {
+        for m in [
+            "claude-opus-4-7",
+            "claude-opus-4-8",
+            "claude-opus-5",
+            "claude-opus-5-5",
+            "claude-sonnet-5",
+            "claude-fable-5-1",
+            "claude-mythos-5-1",
+            "anthropic.claude-opus-4-7",
+        ] {
+            assert!(anthropic_rejects_sampling_params(m), "{m} should reject");
+        }
+        for m in [
+            "claude-sonnet-4-6",
+            "claude-haiku-4-5-20251001",
+            "claude-opus-4-6",
+            "claude-opus-4-20250514",
+            "claude-opus-4-0-20250514",
+            "claude-3-opus-20240229",
+            "gpt-4o",
+        ] {
+            assert!(!anthropic_rejects_sampling_params(m), "{m} should accept");
+        }
+    }
+
+    #[test]
+    fn anthropic_body_omits_temperature_for_opus_4_7() {
+        let config = LlmConfig {
+            model: "claude-opus-4-7".into(),
+            ..default_config()
+        };
+        let body = AnthropicProvider::build_request_body(&[LlmMessage::user("hi")], &config);
+        assert!(body.get("temperature").is_none(), "{body}");
+
+        let config = LlmConfig {
+            model: "claude-sonnet-4-6".into(),
+            ..default_config()
+        };
+        let body = AnthropicProvider::build_request_body(&[LlmMessage::user("hi")], &config);
+        assert!(body.get("temperature").is_some());
+    }
+
+    #[test]
+    fn cloud_providers_report_vendor() {
+        assert_eq!(
+            AnthropicProvider::new("k").provider_name(),
+            Some("anthropic")
+        );
+        assert_eq!(OpenAiProvider::new("k").provider_name(), Some("openai"));
+        assert_eq!(MockProvider::new().provider_name(), None);
     }
 }
 
@@ -1744,7 +2106,7 @@ mod retry_decision_tests {
                 let provider = endpoint_test_provider(kind, &base);
                 let messages = [LlmMessage::system("system marker"), LlmMessage::user("user marker")];
                 let response = tokio::time::timeout(Duration::from_secs(5),
-                    provider.complete(&messages, &default_config())).await;
+                    provider.complete(&messages, &LlmConfig::default())).await;
                 let captured = tokio::time::timeout(Duration::from_secs(5), &mut server).await;
                 if captured.is_err() {
                     server.abort();
@@ -1786,7 +2148,7 @@ mod retry_decision_tests {
                 "relative/secret-token".into()] {
                 let provider = endpoint_test_provider(kind, &base);
                 let error = tokio::time::timeout(Duration::from_secs(5),
-                    provider.complete(&[LlmMessage::user("hello")], &default_config()))
+                    provider.complete(&[LlmMessage::user("hello")], &LlmConfig::default()))
                     .await.expect("provider deadline").unwrap_err();
                 assert!(matches!(&error, LlmError::HttpError(_)));
                 let message = error.to_string();

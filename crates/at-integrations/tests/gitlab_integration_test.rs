@@ -18,7 +18,9 @@ use at_integrations::gitlab::{
 // ===========================================================================
 
 fn test_client() -> GitLabClient {
-    GitLabClient::new("glpat-test123").unwrap()
+    // Uses the explicit stub constructor (feature-gated, see Cargo.toml's
+    // dev-dependencies) rather than relying on the token's shape.
+    GitLabClient::stub("glpat-test123")
 }
 
 fn test_oauth_config() -> GitLabOAuthConfig {

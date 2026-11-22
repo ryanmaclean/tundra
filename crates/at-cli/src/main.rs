@@ -177,6 +177,17 @@ enum Commands {
         out: Option<String>,
     },
 
+    /// Sign the browser in to the web UI: mints a single-use bootstrap link
+    /// (the API key never appears in the page or the URL) and opens it.
+    Dashboard {
+        /// Frontend base URL; default: the running daemon's frontend.
+        #[arg(long)]
+        frontend_url: Option<String>,
+        /// Print the link only; do not open a browser.
+        #[arg(long, default_value_t = false)]
+        no_open: bool,
+    },
+
     /// Ideation and feature discovery.
     Ideation {
         #[command(subcommand)]
@@ -318,16 +329,23 @@ enum AgentCommands {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // Before any TLS client is built: aws-lc-rs provider, X25519MLKEM768 first.
+    at_core::tls::install_default_crypto_provider();
     let cli = Cli::parse();
-    let api_url = cli.api_url.unwrap_or_else(|| {
-        at_core::lockfile::DaemonLockfile::read_valid()
-            .map(|lock| lock.api_url())
-            .unwrap_or_else(|| {
-                eprintln!("warning: no running daemon found, trying http://127.0.0.1:9090");
-                "http://127.0.0.1:9090".to_string()
-            })
-    });
-    let api_url = api_url.trim_end_matches('/').to_string();
+    // One discovery path shared with the TUI: URL from --api-url or the
+    // daemon lockfile, API key from AUTO_TUNDRA_API_KEY or daemon.key.
+    let conn = at_core::lockfile::DaemonConnection::discover(cli.api_url.as_deref());
+    if conn.source == at_core::lockfile::DiscoverySource::Default {
+        eprintln!("warning: no running daemon found, trying {}", conn.api_url);
+    }
+    if conn.api_key.is_none() {
+        eprintln!(
+            "warning: no daemon API key found (set AUTO_TUNDRA_API_KEY or start at-daemon \
+             to create ~/.auto-tundra/daemon.key); requests will be rejected with 401"
+        );
+    }
+    commands::set_api_key(conn.api_key.clone());
+    let api_url = conn.api_url;
 
     match cli.command {
         None | Some(Commands::Status) => {
@@ -467,6 +485,12 @@ async fn main() -> anyhow::Result<()> {
                 .await?;
             }
         },
+        Some(Commands::Dashboard {
+            frontend_url,
+            no_open,
+        }) => {
+            commands::dashboard::run(&api_url, frontend_url.as_deref(), no_open).await?;
+        }
         Some(Commands::Doctor {
             project_path,
             strict,

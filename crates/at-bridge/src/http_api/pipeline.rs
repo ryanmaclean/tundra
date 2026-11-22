@@ -5,7 +5,6 @@ use axum::{
 };
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use tokio::sync::RwLock;
 use uuid::Uuid;
 
 /// RAII guard that decrements an `AtomicUsize` counter when dropped.
@@ -22,7 +21,9 @@ impl Drop for CounterGuard {
 }
 
 use at_core::types::{BuildLogEntry, BuildStream, CliType, Task, TaskPhase};
+use at_core::worktree_manager::WorktreeManager;
 
+use super::gate_flow;
 use super::state::ApiState;
 use super::types::{BuildLogsQuery, BuildStatusSummary, ExecuteTaskRequest, PipelineQueueStatus};
 use crate::api_error::ApiError;
@@ -39,22 +40,41 @@ pub(crate) async fn get_pipeline_queue_status(
     })
 }
 
-/// POST /api/tasks/{id}/execute -- spawn the coding -> QA -> fix pipeline.
+/// POST /api/tasks/{id}/execute -- spawn the coding -> QA -> merge-gate pipeline.
 ///
 /// Transitions the task to Coding phase, then spawns a background tokio task
-/// that drives the pipeline through QA and fix iterations. Returns 202 Accepted
-/// immediately so the caller can follow progress via WebSocket events.
+/// that drives the pipeline through QA and the merge gate
+/// ([`super::gate_flow::run_merge_phase`]). The task always ends in
+/// `complete` or `error`. Returns 202 Accepted immediately so the caller can
+/// follow progress via WebSocket events or by polling `GET /api/tasks/{id}`.
 ///
-/// Accepts an optional JSON body with `cli_type` to override the default CLI.
+/// Accepts an optional JSON body with `cli_type` and `merge_mode`
+/// (`verify`, the default, never merges; `auto` merges when the gate passes).
 /// Task must be in Planning or Queue phase; returns 400 for invalid phase transitions.
 ///
-/// **Request Body:** Optional ExecuteTaskRequest JSON object with cli_type override.
-/// **Response:** 202 Accepted with task snapshot, 404 if task not found, 400 if invalid phase.
+/// **Response:** 202 `ExecuteTaskResponse`:
+/// ```json
+/// {"status": "started", "task_id": "...", "merge": "gated",
+///  "merge_mode": "verify", "acceptance_criteria_count": 1,
+///  "acceptance_criteria_sha256": "...", "warnings": []}
+/// ```
+/// `merge` is `gated` (a worktree is or will be bound and the gate runs),
+/// `skipped_no_worktree` (no repo root and no criteria: ends Complete without
+/// a gate) or `blocked_no_worktree` (criteria but no repo root: ends Error).
+/// The criteria are frozen at this point: they cannot change until the task
+/// leaves the pipeline, and the gate re-checks `acceptance_criteria_sha256`.
 pub(crate) async fn execute_task_pipeline(
     State(state): State<Arc<ApiState>>,
     Path(id): Path<Uuid>,
     body: Option<Json<ExecuteTaskRequest>>,
 ) -> Result<impl IntoResponse, ApiError> {
+    let req = body.map(|b| b.0);
+    let cli_type = req
+        .as_ref()
+        .and_then(|b| b.cli_type.clone())
+        .unwrap_or(CliType::Claude);
+    let merge_mode = req.as_ref().and_then(|b| b.merge_mode).unwrap_or_default();
+
     let mut tasks = state.tasks.write().await;
     let Some(task) = tasks.get_mut(&id) else {
         return Err(ApiError::NotFound("task not found".into()));
@@ -69,11 +89,34 @@ pub(crate) async fn execute_task_pipeline(
     }
 
     task.set_phase(TaskPhase::Coding);
+    if task.started_at.is_none() {
+        task.started_at = Some(chrono::Utc::now());
+    }
     let task_snapshot = task.clone();
     drop(tasks);
 
-    // Extract optional CLI type from request body.
-    let cli_type = body.and_then(|b| b.0.cli_type).unwrap_or(CliType::Claude);
+    let criteria = task_snapshot.acceptance_criteria.clone();
+    let criteria_sha256 = gate_flow::criteria_sha256(&criteria);
+    let worktree_bound =
+        task_snapshot.worktree_path.is_some() && task_snapshot.git_branch.is_some();
+    let merge = if state.repo_root.is_some() || worktree_bound {
+        "gated"
+    } else if criteria.is_empty() {
+        "skipped_no_worktree"
+    } else {
+        "blocked_no_worktree"
+    };
+    let mut warnings = Vec::new();
+    if criteria.is_empty() {
+        warnings
+            .push("no acceptance_criteria: the merge gate only checks for clean trees".to_string());
+    }
+    if merge == "blocked_no_worktree" {
+        warnings.push(
+            "acceptance_criteria set but the daemon has no repo_root ([general] workspace_root): the task will end in error"
+                .to_string(),
+        );
+    }
 
     // Publish the phase change.
     state
@@ -82,48 +125,48 @@ pub(crate) async fn execute_task_pipeline(
             task_snapshot.clone(),
         )));
 
+    let ctx = gate_flow::PipelineCtx {
+        tasks: state.tasks.clone(),
+        event_bus: state.event_bus.clone(),
+        pty_pool: state.pty_pool.clone(),
+        cli_type,
+        repo_root: state.repo_root.clone(),
+        merge_lock: state.merge_lock.clone(),
+        gate_config: state.settings_manager.load_or_default().merge_gate,
+        merge_mode,
+        criteria: criteria.clone(),
+        criteria_sha256: criteria_sha256.clone(),
+    };
+
     // Spawn a background task to drive the pipeline phases.
-    let tasks_store = state.tasks.clone();
-    let event_bus = state.event_bus.clone();
-    let pty_pool = state.pty_pool.clone();
     let pipeline_semaphore = state.pipeline_semaphore.clone();
     let pipeline_waiting = state.pipeline_waiting.clone();
     let pipeline_running = state.pipeline_running.clone();
     let pipeline_limit = state.pipeline_max_concurrent;
 
     let queued_position = pipeline_waiting.fetch_add(1, Ordering::SeqCst) + 1;
-    state
-        .event_bus
-        .publish(crate::protocol::BridgeMessage::Event(
-            crate::protocol::EventPayload {
-                event_type: "pipeline_queued".to_string(),
-                agent_id: None,
-                bead_id: Some(task_snapshot.bead_id),
-                message: format!(
-                    "Task '{}' queued (position={}, limit={})",
-                    task_snapshot.title, queued_position, pipeline_limit
-                ),
-                timestamp: chrono::Utc::now(),
-            },
-        ));
+    ctx.emit(
+        task_snapshot.bead_id,
+        "pipeline_queued",
+        format!(
+            "Task '{}' queued (position={}, limit={})",
+            task_snapshot.title, queued_position, pipeline_limit
+        ),
+    );
 
     tokio::spawn(async move {
         let _permit = match pipeline_semaphore.acquire_owned().await {
             Ok(permit) => permit,
             Err(_) => {
                 pipeline_waiting.fetch_sub(1, Ordering::SeqCst);
-                event_bus.publish(crate::protocol::BridgeMessage::Event(
-                    crate::protocol::EventPayload {
-                        event_type: "pipeline_queue_error".to_string(),
-                        agent_id: None,
-                        bead_id: Some(task_snapshot.bead_id),
-                        message: format!(
-                            "Task '{}' failed to acquire pipeline queue permit",
-                            task_snapshot.title
-                        ),
-                        timestamp: chrono::Utc::now(),
-                    },
-                ));
+                ctx.emit(
+                    task_snapshot.bead_id,
+                    "pipeline_queue_error",
+                    format!(
+                        "Task '{}' failed to acquire pipeline queue permit",
+                        task_snapshot.title
+                    ),
+                );
                 return;
             }
         };
@@ -133,289 +176,157 @@ pub(crate) async fn execute_task_pipeline(
         // CounterGuard ensures `pipeline_running` is decremented even if
         // `run_pipeline_background` panics (panic-safe counter management).
         let _counter_guard = CounterGuard(pipeline_running);
-        event_bus.publish(crate::protocol::BridgeMessage::Event(
-            crate::protocol::EventPayload {
-                event_type: "pipeline_started".to_string(),
-                agent_id: None,
-                bead_id: Some(task_snapshot.bead_id),
-                message: format!(
-                    "Task '{}' started (running={}, limit={})",
-                    task_snapshot.title, running_now, pipeline_limit
-                ),
-                timestamp: chrono::Utc::now(),
-            },
-        ));
+        ctx.emit(
+            task_snapshot.bead_id,
+            "pipeline_started",
+            format!(
+                "Task '{}' started (running={}, limit={})",
+                task_snapshot.title, running_now, pipeline_limit
+            ),
+        );
 
-        run_pipeline_background(task_snapshot, tasks_store, event_bus, pty_pool, cli_type).await;
+        run_pipeline_background(&ctx, task_snapshot).await;
         // _counter_guard drops here (or on panic), decrementing pipeline_running.
     });
 
     Ok((
         axum::http::StatusCode::ACCEPTED,
-        Json(serde_json::json!({"status": "started", "task_id": id.to_string()})),
+        Json(serde_json::json!({
+            "status": "started",
+            "task_id": id.to_string(),
+            "merge": merge,
+            "merge_mode": merge_mode.as_str(),
+            "acceptance_criteria_count": criteria.len(),
+            "acceptance_criteria_sha256": criteria_sha256,
+            "warnings": warnings,
+        })),
     ))
 }
 
-/// Background pipeline driver: coding -> QA -> fix loop.
-async fn run_pipeline_background(
-    task: Task,
-    tasks_store: Arc<RwLock<std::collections::HashMap<Uuid, Task>>>,
-    event_bus: crate::event_bus::EventBus,
-    pty_pool: Option<Arc<at_session::pty_pool::PtyPool>>,
-    _cli_type: CliType,
-) {
-    use at_intelligence::runner::QaRunner;
+/// Background pipeline driver: worktree -> coding -> QA (+ fix loop) ->
+/// merge gate. Always leaves the task in `Complete` or `Error`.
+async fn run_pipeline_background(ctx: &gate_flow::PipelineCtx, task: Task) {
     let max_fix_iterations: usize = 3;
-
+    let (task_id, bead_id) = (task.id, task.bead_id);
     let emit = |event_type: &str| {
-        event_bus.publish(crate::protocol::BridgeMessage::Event(
-            crate::protocol::EventPayload {
-                event_type: event_type.to_string(),
-                agent_id: None,
-                bead_id: Some(task.bead_id),
-                message: format!("Task '{}': {}", task.title, event_type),
-                timestamp: chrono::Utc::now(),
-            },
-        ));
-    };
-
-    let emit_build_log = |tasks_store: &Arc<RwLock<std::collections::HashMap<Uuid, Task>>>,
-                          event_bus: &crate::event_bus::EventBus,
-                          task_id: Uuid,
-                          bead_id: Uuid,
-                          stream: BuildStream,
-                          line: String,
-                          phase: TaskPhase| {
-        let ts = tasks_store.clone();
-        let eb = event_bus.clone();
-        let stream_label = match &stream {
-            BuildStream::Stdout => "stdout",
-            BuildStream::Stderr => "stderr",
-        };
-        eb.publish(crate::protocol::BridgeMessage::Event(
-            crate::protocol::EventPayload {
-                event_type: "build_log_line".to_string(),
-                agent_id: None,
-                bead_id: Some(bead_id),
-                message: format!("[{}] {}", stream_label, line),
-                timestamp: chrono::Utc::now(),
-            },
-        ));
-        async move {
-            let mut tasks = ts.write().await;
-            if let Some(t) = tasks.get_mut(&task_id) {
-                t.build_logs.push(BuildLogEntry {
-                    timestamp: chrono::Utc::now(),
-                    stream,
-                    line,
-                    phase,
-                });
-                t.updated_at = chrono::Utc::now();
-            }
-        }
+        ctx.emit(
+            bead_id,
+            event_type,
+            format!("Task '{}': {}", task.title, event_type),
+        )
     };
 
     emit("pipeline_start");
 
     // -- Coding phase --
     emit("coding_phase_start");
-
-    emit_build_log(
-        &tasks_store,
-        &event_bus,
-        task.id,
-        task.bead_id,
+    ctx.build_log(
+        task_id,
+        bead_id,
         BuildStream::Stdout,
-        "Coding phase started".to_string(),
-        TaskPhase::Coding,
+        "Coding phase started".into(),
     )
     .await;
 
-    if pty_pool.is_some() {
-        tracing::info!(task_id = %task.id, "PTY pool available; coding phase delegated to agent executor");
-        emit_build_log(
-            &tasks_store,
-            &event_bus,
-            task.id,
-            task.bead_id,
+    // Bind a worktree so QA and the merge gate run on the task's own branch
+    // (mirrors the daemon orchestrator's start_task).
+    if let (Some(root), None) = (ctx.repo_root.as_ref(), task.git_branch.as_ref()) {
+        let created = {
+            let _guard = ctx.merge_lock.lock().await;
+            WorktreeManager::new(root).create_for_task(&task).await
+        };
+        match created {
+            Ok(info) => {
+                ctx.update(task_id, |t| {
+                    t.worktree_path = Some(info.path.clone());
+                    t.git_branch = Some(info.branch.clone());
+                })
+                .await;
+                ctx.build_log(
+                    task_id,
+                    bead_id,
+                    BuildStream::Stdout,
+                    format!("Worktree created at {} on {}", info.path, info.branch),
+                )
+                .await;
+                emit("worktree_created");
+            }
+            Err(e) => {
+                ctx.fail(task_id, bead_id, format!("worktree creation failed: {e}"))
+                    .await;
+                return;
+            }
+        }
+    }
+
+    if ctx.pty_pool.is_some() {
+        tracing::info!(task_id = %task_id, cli = ?ctx.cli_type, "PTY pool available; coding phase delegated to agent executor");
+        ctx.build_log(
+            task_id,
+            bead_id,
             BuildStream::Stdout,
-            "PTY pool available; delegating to agent executor".to_string(),
-            TaskPhase::Coding,
+            "PTY pool available; delegating to agent executor".into(),
         )
         .await;
     }
 
-    emit_build_log(
-        &tasks_store,
-        &event_bus,
-        task.id,
-        task.bead_id,
+    ctx.build_log(
+        task_id,
+        bead_id,
         BuildStream::Stdout,
-        "Coding phase complete".to_string(),
-        TaskPhase::Coding,
+        "Coding phase complete".into(),
     )
     .await;
-
     emit("coding_phase_complete");
 
-    // Transition to QA
-    {
-        let mut tasks = tasks_store.write().await;
-        if let Some(t) = tasks.get_mut(&task.id) {
-            t.set_phase(TaskPhase::Qa);
-            event_bus.publish(crate::protocol::BridgeMessage::TaskUpdate(Box::new(
-                t.clone(),
-            )));
-        }
-    }
-
     // -- QA phase --
+    ctx.set_phase(task_id, TaskPhase::Qa).await;
     emit("qa_phase_start");
-
-    emit_build_log(
-        &tasks_store,
-        &event_bus,
-        task.id,
-        task.bead_id,
+    ctx.build_log(
+        task_id,
+        bead_id,
         BuildStream::Stdout,
-        "QA phase started".to_string(),
-        TaskPhase::Qa,
+        "QA phase started".into(),
     )
     .await;
-
-    let worktree = task.worktree_path.as_deref().unwrap_or(".");
-    let mut qa_runner = QaRunner::new();
-    let mut report = qa_runner.run_qa_checks(task.id, &task.title, Some(worktree));
-
-    let qa_stream = if report.status == at_core::types::QaStatus::Passed {
-        BuildStream::Stdout
-    } else {
-        BuildStream::Stderr
-    };
-    emit_build_log(
-        &tasks_store,
-        &event_bus,
-        task.id,
-        task.bead_id,
-        qa_stream,
-        format!(
-            "QA result: {:?} ({} issues)",
-            report.status,
-            report.issues.len()
-        ),
-        TaskPhase::Qa,
-    )
-    .await;
-
+    let mut qa_ok = gate_flow::run_qa(ctx, task_id, "QA result").await;
     emit("qa_phase_complete");
 
     // -- QA fix loop --
     let mut iterations = 0usize;
-    while report.status == at_core::types::QaStatus::Failed && iterations < max_fix_iterations {
+    while !qa_ok && iterations < max_fix_iterations {
         iterations += 1;
         emit(&format!("qa_fix_iteration_{}", iterations));
-
-        emit_build_log(
-            &tasks_store,
-            &event_bus,
-            task.id,
-            task.bead_id,
+        ctx.set_phase(task_id, TaskPhase::Fixing).await;
+        ctx.build_log(
+            task_id,
+            bead_id,
             BuildStream::Stderr,
             format!("Fix iteration {} of {}", iterations, max_fix_iterations),
-            TaskPhase::Fixing,
         )
         .await;
-
-        // Transition to Fixing
-        {
-            let mut tasks = tasks_store.write().await;
-            if let Some(t) = tasks.get_mut(&task.id) {
-                t.set_phase(TaskPhase::Fixing);
-                event_bus.publish(crate::protocol::BridgeMessage::TaskUpdate(Box::new(
-                    t.clone(),
-                )));
-            }
-        }
-
-        // Re-run QA
-        {
-            let mut tasks = tasks_store.write().await;
-            if let Some(t) = tasks.get_mut(&task.id) {
-                t.set_phase(TaskPhase::Qa);
-                event_bus.publish(crate::protocol::BridgeMessage::TaskUpdate(Box::new(
-                    t.clone(),
-                )));
-            }
-        }
-
-        let mut qa = QaRunner::new();
-        report = qa.run_qa_checks(task.id, &task.title, Some(worktree));
-
-        let iter_stream = if report.status == at_core::types::QaStatus::Passed {
-            BuildStream::Stdout
-        } else {
-            BuildStream::Stderr
-        };
-        emit_build_log(
-            &tasks_store,
-            &event_bus,
-            task.id,
-            task.bead_id,
-            iter_stream,
-            format!(
-                "QA re-check result: {:?} ({} issues)",
-                report.status,
-                report.issues.len()
-            ),
-            TaskPhase::Qa,
-        )
-        .await;
+        ctx.set_phase(task_id, TaskPhase::Qa).await;
+        qa_ok = gate_flow::run_qa(ctx, task_id, "QA re-check result").await;
     }
 
-    // Store the QA report on the task
-    {
-        let mut tasks = tasks_store.write().await;
-        if let Some(t) = tasks.get_mut(&task.id) {
-            t.qa_report = Some(report.clone());
-
-            let next_phase = report.next_phase();
-            t.set_phase(next_phase);
-            event_bus.publish(crate::protocol::BridgeMessage::TaskUpdate(Box::new(
-                t.clone(),
-            )));
-        }
-    }
-
-    if report.status == at_core::types::QaStatus::Passed {
-        emit_build_log(
-            &tasks_store,
-            &event_bus,
-            task.id,
-            task.bead_id,
-            BuildStream::Stdout,
-            "Pipeline completed successfully".to_string(),
-            TaskPhase::Complete,
+    if !qa_ok {
+        ctx.fail(
+            task_id,
+            bead_id,
+            format!("QA failed after {iterations} fix iteration(s)"),
         )
         .await;
-        emit("pipeline_complete");
-    } else {
-        emit_build_log(
-            &tasks_store,
-            &event_bus,
-            task.id,
-            task.bead_id,
-            BuildStream::Stderr,
-            "Pipeline completed with failures".to_string(),
-            TaskPhase::Error,
-        )
-        .await;
-        emit("pipeline_complete_with_failures");
+        return;
     }
 
+    // -- Merging phase: merge gate (+ gate fix loop) --
+    gate_flow::run_merge_phase(ctx, task_id).await;
+
+    let final_phase = ctx.snapshot(task_id).await.map(|t| t.phase);
     tracing::info!(
-        task_id = %task.id,
-        qa_passed = (report.status == at_core::types::QaStatus::Passed),
-        fix_iterations = iterations,
+        task_id = %task_id,
+        phase = ?final_phase,
+        qa_fix_iterations = iterations,
         "pipeline background task finished"
     );
 }

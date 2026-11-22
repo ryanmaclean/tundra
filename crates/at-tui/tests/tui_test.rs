@@ -159,16 +159,19 @@ fn test_kanban_navigation() {
     app.on_key(key(KeyCode::Char('l')));
     app.on_key(key(KeyCode::Char('l')));
     app.on_key(key(KeyCode::Char('l')));
-    assert_eq!(app.kanban_column, 4);
-
-    // Cannot go past 4
     app.on_key(key(KeyCode::Char('l')));
-    assert_eq!(app.kanban_column, 4);
+    // Column 5 is the Attention (Failed/Escalated) column.
+    assert_eq!(app.kanban_column, 5);
+
+    // Cannot go past the last column
+    app.on_key(key(KeyCode::Char('l')));
+    assert_eq!(app.kanban_column, 5);
 
     app.on_key(key(KeyCode::Char('h')));
-    assert_eq!(app.kanban_column, 3);
+    assert_eq!(app.kanban_column, 4);
 
     // Back to 0
+    app.on_key(key(KeyCode::Char('h')));
     app.on_key(key(KeyCode::Char('h')));
     app.on_key(key(KeyCode::Char('h')));
     app.on_key(key(KeyCode::Char('h')));
@@ -235,4 +238,27 @@ fn test_0_key_goes_to_tab_10() {
     let mut app = app::App::new(true);
     app.on_key(key(KeyCode::Char('0')));
     assert_eq!(app.current_tab, 9);
+}
+
+#[test]
+fn apply_data_without_any_successful_fetch_is_not_live_and_keeps_data() {
+    let mut app = app::App::new(false);
+    let beads_before = app.beads.len();
+    assert!(beads_before > 0, "App::new seeds demo beads");
+
+    // Every request got 401: must not show empty data as LIVE.
+    let mut rejected = api_client::AppData::default();
+    rejected.status.failed = 13;
+    rejected.status.unauthorized = true;
+    app.apply_data(rejected);
+    assert!(!app.api_connected);
+    assert!(app.api_unauthorized);
+    assert_eq!(app.beads.len(), beads_before);
+
+    // A cycle with at least one successful response is LIVE again.
+    let mut ok = api_client::AppData::default();
+    ok.status.succeeded = 1;
+    app.apply_data(ok);
+    assert!(app.api_connected);
+    assert!(!app.api_unauthorized);
 }

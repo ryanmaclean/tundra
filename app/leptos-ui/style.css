@@ -7242,6 +7242,26 @@ code.file-path, code.branch-name {
     padding: 2px 6px;
 }
 
+.terminal-status-reconnecting {
+    font-size: 10px;
+    color: var(--accent-yellow);
+    padding: 2px 6px;
+}
+
+.terminal-reconnect-btn {
+    font-size: 10px;
+    padding: 2px 8px;
+    border: 1px solid var(--accent-yellow);
+    border-radius: 4px;
+    background: transparent;
+    color: var(--accent-yellow);
+    cursor: pointer;
+}
+
+.terminal-reconnect-btn:hover {
+    background: color-mix(in srgb, var(--accent-yellow) 15%, transparent);
+}
+
 .terminal-dimensions {
     font-size: 10px;
     color: var(--text-muted);

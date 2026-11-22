@@ -21,6 +21,7 @@ at-bridge = { path = "../../crates/at-bridge" }
 at-integrations = { path = "../../crates/at-integrations" }
 at-intelligence = { path = "../../crates/at-intelligence" }
 tauri = { workspace = true }
+tauri-plugin-notification = "=2.4.0"
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -29,21 +30,25 @@ anyhow = { workspace = true }
 thiserror = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
-toml = "0.8"
-rodio = { version = "0.19", optional = true }
-image = "0.25"
+toml = "0.9"
+rodio = { version = "0.22", optional = true, default-features = false, features = ["playback"] }
+# default-features = false, features = ["png"]: tray.rs only decodes the bundled
+# icon.png; image defaults pull ravif/rav1e and libfuzzer-sys (NCSA, outside policy).
+image = { version = "0.25", default-features = false, features = ["png"] }
 
 [features]
-default = ["sounds"]
+# `sounds` is opt-in (`--features sounds`); without it SoundEngine is a no-op stub.
+default = []
 sounds = ["dep:rodio"]
 
 [build-dependencies]
 tauri-build = { workspace = true }
 
 [dev-dependencies]
+tauri = { workspace = true, features = ["test"] }
 tokio = { workspace = true }
 at-agents = { path = "../../crates/at-agents" }
 at-bridge = { path = "../../crates/at-bridge" }
 at-core = { path = "../../crates/at-core" }
 at-daemon = { path = "../../crates/at-daemon" }
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { workspace = true }

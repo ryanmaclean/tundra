@@ -19,6 +19,8 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Before any TLS client is built: aws-lc-rs provider, X25519MLKEM768 first.
+    at_core::tls::install_default_crypto_provider();
     let _main_span = traced_span!(
         "main_execution",
         binary = "at-daemon",
@@ -54,7 +56,7 @@ async fn main() -> Result<()> {
     std::fs::create_dir_all(&data_dir).ok();
 
     // Load config (or use defaults), expanding ~ in cache path
-    let mut config = load_config(&home).unwrap_or_else(|e| {
+    let mut config = load_config().unwrap_or_else(|e| {
         tracing::warn!(error = %e, "failed to load config, using defaults");
         Config::default()
     });
@@ -104,6 +106,18 @@ async fn main() -> Result<()> {
     let api_port = api_listener.local_addr()?.port();
     info!(api_port, "API listener bound");
 
+    // --- Make sure the API key exists before any client can discover us ---
+    // Clients read the lockfile and then the key file; creating the key first
+    // means a client never sees a lockfile without a matching key.
+    let _ = at_core::config::CredentialProvider::ensure_daemon_api_key();
+    let api_key_file = at_core::config::CredentialProvider::daemon_api_key()
+        .is_none()
+        .then(|| {
+            at_core::config::CredentialProvider::daemon_key_path()
+                .to_string_lossy()
+                .into_owned()
+        });
+
     // --- Spawn the frontend server with dynamic port ---
     let (frontend_port_tx, frontend_port_rx) = tokio::sync::oneshot::channel::<u16>();
     let frontend_handle = tokio::spawn(serve_frontend(
@@ -128,6 +142,7 @@ async fn main() -> Result<()> {
             .ok()
             .map(|p| p.to_string_lossy().into_owned()),
         version: env!("CARGO_PKG_VERSION").to_string(),
+        api_key_file,
     };
     if let Err(msg) = lockfile.acquire_or_fail() {
         eprintln!("failed to acquire lockfile: {msg}");
@@ -168,7 +183,9 @@ async fn main() -> Result<()> {
         shutdown.trigger();
     });
 
-    info!("dashboard: http://localhost:{frontend_port}");
+    // No key and no bootstrap code in this URL or in the served HTML: the owner
+    // signs in with `at dashboard`, which reads the 0600 key file.
+    info!("dashboard: http://127.0.0.1:{frontend_port} (sign in with `at dashboard`)");
     info!("API server: http://localhost:{api_port}");
     profiling::record_event(
         "daemon_ready",
@@ -198,10 +215,13 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-fn load_config(home: &str) -> Result<Config> {
-    let path = std::path::Path::new(home)
-        .join(".auto-tundra")
-        .join("config.toml");
+/// Load the canonical config file shared with the settings API
+/// (`~/.auto-tundra/config.toml`). Going through `SettingsManager` also
+/// migrates a legacy `~/.config/auto-tundra/settings.toml` before the read.
+fn load_config() -> Result<Config> {
+    let path = at_core::settings::SettingsManager::default_path()
+        .path()
+        .clone();
     if path.exists() {
         let content = std::fs::read_to_string(&path)
             .with_context(|| format!("failed to read {}", path.display()))?;
@@ -236,8 +256,13 @@ async fn frontend_isolation_headers_middleware(
 
 /// Serve the Leptos dist/ directory as static files on a dynamic port.
 ///
-/// Injects `<script>window.__TUNDRA_API_PORT__={api_port};</script>` into
-/// index.html so the WASM frontend discovers the API server automatically.
+/// Injects the API port (see `at_api_types::auth::browser_bootstrap_script`)
+/// into index.html so the WASM frontend discovers the API server. It **never**
+/// injects the API key or a bootstrap code: this server answers every loopback
+/// peer, so any local account could read them. The owner signs in with
+/// `at dashboard`, which mints a single-use bootstrap code with the key and
+/// opens `<frontend>/#bootstrap=<code>`; the page exchanges it for an httpOnly
+/// session cookie (`POST /api/v1/session`).
 /// Sends the bound port back to main via the oneshot channel.
 ///
 /// **Hot-reload friendly**: index.html is read from disk on every request so
@@ -247,49 +272,38 @@ async fn serve_frontend(api_port: u16, host: String, port_tx: tokio::sync::onesh
 
     profiling::record_event("frontend_server_start", &[]);
 
+    use axum::extract::State;
     use axum::response::Html;
     use axum::routing::get;
     use axum::Router;
+    use std::sync::Arc;
     use tower_http::services::ServeDir;
 
     let dist_dir = find_dist_dir();
 
     profiling::add_span_tags(&[("dist_dir", dist_dir.to_str().unwrap_or("unknown"))]);
 
-    // Helper: read index.html from disk on each request and inject the API port.
+    struct FrontendCtx {
+        dist: std::path::PathBuf,
+        api_port: u16,
+    }
+    let ctx = Arc::new(FrontendCtx {
+        dist: dist_dir.clone(),
+        api_port,
+    });
+
+    // Read index.html from disk on each request and inject the connection.
     // This means `trunk build` takes effect immediately without daemon restart.
-    let make_index_handler = {
-        let dist = dist_dir.clone();
-        move |port: u16| {
-            let dist = dist.clone();
-            move || {
-                let dist = dist.clone();
-                async move {
-                    let index_path = dist.join("index.html");
-                    let html = match std::fs::read_to_string(&index_path) {
-                        Ok(raw) => raw.replace(
-                            "</head>",
-                            &format!(
-                                "<script>window.__TUNDRA_API_PORT__={port};</script></head>"
-                            ),
-                        ),
-                        Err(_) => format!(
-                            "<html><head><script>window.__TUNDRA_API_PORT__={port};</script></head>\
-                             <body>frontend not built — run <code>cd app/leptos-ui && trunk build</code></body></html>"
-                        ),
-                    };
-                    Html(html)
-                }
-            }
-        }
-    };
+    async fn index(State(ctx): State<Arc<FrontendCtx>>) -> Html<String> {
+        let raw = std::fs::read_to_string(ctx.dist.join("index.html")).ok();
+        Html(render_index(raw, ctx.api_port))
+    }
 
     // Serve live index.html for root and SPA fallback; ServeDir for all other assets.
+    let index_route = get(index).with_state(ctx.clone());
     let app = Router::new()
-        .route("/", get(make_index_handler(api_port)))
-        .fallback_service(
-            ServeDir::new(&dist_dir).fallback(axum::routing::get(make_index_handler(api_port))),
-        )
+        .route("/", index_route.clone())
+        .fallback_service(ServeDir::new(&dist_dir).fallback(index_route))
         .layer(axum::middleware::from_fn(
             frontend_isolation_headers_middleware,
         ));
@@ -317,9 +331,27 @@ async fn serve_frontend(api_port: u16, host: String, port_tx: tokio::sync::onesh
         &[("port", &port.to_string()), ("protocol", "http")],
     );
 
-    if let Err(e) = profile_async!("serve_frontend_requests", axum::serve(listener, app)).await {
+    let service = app.into_make_service();
+    if let Err(e) = profile_async!("serve_frontend_requests", axum::serve(listener, service)).await
+    {
         tracing::error!(error = %e, "frontend server error");
         profiling::record_event("frontend_server_error", &[("error", &e.to_string())]);
+    }
+}
+
+/// Inject the browser bootstrap script (API port only, never a credential)
+/// into index.html, or a placeholder page when the frontend has not been built.
+fn render_index(raw: Option<String>, api_port: u16) -> String {
+    let script = format!(
+        "<script>{}</script>",
+        at_bridge::http_api::at_api_types::auth::browser_bootstrap_script(api_port, None)
+    );
+    match raw {
+        Some(raw) => raw.replacen("</head>", &format!("{script}</head>"), 1),
+        None => format!(
+            "<html><head>{script}</head>\
+             <body>frontend not built — run <code>cd app/leptos-ui && trunk build</code></body></html>"
+        ),
     }
 }
 
@@ -353,4 +385,70 @@ fn find_dist_dir() -> std::path::PathBuf {
         &[("fallback_path", "app/leptos-ui/dist")],
     );
     candidates[0].clone()
+}
+
+#[cfg(test)]
+mod frontend_tests {
+    use super::*;
+
+    #[test]
+    fn render_index_injects_only_the_port_into_head() {
+        let html = render_index(
+            Some("<html><head><title>t</title></head><body></body></html>".into()),
+            4242,
+        );
+        assert!(html.contains("<script>window.__TUNDRA_API_PORT__=4242;</script></head>"));
+
+        let placeholder = render_index(None, 4242);
+        assert!(placeholder.contains("window.__TUNDRA_API_PORT__=4242;"));
+    }
+
+    /// Security invariant: the HTML any loopback peer can fetch must not carry
+    /// the API key, a bootstrap code or any other credential (a second local
+    /// account could read it). Sign-in is `at dashboard`.
+    fn assert_no_credential(html: &str) {
+        let lower = html.to_ascii_lowercase();
+        for needle in ["__tundra_api_key__", "bootstrap=", "api_key", "x-api-key"] {
+            assert!(
+                !lower.contains(needle),
+                "HTML must not mention {needle}: {html}"
+            );
+        }
+    }
+
+    #[test]
+    fn rendered_pages_never_contain_a_credential() {
+        for raw in [
+            Some("<html><head></head><body></body></html>".to_string()),
+            Some("<html><body>no head</body></html>".to_string()),
+            None,
+        ] {
+            assert_no_credential(&render_index(raw, 9090));
+        }
+    }
+
+    /// End to end over a real socket, as a second local account would do it:
+    /// an unauthenticated loopback `GET /` returns the page and no credential,
+    /// whatever `Host` it claims.
+    #[tokio::test]
+    async fn loopback_get_root_serves_no_key() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let (tx, rx) = tokio::sync::oneshot::channel::<u16>();
+        tokio::spawn(serve_frontend(4242, "127.0.0.1".to_string(), tx));
+        let port = rx.await.expect("frontend port");
+
+        for host in ["127.0.0.1", "localhost", "evil.example"] {
+            let mut sock = tokio::net::TcpStream::connect(("127.0.0.1", port))
+                .await
+                .unwrap();
+            let req = format!("GET / HTTP/1.1\r\nHost: {host}:{port}\r\nConnection: close\r\n\r\n");
+            sock.write_all(req.as_bytes()).await.unwrap();
+            let mut body = String::new();
+            sock.read_to_string(&mut body).await.unwrap();
+            assert!(body.starts_with("HTTP/1.1 200"), "{host}: {body}");
+            assert!(body.contains("window.__TUNDRA_API_PORT__=4242;"), "{host}");
+            assert_no_credential(&body);
+        }
+    }
 }

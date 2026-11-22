@@ -8,6 +8,7 @@ publish = false
 at-core = { path = "../at-core" }
 at-session = { path = "../at-session" }
 at-bridge = { path = "../at-bridge" }
+at-harness = { path = "../at-harness" }
 at-intelligence = { path = "../at-intelligence" }
 tokio = { workspace = true }
 async-trait = { workspace = true }
@@ -18,6 +19,10 @@ chrono = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 flume = { workspace = true }
+# `rustls` = reqwest/rustls: the same aws-lc-rs + platform-verifier stack as the
+# workspace reqwest (post-quantum kx), no ring. Without it rig's own HTTP client
+# only had TLS by accident of feature unification.
+rig-core = { version = "0.38.1", default-features = false, features = ["rustls"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "time", "macros", "sync", "process", "signal", "fs", "test-util"] }

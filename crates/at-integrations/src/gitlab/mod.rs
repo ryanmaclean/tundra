@@ -39,6 +39,11 @@ pub enum GitLabError {
     #[error("serialization error: {0}")]
     Serde(#[from] serde_json::Error),
 
+    /// Outbound content was refused by the output guard (prompt-injection
+    /// payload). The string names the detectors that fired.
+    #[error("outbound content blocked: {0}")]
+    OutputBlocked(String),
+
     /// An HTTP-level error occurred.
     ///
     /// This includes network failures, connection errors, DNS resolution
@@ -113,6 +118,14 @@ pub struct GitLabClient {
     pub base_url: String,
     pub token: String,
     pub client: reqwest::Client,
+    /// Whether this client returns canned stub data instead of calling the
+    /// real GitLab API. This is `false` for every client built through
+    /// [`GitLabClient::new`] or [`GitLabClient::new_with_url`], regardless of
+    /// what the token looks like — a bad or placeholder token must surface
+    /// as a real 401/403 from the API, never a silent fake success. It can
+    /// only become `true` through the explicit [`GitLabClient::stub`]
+    /// constructor, which is compiled in for tests only.
+    stub: bool,
 }
 
 impl GitLabClient {
@@ -122,6 +135,10 @@ impl GitLabClient {
     }
 
     /// Create a client for a custom GitLab instance.
+    ///
+    /// This always talks to the real GitLab API — it never infers "stub
+    /// mode" from the shape of `token`. Use [`GitLabClient::stub`] in tests
+    /// when you want canned data instead.
     pub fn new_with_url(base_url: &str, token: &str) -> Result<Self> {
         Self::new_with_url_and_timeout(base_url, token, None)
     }
@@ -129,11 +146,14 @@ impl GitLabClient {
     /// Create a client for a custom GitLab instance with an optional request
     /// timeout.
     ///
-    /// When `timeout` is `None`, behavior is identical to
-    /// [`GitLabClient::new_with_url`] — the inner `reqwest::Client` is built
-    /// with default settings (no explicit timeout). When `Some(duration)`, the
-    /// duration is wired through `reqwest::ClientBuilder::timeout` so slow
-    /// servers surface as a `GitLabError::Http` carrying a reqwest timeout.
+    /// When `timeout` is `None`, this uses [`crate::http::client`] — the
+    /// crate-wide bounded client (30s request / 10s connect timeout) — same
+    /// as [`GitLabClient::new_with_url`]. A bare `reqwest::Client::new()` has
+    /// no timeout at all, so a stalled upstream would hang the request
+    /// handler indefinitely. When `Some(duration)`, that duration overrides
+    /// the default request timeout (connect timeout and user-agent stay the
+    /// same) so slow servers surface as a `GitLabError::Http` carrying a
+    /// reqwest timeout.
     ///
     /// This constructor is additive: existing call sites of `new` and
     /// `new_with_url` continue to compile unchanged and exhibit identical
@@ -147,14 +167,39 @@ impl GitLabClient {
             return Err(GitLabError::MissingToken);
         }
         let client = match timeout {
-            Some(t) => reqwest::Client::builder().timeout(t).build()?,
-            None => reqwest::Client::new(),
+            Some(t) => reqwest::Client::builder()
+                .timeout(t)
+                .connect_timeout(crate::http::CONNECT_TIMEOUT)
+                .user_agent("auto-tundra/1.0")
+                .build()?,
+            None => crate::http::client(),
         };
         Ok(Self {
             base_url: base_url.trim_end_matches('/').to_string(),
             token: token.to_string(),
             client,
+            stub: false,
         })
+    }
+
+    /// Create a client that returns canned data for `https://gitlab.com`
+    /// instead of ever calling the real API. Only available to this crate's
+    /// own tests (or downstream crates that opt into the `stub` feature),
+    /// never to production code paths.
+    #[cfg(any(test, feature = "stub"))]
+    pub fn stub(token: &str) -> Self {
+        Self::stub_with_url("https://gitlab.com", token)
+    }
+
+    /// Create a stub client for a custom base URL. See [`GitLabClient::stub`].
+    #[cfg(any(test, feature = "stub"))]
+    pub fn stub_with_url(base_url: &str, token: &str) -> Self {
+        Self {
+            base_url: base_url.trim_end_matches('/').to_string(),
+            token: token.to_string(),
+            client: crate::http::client(),
+            stub: true,
+        }
     }
 
     // -- request helpers ----------------------------------------------------
@@ -183,12 +228,14 @@ impl GitLabClient {
     }
 
     async fn api_post(&self, path: &str, body: &serde_json::Value) -> Result<reqwest::Response> {
+        let mut body = body.clone();
+        crate::outbound::screen_json(&mut body).map_err(GitLabError::OutputBlocked)?;
         let url = format!("{}/api/v4{}", self.base_url, path);
         let resp = self
             .client
             .post(&url)
             .header("PRIVATE-TOKEN", &self.token)
-            .json(body)
+            .json(&body)
             .send()
             .await?;
 
@@ -208,13 +255,12 @@ impl GitLabClient {
 
     // -- stub helpers --------------------------------------------------------
 
-    /// Returns true when the token looks like a test/stub token rather than
-    /// a real GitLab PAT. Real tokens start with `glpat-` followed by 20+
-    /// characters. Anything shorter or starting with common test prefixes
-    /// triggers stub mode so tests work without network access.
-    pub(crate) fn is_stub_token(&self) -> bool {
-        let t = &self.token;
-        t.starts_with("tok") || t.starts_with("stub") || t == "glpat-test123" || t.len() < 10
+    /// Returns `true` when this client was built via [`GitLabClient::stub`]
+    /// and should return canned data instead of calling the real API. This
+    /// is an explicit, caller-controlled flag — never inferred from the
+    /// token's shape.
+    pub(crate) fn is_stub(&self) -> bool {
+        self.stub
     }
 
     fn stub_user() -> GitLabUser {
@@ -281,7 +327,7 @@ impl GitLabClient {
         page: u32,
         per_page: u32,
     ) -> Result<Vec<GitLabIssue>> {
-        if self.is_stub_token() {
+        if self.is_stub() {
             let s = state.unwrap_or("opened");
             let count = per_page.min(5);
             let issues = (1..=count)
@@ -306,7 +352,7 @@ impl GitLabClient {
 
     /// Get a single issue by IID.
     pub async fn get_issue(&self, project_id: &str, iid: u32) -> Result<GitLabIssue> {
-        if self.is_stub_token() {
+        if self.is_stub() {
             return Ok(Self::stub_issue(project_id, iid, "opened"));
         }
 
@@ -325,7 +371,7 @@ impl GitLabClient {
         page: u32,
         per_page: u32,
     ) -> Result<Vec<GitLabMergeRequest>> {
-        if self.is_stub_token() {
+        if self.is_stub() {
             let s = state.unwrap_or("opened");
             let count = per_page.min(5);
             let mrs = (1..=count)
@@ -354,7 +400,7 @@ impl GitLabClient {
         project_id: &str,
         iid: u32,
     ) -> Result<GitLabMergeRequest> {
-        if self.is_stub_token() {
+        if self.is_stub() {
             return Ok(Self::stub_mr(project_id, iid, "opened"));
         }
 
@@ -373,7 +419,7 @@ impl GitLabClient {
         source: &str,
         target: &str,
     ) -> Result<GitLabMergeRequest> {
-        if self.is_stub_token() {
+        if self.is_stub() {
             let now = Utc::now();
             return Ok(GitLabMergeRequest {
                 id: 999,
@@ -437,7 +483,7 @@ mod tests {
 
     #[tokio::test]
     async fn list_issues_stub() {
-        let client = GitLabClient::new("tok").unwrap();
+        let client = GitLabClient::stub("stub-token");
         let issues = client
             .list_issues("42", Some("opened"), 1, 3)
             .await
@@ -449,28 +495,28 @@ mod tests {
 
     #[tokio::test]
     async fn get_issue_stub() {
-        let client = GitLabClient::new("tok").unwrap();
+        let client = GitLabClient::stub("stub-token");
         let issue = client.get_issue("42", 7).await.unwrap();
         assert_eq!(issue.iid, 7);
     }
 
     #[tokio::test]
     async fn list_merge_requests_stub() {
-        let client = GitLabClient::new("tok").unwrap();
+        let client = GitLabClient::stub("stub-token");
         let mrs = client.list_merge_requests("42", None, 1, 2).await.unwrap();
         assert_eq!(mrs.len(), 2);
     }
 
     #[tokio::test]
     async fn get_merge_request_stub() {
-        let client = GitLabClient::new("tok").unwrap();
+        let client = GitLabClient::stub("stub-token");
         let mr = client.get_merge_request("42", 5).await.unwrap();
         assert_eq!(mr.iid, 5);
     }
 
     #[tokio::test]
     async fn create_merge_request_stub() {
-        let client = GitLabClient::new("tok").unwrap();
+        let client = GitLabClient::stub("stub-token");
         let mr = client
             .create_merge_request("42", "My MR", "feature/x", "main")
             .await
@@ -482,7 +528,7 @@ mod tests {
 
     #[test]
     fn gitlab_issue_serde_roundtrip() {
-        let client = GitLabClient::new("tok").unwrap();
+        let client = GitLabClient::stub("stub-token");
         let issue = GitLabClient::stub_issue("1", 1, "opened");
         let json = serde_json::to_string(&issue).unwrap();
         let de: GitLabIssue = serde_json::from_str(&json).unwrap();
@@ -500,17 +546,33 @@ mod tests {
         assert_eq!(de.state, "merged");
     }
 
+    /// Regression test for a stub fallback that used to infer "stub mode"
+    /// from the shape of the token string (`starts_with("tok")`,
+    /// `starts_with("stub")`, `== "glpat-test123"`, or `len() < 10`). A
+    /// production client built through `new`/`new_with_url` must never
+    /// silently switch into canned-data mode just because a placeholder or
+    /// malformed token happens to look like a test token — it should hit
+    /// the real API and let a bad token surface as a real error.
     #[test]
-    fn non_test_token_not_detected_as_test() {
-        let client = GitLabClient::new("glpat-real-token-abc123").unwrap();
-        assert!(!client.is_stub_token());
+    fn real_constructor_is_never_a_stub_regardless_of_token_shape() {
+        for token in [
+            "glpat-real-token-abc123",
+            "tok-this-looks-like-a-stub-token",
+            "stub-token",
+            "glpat-test123",
+            "short",
+        ] {
+            let client = GitLabClient::new(token).unwrap();
+            assert!(
+                !client.is_stub(),
+                "token {token:?} incorrectly put the client into stub mode"
+            );
+        }
     }
 
     #[test]
-    fn test_token_detected() {
-        let client = GitLabClient::new("tok-fake").unwrap();
-        assert!(client.is_stub_token());
-        let client2 = GitLabClient::new("stub-token").unwrap();
-        assert!(client2.is_stub_token());
+    fn only_the_explicit_stub_constructor_is_a_stub() {
+        let client = GitLabClient::stub("anything");
+        assert!(client.is_stub());
     }
 }
