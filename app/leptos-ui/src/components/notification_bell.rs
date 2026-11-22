@@ -264,12 +264,12 @@ pub fn NotificationBell(
 
 /// Simple time-ago formatter from an ISO timestamp string.
 fn format_time_ago(timestamp: &str) -> String {
-    // Parse ISO 8601 datetime
-    match chrono::DateTime::parse_from_rfc3339(timestamp) {
-        Ok(dt) => {
-            let now = chrono::Utc::now();
-            let diff = now.signed_duration_since(dt.with_timezone(&chrono::Utc));
-            let secs = diff.num_seconds();
+    match at_time::parse_rfc3339(timestamp) {
+        Some(dt) => {
+            let (seconds, nanos) = crate::utc_clock::now_parts();
+            let secs = dt
+                .age_seconds_at(seconds, nanos)
+                .expect("current time outside supported range");
             if secs < 60 {
                 "just now".to_string()
             } else if secs < 3600 {
@@ -280,6 +280,6 @@ fn format_time_ago(timestamp: &str) -> String {
                 format!("{}d ago", secs / 86400)
             }
         }
-        Err(_) => timestamp.to_string(),
+        None => timestamp.to_string(),
     }
 }

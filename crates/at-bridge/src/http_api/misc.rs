@@ -420,7 +420,7 @@ pub(crate) async fn add_attachment(
             .unwrap_or("application/octet-stream")
             .to_string(),
         size_bytes: req.get("size_bytes").and_then(|v| v.as_u64()).unwrap_or(0),
-        uploaded_at: chrono::Utc::now().to_rfc3339(),
+        uploaded_at: at_time::now_rfc3339(),
     };
     let mut attachments = state.attachments.write().await;
     attachments.push(attachment.clone());
@@ -460,7 +460,7 @@ pub(crate) async fn save_task_draft(
     State(state): State<Arc<ApiState>>,
     Json(mut draft): Json<TaskDraft>,
 ) -> impl IntoResponse {
-    draft.updated_at = chrono::Utc::now().to_rfc3339();
+    draft.updated_at = at_time::now_rfc3339();
     let mut drafts = state.task_drafts.write().await;
     drafts.insert(draft.id, draft.clone());
     (axum::http::StatusCode::OK, Json(serde_json::json!(draft)))
