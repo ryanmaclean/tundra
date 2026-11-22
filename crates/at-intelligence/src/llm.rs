@@ -2022,6 +2022,15 @@ mod retry_decision_tests {
     }
     // Actual complete() requests, not helper-only string comparisons. All native
     // fixtures are authored source and must run only on an admitted remote runner.
+    fn endpoint_test_config() -> LlmConfig {
+        LlmConfig {
+            model: "test-model".to_string(),
+            max_tokens: 512,
+            temperature: 0.5,
+            system_prompt: None,
+        }
+    }
+
     fn endpoint_test_provider(kind: &str, base: &str) -> Box<dyn LlmProvider> {
         let client = reqwest::Client::builder()
             .no_proxy()
@@ -2133,7 +2142,7 @@ mod retry_decision_tests {
                 ];
                 let response = tokio::time::timeout(
                     Duration::from_secs(5),
-                    provider.complete(&messages, &LlmConfig::default()),
+                    provider.complete(&messages, &endpoint_test_config()),
                 )
                 .await;
                 let captured = tokio::time::timeout(Duration::from_secs(5), &mut server).await;
@@ -2190,7 +2199,7 @@ mod retry_decision_tests {
                 let provider = endpoint_test_provider(kind, &base);
                 let error = tokio::time::timeout(
                     Duration::from_secs(5),
-                    provider.complete(&[LlmMessage::user("hello")], &LlmConfig::default()),
+                    provider.complete(&[LlmMessage::user("hello")], &endpoint_test_config()),
                 )
                 .await
                 .expect("provider deadline")
