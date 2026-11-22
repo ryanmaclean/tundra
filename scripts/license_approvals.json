@@ -3,11 +3,11 @@
   "roster_evidence_head": "bf3eed899873929fdf77fed23d82024d9bee1fed",
   "approvals": [
     {
-      "id": "tundra-2026-10-24-const_format-0.2.35",
+      "id": "tundra-2026-10-24-const_format-0.2.37",
       "name": "const_format",
-      "version": "0.2.35",
+      "version": "0.2.37",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "lock_checksum": "7faa7469a93a566e9ccc1c73fe783b4a65c274c5ace346038dca9c39fe0030ad",
+      "lock_checksum": "a3decb4d6965448659923544a634a0571ba44cede4e11ef15a5a317126840454",
       "declared_license": "Zlib",
       "approved_choice": [
         "Zlib"
@@ -19,14 +19,14 @@
         "Zlib"
       ],
       "decision_ref": "user-2026-10-24-tundra-project-licenses-ok",
-      "package_id": "registry+https://github.com/rust-lang/crates.io-index#const_format@0.2.35"
+      "package_id": "registry+https://github.com/rust-lang/crates.io-index#const_format@0.2.37"
     },
     {
-      "id": "tundra-2026-10-24-cssparser-0.36.0",
+      "id": "tundra-2026-10-24-cssparser-0.37.0",
       "name": "cssparser",
-      "version": "0.36.0",
+      "version": "0.37.0",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "lock_checksum": "dae61cf9c0abb83bd659dab65b7e4e38d8236824c85f0f804f173567bda257d2",
+      "lock_checksum": "8c9cdaae01d5ed7882b04d795e7f752f46ff52d2fa3b50a20d28c464510bba98",
       "declared_license": "MPL-2.0",
       "approved_choice": [
         "MPL-2.0"
@@ -43,7 +43,7 @@
         "MPL-2.0"
       ],
       "decision_ref": "user-2026-10-24-tundra-project-licenses-ok",
-      "package_id": "registry+https://github.com/rust-lang/crates.io-index#cssparser@0.36.0"
+      "package_id": "registry+https://github.com/rust-lang/crates.io-index#cssparser@0.37.0"
     },
     {
       "id": "tundra-2026-10-24-dtoa-short-0.3.5",
@@ -143,11 +143,11 @@
       "package_id": "registry+https://github.com/rust-lang/crates.io-index#option-ext@0.2.0"
     },
     {
-      "id": "tundra-2026-10-24-selectors-0.36.1",
+      "id": "tundra-2026-10-24-selectors-0.38.0",
       "name": "selectors",
-      "version": "0.36.1",
+      "version": "0.38.0",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "lock_checksum": "c5d9c0c92a92d33f08817311cf3f2c29a3538a8240e94a6a3c622ce652d7e00c",
+      "lock_checksum": "8adfa1c298912827b8a28b223b3b874357397ae706e6190acd9bf28cee99114d",
       "declared_license": "MPL-2.0",
       "approved_choice": [
         "MPL-2.0"
@@ -164,7 +164,7 @@
         "MPL-2.0"
       ],
       "decision_ref": "user-2026-10-24-tundra-project-licenses-ok",
-      "package_id": "registry+https://github.com/rust-lang/crates.io-index#selectors@0.36.1"
+      "package_id": "registry+https://github.com/rust-lang/crates.io-index#selectors@0.38.0"
     },
     {
       "id": "tundra-2026-10-24-slotmap-1.1.1",
@@ -186,11 +186,11 @@
       "package_id": "registry+https://github.com/rust-lang/crates.io-index#slotmap@1.1.1"
     },
     {
-      "id": "tundra-2026-10-24-xxhash-rust-0.8.15",
+      "id": "tundra-2026-10-24-xxhash-rust-0.8.21",
       "name": "xxhash-rust",
-      "version": "0.8.15",
+      "version": "0.8.21",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "lock_checksum": "fdd20c5420375476fbd4394763288da7eb0cc0b8c11deed431a91562af7335d3",
+      "lock_checksum": "40de123dbb523ebcc00d61ec01840ad192578afc378d859f3429caa38308fad5",
       "declared_license": "BSL-1.0",
       "approved_choice": [
         "BSL-1.0"
@@ -202,7 +202,7 @@
         "BSL-1.0"
       ],
       "decision_ref": "user-2026-10-24-tundra-project-licenses-ok",
-      "package_id": "registry+https://github.com/rust-lang/crates.io-index#xxhash-rust@0.8.15"
+      "package_id": "registry+https://github.com/rust-lang/crates.io-index#xxhash-rust@0.8.21"
     }
   ]
 }
