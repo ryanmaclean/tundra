@@ -2159,7 +2159,7 @@ mod retry_decision_tests {
                     assert!(lower.contains("x-api-key: test-key\r\n"));
                     assert!(lower.contains("anthropic-version: 2023-06-01\r\n"));
                     assert!(!lower.contains("authorization:"));
-                    assert_eq!(body["system"], "system marker");
+                    assert_eq!(body["system"][0]["text"], "system marker");
                     assert_eq!(body["messages"][0]["role"], "user");
                 } else {
                     assert_eq!(

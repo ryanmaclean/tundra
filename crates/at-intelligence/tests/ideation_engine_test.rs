@@ -702,7 +702,7 @@ async fn configured_cloud_profile_urls_preserve_protocol_and_errors() {
             if kind == ProviderKind::Anthropic {
                 assert!(headers.contains("x-api-key: synthetic-profile-key\r\n"));
                 assert!(headers.contains("anthropic-version: 2023-06-01\r\n"));
-                assert!(body["system"].is_string());
+                assert!(body["system"].is_array());
             } else {
                 assert!(headers.contains("authorization: bearer synthetic-profile-key\r\n"));
                 assert_eq!(body["messages"][0]["role"], "system");

@@ -894,10 +894,7 @@ mod tests {
         assert_eq!(openrouter.provider, ProviderKind::OpenRouter);
         assert_eq!(openrouter.base_url, "https://openrouter.ai/api");
         assert_eq!(openrouter.api_key_env, "OPENROUTER_API_KEY");
-        assert_eq!(
-            openrouter.default_model,
-            "anthropic/claude-sonnet-4-20250514"
-        );
+        assert_eq!(openrouter.default_model, "anthropic/claude-sonnet-4-6");
         assert_eq!(openrouter.priority, 30);
     }
 
@@ -973,7 +970,7 @@ mod tests {
                 .iter()
                 .map(|p| p.priority)
                 .collect::<Vec<_>>(),
-            vec![0, 10, 20, 30, 100, 101]
+            vec![10, 20, 30, 100, 101, 10_000]
         );
     }
 
