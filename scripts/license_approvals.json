@@ -3,11 +3,11 @@
   "roster_evidence_head": "bf3eed899873929fdf77fed23d82024d9bee1fed",
   "approvals": [
     {
-      "id": "tundra-2026-10-24-const_format-0.2.37",
+      "id": "tundra-2026-10-24-const_format-0.2.35",
       "name": "const_format",
-      "version": "0.2.37",
+      "version": "0.2.35",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "lock_checksum": "a3decb4d6965448659923544a634a0571ba44cede4e11ef15a5a317126840454",
+      "lock_checksum": "7faa7469a93a566e9ccc1c73fe783b4a65c274c5ace346038dca9c39fe0030ad",
       "declared_license": "Zlib",
       "approved_choice": [
         "Zlib"
@@ -19,7 +19,7 @@
         "Zlib"
       ],
       "decision_ref": "user-2026-10-24-tundra-project-licenses-ok",
-      "package_id": "registry+https://github.com/rust-lang/crates.io-index#const_format@0.2.37"
+      "package_id": "registry+https://github.com/rust-lang/crates.io-index#const_format@0.2.35"
     },
     {
       "id": "tundra-2026-10-24-cssparser-0.37.0",
