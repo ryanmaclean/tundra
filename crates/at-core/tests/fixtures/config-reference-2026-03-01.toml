@@ -1,0 +1,161 @@
+# ~/.auto-tundra/config.toml
+# Complete configuration example
+
+[general]
+project_name = "auto-tundra"
+log_level = "info"
+workspace_root = "/Users/studio/projects"
+
+[dolt]
+dir = "~/.auto-tundra/dolt"
+port = 3306
+auto_commit = false
+
+[cache]
+path = "~/.auto-tundra/cache.db"
+max_size_mb = 512
+
+[providers]
+anthropic_key_env = "ANTHROPIC_API_KEY"
+openai_key_env = "OPENAI_API_KEY"
+local_base_url = "http://127.0.0.1:11434"
+local_model = "qwen2.5-coder:14b"
+local_api_key_env = "LOCAL_API_KEY"
+default_max_tokens = 16384
+
+[agents]
+max_concurrent = 10
+heartbeat_interval_secs = 30
+auto_restart = true
+direct_mode = false
+
+[security]
+allow_shell_exec = true
+sandbox = true
+allowed_paths = ["/tmp", "/Users/studio/projects"]
+allowed_origins = []
+auto_lock_timeout_mins = 15
+sandbox_mode = true
+active_execution_profile = "balanced"
+
+[[security.execution_profiles]]
+name = "safe"
+sandbox = true
+allow_network = false
+allow_shell_exec = false
+approval_mode = "always"
+
+[[security.execution_profiles]]
+name = "balanced"
+sandbox = true
+allow_network = true
+allow_shell_exec = true
+approval_mode = "on_failure"
+
+[[security.execution_profiles]]
+name = "trusted"
+sandbox = false
+allow_network = true
+allow_shell_exec = true
+approval_mode = "never"
+
+[daemon]
+port = 9090
+host = "127.0.0.1"
+tls = false
+
+[ui]
+theme = "dark"
+refresh_ms = 500
+show_token_costs = true
+
+[bridge]
+transport = "unix"
+socket_path = "/tmp/auto-tundra.sock"
+buffer_size = 8192
+
+[display]
+theme = "dark"
+font_size = 14
+compact_mode = false
+
+[kanban]
+column_mode = "classic_8"
+
+[kanban.planning_poker]
+enabled = true
+default_deck = "fibonacci"
+allow_custom_deck = true
+reveal_requires_all_votes = false
+round_duration_seconds = 300
+
+[terminal]
+font_family = "JetBrains Mono"
+font_size = 14
+cursor_style = "block"
+
+[integrations]
+github_token_env = "GITHUB_TOKEN"
+github_owner = "your-org"
+github_repo = "your-repo"
+gitlab_token_env = "GITLAB_TOKEN"
+gitlab_project_id = "12345"
+gitlab_url = "https://gitlab.com"
+linear_api_key_env = "LINEAR_API_KEY"
+linear_team_id = "TEAM-123"
+
+[appearance]
+appearance_mode = "system"
+color_theme = "arctic"
+
+[language]
+interface_language = "en"
+
+[dev_tools]
+preferred_ide = "vscode"
+preferred_terminal = "default"
+auto_name_terminals = false
+yolo_mode = false
+terminal_font_family = "JetBrains Mono, monospace"
+terminal_font_size = 14
+terminal_cursor_style = "block"
+terminal_cursor_blink = true
+terminal_scrollback_lines = 5000
+
+[agent_profile]
+default_profile = "default"
+agent_framework = "auto-tundra"
+ai_terminal_naming = false
+phase_configs = []
+
+[paths]
+python_path = ""
+git_path = ""
+github_cli_path = ""
+claude_cli_path = ""
+auto_claude_path = ""
+
+[api_profiles]
+profiles = []
+
+[updates]
+version = "0.1.0"
+is_latest = true
+auto_update_projects = false
+beta_updates = false
+
+[notifications]
+on_task_complete = true
+on_task_failed = true
+on_review_needed = true
+sound_enabled = true
+
+[debug]
+anonymous_error_reporting = false
+
+[memory]
+enable_memory = false
+enable_agent_memory_access = false
+graphiti_server_url = ""
+embedding_provider = ""
+embedding_model = ""

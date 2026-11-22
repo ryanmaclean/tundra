@@ -1,0 +1,9 @@
+id: path-join-unsanitized
+language: Rust
+message: Validate that a joined path stays within its intended directory.
+severity: warning
+rule:
+  pattern: std::path::Path::new($BASE).join($USER_INPUT)
+metadata:
+  category: security
+  cwe: CWE-22

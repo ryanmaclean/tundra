@@ -57,8 +57,14 @@ pub struct ApiCatalogAuth {
     pub header: String,
     /// `Authorization: Bearer <key>` is accepted as an alternative.
     pub bearer: bool,
-    /// Query parameter accepted on WebSocket upgrades only.
+    /// Query parameter carrying a single-use WebSocket ticket, accepted on
+    /// WebSocket upgrades only ([`crate::auth::WS_TICKET_QUERY_PARAM`]). The
+    /// API key itself is never accepted in a URL.
     pub ws_query_param: String,
+    /// `POST` endpoint that issues WebSocket tickets
+    /// ([`crate::auth::WS_TICKET_PATH`]).
+    #[serde(default)]
+    pub ws_ticket_path: String,
     /// [`crate::auth::AUTH_CONTRACT_VERSION`].
     pub contract_version: String,
 }

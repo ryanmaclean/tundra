@@ -46,6 +46,9 @@ pub(crate) fn all() -> Vec<Domain> {
         files_router(),
         events_router(),
         websocket_router(),
+        ws_tickets_router(),
+        bootstrap_codes_router(),
+        session_router(),
         insights_router(),
         ideation_router(),
         roadmap_router(),
@@ -807,6 +810,63 @@ pub(crate) fn events_router() -> Domain {
         ),
         websocket::events_ws_handler,
     )
+}
+
+/// `/api/v1/ws-tickets` -- single-use WebSocket tickets, so browsers never
+/// put the API key in a WebSocket URL (see `at_api_types::auth`).
+pub(crate) fn ws_tickets_router() -> Domain {
+    Domain::new("ws-tickets", "/api/v1/ws-tickets").route(
+        R::post(
+            "/",
+            "Issue a single-use, path-bound, 30 s WebSocket ticket (?ws_ticket=)",
+        )
+        .req("WsTicketRequest")
+        .res("WsTicketResponse")
+        .limit(SMALL_BODY),
+        crate::auth::issue_ws_ticket,
+    )
+}
+
+/// `/api/v1/bootstrap-codes` -- single-use codes the owner exchanges for a
+/// browser session cookie. Key (header) authenticated only: the auth layer
+/// refuses a cookie session here.
+pub(crate) fn bootstrap_codes_router() -> Domain {
+    Domain::new("bootstrap-codes", "/api/v1/bootstrap-codes").route(
+        R::post(
+            "/",
+            "Mint a single-use, 60 s bootstrap code (API key required)",
+        )
+        .res("BootstrapCodeResponse")
+        .limit(SMALL_BODY),
+        crate::auth::issue_bootstrap_code,
+    )
+}
+
+/// `/api/v1/session` -- the browser session cookie. Served without the key:
+/// exchanging a bootstrap code is the login. POST requires an allowlisted
+/// `Origin`; the cookie it sets is httpOnly, SameSite=Strict and bound to
+/// that origin (see `at_api_types::auth`).
+pub(crate) fn session_router() -> Domain {
+    Domain::new("session", "/api/v1/session")
+        .unauthenticated()
+        .route(
+            R::post(
+                "/",
+                "Exchange a bootstrap code for the httpOnly session cookie",
+            )
+            .req("SessionExchangeRequest")
+            .res("SessionResponse")
+            .limit(SMALL_BODY),
+            crate::auth::exchange_session,
+        )
+        .route(
+            R::get("/", "Whether this request's cookie is a live session"),
+            crate::auth::session_status,
+        )
+        .route(
+            R::delete("/", "End the cookie session and clear the cookie"),
+            crate::auth::end_session,
+        )
 }
 
 /// `/ws` -- WebSocket endpoints.

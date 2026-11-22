@@ -1,4 +1,5 @@
 pub mod agent;
+pub mod dashboard;
 pub mod doctor;
 pub mod done;
 pub mod exec_task;
