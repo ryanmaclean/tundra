@@ -20,14 +20,17 @@
 //! Empty keys never authenticate: an empty configured key rejects everything
 //! and an empty presented key is treated as missing.
 
+use crate::origin_validation::OriginAllowlist;
 use at_api_types::auth::{
-    is_ws_ticket_path, WsTicketRequest, WsTicketResponse, API_KEY_HEADER, WS_TICKET_QUERY_PARAM,
-    WS_TICKET_SCHEMA_VERSION, WS_TICKET_TTL_SECS,
+    is_ws_ticket_path, BootstrapCodeResponse, SessionExchangeRequest, SessionResponse,
+    WsTicketRequest, WsTicketResponse, API_KEY_HEADER, BOOTSTRAP_CODE_PATH,
+    BOOTSTRAP_CODE_TTL_SECS, SESSION_COOKIE_NAME, SESSION_SCHEMA_VERSION, SESSION_TTL_SECS,
+    WS_TICKET_QUERY_PARAM, WS_TICKET_SCHEMA_VERSION, WS_TICKET_TTL_SECS,
 };
 use axum::{
     body::Body,
     extract::Query,
-    http::{Request, Response, StatusCode},
+    http::{HeaderMap, HeaderValue, Request, Response, StatusCode},
     response::IntoResponse,
     Extension, Json,
 };
@@ -172,6 +175,302 @@ pub async fn issue_ws_ticket(
 }
 
 // ---------------------------------------------------------------------------
+// Browser sessions: single-use bootstrap codes -> httpOnly cookie
+// ---------------------------------------------------------------------------
+
+/// Upper bound on outstanding bootstrap codes.
+const BOOTSTRAP_MAX_OUTSTANDING: usize = 32;
+
+/// Upper bound on live cookie sessions (oldest-expiring is evicted).
+const SESSION_MAX_LIVE: usize = 64;
+
+/// Why a bootstrap code could not be minted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BootstrapError {
+    /// Too many unredeemed codes; retry after some expire.
+    TooMany,
+}
+
+#[derive(Debug, Default)]
+struct SessionInner {
+    /// code -> expiry
+    codes: HashMap<String, Instant>,
+    /// session token -> (the one `Origin` it is bound to, expiry)
+    sessions: HashMap<String, (String, Instant)>,
+}
+
+/// In-memory store of single-use bootstrap codes and the cookie sessions they
+/// are exchanged for. Sessions are bound to the exact `Origin` that redeemed
+/// the code, so a cookie stolen into (or ridden from) a page on any other
+/// origin, e.g. another local user's server on a different loopback port,
+/// never authenticates.
+///
+/// Shared by [`AuthLayer`] (validates cookies) and the session handlers.
+#[derive(Debug)]
+pub struct SessionStore {
+    code_ttl: Duration,
+    session_ttl: Duration,
+    inner: Mutex<SessionInner>,
+}
+
+impl Default for SessionStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// 244 random bits from the OS CSPRNG (two v4 UUIDs), hex only.
+fn random_token() -> String {
+    format!(
+        "{}{}",
+        uuid::Uuid::new_v4().simple(),
+        uuid::Uuid::new_v4().simple()
+    )
+}
+
+impl SessionStore {
+    /// A store with the contract lifetimes ([`BOOTSTRAP_CODE_TTL_SECS`],
+    /// [`SESSION_TTL_SECS`]).
+    pub fn new() -> Self {
+        Self::with_ttls(
+            Duration::from_secs(BOOTSTRAP_CODE_TTL_SECS),
+            Duration::from_secs(SESSION_TTL_SECS),
+        )
+    }
+
+    /// A store with custom lifetimes (tests).
+    pub fn with_ttls(code_ttl: Duration, session_ttl: Duration) -> Self {
+        Self {
+            code_ttl,
+            session_ttl,
+            inner: Mutex::new(SessionInner::default()),
+        }
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, SessionInner> {
+        self.inner.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    /// Mint a single-use bootstrap code.
+    pub fn mint_code(&self) -> Result<String, BootstrapError> {
+        let now = Instant::now();
+        let mut inner = self.lock();
+        if inner.codes.len() >= BOOTSTRAP_MAX_OUTSTANDING {
+            inner.codes.retain(|_, exp| *exp > now);
+            if inner.codes.len() >= BOOTSTRAP_MAX_OUTSTANDING {
+                return Err(BootstrapError::TooMany);
+            }
+        }
+        let code = random_token();
+        inner.codes.insert(code.clone(), now + self.code_ttl);
+        Ok(code)
+    }
+
+    /// Redeem `code` for a session bound to `origin`. The code is burned
+    /// whatever the outcome. Returns the session token.
+    pub fn exchange(&self, code: &str, origin: &str) -> Option<String> {
+        if code.is_empty() || origin.is_empty() {
+            return None;
+        }
+        let now = Instant::now();
+        let mut inner = self.lock();
+        let exp = inner.codes.remove(code)?;
+        if exp <= now {
+            return None;
+        }
+        inner.sessions.retain(|_, (_, exp)| *exp > now);
+        if inner.sessions.len() >= SESSION_MAX_LIVE {
+            if let Some(oldest) = inner
+                .sessions
+                .iter()
+                .min_by_key(|(_, (_, exp))| *exp)
+                .map(|(k, _)| k.clone())
+            {
+                inner.sessions.remove(&oldest);
+            }
+        }
+        let token = random_token();
+        inner
+            .sessions
+            .insert(token.clone(), (origin.to_string(), now + self.session_ttl));
+        Some(token)
+    }
+
+    /// Whether `token` is a live session bound to exactly `origin`.
+    pub fn validate(&self, token: &str, origin: &str) -> bool {
+        if token.is_empty() || origin.is_empty() {
+            return false;
+        }
+        let now = Instant::now();
+        let mut inner = self.lock();
+        match inner.sessions.get(token) {
+            Some((bound, exp)) if *exp > now => bound == origin,
+            Some(_) => {
+                inner.sessions.remove(token);
+                false
+            }
+            None => false,
+        }
+    }
+
+    /// End a session. `true` if it existed.
+    pub fn revoke(&self, token: &str) -> bool {
+        self.lock().sessions.remove(token).is_some()
+    }
+
+    /// Outstanding unredeemed codes (tests/metrics).
+    pub fn outstanding_codes(&self) -> usize {
+        self.lock().codes.len()
+    }
+
+    /// Live sessions (tests/metrics).
+    pub fn live_sessions(&self) -> usize {
+        self.lock().sessions.len()
+    }
+}
+
+/// The session token in the request's `Cookie` header, if any.
+fn session_cookie(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get_all(axum::http::header::COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .flat_map(|v| v.split(';'))
+        .filter_map(|pair| pair.trim().split_once('='))
+        .find(|(name, _)| *name == SESSION_COOKIE_NAME)
+        .map(|(_, value)| value.trim().to_string())
+        .filter(|v| !v.is_empty())
+}
+
+/// The request's `Origin` header, if present and valid UTF-8.
+fn request_origin(headers: &HeaderMap) -> Option<&str> {
+    headers
+        .get(axum::http::header::ORIGIN)
+        .and_then(|v| v.to_str().ok())
+        .filter(|o| !o.is_empty())
+}
+
+/// Whether the request carries a live session cookie bound to its `Origin`.
+fn cookie_session_ok(headers: &HeaderMap, sessions: &SessionStore) -> bool {
+    match (session_cookie(headers), request_origin(headers)) {
+        (Some(token), Some(origin)) => sessions.validate(&token, origin),
+        _ => false,
+    }
+}
+
+fn session_response(authenticated: bool, ttl_secs: u64) -> SessionResponse {
+    SessionResponse {
+        schema_version: SESSION_SCHEMA_VERSION.to_string(),
+        authenticated,
+        expires_in_secs: if authenticated { ttl_secs } else { 0 },
+    }
+}
+
+/// `POST /api/v1/bootstrap-codes` -- mint a single-use bootstrap code.
+///
+/// Mounted behind [`AuthLayer`], which refuses a cookie session on this path:
+/// only the key (header) can mint, so a browser session cannot widen itself.
+pub async fn issue_bootstrap_code(
+    Extension(store): Extension<Arc<SessionStore>>,
+) -> axum::response::Response {
+    match store.mint_code() {
+        Ok(code) => (
+            StatusCode::CREATED,
+            Json(BootstrapCodeResponse {
+                schema_version: SESSION_SCHEMA_VERSION.to_string(),
+                code,
+                expires_in_secs: store.code_ttl.as_secs(),
+            }),
+        )
+            .into_response(),
+        Err(BootstrapError::TooMany) => (
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(serde_json::json!({"error": "too many outstanding bootstrap codes"})),
+        )
+            .into_response(),
+    }
+}
+
+/// `POST /api/v1/session` -- exchange a bootstrap code for the session cookie.
+///
+/// Unauthenticated by key (the code is the credential), but the request must
+/// come from an allowlisted `Origin`; the session is bound to that origin.
+pub async fn exchange_session(
+    Extension(store): Extension<Arc<SessionStore>>,
+    Extension(origins): Extension<OriginAllowlist>,
+    headers: HeaderMap,
+    Json(req): Json<SessionExchangeRequest>,
+) -> axum::response::Response {
+    let Some(origin) = request_origin(&headers).filter(|o| origins.allows(o)) else {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({"error": "origin not allowed"})),
+        )
+            .into_response();
+    };
+    let Some(token) = store.exchange(&req.code, origin) else {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({"error": "invalid or expired bootstrap code"})),
+        )
+            .into_response();
+    };
+    let secure = if origin.starts_with("https://") {
+        "; Secure"
+    } else {
+        ""
+    };
+    let cookie = format!(
+        "{SESSION_COOKIE_NAME}={token}; HttpOnly; SameSite=Strict; Path=/; Max-Age={}{secure}",
+        store.session_ttl.as_secs()
+    );
+    let mut resp = (
+        StatusCode::OK,
+        Json(session_response(true, store.session_ttl.as_secs())),
+    )
+        .into_response();
+    if let Ok(v) = HeaderValue::from_str(&cookie) {
+        resp.headers_mut()
+            .insert(axum::http::header::SET_COOKIE, v);
+    }
+    resp
+}
+
+/// `GET /api/v1/session` -- whether this request's cookie is a live session
+/// for its `Origin`. Never an error: `{"authenticated": false}` otherwise.
+pub async fn session_status(
+    Extension(store): Extension<Arc<SessionStore>>,
+    headers: HeaderMap,
+) -> axum::response::Response {
+    let ok = cookie_session_ok(&headers, &store);
+    (
+        StatusCode::OK,
+        Json(session_response(ok, store.session_ttl.as_secs())),
+    )
+        .into_response()
+}
+
+/// `DELETE /api/v1/session` -- end the cookie session and clear the cookie.
+pub async fn end_session(
+    Extension(store): Extension<Arc<SessionStore>>,
+    headers: HeaderMap,
+) -> axum::response::Response {
+    // Only a session valid for this Origin can end itself (no cross-site logout).
+    if cookie_session_ok(&headers, &store) {
+        if let Some(token) = session_cookie(&headers) {
+            store.revoke(&token);
+        }
+    }
+    let mut resp = (StatusCode::OK, Json(session_response(false, 0))).into_response();
+    let clear = format!("{SESSION_COOKIE_NAME}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0");
+    if let Ok(v) = HeaderValue::from_str(&clear) {
+        resp.headers_mut()
+            .insert(axum::http::header::SET_COOKIE, v);
+    }
+    resp
+}
+
+// ---------------------------------------------------------------------------
 // AuthLayer
 // ---------------------------------------------------------------------------
 
@@ -181,10 +480,11 @@ pub struct AuthLayer {
     /// `None` = development mode (all requests pass through).
     api_key: Option<Arc<String>>,
     tickets: Arc<WsTicketStore>,
+    sessions: Arc<SessionStore>,
 }
 
 impl AuthLayer {
-    /// Create a new `AuthLayer` with its own (private) ticket store.
+    /// Create a new `AuthLayer` with its own (private) ticket and session stores.
     ///
     /// * `api_key` -- `Some(key)` to enforce auth, `None` to allow all.
     pub fn new(api_key: Option<String>) -> Self {
@@ -192,14 +492,25 @@ impl AuthLayer {
     }
 
     /// Create an `AuthLayer` that redeems WebSocket tickets from `tickets`
-    /// (the store [`issue_ws_ticket`] issues into).
+    /// (the store [`issue_ws_ticket`] issues into), with a private session store.
     pub fn with_tickets(api_key: Option<String>, tickets: Arc<WsTicketStore>) -> Self {
+        Self::with_stores(api_key, tickets, Arc::new(SessionStore::new()))
+    }
+
+    /// Create an `AuthLayer` that redeems tickets from `tickets` and validates
+    /// session cookies against `sessions` (the stores the handlers issue into).
+    pub fn with_stores(
+        api_key: Option<String>,
+        tickets: Arc<WsTicketStore>,
+        sessions: Arc<SessionStore>,
+    ) -> Self {
         if matches!(api_key.as_deref(), Some(k) if k.trim().is_empty()) {
             tracing::error!("empty API key configured; all requests will be rejected");
         }
         Self {
             api_key: api_key.map(Arc::new),
             tickets,
+            sessions,
         }
     }
 }
@@ -212,6 +523,7 @@ impl<S> Layer<S> for AuthLayer {
             inner,
             api_key: self.api_key.clone(),
             tickets: self.tickets.clone(),
+            sessions: self.sessions.clone(),
         }
     }
 }
@@ -226,6 +538,7 @@ pub struct AuthMiddleware<S> {
     inner: S,
     api_key: Option<Arc<String>>,
     tickets: Arc<WsTicketStore>,
+    sessions: Arc<SessionStore>,
 }
 
 impl<S> Service<Request<Body>> for AuthMiddleware<S>
@@ -246,6 +559,7 @@ where
     fn call(&mut self, req: Request<Body>) -> Self::Future {
         let api_key = self.api_key.clone();
         let tickets = self.tickets.clone();
+        let sessions = self.sessions.clone();
         let mut inner = self.inner.clone();
 
         Box::pin(async move {
@@ -268,7 +582,16 @@ where
                 && is_websocket_upgrade(&req)
                 && ws_query_ticket(req.uri()).is_some_and(|t| tickets.redeem(&t, req.uri().path()));
 
-            if key_ok || ticket_ok {
+            // Browser session cookie: valid only together with the exact
+            // `Origin` it was issued to, and never for minting bootstrap
+            // codes (only the key can widen access).
+            let cookie_ok = !key_ok
+                && !ticket_ok
+                && !expected.is_empty()
+                && !req.uri().path().starts_with(BOOTSTRAP_CODE_PATH)
+                && cookie_session_ok(req.headers(), &sessions);
+
+            if key_ok || ticket_ok || cookie_ok {
                 inner.call(req).await
             } else {
                 let resp = (
@@ -587,5 +910,159 @@ mod tests {
             let resp = app.oneshot(ws_upgrade(&uri)).await.unwrap();
             assert_eq!(resp.status(), StatusCode::UNAUTHORIZED, "{uri}");
         }
+    }
+
+    // ----- browser sessions -------------------------------------------------
+
+    const ORIGIN: &str = "http://127.0.0.1:5173";
+
+    fn session_router(api_key: &str, sessions: Arc<SessionStore>) -> Router {
+        Router::new()
+            .route("/ping", get(|| async { "pong" }))
+            .route(BOOTSTRAP_CODE_PATH, get(|| async { "mint" }))
+            .layer(AuthLayer::with_stores(
+                Some(api_key.to_string()),
+                Arc::new(WsTicketStore::new()),
+                sessions,
+            ))
+    }
+
+    fn cookie_req(uri: &str, token: &str, origin: Option<&str>) -> Request<Body> {
+        let mut b = Request::builder()
+            .uri(uri)
+            .header("Cookie", format!("other=1; {SESSION_COOKIE_NAME}={token}"));
+        if let Some(o) = origin {
+            b = b.header("Origin", o);
+        }
+        b.body(Body::empty()).unwrap()
+    }
+
+    #[test]
+    fn bootstrap_code_is_single_use_and_expires() {
+        let s = SessionStore::new();
+        let code = s.mint_code().unwrap();
+        assert_eq!(code.len(), 64);
+        assert!(code.bytes().all(|c| c.is_ascii_hexdigit()));
+        assert!(s.exchange(&code, ORIGIN).is_some());
+        // Replay is refused.
+        assert!(s.exchange(&code, ORIGIN).is_none());
+
+        let short = SessionStore::with_ttls(Duration::from_millis(0), Duration::from_secs(60));
+        let c = short.mint_code().unwrap();
+        assert!(short.exchange(&c, ORIGIN).is_none(), "expired code");
+        assert_eq!(short.outstanding_codes(), 0, "expired code is burned");
+    }
+
+    #[test]
+    fn forged_empty_or_originless_exchange_is_refused_and_burns_nothing_extra() {
+        let s = SessionStore::new();
+        let code = s.mint_code().unwrap();
+        assert!(s.exchange("", ORIGIN).is_none());
+        assert!(s.exchange("deadbeef", ORIGIN).is_none());
+        assert!(s.exchange(&code, "").is_none());
+        // The real code is still redeemable after junk attempts.
+        assert!(s.exchange(&code, ORIGIN).is_some());
+    }
+
+    #[test]
+    fn bootstrap_codes_are_bounded() {
+        let s = SessionStore::new();
+        for _ in 0..BOOTSTRAP_MAX_OUTSTANDING {
+            s.mint_code().unwrap();
+        }
+        assert_eq!(s.mint_code(), Err(BootstrapError::TooMany));
+    }
+
+    #[test]
+    fn session_is_bound_to_its_origin_and_expires() {
+        let s = SessionStore::new();
+        let code = s.mint_code().unwrap();
+        let tok = s.exchange(&code, ORIGIN).unwrap();
+        assert!(s.validate(&tok, ORIGIN));
+        assert!(!s.validate(&tok, "http://127.0.0.1:5174"), "other port");
+        assert!(!s.validate(&tok, "http://localhost:5173"), "other host");
+        assert!(!s.validate(&tok, ""));
+        assert!(!s.validate("nope", ORIGIN));
+        assert!(s.revoke(&tok));
+        assert!(!s.validate(&tok, ORIGIN));
+
+        let short = SessionStore::with_ttls(Duration::from_secs(60), Duration::from_millis(0));
+        let c = short.mint_code().unwrap();
+        let t = short.exchange(&c, ORIGIN).unwrap();
+        assert!(!short.validate(&t, ORIGIN), "expired session");
+        assert_eq!(short.live_sessions(), 0);
+    }
+
+    #[tokio::test]
+    async fn cookie_session_authenticates_only_with_its_origin() {
+        let sessions = Arc::new(SessionStore::new());
+        let app = session_router("secret123", sessions.clone());
+        let code = sessions.mint_code().unwrap();
+        let tok = sessions.exchange(&code, ORIGIN).unwrap();
+
+        assert_eq!(
+            status(&app, cookie_req("/ping", &tok, Some(ORIGIN))).await,
+            StatusCode::OK
+        );
+        // No Origin: refused (a cross-site no-cors GET carries none).
+        assert_eq!(
+            status(&app, cookie_req("/ping", &tok, None)).await,
+            StatusCode::UNAUTHORIZED
+        );
+        // Another origin riding the cookie: refused.
+        assert_eq!(
+            status(&app, cookie_req("/ping", &tok, Some("http://127.0.0.1:9999"))).await,
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            status(&app, cookie_req("/ping", &tok, Some("http://evil.example"))).await,
+            StatusCode::UNAUTHORIZED
+        );
+        // Forged token.
+        assert_eq!(
+            status(&app, cookie_req("/ping", "forged", Some(ORIGIN))).await,
+            StatusCode::UNAUTHORIZED
+        );
+    }
+
+    #[tokio::test]
+    async fn cookie_session_cannot_mint_bootstrap_codes_but_key_can() {
+        let sessions = Arc::new(SessionStore::new());
+        let app = session_router("secret123", sessions.clone());
+        let code = sessions.mint_code().unwrap();
+        let tok = sessions.exchange(&code, ORIGIN).unwrap();
+        assert_eq!(
+            status(&app, cookie_req(BOOTSTRAP_CODE_PATH, &tok, Some(ORIGIN))).await,
+            StatusCode::UNAUTHORIZED
+        );
+        let with_key = Request::builder()
+            .uri(BOOTSTRAP_CODE_PATH)
+            .header("X-API-Key", "secret123")
+            .body(Body::empty())
+            .unwrap();
+        assert_eq!(status(&app, with_key).await, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn empty_configured_key_refuses_cookie_sessions_too() {
+        let sessions = Arc::new(SessionStore::new());
+        let app = session_router("", sessions.clone());
+        let code = sessions.mint_code().unwrap();
+        let tok = sessions.exchange(&code, ORIGIN).unwrap();
+        assert_eq!(
+            status(&app, cookie_req("/ping", &tok, Some(ORIGIN))).await,
+            StatusCode::UNAUTHORIZED
+        );
+    }
+
+    #[test]
+    fn session_cookie_parsing_ignores_lookalikes() {
+        let mut h = HeaderMap::new();
+        h.insert("cookie", "a=1; tundra_session_x=bad; tundra_session=good; z=2".parse().unwrap());
+        assert_eq!(session_cookie(&h).as_deref(), Some("good"));
+        let mut empty = HeaderMap::new();
+        empty.insert("cookie", "tundra_session=".parse().unwrap());
+        assert_eq!(session_cookie(&empty), None);
+        assert_eq!(session_cookie(&HeaderMap::new()), None);
     }
 }

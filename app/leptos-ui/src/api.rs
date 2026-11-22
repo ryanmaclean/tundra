@@ -13,9 +13,27 @@ pub use at_api_types::{
 };
 
 use at_api_types::auth::{
-    WsTicketRequest, WsTicketResponse, API_KEY_HEADER, WINDOW_API_KEY_GLOBAL,
-    WINDOW_API_PORT_GLOBAL, WS_TICKET_PATH, WS_TICKET_QUERY_PARAM,
+    bootstrap_code_from_fragment, SessionExchangeRequest, SessionResponse, WsTicketRequest,
+    WsTicketResponse, API_KEY_HEADER, SESSION_PATH, WINDOW_API_KEY_GLOBAL, WINDOW_API_PORT_GLOBAL,
+    WS_TICKET_PATH, WS_TICKET_QUERY_PARAM,
 };
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// Whether the daemon accepted this page's httpOnly session cookie (set by
+/// [`bootstrap_session`]). The cookie itself is invisible to page scripts.
+static SESSION_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+/// `true` when the page authenticates with the session cookie.
+pub fn session_active() -> bool {
+    SESSION_ACTIVE.load(Ordering::Relaxed)
+}
+
+/// Host names the daemon's frontend may be served from; the API is then
+/// addressed by the same host name so the session cookie (SameSite=Strict,
+/// which is per host, not per port) is sent to it.
+fn is_loopback_host(host: &str) -> bool {
+    matches!(host, "localhost" | "127.0.0.1" | "[::1]")
+}
 
 /// Default API base when not running in Tauri (standalone web dev).
 // Use IPv4 loopback by default to avoid localhost IPv6 resolution mismatches in browsers.
@@ -32,7 +50,15 @@ pub fn get_api_base() -> String {
         if let Ok(port_val) = port_js {
             if let Some(p) = port_val.as_f64() {
                 let port = p as u16;
-                return format!("http://127.0.0.1:{}", port);
+                // Served over http from a loopback host name: use that same
+                // name for the API (cookies are per host). The desktop webview
+                // (tauri://localhost) and anything else uses the IPv4 loopback.
+                let loc = window.location();
+                let host = match (loc.protocol().ok().as_deref(), loc.hostname().ok()) {
+                    (Some("http:"), Some(h)) if is_loopback_host(&h) => h,
+                    _ => "127.0.0.1".to_string(),
+                };
+                return format!("http://{host}:{port}");
             }
         }
     }
@@ -49,11 +75,15 @@ pub fn get_api_key() -> Option<String> {
         .filter(|k| !k.is_empty())
 }
 
-/// Create a fetch `Request` that carries the daemon API key.
+/// Create a fetch `Request` that authenticates to the daemon.
 ///
 /// Every HTTP call to the daemon must go through this so it authenticates;
-/// the daemon rejects requests without `X-API-Key` with 401.
+/// the daemon rejects unauthenticated requests with 401. The embedded desktop
+/// webview sends `X-API-Key`; a standalone browser sends its httpOnly session
+/// cookie (`credentials: include`; the API is a different port, so the fetch
+/// is cross-origin and the daemon answers with `Allow-Credentials`).
 pub fn new_request(url: &str, opts: &RequestInit) -> Result<Request, String> {
+    opts.set_credentials(web_sys::RequestCredentials::Include);
     let request = Request::new_with_str_and_init(url, opts).map_err(js_err)?;
     if let Some(key) = get_api_key() {
         request
@@ -71,10 +101,12 @@ pub fn new_request(url: &str, opts: &RequestInit) -> Result<Request, String> {
 /// short-lived ticket (`POST /api/v1/ws-tickets`, key in the `X-API-Key`
 /// header) and puts only that ticket in the `ws_ticket` query parameter.
 /// Call it again for every (re)connect: a ticket opens one socket once.
-/// Without a key (development mode) the plain URL is returned.
+/// Authenticated by the key (desktop webview) or the session cookie
+/// (standalone browser). Without either (development mode) the plain URL is
+/// returned.
 pub async fn ws_url(path: &str) -> Result<String, String> {
     let base = get_api_base();
-    if get_api_key().is_none() {
+    if get_api_key().is_none() && !session_active() {
         return Ok(ws_url_for(&base, path, None));
     }
     let ticket_path = path.split('?').next().unwrap_or(path).to_string();
@@ -85,6 +117,55 @@ pub async fn ws_url(path: &str) -> Result<String, String> {
     .await?;
     let ticket = String::from(js_sys::encode_uri_component(&resp.ticket));
     Ok(ws_url_for(&base, path, Some(&ticket)))
+}
+
+/// Start the standalone-browser session before the app mounts.
+///
+/// The daemon never serves the key (or anything secret) in the page. The
+/// owner runs `at dashboard`, which opens `<frontend>/#bootstrap=<code>`; this
+/// exchanges the single-use code for the httpOnly session cookie (the code is
+/// scrubbed from the address bar first) and records whether the daemon accepts
+/// the cookie. On a plain reload there is no code, so it asks the daemon
+/// whether the existing cookie is still a live session. The desktop webview
+/// has the key from its initialization script and skips all of this.
+pub async fn bootstrap_session() {
+    if get_api_key().is_some() {
+        return;
+    }
+    let Some(window) = web_sys::window() else {
+        return;
+    };
+    let url = format!("{}{SESSION_PATH}", get_api_base());
+    let location = window.location();
+    let hash = location.hash().unwrap_or_default();
+
+    let active = match bootstrap_code_from_fragment(&hash) {
+        Some(code) => {
+            // Never leave the code in the address bar or history.
+            if let Ok(history) = window.history() {
+                let clean = format!(
+                    "{}{}",
+                    location.pathname().unwrap_or_else(|_| "/".to_string()),
+                    location.search().unwrap_or_default()
+                );
+                let _ = history.replace_state_with_url(&JsValue::NULL, "", Some(&clean));
+            }
+            post_json::<_, SessionResponse>(
+                &url,
+                &SessionExchangeRequest {
+                    code: code.to_string(),
+                },
+            )
+            .await
+            .map(|r| r.authenticated)
+            .unwrap_or(false)
+        }
+        None => fetch_json::<SessionResponse>(&url)
+            .await
+            .map(|r| r.authenticated)
+            .unwrap_or(false),
+    };
+    SESSION_ACTIVE.store(active, Ordering::Relaxed);
 }
 
 /// Pure part of [`ws_url`]: `encoded_ticket` must already be URI-component

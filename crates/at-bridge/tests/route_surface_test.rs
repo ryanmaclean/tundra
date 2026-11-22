@@ -8,8 +8,8 @@
 //! auth layer. It also checks that `GET /api/catalog` lists exactly the routes
 //! the router serves: every catalogued route is served, and on every
 //! catalogued path each uncatalogued method is rejected with 405. The two
-//! catalog routes and the JSON Schema routes are the only unauthenticated
-//! ones: they answer without a key, are rate limited, and report
+//! catalog routes, the JSON Schema routes and the `/api/v1/session` cookie
+//! exchange are the only unauthenticated ones: they answer without a key, are rate limited, and report
 //! `auth: none`. Routes added after the snapshot are listed in
 //! [`ADDED_ROUTES`] and [`ADDED_SINCE_SNAPSHOT`] (the fixture itself stays
 //! frozen).
@@ -55,6 +55,12 @@ const ADDED_ROUTES: &[(&str, &str)] = &[
     // PR #101 security review 2026-10-08: single-use WebSocket tickets so
     // the master key never rides in a WS URL query.
     ("POST", "/api/v1/ws-tickets"),
+    // Standalone-browser session: single-use bootstrap code -> httpOnly cookie
+    // (the daemon no longer serves the master key in HTML).
+    ("POST", "/api/v1/bootstrap-codes"),
+    ("POST", "/api/v1/session"),
+    ("GET", "/api/v1/session"),
+    ("DELETE", "/api/v1/session"),
 ];
 
 /// Routes added after the `routes.txt` snapshot was taken, from
@@ -68,7 +74,10 @@ const ADDED_SINCE_SNAPSHOT: &[(&str, &str)] = &[
 
 /// Paths served without the API key (cold discovery).
 fn is_public(path: &str) -> bool {
-    path == CATALOG_PATH || path == CATALOG_V1_PATH || path.starts_with("/api/v1/schemas")
+    path == CATALOG_PATH
+        || path == CATALOG_V1_PATH
+        || path.starts_with("/api/v1/schemas")
+        || path == "/api/v1/session"
 }
 
 fn fixture_routes() -> BTreeSet<(String, String)> {
