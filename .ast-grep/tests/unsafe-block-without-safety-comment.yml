@@ -1,0 +1,24 @@
+id: unsafe-block-without-safety-comment
+valid:
+  - |
+    fn f() {
+      // SAFETY: pointer is valid in this fixture.
+      unsafe { work(); }
+    }
+  - |
+    fn f() {
+      // SAFETY: pointer is valid in this fixture.
+      let value = unsafe { work() };
+    }
+invalid:
+  - 'fn f() { unsafe { work(); } }'
+  - |
+    fn f() {
+      // TODO: missing SAFETY: justification.
+      unsafe { work(); }
+    }
+  - |
+    fn f() {
+      unsafe { work(); }
+      // SAFETY: a following comment does not justify the preceding block.
+    }

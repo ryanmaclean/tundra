@@ -6,8 +6,7 @@
 //!
 //! # Architecture
 //!
-//! The audio output stream (`OutputStream`) is `!Send`, so we spawn a
-//! dedicated audio thread that owns the stream and receives play commands
+//! A dedicated audio thread owns the audio device sink and receives play commands
 //! over a channel. This makes `SoundEngine` `Send + Sync` for Tauri state.
 //!
 //! ```text
@@ -64,7 +63,7 @@ impl Default for SoundSettings {
 mod engine {
     use super::*;
     use rodio::source::Source;
-    use rodio::{OutputStream, Sink};
+    use rodio::{ChannelCount, DeviceSinkBuilder, Player, Sample, SampleRate};
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
@@ -82,7 +81,7 @@ mod engine {
     }
 
     // SoundEngine is Send + Sync because it only holds a Sender (Send+Sync)
-    // and an Arc<Mutex<_>> (Send+Sync). The !Send OutputStream lives on the
+    // and an Arc<Mutex<_>> (Send+Sync). The audio device sink lives on the
     // audio thread.
 
     impl SoundEngine {
@@ -97,11 +96,11 @@ mod engine {
             std::thread::Builder::new()
                 .name("sound-engine".into())
                 .spawn(move || {
-                    let stream_result = OutputStream::try_default();
-                    let (stream, handle) = match stream_result {
-                        Ok(pair) => {
+                    let sink_result = DeviceSinkBuilder::open_default_sink();
+                    let device_sink = match sink_result {
+                        Ok(sink) => {
                             ready_tx.send(true).ok();
-                            pair
+                            sink
                         }
                         Err(_) => {
                             ready_tx.send(false).ok();
@@ -109,25 +108,12 @@ mod engine {
                         }
                     };
 
-                    // Keep stream alive for the lifetime of this thread.
-                    let _stream = stream;
+                    // Keep the device sink alive for the lifetime of this thread.
 
                     while let Ok(cmd) = rx.recv() {
                         match cmd {
                             AudioCmd::Play(effect, volume) => {
-                                let source = match effect {
-                                    SoundEffect::Click => synth_click(),
-                                    SoundEffect::Success => synth_success(),
-                                    SoundEffect::Error => synth_error(),
-                                    SoundEffect::Notify => synth_notify(),
-                                    SoundEffect::Whoosh => synth_whoosh(),
-                                    SoundEffect::Chip => synth_chip(),
-                                };
-                                if let Ok(sink) = Sink::try_new(&handle) {
-                                    sink.set_volume(volume);
-                                    sink.append(source);
-                                    sink.detach();
-                                }
+                                play_on_mixer(device_sink.mixer(), effect, volume);
                             }
                             AudioCmd::Shutdown => break,
                         }
@@ -186,6 +172,21 @@ mod engine {
         }
     }
 
+    fn play_on_mixer(mixer: &rodio::mixer::Mixer, effect: SoundEffect, volume: f32) {
+        let source = match effect {
+            SoundEffect::Click => synth_click(),
+            SoundEffect::Success => synth_success(),
+            SoundEffect::Error => synth_error(),
+            SoundEffect::Notify => synth_notify(),
+            SoundEffect::Whoosh => synth_whoosh(),
+            SoundEffect::Chip => synth_chip(),
+        };
+        let player = Player::connect_new(mixer);
+        player.set_volume(volume as rodio::Float);
+        player.append(source);
+        player.detach();
+    }
+
     // -----------------------------------------------------------------------
     // Procedural waveform generators
     // -----------------------------------------------------------------------
@@ -215,8 +216,8 @@ mod engine {
     }
 
     impl Iterator for SineWave {
-        type Item = f32;
-        fn next(&mut self) -> Option<f32> {
+        type Item = Sample;
+        fn next(&mut self) -> Option<Sample> {
             if self.sample_idx >= self.total_samples {
                 return None;
             }
@@ -231,20 +232,23 @@ mod engine {
             };
             let sample = (2.0 * std::f32::consts::PI * freq * t).sin() * self.amplitude * envelope;
             self.sample_idx += 1;
-            Some(sample)
+            Some(sample as Sample)
         }
     }
 
     impl Source for SineWave {
-        fn current_frame_len(&self) -> Option<usize> {
-            let remaining = self.total_samples.saturating_sub(self.sample_idx);
-            Some(remaining as usize)
+        fn current_span_len(&self) -> Option<usize> {
+            // The converter limits reads from the current position to this
+            // length. A queue can transition to a different format when this
+            // source ends, so a partially consumed source must report the
+            // remaining samples, not its original length.
+            Some(self.total_samples.saturating_sub(self.sample_idx) as usize)
         }
-        fn channels(&self) -> u16 {
-            1
+        fn channels(&self) -> ChannelCount {
+            ChannelCount::MIN
         }
-        fn sample_rate(&self) -> u32 {
-            self.sample_rate
+        fn sample_rate(&self) -> SampleRate {
+            SampleRate::new(self.sample_rate).expect("sample rate is fixed and nonzero")
         }
         fn total_duration(&self) -> Option<Duration> {
             Some(Duration::from_millis(
@@ -281,6 +285,98 @@ mod engine {
     /// Chip: Balatro-inspired chip shuffle — fast 600→1200 Hz chirp, 60ms.
     fn synth_chip() -> SineWave {
         SineWave::new(600.0, 1200.0, 60, 0.25)
+    }
+
+    #[cfg(test)]
+    mod source_tests {
+        use super::*;
+
+        #[test]
+        fn all_effects_produce_finite_audio_through_player_and_mixer() {
+            let effects = [
+                SoundEffect::Click,
+                SoundEffect::Success,
+                SoundEffect::Error,
+                SoundEffect::Notify,
+                SoundEffect::Whoosh,
+                SoundEffect::Chip,
+            ];
+            for effect in effects {
+                let (mixer, mut output) =
+                    rodio::mixer::mixer(ChannelCount::MIN, SampleRate::new(44_100).unwrap());
+                play_on_mixer(&mixer, effect, 0.5);
+                let samples: Vec<_> = output.by_ref().take(20_000).collect();
+                assert!(!samples.is_empty(), "{effect:?} produced no samples");
+                assert!(samples.len() < 20_000, "{effect:?} did not finish");
+                assert!(samples.iter().all(|s| s.is_finite()));
+                assert!(
+                    samples.iter().any(|s| s.abs() > 0.001),
+                    "{effect:?} was silent"
+                );
+            }
+        }
+
+        #[test]
+        fn span_tracks_remaining_samples() {
+            let mut source = synth_click();
+            assert_eq!(source.channels().get(), 1);
+            assert_eq!(source.sample_rate().get(), 44_100);
+            assert_eq!(source.total_duration(), Some(Duration::from_millis(30)));
+            assert_eq!(source.current_span_len(), Some(1_323));
+            source.next();
+            assert_eq!(source.current_span_len(), Some(1_322));
+            assert_eq!(source.by_ref().count(), 1_322);
+            assert_eq!(source.current_span_len(), Some(0));
+        }
+
+        #[test]
+        fn partially_consumed_source_keeps_queued_format_boundary() {
+            use rodio::buffer::SamplesBuffer;
+
+            let mono = ChannelCount::MIN;
+            let target_rate = SampleRate::new(48_000).unwrap();
+            let mut partial = synth_click();
+            assert_eq!(partial.by_ref().take(441).count(), 441);
+
+            // The queue is already playing when it is handed to the converter.
+            let (input, mut queue) = rodio::queue::queue(false);
+            input.append(partial);
+            input.append(SamplesBuffer::new(mono, target_rate, vec![0.5; 480]));
+            assert!(queue.next().is_some());
+
+            assert_eq!(queue.sample_rate().get(), 44_100);
+            assert_eq!(queue.current_span_len(), Some(881));
+            assert_eq!(queue.by_ref().take(881).count(), 881);
+            assert_eq!(queue.sample_rate(), target_rate);
+        }
+
+        #[test]
+        fn play_sends_enabled_effects_and_suppresses_silence() {
+            let (tx, rx) = std::sync::mpsc::channel();
+            let engine = SoundEngine {
+                tx,
+                settings: Arc::new(Mutex::new(SoundSettings::default())),
+            };
+            for effect in [
+                SoundEffect::Click,
+                SoundEffect::Success,
+                SoundEffect::Error,
+                SoundEffect::Notify,
+                SoundEffect::Whoosh,
+                SoundEffect::Chip,
+            ] {
+                engine.play(effect);
+                assert!(
+                    matches!(rx.try_recv(), Ok(AudioCmd::Play(actual, volume)) if actual == effect && volume == 0.5)
+                );
+            }
+            engine.set_volume(0.0);
+            engine.play(SoundEffect::Click);
+            engine.set_volume(0.5);
+            engine.set_enabled(false);
+            engine.play(SoundEffect::Click);
+            assert!(rx.try_recv().is_err());
+        }
     }
 }
 
@@ -362,21 +458,6 @@ mod tests {
                 assert!(!engine.is_enabled());
                 assert!((engine.volume() - 0.8).abs() < f32::EPSILON);
             }
-        }
-    }
-
-    #[cfg(feature = "sounds")]
-    #[test]
-    fn engine_play_all_effects_no_panic() {
-        if let Some(engine) = SoundEngine::try_new() {
-            // Just verify none of the synth generators panic
-            engine.set_volume(0.0); // silent to not annoy test runners
-            engine.play(SoundEffect::Click);
-            engine.play(SoundEffect::Success);
-            engine.play(SoundEffect::Error);
-            engine.play(SoundEffect::Notify);
-            engine.play(SoundEffect::Whoosh);
-            engine.play(SoundEffect::Chip);
         }
     }
 

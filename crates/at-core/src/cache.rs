@@ -243,7 +243,7 @@ impl CacheDb {
     /// etc.) rather than panicking.
     pub async fn get_bead(&self, id: Uuid) -> Result<Option<Bead>, CacheError> {
         let id_str = id.to_string();
-        // conn.call() closures must return Result<T, tokio_rusqlite::Error>.
+        // Keep database closure errors in the tokio-rusqlite error channel.
         // We smuggle a CacheError out as Ok(Err(e)) and flatten it after await.
         let outer: Result<Option<Result<Bead, CacheError>>, tokio_rusqlite::Error> = self
             .conn
@@ -662,7 +662,7 @@ mod tests {
                      VALUES (?1, 'test', ?2, ?3, 0, ?4, ?5)",
                     rusqlite::params![id, status, lane, created_at, updated_at],
                 )?;
-                Ok(())
+                Ok::<(), rusqlite::Error>(())
             })
             .await
             .unwrap();
@@ -716,7 +716,7 @@ mod tests {
                              '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z')",
                     [],
                 )?;
-                Ok(())
+                Ok::<(), rusqlite::Error>(())
             })
             .await
             .unwrap();

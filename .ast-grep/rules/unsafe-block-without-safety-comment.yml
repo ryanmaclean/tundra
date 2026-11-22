@@ -1,0 +1,25 @@
+id: unsafe-block-without-safety-comment
+language: Rust
+message: Add a SAFETY comment immediately above the unsafe block.
+severity: warning
+rule:
+  all:
+    - kind: unsafe_block
+    - not:
+        any:
+          - follows:
+              kind: line_comment
+              regex: '^//\s*SAFETY:'
+              stopBy: neighbor
+          - inside:
+              any:
+                - kind: expression_statement
+                - kind: let_declaration
+              follows:
+                kind: line_comment
+                regex: '^//\s*SAFETY:'
+                stopBy: neighbor
+              stopBy: neighbor
+metadata:
+  category: security
+  cwe: CWE-676

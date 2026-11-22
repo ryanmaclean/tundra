@@ -137,8 +137,9 @@ impl ApiClient {
         let client = reqwest::blocking::Client::builder()
             .timeout(std::time::Duration::from_secs(5))
             .default_headers(headers)
+            .redirect(reqwest::redirect::Policy::none())
             .build()
-            .unwrap_or_else(|_| reqwest::blocking::Client::new());
+            .expect("build daemon HTTP client");
         Self {
             client,
             base: base.trim_end_matches('/').to_string(),
