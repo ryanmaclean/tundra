@@ -439,13 +439,15 @@ pub(crate) async fn list_ideas(State(state): State<Arc<ApiState>>) -> impl IntoR
 /// POST /api/ideation/generate -- generate new ideas using AI.
 ///
 /// Generates ideas based on a category and optional context. Uses AI-powered
-/// generation when an LLM provider is configured, falls back to deterministic
-/// generation in offline mode or tests.
+/// generation when an LLM provider or registry is configured. Deterministic
+/// generation is available only when neither is configured. Configured-provider
+/// failures return a sanitized 502 response and never create placeholder ideas.
 ///
 /// **Request:** Optional JSON body with category and context. Defaults to
 /// CodeImprovement category with empty context if not provided.
 ///
-/// **Response:** 201 Created with generated ideas.
+/// **Response:** 201 Created with generated ideas, or 502 Bad Gateway with
+/// `code: ideation_generation_failed` when configured AI generation fails.
 ///
 /// **Example Request:**
 /// ```json
@@ -479,28 +481,49 @@ pub(crate) async fn generate_ideas(
         Some(Json(req)) => (req.category, req.context),
         None => (IdeaCategory::CodeImprovement, String::new()),
     };
-    // Try AI-powered ideation first; fall back to deterministic generation
-    // when no LLM provider is configured (e.g. in tests or offline mode).
+    // Offline placeholders are allowed only when no AI configuration exists.
+    // A configured provider or profile registry that fails (including one with
+    // no eligible profile) is reported, never turned into placeholder ideas.
     // The request is prepared under a short read lock and the LLM call runs
     // with no engine lock held, so a slow provider cannot block other readers.
-    let prepared = state
-        .ideation_engine
-        .read()
-        .await
-        .prepare_ai_request(&category, &context);
-    let ai_result = match prepared {
-        Ok(request) => request.run().await,
-        Err(e) => Err(e),
-    };
-    let mut engine = state.ideation_engine.write().await;
-    let result = match ai_result {
-        Ok(result) => {
-            engine.store_ideas(&result);
-            result
+    let prepared = {
+        let engine = state.ideation_engine.read().await;
+        if engine.has_ai_configuration() {
+            Some(engine.prepare_ai_request(&category, &context))
+        } else {
+            None
         }
-        Err(_) => engine.generate_ideas(&category, &context),
     };
-    drop(engine);
+    let result = match prepared {
+        Some(prepared) => {
+            let ai_result = match prepared {
+                Ok(request) => request.run().await,
+                Err(e) => Err(e),
+            };
+            match ai_result {
+                Ok(result) => {
+                    state.ideation_engine.write().await.store_ideas(&result);
+                    result
+                }
+                Err(_) => {
+                    // Provider errors can contain response bodies or endpoint details.
+                    // Do not expose them or turn them into successful placeholder ideas.
+                    return (
+                        axum::http::StatusCode::BAD_GATEWAY,
+                        Json(serde_json::json!({
+                            "error": "Idea generation failed",
+                            "code": "ideation_generation_failed"
+                        })),
+                    );
+                }
+            }
+        }
+        None => state
+            .ideation_engine
+            .write()
+            .await
+            .generate_ideas(&category, &context),
+    };
     (
         axum::http::StatusCode::CREATED,
         Json(serde_json::json!(result)),
