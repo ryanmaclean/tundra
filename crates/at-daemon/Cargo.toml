@@ -8,6 +8,10 @@ publish = false
 name = "at-daemon"
 path = "src/main.rs"
 
+[features]
+# Only affects debug builds on disposable functional E2E runners.
+e2e-test = []
+
 [dependencies]
 at-core = { path = "../at-core" }
 at-telemetry = { path = "../at-telemetry" }
@@ -28,8 +32,9 @@ flume = { workspace = true }
 axum = { workspace = true }
 async-trait = { workspace = true }
 mimalloc = { workspace = true }
-toml = "0.8"
+toml = "0.9"
 tower-http = { workspace = true }
+tracing-datadog = { workspace = true }
 opentelemetry = { workspace = true }
 tracing-opentelemetry = { workspace = true }
 opentelemetry_sdk = { workspace = true }

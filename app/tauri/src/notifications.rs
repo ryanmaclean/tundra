@@ -2,7 +2,7 @@ use at_bridge::event_bus::EventBus;
 use at_bridge::protocol::BridgeMessage;
 use at_core::types::BeadStatus;
 use serde::{Deserialize, Serialize};
-use tauri::AppHandle;
+use tauri::{AppHandle, Runtime};
 #[cfg(not(test))]
 use tauri_plugin_notification::NotificationExt;
 
@@ -37,15 +37,15 @@ pub enum NotificationLevel {
 /// # tauri::async_runtime::block_on(async {
 /// # let app = tauri::test::mock_app();
 /// send_notification(
-///     &app,
+///     app.handle(),
 ///     "Task Completed",
 ///     "Your bead processing has finished",
 ///     NotificationLevel::Success
 /// ).await.ok();
 /// # });
 /// ```
-pub async fn send_notification(
-    app: &AppHandle,
+pub async fn send_notification<R: Runtime>(
+    app: &AppHandle<R>,
     title: impl Into<String>,
     body: impl Into<String>,
     level: NotificationLevel,
@@ -86,8 +86,8 @@ pub async fn send_notification(
 }
 
 /// Send a notification with default Info level.
-pub async fn send_info(
-    app: &AppHandle,
+pub async fn send_info<R: Runtime>(
+    app: &AppHandle<R>,
     title: impl Into<String>,
     body: impl Into<String>,
 ) -> Result<(), NotificationError> {
@@ -95,8 +95,8 @@ pub async fn send_info(
 }
 
 /// Send a notification with Success level.
-pub async fn send_success(
-    app: &AppHandle,
+pub async fn send_success<R: Runtime>(
+    app: &AppHandle<R>,
     title: impl Into<String>,
     body: impl Into<String>,
 ) -> Result<(), NotificationError> {
@@ -104,8 +104,8 @@ pub async fn send_success(
 }
 
 /// Send a notification with Warning level.
-pub async fn send_warning(
-    app: &AppHandle,
+pub async fn send_warning<R: Runtime>(
+    app: &AppHandle<R>,
     title: impl Into<String>,
     body: impl Into<String>,
 ) -> Result<(), NotificationError> {
@@ -113,8 +113,8 @@ pub async fn send_warning(
 }
 
 /// Send a notification with Error level.
-pub async fn send_error(
-    app: &AppHandle,
+pub async fn send_error<R: Runtime>(
+    app: &AppHandle<R>,
     title: impl Into<String>,
     body: impl Into<String>,
 ) -> Result<(), NotificationError> {
@@ -148,11 +148,9 @@ pub enum NotificationError {
 /// ```no_run
 /// use at_tauri::notifications::start_notification_listener;
 ///
-/// # tauri::async_runtime::block_on(async {
-/// # let app = tauri::test::mock_app();
-/// # let event_bus = at_bridge::event_bus::EventBus::new();
-/// start_notification_listener(&app, &event_bus);
-/// # });
+/// # fn example(app: &tauri::AppHandle, event_bus: &at_bridge::event_bus::EventBus) {
+/// start_notification_listener(app, event_bus);
+/// # }
 /// ```
 pub fn start_notification_listener(app: &AppHandle, event_bus: &EventBus) {
     let rx = event_bus.subscribe_filtered(|msg| matches!(msg, BridgeMessage::BeadUpdated(_)));
@@ -210,36 +208,41 @@ mod tests {
     #[tokio::test]
     async fn test_send_notification() {
         let app = tauri::test::mock_app();
-        let result =
-            send_notification(&app, "Test Title", "Test Body", NotificationLevel::Info).await;
+        let result = send_notification(
+            app.handle(),
+            "Test Title",
+            "Test Body",
+            NotificationLevel::Info,
+        )
+        .await;
         assert!(result.is_ok());
     }
 
     #[tokio::test]
     async fn test_send_info() {
         let app = tauri::test::mock_app();
-        let result = send_info(&app, "Info Title", "Info Body").await;
+        let result = send_info(app.handle(), "Info Title", "Info Body").await;
         assert!(result.is_ok());
     }
 
     #[tokio::test]
     async fn test_send_success() {
         let app = tauri::test::mock_app();
-        let result = send_success(&app, "Success Title", "Success Body").await;
+        let result = send_success(app.handle(), "Success Title", "Success Body").await;
         assert!(result.is_ok());
     }
 
     #[tokio::test]
     async fn test_send_warning() {
         let app = tauri::test::mock_app();
-        let result = send_warning(&app, "Warning Title", "Warning Body").await;
+        let result = send_warning(app.handle(), "Warning Title", "Warning Body").await;
         assert!(result.is_ok());
     }
 
     #[tokio::test]
     async fn test_send_error() {
         let app = tauri::test::mock_app();
-        let result = send_error(&app, "Error Title", "Error Body").await;
+        let result = send_error(app.handle(), "Error Title", "Error Body").await;
         assert!(result.is_ok());
     }
 

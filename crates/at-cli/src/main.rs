@@ -177,6 +177,17 @@ enum Commands {
         out: Option<String>,
     },
 
+    /// Sign the browser in to the web UI: mints a single-use bootstrap link
+    /// (the API key never appears in the page or the URL) and opens it.
+    Dashboard {
+        /// Frontend base URL; default: the running daemon's frontend.
+        #[arg(long)]
+        frontend_url: Option<String>,
+        /// Print the link only; do not open a browser.
+        #[arg(long, default_value_t = false)]
+        no_open: bool,
+    },
+
     /// Ideation and feature discovery.
     Ideation {
         #[command(subcommand)]
@@ -474,6 +485,12 @@ async fn main() -> anyhow::Result<()> {
                 .await?;
             }
         },
+        Some(Commands::Dashboard {
+            frontend_url,
+            no_open,
+        }) => {
+            commands::dashboard::run(&api_url, frontend_url.as_deref(), no_open).await?;
+        }
         Some(Commands::Doctor {
             project_path,
             strict,

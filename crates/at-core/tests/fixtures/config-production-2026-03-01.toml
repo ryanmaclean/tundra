@@ -1,0 +1,36 @@
+# ~/.auto-tundra/config.toml (Production)
+
+[general]
+project_name = "auto-tundra-prod"
+log_level = "warn"  # Minimal logging for performance
+
+[agents]
+max_concurrent = 16
+heartbeat_interval_secs = 60
+auto_restart = true
+
+[security]
+active_execution_profile = "safe"  # Most restrictive
+allowed_paths = ["/opt/prod/workspace"]
+auto_lock_timeout_mins = 5
+
+[daemon]
+port = 9090
+host = "127.0.0.1"  # Internal only
+tls = true
+
+[ui]
+show_token_costs = false  # Hide costs in production UI
+
+[notifications]
+on_task_complete = true
+on_task_failed = true
+on_review_needed = true
+sound_enabled = false
+
+[debug]
+anonymous_error_reporting = false  # Disable in production
+
+[memory]
+enable_memory = true
+enable_agent_memory_access = false  # More restrictive
