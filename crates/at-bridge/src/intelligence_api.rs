@@ -1205,12 +1205,8 @@ pub(crate) async fn get_changelog(
             };
             commits.push_str(&format!("{}: {}\n", category, task.title));
         }
-        let version = format!(
-            "{}.{}.{}",
-            chrono::Utc::now().year(),
-            chrono::Utc::now().month(),
-            chrono::Utc::now().day()
-        );
+        let now = chrono::Utc::now();
+        let version = format!("{}.{}.{}", now.year(), now.month(), now.day());
         drop(tasks);
         let entry = at_intelligence::changelog::ChangelogEngine::build_entry(&commits, &version);
         let markdown = at_intelligence::changelog::ChangelogEngine::render_entries(

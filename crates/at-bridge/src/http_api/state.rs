@@ -310,7 +310,7 @@ impl ApiState {
                     path: std::env::current_dir()
                         .map(|p| p.display().to_string())
                         .unwrap_or_else(|_| ".".to_string()),
-                    created_at: chrono::Utc::now().to_rfc3339(),
+                    created_at: at_time::now_rfc3339(),
                     is_active: true,
                 };
                 let mut m = std::collections::HashMap::new();

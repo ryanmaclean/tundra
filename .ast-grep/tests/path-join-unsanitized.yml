@@ -1,0 +1,5 @@
+id: path-join-unsanitized
+valid:
+  - 'fn f() { std::path::Path::new("fixed"); }'
+invalid:
+  - 'fn f() { std::path::Path::new(base).join(input); }'

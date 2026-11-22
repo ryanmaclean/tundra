@@ -342,6 +342,18 @@ project_name = "partial"
     }
 
     #[test]
+    fn malformed_settings_return_a_parse_error() {
+        let path = tmp_settings_path();
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, "[general\nproject_name = \"invalid\"\n").unwrap();
+
+        let err = SettingsManager::new(&path).load().unwrap_err();
+        assert!(matches!(err, ConfigError::Parse(_)));
+
+        let _ = fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
     fn save_creates_parent_directories() {
         let path = tmp_settings_path();
         assert!(!path.parent().unwrap().exists());

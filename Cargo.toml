@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/at-time",
     "crates/at-core",
     "crates/at-harness",
     "crates/at-session",
@@ -68,8 +69,6 @@ git2 = { version = "0.21", default-features = false }
 subtle = "2"
 tauri = { version = "2", features = ["devtools", "tray-icon", "image-png"] }
 tauri-build = "2"
-datadog-tracing = "0.3"
-datadog-apm-sync = "0.8"
 tracing-datadog = "0.6"
 opentelemetry = "0.31"
 opentelemetry-datadog = "0.9"

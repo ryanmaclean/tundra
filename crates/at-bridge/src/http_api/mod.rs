@@ -113,7 +113,7 @@ mod router {
     use tower_http::compression::CompressionLayer;
     use tower_http::cors::CorsLayer;
 
-    use crate::auth::AuthLayer;
+    use crate::auth::{AuthLayer, SessionStore, WsTicketStore};
     use crate::origin_validation::OriginAllowlist;
     use crate::rate_limit_middleware::RateLimitLayer;
     use at_telemetry::middleware::metrics_middleware;
@@ -201,9 +201,19 @@ mod router {
         // See ApiState::new() for config.
         let rate_limit = RateLimitLayer::new(rate_limiter).with_policy(rate_limit_policy);
         // Authenticated routes: auth runs first, then the rate limiter.
+        // WebSocket tickets: issued by POST /api/v1/ws-tickets (handler reads
+        // the store from an Extension), redeemed by the auth layer.
+        let ws_tickets = Arc::new(WsTicketStore::new());
+        // Browser sessions: bootstrap codes are minted by POST /api/v1/bootstrap-codes
+        // and exchanged at POST /api/v1/session; the auth layer validates the cookie.
+        let sessions = Arc::new(SessionStore::new());
         let protected = protected
             .layer(rate_limit.clone())
-            .layer(AuthLayer::new(api_key));
+            .layer(AuthLayer::with_stores(
+                api_key,
+                ws_tickets.clone(),
+                sessions.clone(),
+            ));
         // Unauthenticated routes (the catalog): rate limited only.
         let public = public.layer(rate_limit);
         // `merge` keeps `protected`'s (auth-layered) fallback, so unmatched
@@ -211,6 +221,8 @@ mod router {
         let app = public.merge(protected);
 
         app.layer(Extension(Arc::new(catalog)))
+            .layer(Extension(ws_tickets))
+            .layer(Extension(sessions))
             .layer(Extension(origins))
             .layer(CompressionLayer::new())
             .layer(axum_middleware::from_fn(metrics_middleware))

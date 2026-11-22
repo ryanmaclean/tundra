@@ -6,7 +6,8 @@
 //! in-process. The Leptos WASM frontend runs in the Tauri webview and
 //! discovers the API port and key via `window.__TUNDRA_API_PORT__` and
 //! `window.__TUNDRA_API_KEY__`, set by a webview initialization script that
-//! runs on every page load (reloads included).
+//! runs on every page load (reloads included). The key lives only in that
+//! in-process script; the daemon's HTTP frontend serves no credential.
 
 mod tray;
 
@@ -259,7 +260,11 @@ fn main() {
     // every navigation. (A one-shot `eval` in setup was lost on reload, e.g.
     // after switching projects, sending the UI to 127.0.0.1:9090.)
     // Only trusted values are injected: the bound port, the daemon API key
-    // (JSON/HTML-escaped by at-api-types) and static mode flags.
+    // (JSON/HTML-escaped by at-api-types) and static mode flags. The key goes
+    // only into this in-process webview script, never into HTML served over
+    // HTTP: a standalone browser signs in with a bootstrap code and an httpOnly
+    // session cookie instead (`at dashboard`; see `at_api_types::auth`), which a
+    // `tauri://` page could not use anyway (SameSite=Strict, other site).
     //
     // Native-shell prototype mode (macOS only) can be enabled via:
     //   AT_NATIVE_SHELL_MACOS=1

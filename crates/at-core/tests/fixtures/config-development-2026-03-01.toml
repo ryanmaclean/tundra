@@ -1,0 +1,26 @@
+# ~/.auto-tundra/config.toml (Development)
+
+[general]
+project_name = "auto-tundra-dev"
+log_level = "debug"
+
+[agents]
+max_concurrent = 4
+auto_restart = true
+
+[security]
+active_execution_profile = "balanced"
+
+[ui]
+show_token_costs = true
+
+[dev_tools]
+yolo_mode = false  # Keep false even in dev for safety
+preferred_ide = "vscode"
+
+[debug]
+anonymous_error_reporting = true
+
+[memory]
+enable_memory = true
+enable_agent_memory_access = true
