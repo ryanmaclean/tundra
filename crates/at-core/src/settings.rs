@@ -107,10 +107,13 @@ impl SettingsManager {
     pub fn load_for_edit(&self) -> Result<Config, ConfigError> {
         let text = match std::fs::read_to_string(&self.path) {
             Ok(text) => text,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Config::default()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(Config::default())
+            }
             Err(error) => return Err(ConfigError::Io(error.to_string())),
         };
-        let config: Config = toml::from_str(&text).map_err(|e| ConfigError::Parse(e.to_string()))?;
+        let config: Config =
+            toml::from_str(&text).map_err(|e| ConfigError::Parse(e.to_string()))?;
         config.validate()?;
         Ok(config)
     }
@@ -423,7 +426,10 @@ project_name = "partial"
     fn editable_load_defaults_only_when_file_is_absent() {
         let path = tmp_settings_path();
         let manager = SettingsManager::new(&path);
-        assert_eq!(manager.load_for_edit().unwrap().general.project_name, "auto-tundra");
+        assert_eq!(
+            manager.load_for_edit().unwrap().general.project_name,
+            "auto-tundra"
+        );
         assert!(!path.exists(), "GET must not initialize a settings file");
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         for text in ["not valid = [", "[kanban]\ncolumn_mode = \"\"\n"] {

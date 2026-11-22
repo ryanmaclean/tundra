@@ -244,9 +244,11 @@ fn cloud_client(timeout: Duration) -> reqwest::Client {
 /// prefixes and the parsed query are retained. Fragments are never sent.
 /// Full completion URLs and deployment-specific API routing are not inferred.
 fn completion_endpoint(base: &str, leaf: &str) -> Result<reqwest::Url, LlmError> {
-    let invalid = || LlmError::HttpError(
-        "Invalid provider base URL: expected an HTTP(S) service root or terminal /v1".into(),
-    );
+    let invalid = || {
+        LlmError::HttpError(
+            "Invalid provider base URL: expected an HTTP(S) service root or terminal /v1".into(),
+        )
+    };
     // Deliberately omit the configured URL and parse details: they may contain
     // credentials or proxy query secrets.
     let mut url = reqwest::Url::parse(base).map_err(|_| invalid())?;
@@ -2021,8 +2023,11 @@ mod retry_decision_tests {
     // Actual complete() requests, not helper-only string comparisons. All native
     // fixtures are authored source and must run only on an admitted remote runner.
     fn endpoint_test_provider(kind: &str, base: &str) -> Box<dyn LlmProvider> {
-        let client = reqwest::Client::builder().no_proxy()
-            .timeout(Duration::from_secs(3)).build().unwrap();
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .timeout(Duration::from_secs(3))
+            .build()
+            .unwrap();
         match kind {
             "anthropic" => {
                 let mut provider = AnthropicProvider::new("test-key").with_base_url(base);
@@ -2044,8 +2049,10 @@ mod retry_decision_tests {
         }
     }
 
-    async fn capture_endpoint_request(listener: tokio::net::TcpListener, anthropic: bool)
-        -> (String, serde_json::Value) {
+    async fn capture_endpoint_request(
+        listener: tokio::net::TcpListener,
+        anthropic: bool,
+    ) -> (String, serde_json::Value) {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         let (mut socket, _) = listener.accept().await.unwrap();
         let mut request = Vec::new();
@@ -2057,10 +2064,14 @@ mod retry_decision_tests {
             assert!(request.len() <= 65_536, "request exceeds fixture bound");
             if let Some(end) = request.windows(4).position(|p| p == b"\r\n\r\n") {
                 let headers = std::str::from_utf8(&request[..end]).unwrap();
-                let length = headers.lines().find_map(|line| {
-                    let (name, value) = line.split_once(':')?;
-                    name.eq_ignore_ascii_case("content-length").then(|| value.trim().parse::<usize>().unwrap())
-                }).expect("JSON request length");
+                let length = headers
+                    .lines()
+                    .find_map(|line| {
+                        let (name, value) = line.split_once(':')?;
+                        name.eq_ignore_ascii_case("content-length")
+                            .then(|| value.trim().parse::<usize>().unwrap())
+                    })
+                    .expect("JSON request length");
                 assert!(end + 4 + length <= 65_536);
                 break (end + 4, length);
             }
@@ -2071,7 +2082,8 @@ mod retry_decision_tests {
             request.extend_from_slice(&chunk[..count]);
             assert!(request.len() <= 65_536);
         }
-        let body = serde_json::from_slice(&request[header_end..header_end + content_length]).unwrap();
+        let body =
+            serde_json::from_slice(&request[header_end..header_end + content_length]).unwrap();
         let headers = String::from_utf8(request[..header_end].to_vec()).unwrap();
         let response = if anthropic {
             serde_json::json!({"content":[{"type":"text","text":"ok"}],"model":"test-model",
@@ -2079,7 +2091,8 @@ mod retry_decision_tests {
         } else {
             serde_json::json!({"choices":[{"message":{"content":"ok"},"finish_reason":"stop"}],
                 "model":"test-model","usage":{"prompt_tokens":2,"completion_tokens":1}})
-        }.to_string();
+        }
+        .to_string();
         socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", response.len(), response).as_bytes()).await.unwrap();
         socket.shutdown().await.unwrap();
         (headers, body)
@@ -2089,24 +2102,40 @@ mod retry_decision_tests {
     async fn all_provider_completion_requests_normalize_root_or_terminal_v1() {
         // Expected version roots are literals, independent of the implementation.
         let cases = [
-            ("", "/v1", ""), ("/", "/v1", ""),
-            ("/v1", "/v1", ""), ("/v1/", "/v1", ""),
-            ("/api", "/api/v1", ""), ("/api/", "/api/v1", ""),
-            ("/api/v1", "/api/v1", ""), ("/api/v1/", "/api/v1", ""),
-            ("/v1/proxy", "/v1/proxy/v1", ""), ("/v10", "/v10/v1", ""),
+            ("", "/v1", ""),
+            ("/", "/v1", ""),
+            ("/v1", "/v1", ""),
+            ("/v1/", "/v1", ""),
+            ("/api", "/api/v1", ""),
+            ("/api/", "/api/v1", ""),
+            ("/api/v1", "/api/v1", ""),
+            ("/api/v1/", "/api/v1", ""),
+            ("/v1/proxy", "/v1/proxy/v1", ""),
+            ("/v10", "/v10/v1", ""),
             ("/proxy%2Ftenant/v1/", "/proxy%2Ftenant/v1", ""),
-            ("/api/v1/?route=a%2Fb&key=x%26y#not-on-wire", "/api/v1", "?route=a%2Fb&key=x%26y"),
+            (
+                "/api/v1/?route=a%2Fb&key=x%26y#not-on-wire",
+                "/api/v1",
+                "?route=a%2Fb&key=x%26y",
+            ),
             ("/api#fragment?not=query", "/api/v1", ""),
         ];
         for kind in ["anthropic", "openai", "local", "local-anonymous"] {
             for (configured, version_root, query) in cases {
                 let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
                 let base = format!("http://{}{configured}", listener.local_addr().unwrap());
-                let mut server = tokio::spawn(capture_endpoint_request(listener, kind == "anthropic"));
+                let mut server =
+                    tokio::spawn(capture_endpoint_request(listener, kind == "anthropic"));
                 let provider = endpoint_test_provider(kind, &base);
-                let messages = [LlmMessage::system("system marker"), LlmMessage::user("user marker")];
-                let response = tokio::time::timeout(Duration::from_secs(5),
-                    provider.complete(&messages, &LlmConfig::default())).await;
+                let messages = [
+                    LlmMessage::system("system marker"),
+                    LlmMessage::user("user marker"),
+                ];
+                let response = tokio::time::timeout(
+                    Duration::from_secs(5),
+                    provider.complete(&messages, &LlmConfig::default()),
+                )
+                .await;
                 let captured = tokio::time::timeout(Duration::from_secs(5), &mut server).await;
                 if captured.is_err() {
                     server.abort();
@@ -2115,8 +2144,15 @@ mod retry_decision_tests {
                 }
                 let (headers, body) = captured.unwrap().unwrap();
                 assert_eq!(response.expect("provider deadline").unwrap().content, "ok");
-                let leaf = if kind == "anthropic" { "messages" } else { "chat/completions" };
-                assert_eq!(headers.lines().next().unwrap(), format!("POST {version_root}/{leaf}{query} HTTP/1.1"));
+                let leaf = if kind == "anthropic" {
+                    "messages"
+                } else {
+                    "chat/completions"
+                };
+                assert_eq!(
+                    headers.lines().next().unwrap(),
+                    format!("POST {version_root}/{leaf}{query} HTTP/1.1")
+                );
                 let lower = headers.to_ascii_lowercase();
                 assert!(lower.contains("content-type: application/json\r\n"));
                 if kind == "anthropic" {
@@ -2126,7 +2162,10 @@ mod retry_decision_tests {
                     assert_eq!(body["system"], "system marker");
                     assert_eq!(body["messages"][0]["role"], "user");
                 } else {
-                    assert_eq!(lower.contains("authorization: bearer test-key\r\n"), kind != "local-anonymous");
+                    assert_eq!(
+                        lower.contains("authorization: bearer test-key\r\n"),
+                        kind != "local-anonymous"
+                    );
                     assert_eq!(body["messages"][0]["role"], "system");
                     assert_eq!(body["messages"][0]["content"], "system marker");
                     assert_eq!(body["messages"][1]["content"], "user marker");
@@ -2143,21 +2182,30 @@ mod retry_decision_tests {
         for kind in ["anthropic", "openai", "local"] {
             let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
             let address = listener.local_addr().unwrap();
-            for base in [format!("ftp://{address}/secret-token"),
+            for base in [
+                format!("ftp://{address}/secret-token"),
                 format!("http://{address}:bad/secret-token"),
-                "relative/secret-token".into()] {
+                "relative/secret-token".into(),
+            ] {
                 let provider = endpoint_test_provider(kind, &base);
-                let error = tokio::time::timeout(Duration::from_secs(5),
-                    provider.complete(&[LlmMessage::user("hello")], &LlmConfig::default()))
-                    .await.expect("provider deadline").unwrap_err();
+                let error = tokio::time::timeout(
+                    Duration::from_secs(5),
+                    provider.complete(&[LlmMessage::user("hello")], &LlmConfig::default()),
+                )
+                .await
+                .expect("provider deadline")
+                .unwrap_err();
                 assert!(matches!(&error, LlmError::HttpError(_)));
                 let message = error.to_string();
                 assert!(message.contains("Invalid provider base URL"));
                 assert!(!message.contains("secret-token"));
             }
-            assert!(tokio::time::timeout(Duration::from_millis(50), listener.accept()).await.is_err(),
-                "invalid URL must never start transport");
+            assert!(
+                tokio::time::timeout(Duration::from_millis(50), listener.accept())
+                    .await
+                    .is_err(),
+                "invalid URL must never start transport"
+            );
         }
     }
-
 }

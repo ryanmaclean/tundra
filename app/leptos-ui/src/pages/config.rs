@@ -703,6 +703,10 @@ pub fn ConfigPage(#[prop(optional)] on_close: Option<Callback<()>>) -> impl Into
     // Page settings as last loaded/saved (JSON), used to PATCH only the
     // fields the user changed. `None` until the initial load succeeds.
     let baseline = StoredValue::new(None::<serde_json::Value>);
+    // Loaded settings snapshot for dedicated profile creation (PATCH of the profile
+    // list only); ordinary saves use the baseline diff above.
+    let (edit_session, set_edit_session) = signal(None::<api::SettingsEditSession>);
+    let (save_pending, set_save_pending) = signal(false);
 
     // -- Load settings from API on mount --
     leptos::task::spawn_local(async move {
@@ -748,6 +752,7 @@ pub fn ConfigPage(#[prop(optional)] on_close: Option<Callback<()>>) -> impl Into
                     set_embedding_model,
                 );
                 baseline.set_value(serde_json::to_value(build_current()).ok());
+                set_edit_session.set(Some(api::SettingsEditSession::new(s, build_current())));
             }
             Err(e) => {
                 web_sys::console::warn_1(&format!("Failed to load settings: {e}").into());
@@ -845,7 +850,9 @@ pub fn ConfigPage(#[prop(optional)] on_close: Option<Callback<()>>) -> impl Into
     };
 
     let on_create_profile = move |_| {
-        if save_pending.get() { return; }
+        if save_pending.get() {
+            return;
+        }
         let Some(session) = edit_session.get() else {
             set_toast_msg.set("Settings have not loaded; reload before creating a profile".into());
             set_show_toast.set(true);
@@ -865,7 +872,8 @@ pub fn ConfigPage(#[prop(optional)] on_close: Option<Callback<()>>) -> impl Into
                     // This does not acknowledge any ordinary editor fields.
                     set_edit_session.set(Some(saved_session));
                     let current = api::ApiApiProfileEntry {
-                        name: new_profile_name.get(), base_url: new_profile_url.get(),
+                        name: new_profile_name.get(),
+                        base_url: new_profile_url.get(),
                         api_key_env: new_profile_key_env.get(),
                     };
                     if current == submitted {
@@ -874,7 +882,10 @@ pub fn ConfigPage(#[prop(optional)] on_close: Option<Callback<()>>) -> impl Into
                         set_new_profile_key_env.set(String::new());
                         set_show_profile_form.set(false);
                     }
-                    set_toast_msg.set("Profile saved. Runtime reload may be required; connection not tested.".into());
+                    set_toast_msg.set(
+                        "Profile saved. Runtime reload may be required; connection not tested."
+                            .into(),
+                    );
                     set_show_toast.set(true);
                 }
                 Err(error) => {
@@ -887,7 +898,9 @@ pub fn ConfigPage(#[prop(optional)] on_close: Option<Callback<()>>) -> impl Into
     };
 
     let _on_reset = move |_: web_sys::MouseEvent| {
-        if save_pending.get() { return; }
+        if save_pending.get() {
+            return;
+        }
         // Reset to defaults
         set_appearance_mode.set("Dark".to_string());
         set_color_theme.set("Neo".to_string());

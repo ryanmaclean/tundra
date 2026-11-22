@@ -953,7 +953,6 @@ pub async fn probe_local_provider(base_url: &str) -> Result<ApiLocalProviderProb
     Err("Failed to connect to local provider endpoint. Tried /api/tags and /v1/models.".to_string())
 }
 
-
 /// A successful load plus the initial editor projection, not a replacement Config.
 /// Unedited backend fields are omitted even when UI defaults differ from storage.
 #[derive(Clone)]
@@ -963,12 +962,19 @@ pub struct SettingsEditSession {
 }
 
 impl SettingsEditSession {
-    pub fn new(loaded: ApiSettings, initial: ApiSettings) -> Self { Self { loaded, initial } }
+    pub fn new(loaded: ApiSettings, initial: ApiSettings) -> Self {
+        Self { loaded, initial }
+    }
 
     /// Only loaded or acknowledged profiles are displayed and used for appends.
-    pub fn profiles(&self) -> &[ApiApiProfileEntry] { &self.loaded.api_profiles.profiles }
+    pub fn profiles(&self) -> &[ApiApiProfileEntry] {
+        &self.loaded.api_profiles.profiles
+    }
 
-    fn profile_create_patch(&self, profile: &ApiApiProfileEntry) -> Result<serde_json::Value, String> {
+    fn profile_create_patch(
+        &self,
+        profile: &ApiApiProfileEntry,
+    ) -> Result<serde_json::Value, String> {
         if profile.name.trim().is_empty() {
             return Err("A profile name is required".into());
         }
@@ -979,11 +985,18 @@ impl SettingsEditSession {
         Ok(serde_json::json!({"api_profiles":{"profiles":profiles}}))
     }
 
-    fn acknowledge_profile_create(&self, partial: &serde_json::Value, saved: ApiSettings)
-        -> Result<Self, String> {
-        let actual = serde_json::to_value(&saved.api_profiles.profiles).map_err(|e| e.to_string())?;
+    fn acknowledge_profile_create(
+        &self,
+        partial: &serde_json::Value,
+        saved: ApiSettings,
+    ) -> Result<Self, String> {
+        let actual =
+            serde_json::to_value(&saved.api_profiles.profiles).map_err(|e| e.to_string())?;
         if actual != partial["api_profiles"]["profiles"] {
-            return Err("Profile response did not acknowledge the submitted list; reload before retrying".into());
+            return Err(
+                "Profile response did not acknowledge the submitted list; reload before retrying"
+                    .into(),
+            );
         }
         let mut next = self.clone();
         next.loaded.api_profiles = saved.api_profiles;
@@ -1003,14 +1016,61 @@ impl SettingsEditSession {
             ("appearance", &["appearance_mode", "color_theme"]),
             ("display", &["theme", "font_size"]),
             ("language", &["interface_language"]),
-            ("dev_tools", &["preferred_ide", "preferred_terminal", "auto_name_terminals", "yolo_mode"]),
-            ("agent_profile", &["default_profile", "agent_framework", "ai_terminal_naming"]),
-            ("paths", &["python_path", "git_path", "github_cli_path", "claude_cli_path"]),
-            ("integrations", &["github_token_env", "github_owner", "github_repo", "gitlab_token_env", "linear_api_key_env", "linear_team_id", "openai_api_key_env"]),
+            (
+                "dev_tools",
+                &[
+                    "preferred_ide",
+                    "preferred_terminal",
+                    "auto_name_terminals",
+                    "yolo_mode",
+                ],
+            ),
+            (
+                "agent_profile",
+                &["default_profile", "agent_framework", "ai_terminal_naming"],
+            ),
+            (
+                "paths",
+                &[
+                    "python_path",
+                    "git_path",
+                    "github_cli_path",
+                    "claude_cli_path",
+                ],
+            ),
+            (
+                "integrations",
+                &[
+                    "github_token_env",
+                    "github_owner",
+                    "github_repo",
+                    "gitlab_token_env",
+                    "linear_api_key_env",
+                    "linear_team_id",
+                    "openai_api_key_env",
+                ],
+            ),
             ("updates", &["auto_update_projects", "beta_updates"]),
-            ("notifications", &["on_task_complete", "on_task_failed", "on_review_needed", "sound_enabled"]),
+            (
+                "notifications",
+                &[
+                    "on_task_complete",
+                    "on_task_failed",
+                    "on_review_needed",
+                    "sound_enabled",
+                ],
+            ),
             ("debug", &["anonymous_error_reporting"]),
-            ("memory", &["enable_memory", "enable_agent_memory_access", "graphiti_server_url", "embedding_provider", "embedding_model"]),
+            (
+                "memory",
+                &[
+                    "enable_memory",
+                    "enable_agent_memory_access",
+                    "graphiti_server_url",
+                    "embedding_provider",
+                    "embedding_model",
+                ],
+            ),
         ];
         for (section, keys) in fields {
             let mut changed = Map::new();
@@ -1019,22 +1079,35 @@ impl SettingsEditSession {
                     changed.insert((*key).to_string(), after[*section][*key].clone());
                 }
             }
-            if !changed.is_empty() { patch.insert((*section).into(), Value::Object(changed)); }
+            if !changed.is_empty() {
+                patch.insert((*section).into(), Value::Object(changed));
+            }
         }
         let old_phases = &self.initial.agent_profile.phase_configs;
         let new_phases = &edited.agent_profile.phase_configs;
         if serde_json::to_value(old_phases).map_err(|e| e.to_string())?
-            != serde_json::to_value(new_phases).map_err(|e| e.to_string())? {
+            != serde_json::to_value(new_phases).map_err(|e| e.to_string())?
+        {
             // PATCH replaces arrays. Preserve unknown/unedited stored phases by
             // identity, not index. Reject ambiguous identities rather than guess.
-            for phases in [old_phases, new_phases, &self.loaded.agent_profile.phase_configs] {
+            for phases in [
+                old_phases,
+                new_phases,
+                &self.loaded.agent_profile.phase_configs,
+            ] {
                 let mut names = std::collections::HashSet::new();
-                if phases.iter().any(|p| p.phase.is_empty() || !names.insert(&p.phase)) {
+                if phases
+                    .iter()
+                    .any(|p| p.phase.is_empty() || !names.insert(&p.phase))
+                {
                     return Err("Cannot edit ambiguous phase identities".into());
                 }
             }
             if old_phases.len() != new_phases.len()
-                || old_phases.iter().any(|p| !new_phases.iter().any(|n| n.phase == p.phase)) {
+                || old_phases
+                    .iter()
+                    .any(|p| !new_phases.iter().any(|n| n.phase == p.phase))
+            {
                 return Err("This editor cannot add or remove phase identities".into());
             }
             let mut merged = self.loaded.agent_profile.phase_configs.clone();
@@ -1043,17 +1116,29 @@ impl SettingsEditSession {
                 let prior = old_phases.iter().find(|p| p.phase == next.phase).unwrap();
                 let model_changed = prior.model != next.model;
                 let thinking_changed = prior.thinking_level != next.thinking_level;
-                if !model_changed && !thinking_changed { continue; }
+                if !model_changed && !thinking_changed {
+                    continue;
+                }
                 changed = true;
                 if let Some(saved) = merged.iter_mut().find(|p| p.phase == next.phase) {
-                    if model_changed { saved.model = next.model.clone(); }
-                    if thinking_changed { saved.thinking_level = next.thinking_level.clone(); }
-                } else { merged.push(next.clone()); }
+                    if model_changed {
+                        saved.model = next.model.clone();
+                    }
+                    if thinking_changed {
+                        saved.thinking_level = next.thinking_level.clone();
+                    }
+                } else {
+                    merged.push(next.clone());
+                }
             }
             if changed {
-                let section = patch.entry("agent_profile").or_insert_with(|| Value::Object(Map::new()));
-                section.as_object_mut().unwrap().insert("phase_configs".into(),
-                    serde_json::to_value(merged).map_err(|e| e.to_string())?);
+                let section = patch
+                    .entry("agent_profile")
+                    .or_insert_with(|| Value::Object(Map::new()));
+                section.as_object_mut().unwrap().insert(
+                    "phase_configs".into(),
+                    serde_json::to_value(merged).map_err(|e| e.to_string())?,
+                );
             }
         }
         Ok(Value::Object(patch))
@@ -1062,16 +1147,23 @@ impl SettingsEditSession {
 
 /// Build the ordinary-save payload only after a successful initial load.
 /// Reset deliberately uses save_settings (full replacement) instead.
-pub fn settings_edit_patch(session: Option<&SettingsEditSession>, edited: &ApiSettings)
-    -> Result<serde_json::Value, String> {
-    session.ok_or_else(|| "Settings have not loaded; reload before saving".to_string())?.patch(edited)
+pub fn settings_edit_patch(
+    session: Option<&SettingsEditSession>,
+    edited: &ApiSettings,
+) -> Result<serde_json::Value, String> {
+    session
+        .ok_or_else(|| "Settings have not loaded; reload before saving".to_string())?
+        .patch(edited)
 }
 
 /// Dedicated profile creation shares the real PATCH route but not ordinary-save
 /// acknowledgement. A failed load/request/response cannot fabricate a saved list.
-pub async fn create_api_profile(session: Option<&SettingsEditSession>, profile: &ApiApiProfileEntry)
-    -> Result<SettingsEditSession, String> {
-    let session = session.ok_or_else(|| "Settings have not loaded; reload before creating a profile".to_string())?;
+pub async fn create_api_profile(
+    session: Option<&SettingsEditSession>,
+    profile: &ApiApiProfileEntry,
+) -> Result<SettingsEditSession, String> {
+    let session = session
+        .ok_or_else(|| "Settings have not loaded; reload before creating a profile".to_string())?;
     let partial = session.profile_create_patch(profile)?;
     let saved = patch_settings(&partial).await?;
     session.acknowledge_profile_create(&partial, saved)
@@ -1080,7 +1172,9 @@ pub async fn create_api_profile(session: Option<&SettingsEditSession>, profile: 
 pub async fn patch_settings(partial: &serde_json::Value) -> Result<ApiSettings, String> {
     if is_tauri() {
         #[derive(Serialize)]
-        struct CmdPatchSettingsArgs<'a> { partial: &'a serde_json::Value }
+        struct CmdPatchSettingsArgs<'a> {
+            partial: &'a serde_json::Value,
+        }
         tauri_invoke_with_args("cmd_patch_settings", &CmdPatchSettingsArgs { partial }).await
     } else {
         patch_json(&format!("{}/api/settings", get_api_base()), partial).await
@@ -2215,9 +2309,23 @@ mod settings_edit_tests {
         let mut edited = initial;
         edited.notifications.sound_enabled = !edited.notifications.sound_enabled;
         let patch = settings_edit_patch(Some(&session), &edited).unwrap();
-        assert_eq!(patch, json!({"notifications":{"sound_enabled":edited.notifications.sound_enabled}}));
-        for omitted in ["api_profiles", "general", "display", "paths", "updates", "security", "terminal"] {
-            assert!(patch.get(omitted).is_none(), "unexpected replacement: {omitted}");
+        assert_eq!(
+            patch,
+            json!({"notifications":{"sound_enabled":edited.notifications.sound_enabled}})
+        );
+        for omitted in [
+            "api_profiles",
+            "general",
+            "display",
+            "paths",
+            "updates",
+            "security",
+            "terminal",
+        ] {
+            assert!(
+                patch.get(omitted).is_none(),
+                "unexpected replacement: {omitted}"
+            );
         }
     }
 
@@ -2232,7 +2340,10 @@ mod settings_edit_tests {
         let session = SettingsEditSession::new(initial.clone(), initial.clone());
         let mut edited = initial;
         edited.integrations.github_owner = None;
-        assert_eq!(session.patch(&edited).unwrap(), json!({"integrations":{"github_owner":null}}));
+        assert_eq!(
+            session.patch(&edited).unwrap(),
+            json!({"integrations":{"github_owner":null}})
+        );
     }
 
     #[test]
@@ -2261,8 +2372,13 @@ mod settings_edit_tests {
         assert_eq!(phases[2]["model"], "stored-utility");
         assert_eq!(phases[2]["thinking_level"], "stored-low");
         let mut duplicate = loaded;
-        duplicate.agent_profile.phase_configs.push(duplicate.agent_profile.phase_configs[1].clone());
-        assert!(SettingsEditSession::new(duplicate, initial).patch(&reordered).is_err());
+        duplicate
+            .agent_profile
+            .phase_configs
+            .push(duplicate.agent_profile.phase_configs[1].clone());
+        assert!(SettingsEditSession::new(duplicate, initial)
+            .patch(&reordered)
+            .is_err());
     }
 
     #[test]
@@ -2274,7 +2390,10 @@ mod settings_edit_tests {
         later.language.interface_language = "fr".into();
         // Same submitted-draft/returned-snapshot binding as the Save handler.
         let acknowledged = SettingsEditSession::new(submitted.clone(), submitted);
-        assert_eq!(acknowledged.patch(&later).unwrap(), json!({"language":{"interface_language":"fr"}}));
+        assert_eq!(
+            acknowledged.patch(&later).unwrap(),
+            json!({"language":{"interface_language":"fr"}})
+        );
         // Failed requests keep the old session, so the original edit remains dirty.
         let failed = SettingsEditSession::new(initial.clone(), initial);
         assert_eq!(failed.patch(&later).unwrap()["display"]["font_size"], 18);
@@ -2283,48 +2402,88 @@ mod settings_edit_tests {
     fn profile_creation_preserves_existing_list_and_ordinary_dirty_baseline() {
         let mut loaded = ApiSettings::default();
         loaded.api_profiles.profiles.push(ApiApiProfileEntry {
-            name: "existing".into(), base_url: "https://existing.invalid".into(), api_key_env: "EXISTING_KEY".into(),
+            name: "existing".into(),
+            base_url: "https://existing.invalid".into(),
+            api_key_env: "EXISTING_KEY".into(),
         });
         let initial = ApiSettings::default();
         let session = SettingsEditSession::new(loaded.clone(), initial.clone());
         let mut dirty_before = initial.clone();
         dirty_before.display.font_size = 23;
         let submitted = ApiApiProfileEntry {
-            name: "new".into(), base_url: "https://new.invalid".into(), api_key_env: "NEW_KEY".into(),
+            name: "new".into(),
+            base_url: "https://new.invalid".into(),
+            api_key_env: "NEW_KEY".into(),
         };
         let partial = session.profile_create_patch(&submitted).unwrap();
         assert_eq!(partial.as_object().unwrap().len(), 1);
         assert_eq!(partial["api_profiles"]["profiles"][0]["name"], "existing");
         assert_eq!(partial["api_profiles"]["profiles"][1]["name"], "new");
-        assert_eq!(session.profiles().len(), 1, "preparing is not acknowledgement");
+        assert_eq!(
+            session.profiles().len(),
+            1,
+            "preparing is not acknowledgement"
+        );
         let mut response = loaded;
         response.api_profiles.profiles.push(submitted.clone());
         // Unrelated fields in a full response must not acknowledge ordinary edits.
         response.display.font_size = 23;
-        let saved = session.acknowledge_profile_create(&partial, response).unwrap();
-        assert_eq!(saved.profiles(), &[session.profiles()[0].clone(), submitted]);
-        assert_eq!(saved.patch(&dirty_before).unwrap(), json!({"display":{"font_size":23}}));
+        let saved = session
+            .acknowledge_profile_create(&partial, response)
+            .unwrap();
+        assert_eq!(
+            saved.profiles(),
+            &[session.profiles()[0].clone(), submitted]
+        );
+        assert_eq!(
+            saved.patch(&dirty_before).unwrap(),
+            json!({"display":{"font_size":23}})
+        );
         let mut later = dirty_before;
         later.language.interface_language = "fr".into();
-        assert_eq!(saved.patch(&later).unwrap(), json!({"display":{"font_size":23},"language":{"interface_language":"fr"}}));
+        assert_eq!(
+            saved.patch(&later).unwrap(),
+            json!({"display":{"font_size":23},"language":{"interface_language":"fr"}})
+        );
         assert!(saved.patch(&later).unwrap().get("api_profiles").is_none());
-        let second = ApiApiProfileEntry { name: "next".into(), ..Default::default() };
-        assert_eq!(saved.profile_create_patch(&second).unwrap()["api_profiles"]["profiles"].as_array().unwrap().len(), 3);
+        let second = ApiApiProfileEntry {
+            name: "next".into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            saved.profile_create_patch(&second).unwrap()["api_profiles"]["profiles"]
+                .as_array()
+                .unwrap()
+                .len(),
+            3
+        );
     }
 
     #[test]
     fn profile_creation_rejects_empty_name_and_unacknowledged_response() {
         let initial = ApiSettings::default();
         let session = SettingsEditSession::new(initial.clone(), initial);
-        assert!(session.profile_create_patch(&ApiApiProfileEntry {name: "  ".into(), ..Default::default()}).is_err());
-        let profile = ApiApiProfileEntry { name: "only".into(), ..Default::default() };
+        assert!(session
+            .profile_create_patch(&ApiApiProfileEntry {
+                name: "  ".into(),
+                ..Default::default()
+            })
+            .is_err());
+        let profile = ApiApiProfileEntry {
+            name: "only".into(),
+            ..Default::default()
+        };
         let partial = session.profile_create_patch(&profile).unwrap();
         // A success-shaped but missing/wrong persisted list is not an acknowledgement.
-        assert!(session.acknowledge_profile_create(&partial, ApiSettings::default()).is_err());
+        assert!(session
+            .acknowledge_profile_create(&partial, ApiSettings::default())
+            .is_err());
         assert!(session.profiles().is_empty());
-        assert_eq!(profile.name, "only", "preparation/response rejection must not mutate form data");
+        assert_eq!(
+            profile.name, "only",
+            "preparation/response rejection must not mutate form data"
+        );
     }
-
 }
 
 #[cfg(all(test, target_arch = "wasm32"))]
@@ -2334,18 +2493,30 @@ mod settings_transport_tests {
     use wasm_bindgen_test::*;
     wasm_bindgen_test_configure!(run_in_browser);
 
-    struct RestoreProperty { object: js_sys::Object, key: JsValue, had: bool, old: JsValue }
+    struct RestoreProperty {
+        object: js_sys::Object,
+        key: JsValue,
+        had: bool,
+        old: JsValue,
+    }
     impl RestoreProperty {
         fn new(object: &js_sys::Object, name: &str) -> Self {
             let key = JsValue::from_str(name);
-            Self { object: object.clone(), had: js_sys::Reflect::has(object, &key).unwrap(),
-                old: js_sys::Reflect::get(object, &key).unwrap(), key }
+            Self {
+                object: object.clone(),
+                had: js_sys::Reflect::has(object, &key).unwrap(),
+                old: js_sys::Reflect::get(object, &key).unwrap(),
+                key,
+            }
         }
     }
     impl Drop for RestoreProperty {
         fn drop(&mut self) {
-            if self.had { let _ = js_sys::Reflect::set(&self.object, &self.key, &self.old); }
-            else { let _ = js_sys::Reflect::delete_property(&self.object, &self.key); }
+            if self.had {
+                let _ = js_sys::Reflect::set(&self.object, &self.key, &self.old);
+            } else {
+                let _ = js_sys::Reflect::delete_property(&self.object, &self.key);
+            }
         }
     }
 
@@ -2374,17 +2545,29 @@ mod settings_transport_tests {
         let request = requests.borrow_mut().remove(0);
         assert_eq!(request.method(), "PATCH");
         assert!(request.url().ends_with("/api/settings"));
-        let text = JsFuture::from(request.text().unwrap()).await.unwrap().as_string().unwrap();
-        assert_eq!(serde_json::from_str::<serde_json::Value>(&text).unwrap(), patch);
+        let text = JsFuture::from(request.text().unwrap())
+            .await
+            .unwrap()
+            .as_string()
+            .unwrap();
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&text).unwrap(),
+            patch
+        );
         save_settings(&ApiSettings::default()).await.unwrap();
         assert_eq!(requests.borrow_mut().remove(0).method(), "PUT");
 
         let calls = Rc::new(RefCell::new(Vec::<(String, serde_json::Value)>::new()));
         let captured = calls.clone();
-        let invoke = Closure::wrap(Box::new(move |command: String, args: JsValue| -> js_sys::Promise {
-            captured.borrow_mut().push((command, serde_wasm_bindgen::from_value(args).unwrap()));
-            js_sys::Promise::resolve(&js_sys::Object::new())
-        }) as Box<dyn FnMut(String, JsValue) -> js_sys::Promise>);
+        let invoke = Closure::wrap(Box::new(
+            move |command: String, args: JsValue| -> js_sys::Promise {
+                captured
+                    .borrow_mut()
+                    .push((command, serde_wasm_bindgen::from_value(args).unwrap()));
+                js_sys::Promise::resolve(&js_sys::Object::new())
+            },
+        )
+            as Box<dyn FnMut(String, JsValue) -> js_sys::Promise>);
         let tauri = js_sys::Object::new();
         let namespace = js_sys::Object::new();
         js_sys::Reflect::set(&tauri, &JsValue::from_str("invoke"), invoke.as_ref()).unwrap();
@@ -2394,7 +2577,10 @@ mod settings_transport_tests {
         let (command, args) = calls.borrow_mut().remove(0);
         assert_eq!(command, "cmd_patch_settings");
         assert_eq!(args, serde_json::json!({"partial":patch}));
-        assert!(requests.borrow().is_empty(), "Tauri save must not fall back to HTTP");
+        assert!(
+            requests.borrow().is_empty(),
+            "Tauri save must not fall back to HTTP"
+        );
         save_settings(&ApiSettings::default()).await.unwrap();
         let (command, args) = calls.borrow_mut().remove(0);
         assert_eq!(command, "cmd_put_settings");
@@ -2408,9 +2594,16 @@ mod settings_transport_tests {
         let _restore_fetch = RestoreProperty::new(&window, "fetch");
         js_sys::Reflect::delete_property(&window, &JsValue::from_str("__TAURI__")).unwrap();
         let mut loaded = ApiSettings::default();
-        loaded.api_profiles.profiles.push(ApiApiProfileEntry { name: "existing".into(), ..Default::default() });
+        loaded.api_profiles.profiles.push(ApiApiProfileEntry {
+            name: "existing".into(),
+            ..Default::default()
+        });
         let session = SettingsEditSession::new(loaded.clone(), ApiSettings::default());
-        let entry = ApiApiProfileEntry { name: "new".into(), base_url: "https://example.invalid".into(), api_key_env: "NEW_KEY".into() };
+        let entry = ApiApiProfileEntry {
+            name: "new".into(),
+            base_url: "https://example.invalid".into(),
+            api_key_env: "NEW_KEY".into(),
+        };
         let expected = session.profile_create_patch(&entry).unwrap();
         let mut response = loaded;
         response.api_profiles.profiles.push(entry.clone());
@@ -2425,19 +2618,33 @@ mod settings_transport_tests {
             if *fail_fetch.borrow() {
                 js_sys::Promise::reject(&JsValue::from_str("controlled transport failure"))
             } else {
-                js_sys::Promise::resolve(Response::new_with_opt_str(Some(&response_body)).unwrap().as_ref())
+                js_sys::Promise::resolve(
+                    Response::new_with_opt_str(Some(&response_body))
+                        .unwrap()
+                        .as_ref(),
+                )
             }
         }) as Box<dyn FnMut(Request) -> js_sys::Promise>);
         js_sys::Reflect::set(&window, &JsValue::from_str("fetch"), fetch.as_ref()).unwrap();
         assert!(create_api_profile(None, &entry).await.is_err());
-        assert!(requests.borrow().is_empty(), "failed load must not send a request");
+        assert!(
+            requests.borrow().is_empty(),
+            "failed load must not send a request"
+        );
         let saved = create_api_profile(Some(&session), &entry).await.unwrap();
         assert_eq!(saved.profiles().len(), 2);
         let request = requests.borrow_mut().remove(0);
         assert_eq!(request.method(), "PATCH");
         assert!(request.url().ends_with("/api/settings"));
-        let text = JsFuture::from(request.text().unwrap()).await.unwrap().as_string().unwrap();
-        assert_eq!(serde_json::from_str::<serde_json::Value>(&text).unwrap(), expected);
+        let text = JsFuture::from(request.text().unwrap())
+            .await
+            .unwrap()
+            .as_string()
+            .unwrap();
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&text).unwrap(),
+            expected
+        );
         *fail.borrow_mut() = true;
         assert!(create_api_profile(Some(&session), &entry).await.is_err());
         assert_eq!(session.profiles().len(), 1);
@@ -2447,14 +2654,19 @@ mod settings_transport_tests {
         let calls = Rc::new(RefCell::new(Vec::<(String, serde_json::Value)>::new()));
         let captured = calls.clone();
         let fail_invoke = fail.clone();
-        let invoke = Closure::wrap(Box::new(move |command: String, args: JsValue| -> js_sys::Promise {
-            captured.borrow_mut().push((command, serde_wasm_bindgen::from_value(args).unwrap()));
-            if *fail_invoke.borrow() {
-                js_sys::Promise::reject(&JsValue::from_str("controlled IPC failure"))
-            } else {
-                js_sys::Promise::resolve(&js_sys::JSON::parse(&response_json).unwrap())
-            }
-        }) as Box<dyn FnMut(String, JsValue) -> js_sys::Promise>);
+        let invoke = Closure::wrap(Box::new(
+            move |command: String, args: JsValue| -> js_sys::Promise {
+                captured
+                    .borrow_mut()
+                    .push((command, serde_wasm_bindgen::from_value(args).unwrap()));
+                if *fail_invoke.borrow() {
+                    js_sys::Promise::reject(&JsValue::from_str("controlled IPC failure"))
+                } else {
+                    js_sys::Promise::resolve(&js_sys::JSON::parse(&response_json).unwrap())
+                }
+            },
+        )
+            as Box<dyn FnMut(String, JsValue) -> js_sys::Promise>);
         let tauri = js_sys::Object::new();
         let namespace = js_sys::Object::new();
         js_sys::Reflect::set(&tauri, &JsValue::from_str("invoke"), invoke.as_ref()).unwrap();
@@ -2470,8 +2682,12 @@ mod settings_transport_tests {
         assert!(create_api_profile(Some(&session), &entry).await.is_err());
         assert_eq!(session.profiles().len(), 1);
         assert_eq!(entry.name, "new");
-        assert!(requests.borrow().is_empty(), "Tauri must not silently fall back to HTTP");
+        assert!(
+            requests.borrow().is_empty(),
+            "Tauri must not silently fall back to HTTP"
+        );
     }
+}
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod auth_url_tests {

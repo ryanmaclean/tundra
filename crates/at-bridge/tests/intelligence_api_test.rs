@@ -590,7 +590,6 @@ async fn test_delete_nonexistent_session_returns_404() {
     assert_eq!(resp.status(), 404);
 }
 
-
 // Configured AI failures must remain failures at the HTTP boundary. These
 // cases also ensure provider diagnostics never escape into the public response.
 #[tokio::test]
@@ -598,10 +597,21 @@ async fn configured_ideation_errors_do_not_create_placeholders() {
     use at_intelligence::{ideation::IdeationEngine, LlmError, LlmMockProvider};
 
     let failures = vec![
-        LlmError::ApiError { status: 401, message: "private-provider-body".into() },
-        LlmError::ApiError { status: 403, message: "private-provider-body".into() },
-        LlmError::RateLimited { retry_after_secs: Some(60) },
-        LlmError::ApiError { status: 503, message: "private-provider-body".into() },
+        LlmError::ApiError {
+            status: 401,
+            message: "private-provider-body".into(),
+        },
+        LlmError::ApiError {
+            status: 403,
+            message: "private-provider-body".into(),
+        },
+        LlmError::RateLimited {
+            retry_after_secs: Some(60),
+        },
+        LlmError::ApiError {
+            status: 503,
+            message: "private-provider-body".into(),
+        },
         LlmError::Timeout,
         LlmError::HttpError("private-provider-endpoint".into()),
         LlmError::ParseError("private-provider-body".into()),
@@ -622,12 +632,17 @@ async fn configured_ideation_errors_do_not_create_placeholders() {
         let response = client
             .post(format!("{base}/api/ideation/generate"))
             .json(&json!({"category": "quality", "context": "new request"}))
-            .send().await.unwrap();
+            .send()
+            .await
+            .unwrap();
         assert_eq!(response.status(), 502);
-        assert_eq!(response.json::<Value>().await.unwrap(), json!({
-            "error": "Idea generation failed",
-            "code": "ideation_generation_failed"
-        }));
+        assert_eq!(
+            response.json::<Value>().await.unwrap(),
+            json!({
+                "error": "Idea generation failed",
+                "code": "ideation_generation_failed"
+            })
+        );
         let engine = state.ideation_engine.read().await;
         assert_eq!(engine.list_ideas().len(), 1);
         assert_eq!(engine.list_ideas()[0].id, existing_id);
@@ -643,9 +658,14 @@ async fn configured_empty_registry_is_not_offline_mode() {
     let response = reqwest::Client::new()
         .post(format!("{base}/api/ideation/generate"))
         .json(&json!({"category": "quality", "context": "no eligible providers"}))
-        .send().await.unwrap();
+        .send()
+        .await
+        .unwrap();
     assert_eq!(response.status(), 502);
-    assert_eq!(response.json::<Value>().await.unwrap()["code"], "ideation_generation_failed");
+    assert_eq!(
+        response.json::<Value>().await.unwrap()["code"],
+        "ideation_generation_failed"
+    );
     assert!(state.ideation_engine.read().await.list_ideas().is_empty());
 }
 
@@ -692,9 +712,12 @@ async fn registry_http_generation_preserves_provider_success_and_failure() {
         registry.add_profile(profile);
         *state.ideation_engine.write().await = IdeationEngine::with_registry(Arc::new(registry));
 
-        let response = client.post(format!("{base}/api/ideation/generate"))
+        let response = client
+            .post(format!("{base}/api/ideation/generate"))
             .json(&json!({"category": "quality", "context": "controlled fixture"}))
-            .send().await.unwrap();
+            .send()
+            .await
+            .unwrap();
         let observed_status = response.status();
         let body: Value = response.json().await.unwrap();
         server.abort();
@@ -709,10 +732,13 @@ async fn registry_http_generation_preserves_provider_success_and_failure() {
             assert_eq!(engine.list_ideas()[0].title, "Provider idea");
         } else {
             assert_eq!(observed_status, 502);
-            assert_eq!(body, json!({
-                "error": "Idea generation failed",
-                "code": "ideation_generation_failed"
-            }));
+            assert_eq!(
+                body,
+                json!({
+                    "error": "Idea generation failed",
+                    "code": "ideation_generation_failed"
+                })
+            );
             assert!(engine.list_ideas().is_empty());
         }
     }

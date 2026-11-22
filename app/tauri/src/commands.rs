@@ -1195,8 +1195,7 @@ fn patch_settings_for_edit(
     current = serde_json::from_value(current_val)
         .map_err(|e| format!("invalid config after merge: {}", e))?;
 
-    manager.save(&current)
-        .map_err(|e| e.to_string())?;
+    manager.save(&current).map_err(|e| e.to_string())?;
 
     Ok(current)
 }
@@ -1245,31 +1244,49 @@ mod tests {
     }
 
     fn edit_test_manager() -> at_core::settings::SettingsManager {
-        at_core::settings::SettingsManager::new(std::env::temp_dir()
-            .join(format!("at-tauri-settings-edit-{}", uuid::Uuid::new_v4()))
-            .join("settings.toml"))
+        at_core::settings::SettingsManager::new(
+            std::env::temp_dir()
+                .join(format!("at-tauri-settings-edit-{}", uuid::Uuid::new_v4()))
+                .join("settings.toml"),
+        )
     }
 
     #[test]
     fn settings_command_patch_preserves_profiles_and_omitted_sections() {
         let manager = edit_test_manager();
         let mut config = Config::default();
-        config.api_profiles.profiles.push(at_core::config::ApiProfileEntry {
-            name: "custom".into(), base_url: "https://example.invalid".into(), api_key_env: "CUSTOM_KEY".into(),
-        });
+        config
+            .api_profiles
+            .profiles
+            .push(at_core::config::ApiProfileEntry {
+                name: "custom".into(),
+                base_url: "https://example.invalid".into(),
+                api_key_env: "CUSTOM_KEY".into(),
+            });
         config.general.project_name = "persisted".into();
         config.integrations.github_owner = Some("clear-me".into());
         manager.save(&config).unwrap();
-        let saved = patch_settings_for_edit(&manager, serde_json::json!({
-            "display":{"font_size":18}, "integrations":{"github_owner":null}
-        })).unwrap();
+        let saved = patch_settings_for_edit(
+            &manager,
+            serde_json::json!({
+                "display":{"font_size":18}, "integrations":{"github_owner":null}
+            }),
+        )
+        .unwrap();
         assert_eq!(saved.display.font_size, 18);
         assert_eq!(saved.api_profiles.profiles[0].name, "custom");
         assert_eq!(saved.general.project_name, "persisted");
         assert!(saved.integrations.github_owner.is_none());
-        assert_eq!(settings_for_edit(&manager).unwrap().api_profiles.profiles[0].base_url, "https://example.invalid");
+        assert_eq!(
+            settings_for_edit(&manager).unwrap().api_profiles.profiles[0].base_url,
+            "https://example.invalid"
+        );
         // Explicit API array removal remains a deliberate operation, unlike omission.
-        patch_settings_for_edit(&manager, serde_json::json!({"api_profiles":{"profiles":[]}})).unwrap();
+        patch_settings_for_edit(
+            &manager,
+            serde_json::json!({"api_profiles":{"profiles":[]}}),
+        )
+        .unwrap();
         assert!(manager.load().unwrap().api_profiles.profiles.is_empty());
         std::fs::remove_dir_all(manager.path().parent().unwrap()).unwrap();
     }
@@ -1279,12 +1296,18 @@ mod tests {
         let manager = edit_test_manager();
         assert!(settings_for_edit(&manager).is_ok()); // genuine missing file
         assert!(!manager.path().exists());
-        let saved = patch_settings_for_edit(&manager, serde_json::json!({"display":{"font_size":18}})).unwrap();
+        let saved =
+            patch_settings_for_edit(&manager, serde_json::json!({"display":{"font_size":18}}))
+                .unwrap();
         assert_eq!(saved.display.font_size, 18);
         for text in ["not valid = [", "[kanban]\ncolumn_mode = \"\"\n"] {
             std::fs::write(manager.path(), text).unwrap();
             assert!(settings_for_edit(&manager).is_err());
-            assert!(patch_settings_for_edit(&manager, serde_json::json!({"display":{"font_size":20}})).is_err());
+            assert!(patch_settings_for_edit(
+                &manager,
+                serde_json::json!({"display":{"font_size":20}})
+            )
+            .is_err());
             assert_eq!(std::fs::read_to_string(manager.path()).unwrap(), text);
         }
         std::fs::remove_file(manager.path()).unwrap();
@@ -1298,18 +1321,30 @@ mod tests {
     fn profile_create_patch_persists_append_without_replacing_other_settings() {
         let manager = edit_test_manager();
         let mut config = Config::default();
-        config.api_profiles.profiles.push(at_core::config::ApiProfileEntry {
-            name: "existing".into(), base_url: "https://old.invalid".into(), api_key_env: "OLD_KEY".into(),
-        });
+        config
+            .api_profiles
+            .profiles
+            .push(at_core::config::ApiProfileEntry {
+                name: "existing".into(),
+                base_url: "https://old.invalid".into(),
+                api_key_env: "OLD_KEY".into(),
+            });
         config.general.project_name = "unchanged".into();
         config.display.font_size = 21;
         manager.save(&config).unwrap();
         let loaded = settings_for_edit(&manager).unwrap();
-        let mut profiles = serde_json::to_value(&loaded.api_profiles.profiles).unwrap().as_array().unwrap().clone();
+        let mut profiles = serde_json::to_value(&loaded.api_profiles.profiles)
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .clone();
         profiles.push(serde_json::json!({"name":"new","base_url":"https://new.invalid","api_key_env":"NEW_KEY"}));
         let partial = serde_json::json!({"api_profiles":{"profiles":profiles}});
         let response = patch_settings_for_edit(&manager, partial.clone()).unwrap();
-        assert_eq!(serde_json::to_value(&response.api_profiles.profiles).unwrap(), partial["api_profiles"]["profiles"]);
+        assert_eq!(
+            serde_json::to_value(&response.api_profiles.profiles).unwrap(),
+            partial["api_profiles"]["profiles"]
+        );
         let disk = manager.load().unwrap();
         assert_eq!(disk.api_profiles.profiles.len(), 2);
         assert_eq!(disk.api_profiles.profiles[0].api_key_env, "OLD_KEY");
@@ -1319,9 +1354,12 @@ mod tests {
         patch_settings_for_edit(&manager, serde_json::json!({"display":{"font_size":23}})).unwrap();
         assert_eq!(manager.load().unwrap().api_profiles.profiles.len(), 2);
         let before = std::fs::read(manager.path()).unwrap();
-        assert!(patch_settings_for_edit(&manager, serde_json::json!({"api_profiles":{"profiles":"invalid"}})).is_err());
+        assert!(patch_settings_for_edit(
+            &manager,
+            serde_json::json!({"api_profiles":{"profiles":"invalid"}})
+        )
+        .is_err());
         assert_eq!(std::fs::read(manager.path()).unwrap(), before);
         std::fs::remove_dir_all(manager.path().parent().unwrap()).unwrap();
     }
-
 }

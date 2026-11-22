@@ -600,13 +600,15 @@ fn test_generated_at_timestamp() {
 #[tokio::test]
 async fn configured_cloud_profile_urls_preserve_protocol_and_errors() {
     use at_intelligence::api_profiles::{ApiProfile, ProviderKind, ResilientRegistry};
+    use std::time::Duration;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
-    use std::time::Duration;
 
     struct TestKey(String);
     impl Drop for TestKey {
-        fn drop(&mut self) { std::env::remove_var(&self.0); }
+        fn drop(&mut self) {
+            std::env::remove_var(&self.0);
+        }
     }
     // Unique, synthetic key: never read or change the user's provider variables.
     let key = TestKey(format!("TUNDRA_URL_TEST_{}", Uuid::new_v4().simple()));
@@ -638,11 +640,14 @@ async fn configured_cloud_profile_urls_preserve_protocol_and_errors() {
                     assert!(request.len() <= 65536, "bounded request");
                     if let Some(end) = request.windows(4).position(|w| w == b"\r\n\r\n") {
                         let headers = std::str::from_utf8(&request[..end]).unwrap();
-                        let len = headers.lines().find_map(|line| {
-                            let (name, value) = line.split_once(':')?;
-                            name.eq_ignore_ascii_case("content-length")
-                                .then(|| value.trim().parse::<usize>().unwrap())
-                        }).expect("JSON request content length");
+                        let len = headers
+                            .lines()
+                            .find_map(|line| {
+                                let (name, value) = line.split_once(':')?;
+                                name.eq_ignore_ascii_case("content-length")
+                                    .then(|| value.trim().parse::<usize>().unwrap())
+                            })
+                            .expect("JSON request content length");
                         assert!(len <= 65536);
                         break (end + 4, len);
                     }
@@ -655,8 +660,13 @@ async fn configured_cloud_profile_urls_preserve_protocol_and_errors() {
                 }
                 let reply = format!("HTTP/1.1 {status} Test\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{response}", response.len());
                 socket.write_all(reply.as_bytes()).await.unwrap();
-                (String::from_utf8(request[..header_end].to_vec()).unwrap(),
-                    serde_json::from_slice::<serde_json::Value>(&request[header_end..header_end + body_len]).unwrap())
+                (
+                    String::from_utf8(request[..header_end].to_vec()).unwrap(),
+                    serde_json::from_slice::<serde_json::Value>(
+                        &request[header_end..header_end + body_len],
+                    )
+                    .unwrap(),
+                )
             });
             let mut profile = ApiProfile::new("configured-cloud", kind);
             profile.api_key_env = key.0.clone();
@@ -667,17 +677,26 @@ async fn configured_cloud_profile_urls_preserve_protocol_and_errors() {
             let mut engine = IdeationEngine::with_registry(Arc::new(registry));
             let baseline = engine.generate_ideas(&IdeaCategory::Quality, "existing");
             let baseline_ids: Vec<_> = baseline.ideas.iter().map(|idea| idea.id).collect();
-            let result = tokio::time::timeout(Duration::from_secs(3),
-                engine.generate_ideas_with_ai(&IdeaCategory::Quality, "context")).await;
+            let result = tokio::time::timeout(
+                Duration::from_secs(3),
+                engine.generate_ideas_with_ai(&IdeaCategory::Quality, "context"),
+            )
+            .await;
             let mut server = server;
             let observed = tokio::time::timeout(Duration::from_secs(3), &mut server).await;
             if observed.is_err() {
                 server.abort();
                 let _ = server.await;
             }
-            let (headers, body) = observed.expect("configured endpoint must receive request").unwrap();
+            let (headers, body) = observed
+                .expect("configured endpoint must receive request")
+                .unwrap();
             let result = result.expect("bounded ideation request");
-            let path = if kind == ProviderKind::Anthropic { "/gateway/v1/messages" } else { "/gateway/v1/chat/completions" };
+            let path = if kind == ProviderKind::Anthropic {
+                "/gateway/v1/messages"
+            } else {
+                "/gateway/v1/chat/completions"
+            };
             assert!(headers.starts_with(&format!("POST {path} HTTP/1.1\r\n")));
             let headers = headers.to_ascii_lowercase();
             if kind == ProviderKind::Anthropic {
@@ -693,8 +712,18 @@ async fn configured_cloud_profile_urls_preserve_protocol_and_errors() {
                 assert_eq!(result.unwrap().ideas[0].title, "Configured endpoint idea");
                 assert_eq!(engine.list_ideas().len(), baseline_ids.len() + 1);
             } else {
-                assert!(result.is_err(), "configured auth failure must remain visible");
-                assert_eq!(engine.list_ideas().iter().map(|idea| idea.id).collect::<Vec<_>>(), baseline_ids);
+                assert!(
+                    result.is_err(),
+                    "configured auth failure must remain visible"
+                );
+                assert_eq!(
+                    engine
+                        .list_ideas()
+                        .iter()
+                        .map(|idea| idea.id)
+                        .collect::<Vec<_>>(),
+                    baseline_ids
+                );
             }
         }
     }
