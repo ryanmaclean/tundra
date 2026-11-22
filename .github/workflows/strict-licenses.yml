@@ -244,9 +244,16 @@ jobs:
           fi
           git diff --exit-code -- Cargo.lock
           shopt -s nullglob
-          fingerprints=(target/release/.fingerprint/at-tauri-*/bin-auto-tundra.json)
+          # Cargo's build-directory layout moved the fingerprints between
+          # releases (.fingerprint/<pkg>-<hash>/ and build/<pkg>/<hash>/fingerprint/);
+          # accept either, but still require exactly one binary fingerprint.
+          mapfile -d '' fingerprints < <(find target/release \
+            \( -path '*/.fingerprint/at-tauri-*' -o -path '*/build/at-tauri/*/fingerprint' \) \
+            -name bin-auto-tundra.json -print0)
           printf 'at-tauri binary fingerprints found: %s\n' "${#fingerprints[@]}"
-          ls -d target/release/.fingerprint/at-tauri-*/* || true
+          if [[ "${#fingerprints[@]}" -ne 1 ]]; then
+            find target/release -path '*ingerprint*' -name '*auto-tundra*' | head -20
+          fi
           test "${#fingerprints[@]}" -eq 1
           cp "${fingerprints[0]}" "$RUNNER_TEMP/installer-bin-fingerprint.json"
           if [[ '${{ matrix.profile }}' == sounds ]]; then
