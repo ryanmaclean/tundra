@@ -747,7 +747,7 @@ mod tests {
         db.conn
             .call(|conn| {
                 conn.execute_batch("DROP TABLE beads;")?;
-                Ok(())
+                Ok::<(), rusqlite::Error>(())
             })
             .await
             .unwrap();
@@ -852,7 +852,7 @@ mod tests {
                      VALUES (?1, 'ghost', 'retired_role', 'claude', 'active', ?2, ?2, '{bad json')",
                     rusqlite::params![Uuid::new_v4().to_string(), now],
                 )?;
-                Ok(())
+                Ok::<(), rusqlite::Error>(())
             })
             .await
             .unwrap();

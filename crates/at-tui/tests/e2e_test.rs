@@ -25,7 +25,7 @@ const OLLAMA_URL: &str = "http://localhost:11434";
 fn daemon_client() -> ApiClient {
     let key = std::env::var("AUTO_TUNDRA_API_KEY").expect("E2E daemon credential required");
     assert!(!key.is_empty(), "E2E daemon credential must not be empty");
-    ApiClient::with_api_key(DAEMON_URL, Some(key.clone()))
+    ApiClient::with_api_key(DAEMON_URL, Some(&key))
 }
 
 fn raw_client(url: &str, timeout_secs: u64) -> Result<reqwest::blocking::Client, String> {
@@ -54,15 +54,15 @@ fn raw_client(url: &str, timeout_secs: u64) -> Result<reqwest::blocking::Client,
 fn require_daemon() -> ApiClient {
     let client = daemon_client();
     match client.fetch_agents() {
-        Ok(_) => Some(client),
+        Ok(_) => client,
         Err(e) => {
             panic!("daemon not reachable at {DAEMON_URL}: {e}");
         }
     }
 }
 
-/// Whether Ollama is reachable.
-fn ollama_available() -> bool {
+/// Check if Ollama is reachable.
+fn require_ollama() {
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(3))
         .build()
@@ -71,44 +71,6 @@ fn ollama_available() -> bool {
         Ok(resp) if resp.status().is_success() => {}
         _ => panic!("Ollama not available at {OLLAMA_URL}"),
     }
-}
-
-/// Yield a daemon [`ApiClient`], or return early from the test (skip) when
-/// the daemon is not reachable.
-macro_rules! require_daemon {
-    () => {
-        match daemon_client() {
-            Some(client) => client,
-            None => return,
-        }
-    };
-}
-
-/// Return early from the test (skip) when Ollama is not reachable.
-macro_rules! require_ollama {
-    () => {
-        if !ollama_available() {
-            return;
-        }
-    };
-}
-
-/// Blocking HTTP client that sends the daemon API key (same discovery as
-/// [`ApiClient::new`]) so raw requests authenticate like the TUI does.
-fn raw_client(timeout_secs: u64) -> Result<reqwest::blocking::Client, String> {
-    let mut headers = reqwest::header::HeaderMap::new();
-    if let Some(key) =
-        at_core::config::CredentialProvider::read_daemon_api_key().filter(|k| !k.is_empty())
-    {
-        if let Ok(value) = reqwest::header::HeaderValue::from_str(&key) {
-            headers.insert(at_api_types::auth::API_KEY_HEADER, value);
-        }
-    }
-    reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(timeout_secs))
-        .default_headers(headers)
-        .build()
-        .map_err(|e| format!("client build: {e}"))
 }
 
 /// POST JSON to an endpoint and return the response body.
@@ -166,7 +128,7 @@ fn e2e_daemon_rejects_missing_and_wrong_credentials() {
 
 #[test]
 fn e2e_daemon_reachable() {
-    let client = require_daemon!();
+    let client = require_daemon();
     // Basic connectivity — fetch_agents should return a parseable response
     let agents = client.fetch_agents().expect("fetch_agents failed");
     // Daemon always has at least the default agents
@@ -178,13 +140,13 @@ fn e2e_daemon_reachable() {
 
 #[test]
 fn e2e_ollama_reachable() {
-    require_ollama!();
+    require_ollama();
     // If we get here, Ollama is responding on port 11434
 }
 
 #[test]
 fn e2e_ollama_has_models() {
-    require_ollama!();
+    require_ollama();
     let resp = get_json(&format!("{OLLAMA_URL}/api/tags")).expect("failed to list models");
     let models = resp["models"]
         .as_array()
@@ -204,7 +166,7 @@ fn e2e_ollama_has_models() {
 
 #[test]
 fn e2e_fetch_all_returns_valid_data() {
-    let client = require_daemon!();
+    let client = require_daemon();
     let data = client.fetch_all();
 
     // Agents must exist (daemon seeds defaults)
@@ -220,7 +182,7 @@ fn e2e_fetch_all_returns_valid_data() {
 
 #[test]
 fn e2e_fetch_agents_schema() {
-    let client = require_daemon!();
+    let client = require_daemon();
     let agents = client.fetch_agents().expect("fetch_agents");
 
     for agent in &agents {
@@ -257,7 +219,7 @@ fn e2e_fetch_agents_schema() {
 
 #[test]
 fn e2e_fetch_beads() {
-    let client = require_daemon!();
+    let client = require_daemon();
     let beads = client.fetch_beads().expect("fetch_beads");
 
     // May be empty or have beads — either is valid
@@ -287,7 +249,7 @@ fn e2e_fetch_beads() {
 
 #[test]
 fn e2e_fetch_kpi() {
-    let client = require_daemon!();
+    let client = require_daemon();
     let kpi = client.fetch_kpi().expect("fetch_kpi");
 
     // KPI should reflect consistent state
@@ -301,7 +263,7 @@ fn e2e_fetch_kpi() {
 
 #[test]
 fn e2e_fetch_sessions() {
-    let client = require_daemon!();
+    let client = require_daemon();
     let sessions = client.fetch_sessions().expect("fetch_sessions");
 
     // Sessions should match agent count (each agent gets a session entry)
@@ -319,14 +281,14 @@ fn e2e_fetch_sessions() {
 
 #[test]
 fn e2e_fetch_convoys() {
-    let client = require_daemon!();
+    let client = require_daemon();
     // Should not error even if empty
     let _convoys = client.fetch_convoys().expect("fetch_convoys");
 }
 
 #[test]
 fn e2e_fetch_costs() {
-    let client = require_daemon!();
+    let client = require_daemon();
     let costs = client.fetch_costs().expect("fetch_costs");
 
     // Token counts are u64, so they're always non-negative - just verify they exist
@@ -336,20 +298,20 @@ fn e2e_fetch_costs() {
 
 #[test]
 fn e2e_fetch_mcp_servers() {
-    let client = require_daemon!();
+    let client = require_daemon();
     let _servers = client.fetch_mcp_servers().expect("fetch_mcp_servers");
     // May be empty if no MCP servers configured — that's ok
 }
 
 #[test]
 fn e2e_fetch_worktrees() {
-    let client = require_daemon!();
+    let client = require_daemon();
     let _worktrees = client.fetch_worktrees().expect("fetch_worktrees");
 }
 
 #[test]
 fn e2e_fetch_github_issues() {
-    let client = require_daemon!();
+    let client = require_daemon();
     // GitHub endpoints return 503 without a token — that's expected
     match client.fetch_github_issues() {
         Ok(issues) => {
@@ -367,7 +329,7 @@ fn e2e_fetch_github_issues() {
 
 #[test]
 fn e2e_fetch_github_prs() {
-    let client = require_daemon!();
+    let client = require_daemon();
     match client.fetch_github_prs() {
         Ok(prs) => {
             for pr in &prs {
@@ -384,19 +346,19 @@ fn e2e_fetch_github_prs() {
 
 #[test]
 fn e2e_fetch_roadmap() {
-    let client = require_daemon!();
+    let client = require_daemon();
     let _roadmap = client.fetch_roadmap().expect("fetch_roadmap");
 }
 
 #[test]
 fn e2e_fetch_ideas() {
-    let client = require_daemon!();
+    let client = require_daemon();
     let _ideas = client.fetch_ideas().expect("fetch_ideas");
 }
 
 #[test]
 fn e2e_fetch_stacks() {
-    let client = require_daemon!();
+    let client = require_daemon();
     // Stacks endpoint may not be implemented (404) — graceful fallback
     match client.fetch_stacks() {
         Ok(stacks) => eprintln!("Got {} stacks", stacks.len()),
@@ -409,13 +371,13 @@ fn e2e_fetch_stacks() {
 
 #[test]
 fn e2e_fetch_changelog() {
-    let client = require_daemon!();
+    let client = require_daemon();
     let _changelog = client.fetch_changelog().expect("fetch_changelog");
 }
 
 #[test]
 fn e2e_fetch_memory() {
-    let client = require_daemon!();
+    let client = require_daemon();
     let _memory = client.fetch_memory().expect("fetch_memory");
 }
 
@@ -425,7 +387,7 @@ fn e2e_fetch_memory() {
 
 #[test]
 fn e2e_create_and_fetch_bead() {
-    require_daemon!();
+    require_daemon();
     let url = format!("{DAEMON_URL}/api/beads");
 
     let body = serde_json::json!({
@@ -448,7 +410,7 @@ fn e2e_create_and_fetch_bead() {
 
 #[test]
 fn e2e_create_and_fetch_task() {
-    require_daemon!();
+    require_daemon();
 
     // Create a task — API requires bead_id, category, priority, complexity
     let body = serde_json::json!({
@@ -472,7 +434,7 @@ fn e2e_create_and_fetch_task() {
 
 #[test]
 fn e2e_task_lifecycle() {
-    require_daemon!();
+    require_daemon();
 
     // Create with all required fields
     let body = serde_json::json!({
@@ -513,7 +475,7 @@ fn e2e_task_lifecycle() {
 
 #[test]
 fn e2e_settings_endpoint() {
-    require_daemon!();
+    require_daemon();
     let settings = get_json(&format!("{DAEMON_URL}/api/settings")).expect("fetch settings");
 
     // Settings should have known top-level keys
@@ -528,7 +490,7 @@ fn e2e_settings_endpoint() {
 
 #[test]
 fn e2e_credentials_status() {
-    require_daemon!();
+    require_daemon();
     let creds = get_json(&format!("{DAEMON_URL}/api/credentials/status")).expect("creds");
 
     // Should indicate available providers
@@ -540,7 +502,7 @@ fn e2e_credentials_status() {
 
 #[test]
 fn e2e_cli_available() {
-    require_daemon!();
+    require_daemon();
     let cli = get_json(&format!("{DAEMON_URL}/api/cli/available")).expect("cli available");
 
     // Should be an object with CLI tool availability
@@ -556,7 +518,7 @@ fn e2e_cli_available() {
 
 #[test]
 fn e2e_ollama_chat_completion() {
-    require_ollama!();
+    require_ollama();
 
     // Direct Ollama chat API test with a fast model
     let body = serde_json::json!({
@@ -585,7 +547,7 @@ fn e2e_ollama_chat_completion() {
 
 #[test]
 fn e2e_ollama_list_local_models() {
-    require_ollama!();
+    require_ollama();
 
     let resp = get_json(&format!("{OLLAMA_URL}/api/tags")).expect("list models");
     let models = resp["models"].as_array().expect("models array");
@@ -604,7 +566,7 @@ fn e2e_ollama_list_local_models() {
 
 #[test]
 fn e2e_generate_ideas_returns_valid_structure() {
-    require_daemon!();
+    require_daemon();
 
     // POST to ideation/generate — should return IdeationResult with ideas array
     let body = serde_json::json!({});
@@ -644,7 +606,7 @@ fn e2e_generate_ideas_returns_valid_structure() {
 
 #[test]
 fn e2e_fetch_all_and_render_no_panic() {
-    let client = require_daemon!();
+    let client = require_daemon();
     let data = client.fetch_all();
 
     // Verify we got real data (not all defaults)
@@ -680,7 +642,7 @@ fn e2e_fetch_all_and_render_no_panic() {
 
 #[test]
 fn e2e_websocket_endpoint_exists() {
-    require_daemon!();
+    require_daemon();
 
     // Verify the WebSocket upgrade endpoint responds (should return 400 without
     // proper upgrade headers, but not 404)
@@ -703,7 +665,7 @@ fn e2e_websocket_endpoint_exists() {
 
 #[test]
 fn e2e_concurrent_fetch_all() {
-    require_daemon!();
+    require_daemon();
 
     // Fetch all data 5 times concurrently to verify no race conditions
     let handles: Vec<_> = (0..5)
@@ -748,7 +710,7 @@ fn e2e_invalid_endpoint_returns_404() {
 
 #[test]
 fn e2e_invalid_task_id_returns_404() {
-    require_daemon!();
+    require_daemon();
     let resp = get_json(&format!(
         "{DAEMON_URL}/api/tasks/00000000-0000-0000-0000-000000000000"
     ));
@@ -761,7 +723,7 @@ fn e2e_invalid_task_id_returns_404() {
 
 #[test]
 fn e2e_kpi_consistent_with_beads() {
-    let client = require_daemon!();
+    let client = require_daemon();
 
     let kpi = client.fetch_kpi().expect("kpi");
     let beads = client.fetch_beads().expect("beads");

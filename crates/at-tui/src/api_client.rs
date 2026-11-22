@@ -116,20 +116,20 @@ impl ApiClient {
     pub fn new(base: &str) -> Self {
         Self::with_api_key(
             base,
-            at_core::config::CredentialProvider::read_daemon_api_key(),
+            at_core::config::CredentialProvider::read_daemon_api_key().as_deref(),
         )
     }
 
     /// Client for a discovered daemon connection.
     pub fn from_connection(conn: &at_core::lockfile::DaemonConnection) -> Self {
-        Self::with_api_key(&conn.api_url, conn.api_key.clone())
+        Self::with_api_key(&conn.api_url, conn.api_key.as_deref())
     }
 
     /// Client that sends `api_key` as `X-API-Key` on every request.
-    pub fn with_api_key(base: &str, api_key: Option<String>) -> Self {
+    pub fn with_api_key(base: &str, api_key: Option<&str>) -> Self {
         let mut headers = reqwest::header::HeaderMap::new();
         if let Some(key) = api_key.filter(|k| !k.is_empty()) {
-            if let Ok(mut value) = reqwest::header::HeaderValue::from_str(&key) {
+            if let Ok(mut value) = reqwest::header::HeaderValue::from_str(key) {
                 value.set_sensitive(true);
                 headers.insert(auth::API_KEY_HEADER, value);
             }
@@ -471,7 +471,7 @@ mod auth_tests {
     #[test]
     fn sends_api_key_header() {
         let base = start_auth_server("tui-key");
-        let ok = ApiClient::with_api_key(&base, Some("tui-key".into()));
+        let ok = ApiClient::with_api_key(&base, Some("tui-key"));
         assert!(ok.fetch_agents().is_ok());
 
         let err = ApiClient::with_api_key(&base, None)
@@ -483,7 +483,7 @@ mod auth_tests {
     #[test]
     fn fetch_all_reports_unauthorized_instead_of_connected() {
         let base = start_auth_server("tui-key");
-        let data = ApiClient::with_api_key(&base, Some("wrong".into())).fetch_all();
+        let data = ApiClient::with_api_key(&base, Some("wrong")).fetch_all();
         assert!(!data.status.connected());
         assert!(data.status.unauthorized);
         assert!(data.status.failed > 0);
@@ -492,7 +492,7 @@ mod auth_tests {
     #[test]
     fn fetch_all_reports_connected_with_key() {
         let base = start_auth_server("tui-key");
-        let data = ApiClient::with_api_key(&base, Some("tui-key".into())).fetch_all();
+        let data = ApiClient::with_api_key(&base, Some("tui-key")).fetch_all();
         assert!(data.status.connected());
         assert!(!data.status.unauthorized);
     }
