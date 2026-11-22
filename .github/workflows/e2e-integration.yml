@@ -116,6 +116,7 @@ jobs:
           echo "::add-mask::$AUTO_TUNDRA_API_KEY"
           echo "AUTO_TUNDRA_API_KEY=$AUTO_TUNDRA_API_KEY" >> "$GITHUB_ENV"
           nohup cargo run -p at-daemon --features e2e-test -- --replace >/tmp/at-daemon.log 2>&1 &
+          daemon_pid=$!
           for _ in {1..60}; do
             if curl -sf -H "x-api-key: $AUTO_TUNDRA_API_KEY" http://127.0.0.1:9090/api/status >/dev/null; then
               exit 0
@@ -199,6 +200,7 @@ jobs:
           echo "::add-mask::$AUTO_TUNDRA_API_KEY"
           echo "AUTO_TUNDRA_API_KEY=$AUTO_TUNDRA_API_KEY" >> "$GITHUB_ENV"
           nohup cargo run -p at-daemon --features e2e-test -- --replace >/tmp/at-daemon.log 2>&1 &
+          daemon_pid=$!
           for _ in {1..45}; do
             if curl -sf -H "x-api-key: $AUTO_TUNDRA_API_KEY" http://127.0.0.1:9090/api/status >/dev/null; then
               exit 0
