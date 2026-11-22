@@ -50,6 +50,12 @@ ignore = [
     # owner: tundra maintainers
     "RUSTSEC-2026-0194",
     "RUSTSEC-2026-0195",
+    # chrono 0.4.x is flagged unmaintained (RUSTSEC-2026-0543, no fixed version, all
+    # versions affected). It is a direct dependency across the workspace and the
+    # replacement (jiff) is a separate migration; no vulnerability is involved.
+    # expires: 2027-01-24
+    # owner: tundra maintainers
+    "RUSTSEC-2026-0543",
 ]
 
 # ---------------------------------------------------------------------------
