@@ -32,7 +32,7 @@ flume = { workspace = true }
 axum = { workspace = true }
 async-trait = { workspace = true }
 mimalloc = { workspace = true }
-toml = "0.8"
+toml = "0.9"
 tower-http = { workspace = true }
 opentelemetry = { workspace = true }
 tracing-opentelemetry = { workspace = true }
