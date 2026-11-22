@@ -248,9 +248,11 @@ def main [work_dir: string, --cargo-cache: string, --pending: string = ""] {
     let entries_final = $entries
     ($old_manifest | upsert entries ($entries | sort-by name version)) | to json --indent 2 | $"($in)\n" | save --force $'($tpl)/manifest.json'
     let keep_dirs = ($entries | each {|e| $e.file | path dirname | path basename} | uniq)
-    for d in (ls $tpl | where type == dir | get name) {
-        let b = ($d | path basename)
-        if $b != 'selected' and $b not-in $keep_dirs { rm --recursive --force $d; print $'REMOVED ($d)' }
+    # only directories the previous manifest owned; other files here (e.g. ui/ notices) are not ours
+    let old_dirs = ($old_manifest.entries | each {|e| $e.file | path dirname | path basename} | uniq)
+    for b in ($old_dirs | where {|b| $b not-in $keep_dirs}) {
+        let d = ($tpl | path join $b)
+        if ($d | path exists) { rm --recursive --force $d; print $"REMOVED ($d)" }
     }
 
     # 3. selected-source bill: every product package in both Linux profiles
