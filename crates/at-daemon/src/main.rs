@@ -109,7 +109,7 @@ async fn main() -> Result<()> {
     // --- Make sure the API key exists before any client can discover us ---
     // Clients read the lockfile and then the key file; creating the key first
     // means a client never sees a lockfile without a matching key.
-    let api_key = at_core::config::CredentialProvider::ensure_daemon_api_key();
+    let _ = at_core::config::CredentialProvider::ensure_daemon_api_key();
     let api_key_file = at_core::config::CredentialProvider::daemon_api_key()
         .is_none()
         .then(|| {
@@ -122,7 +122,6 @@ async fn main() -> Result<()> {
     let (frontend_port_tx, frontend_port_rx) = tokio::sync::oneshot::channel::<u16>();
     let frontend_handle = tokio::spawn(serve_frontend(
         api_port,
-        api_key,
         config.daemon.host.clone(),
         frontend_port_tx,
     ));
@@ -184,7 +183,9 @@ async fn main() -> Result<()> {
         shutdown.trigger();
     });
 
-    info!("dashboard: http://localhost:{frontend_port}");
+    // No key and no bootstrap code in this URL or in the served HTML: the owner
+    // signs in with `at dashboard`, which reads the 0600 key file.
+    info!("dashboard: http://127.0.0.1:{frontend_port} (sign in with `at dashboard`)");
     info!("API server: http://localhost:{api_port}");
     profiling::record_event(
         "daemon_ready",
@@ -255,31 +256,26 @@ async fn frontend_isolation_headers_middleware(
 
 /// Serve the Leptos dist/ directory as static files on a dynamic port.
 ///
-/// Injects the daemon connection (see
-/// `at_api_types::auth::browser_bootstrap_script`) into index.html so the
-/// WASM frontend discovers the API server and can authenticate to it. The API
-/// key is only injected for loopback peers addressing the server by a
-/// loopback host name (see [`may_receive_api_key`]).
+/// Injects the API port (see `at_api_types::auth::browser_bootstrap_script`)
+/// into index.html so the WASM frontend discovers the API server. It **never**
+/// injects the API key or a bootstrap code: this server answers every loopback
+/// peer, so any local account could read them. The owner signs in with
+/// `at dashboard`, which mints a single-use bootstrap code with the key and
+/// opens `<frontend>/#bootstrap=<code>`; the page exchanges it for an httpOnly
+/// session cookie (`POST /api/v1/session`).
 /// Sends the bound port back to main via the oneshot channel.
 ///
 /// **Hot-reload friendly**: index.html is read from disk on every request so
 /// that `trunk build` takes effect immediately without restarting the daemon.
-async fn serve_frontend(
-    api_port: u16,
-    api_key: String,
-    host: String,
-    port_tx: tokio::sync::oneshot::Sender<u16>,
-) {
+async fn serve_frontend(api_port: u16, host: String, port_tx: tokio::sync::oneshot::Sender<u16>) {
     let _span = traced_span!("serve_frontend", component = "http_server");
 
     profiling::record_event("frontend_server_start", &[]);
 
-    use axum::extract::{ConnectInfo, State};
-    use axum::http::HeaderMap;
+    use axum::extract::State;
     use axum::response::Html;
     use axum::routing::get;
     use axum::Router;
-    use std::net::SocketAddr;
     use std::sync::Arc;
     use tower_http::services::ServeDir;
 
@@ -290,27 +286,17 @@ async fn serve_frontend(
     struct FrontendCtx {
         dist: std::path::PathBuf,
         api_port: u16,
-        api_key: String,
     }
     let ctx = Arc::new(FrontendCtx {
         dist: dist_dir.clone(),
         api_port,
-        api_key,
     });
 
     // Read index.html from disk on each request and inject the connection.
     // This means `trunk build` takes effect immediately without daemon restart.
-    async fn index(
-        State(ctx): State<Arc<FrontendCtx>>,
-        ConnectInfo(peer): ConnectInfo<SocketAddr>,
-        headers: HeaderMap,
-    ) -> Html<String> {
-        let host = headers
-            .get(axum::http::header::HOST)
-            .and_then(|v| v.to_str().ok());
-        let key = may_receive_api_key(peer.ip(), host).then_some(ctx.api_key.as_str());
+    async fn index(State(ctx): State<Arc<FrontendCtx>>) -> Html<String> {
         let raw = std::fs::read_to_string(ctx.dist.join("index.html")).ok();
-        Html(render_index(raw, ctx.api_port, key))
+        Html(render_index(raw, ctx.api_port))
     }
 
     // Serve live index.html for root and SPA fallback; ServeDir for all other assets.
@@ -345,7 +331,7 @@ async fn serve_frontend(
         &[("port", &port.to_string()), ("protocol", "http")],
     );
 
-    let service = app.into_make_service_with_connect_info::<std::net::SocketAddr>();
+    let service = app.into_make_service();
     if let Err(e) = profile_async!("serve_frontend_requests", axum::serve(listener, service)).await
     {
         tracing::error!(error = %e, "frontend server error");
@@ -353,36 +339,12 @@ async fn serve_frontend(
     }
 }
 
-/// Whether an index.html request may receive the API key.
-///
-/// Only a loopback peer that addresses us by a loopback host name gets it:
-/// the peer check keeps the key off the LAN when `daemon.host` is not
-/// loopback, and the Host check defeats DNS-rebinding pages (their Host is
-/// the attacker's domain even though the TCP peer is local).
-fn may_receive_api_key(peer: std::net::IpAddr, host_header: Option<&str>) -> bool {
-    if !peer.is_loopback() {
-        return false;
-    }
-    let Some(host) = host_header else {
-        return false;
-    };
-    // Strip the port: "[::1]:8080" -> "[::1]", "localhost:80" -> "localhost".
-    let name = if host.starts_with('[') {
-        host.split_once(']')
-            .map(|(h, _)| &host[..h.len() + 1])
-            .unwrap_or(host)
-    } else {
-        host.rsplit_once(':').map(|(h, _)| h).unwrap_or(host)
-    };
-    matches!(name, "localhost" | "127.0.0.1" | "[::1]")
-}
-
-/// Inject the browser bootstrap script into index.html (or a placeholder page
-/// when the frontend has not been built).
-fn render_index(raw: Option<String>, api_port: u16, api_key: Option<&str>) -> String {
+/// Inject the browser bootstrap script (API port only, never a credential)
+/// into index.html, or a placeholder page when the frontend has not been built.
+fn render_index(raw: Option<String>, api_port: u16) -> String {
     let script = format!(
         "<script>{}</script>",
-        at_bridge::http_api::at_api_types::auth::browser_bootstrap_script(api_port, api_key)
+        at_bridge::http_api::at_api_types::auth::browser_bootstrap_script(api_port, None)
     );
     match raw {
         Some(raw) => raw.replacen("</head>", &format!("{script}</head>"), 1),
@@ -428,40 +390,65 @@ fn find_dist_dir() -> std::path::PathBuf {
 #[cfg(test)]
 mod frontend_tests {
     use super::*;
-    use std::net::IpAddr;
-
-    const V4_LO: IpAddr = IpAddr::V4(std::net::Ipv4Addr::LOCALHOST);
-    const V6_LO: IpAddr = IpAddr::V6(std::net::Ipv6Addr::LOCALHOST);
 
     #[test]
-    fn key_only_for_loopback_peer_and_loopback_host() {
-        assert!(may_receive_api_key(V4_LO, Some("127.0.0.1:5173")));
-        assert!(may_receive_api_key(V4_LO, Some("localhost:5173")));
-        assert!(may_receive_api_key(V4_LO, Some("localhost")));
-        assert!(may_receive_api_key(V6_LO, Some("[::1]:5173")));
-
-        // DNS rebinding: local TCP peer, attacker Host.
-        assert!(!may_receive_api_key(V4_LO, Some("evil.example:5173")));
-        assert!(!may_receive_api_key(V4_LO, Some("localhost.evil.example")));
-        assert!(!may_receive_api_key(V4_LO, None));
-        // LAN peer.
-        let lan: IpAddr = "192.168.1.20".parse().unwrap();
-        assert!(!may_receive_api_key(lan, Some("127.0.0.1:5173")));
-    }
-
-    #[test]
-    fn render_index_injects_port_and_key_into_head() {
+    fn render_index_injects_only_the_port_into_head() {
         let html = render_index(
             Some("<html><head><title>t</title></head><body></body></html>".into()),
             4242,
-            Some("k-1"),
         );
-        assert!(html.contains(
-            "<script>window.__TUNDRA_API_PORT__=4242;window.__TUNDRA_API_KEY__=\"k-1\";</script></head>"
-        ));
+        assert!(html.contains("<script>window.__TUNDRA_API_PORT__=4242;</script></head>"));
 
-        let no_key = render_index(None, 4242, None);
-        assert!(no_key.contains("window.__TUNDRA_API_PORT__=4242;"));
-        assert!(!no_key.contains("__TUNDRA_API_KEY__"));
+        let placeholder = render_index(None, 4242);
+        assert!(placeholder.contains("window.__TUNDRA_API_PORT__=4242;"));
+    }
+
+    /// Security invariant: the HTML any loopback peer can fetch must not carry
+    /// the API key, a bootstrap code or any other credential (a second local
+    /// account could read it). Sign-in is `at dashboard`.
+    fn assert_no_credential(html: &str) {
+        let lower = html.to_ascii_lowercase();
+        for needle in ["__tundra_api_key__", "bootstrap=", "api_key", "x-api-key"] {
+            assert!(
+                !lower.contains(needle),
+                "HTML must not mention {needle}: {html}"
+            );
+        }
+    }
+
+    #[test]
+    fn rendered_pages_never_contain_a_credential() {
+        for raw in [
+            Some("<html><head></head><body></body></html>".to_string()),
+            Some("<html><body>no head</body></html>".to_string()),
+            None,
+        ] {
+            assert_no_credential(&render_index(raw, 9090));
+        }
+    }
+
+    /// End to end over a real socket, as a second local account would do it:
+    /// an unauthenticated loopback `GET /` returns the page and no credential,
+    /// whatever `Host` it claims.
+    #[tokio::test]
+    async fn loopback_get_root_serves_no_key() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let (tx, rx) = tokio::sync::oneshot::channel::<u16>();
+        tokio::spawn(serve_frontend(4242, "127.0.0.1".to_string(), tx));
+        let port = rx.await.expect("frontend port");
+
+        for host in ["127.0.0.1", "localhost", "evil.example"] {
+            let mut sock = tokio::net::TcpStream::connect(("127.0.0.1", port))
+                .await
+                .unwrap();
+            let req = format!("GET / HTTP/1.1\r\nHost: {host}:{port}\r\nConnection: close\r\n\r\n");
+            sock.write_all(req.as_bytes()).await.unwrap();
+            let mut body = String::new();
+            sock.read_to_string(&mut body).await.unwrap();
+            assert!(body.starts_with("HTTP/1.1 200"), "{host}: {body}");
+            assert!(body.contains("window.__TUNDRA_API_PORT__=4242;"), "{host}");
+            assert_no_credential(&body);
+        }
     }
 }

@@ -1,0 +1,26 @@
+id: unwrap-in-lib
+language: Rust
+message: Prefer propagating errors instead of unwrap or expect in library code.
+severity: warning
+rule:
+  all:
+    - any:
+        - pattern: $X.unwrap()
+        - pattern: $X.expect($ARG)
+    - not:
+        inside:
+          pattern: mod tests { $$$ }
+          stopBy: end
+    - not:
+        inside:
+          any:
+            - kind: function_item
+            - kind: mod_item
+          follows:
+            kind: attribute_item
+            regex: '^#\[cfg\(test\)\]$'
+            stopBy: neighbor
+          stopBy: end
+metadata:
+  category: correctness
+  cwe: CWE-248

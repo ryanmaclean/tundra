@@ -7,7 +7,9 @@
 
 use std::sync::Arc;
 
-use at_api_types::auth::{API_KEY_HEADER, AUTH_CONTRACT_VERSION, WS_API_KEY_QUERY_PARAM};
+use at_api_types::auth::{
+    API_KEY_HEADER, AUTH_CONTRACT_VERSION, WS_TICKET_PATH, WS_TICKET_QUERY_PARAM,
+};
 use at_api_types::catalog::{
     route_id, ApiCatalog, ApiCatalogAuth, ApiCatalogRoute, ApiCatalogService, RouteAuth,
     CATALOG_SCHEMA_VERSION,
@@ -251,7 +253,8 @@ pub(crate) fn mount_all(domains: Vec<Domain>, auth_enforced: bool) -> Mounted {
             enforced: auth_enforced,
             header: API_KEY_HEADER.to_string(),
             bearer: true,
-            ws_query_param: WS_API_KEY_QUERY_PARAM.to_string(),
+            ws_query_param: WS_TICKET_QUERY_PARAM.to_string(),
+            ws_ticket_path: WS_TICKET_PATH.to_string(),
             contract_version: AUTH_CONTRACT_VERSION.to_string(),
         },
         cards,
