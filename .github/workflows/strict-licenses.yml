@@ -245,6 +245,8 @@ jobs:
           git diff --exit-code -- Cargo.lock
           shopt -s nullglob
           fingerprints=(target/release/.fingerprint/at-tauri-*/bin-auto-tundra.json)
+          printf 'at-tauri binary fingerprints found: %s\n' "${#fingerprints[@]}"
+          ls -d target/release/.fingerprint/at-tauri-*/* || true
           test "${#fingerprints[@]}" -eq 1
           cp "${fingerprints[0]}" "$RUNNER_TEMP/installer-bin-fingerprint.json"
           if [[ '${{ matrix.profile }}' == sounds ]]; then
