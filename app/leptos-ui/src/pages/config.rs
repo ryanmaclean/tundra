@@ -703,6 +703,10 @@ pub fn ConfigPage(#[prop(optional)] on_close: Option<Callback<()>>) -> impl Into
     // Page settings as last loaded/saved (JSON), used to PATCH only the
     // fields the user changed. `None` until the initial load succeeds.
     let baseline = StoredValue::new(None::<serde_json::Value>);
+    // Loaded settings snapshot for dedicated profile creation (PATCH of the profile
+    // list only); ordinary saves use the baseline diff above.
+    let (edit_session, set_edit_session) = signal(None::<api::SettingsEditSession>);
+    let (save_pending, set_save_pending) = signal(false);
 
     // -- Load settings from API on mount --
     leptos::task::spawn_local(async move {
@@ -748,6 +752,7 @@ pub fn ConfigPage(#[prop(optional)] on_close: Option<Callback<()>>) -> impl Into
                     set_embedding_model,
                 );
                 baseline.set_value(serde_json::to_value(build_current()).ok());
+                set_edit_session.set(Some(api::SettingsEditSession::new(s, build_current())));
             }
             Err(e) => {
                 web_sys::console::warn_1(&format!("Failed to load settings: {e}").into());
@@ -844,7 +849,58 @@ pub fn ConfigPage(#[prop(optional)] on_close: Option<Callback<()>>) -> impl Into
         });
     };
 
+    let on_create_profile = move |_| {
+        if save_pending.get() {
+            return;
+        }
+        let Some(session) = edit_session.get() else {
+            set_toast_msg.set("Settings have not loaded; reload before creating a profile".into());
+            set_show_toast.set(true);
+            return;
+        };
+        let submitted = api::ApiApiProfileEntry {
+            name: new_profile_name.get(),
+            base_url: new_profile_url.get(),
+            api_key_env: new_profile_key_env.get(),
+        };
+        set_save_pending.set(true);
+        leptos::task::spawn_local(async move {
+            let result = api::create_api_profile(Some(&session), &submitted).await;
+            set_save_pending.set(false);
+            match result {
+                Ok(saved_session) => {
+                    // This does not acknowledge any ordinary editor fields.
+                    set_edit_session.set(Some(saved_session));
+                    let current = api::ApiApiProfileEntry {
+                        name: new_profile_name.get(),
+                        base_url: new_profile_url.get(),
+                        api_key_env: new_profile_key_env.get(),
+                    };
+                    if current == submitted {
+                        set_new_profile_name.set(String::new());
+                        set_new_profile_url.set(String::new());
+                        set_new_profile_key_env.set(String::new());
+                        set_show_profile_form.set(false);
+                    }
+                    set_toast_msg.set(
+                        "Profile saved. Runtime reload may be required; connection not tested."
+                            .into(),
+                    );
+                    set_show_toast.set(true);
+                }
+                Err(error) => {
+                    // Keep form values and the last acknowledged list on failure.
+                    set_toast_msg.set(format!("Failed to save profile: {error}"));
+                    set_show_toast.set(true);
+                }
+            }
+        });
+    };
+
     let _on_reset = move |_: web_sys::MouseEvent| {
+        if save_pending.get() {
+            return;
+        }
         // Reset to defaults
         set_appearance_mode.set("Dark".to_string());
         set_color_theme.set("Neo".to_string());
@@ -2010,16 +2066,43 @@ pub fn ConfigPage(#[prop(optional)] on_close: Option<Callback<()>>) -> impl Into
                             </div>
 
                             {move || if !show_profile_form.get() {
-                                view! {
-                                    <div class="settings-empty-state">
-                                        <div class="settings-empty-icon settings-empty-icon-svg" inner_html=api_profiles_icon_svg("empty")></div>
-                                        <h4>"No API profiles configured"</h4>
-                                        <p>"Create a profile to configure custom API endpoints for your builds."</p>
-                                        <button class="btn-primary" on:click=move |_| set_show_profile_form.set(true)>
-                                            "+ Create First Profile"
-                                        </button>
-                                    </div>
-                                }.into_any()
+                                match edit_session.get() {
+                                    None => view! {
+                                        <p class="settings-hint">"Settings are not loaded. Reload before creating a profile."</p>
+                                    }.into_any(),
+                                    Some(session) if session.profiles().is_empty() => view! {
+                                        <div class="settings-empty-state">
+                                            <h4>"No API profiles configured"</h4>
+                                            <p>"Create a profile to persist a custom endpoint configuration."</p>
+                                            <button class="btn-primary" disabled=move || save_pending.get()
+                                                on:click=move |_| set_show_profile_form.set(true)>
+                                                "+ Create First Profile"
+                                            </button>
+                                        </div>
+                                    }.into_any(),
+                                    Some(session) => {
+                                        let profiles = session.profiles().to_vec();
+                                        view! {
+                                            <div class="settings-section">
+                                                <h4>"Saved API Profiles"</h4>
+                                                {profiles.into_iter().map(|profile| view! {
+                                                    <div class="settings-row">
+                                                        <div class="settings-row-info">
+                                                            <span class="settings-label">{profile.name}</span>
+                                                            <code>{profile.base_url}</code>
+                                                            <span class="settings-hint">{format!("API key environment variable: {}", profile.api_key_env)}</span>
+                                                        </div>
+                                                    </div>
+                                                }).collect::<Vec<_>>()}
+                                                <p class="settings-hint">"Saved configuration; runtime activation and connectivity are not verified here."</p>
+                                                <button class="btn-primary" disabled=move || save_pending.get()
+                                                    on:click=move |_| set_show_profile_form.set(true)>
+                                                    "+ Add Profile"
+                                                </button>
+                                            </div>
+                                        }.into_any()
+                                    }
+                                }
                             } else {
                                 view! {
                                     <div class="settings-section">
@@ -2033,6 +2116,7 @@ pub fn ConfigPage(#[prop(optional)] on_close: Option<Callback<()>>) -> impl Into
                                                     type="text"
                                                     class="settings-text-input"
                                                     placeholder="e.g., OpenRouter, Custom"
+                                                    disabled=move || save_pending.get()
                                                     prop:value=move || new_profile_name.get()
                                                     on:input=move |ev| set_new_profile_name.set(event_target_value(&ev))
                                                 />
@@ -2047,6 +2131,7 @@ pub fn ConfigPage(#[prop(optional)] on_close: Option<Callback<()>>) -> impl Into
                                                     type="text"
                                                     class="settings-text-input"
                                                     placeholder="https://api.example.com/v1"
+                                                    disabled=move || save_pending.get()
                                                     prop:value=move || new_profile_url.get()
                                                     on:input=move |ev| set_new_profile_url.set(event_target_value(&ev))
                                                 />
@@ -2061,26 +2146,18 @@ pub fn ConfigPage(#[prop(optional)] on_close: Option<Callback<()>>) -> impl Into
                                                     type="text"
                                                     class="settings-text-input"
                                                     placeholder="e.g., OPENROUTER_API_KEY"
+                                                    disabled=move || save_pending.get()
                                                     prop:value=move || new_profile_key_env.get()
                                                     on:input=move |ev| set_new_profile_key_env.set(event_target_value(&ev))
                                                 />
                                             </div>
                                         </div>
                                         <div class="settings-button-group" style="margin-top: 12px;">
-                                            <button class="btn-primary" on:click=move |_| {
-                                                let name = new_profile_name.get();
-                                                let url = new_profile_url.get();
-                                                let key_env = new_profile_key_env.get();
-                                                if !name.trim().is_empty() {
-                                                    leptos::logging::log!("Created API profile: {} ({}) key_env={}", name, url, key_env);
-                                                    // Reset form
-                                                    set_new_profile_name.set(String::new());
-                                                    set_new_profile_url.set(String::new());
-                                                    set_new_profile_key_env.set(String::new());
-                                                    set_show_profile_form.set(false);
-                                                }
-                                            }>"Save Profile"</button>
-                                            <button class="btn-secondary" on:click=move |_| {
+                                            <button class="btn-primary" on:click=on_create_profile
+                                                disabled=move || save_pending.get() || edit_session.get().is_none()>
+                                                {move || if save_pending.get() { "Saving..." } else { "Save Profile" }}
+                                            </button>
+                                            <button class="btn-secondary" disabled=move || save_pending.get() on:click=move |_| {
                                                 set_show_profile_form.set(false);
                                             }>"Cancel"</button>
                                         </div>
@@ -2436,7 +2513,7 @@ pub fn ConfigPage(#[prop(optional)] on_close: Option<Callback<()>>) -> impl Into
                     <button class="settings-modal-cancel-btn" on:click=close_modal>
                         "Cancel"
                     </button>
-                    <button class="settings-modal-save-btn" on:click=on_save>
+                    <button class="settings-modal-save-btn" on:click=on_save disabled=move || edit_session.get().is_none() || save_pending.get()>
                         <span inner_html=r#"<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>"#></span>
                         " Save Settings"
                     </button>
