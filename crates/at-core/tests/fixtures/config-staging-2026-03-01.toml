@@ -1,0 +1,33 @@
+# ~/.auto-tundra/config.toml (Staging)
+
+[general]
+project_name = "auto-tundra-staging"
+log_level = "info"
+
+[agents]
+max_concurrent = 8
+heartbeat_interval_secs = 30
+auto_restart = true
+
+[security]
+active_execution_profile = "balanced"
+allowed_paths = ["/tmp", "/opt/staging/workspace"]
+
+[daemon]
+port = 9090
+host = "0.0.0.0"  # Allow external connections in staging
+tls = true
+
+[ui]
+show_token_costs = true
+
+[notifications]
+on_task_complete = true
+on_task_failed = true
+on_review_needed = true
+
+[debug]
+anonymous_error_reporting = true
+
+[memory]
+enable_memory = true

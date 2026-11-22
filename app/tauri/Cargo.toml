@@ -30,7 +30,7 @@ anyhow = { workspace = true }
 thiserror = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
-toml = "0.8"
+toml = "0.9"
 rodio = { version = "0.22", optional = true, default-features = false, features = ["playback"] }
 image = "0.25"
 
