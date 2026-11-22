@@ -1,3 +1,7 @@
+//! The production limiter (`ApiState::new`): global 1200/min, per-client
+//! 600/min, per-client-per-route 120/min (loopback peers skip the per-client
+//! tiers, see `rate_limit_middleware`). Pinned so a change is deliberate.
+
 use std::sync::Arc;
 
 use at_bridge::event_bus::EventBus;
@@ -10,7 +14,7 @@ use tower::ServiceExt;
 async fn default_api_endpoint_limit_returns_429_with_retry_after() {
     let state = Arc::new(ApiState::new(EventBus::new()));
     let app = api_router_with_auth(state, Some("rate-limit-fixture".into()), vec![]);
-    for _ in 0..10 {
+    for _ in 0..120 {
         let response = app
             .clone()
             .oneshot(
@@ -44,9 +48,9 @@ async fn default_api_endpoint_limit_returns_429_with_retry_after() {
 }
 
 #[tokio::test]
-async fn default_api_user_limit_is_twenty() {
+async fn default_api_client_limit_is_six_hundred() {
     let state = ApiState::new(EventBus::new());
-    for index in 0..20 {
+    for index in 0..600 {
         assert!(state
             .rate_limiter
             .check_all("one-user", &format!("/endpoint/{index}"))
@@ -59,9 +63,9 @@ async fn default_api_user_limit_is_twenty() {
 }
 
 #[tokio::test]
-async fn default_api_global_limit_is_one_hundred() {
+async fn default_api_global_limit_is_twelve_hundred() {
     let state = ApiState::new(EventBus::new());
-    for index in 0..100 {
+    for index in 0..1200 {
         assert!(state
             .rate_limiter
             .check_all(&format!("user-{index}"), &format!("/endpoint/{index}"))

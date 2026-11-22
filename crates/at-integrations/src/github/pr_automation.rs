@@ -79,6 +79,22 @@ impl PrAutomation {
             body.push_str(&format!("\n### Worktree\n\n`{}`\n", worktree));
         }
 
+        // Acceptance criteria the merge gate checks before this branch may
+        // merge (never populated from GitHub issue import).
+        if !task.acceptance_criteria.is_empty() {
+            body.push_str("\n### Acceptance criteria\n\n");
+            for criterion in &task.acceptance_criteria {
+                body.push_str(&format!("- `{}`\n", criterion));
+            }
+            if let Some(report) = &task.merge_gate_report {
+                body.push_str(&format!(
+                    "\nMerge gate: {} ({})\n",
+                    if report.passed { "passed" } else { "refused" },
+                    report.summary()
+                ));
+            }
+        }
+
         // Task logs summary (last 10 entries)
         if !task.logs.is_empty() {
             body.push_str("\n### Activity Log\n\n");
@@ -257,6 +273,46 @@ mod tests {
     }
 
     #[test]
+    fn test_generate_pr_body_includes_acceptance_criteria() {
+        let mut task = make_test_task("Gate this", TaskPhase::Complete);
+        task.acceptance_criteria = vec!["cargo test".to_string(), "test -f dist/app".to_string()];
+
+        let body = generate_pr_body_for_task(&task);
+
+        assert!(body.contains("### Acceptance criteria"));
+        assert!(body.contains("- `cargo test`"));
+        assert!(body.contains("- `test -f dist/app`"));
+    }
+
+    #[test]
+    fn test_generate_pr_body_includes_merge_gate_summary_when_present() {
+        let mut task = make_test_task("Gate this", TaskPhase::Complete);
+        task.acceptance_criteria = vec!["cargo test".to_string()];
+        let mut report = at_core::merge_gate::MergeGateReport::new(
+            "feature/test-branch",
+            "main",
+            "/tmp/worktree/test",
+        );
+        report.passed = true;
+        task.merge_gate_report = Some(report);
+
+        let body = generate_pr_body_for_task(&task);
+
+        assert!(body.contains("Merge gate: passed"));
+    }
+
+    #[test]
+    fn test_generate_pr_body_omits_acceptance_criteria_section_when_empty() {
+        let task = make_test_task("No gate", TaskPhase::Complete);
+        assert!(task.acceptance_criteria.is_empty());
+
+        let body = generate_pr_body_for_task(&task);
+
+        assert!(!body.contains("### Acceptance criteria"));
+        assert!(!body.contains("Merge gate:"));
+    }
+
+    #[test]
     fn test_pr_status_struct() {
         let status = PrStatus {
             mergeable: Some(true),
@@ -303,6 +359,20 @@ mod tests {
 
         if let Some(worktree) = &task.worktree_path {
             body.push_str(&format!("\n### Worktree\n\n`{}`\n", worktree));
+        }
+
+        if !task.acceptance_criteria.is_empty() {
+            body.push_str("\n### Acceptance criteria\n\n");
+            for criterion in &task.acceptance_criteria {
+                body.push_str(&format!("- `{}`\n", criterion));
+            }
+            if let Some(report) = &task.merge_gate_report {
+                body.push_str(&format!(
+                    "\nMerge gate: {} ({})\n",
+                    if report.passed { "passed" } else { "refused" },
+                    report.summary()
+                ));
+            }
         }
 
         if !task.logs.is_empty() {

@@ -28,7 +28,7 @@ async fn project_creation_preserves_utc_wire_and_state_timestamp() {
     assert_eq!(text, parsed.with_timezone(&chrono::Utc).to_rfc3339());
     let projects = state.projects.read().await;
     let stored = projects
-        .iter()
+        .values()
         .find(|p| p.id.to_string() == body["id"].as_str().unwrap())
         .unwrap();
     assert_eq!(stored.created_at, text);
@@ -44,7 +44,8 @@ fn assert_legacy_utc(value: &Value) -> &str {
 #[tokio::test]
 async fn default_project_and_attachment_timestamps_keep_wire_format() {
     let state = Arc::new(ApiState::new(EventBus::new()).with_relaxed_rate_limits());
-    let initial = serde_json::to_value(&state.projects.read().await[0]).unwrap();
+    let initial =
+        serde_json::to_value(state.projects.read().await.values().next().unwrap()).unwrap();
     assert_legacy_utc(&initial["created_at"]);
     let task_id = uuid::Uuid::new_v4();
     let request = Request::builder()
@@ -59,7 +60,7 @@ async fn default_project_and_attachment_timestamps_keep_wire_format() {
         serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap();
     let timestamp = assert_legacy_utc(&body["uploaded_at"]);
     let attachments = state.attachments.read().await;
-    assert_eq!(attachments.last().unwrap().uploaded_at, timestamp);
+    assert_eq!(attachments.values().next().unwrap().uploaded_at, timestamp);
 }
 
 #[tokio::test]

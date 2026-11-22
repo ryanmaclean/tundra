@@ -12,25 +12,175 @@ pub use at_api_types::{
     SendInsightsMessageWithModelRequest, UpdateStatusRequest,
 };
 
+use at_api_types::auth::{
+    bootstrap_code_from_fragment, SessionExchangeRequest, SessionResponse, WsTicketRequest,
+    WsTicketResponse, API_KEY_HEADER, SESSION_PATH, WINDOW_API_KEY_GLOBAL, WINDOW_API_PORT_GLOBAL,
+    WS_TICKET_PATH, WS_TICKET_QUERY_PARAM,
+};
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// Whether the daemon accepted this page's httpOnly session cookie (set by
+/// [`bootstrap_session`]). The cookie itself is invisible to page scripts.
+static SESSION_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+/// `true` when the page authenticates with the session cookie.
+pub fn session_active() -> bool {
+    SESSION_ACTIVE.load(Ordering::Relaxed)
+}
+
+/// Host names the daemon's frontend may be served from; the API is then
+/// addressed by the same host name so the session cookie (SameSite=Strict,
+/// which is per host, not per port) is sent to it.
+fn is_loopback_host(host: &str) -> bool {
+    matches!(host, "localhost" | "127.0.0.1" | "[::1]")
+}
+
 /// Default API base when not running in Tauri (standalone web dev).
 // Use IPv4 loopback by default to avoid localhost IPv6 resolution mismatches in browsers.
 const DEFAULT_API_BASE: &str = "http://127.0.0.1:9090";
 
-/// Get the API base URL at runtime. In Tauri, reads `window.__TUNDRA_API_PORT__` (injected by
-/// the desktop app). In standalone web mode, uses DEFAULT_API_BASE. Allows dynamic ports — no
-/// hardcoding — so the embedded daemon can bind to port 0 and the frontend discovers it.
+/// Get the API base URL at runtime. Reads `window.__TUNDRA_API_PORT__`, injected by the daemon's
+/// frontend server into index.html and by the desktop app's webview initialization script (which
+/// re-runs on every reload). Without it (standalone web dev) uses DEFAULT_API_BASE. Allows dynamic
+/// ports — no hardcoding — so the daemon can bind to port 0 and the frontend discovers it.
 /// Returns the API base URL. Public for use by terminal_view, terminals, etc.
 pub fn get_api_base() -> String {
     if let Some(window) = web_sys::window() {
-        let port_js = js_sys::Reflect::get(&window, &JsValue::from_str("__TUNDRA_API_PORT__"));
+        let port_js = js_sys::Reflect::get(&window, &JsValue::from_str(WINDOW_API_PORT_GLOBAL));
         if let Ok(port_val) = port_js {
             if let Some(p) = port_val.as_f64() {
                 let port = p as u16;
-                return format!("http://127.0.0.1:{}", port);
+                // Served over http from a loopback host name: use that same
+                // name for the API (cookies are per host). The desktop webview
+                // (tauri://localhost) and anything else uses the IPv4 loopback.
+                let loc = window.location();
+                let host = match (loc.protocol().ok().as_deref(), loc.hostname().ok()) {
+                    (Some("http:"), Some(h)) if is_loopback_host(&h) => h,
+                    _ => "127.0.0.1".to_string(),
+                };
+                return format!("http://{host}:{port}");
             }
         }
     }
     DEFAULT_API_BASE.to_string()
+}
+
+/// The daemon API key handed to the page as `window.__TUNDRA_API_KEY__` (see
+/// `at_api_types::auth`). Kept in page memory only; never persisted.
+pub fn get_api_key() -> Option<String> {
+    let window = web_sys::window()?;
+    js_sys::Reflect::get(&window, &JsValue::from_str(WINDOW_API_KEY_GLOBAL))
+        .ok()?
+        .as_string()
+        .filter(|k| !k.is_empty())
+}
+
+/// Create a fetch `Request` that authenticates to the daemon.
+///
+/// Every HTTP call to the daemon must go through this so it authenticates;
+/// the daemon rejects unauthenticated requests with 401. The embedded desktop
+/// webview sends `X-API-Key`; a standalone browser sends its httpOnly session
+/// cookie (`credentials: include`; the API is a different port, so the fetch
+/// is cross-origin and the daemon answers with `Allow-Credentials`).
+pub fn new_request(url: &str, opts: &RequestInit) -> Result<Request, String> {
+    opts.set_credentials(web_sys::RequestCredentials::Include);
+    let request = Request::new_with_str_and_init(url, opts).map_err(js_err)?;
+    if let Some(key) = get_api_key() {
+        request
+            .headers()
+            .set(API_KEY_HEADER, &key)
+            .map_err(js_err)?;
+    }
+    Ok(request)
+}
+
+/// Build an authenticated WebSocket URL for `path` on the daemon.
+///
+/// Browsers cannot set headers on WS upgrades, and the API key must never
+/// appear in a URL, so this first fetches a single-use, path-bound,
+/// short-lived ticket (`POST /api/v1/ws-tickets`, key in the `X-API-Key`
+/// header) and puts only that ticket in the `ws_ticket` query parameter.
+/// Call it again for every (re)connect: a ticket opens one socket once.
+/// Authenticated by the key (desktop webview) or the session cookie
+/// (standalone browser). Without either (development mode) the plain URL is
+/// returned.
+pub async fn ws_url(path: &str) -> Result<String, String> {
+    let base = get_api_base();
+    if get_api_key().is_none() && !session_active() {
+        return Ok(ws_url_for(&base, path, None));
+    }
+    let ticket_path = path.split('?').next().unwrap_or(path).to_string();
+    let resp: WsTicketResponse = post_json(
+        &format!("{base}{WS_TICKET_PATH}"),
+        &WsTicketRequest { path: ticket_path },
+    )
+    .await?;
+    let ticket = String::from(js_sys::encode_uri_component(&resp.ticket));
+    Ok(ws_url_for(&base, path, Some(&ticket)))
+}
+
+/// Start the standalone-browser session before the app mounts.
+///
+/// The daemon never serves the key (or anything secret) in the page. The
+/// owner runs `at dashboard`, which opens `<frontend>/#bootstrap=<code>`; this
+/// exchanges the single-use code for the httpOnly session cookie (the code is
+/// scrubbed from the address bar first) and records whether the daemon accepts
+/// the cookie. On a plain reload there is no code, so it asks the daemon
+/// whether the existing cookie is still a live session. The desktop webview
+/// has the key from its initialization script and skips all of this.
+pub async fn bootstrap_session() {
+    if get_api_key().is_some() {
+        return;
+    }
+    let Some(window) = web_sys::window() else {
+        return;
+    };
+    let url = format!("{}{SESSION_PATH}", get_api_base());
+    let location = window.location();
+    let hash = location.hash().unwrap_or_default();
+
+    let active = match bootstrap_code_from_fragment(&hash) {
+        Some(code) => {
+            // Never leave the code in the address bar or history.
+            if let Ok(history) = window.history() {
+                let clean = format!(
+                    "{}{}",
+                    location.pathname().unwrap_or_else(|_| "/".to_string()),
+                    location.search().unwrap_or_default()
+                );
+                let _ = history.replace_state_with_url(&JsValue::NULL, "", Some(&clean));
+            }
+            post_json::<_, SessionResponse>(
+                &url,
+                &SessionExchangeRequest {
+                    code: code.to_string(),
+                },
+            )
+            .await
+            .map(|r| r.authenticated)
+            .unwrap_or(false)
+        }
+        None => fetch_json::<SessionResponse>(&url)
+            .await
+            .map(|r| r.authenticated)
+            .unwrap_or(false),
+    };
+    SESSION_ACTIVE.store(active, Ordering::Relaxed);
+}
+
+/// Pure part of [`ws_url`]: `encoded_ticket` must already be URI-component
+/// encoded. It is a WS ticket, never the API key.
+pub fn ws_url_for(http_base: &str, path: &str, encoded_ticket: Option<&str>) -> String {
+    let ws_base = http_base
+        .replacen("http://", "ws://", 1)
+        .replacen("https://", "wss://", 1);
+    match encoded_ticket {
+        Some(ticket) => {
+            let sep = if path.contains('?') { '&' } else { '?' };
+            format!("{ws_base}{path}{sep}{WS_TICKET_QUERY_PARAM}={ticket}")
+        }
+        None => format!("{ws_base}{path}"),
+    }
 }
 
 /// Best-effort detection for backend connectivity failures.
@@ -105,7 +255,7 @@ async fn fetch_json<T: for<'de> Deserialize<'de>>(url: &str) -> Result<T, String
     let opts = RequestInit::new();
     opts.set_method("GET");
 
-    let request = Request::new_with_str_and_init(url, &opts).map_err(js_err)?;
+    let request = new_request(url, &opts)?;
     request
         .headers()
         .set("Accept", "application/json")
@@ -137,7 +287,7 @@ async fn post_json<T: Serialize, R: for<'de> Deserialize<'de>>(
     opts.set_method("POST");
     opts.set_body(&JsValue::from_str(&body_str));
 
-    let request = Request::new_with_str_and_init(url, &opts).map_err(js_err)?;
+    let request = new_request(url, &opts)?;
     request
         .headers()
         .set("Content-Type", "application/json")
@@ -191,7 +341,7 @@ async fn put_json<T: Serialize, R: for<'de> Deserialize<'de>>(
     opts.set_method("PUT");
     opts.set_body(&JsValue::from_str(&body_str));
 
-    let request = Request::new_with_str_and_init(url, &opts).map_err(js_err)?;
+    let request = new_request(url, &opts)?;
     request
         .headers()
         .set("Content-Type", "application/json")
@@ -535,10 +685,11 @@ pub async fn fetch_pipeline_queue_status() -> Result<ApiPipelineQueueStatus, Str
 pub async fn fetch_stacks() -> Result<Vec<ApiStack>, String> {
     match fetch_json::<Vec<ApiStack>>(&format!("{}/api/stacks", get_api_base())).await {
         Ok(stacks) => Ok(stacks),
-        Err(_) => {
-            // Return demo stacks when backend is offline
-            Ok(demo_stacks())
-        }
+        // Demo stacks only when the backend is unreachable. An HTTP error
+        // (401, 404, 500) or a parse error is a real failure and must surface
+        // instead of being masked by made-up data.
+        Err(e) if is_connection_error(&e) => Ok(demo_stacks()),
+        Err(e) => Err(e),
     }
 }
 
@@ -793,7 +944,7 @@ async fn delete_request(url: &str) -> Result<(), String> {
     let opts = RequestInit::new();
     opts.set_method("DELETE");
 
-    let request = Request::new_with_str_and_init(url, &opts).map_err(js_err)?;
+    let request = new_request(url, &opts)?;
     request
         .headers()
         .set("Accept", "application/json")
@@ -806,17 +957,33 @@ async fn delete_request(url: &str) -> Result<(), String> {
 
     let resp: Response = resp_value.dyn_into().map_err(js_err)?;
     if resp.ok() {
-        Ok(())
-    } else {
-        Err(format!("DELETE failed with status {}", resp.status()))
+        return Ok(());
     }
+    let status = resp.status();
+    // Surface the server's JSON error body (e.g. `{"error": ..., "hint": ...}`
+    // from DELETE /api/worktrees/{id}) instead of swallowing it behind a bare
+    // status code.
+    if let Ok(json_promise) = resp.json() {
+        if let Ok(json) = JsFuture::from(json_promise).await {
+            if let Ok(value) = serde_wasm_bindgen::from_value::<serde_json::Value>(json) {
+                let error = value.get("error").and_then(|v| v.as_str());
+                let hint = value.get("hint").and_then(|v| v.as_str());
+                return Err(match (error, hint) {
+                    (Some(error), Some(hint)) => format!("HTTP {status}: {error} ({hint})"),
+                    (Some(error), None) => format!("HTTP {status}: {error}"),
+                    _ => format!("DELETE failed with status {status}"),
+                });
+            }
+        }
+    }
+    Err(format!("DELETE failed with status {status}"))
 }
 
 async fn post_empty<R: for<'de> Deserialize<'de>>(url: &str) -> Result<R, String> {
     let opts = RequestInit::new();
     opts.set_method("POST");
 
-    let request = Request::new_with_str_and_init(url, &opts).map_err(js_err)?;
+    let request = new_request(url, &opts)?;
     request
         .headers()
         .set("Accept", "application/json")
@@ -916,18 +1083,38 @@ pub async fn fetch_worktrees() -> Result<Vec<ApiWorktree>, String> {
     }
 }
 
-pub async fn delete_worktree(id: &str) -> Result<(), String> {
+/// Delete a worktree via `DELETE /api/worktrees/{id}[?force=true]` (HTTP) or
+/// `cmd_delete_worktree` (Tauri IPC).
+///
+/// The backend defaults to `force=false`: a worktree with uncommitted
+/// changes is kept and the call answers 409 with a git error message. The
+/// UI's delete flow (`WorktreesPage`) confirms with the user via a native
+/// `window.confirm` dialog before calling this with `force: true`, since a
+/// forced delete discards uncommitted changes; a non-forced call (or a
+/// declined confirm) leaves the 409 to be surfaced to the user rather than
+/// silently dropped. `cmd_delete_worktree` mirrors this same force semantics
+/// on the Tauri side.
+pub async fn delete_worktree(id: &str, force: bool) -> Result<(), String> {
     if is_tauri() {
         #[derive(serde::Serialize)]
         struct DeleteWorktreeArgs {
             id: String,
+            force: bool,
         }
-        let args = DeleteWorktreeArgs { id: id.to_string() };
+        let args = DeleteWorktreeArgs {
+            id: id.to_string(),
+            force,
+        };
         let _result: String = tauri_invoke_with_args("cmd_delete_worktree", &args).await?;
         Ok(())
     } else {
-        // Fallback to HTTP
-        delete_request(&format!("{}/api/worktrees/{id}", get_api_base())).await
+        let base = format!("{}/api/worktrees/{id}", get_api_base());
+        let url = if force {
+            format!("{base}?force=true")
+        } else {
+            base
+        };
+        delete_request(&url).await
     }
 }
 
@@ -1413,6 +1600,9 @@ pub async fn create_task(
         priority: priority.to_string(),
         complexity: complexity.to_string(),
         category: category.to_string(),
+        // No acceptance-criteria input in the wizard/onboarding flow yet;
+        // empty means the server inherits the bead's own criteria.
+        acceptance_criteria: Vec::new(),
     };
     post_json(&format!("{}/api/tasks", get_api_base()), &body).await
 }
@@ -1668,13 +1858,9 @@ pub async fn send_insights_message_with_model(
     }
 }
 
-/// Return the WebSocket URL for event streaming.
-pub fn events_ws_url() -> String {
-    let base = get_api_base();
-    let ws_base = base
-        .replace("http://", "ws://")
-        .replace("https://", "wss://");
-    format!("{ws_base}/api/events/ws")
+/// Return a freshly ticketed WebSocket URL for event streaming.
+pub async fn events_ws_url() -> Result<String, String> {
+    ws_url("/api/events/ws").await
 }
 
 // ── Project API types ──
@@ -1835,3 +2021,31 @@ pub async fn fetch_cli_available() -> Result<ApiCliAvailable, String> {
 }
 
 // (Stacked Diffs API types and functions are defined above near line 186)
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod auth_url_tests {
+    use super::ws_url_for;
+
+    #[test]
+    fn ws_url_for_appends_ws_ticket_query_param() {
+        assert_eq!(
+            ws_url_for("http://127.0.0.1:4000", "/api/events/ws", Some("t%2B1")),
+            "ws://127.0.0.1:4000/api/events/ws?ws_ticket=t%2B1"
+        );
+        assert_eq!(
+            ws_url_for("https://h:1", "/ws/terminal/x?y=1", Some("t")),
+            "wss://h:1/ws/terminal/x?y=1&ws_ticket=t"
+        );
+        assert_eq!(ws_url_for("http://h:2", "/ws", None), "ws://h:2/ws");
+    }
+
+    /// Security invariant (PR #101 review 2026-10-08): a WebSocket URL must
+    /// never carry the master key as `api_key=`.
+    #[test]
+    fn ws_url_never_uses_api_key_query_param() {
+        for path in ["/ws", "/api/events/ws", "/ws/terminal/t-1"] {
+            let url = ws_url_for("http://127.0.0.1:4000", path, Some("SENTINEL"));
+            assert!(!url.contains("api_key="), "{url}");
+        }
+    }
+}

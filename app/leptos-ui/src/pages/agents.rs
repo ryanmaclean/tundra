@@ -429,11 +429,19 @@ pub fn AgentsPage() -> impl IntoView {
         let cb = Closure::wrap(Box::new(move || {
             set_stream_tick.update(|t| *t = t.saturating_add(1));
         }) as Box<dyn FnMut()>);
-        let _ = window.set_interval_with_callback_and_timeout_and_arguments_0(
+        let handle = window.set_interval_with_callback_and_timeout_and_arguments_0(
             cb.as_ref().unchecked_ref(),
             1200,
         );
         cb.forget();
+        // Stop the ticker when the page unmounts so visits don't stack intervals.
+        if let Ok(handle) = handle {
+            on_cleanup(move || {
+                if let Some(window) = web_sys::window() {
+                    window.clear_interval_with_handle(handle);
+                }
+            });
+        }
     });
 
     let stop_agent = move |id: String| {

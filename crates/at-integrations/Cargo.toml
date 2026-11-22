@@ -6,7 +6,8 @@ publish = false
 
 [dependencies]
 at-core = { path = "../at-core" }
-reqwest = { workspace = true }
+at-harness = { path = "../at-harness" }
+reqwest = { workspace = true, features = ["multipart"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
@@ -17,7 +18,18 @@ uuid = { workspace = true }
 octocrab = { workspace = true }
 urlencoding = "2"
 
+[features]
+# Enables explicit stub constructors (GitLabClient::stub, LinearClient::stub)
+# that return canned data without ever calling a real API. Never enabled in
+# production builds; only turned on for this crate's own tests below.
+stub = []
+
 [dev-dependencies]
 tokio = { workspace = true }
+# Depending on ourselves with the `stub` feature enabled is the standard way
+# to make #[cfg(feature = "stub")] items visible to the separate-crate
+# integration tests under tests/, without ever enabling the feature for a
+# normal build or for downstream consumers of this crate.
+at-integrations = { path = ".", features = ["stub"] }
 wiremock = "0.6"
 serde_json = { workspace = true }

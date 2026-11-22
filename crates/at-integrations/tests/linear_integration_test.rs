@@ -1,16 +1,18 @@
 //! Integration tests for Linear: client, import pipeline, sync engine,
 //! and type serialization — matching the Linear integration surfaces.
 //!
-//! NOTE: LinearClient's list_issues/get_issue/list_teams use #[cfg(test)]
-//! stub helpers that only compile in unit test mode (same crate). Integration
-//! tests (separate crate) cannot call those stubs. Tests here focus on:
+//! NOTE: `LinearClient::stub` is gated behind `#[cfg(any(test, feature =
+//! "stub"))]`. Integration tests (a separate crate) can still reach it
+//! because at-integrations/Cargo.toml lists itself as a dev-dependency with
+//! `features = ["stub"]`, which turns the feature on for this test binary
+//! without ever enabling it for a normal build. Tests here focus on:
 //! - Client creation validation
-//! - Import pipeline (always-stub)
+//! - Import pipeline (via the explicit stub client)
 //! - Sync engine configuration and lifecycle
 //! - Type serde roundtrips
 
 use at_integrations::linear::sync::{
-    LinearSyncEngine, PendingChange, SyncConfig, SyncDirection, SyncResult,
+    ChangePayload, LinearSyncEngine, PendingChange, SyncConfig, SyncDirection, SyncResult,
 };
 use at_integrations::linear::{
     ImportResult, LinearClient, LinearError, LinearIssue, LinearProject, LinearTeam,
@@ -37,7 +39,7 @@ fn client_creation_with_test_key() {
 
 #[test]
 fn client_creation_with_tok_key() {
-    let client = LinearClient::new("tok").unwrap();
+    let client = LinearClient::stub("tok");
     assert_eq!(client.api_key, "tok");
 }
 
@@ -72,7 +74,7 @@ fn client_creation_various_prefixes() {
 
 #[tokio::test]
 async fn import_single_issue() {
-    let client = LinearClient::new("tok").unwrap();
+    let client = LinearClient::stub("tok");
     let results = client
         .import_issues(vec!["issue-001".to_string()])
         .await
@@ -84,7 +86,7 @@ async fn import_single_issue() {
 
 #[tokio::test]
 async fn import_multiple_issues() {
-    let client = LinearClient::new("tok").unwrap();
+    let client = LinearClient::stub("tok");
     let ids: Vec<String> = (1..=10).map(|i| format!("issue-{i:04}")).collect();
     let results = client.import_issues(ids).await.unwrap();
     assert_eq!(results.len(), 10);
@@ -93,14 +95,14 @@ async fn import_multiple_issues() {
 
 #[tokio::test]
 async fn import_empty_list() {
-    let client = LinearClient::new("tok").unwrap();
+    let client = LinearClient::stub("tok");
     let results = client.import_issues(vec![]).await.unwrap();
     assert!(results.is_empty());
 }
 
 #[tokio::test]
 async fn import_preserves_issue_ids() {
-    let client = LinearClient::new("tok").unwrap();
+    let client = LinearClient::stub("tok");
     let ids = vec!["abc".to_string(), "def".to_string(), "ghi".to_string()];
     let results = client.import_issues(ids).await.unwrap();
     assert_eq!(results[0].issue_id, "abc");
@@ -110,14 +112,14 @@ async fn import_preserves_issue_ids() {
 
 #[tokio::test]
 async fn import_result_message() {
-    let client = LinearClient::new("tok").unwrap();
+    let client = LinearClient::stub("tok");
     let results = client.import_issues(vec!["x".to_string()]).await.unwrap();
     assert!(results[0].message.contains("Imported"));
 }
 
 #[tokio::test]
 async fn import_large_batch() {
-    let client = LinearClient::new("tok").unwrap();
+    let client = LinearClient::stub("tok");
     let ids: Vec<String> = (1..=100).map(|i| format!("batch-{i}")).collect();
     let results = client.import_issues(ids).await.unwrap();
     assert_eq!(results.len(), 100);
@@ -362,7 +364,9 @@ fn pending_change_serde_roundtrip() {
         direction: SyncDirection::Push,
         entity_type: "task".to_string(),
         entity_id: "task-001".to_string(),
-        change_type: "status_update".to_string(),
+        payload: ChangePayload::State {
+            state_id: "state-uuid-001".to_string(),
+        },
         created_at: Utc::now(),
     };
     let json = serde_json::to_string(&change).unwrap();
@@ -371,7 +375,11 @@ fn pending_change_serde_roundtrip() {
     assert_eq!(de.direction, SyncDirection::Push);
     assert_eq!(de.entity_type, "task");
     assert_eq!(de.entity_id, "task-001");
-    assert_eq!(de.change_type, "status_update");
+    assert_eq!(de.payload.label(), "status_update");
+    match de.payload {
+        ChangePayload::State { state_id } => assert_eq!(state_id, "state-uuid-001"),
+        other => panic!("expected State payload, got {other:?}"),
+    }
 }
 
 #[test]
@@ -381,12 +389,33 @@ fn pending_change_pull_direction() {
         direction: SyncDirection::Pull,
         entity_type: "issue".to_string(),
         entity_id: "issue-ext-42".to_string(),
-        change_type: "title_update".to_string(),
+        payload: ChangePayload::Title("Renamed by pull".to_string()),
         created_at: Utc::now(),
     };
     let json = serde_json::to_string(&change).unwrap();
     let de: PendingChange = serde_json::from_str(&json).unwrap();
     assert_eq!(de.direction, SyncDirection::Pull);
+    match de.payload {
+        ChangePayload::Title(t) => assert_eq!(t, "Renamed by pull"),
+        other => panic!("expected Title payload, got {other:?}"),
+    }
+}
+
+/// Regression test for a push phase that used to derive placeholder values
+/// from `change_type` instead of sending the real queued value (e.g.
+/// `"title_update"` sent the entity's own ID as the new title).
+#[test]
+fn change_payload_carries_the_real_value() {
+    let title = ChangePayload::Title("Fix the actual bug".to_string());
+    assert_eq!(title.label(), "title_update");
+
+    let desc = ChangePayload::Description("A real description".to_string());
+    assert_eq!(desc.label(), "description_update");
+
+    let state = ChangePayload::State {
+        state_id: "wf-state-42".to_string(),
+    };
+    assert_eq!(state.label(), "status_update");
 }
 
 // ===========================================================================
@@ -411,7 +440,9 @@ fn queue_single_change() {
         direction: SyncDirection::Push,
         entity_type: "task".into(),
         entity_id: "task-001".into(),
-        change_type: "status_update".into(),
+        payload: ChangePayload::State {
+            state_id: "state-updated".into(),
+        },
         created_at: Utc::now(),
     });
     assert_eq!(engine.pending_changes().len(), 1);
@@ -428,7 +459,9 @@ fn queue_multiple_changes() {
             direction: SyncDirection::Push,
             entity_type: "task".into(),
             entity_id: format!("task-{i:03}"),
-            change_type: "status_update".into(),
+            payload: ChangePayload::State {
+                state_id: "state-updated".into(),
+            },
             created_at: Utc::now(),
         });
     }
@@ -446,7 +479,9 @@ fn queue_mixed_directions() {
         direction: SyncDirection::Push,
         entity_type: "task".into(),
         entity_id: "task-001".into(),
-        change_type: "status_update".into(),
+        payload: ChangePayload::State {
+            state_id: "state-updated".into(),
+        },
         created_at: Utc::now(),
     });
     engine.queue_change(PendingChange {
@@ -454,7 +489,7 @@ fn queue_mixed_directions() {
         direction: SyncDirection::Pull,
         entity_type: "issue".into(),
         entity_id: "issue-ext-42".into(),
-        change_type: "title_update".into(),
+        payload: ChangePayload::Title("Renamed".into()),
         created_at: Utc::now(),
     });
 
@@ -502,7 +537,7 @@ fn engine_no_sync_time_initially() {
 #[tokio::test]
 async fn e2e_import_then_queue_changes() {
     // 1. Create client
-    let client = LinearClient::new("tok").unwrap();
+    let client = LinearClient::stub("tok");
 
     // 2. Import some issues
     let ids = vec![
@@ -531,7 +566,9 @@ async fn e2e_import_then_queue_changes() {
             direction: SyncDirection::Push,
             entity_type: "bead".into(),
             entity_id: result.issue_id.clone(),
-            change_type: "status_update".into(),
+            payload: ChangePayload::State {
+                state_id: "state-updated".into(),
+            },
             created_at: Utc::now(),
         });
     }
@@ -543,7 +580,7 @@ async fn e2e_import_then_queue_changes() {
 
 #[tokio::test]
 async fn e2e_import_deduplication() {
-    let client = LinearClient::new("tok").unwrap();
+    let client = LinearClient::stub("tok");
 
     // Import same IDs twice
     let ids = vec!["dup-1".to_string(), "dup-2".to_string()];

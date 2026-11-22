@@ -120,6 +120,11 @@ jobs:
             if curl -sf -H "x-api-key: $AUTO_TUNDRA_API_KEY" http://127.0.0.1:9090/api/status >/dev/null; then
               exit 0
             fi
+            if ! kill -0 "$daemon_pid" 2>/dev/null; then
+              echo "Daemon process exited before becoming ready"
+              tail -n 200 /tmp/at-daemon.log || true
+              exit 1
+            fi
             sleep 1
           done
           echo "Daemon failed to start on :9090"
@@ -197,6 +202,11 @@ jobs:
           for _ in {1..45}; do
             if curl -sf -H "x-api-key: $AUTO_TUNDRA_API_KEY" http://127.0.0.1:9090/api/status >/dev/null; then
               exit 0
+            fi
+            if ! kill -0 "$daemon_pid" 2>/dev/null; then
+              echo "Daemon process exited before becoming ready"
+              tail -n 200 /tmp/at-daemon.log || true
+              exit 1
             fi
             sleep 1
           done

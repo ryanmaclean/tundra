@@ -417,3 +417,22 @@ fn task_log_truncation_stress_test() {
     assert_eq!(task.build_logs[0].line, "Build 9000");
     assert_eq!(task.build_logs[999].line, "Build 9999");
 }
+
+#[test]
+fn task_phase_terminal_states_match_wire_names() {
+    // `at exec --wait` relies on these wire names to stop polling.
+    for (phase, wire, terminal, success) in [
+        (TaskPhase::Complete, "complete", true, true),
+        (TaskPhase::Error, "error", true, false),
+        (TaskPhase::Stopped, "stopped", true, false),
+        (TaskPhase::Coding, "coding", false, false),
+        (TaskPhase::Qa, "qa", false, false),
+    ] {
+        assert_eq!(serde_json::to_value(&phase).unwrap(), wire);
+        assert_eq!(phase.is_terminal(), terminal, "{wire}");
+        assert_eq!(phase.is_success(), success, "{wire}");
+    }
+    for p in TaskPhase::pipeline_order() {
+        assert_eq!(p.is_terminal(), *p == TaskPhase::Complete);
+    }
+}

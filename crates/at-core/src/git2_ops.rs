@@ -613,6 +613,8 @@ impl Git2ReadOps {
         let mut total_lines = 0u32;
 
         for hunk in blame.iter() {
+            // git2 0.21 returns None for hunks without a signature (the
+            // RUSTSEC-2026-0184 fix) and Err for non-UTF-8 names.
             let author = hunk
                 .final_signature()
                 .and_then(|sig| sig.name().ok().map(str::to_owned))

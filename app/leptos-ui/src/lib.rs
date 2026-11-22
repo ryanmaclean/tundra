@@ -8,6 +8,7 @@ pub mod api;
 pub mod components;
 pub mod events;
 pub mod i18n;
+pub mod markdown;
 pub mod pages;
 pub mod state;
 pub mod themed;
@@ -325,7 +326,12 @@ pub fn App() -> impl IntoView {
 #[wasm_bindgen(start)]
 pub fn mount() {
     console_error_panic_hook::set_once();
-    leptos::mount::mount_to_body(App);
+    // Exchange the one-time `#bootstrap=` code for the httpOnly session cookie
+    // before any page fires its first API call.
+    wasm_bindgen_futures::spawn_local(async {
+        api::bootstrap_session().await;
+        leptos::mount::mount_to_body(App);
+    });
 }
 pub mod analytics_store;
 pub mod duckdb;

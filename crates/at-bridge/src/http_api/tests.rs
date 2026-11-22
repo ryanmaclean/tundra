@@ -1253,3 +1253,580 @@ async fn test_security_response_headers_present() {
         "strict-origin-when-cross-origin"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Gitea routes
+// ---------------------------------------------------------------------------
+
+/// Router over a temp settings file holding `integrations`, optionally keyed.
+fn gitea_app(
+    integrations: at_core::config::IntegrationConfig,
+    api_key: Option<&str>,
+) -> axum::Router {
+    let path = std::env::temp_dir()
+        .join(format!("at-gitea-test-{}", Uuid::new_v4()))
+        .join("settings.toml");
+    let mgr = Arc::new(at_core::settings::SettingsManager::new(&path));
+    let cfg = at_core::config::Config {
+        integrations,
+        ..Default::default()
+    };
+    mgr.save(&cfg).expect("save test settings");
+    let mut state = ApiState::new(EventBus::new()).with_relaxed_rate_limits();
+    state.settings_manager = mgr;
+    router::api_router_with_auth(Arc::new(state), api_key.map(str::to_string), vec![])
+}
+
+async fn json_of(resp: axum::response::Response) -> serde_json::Value {
+    let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    serde_json::from_slice(&body).unwrap()
+}
+
+#[tokio::test]
+async fn test_catalog_lists_gitea_routes() {
+    let (app, _state) = test_app();
+    let resp = app
+        .oneshot(Request::get("/api/catalog").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let catalog = json_of(resp).await;
+    let cards: Vec<&serde_json::Value> = catalog["cards"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|c| c["domain"] == "gitea")
+        .collect();
+    let got: std::collections::BTreeSet<(String, String, String, String)> = cards
+        .iter()
+        .map(|c| {
+            let s = |k: &str| c[k].as_str().unwrap_or("").to_string();
+            (s("method"), s("path"), s("request"), s("response"))
+        })
+        .collect();
+    let want: std::collections::BTreeSet<(String, String, String, String)> = [
+        ("GET", "/api/gitea/status", "", "GiteaStatus"),
+        ("GET", "/api/gitea/repo", "", "GiteaRepo"),
+        ("GET", "/api/gitea/issues", "", "GiteaPage<GiteaIssue>"),
+        (
+            "POST",
+            "/api/gitea/issues",
+            "CreateGiteaIssueBody",
+            "GiteaIssue",
+        ),
+        (
+            "PATCH",
+            "/api/gitea/issues/{number}",
+            "UpdateGiteaIssueBody",
+            "GiteaIssue",
+        ),
+        (
+            "POST",
+            "/api/gitea/pulls",
+            "CreateGiteaPrBody",
+            "GiteaPullRequest",
+        ),
+        (
+            "GET",
+            "/api/gitea/releases/{tag}/assets",
+            "",
+            "Vec<GiteaAsset>",
+        ),
+        (
+            "POST",
+            "/api/gitea/releases/{tag}/assets",
+            "application/octet-stream",
+            "GiteaAsset",
+        ),
+    ]
+    .iter()
+    .map(|(m, p, q, r)| (m.to_string(), p.to_string(), q.to_string(), r.to_string()))
+    .collect();
+    assert_eq!(got, want);
+    let upload = cards
+        .iter()
+        .find(|c| c["method"] == "POST" && c["path"] == "/api/gitea/releases/{tag}/assets")
+        .unwrap();
+    assert_eq!(upload["body_limit"], 64 * 1024 * 1024);
+    assert!(cards.iter().all(|c| c["auth"] != "none"));
+}
+
+#[tokio::test]
+async fn test_gitea_issues_token_missing_is_503() {
+    let app = gitea_app(
+        at_core::config::IntegrationConfig {
+            gitea_token_env: "AT_TEST_GITEA_TOKEN_MISSING_503".into(),
+            gitea_owner: Some("fleet".into()),
+            gitea_repo: Some("tundra".into()),
+            ..Default::default()
+        },
+        None,
+    );
+    let resp = app
+        .oneshot(
+            Request::get("/api/gitea/issues")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let body = json_of(resp).await;
+    assert_eq!(body["code"], "gitea_token_missing");
+    assert_eq!(body["env_var"], "AT_TEST_GITEA_TOKEN_MISSING_503");
+    assert_eq!(body["retryable"], false);
+    assert_eq!(body["schema"], "gitea.error/v1");
+}
+
+#[tokio::test]
+async fn test_gitea_repo_unset_and_bad_repo_are_400() {
+    // PATH is always set in the test process, so the token lookup succeeds
+    // and the owner/repo checks run (no network: they fail first).
+    let int = at_core::config::IntegrationConfig {
+        gitea_token_env: "PATH".into(),
+        ..Default::default()
+    };
+    let resp = gitea_app(int.clone(), None)
+        .oneshot(Request::get("/api/gitea/repo").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(json_of(resp).await["code"], "gitea_repo_unset");
+
+    let resp = gitea_app(int, None)
+        .oneshot(
+            Request::get("/api/gitea/repo?owner=..&repo=x")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(json_of(resp).await["code"], "gitea_bad_repo");
+}
+
+#[tokio::test]
+async fn test_gitea_status_reports_unconfigured_without_network() {
+    let app = gitea_app(
+        at_core::config::IntegrationConfig {
+            gitea_token_env: "AT_TEST_GITEA_TOKEN_STATUS".into(),
+            gitea_owner: Some("fleet".into()),
+            ..Default::default()
+        },
+        None,
+    );
+    let resp = app
+        .oneshot(
+            Request::get("/api/gitea/status")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = json_of(resp).await;
+    assert_eq!(body["schema"], "gitea.status/v1");
+    assert_eq!(body["mode"], "unconfigured");
+    assert_eq!(body["token_present"], false);
+    assert_eq!(body["missing"], serde_json::json!(["token", "repo"]));
+    assert_eq!(body["base_url"], "http://gitea.local:3000");
+}
+
+#[tokio::test]
+async fn test_gitea_routes_require_api_key() {
+    let app = gitea_app(
+        at_core::config::IntegrationConfig::default(),
+        Some("k-gitea"),
+    );
+    for (m, p) in [
+        ("GET", "/api/gitea/status"),
+        ("GET", "/api/gitea/issues"),
+        ("POST", "/api/gitea/pulls"),
+    ] {
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(m)
+                    .uri(p)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED, "{m} {p}");
+    }
+    let resp = app
+        .oneshot(
+            Request::get("/api/gitea/status")
+                .header("x-api-key", "k-gitea")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+}
+
+// -----------------------------------------------------------------------
+// Acceptance criteria authoring and the execute pipeline's merge gate
+// -----------------------------------------------------------------------
+
+async fn send_json(
+    app: &axum::Router,
+    method: &str,
+    uri: &str,
+    body: Option<serde_json::Value>,
+) -> (StatusCode, serde_json::Value) {
+    let mut b = Request::builder().method(method).uri(uri);
+    let body = match body {
+        Some(v) => {
+            b = b.header("content-type", "application/json");
+            Body::from(v.to_string())
+        }
+        None => Body::empty(),
+    };
+    let resp = app.clone().oneshot(b.body(body).unwrap()).await.unwrap();
+    let status = resp.status();
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let json = serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null);
+    (status, json)
+}
+
+fn task_body(bead_id: Uuid, criteria: Option<serde_json::Value>) -> serde_json::Value {
+    let mut v = serde_json::json!({
+        "title": "Gate me",
+        "bead_id": bead_id,
+        "category": "feature",
+        "priority": "medium",
+        "complexity": "small",
+    });
+    if let Some(c) = criteria {
+        v["acceptance_criteria"] = c;
+    }
+    v
+}
+
+async fn wait_terminal(state: &Arc<ApiState>, id: Uuid) -> Task {
+    for _ in 0..500 {
+        if let Some(t) = state.tasks.read().await.get(&id) {
+            if t.phase.is_terminal() {
+                return t.clone();
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    panic!(
+        "task never reached a terminal phase: {:?}",
+        state.tasks.read().await.get(&id).map(|t| t.phase.clone())
+    );
+}
+
+#[tokio::test]
+async fn create_task_with_acceptance_criteria_round_trips() {
+    let (app, _state) = test_app();
+    let (code, created) = send_json(
+        &app,
+        "POST",
+        "/api/tasks",
+        Some(task_body(
+            Uuid::new_v4(),
+            Some(serde_json::json!(["cargo test", "test -f ok"])),
+        )),
+    )
+    .await;
+    assert_eq!(code, StatusCode::CREATED, "{created}");
+    let id = created["id"].as_str().unwrap();
+    let (code, got) = send_json(&app, "GET", &format!("/api/tasks/{id}"), None).await;
+    assert_eq!(code, StatusCode::OK);
+    assert_eq!(
+        got["acceptance_criteria"],
+        serde_json::json!(["cargo test", "test -f ok"])
+    );
+}
+
+#[tokio::test]
+async fn create_task_inherits_bead_acceptance_criteria() {
+    let (app, _state) = test_app();
+    let (code, bead) = send_json(
+        &app,
+        "POST",
+        "/api/beads",
+        Some(serde_json::json!({"title": "b", "acceptance_criteria": ["make check"]})),
+    )
+    .await;
+    assert_eq!(code, StatusCode::CREATED, "{bead}");
+    let bead_id: Uuid = bead["id"].as_str().unwrap().parse().unwrap();
+
+    let (_, inherited) =
+        send_json(&app, "POST", "/api/tasks", Some(task_body(bead_id, None))).await;
+    assert_eq!(
+        inherited["acceptance_criteria"],
+        serde_json::json!(["make check"])
+    );
+
+    // An explicit list (even empty) wins over the bead's.
+    let (_, explicit) = send_json(
+        &app,
+        "POST",
+        "/api/tasks",
+        Some(task_body(bead_id, Some(serde_json::json!([])))),
+    )
+    .await;
+    assert_eq!(explicit["acceptance_criteria"], serde_json::json!([]));
+
+    // ?bead_id= filters the list.
+    let (_, listed) = send_json(&app, "GET", &format!("/api/tasks?bead_id={bead_id}"), None).await;
+    assert_eq!(listed.as_array().unwrap().len(), 2);
+    let (_, none) = send_json(
+        &app,
+        "GET",
+        &format!("/api/tasks?bead_id={}", Uuid::new_v4()),
+        None,
+    )
+    .await;
+    assert!(none.as_array().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn invalid_acceptance_criteria_are_rejected_with_400() {
+    let (app, state) = test_app();
+    let (code, body) = send_json(
+        &app,
+        "POST",
+        "/api/tasks",
+        Some(task_body(
+            Uuid::new_v4(),
+            Some(serde_json::json!(["ok", "ok", "x".repeat(1025)])),
+        )),
+    )
+    .await;
+    assert_eq!(code, StatusCode::BAD_REQUEST);
+    assert!(
+        body["error"]
+            .as_str()
+            .unwrap()
+            .contains("acceptance_criteria[2]: exceeds 1024 bytes"),
+        "{body}"
+    );
+    let (code, _) = send_json(
+        &app,
+        "POST",
+        "/api/tasks",
+        Some(task_body(Uuid::new_v4(), Some(serde_json::json!(["a\nb"])))),
+    )
+    .await;
+    assert_eq!(code, StatusCode::BAD_REQUEST);
+    assert!(state.tasks.read().await.is_empty());
+
+    let (code, _) = send_json(
+        &app,
+        "POST",
+        "/api/beads",
+        Some(serde_json::json!({"title": "b", "acceptance_criteria": [""]})),
+    )
+    .await;
+    assert_eq!(code, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn put_acceptance_criteria_replaces_clears_and_keeps() {
+    let (app, _state) = test_app();
+    let (_, created) = send_json(
+        &app,
+        "POST",
+        "/api/tasks",
+        Some(task_body(Uuid::new_v4(), Some(serde_json::json!(["true"])))),
+    )
+    .await;
+    let uri = format!("/api/tasks/{}", created["id"].as_str().unwrap());
+
+    let (code, t) = send_json(
+        &app,
+        "PUT",
+        &uri,
+        Some(serde_json::json!({"title": "renamed"})),
+    )
+    .await;
+    assert_eq!(code, StatusCode::OK);
+    assert_eq!(
+        t["acceptance_criteria"],
+        serde_json::json!(["true"]),
+        "omitted = unchanged"
+    );
+
+    let (_, t) = send_json(
+        &app,
+        "PUT",
+        &uri,
+        Some(serde_json::json!({"acceptance_criteria": ["a", "b"]})),
+    )
+    .await;
+    assert_eq!(t["acceptance_criteria"], serde_json::json!(["a", "b"]));
+
+    let (_, t) = send_json(
+        &app,
+        "PUT",
+        &uri,
+        Some(serde_json::json!({"acceptance_criteria": []})),
+    )
+    .await;
+    assert_eq!(t["acceptance_criteria"], serde_json::json!([]), "[] clears");
+
+    let (code, _) = send_json(
+        &app,
+        "PUT",
+        &uri,
+        Some(serde_json::json!({"acceptance_criteria": ["bad\u{0}"]})),
+    )
+    .await;
+    assert_eq!(code, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn put_acceptance_criteria_is_locked_while_pipeline_runs() {
+    let (app, state) = test_app();
+    for phase in [
+        TaskPhase::Coding,
+        TaskPhase::Qa,
+        TaskPhase::Fixing,
+        TaskPhase::Merging,
+    ] {
+        let mut task = Task::new(
+            "locked",
+            Uuid::new_v4(),
+            TaskCategory::Feature,
+            TaskPriority::Medium,
+            TaskComplexity::Small,
+        );
+        task.acceptance_criteria = vec!["true".into()];
+        task.phase = phase.clone();
+        let id = task.id;
+        state.tasks.write().await.insert(id, task);
+
+        let (code, body) = send_json(
+            &app,
+            "PUT",
+            &format!("/api/tasks/{id}"),
+            Some(serde_json::json!({"acceptance_criteria": []})),
+        )
+        .await;
+        assert_eq!(code, StatusCode::CONFLICT, "{phase:?}");
+        assert_eq!(body["error"], "acceptance_criteria_locked");
+        assert_eq!(body["phase"], serde_json::json!(phase));
+        assert_eq!(
+            state.tasks.read().await[&id].acceptance_criteria,
+            vec!["true".to_string()]
+        );
+
+        // Other fields are still editable.
+        let (code, _) = send_json(
+            &app,
+            "PUT",
+            &format!("/api/tasks/{id}"),
+            Some(serde_json::json!({"title": "still editable"})),
+        )
+        .await;
+        assert_eq!(code, StatusCode::OK);
+    }
+}
+
+fn planning_task(criteria: &[&str]) -> Task {
+    let mut task = Task::new(
+        "Pipeline gate",
+        Uuid::new_v4(),
+        TaskCategory::Feature,
+        TaskPriority::Medium,
+        TaskComplexity::Small,
+    );
+    task.set_phase(TaskPhase::Planning);
+    task.acceptance_criteria = criteria.iter().map(|s| s.to_string()).collect();
+    task
+}
+
+#[tokio::test]
+async fn execute_without_repo_root_or_criteria_skips_gate_and_completes() {
+    let (app, state) = test_app();
+    let task = planning_task(&[]);
+    let id = task.id;
+    state.tasks.write().await.insert(id, task);
+
+    let (code, body) = send_json(&app, "POST", &format!("/api/tasks/{id}/execute"), None).await;
+    assert_eq!(code, StatusCode::ACCEPTED);
+    assert_eq!(body["merge"], "skipped_no_worktree");
+    assert_eq!(body["merge_mode"], "verify");
+    assert_eq!(body["acceptance_criteria_count"], 0);
+    assert!(!body["warnings"].as_array().unwrap().is_empty());
+
+    let done = wait_terminal(&state, id).await;
+    assert_eq!(done.phase, TaskPhase::Complete, "not stuck in Merging/Qa");
+    assert!(done.completed_at.is_some());
+    assert!(done
+        .build_logs
+        .iter()
+        .any(|l| l.line == "merge skipped: no worktree"));
+}
+
+#[tokio::test]
+async fn execute_with_criteria_but_no_worktree_fails_closed() {
+    let (app, state) = test_app();
+    let task = planning_task(&["true"]);
+    let id = task.id;
+    state.tasks.write().await.insert(id, task);
+
+    let (code, body) = send_json(
+        &app,
+        "POST",
+        &format!("/api/tasks/{id}/execute"),
+        Some(serde_json::json!({"merge_mode": "auto"})),
+    )
+    .await;
+    assert_eq!(code, StatusCode::ACCEPTED);
+    assert_eq!(body["merge"], "blocked_no_worktree");
+    assert_eq!(body["merge_mode"], "auto");
+    assert_eq!(body["acceptance_criteria_count"], 1);
+    assert_eq!(
+        body["acceptance_criteria_sha256"].as_str().unwrap().len(),
+        64
+    );
+
+    let done = wait_terminal(&state, id).await;
+    assert_eq!(done.phase, TaskPhase::Error);
+    assert!(done.error.as_deref().unwrap().contains("no worktree bound"));
+    assert!(done.completed_at.is_none());
+}
+
+#[tokio::test]
+async fn merge_gate_endpoints_report_unverified_and_missing_worktree() {
+    let (app, state) = test_app();
+    let task = planning_task(&["true"]);
+    let id = task.id;
+    state.tasks.write().await.insert(id, task);
+
+    let (code, body) = send_json(&app, "GET", &format!("/api/tasks/{id}/merge-gate"), None).await;
+    assert_eq!(code, StatusCode::NOT_FOUND);
+    assert_eq!(body["error"], "no merge gate run");
+    assert_eq!(body["state"], "unverified");
+    assert!(body["links"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|l| l["rel"] == "schema"));
+
+    let (code, body) = send_json(&app, "POST", &format!("/api/tasks/{id}/merge"), None).await;
+    assert_eq!(code, StatusCode::NOT_FOUND);
+    assert_eq!(body["error"], "no worktree bound to task");
+
+    let (code, _) = send_json(
+        &app,
+        "GET",
+        &format!("/api/tasks/{}/merge-gate", Uuid::new_v4()),
+        None,
+    )
+    .await;
+    assert_eq!(code, StatusCode::NOT_FOUND);
+}

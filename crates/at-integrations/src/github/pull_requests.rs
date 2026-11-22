@@ -71,11 +71,13 @@ pub async fn create_pull_request(
     head: &str,
     base: &str,
 ) -> Result<GitHubPullRequest> {
+    let body = crate::outbound::screen_text(body.unwrap_or(""))
+        .map_err(super::client::GitHubError::OutputBlocked)?;
     let pulls_handler = client.octocrab.pulls(&client.owner, &client.repo);
 
     let pr = pulls_handler
         .create(title, head, base)
-        .body(body.unwrap_or(""))
+        .body(body)
         .send()
         .await?;
 

@@ -34,7 +34,7 @@ cat > profile_with_ddprof.sh << 'EOF'
 export DD_ENV=development
 export DD_SERVICE=at-daemon
 export DD_VERSION=0.1.0
-export DD_API_KEY=cee054f0868d53693f5a956f6ca4dcd1
+export DD_API_KEY="${DD_API_KEY:?set DD_API_KEY in your environment}"
 export DD_SITE=datadoghq.com
 export DD_LOG_LEVEL=INFO
 
@@ -61,7 +61,7 @@ cat > .env.ddprof << 'EOF'
 export DD_ENV=development
 export DD_SERVICE=at-daemon
 export DD_VERSION=0.1.0
-export DD_API_KEY=cee054f0868d53693f5a956f6ca4dcd1
+export DD_API_KEY="${DD_API_KEY:?set DD_API_KEY in your environment}"
 export DD_SITE=datadoghq.com
 export DD_LOG_LEVEL=INFO
 export DD_PROFILING_ENABLED=true

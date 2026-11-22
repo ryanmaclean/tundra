@@ -413,8 +413,10 @@ fn test_phase_config_cli_args_generation() {
     let args = config.to_cli_args();
     assert!(args.contains(&"--model".to_string()));
     assert!(args.contains(&"--print".to_string()));
-    assert!(args.contains(&"--thinking-budget".to_string()));
-    assert!(args.contains(&"50000".to_string()));
+    // The claude CLI rejects --thinking-budget; thinking maps to --effort.
+    assert!(!args.contains(&"--thinking-budget".to_string()));
+    assert!(args.contains(&"--effort".to_string()));
+    assert!(args.contains(&"high".to_string()));
 }
 
 #[test]

@@ -8,6 +8,34 @@ use crate::app::{App, TAB_NAMES};
 use crate::tabs;
 use crate::widgets::{help_modal, status_bar};
 
+/// Truncate `s` so its display width (terminal columns) is at most
+/// `max_width`, appending "..." when shortened. Never splits a UTF-8
+/// character, and accounts for wide (CJK, emoji) glyphs.
+pub(crate) fn truncate_to_width(s: &str, max_width: usize) -> String {
+    use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+
+    if UnicodeWidthStr::width(s) <= max_width {
+        return s.to_string();
+    }
+    const ELLIPSIS: &str = "...";
+    if max_width < ELLIPSIS.len() {
+        return ".".repeat(max_width);
+    }
+    let budget = max_width - ELLIPSIS.len();
+    let mut out = String::new();
+    let mut used = 0;
+    for c in s.chars() {
+        let w = UnicodeWidthChar::width(c).unwrap_or(0);
+        if used + w > budget {
+            break;
+        }
+        used += w;
+        out.push(c);
+    }
+    out.push_str(ELLIPSIS);
+    out
+}
+
 /// Master render function: header tabs, content area, status bar.
 pub fn render(frame: &mut Frame, app: &mut App) {
     let now = std::time::Instant::now();
@@ -73,11 +101,7 @@ fn render_command_bar(frame: &mut Frame, app: &App, area: Rect) {
             .style(Style::default().bg(Color::Black).fg(Color::White));
         frame.render_widget(bar, area);
     } else if let Some(ref result) = app.command_result {
-        let display = if result.len() > area.width as usize {
-            format!("{}...", &result[..area.width.saturating_sub(4) as usize])
-        } else {
-            result.clone()
-        };
+        let display = truncate_to_width(result, area.width.saturating_sub(1) as usize);
         let bar = Paragraph::new(Line::from(Span::styled(
             display,
             Style::default().fg(Color::Cyan),
@@ -180,5 +204,49 @@ fn render_content(frame: &mut Frame, app: &App, area: Rect) {
         15 => tabs::context::render(frame, app, area),
         16 => tabs::changelog::render(frame, app, area),
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod truncate_tests {
+    use super::truncate_to_width;
+    use unicode_width::UnicodeWidthStr;
+
+    #[test]
+    fn short_strings_unchanged() {
+        assert_eq!(truncate_to_width("hello", 20), "hello");
+        assert_eq!(truncate_to_width("", 0), "");
+    }
+
+    #[test]
+    fn multibyte_at_cut_point_does_not_panic() {
+        // Byte 17 falls inside '語' (bytes 16..19): the old &s[..17] panicked.
+        let t = truncate_to_width("Implement 日本語 translation layer", 20);
+        assert!(t.ends_with("..."));
+        assert!(UnicodeWidthStr::width(t.as_str()) <= 20);
+    }
+
+    #[test]
+    fn respects_display_width_for_wide_glyphs() {
+        for s in [
+            "🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀",
+            "日本語日本語日本語日本語",
+            "café résumé naïve façade",
+        ] {
+            for w in 0..25 {
+                let t = truncate_to_width(s, w);
+                assert!(
+                    UnicodeWidthStr::width(t.as_str()) <= w,
+                    "{s:?} @ {w} -> {t:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn json_with_non_ascii_command_result() {
+        let json = r#"{"beads":[{"title":"Implement 日本語 translation layer"}]}"#;
+        let t = truncate_to_width(json, 30);
+        assert!(UnicodeWidthStr::width(t.as_str()) <= 30);
     }
 }
