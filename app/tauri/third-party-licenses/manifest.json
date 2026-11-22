@@ -3,24 +3,24 @@
   "scope": "exact Tundra shipped-product exception approvals; not a complete third-party bill of materials",
   "entries": [
     {
-      "approval_id": "tundra-2026-10-24-const_format-0.2.35",
+      "approval_id": "tundra-2026-10-24-const_format-0.2.37",
       "name": "const_format",
-      "version": "0.2.35",
+      "version": "0.2.37",
       "license_id": "Zlib",
-      "crate_sha256": "7faa7469a93a566e9ccc1c73fe783b4a65c274c5ace346038dca9c39fe0030ad",
-      "file": "app/tauri/third-party-licenses/const_format-0.2.35/LICENSE-ZLIB.md",
+      "crate_sha256": "a3decb4d6965448659923544a634a0571ba44cede4e11ef15a5a317126840454",
+      "file": "app/tauri/third-party-licenses/const_format-0.2.37/LICENSE-ZLIB.md",
       "text_sha256": "c1e018d60dd011b335b5280b919bd3a75dbba81c6fbe24e2fc90cb235bdb6883",
-      "source": "crate:const_format-0.2.35/LICENSE-ZLIB.md"
+      "source": "crate:const_format-0.2.37/LICENSE-ZLIB.md"
     },
     {
-      "approval_id": "tundra-2026-10-24-cssparser-0.36.0",
+      "approval_id": "tundra-2026-10-24-cssparser-0.37.0",
       "name": "cssparser",
-      "version": "0.36.0",
+      "version": "0.37.0",
       "license_id": "MPL-2.0",
-      "crate_sha256": "dae61cf9c0abb83bd659dab65b7e4e38d8236824c85f0f804f173567bda257d2",
-      "file": "app/tauri/third-party-licenses/cssparser-0.36.0/LICENSE",
+      "crate_sha256": "8c9cdaae01d5ed7882b04d795e7f752f46ff52d2fa3b50a20d28c464510bba98",
+      "file": "app/tauri/third-party-licenses/cssparser-0.37.0/LICENSE",
       "text_sha256": "fab3dd6bdab226f1c08630b1dd917e11fcb4ec5e1e020e2c16f83a0a13863e85",
-      "source": "crate:cssparser-0.36.0/LICENSE"
+      "source": "crate:cssparser-0.37.0/LICENSE"
     },
     {
       "approval_id": "tundra-2026-10-24-dtoa-short-0.3.5",
@@ -63,12 +63,12 @@
       "source": "crate:option-ext-0.2.0/LICENSE.txt"
     },
     {
-      "approval_id": "tundra-2026-10-24-selectors-0.36.1",
+      "approval_id": "tundra-2026-10-24-selectors-0.38.0",
       "name": "selectors",
-      "version": "0.36.1",
+      "version": "0.38.0",
       "license_id": "MPL-2.0",
-      "crate_sha256": "c5d9c0c92a92d33f08817311cf3f2c29a3538a8240e94a6a3c622ce652d7e00c",
-      "file": "app/tauri/third-party-licenses/selectors-0.36.1/LICENSE",
+      "crate_sha256": "8adfa1c298912827b8a28b223b3b874357397ae706e6190acd9bf28cee99114d",
+      "file": "app/tauri/third-party-licenses/selectors-0.38.0/LICENSE",
       "text_sha256": "3f3d9e0024b1921b067d6f7f88deb4a60cbe7a78e76c64e3f1d7fc3b779b9d04",
       "source": "https://www.mozilla.org/media/MPL/2.0/index.txt"
     },
@@ -83,14 +83,14 @@
       "source": "crate:slotmap-1.1.1/LICENSE"
     },
     {
-      "approval_id": "tundra-2026-10-24-xxhash-rust-0.8.15",
+      "approval_id": "tundra-2026-10-24-xxhash-rust-0.8.21",
       "name": "xxhash-rust",
-      "version": "0.8.15",
+      "version": "0.8.21",
       "license_id": "BSL-1.0",
-      "crate_sha256": "fdd20c5420375476fbd4394763288da7eb0cc0b8c11deed431a91562af7335d3",
-      "file": "app/tauri/third-party-licenses/xxhash-rust-0.8.15/LICENSE",
+      "crate_sha256": "40de123dbb523ebcc00d61ec01840ad192578afc378d859f3429caa38308fad5",
+      "file": "app/tauri/third-party-licenses/xxhash-rust-0.8.21/LICENSE",
       "text_sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566",
-      "source": "crate:xxhash-rust-0.8.15/LICENSE"
+      "source": "crate:xxhash-rust-0.8.21/LICENSE"
     }
   ]
 }
