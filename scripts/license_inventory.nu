@@ -13,7 +13,7 @@ const inventory_profiles = [
 const reviewed_workspace_names = [
     at-core at-harness at-session at-agents at-daemon at-telemetry
     at-api-types at-cli at-bridge at-tui at-integrations at-intelligence
-    at-tauri at-leptos-ui
+    at-tauri at-leptos-ui at-time
 ]
 
 def roots_for [target: string] {
