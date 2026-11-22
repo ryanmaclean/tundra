@@ -5,7 +5,11 @@ use uuid::Uuid;
 
 use at_core::types::{Bead, Lane};
 
-use crate::llm::{LlmConfig, LlmMessage, LlmProvider};
+use crate::api_profiles::{ProviderKind, ResilientRegistry};
+use crate::llm::{
+    lm_error_to_retry_decision, AnthropicProvider, LlmConfig, LlmMessage, LlmProvider,
+    LocalProvider, OpenAiProvider,
+};
 
 // ---------------------------------------------------------------------------
 // IdeaCategory
@@ -139,7 +143,11 @@ fn is_json_syntax_line(line: &str) -> bool {
 
 pub struct IdeationEngine {
     ideas: Vec<Idea>,
+    /// Legacy single-provider path — kept for backward compatibility and tests.
     provider: Option<Arc<dyn LlmProvider>>,
+    /// Production resilient path — when set, `generate_ideas_with_ai` fans out
+    /// through all configured providers with automatic failover.
+    registry: Option<Arc<ResilientRegistry>>,
     default_model: String,
 }
 
@@ -148,6 +156,7 @@ impl std::fmt::Debug for IdeationEngine {
         f.debug_struct("IdeationEngine")
             .field("ideas", &self.ideas)
             .field("has_provider", &self.provider.is_some())
+            .field("has_registry", &self.registry.is_some())
             .finish()
     }
 }
@@ -157,17 +166,47 @@ impl IdeationEngine {
         Self {
             ideas: Vec::new(),
             provider: None,
-            default_model: "claude-sonnet-4-6".into(),
+            registry: None,
+            default_model: "claude-sonnet-4-20250514".into(),
         }
     }
 
     /// Create an engine **with** an LLM provider for AI-powered ideation.
+    ///
+    /// Kept for backward compatibility and tests. For production use, prefer
+    /// [`IdeationEngine::with_registry`] which provides automatic failover.
     pub fn with_provider(provider: Arc<dyn LlmProvider>, default_model: impl Into<String>) -> Self {
         Self {
             ideas: Vec::new(),
             provider: Some(provider),
+            registry: None,
             default_model: default_model.into(),
         }
+    }
+
+    /// Create an engine backed by a [`ResilientRegistry`] for resilient,
+    /// multi-provider AI-powered ideation with automatic failover.
+    ///
+    /// When [`generate_ideas_with_ai`] is called, it fans out through all
+    /// configured profiles in priority order. Terminal errors (HTTP 401/403)
+    /// short-circuit immediately via [`RetryDecision::GiveUp`]; transient
+    /// errors (429, 5xx, network) cause automatic failover to the next
+    /// provider.
+    pub fn with_registry(registry: Arc<ResilientRegistry>) -> Self {
+        Self {
+            ideas: Vec::new(),
+            provider: None,
+            registry: Some(registry),
+            default_model: "claude-sonnet-4-20250514".into(), // overridden per-profile
+        }
+    }
+
+    /// Whether generation is configured to use AI, even if no profile is currently eligible.
+    ///
+    /// A configured but unavailable provider is not offline mode. Callers must
+    /// propagate its failure instead of generating placeholder success.
+    pub fn has_ai_configuration(&self) -> bool {
+        self.provider.is_some() || self.registry.is_some()
     }
 
     /// Generate ideas for a given category and context.
@@ -236,7 +275,8 @@ impl IdeationEngine {
         Ok(result)
     }
 
-    /// Build an AI ideation request from the engine's provider and model.
+    /// Build an AI ideation request from the engine's profile registry or
+    /// single provider.
     ///
     /// The returned request owns everything it needs, so the (potentially
     /// slow) LLM call can run without borrowing or locking the engine.
@@ -245,15 +285,18 @@ impl IdeationEngine {
         category: &IdeaCategory,
         context: &str,
     ) -> Result<AiIdeationRequest, crate::IntelligenceError> {
-        let provider = self
-            .provider
-            .as_ref()
-            .ok_or_else(|| {
-                crate::IntelligenceError::InvalidOperation(
-                    "No LLM provider configured – use IdeationEngine::with_provider()".into(),
-                )
-            })?
-            .clone();
+        let source = if let Some(registry) = self.registry.clone() {
+            AiSource::Registry(registry)
+        } else if let Some(provider) = self.provider.clone() {
+            AiSource::Provider {
+                provider,
+                model: self.default_model.clone(),
+            }
+        } else {
+            return Err(crate::IntelligenceError::InvalidOperation(
+                "No LLM provider configured – use IdeationEngine::with_provider() or IdeationEngine::with_registry()".into(),
+            ));
+        };
 
         let category_label = Self::category_label(category);
 
@@ -277,17 +320,10 @@ impl IdeationEngine {
             )),
         ];
 
-        let config = LlmConfig {
-            model: self.default_model.clone(),
-            max_tokens: IDEATION_MAX_TOKENS,
-            temperature: 0.7,
-            system_prompt: None,
-        };
-
         Ok(AiIdeationRequest {
-            provider,
+            source,
             messages,
-            config,
+            max_tokens: IDEATION_MAX_TOKENS,
             category: category.clone(),
         })
     }
@@ -425,26 +461,105 @@ impl IdeationEngine {
 // AiIdeationRequest
 // ---------------------------------------------------------------------------
 
+/// Where an [`AiIdeationRequest`] sends its prompt.
+enum AiSource {
+    /// A single provider and model (tests and legacy callers).
+    Provider {
+        provider: Arc<dyn LlmProvider>,
+        model: String,
+    },
+    /// The configured profiles in priority order with failover. Terminal
+    /// errors (HTTP 401/403) abort immediately; rate limits, 5xx and network
+    /// failures move on to the next profile.
+    Registry(Arc<ResilientRegistry>),
+}
+
 /// A self-contained AI ideation request, produced by
 /// [`IdeationEngine::prepare_ai_request`]. Running it does not touch the
 /// engine, so callers can drop any engine lock for the duration of the call.
 pub struct AiIdeationRequest {
-    provider: Arc<dyn LlmProvider>,
+    source: AiSource,
     messages: Vec<LlmMessage>,
-    config: LlmConfig,
+    max_tokens: u32,
     category: IdeaCategory,
 }
 
 impl std::fmt::Debug for AiIdeationRequest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("AiIdeationRequest")
-            .field("model", &self.config.model)
-            .field("category", &self.category)
-            .finish()
+        let mut d = f.debug_struct("AiIdeationRequest");
+        match &self.source {
+            AiSource::Provider { model, .. } => d.field("model", model),
+            AiSource::Registry(_) => d.field("model", &"per-profile"),
+        };
+        d.field("category", &self.category).finish()
     }
 }
 
 impl AiIdeationRequest {
+    /// One completion attempt with `max_tokens`.
+    async fn complete_once(
+        &self,
+        max_tokens: u32,
+    ) -> Result<crate::llm::LlmResponse, crate::IntelligenceError> {
+        match &self.source {
+            AiSource::Provider { provider, model } => {
+                let config = LlmConfig {
+                    model: model.clone(),
+                    max_tokens,
+                    temperature: 0.7,
+                    system_prompt: None,
+                };
+                provider
+                    .complete(&self.messages, &config)
+                    .await
+                    .map_err(|e| {
+                        crate::IntelligenceError::InvalidOperation(format!("LLM call failed: {e}"))
+                    })
+            }
+            AiSource::Registry(registry) => {
+                let (_, response) = registry
+                    .call_with_failover(|profile| {
+                        let api_key = std::env::var(&profile.api_key_env)
+                            .ok()
+                            .filter(|s| !s.is_empty());
+                        let provider: Arc<dyn LlmProvider> = match profile.provider {
+                            ProviderKind::Local => {
+                                Arc::new(LocalProvider::new(&profile.base_url, api_key))
+                            }
+                            ProviderKind::Anthropic => Arc::new(
+                                AnthropicProvider::new(api_key.unwrap_or_default())
+                                    .with_base_url(&profile.base_url),
+                            ),
+                            ProviderKind::OpenAi => Arc::new(
+                                OpenAiProvider::new(api_key.unwrap_or_default())
+                                    .with_base_url(&profile.base_url),
+                            ),
+                            // OpenRouter and Custom speak the OpenAI-compatible protocol.
+                            _ => Arc::new(LocalProvider::new(&profile.base_url, api_key)),
+                        };
+                        let config = LlmConfig {
+                            model: profile.default_model.clone(),
+                            max_tokens,
+                            temperature: 0.7,
+                            system_prompt: None,
+                        };
+                        let messages = self.messages.clone();
+                        async move {
+                            provider
+                                .complete(&messages, &config)
+                                .await
+                                .map_err(lm_error_to_retry_decision)
+                        }
+                    })
+                    .await
+                    .map_err(|e| {
+                        crate::IntelligenceError::InvalidOperation(format!("LLM call failed: {e}"))
+                    })?;
+                Ok(response)
+            }
+        }
+    }
+
     /// Call the LLM and parse its output into ideas. Ideas are **not** stored;
     /// pass the result to [`IdeationEngine::store_ideas`].
     ///
@@ -452,26 +567,14 @@ impl AiIdeationRequest {
     /// budget; output that is still truncated, or JSON that cannot be parsed,
     /// is an error rather than a source of junk ideas.
     pub async fn run(mut self) -> Result<IdeationResult, crate::IntelligenceError> {
-        let provider = self.provider.clone();
-        let messages = std::mem::take(&mut self.messages);
-        let call = |config: LlmConfig| {
-            let provider = provider.clone();
-            let messages = &messages;
-            async move {
-                provider.complete(messages, &config).await.map_err(|e| {
-                    crate::IntelligenceError::InvalidOperation(format!("LLM call failed: {e}"))
-                })
-            }
-        };
-
-        let mut response = call(self.config.clone()).await?;
+        let mut response = self.complete_once(self.max_tokens).await?;
         if is_truncated(&response.finish_reason) {
-            self.config.max_tokens = self.config.max_tokens.saturating_mul(2);
-            response = call(self.config.clone()).await?;
+            self.max_tokens = self.max_tokens.saturating_mul(2);
+            response = self.complete_once(self.max_tokens).await?;
             if is_truncated(&response.finish_reason) {
                 return Err(crate::IntelligenceError::InvalidOperation(format!(
                     "ideation output truncated at max_tokens={}",
-                    self.config.max_tokens
+                    self.max_tokens
                 )));
             }
         }
