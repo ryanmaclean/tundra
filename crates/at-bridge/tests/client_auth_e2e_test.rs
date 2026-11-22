@@ -289,7 +289,10 @@ async fn catalog_advertises_ticket_flow_not_query_key() {
         .unwrap();
     assert_eq!(cat["auth"]["ws_query_param"], WS_TICKET_QUERY_PARAM);
     assert_eq!(cat["auth"]["ws_ticket_path"], WS_TICKET_PATH);
-    assert_eq!(cat["auth"]["contract_version"], "2.0.0");
+    assert_eq!(
+        cat["auth"]["contract_version"],
+        at_api_types::auth::AUTH_CONTRACT_VERSION
+    );
     assert!(cat["cards"]
         .as_array()
         .unwrap()
