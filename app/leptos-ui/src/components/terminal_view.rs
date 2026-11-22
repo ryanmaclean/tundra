@@ -319,19 +319,47 @@ fn terminal_ws_path(terminal_id: &str) -> String {
     format!("/ws/terminal/{terminal_id}")
 }
 
-/// Open (or re-open) the terminal WebSocket. The URL is rebuilt on every
-/// attempt via [`api::ws_url`], so the `api_key` query param is re-sent.
+/// Open (or re-open) the terminal WebSocket. Every attempt fetches a fresh
+/// single-use ticket via [`api::ws_url`]; the API key never enters the URL.
 fn connect_terminal_ws(ctx: &Rc<TerminalWs>) {
     if !ctx.mounted.get() {
         return;
     }
+    if ctx.term_handle.borrow().is_none() {
+        return;
+    }
+    ctx.detach();
+
+    let path = terminal_ws_path(&ctx.terminal_id);
+    let weak = Rc::downgrade(ctx);
+    wasm_bindgen_futures::spawn_local(async move {
+        let url = api::ws_url(&path).await;
+        let Some(ctx) = weak.upgrade() else {
+            return;
+        };
+        if !ctx.mounted.get() {
+            return;
+        }
+        match url {
+            Ok(url) => open_terminal_ws(&ctx, &url),
+            Err(e) => {
+                web_sys::console::warn_1(
+                    &format!("[terminal] failed to get websocket ticket: {e}").into(),
+                );
+                schedule_terminal_reconnect(&ctx);
+            }
+        }
+    });
+}
+
+/// Second half of [`connect_terminal_ws`]: open the socket at a ticketed URL.
+fn open_terminal_ws(ctx: &Rc<TerminalWs>, ws_url: &str) {
     let Some(term_handle) = ctx.term_handle.borrow().clone() else {
         return;
     };
+    // Another attempt may have bound a socket while the ticket was in flight.
     ctx.detach();
-
-    let ws_url = api::ws_url(&terminal_ws_path(&ctx.terminal_id));
-    let ws = match WebSocket::new(&ws_url) {
+    let ws = match WebSocket::new(ws_url) {
         Ok(ws) => ws,
         Err(e) => {
             web_sys::console::warn_1(&format!("[terminal] failed to open websocket: {e:?}").into());
@@ -661,14 +689,15 @@ mod reconnect_tests {
     use crate::api::ws_url_for;
 
     #[test]
-    fn reconnect_url_carries_api_key_every_attempt() {
-        // connect_terminal_ws rebuilds the URL per attempt from this path.
+    fn reconnect_url_carries_ticket_not_api_key() {
+        // connect_terminal_ws fetches a fresh ticket per attempt for this
+        // exact path (tickets are path-bound and single use).
         let path = terminal_ws_path("t-1");
         assert_eq!(path, "/ws/terminal/t-1");
-        assert_eq!(
-            ws_url_for("http://127.0.0.1:9090", &path, Some("k%2B1")),
-            "ws://127.0.0.1:9090/ws/terminal/t-1?api_key=k%2B1"
-        );
+        assert!(at_api_types::auth::is_ws_ticket_path(&path));
+        let url = ws_url_for("http://127.0.0.1:9090", &path, Some("t%2B1"));
+        assert_eq!(url, "ws://127.0.0.1:9090/ws/terminal/t-1?ws_ticket=t%2B1");
+        assert!(!url.contains("api_key="));
     }
 
     #[test]

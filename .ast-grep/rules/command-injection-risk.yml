@@ -1,0 +1,19 @@
+id: command-injection-risk
+language: Rust
+message: Prefer direct execution over passing arguments to sh or bash.
+severity: error
+rule:
+  pattern: $CMD.arg($ARG)
+constraints:
+  CMD:
+    any:
+      - pattern: std::process::Command::new("sh")
+      - pattern: std::process::Command::new("bash")
+      - has:
+          any:
+            - pattern: std::process::Command::new("sh")
+            - pattern: std::process::Command::new("bash")
+          stopBy: end
+metadata:
+  category: security
+  cwe: CWE-78

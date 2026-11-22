@@ -133,7 +133,7 @@ cargo add ddtrace tracing tracing-subscriber
 
 ```bash
 # 1. Enable profiling
-./setup_datadog_profiling.sh
+./scripts/profiling/setup_datadog_profiling.sh
 
 # 2. Add dependencies
 cd /Users/studio/rust-harness

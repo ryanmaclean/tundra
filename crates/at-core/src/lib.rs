@@ -26,6 +26,7 @@ pub mod session_store;
 pub mod settings;
 pub mod tls;
 pub mod types;
+mod utc_clock;
 pub mod worktree;
 pub mod worktree_manager;
 
