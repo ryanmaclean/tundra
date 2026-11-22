@@ -3,14 +3,14 @@
   "scope": "exact Tundra shipped-product exception approvals; not a complete third-party bill of materials",
   "entries": [
     {
-      "approval_id": "tundra-2026-10-24-const_format-0.2.37",
+      "approval_id": "tundra-2026-10-24-const_format-0.2.35",
       "name": "const_format",
-      "version": "0.2.37",
+      "version": "0.2.35",
       "license_id": "Zlib",
-      "crate_sha256": "a3decb4d6965448659923544a634a0571ba44cede4e11ef15a5a317126840454",
-      "file": "app/tauri/third-party-licenses/const_format-0.2.37/LICENSE-ZLIB.md",
+      "crate_sha256": "7faa7469a93a566e9ccc1c73fe783b4a65c274c5ace346038dca9c39fe0030ad",
+      "file": "app/tauri/third-party-licenses/const_format-0.2.35/LICENSE-ZLIB.md",
       "text_sha256": "c1e018d60dd011b335b5280b919bd3a75dbba81c6fbe24e2fc90cb235bdb6883",
-      "source": "crate:const_format-0.2.37/LICENSE-ZLIB.md"
+      "source": "crate:const_format-0.2.35/LICENSE-ZLIB.md"
     },
     {
       "approval_id": "tundra-2026-10-24-cssparser-0.37.0",
