@@ -66,11 +66,84 @@ use std::collections::HashMap;
 use std::io::{Read as IoRead, Write as IoWrite};
 use std::path::Path;
 use std::sync::{Arc, Mutex, Weak};
+use std::time::{Duration, Instant};
 
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use thiserror::Error;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
+
+/// How long [`PtyHandle::terminate_async`] waits for the child to be reaped
+/// after the kill signal before reporting failure (the handle stays usable,
+/// so the caller can retry).
+const TERMINATE_EXIT_TIMEOUT: Duration = Duration::from_secs(5);
+
+type SharedChild = Arc<Mutex<Box<dyn portable_pty::Child + Send + Sync>>>;
+
+/// What a non-blocking check of a PTY child's state observed.
+///
+/// `Unknown` means the OS status query itself failed. It is *not* an exit:
+/// callers that own the process must keep owning it (and its pool slot)
+/// rather than treating the error as proof that the child is gone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChildStatus {
+    /// The child has not exited.
+    Running,
+    /// The child exited (and was reaped) with this code.
+    Exited(i32),
+    /// The status query failed; liveness is not known.
+    Unknown,
+}
+
+fn lock_child(
+    child: &SharedChild,
+) -> std::sync::MutexGuard<'_, Box<dyn portable_pty::Child + Send + Sync>> {
+    child.lock().unwrap_or_else(|e| {
+        warn!("child lock was poisoned, recovering");
+        e.into_inner()
+    })
+}
+
+fn exit_code_of(status: &portable_pty::ExitStatus) -> i32 {
+    i32::try_from(status.exit_code()).unwrap_or(i32::MAX)
+}
+
+/// Kill `child` and wait (bounded) until its exit has been observed.
+///
+/// Returns the exit code only once the OS has confirmed the exit. A child
+/// that had already exited is not signalled. Any other outcome is an error
+/// and the child is left owned by the caller, so the call can be retried.
+fn terminate_blocking(child: &SharedChild, timeout: Duration) -> Result<i32> {
+    let mut child = lock_child(child);
+    if let Ok(Some(status)) = child.try_wait() {
+        return Ok(exit_code_of(&status));
+    }
+    if let Err(e) = child.kill() {
+        // It may have exited between the check and the signal.
+        if let Ok(Some(status)) = child.try_wait() {
+            return Ok(exit_code_of(&status));
+        }
+        return Err(PtyError::Internal(format!("kill failed: {e}")));
+    }
+    let deadline = Instant::now() + timeout;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return Ok(exit_code_of(&status)),
+            Ok(None) => {}
+            Err(e) => {
+                return Err(PtyError::Internal(format!(
+                    "exit status unavailable after kill: {e}"
+                )))
+            }
+        }
+        if Instant::now() >= deadline {
+            return Err(PtyError::Internal(format!(
+                "child did not exit within {timeout:?} of kill"
+            )));
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -240,7 +313,7 @@ pub struct PtyHandle {
     pub writer: flume::Sender<Vec<u8>>,
 
     /// Handle to the child process for lifecycle management.
-    child: Arc<Mutex<Box<dyn portable_pty::Child + Send + Sync>>>,
+    child: SharedChild,
 
     /// Handle to the PTY master for resize operations.
     master: Arc<Mutex<Box<dyn portable_pty::MasterPty + Send>>>,
@@ -296,6 +369,10 @@ impl PtyHandle {
     /// Note: This does not check if output is still buffered in the reader
     /// channel. A process may have exited but output may still be available
     /// for reading.
+    ///
+    /// Code that decides whether to free resources must use
+    /// [`status()`](PtyHandle::status) instead: a failed status query reads
+    /// as "not alive" here but is [`ChildStatus::Unknown`] there.
     pub fn is_alive(&self) -> bool {
         let mut child = self.child.lock().unwrap_or_else(|e| {
             warn!("child lock was poisoned, recovering");
@@ -306,6 +383,37 @@ impl PtyHandle {
             Ok(None) => true,
             Err(_) => false,
         }
+    }
+
+    /// Non-blocking, three-way check of the child's state.
+    ///
+    /// Unlike [`is_alive()`](PtyHandle::is_alive), an OS error is reported as
+    /// [`ChildStatus::Unknown`] rather than as an exit.
+    pub fn status(&self) -> ChildStatus {
+        match lock_child(&self.child).try_wait() {
+            Ok(Some(status)) => ChildStatus::Exited(exit_code_of(&status)),
+            Ok(None) => ChildStatus::Running,
+            Err(e) => {
+                warn!(pty_id = %self.id, error = %e, "PTY child status query failed");
+                ChildStatus::Unknown
+            }
+        }
+    }
+
+    /// Kill the child (if it is still running) and wait until its exit is
+    /// confirmed, without blocking the async runtime.
+    ///
+    /// Returns the exit code once the OS has reported the exit. On error the
+    /// child may still be running: keep the handle (it still owns the child
+    /// and its pool slot) and retry later.
+    ///
+    /// Callers holding an async lock over a map of handles should remove the
+    /// handle from the map and release the lock *before* awaiting this.
+    pub async fn terminate_async(&self) -> Result<i32> {
+        let child = Arc::clone(&self.child);
+        tokio::task::spawn_blocking(move || terminate_blocking(&child, TERMINATE_EXIT_TIMEOUT))
+            .await
+            .map_err(|e| PtyError::Internal(format!("terminate task failed: {e}")))?
     }
 
     /// OS process id of the child, if the platform exposes one.
@@ -377,24 +485,9 @@ impl PtyHandle {
     /// Returns [`PtyError::Internal`] if the kill fails or the blocking task
     /// panics / is cancelled.
     pub async fn kill_async(&self) -> Result<()> {
-        let child = Arc::clone(&self.child);
-        tokio::task::spawn_blocking(move || {
-            let mut child = child.lock().unwrap_or_else(|e| {
-                warn!("child lock was poisoned, recovering");
-                e.into_inner()
-            });
-            child
-                .kill()
-                .map_err(|e| PtyError::Internal(e.to_string()))?;
-            // After SIGKILL (or a successful SIGHUP) the child is dead or about
-            // to be; wait() returns promptly and reaps the zombie.
-            child
-                .wait()
-                .map_err(|e| PtyError::Internal(format!("wait after kill failed: {e}")))?;
-            Ok(())
-        })
-        .await
-        .map_err(|e| PtyError::Internal(format!("kill task failed: {e}")))?
+        // Same as `terminate_async`, minus the exit code: the wait for the
+        // reap is bounded, and an already-exited child is not signalled.
+        self.terminate_async().await.map(|_| ())
     }
 
     /// Read all currently available output without blocking.
@@ -550,47 +643,81 @@ impl PtyHandle {
     }
 }
 
+/// Free `id`'s slot in a pool's slot table (no-op if the pool is gone or the
+/// slot was already released explicitly).
+fn free_slot(slots: &Weak<Mutex<HashMap<Uuid, ()>>>, id: Uuid) {
+    if let Some(slots) = slots.upgrade() {
+        let removed = slots
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&id)
+            .is_some();
+        if removed {
+            debug!(pty_id = %id, "freed PTY pool slot");
+        }
+    }
+}
+
 impl Drop for PtyHandle {
-    /// Kill a still-running child and free this handle's pool slot.
+    /// Kill a still-running child and free this handle's pool slot once the
+    /// child's exit has been confirmed.
+    ///
+    /// The slot is the pool's record that a process exists, so it is only
+    /// released after the OS reports the exit. When that is not immediate
+    /// (the kill is still taking effect, or the status query failed), a
+    /// reaper thread waits for the exit and frees the slot then; until it
+    /// does, the pool keeps counting the child against its capacity.
     ///
     /// Idempotent with explicit cleanup ([`PtyHandle::kill()`] +
     /// [`PtyPool::release()`], as the agent executor's guard does): an exited
     /// child is not signalled again and removing an absent slot is a no-op.
     fn drop(&mut self) {
         let mut child = self.child.lock().unwrap_or_else(|e| e.into_inner());
-        let needs_reap = match child.try_wait() {
-            Ok(Some(_)) => false,
+        let exited = match child.try_wait() {
+            Ok(Some(_)) => true,
             Ok(None) => {
                 debug!(pty_id = %self.id, "PtyHandle dropped with live child; killing");
                 if let Err(e) = child.kill() {
                     warn!(pty_id = %self.id, error = %e, "failed to kill PTY child on drop");
                 }
-                !matches!(child.try_wait(), Ok(Some(_)))
+                matches!(child.try_wait(), Ok(Some(_)))
             }
-            // Status unknown: nothing safe to signal; don't block on wait().
-            Err(_) => false,
+            Err(e) => {
+                // Status unknown: still try to stop it, but do not assume it
+                // is gone.
+                warn!(pty_id = %self.id, error = %e, "PTY child status unknown on drop; killing");
+                let _ = child.kill();
+                false
+            }
         };
         drop(child);
-        if needs_reap {
-            // SIGKILL was sent but the exit isn't observable yet; reap off-thread
-            // so the child doesn't linger as a zombie and Drop never blocks.
-            let child = Arc::clone(&self.child);
-            let _ = std::thread::Builder::new()
-                .name("pty-reaper".into())
-                .spawn(move || {
-                    let _ = child.lock().unwrap_or_else(|e| e.into_inner()).wait();
-                });
+
+        if exited {
+            free_slot(&self.pool_slots, self.id);
+            return;
         }
 
-        if let Some(slots) = self.pool_slots.upgrade() {
-            let removed = slots
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .remove(&self.id)
-                .is_some();
-            if removed {
-                debug!(pty_id = %self.id, "freed PTY pool slot on drop");
-            }
+        // Exit not observable yet: reap off-thread so Drop never blocks and
+        // the child doesn't linger as a zombie, and free the slot only after
+        // the reap.
+        let child = Arc::clone(&self.child);
+        let slots = self.pool_slots.clone();
+        let id = self.id;
+        let spawned = std::thread::Builder::new()
+            .name("pty-reaper".into())
+            .spawn(move || {
+                let waited = child.lock().unwrap_or_else(|e| e.into_inner()).wait();
+                match waited {
+                    Ok(_) => free_slot(&slots, id),
+                    Err(e) => warn!(
+                        pty_id = %id,
+                        error = %e,
+                        "could not confirm PTY child exit; keeping its pool slot"
+                    ),
+                }
+            });
+        if let Err(e) = spawned {
+            warn!(pty_id = %self.id, error = %e, "could not start PTY reaper; keeping its pool slot");
         }
     }
 }
@@ -808,15 +935,6 @@ impl PtyPool {
         env: &[(&str, &str)],
         cwd: Option<&Path>,
     ) -> Result<PtyHandle> {
-        if let Some(dir) = cwd {
-            if !dir.is_dir() {
-                return Err(PtyError::SpawnFailed(format!(
-                    "working directory does not exist or is not a directory: {}",
-                    dir.display()
-                )));
-            }
-        }
-
         // Capacity check + slot reservation under a single lock so concurrent
         // spawns cannot all pass the check before any of them inserts.
         let handle_id = Uuid::new_v4();
@@ -835,6 +953,14 @@ impl PtyPool {
             id: handle_id,
             armed: true,
         };
+        if let Some(dir) = cwd {
+            if !dir.is_dir() {
+                return Err(PtyError::SpawnFailed(format!(
+                    "working directory does not exist or is not a directory: {}",
+                    dir.display()
+                )));
+            }
+        }
 
         let pty_system = native_pty_system();
 
