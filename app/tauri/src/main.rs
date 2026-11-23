@@ -411,7 +411,10 @@ fn main() {
             let state = app.state::<AppState>();
             let pending = exit_runtime.block_on(state.shutdown_for_exit());
             if !pending.is_empty() {
-                tracing::warn!(count = pending.len(), "terminal children not confirmed exited");
+                tracing::warn!(
+                    count = pending.len(),
+                    "terminal children not confirmed exited"
+                );
             }
         }
     });
