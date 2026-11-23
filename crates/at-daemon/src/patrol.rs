@@ -166,56 +166,17 @@ impl PatrolRunner {
     }
 }
 
-/// Reap orphaned PTY processes whose child has exited but remain in the
-/// terminal registry.
+/// Reap orphaned terminal PTYs on a patrol tick.
 ///
-/// Iterates every entry in the `terminal_registry`, checks the corresponding
-/// `pty_handles` entry for liveness via `PtyHandle::is_alive()`, and removes
-/// dead entries from both maps. Returns the number of orphans reaped.
+/// Delegates to [`at_bridge::terminal_lifecycle::reap_orphans`], the single
+/// terminal lifecycle owner: it scans both the terminal registry and the PTY
+/// handle map, retires terminals whose child exited (confirming the exit
+/// before the pool slot is freed), retries kills that were not confirmed,
+/// retires handles with no registry entry and removes registry entries with
+/// no handle. A child whose status cannot be read is left alone. Returns the
+/// number of terminals cleaned up.
 pub async fn reap_orphan_ptys(state: &Arc<ApiState>) -> usize {
-    // Collect terminal IDs that have a registered PTY handle.
-    let terminal_ids: Vec<uuid::Uuid> = {
-        let registry = state.terminal_registry.read().await;
-        registry.list().iter().map(|t| t.id).collect()
-    };
-
-    let mut orphan_count = 0;
-
-    for tid in &terminal_ids {
-        let is_dead = {
-            let handles = state.pty_handles.read().await;
-            match handles.get(tid) {
-                Some(handle) => !handle.is_alive(),
-                // Terminal registered but no PTY handle at all — also an orphan.
-                None => true,
-            }
-        };
-
-        if is_dead {
-            orphan_count += 1;
-            warn!(terminal_id = %tid, "orphaned PTY detected — reaping");
-
-            // Remove from pty_handles (and kill if still present).
-            {
-                let mut handles = state.pty_handles.write().await;
-                if let Some(handle) = handles.remove(tid) {
-                    let _ = handle.kill();
-                }
-            }
-
-            // Mark as closed in the registry and remove.
-            {
-                let mut registry = state.terminal_registry.write().await;
-                registry.unregister(tid);
-            }
-        }
-    }
-
-    if orphan_count > 0 {
-        info!(orphan_count, "orphan PTY reaping complete");
-    }
-
-    orphan_count
+    at_bridge::terminal_lifecycle::reap_orphans(state).await
 }
 
 // ---------------------------------------------------------------------------
@@ -908,8 +869,11 @@ mod tests {
         /// When `true`, `try_wait` returns `Ok(Some(exited))`, making
         /// `PtyHandle::is_alive()` return `false`.
         is_dead: bool,
-        /// When `true`, `kill()` returns an `Err`.
+        /// When `true`, `kill()` returns an `Err`; otherwise a kill makes the
+        /// child exit (as a real SIGKILL would).
         should_fail_kill: bool,
+        /// When `true`, `try_wait` returns an OS error (status unknown).
+        status_error: bool,
         /// Records whether `kill()` was called.
         kill_called: bool,
     }
@@ -933,12 +897,21 @@ mod tests {
             Self(Arc::new(Mutex::new(MockChildState {
                 is_dead,
                 should_fail_kill,
+                status_error: false,
                 kill_called: false,
             })))
         }
 
         fn kill_was_called(&self) -> bool {
             self.0.lock().unwrap().kill_called
+        }
+
+        fn set_fail_kill(&self, fail: bool) {
+            self.0.lock().unwrap().should_fail_kill = fail;
+        }
+
+        fn set_status_error(&self, error: bool) {
+            self.0.lock().unwrap().status_error = error;
         }
     }
 
@@ -949,6 +922,7 @@ mod tests {
             if state.should_fail_kill {
                 Err(io::Error::other("mock kill failure"))
             } else {
+                state.is_dead = true;
                 Ok(())
             }
         }
@@ -961,6 +935,9 @@ mod tests {
     impl Child for MockChild {
         fn try_wait(&mut self) -> io::Result<Option<ExitStatus>> {
             let state = self.0.lock().unwrap();
+            if state.status_error {
+                return Err(io::Error::other("mock try_wait failure"));
+            }
             if state.is_dead {
                 Ok(Some(ExitStatus::with_exit_code(0)))
             } else {
@@ -1120,17 +1097,16 @@ mod tests {
         );
     }
 
-    /// A terminal-registry entry whose backing PTY has died (is_alive() == false)
-    /// is an orphan.  The function must call kill() on the handle and remove it
-    /// from both maps.
+    /// A terminal whose child already exited is an orphan. It is removed from
+    /// both maps without signalling the exited child again.
     #[tokio::test]
-    async fn reap_orphan_ptys_kills_orphan_pty_with_no_terminal() {
+    async fn reap_orphan_ptys_reaps_exited_pty_and_removes_terminal() {
         let tid = Uuid::new_v4();
 
         let mut registry = TerminalRegistry::new();
         registry.register(make_terminal_info(tid));
 
-        // is_dead=true => PtyHandle::is_alive() returns false
+        // is_dead=true => try_wait reports an exit
         let (handle, mock_child) = make_mock_handle(tid, true, false);
         let mut handles = std::collections::HashMap::new();
         handles.insert(tid, handle);
@@ -1141,16 +1117,16 @@ mod tests {
 
         assert_eq!(reaped, 1, "exactly one orphan expected");
         assert!(
-            mock_child.kill_was_called(),
-            "kill() must be called on the dead PTY handle"
+            !mock_child.kill_was_called(),
+            "an exited child must not be signalled again"
         );
         assert!(
             state.pty_handles.read().await.is_empty(),
-            "dead handle must be removed from pty_handles"
+            "exited handle must be removed from pty_handles"
         );
         assert!(
             state.terminal_registry.read().await.list().is_empty(),
-            "dead terminal entry must be removed from terminal_registry"
+            "exited terminal entry must be removed from terminal_registry"
         );
     }
 
@@ -1178,40 +1154,147 @@ mod tests {
         assert!(state.pty_handles.read().await.is_empty());
     }
 
-    /// When `kill()` fails on the underlying child, `reap_orphan_ptys` must NOT
-    /// panic.  The production code uses `let _ = handle.kill()` which discards
-    /// the error, so the entry is removed regardless of kill outcome.
+    /// A handle with no registry entry cannot be reached through the API, so
+    /// the reaper kills it. When the kill fails the handle is NOT dropped: it
+    /// stays owned (status unknown to the API, so nothing to show) and the
+    /// next tick retries. Once the kill succeeds the handle is gone.
     #[tokio::test]
-    async fn reap_orphan_ptys_handles_kill_failure_gracefully() {
+    async fn reap_orphan_ptys_keeps_ownership_when_kill_fails_and_retries() {
         let tid = Uuid::new_v4();
 
-        let mut registry = TerminalRegistry::new();
-        registry.register(make_terminal_info(tid));
+        // Live child, kill fails, no registry entry.
+        let (handle, mock_child) = make_mock_handle(tid, false, true);
+        let mut handles = std::collections::HashMap::new();
+        handles.insert(tid, handle);
 
-        // is_dead=true, should_fail_kill=true => kill() returns Err.
-        let (handle, mock_child) = make_mock_handle(tid, true, true);
+        let state = make_state_with(TerminalRegistry::new(), handles).await;
+
+        let reaped = reap_orphan_ptys(&state).await;
+        assert_eq!(reaped, 0, "a failed kill is not a reap");
+        assert!(mock_child.kill_was_called(), "kill must be attempted");
+        assert!(
+            state.pty_handles.read().await.contains_key(&tid),
+            "handle must stay owned after a failed kill"
+        );
+
+        // Next tick: the kill works and the handle is released.
+        mock_child.set_fail_kill(false);
+        let reaped = reap_orphan_ptys(&state).await;
+        assert_eq!(reaped, 1, "retry must reap the orphan");
+        assert!(state.pty_handles.read().await.is_empty());
+    }
+
+    /// A registered terminal whose kill failed (status Dead, handle still
+    /// owned) is retried by the reaper until the exit is confirmed.
+    #[tokio::test]
+    async fn reap_orphan_ptys_retries_dead_terminal_with_live_child() {
+        let tid = Uuid::new_v4();
+
+        let mut info = make_terminal_info(tid);
+        info.status = TerminalStatus::Dead;
+        let mut registry = TerminalRegistry::new();
+        registry.register(info);
+        let (handle, mock_child) = make_mock_handle(tid, false, false);
         let mut handles = std::collections::HashMap::new();
         handles.insert(tid, handle);
 
         let state = make_state_with(registry, handles).await;
 
-        // Must NOT panic even though kill() returns Err.
-        let reaped = reap_orphan_ptys(&state).await;
+        assert_eq!(reap_orphan_ptys(&state).await, 1);
+        assert!(mock_child.kill_was_called());
+        assert!(state.pty_handles.read().await.is_empty());
+        assert!(state.terminal_registry.read().await.list().is_empty());
+    }
 
-        assert_eq!(reaped, 1, "orphan count must be 1 even after kill failure");
-        assert!(
-            mock_child.kill_was_called(),
-            "kill() must still be attempted on the orphaned handle"
-        );
-        // Graceful degradation: entry is removed regardless of kill outcome.
-        assert!(
-            state.pty_handles.read().await.is_empty(),
-            "handle must be removed from pty_handles even when kill() fails"
-        );
-        assert!(
-            state.terminal_registry.read().await.list().is_empty(),
-            "terminal must be removed from terminal_registry even when kill() fails"
-        );
+    /// A failed status query is not proof of death: the terminal and its
+    /// handle are left alone and nothing is killed.
+    #[tokio::test]
+    async fn reap_orphan_ptys_leaves_unknown_status_alone() {
+        let tid = Uuid::new_v4();
+
+        let mut registry = TerminalRegistry::new();
+        registry.register(make_terminal_info(tid));
+        let (handle, mock_child) = make_mock_handle(tid, false, false);
+        mock_child.set_status_error(true);
+        let mut handles = std::collections::HashMap::new();
+        handles.insert(tid, handle);
+
+        let state = make_state_with(registry, handles).await;
+
+        assert_eq!(reap_orphan_ptys(&state).await, 0);
+        assert!(!mock_child.kill_was_called());
+        assert_eq!(state.pty_handles.read().await.len(), 1);
+        assert_eq!(state.terminal_registry.read().await.list().len(), 1);
+
+        // Let the handle drop cleanly at the end of the test.
+        mock_child.set_status_error(false);
+    }
+
+    /// Production patrol tick against a real child: a shell created through
+    /// the terminal API exits by itself, the tick reaps it, the pid is gone
+    /// from the process table and the capacity-one pool accepts a new shell.
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn reap_orphan_ptys_reaps_real_exited_shell_and_frees_capacity() {
+        use axum::extract::State;
+        use axum::response::IntoResponse;
+
+        let pool = Arc::new(at_session::pty_pool::PtyPool::new(1));
+        let state = Arc::new(ApiState::with_pty_pool(EventBus::new(), pool.clone()));
+
+        let created = at_bridge::terminal_ws::create_terminal(State(state.clone()))
+            .await
+            .into_response();
+        assert_eq!(created.status(), axum::http::StatusCode::CREATED);
+        let (tid, pid) = {
+            let handles = state.pty_handles.read().await;
+            let (tid, handle) = handles.iter().next().expect("handle stored");
+            (*tid, handle.process_id().expect("pid"))
+        };
+        assert_eq!(pool.active_count(), 1);
+
+        // A live shell is not an orphan.
+        assert_eq!(reap_orphan_ptys(&state).await, 0);
+
+        state.pty_handles.read().await[&tid]
+            .send_line("exit 0")
+            .expect("send exit");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        loop {
+            let exited = matches!(
+                state.pty_handles.read().await[&tid].status(),
+                at_session::pty_pool::ChildStatus::Exited(_)
+            );
+            if exited {
+                break;
+            }
+            assert!(std::time::Instant::now() < deadline, "shell never exited");
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        }
+
+        assert_eq!(reap_orphan_ptys(&state).await, 1);
+        assert!(state.pty_handles.read().await.is_empty());
+        assert!(state.terminal_registry.read().await.get(&tid).is_none());
+        assert_eq!(pool.active_count(), 0, "reaped child must free its slot");
+        let gone = std::process::Command::new("kill")
+            .args(["-0", &pid.to_string()])
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|s| !s.success())
+            .unwrap_or(false);
+        assert!(gone, "shell {pid} still in the process table");
+
+        let next = at_bridge::terminal_ws::create_terminal(State(state.clone()))
+            .await
+            .into_response();
+        assert_eq!(next.status(), axum::http::StatusCode::CREATED);
+        assert!(at_bridge::terminal_lifecycle::shutdown(
+            &state,
+            std::time::Duration::from_secs(10)
+        )
+        .await
+        .is_empty());
+        assert_eq!(pool.active_count(), 0);
     }
 
     fn make_slung_bead(slung_at: Option<DateTime<Utc>>) -> Bead {

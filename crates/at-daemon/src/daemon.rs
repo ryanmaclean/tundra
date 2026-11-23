@@ -17,6 +17,9 @@ use crate::kpi::KpiCollector;
 use crate::patrol::{reap_orphan_ptys, PatrolRunner, StuckMonitor, StuckPolicy, SystemClock};
 use crate::scheduler::TaskScheduler;
 
+/// Upper bound on terminating terminal children when the daemon stops.
+const TERMINAL_SHUTDOWN_TIMEOUT_SECS: u64 = 10;
+
 /// Configuration for daemon loop intervals.
 #[derive(Debug, Clone)]
 pub struct DaemonIntervals {
@@ -367,6 +370,23 @@ impl Daemon {
                     break;
                 }
             }
+        }
+
+        // Stop admitting terminals and terminate their shells before the
+        // runtime goes away, so no child outlives the daemon unowned.
+        let pending = at_bridge::terminal_lifecycle::shutdown(
+            &api_state,
+            Duration::from_secs(TERMINAL_SHUTDOWN_TIMEOUT_SECS),
+        )
+        .await;
+        if pending.is_empty() {
+            info!("terminal children terminated");
+        } else {
+            warn!(
+                count = pending.len(),
+                ids = ?pending,
+                "terminal children not confirmed exited at shutdown"
+            );
         }
     }
 
