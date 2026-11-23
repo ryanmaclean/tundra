@@ -222,6 +222,57 @@ pub fn rfc3339_age_hours(input: &str) -> Option<u64> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn system_clock_matches_native_epoch_behavior() {
+        let clock = UNIX_EPOCH + std::time::Duration::new(1, 123_400_000);
+        assert_eq!(
+            format_system_time(clock),
+            "1970-01-01T00:00:01.123400+00:00"
+        );
+        assert!(std::panic::catch_unwind(|| {
+            format_system_time(UNIX_EPOCH - std::time::Duration::from_nanos(1))
+        })
+        .is_err());
+    }
+
+    #[test]
+    fn format_rfc3339_vectors() {
+        assert_eq!(format_rfc3339(0, 0).unwrap(), "1970-01-01T00:00:00+00:00");
+        assert_eq!(
+            format_rfc3339(1_700_000_000, 123_456_789).unwrap(),
+            "2023-11-14T22:13:20.123456789+00:00"
+        );
+        assert_eq!(
+            format_rfc3339(1_700_000_000, 500_000_000).unwrap(),
+            "2023-11-14T22:13:20.500+00:00"
+        );
+        assert!(format_rfc3339(0, 1_000_000_000).is_none());
+    }
+
+    #[test]
+    fn calendar_vectors() {
+        assert_eq!(calendar(0), Some((1970, 1, 1)));
+        assert_eq!(calendar(-1), Some((1969, 12, 31)));
+        assert_eq!(calendar(951_782_400), Some((2000, 2, 29)));
+        assert_eq!(calendar(-62_167_219_200), Some((0, 1, 1)));
+        assert_eq!(format_year(-5), "-0005");
+        assert_eq!(format_year(12_345), "+12345");
+    }
+
+    #[test]
+    fn age_vectors() {
+        let age = |input: &str, now: i64| rfc3339_age_seconds_at(input, now, 0);
+        assert_eq!(age("1970-01-01T00:00:00Z", 3_600), Some(3_600));
+        assert_eq!(age("1970-01-01T01:00:00+01:00", 3_600), Some(3_600));
+        assert_eq!(age("1970-01-01T00:00:00Z", -60), Some(-60));
+        assert_eq!(age("nonsense", 0), None);
+        assert_eq!(age("", 0), None);
+    }
+}
+#[cfg(all(test, feature = "chrono-oracle"))]
+mod chrono_oracle {
+    use super::*;
+
     fn compare_age_with_chrono(input: &str, now_seconds: i64, now_nanos: u32) {
         let expected = chrono::DateTime::parse_from_rfc3339(input);
         let actual = parse_rfc3339(input);

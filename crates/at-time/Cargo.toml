@@ -6,13 +6,19 @@ license.workspace = true
 rust-version.workspace = true
 publish = false
 
+[features]
+# Differential tests against chrono, the behaviour oracle for Timestamp and the
+# legacy text helpers. Off by default so chrono is not in the normal dependency
+# graph (#168); CI runs them with `cargo test -p at-time --features chrono-oracle`.
+chrono-oracle = ["dep:chrono"]
+
 [dependencies]
 time = { version = "0.3.47", features = ["parsing"] }
 serde = { workspace = true }
+chrono = { workspace = true, optional = true }
 
 [target.'cfg(all(target_arch = "wasm32", not(any(target_os = "emscripten", target_os = "wasi", target_os = "linux"))))'.dependencies]
 js-sys = "0.3"
 
 [dev-dependencies]
-chrono = { workspace = true }
 serde_json = { workspace = true }

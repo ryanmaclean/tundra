@@ -49,6 +49,9 @@ jobs:
       - name: Run doctests
         run: cargo test --workspace --doc --exclude at-tauri
 
+      - name: Run at-time chrono oracle tests
+        run: cargo test -p at-time --features chrono-oracle
+
       - name: Upload JUnit XML to Datadog
         if: always() && env.DATADOG_API_KEY != ''
         env:

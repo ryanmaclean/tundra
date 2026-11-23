@@ -361,6 +361,173 @@ pub mod ts_milliseconds {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const SAMPLES: &[(i64, u32, &str)] = &[
+        (0, 0, "1970-01-01T00:00:00Z"),
+        (1, 1, "1970-01-01T00:00:01.000000001Z"),
+        (1_700_000_000, 0, "2023-11-14T22:13:20Z"),
+        (1_700_000_000, 500_000_000, "2023-11-14T22:13:20.500Z"),
+        (1_700_000_000, 123_456_000, "2023-11-14T22:13:20.123456Z"),
+        (1_700_000_000, 123_456_789, "2023-11-14T22:13:20.123456789Z"),
+        (-1, 999_999_999, "1969-12-31T23:59:59.999999999Z"),
+        (-62_135_596_800, 0, "0001-01-01T00:00:00Z"),
+        (253_402_300_799, 0, "9999-12-31T23:59:59Z"),
+    ];
+
+    #[test]
+    fn text_forms_match_the_legacy_vectors() {
+        for &(seconds, nanos, text) in SAMPLES {
+            let ts = Timestamp::from_unix(seconds, nanos).unwrap();
+            assert_eq!(ts.to_rfc3339_z(), text);
+            assert_eq!(ts.to_string(), text);
+            assert_eq!(ts.to_rfc3339(), text.replace('Z', "+00:00"));
+            assert_eq!(serde_json::to_string(&ts).unwrap(), format!("{text:?}"));
+            assert_eq!(
+                serde_json::from_str::<Timestamp>(&format!("{text:?}")).unwrap(),
+                ts
+            );
+            assert_eq!(text.parse::<Timestamp>().unwrap(), ts);
+        }
+        let ts = Timestamp::from_unix(1_700_000_000, 123_456_789).unwrap();
+        assert_eq!(ts.to_rfc3339_millis_z(), "2023-11-14T22:13:20.123Z");
+    }
+
+    #[test]
+    fn parses_offsets_and_legacy_forms() {
+        let utc = Timestamp::parse_rfc3339("2026-11-22T04:30:00Z").unwrap();
+        for text in [
+            "2026-11-22T10:00:00+05:30",
+            "2026-11-21T20:30:00-08:00",
+            "2026-11-22t04:30:00z",
+            "2026-11-22 04:30:00Z",
+            "2026-11-22T04:30:00+00:00",
+        ] {
+            assert_eq!(Timestamp::parse_rfc3339(text), Some(utc), "{text}");
+        }
+        let long = Timestamp::parse_rfc3339("2026-11-22T04:30:00.1234567891Z").unwrap();
+        assert_eq!(long.subsec_nanos(), 123_456_789);
+        for text in [
+            "",
+            "2026-11-22",
+            "2026-13-01T00:00:00Z",
+            "2026-11-22T10:00:00",
+            "2026-11-22T10:00:00.Z",
+            "x",
+        ] {
+            assert!(Timestamp::parse_rfc3339(text).is_none(), "{text}");
+            assert!(serde_json::from_str::<Timestamp>(&format!("{text:?}")).is_err());
+        }
+        assert!(serde_json::from_str::<Timestamp>("1700000000").is_err());
+    }
+
+    #[test]
+    fn leap_second_is_the_next_posix_second() {
+        let leap = Timestamp::parse_rfc3339("2016-12-31T23:59:60Z").unwrap();
+        assert_eq!(
+            leap,
+            Timestamp::parse_rfc3339("2017-01-01T00:00:00Z").unwrap()
+        );
+    }
+
+    #[test]
+    fn range_limits() {
+        assert_eq!(Timestamp::MIN.to_rfc3339_z(), "-262143-01-01T00:00:00Z");
+        assert_eq!(
+            Timestamp::MAX.to_rfc3339_z(),
+            "+262142-12-31T23:59:59.999999999Z"
+        );
+        assert!(Timestamp::from_unix(0, 1_000_000_000).is_none());
+        assert!(Timestamp::from_unix(i64::MAX, 0).is_none());
+        assert!(Timestamp::from_unix(i64::MIN, 0).is_none());
+        assert!(Timestamp::from_unix(Timestamp::MIN.unix_seconds() - 1, 0).is_none());
+        assert!(Timestamp::from_unix(Timestamp::MAX.unix_seconds() + 1, 0).is_none());
+        assert_eq!(
+            Timestamp::from_unix(Timestamp::MIN.unix_seconds(), 0),
+            Some(Timestamp::MIN)
+        );
+        assert!(Timestamp::MAX
+            .checked_add(Duration::nanoseconds(1))
+            .is_none());
+        assert!(Timestamp::MIN
+            .checked_sub(Duration::nanoseconds(1))
+            .is_none());
+    }
+
+    #[test]
+    fn arithmetic() {
+        let t = Timestamp::from_unix(1_700_000_000, 900_000_000).unwrap();
+        let later = t + Duration::new(3_600, 200_000_000);
+        assert_eq!(later.unix_seconds(), 1_700_003_601);
+        assert_eq!(later.subsec_nanos(), 100_000_000);
+        assert_eq!(later - t, Duration::new(3_600, 200_000_000));
+        assert_eq!(t - later, -Duration::new(3_600, 200_000_000));
+        assert_eq!(later.signed_duration_since(t).whole_seconds(), 3_600);
+        assert_eq!(later - Duration::new(3_600, 200_000_000), t);
+        let mut moving = t;
+        moving += Duration::days(1);
+        moving -= Duration::days(1);
+        assert_eq!(moving, t);
+    }
+
+    #[derive(serde::Serialize, serde::Deserialize, PartialEq, Debug)]
+    struct Millis {
+        #[serde(with = "ts_milliseconds")]
+        at: Timestamp,
+    }
+
+    #[test]
+    fn ts_milliseconds_round_trips_integers() {
+        let value = Millis {
+            at: Timestamp::from_unix(1_700_000_000, 123_000_000).unwrap(),
+        };
+        let json = serde_json::to_string(&value).unwrap();
+        assert_eq!(json, r#"{"at":1700000000123}"#);
+        assert_eq!(serde_json::from_str::<Millis>(&json).unwrap(), value);
+        let before_epoch: Millis = serde_json::from_str(r#"{"at":-1}"#).unwrap();
+        assert_eq!(
+            before_epoch.at,
+            Timestamp::from_unix(-1, 999_000_000).unwrap()
+        );
+        assert!(serde_json::from_str::<Millis>(r#"{"at":"x"}"#).is_err());
+        assert!(serde_json::from_str::<Millis>(r#"{"at":18446744073709551615}"#).is_err());
+    }
+
+    #[test]
+    fn system_time_round_trips() {
+        for &(seconds, nanos, _) in SAMPLES {
+            let ts = Timestamp::from_unix(seconds, nanos).unwrap();
+            assert_eq!(Timestamp::from(SystemTime::from(ts)), ts);
+        }
+    }
+
+    #[test]
+    fn ordering_and_calendar_parts() {
+        let a = Timestamp::from_unix(-1, 999_999_999).unwrap();
+        let b = Timestamp::UNIX_EPOCH;
+        let c = Timestamp::from_unix(0, 1).unwrap();
+        assert!(a < b && b < c);
+        let t = Timestamp::parse_rfc3339("2026-11-22T10:20:30.5Z").unwrap();
+        assert_eq!(t.date(), (2026, 11, 22));
+        assert_eq!(t.date_string(), "2026-11-22");
+        assert_eq!(t.time_of_day(), (10, 20, 30));
+        assert_eq!(t.time_string(), "10:20:30");
+        assert_eq!(t.unix_millis(), t.unix_seconds() * 1_000 + 500);
+        assert_eq!(Timestamp::from_unix_millis(t.unix_millis()).unwrap(), t);
+    }
+
+    #[test]
+    fn now_is_close_to_system_clock() {
+        let before = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        let now = Timestamp::now().unix_seconds();
+        assert!((now - before).abs() <= 2);
+    }
+}
+#[cfg(all(test, feature = "chrono-oracle"))]
+mod chrono_oracle {
+    use super::*;
     use chrono::{DateTime, SecondsFormat, Utc};
 
     const SAMPLES: &[(i64, u32)] = &[
