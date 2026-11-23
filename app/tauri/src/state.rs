@@ -15,6 +15,26 @@ pub struct AppState {
     pub ipc: IpcHandler,
 }
 
+/// Upper bound on terminating terminal children when the app exits.
+pub const EXIT_TERMINAL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+impl AppState {
+    /// Stop admitting terminals and terminate every shell the daemon owns,
+    /// then signal the daemon's background loops to stop.
+    ///
+    /// The Tauri event loop ends in `process::exit`, so the daemon loop's own
+    /// terminal shutdown (run after its shutdown signal) never gets a chance
+    /// to finish; the `RunEvent::Exit` handler awaits this instead. It is
+    /// idempotent. Returns the ids whose exit could not be confirmed.
+    pub async fn shutdown_for_exit(&self) -> Vec<uuid::Uuid> {
+        let pending =
+            at_bridge::terminal_lifecycle::shutdown(self.daemon.api_state(), EXIT_TERMINAL_TIMEOUT)
+                .await;
+        self.daemon.shutdown();
+        pending
+    }
+}
+
 impl Drop for AppState {
     fn drop(&mut self) {
         // Ensure clean shutdown of daemon background loops when app exits.

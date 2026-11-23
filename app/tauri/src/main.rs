@@ -284,6 +284,9 @@ fn main() {
     let api_key = at_core::config::CredentialProvider::ensure_daemon_api_key();
     let init_script = build_init_script(api_port, &api_key, native_shell, titlebar_inset);
 
+    // Handle used to drive the async terminal shutdown from the `Exit` event.
+    let exit_runtime = runtime.handle().clone();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
         .manage(state)
@@ -378,10 +381,26 @@ fn main() {
                 api.prevent_close();
             }
         })
-        .run(context)
-        .expect("error while running auto-tundra");
-
-    info!("UI closed, shutting down daemon");
+        .build(context)
+        .expect("error while building auto-tundra")
+        .run(move |app, event| {
+            // `App::run` never returns on desktop (the event loop ends in
+            // `process::exit`), so neither code after it nor `AppState`'s
+            // `Drop` runs. `Exit` is the last hook that does: stop admitting
+            // terminals and kill their shells before the process goes.
+            if let tauri::RunEvent::Exit = event {
+                use tauri::Manager;
+                info!("exiting, shutting down daemon and terminal children");
+                let state = app.state::<AppState>();
+                let pending = exit_runtime.block_on(state.shutdown_for_exit());
+                if !pending.is_empty() {
+                    tracing::warn!(
+                        count = pending.len(),
+                        "terminal children not confirmed exited"
+                    );
+                }
+            }
+        });
 }
 
 #[derive(serde::Serialize)]

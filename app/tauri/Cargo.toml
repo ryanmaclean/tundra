@@ -47,6 +47,7 @@ sounds = ["dep:rodio"]
 tauri-build = { workspace = true }
 
 [dev-dependencies]
+axum = { workspace = true }
 tauri = { workspace = true, features = ["test"] }
 tokio = { workspace = true }
 at-agents = { path = "../../crates/at-agents" }

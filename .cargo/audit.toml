@@ -28,4 +28,11 @@ ignore = [
     "RUSTSEC-2026-0253",
     "RUSTSEC-2026-0194",
     "RUSTSEC-2026-0195",
+    # cookie 0.18.2 via tauri (webview cookie jar). Affected only when an app forks
+    # and adds private (encrypted) cookies in several resulting processes; we never
+    # fork and do not use private cookies. Fixed in 0.18.3, but the shipped notice
+    # bill pins 0.18.2 (selected-manifest.json); bump both together.
+    # expires: 2027-01-24
+    # owner: tundra maintainers
+    "RUSTSEC-2026-0594",
 ]

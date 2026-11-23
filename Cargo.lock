@@ -568,6 +568,7 @@ dependencies = [
  "at-intelligence",
  "at-telemetry",
  "at-time",
+ "axum",
  "image",
  "reqwest",
  "rodio",
