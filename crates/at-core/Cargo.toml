@@ -16,8 +16,8 @@ rusqlite = { version = "0.42", features = ["bundled", "fallible_uint"] }
 tokio-rusqlite = "0.9"
 tokio = { workspace = true }
 toml = "0.9"
-notify = { workspace = true }
-crossbeam-channel = { workspace = true }
+notify = { workspace = true, optional = true }
+crossbeam-channel = { workspace = true, optional = true }
 git2 = { workspace = true, optional = true }
 libc = "0.2"
 lru = "0.18"
@@ -28,6 +28,8 @@ zeroize = { version = "1", features = ["derive"] }
 [features]
 default = ["libgit2"]
 libgit2 = ["dep:git2"]
+# Optional filesystem watching; no production workspace crate uses it by default.
+file-watcher = ["dep:notify", "dep:crossbeam-channel"]
 # Expose raw-SQL helper methods on CacheDb for use in integration tests in
 # other crates.  Never enable in production builds.
 test-utils = []
