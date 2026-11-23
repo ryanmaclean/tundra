@@ -8,9 +8,11 @@ publish = false
 
 [dependencies]
 time = { version = "0.3.47", features = ["parsing"] }
+serde = { workspace = true }
 
 [target.'cfg(all(target_arch = "wasm32", not(any(target_os = "emscripten", target_os = "wasi", target_os = "linux"))))'.dependencies]
 js-sys = "0.3"
 
 [dev-dependencies]
 chrono = { workspace = true }
+serde_json = { workspace = true }
