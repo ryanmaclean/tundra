@@ -4,7 +4,7 @@
 //! source selection matching the 3-step wizard UI
 //! (Completed Tasks / Git History / Branch Comparison), and edge cases.
 
-use chrono::Utc;
+use at_time::Timestamp;
 use uuid::Uuid;
 
 use at_intelligence::changelog::{
@@ -26,7 +26,7 @@ fn entry(version: &str, sections: Vec<ChangelogSection>) -> ChangelogEntry {
     ChangelogEntry {
         id: Uuid::new_v4(),
         version: version.to_string(),
-        date: Utc::now(),
+        date: Timestamp::now(),
         sections,
     }
 }
@@ -288,7 +288,7 @@ fn test_generate_changelog_markdown_format() {
     engine.add_entry(ChangelogEntry {
         id: Uuid::new_v4(),
         version: "0.2.0".to_string(),
-        date: Utc::now(),
+        date: Timestamp::now(),
         sections: vec![
             ChangelogSection {
                 category: ChangeCategory::Added,
@@ -540,10 +540,10 @@ fn test_markdown_empty_engine() {
 
 #[test]
 fn test_entry_has_timestamp() {
-    let before = Utc::now();
+    let before = Timestamp::now();
     let mut engine = ChangelogEngine::new();
     let entry = engine.generate_from_commits("feat: timed", "0.1.0");
-    let after = Utc::now();
+    let after = Timestamp::now();
 
     assert!(entry.date >= before);
     assert!(entry.date <= after);
@@ -554,7 +554,7 @@ fn test_serde_roundtrip_changelog_entry() {
     let e = ChangelogEntry {
         id: Uuid::new_v4(),
         version: "1.0.0".to_string(),
-        date: Utc::now(),
+        date: Timestamp::now(),
         sections: vec![ChangelogSection {
             category: ChangeCategory::Security,
             items: vec!["Patched CVE".to_string()],

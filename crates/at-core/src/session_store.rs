@@ -1,4 +1,4 @@
-use chrono::{DateTime, Duration, Utc};
+use at_time::{Duration, Timestamp};
 use lru::LruCache;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -32,7 +32,7 @@ pub struct SessionState {
     pub selected_bead_id: Option<Uuid>,
     pub terminal_layout: TerminalLayout,
     pub filters: HashMap<String, String>,
-    pub last_active_at: DateTime<Utc>,
+    pub last_active_at: Timestamp,
 }
 
 impl SessionState {
@@ -46,7 +46,7 @@ impl SessionState {
             selected_bead_id: None,
             terminal_layout: TerminalLayout::default(),
             filters: HashMap::new(),
-            last_active_at: Utc::now(),
+            last_active_at: Timestamp::now(),
         }
     }
 }
@@ -228,7 +228,7 @@ impl SessionStore {
         &self,
         older_than: Duration,
     ) -> Result<usize, SessionStoreError> {
-        let cutoff = Utc::now() - older_than;
+        let cutoff = Timestamp::now() - older_than;
         let sessions = self.list_sessions().await?;
         let mut removed = 0;
         for session in sessions {
@@ -328,7 +328,7 @@ mod tests {
 
         // Create an old session
         let mut old = SessionState::new("old_user");
-        old.last_active_at = Utc::now() - Duration::days(90);
+        old.last_active_at = Timestamp::now() - Duration::days(90);
         store.save_session(&old).await.unwrap();
 
         // Create a recent session
@@ -355,9 +355,9 @@ mod tests {
 
         // Create 2 expired sessions
         let mut exp1 = SessionState::new("expired1");
-        exp1.last_active_at = Utc::now() - Duration::days(60);
+        exp1.last_active_at = Timestamp::now() - Duration::days(60);
         let mut exp2 = SessionState::new("expired2");
-        exp2.last_active_at = Utc::now() - Duration::days(45);
+        exp2.last_active_at = Timestamp::now() - Duration::days(45);
         store.save_session(&exp1).await.unwrap();
         store.save_session(&exp2).await.unwrap();
 
@@ -395,11 +395,11 @@ mod tests {
 
         // Create 3 expired sessions.
         let mut exp1 = SessionState::new("exp1");
-        exp1.last_active_at = Utc::now() - Duration::days(90);
+        exp1.last_active_at = Timestamp::now() - Duration::days(90);
         let mut exp2 = SessionState::new("exp2");
-        exp2.last_active_at = Utc::now() - Duration::days(90);
+        exp2.last_active_at = Timestamp::now() - Duration::days(90);
         let mut exp3 = SessionState::new("exp3");
-        exp3.last_active_at = Utc::now() - Duration::days(90);
+        exp3.last_active_at = Timestamp::now() - Duration::days(90);
 
         store.save_session(&exp1).await.unwrap();
         store.save_session(&exp2).await.unwrap();
@@ -459,9 +459,9 @@ mod tests {
             let mut s = SessionState::new(format!("user{i}"));
             if i % 2 == 0 {
                 // even indices are expired
-                s.last_active_at = Utc::now() - Duration::days(60);
+                s.last_active_at = Timestamp::now() - Duration::days(60);
             }
-            // odd indices use the default `last_active_at` which is Utc::now() (fresh)
+            // odd indices use the default `last_active_at` which is Timestamp::now() (fresh)
             store.save_session(&s).await.unwrap();
             sessions.push(s);
         }

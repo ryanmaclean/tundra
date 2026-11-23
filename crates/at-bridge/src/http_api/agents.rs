@@ -89,7 +89,7 @@ pub(crate) async fn nudge_agent(
     match agent.status {
         AgentStatus::Active | AgentStatus::Idle | AgentStatus::Unknown => {
             agent.status = AgentStatus::Pending;
-            agent.last_seen = chrono::Utc::now();
+            agent.last_seen = at_time::Timestamp::now();
         }
         AgentStatus::Pending | AgentStatus::Stopped => {
             // Already pending/stopped -- nothing to do but acknowledge.
@@ -146,7 +146,7 @@ pub(crate) async fn stop_agent(
     };
 
     agent.status = at_core::types::AgentStatus::Stopped;
-    agent.last_seen = chrono::Utc::now();
+    agent.last_seen = at_time::Timestamp::now();
 
     let snapshot = agent.clone();
 

@@ -190,7 +190,7 @@ pub struct RequestRecord {
     pub cache_hit: bool,
     pub task_id: Option<String>,
     pub agent_id: Option<String>,
-    pub timestamp: chrono::DateTime<chrono::Utc>,
+    pub timestamp: at_time::Timestamp,
 }
 
 // ---------------------------------------------------------------------------
@@ -329,7 +329,7 @@ pub struct LetsMetrics {
     /// Percentage of budget consumed.
     pub scalability_budget_utilization: f64,
     /// Timestamp of this snapshot.
-    pub timestamp: chrono::DateTime<chrono::Utc>,
+    pub timestamp: at_time::Timestamp,
 }
 
 // ---------------------------------------------------------------------------
@@ -606,7 +606,7 @@ impl CostTracker {
         let (tps, rpm) = if records.len() >= 2 {
             let first = records.front().unwrap().timestamp;
             let last = records.back().unwrap().timestamp;
-            let duration_secs = (last - first).num_seconds().max(1) as f64;
+            let duration_secs = (last - first).whole_seconds().max(1) as f64;
             let tps = total_output as f64 / duration_secs;
             let rpm = total_requests / (duration_secs / 60.0);
             (tps, rpm)
@@ -633,7 +633,7 @@ impl CostTracker {
             throughput_rpm: rpm,
             scalability_active_agents: active_agents,
             scalability_budget_utilization: budget_util,
-            timestamp: chrono::Utc::now(),
+            timestamp: at_time::Timestamp::now(),
         }
     }
 
@@ -656,7 +656,7 @@ impl Default for CostTracker {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Utc;
+    use at_time::Timestamp;
 
     // -- ModelPricing --
 
@@ -791,7 +791,7 @@ mod tests {
                 cache_hit: false,
                 task_id: None,
                 agent_id: None,
-                timestamp: Utc::now(),
+                timestamp: Timestamp::now(),
             })
             .await;
 
@@ -815,7 +815,7 @@ mod tests {
                     cache_hit: false,
                     task_id: None,
                     agent_id: None,
-                    timestamp: Utc::now(),
+                    timestamp: Timestamp::now(),
                 })
                 .await;
         }
@@ -859,7 +859,7 @@ mod tests {
     #[tokio::test]
     async fn tracker_compute_lets_metrics() {
         let tracker = CostTracker::new(10_000, 100_000);
-        let now = Utc::now();
+        let now = Timestamp::now();
 
         for i in 0..5 {
             tracker
@@ -873,7 +873,7 @@ mod tests {
                     cache_hit: i == 0,
                     task_id: None,
                     agent_id: None,
-                    timestamp: now + chrono::Duration::seconds(i as i64),
+                    timestamp: now + at_time::Duration::seconds(i as i64),
                 })
                 .await;
         }
@@ -925,7 +925,7 @@ mod tests {
             cache_hit: false,
             task_id: Some("task-1".into()),
             agent_id: None,
-            timestamp: Utc::now(),
+            timestamp: Timestamp::now(),
         };
         let json = serde_json::to_string(&record).unwrap();
         let deser: RequestRecord = serde_json::from_str(&json).unwrap();
@@ -946,7 +946,7 @@ mod tests {
             throughput_rpm: 60.0,
             scalability_active_agents: 4,
             scalability_budget_utilization: 0.45,
-            timestamp: Utc::now(),
+            timestamp: Timestamp::now(),
         };
         let json = serde_json::to_string(&metrics).unwrap();
         let deser: LetsMetrics = serde_json::from_str(&json).unwrap();
@@ -960,7 +960,7 @@ mod tests {
     async fn ring_buffer_evicts_oldest_records() {
         // Create tracker with capacity of 3 records
         let tracker = CostTracker::new(3, 100);
-        let now = Utc::now();
+        let now = Timestamp::now();
 
         // Add 5 records
         for i in 0..5 {
@@ -975,7 +975,7 @@ mod tests {
                     cache_hit: false,
                     task_id: None,
                     agent_id: None,
-                    timestamp: now + chrono::Duration::seconds(i as i64),
+                    timestamp: now + at_time::Duration::seconds(i as i64),
                 })
                 .await;
         }
@@ -1000,7 +1000,7 @@ mod tests {
     async fn ring_buffer_evicts_oldest_latencies() {
         // Create tracker with small latency capacity of 3
         let tracker = CostTracker::new(100, 3);
-        let now = Utc::now();
+        let now = Timestamp::now();
 
         // Add 5 records with different latencies
         let latencies = [100, 200, 300, 400, 500];
@@ -1016,7 +1016,7 @@ mod tests {
                     cache_hit: false,
                     task_id: None,
                     agent_id: None,
-                    timestamp: now + chrono::Duration::seconds(i as i64),
+                    timestamp: now + at_time::Duration::seconds(i as i64),
                 })
                 .await;
         }
@@ -1035,7 +1035,7 @@ mod tests {
     async fn ring_buffer_handles_exact_capacity() {
         // Create tracker with capacity of 3
         let tracker = CostTracker::new(3, 100);
-        let now = Utc::now();
+        let now = Timestamp::now();
 
         // Add exactly 3 records
         for i in 0..3 {
@@ -1050,7 +1050,7 @@ mod tests {
                     cache_hit: false,
                     task_id: None,
                     agent_id: None,
-                    timestamp: now + chrono::Duration::seconds(i as i64),
+                    timestamp: now + at_time::Duration::seconds(i as i64),
                 })
                 .await;
         }
@@ -1070,7 +1070,7 @@ mod tests {
                 cache_hit: false,
                 task_id: None,
                 agent_id: None,
-                timestamp: now + chrono::Duration::seconds(3),
+                timestamp: now + at_time::Duration::seconds(3),
             })
             .await;
 
@@ -1088,7 +1088,7 @@ mod tests {
     async fn ring_buffer_independent_capacities() {
         // Create tracker with different capacities for records and latencies
         let tracker = CostTracker::new(2, 5);
-        let now = Utc::now();
+        let now = Timestamp::now();
 
         // Add 3 records
         for i in 0..3 {
@@ -1103,7 +1103,7 @@ mod tests {
                     cache_hit: false,
                     task_id: None,
                     agent_id: None,
-                    timestamp: now + chrono::Duration::seconds(i as i64),
+                    timestamp: now + at_time::Duration::seconds(i as i64),
                 })
                 .await;
         }

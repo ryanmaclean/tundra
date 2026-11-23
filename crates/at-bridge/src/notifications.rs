@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use at_time::Timestamp;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use uuid::Uuid;
@@ -24,7 +24,7 @@ pub struct Notification {
     pub message: String,
     pub level: NotificationLevel,
     pub source: String,
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     pub read: bool,
     pub action_url: Option<String>,
 }
@@ -61,7 +61,7 @@ impl NotificationStore {
             message: at_harness::output_guard::redact(&message.into()),
             level,
             source: source.into(),
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
             read: false,
             action_url: None,
         };
@@ -153,8 +153,8 @@ impl NotificationStore {
     /// Remove notifications older than the specified TTL in seconds.
     /// Returns the number of notifications removed.
     pub fn cleanup_old(&mut self, ttl_secs: u64) -> usize {
-        let now = Utc::now();
-        let cutoff = now - chrono::Duration::seconds(ttl_secs as i64);
+        let now = Timestamp::now();
+        let cutoff = now - at_time::Duration::seconds(ttl_secs as i64);
 
         let before_count = self.notifications.len();
         self.notifications.retain(|n| n.created_at >= cutoff);
@@ -363,7 +363,7 @@ mod tests {
             agent_id: None,
             bead_id: None,
             message: "Task x: output redacted (redact: jwt)".into(),
-            timestamp: Utc::now(),
+            timestamp: Timestamp::now(),
         });
         let (title, _, level, source, _) = notification_from_event(&msg).unwrap();
         assert_eq!(title, "Output Redacted");
@@ -501,7 +501,7 @@ mod tests {
             agent_id: None,
             bead_id: Some(Uuid::new_v4()),
             message: "Bead moved to review".to_string(),
-            timestamp: Utc::now(),
+            timestamp: Timestamp::now(),
         });
         let result = notification_from_event(&msg);
         assert!(result.is_some());
@@ -518,7 +518,7 @@ mod tests {
             agent_id: Some(Uuid::new_v4()),
             bead_id: None,
             message: "Agent OOM".to_string(),
-            timestamp: Utc::now(),
+            timestamp: Timestamp::now(),
         });
         let result = notification_from_event(&msg);
         assert!(result.is_some());
@@ -534,7 +534,7 @@ mod tests {
             agent_id: None,
             bead_id: Some(Uuid::new_v4()),
             message: "Task finished".to_string(),
-            timestamp: Utc::now(),
+            timestamp: Timestamp::now(),
         });
         let result = notification_from_event(&msg);
         assert!(result.is_some());
@@ -550,7 +550,7 @@ mod tests {
             agent_id: None,
             bead_id: None,
             message: "whatever".to_string(),
-            timestamp: Utc::now(),
+            timestamp: Timestamp::now(),
         });
         assert!(notification_from_event(&msg).is_none());
     }
@@ -578,7 +578,7 @@ mod tests {
         );
         // Manually set created_at to 10 days ago
         if let Some(n) = store.notifications.iter_mut().find(|n| n.id == old_id) {
-            n.created_at = Utc::now() - chrono::Duration::days(10);
+            n.created_at = Timestamp::now() - at_time::Duration::days(10);
         }
 
         // Create a recent notification (1 day old)
@@ -589,7 +589,7 @@ mod tests {
             "system",
         );
         if let Some(n) = store.notifications.iter_mut().find(|n| n.id == recent_id) {
-            n.created_at = Utc::now() - chrono::Duration::days(1);
+            n.created_at = Timestamp::now() - at_time::Duration::days(1);
         }
 
         assert_eq!(store.total_count(), 2);
@@ -614,7 +614,7 @@ mod tests {
             "system",
         );
         if let Some(n) = store.notifications.iter_mut().find(|n| n.id == id) {
-            n.created_at = Utc::now() - chrono::Duration::days(5);
+            n.created_at = Timestamp::now() - at_time::Duration::days(5);
         }
 
         assert_eq!(store.total_count(), 1);
@@ -634,22 +634,22 @@ mod tests {
         // Create multiple notifications with different ages
         let old_id1 = store.add("Old 1", "msg1", NotificationLevel::Info, "system");
         if let Some(n) = store.notifications.iter_mut().find(|n| n.id == old_id1) {
-            n.created_at = Utc::now() - chrono::Duration::days(10);
+            n.created_at = Timestamp::now() - at_time::Duration::days(10);
         }
 
         let old_id2 = store.add("Old 2", "msg2", NotificationLevel::Info, "system");
         if let Some(n) = store.notifications.iter_mut().find(|n| n.id == old_id2) {
-            n.created_at = Utc::now() - chrono::Duration::days(15);
+            n.created_at = Timestamp::now() - at_time::Duration::days(15);
         }
 
         let recent_id1 = store.add("Recent 1", "msg3", NotificationLevel::Info, "system");
         if let Some(n) = store.notifications.iter_mut().find(|n| n.id == recent_id1) {
-            n.created_at = Utc::now() - chrono::Duration::days(5);
+            n.created_at = Timestamp::now() - at_time::Duration::days(5);
         }
 
         let recent_id2 = store.add("Recent 2", "msg4", NotificationLevel::Info, "system");
         if let Some(n) = store.notifications.iter_mut().find(|n| n.id == recent_id2) {
-            n.created_at = Utc::now() - chrono::Duration::days(3);
+            n.created_at = Timestamp::now() - at_time::Duration::days(3);
         }
 
         assert_eq!(store.total_count(), 4);
@@ -685,11 +685,11 @@ mod tests {
         let mut store = NotificationStore::new(100);
 
         // Create a notification and backdate it 1 second to ensure it is
-        // reliably older than the cutoff when TTL=0 (cutoff = Utc::now()).
-        // Using Utc::now() without backdating can race at nanosecond precision.
+        // reliably older than the cutoff when TTL=0 (cutoff = Timestamp::now()).
+        // Using Timestamp::now() without backdating can race at nanosecond precision.
         let id = store.add("New notification", "msg", NotificationLevel::Info, "system");
         if let Some(n) = store.notifications.iter_mut().find(|n| n.id == id) {
-            n.created_at = Utc::now() - chrono::Duration::seconds(1);
+            n.created_at = Timestamp::now() - at_time::Duration::seconds(1);
         }
         assert_eq!(store.total_count(), 1);
 
@@ -712,7 +712,7 @@ mod tests {
             "system",
         );
         if let Some(n) = store.notifications.iter_mut().find(|n| n.id == id) {
-            n.created_at = Utc::now() - chrono::Duration::seconds(7 * 24 * 60 * 60 + 1);
+            n.created_at = Timestamp::now() - at_time::Duration::seconds(7 * 24 * 60 * 60 + 1);
         }
 
         assert_eq!(store.total_count(), 1);
@@ -738,7 +738,7 @@ mod tests {
             Some("/action/url".to_string()),
         );
         if let Some(n) = store.notifications.iter_mut().find(|n| n.id == id) {
-            n.created_at = Utc::now() - chrono::Duration::days(3);
+            n.created_at = Timestamp::now() - at_time::Duration::days(3);
             n.read = true; // Mark as read
         }
 

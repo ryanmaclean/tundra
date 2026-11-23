@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use at_time::Timestamp;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -31,7 +31,7 @@ pub struct RoadmapFeature {
     pub priority: u8,
     pub estimated_effort: String,
     pub dependencies: Vec<Uuid>,
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
 }
 
 impl RoadmapFeature {
@@ -44,7 +44,7 @@ impl RoadmapFeature {
             priority,
             estimated_effort: String::new(),
             dependencies: Vec::new(),
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
         }
     }
 }
@@ -58,7 +58,7 @@ pub struct Roadmap {
     pub id: Uuid,
     pub name: String,
     pub features: Vec<RoadmapFeature>,
-    pub generated_at: DateTime<Utc>,
+    pub generated_at: Timestamp,
 }
 
 // ---------------------------------------------------------------------------
@@ -82,7 +82,7 @@ impl RoadmapEngine {
             id: Uuid::new_v4(),
             name: name.to_string(),
             features: Vec::new(),
-            generated_at: Utc::now(),
+            generated_at: Timestamp::now(),
         };
         self.roadmaps.push(roadmap);
         self.roadmaps.last().unwrap()
@@ -192,7 +192,7 @@ impl RoadmapEngine {
             id: Uuid::new_v4(),
             name: "Generated Roadmap".to_string(),
             features,
-            generated_at: Utc::now(),
+            generated_at: Timestamp::now(),
         };
         self.roadmaps.push(roadmap);
         self.roadmaps.last().unwrap()

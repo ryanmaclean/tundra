@@ -94,7 +94,7 @@ fn render_activity_feed(frame: &mut Frame, app: &App, area: Rect) {
         .activity
         .iter()
         .map(|entry| {
-            let ts = entry.timestamp.format("%H:%M:%S");
+            let ts = entry.timestamp.time_string();
             ListItem::new(Line::from(vec![
                 Span::styled(format!("[{}] ", ts), Style::default().fg(Color::DarkGray)),
                 Span::raw(&entry.message),

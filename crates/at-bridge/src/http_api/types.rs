@@ -23,7 +23,7 @@ pub struct Project {
 /// Sync status tracking for GitHub issue synchronization.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SyncStatus {
-    pub last_sync_time: Option<chrono::DateTime<chrono::Utc>>,
+    pub last_sync_time: Option<at_time::Timestamp>,
     pub issues_imported: u64,
     pub issues_exported: u64,
     pub statuses_synced: u64,
@@ -60,7 +60,7 @@ pub struct PrPollStatus {
     pub state: String,
     pub mergeable: Option<bool>,
     pub checks_passed: Option<bool>,
-    pub last_polled: chrono::DateTime<chrono::Utc>,
+    pub last_polled: at_time::Timestamp,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -116,8 +116,8 @@ pub struct PlanningPokerSession {
     pub deck: Vec<String>,
     pub round_duration_seconds: Option<u64>,
     pub consensus_card: Option<String>,
-    pub started_at: chrono::DateTime<chrono::Utc>,
-    pub updated_at: chrono::DateTime<chrono::Utc>,
+    pub started_at: at_time::Timestamp,
+    pub updated_at: at_time::Timestamp,
 }
 
 // ---------------------------------------------------------------------------
@@ -422,8 +422,8 @@ pub struct PlanningPokerSessionResponse {
     pub votes: Vec<PlanningPokerVoteView>,
     pub consensus_card: Option<String>,
     pub stats: Option<PlanningPokerRevealStats>,
-    pub started_at: chrono::DateTime<chrono::Utc>,
-    pub updated_at: chrono::DateTime<chrono::Utc>,
+    pub started_at: at_time::Timestamp,
+    pub updated_at: at_time::Timestamp,
 }
 
 /// Request to start watching a file/directory for changes.
@@ -447,7 +447,7 @@ pub struct CompetitorAnalysisResult {
     pub strengths: Vec<String>,
     pub weaknesses: Vec<String>,
     pub opportunities: Vec<String>,
-    pub analyzed_at: chrono::DateTime<chrono::Utc>,
+    pub analyzed_at: at_time::Timestamp,
 }
 
 // ---------------------------------------------------------------------------

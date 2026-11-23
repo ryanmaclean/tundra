@@ -1,3 +1,4 @@
+use at_time::Timestamp;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -10,7 +11,6 @@ use at_bridge::protocol::{
     EXECUTOR_AGENT_SCHEMA,
 };
 use at_core::types::{Agent, AgentRole, AgentStatus, Task};
-use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::sync::Mutex;
@@ -1076,7 +1076,7 @@ impl AgentExecutor {
             agent_id: None,
             bead_id: Some(task.bead_id),
             message: format!("Task '{}': {}", task.title, event_type),
-            timestamp: Utc::now(),
+            timestamp: Timestamp::now(),
         }));
     }
 }
@@ -1144,7 +1144,7 @@ impl AgentLiveness {
             agent_id: Some(self.agent.id),
             bead_id: Some(self.bead_id),
             message: format!("agent '{}' alive", self.agent.name),
-            timestamp: Utc::now(),
+            timestamp: Timestamp::now(),
         }));
     }
 
@@ -1155,7 +1155,7 @@ impl AgentLiveness {
         }
         self.exited = true;
         self.agent.status = AgentStatus::Stopped;
-        self.agent.last_seen = Utc::now();
+        self.agent.last_seen = Timestamp::now();
         if let Some(serde_json::Value::Object(meta)) = self.agent.metadata.as_mut() {
             meta.insert("exit".into(), exit);
         }
@@ -2183,7 +2183,7 @@ text in between
                 agent_id: Some(id),
                 bead_id: None,
                 message: "stuck".into(),
-                timestamp: Utc::now(),
+                timestamp: Timestamp::now(),
             })
         };
         bus.publish(kill(Uuid::new_v4()));

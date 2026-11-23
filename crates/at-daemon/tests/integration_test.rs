@@ -656,7 +656,7 @@ async fn test_websocket_connects_and_receives_event() {
             agent_id: None,
             bead_id: None,
             message: "hello from integration test".to_string(),
-            timestamp: chrono::Utc::now(),
+            timestamp: at_time::Timestamp::now(),
         }));
 
     // Receive the event.

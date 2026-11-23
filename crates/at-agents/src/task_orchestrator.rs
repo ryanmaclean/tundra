@@ -5,12 +5,12 @@
 //! (QA checks), and the `EventBus` (real-time notifications) into a cohesive
 //! execution pipeline for the Coding, QA, and QA-fix phases.
 
+use at_time::Timestamp;
 use std::sync::Arc;
 
 use at_bridge::event_bus::EventBus;
 use at_bridge::protocol::{BridgeMessage, EventPayload};
 use at_core::types::{CliType, QaReport, QaStatus, Subtask, Task, TaskPhase};
-use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tracing::{info, warn};
@@ -409,7 +409,7 @@ impl TaskOrchestrator {
             agent_id: None,
             bead_id: Some(task.bead_id),
             message: format!("Task '{}': {}", task.title, event_type),
-            timestamp: Utc::now(),
+            timestamp: Timestamp::now(),
         }));
     }
 }

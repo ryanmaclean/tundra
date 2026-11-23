@@ -218,7 +218,7 @@ impl IpcHandler {
             agent_id: Some(agent_id),
             bead_id: Some(bead_id),
             message: format!("Bead {} slung to agent {}", bead_id, agent_id),
-            timestamp: chrono::Utc::now(),
+            timestamp: at_time::Timestamp::now(),
         });
         self.event_bus.publish(msg.clone());
         Ok(msg)
@@ -230,7 +230,7 @@ impl IpcHandler {
             agent_id: None,
             bead_id: None,
             message: format!("Bead '{}' hooked by agent '{}'", title, agent_name),
-            timestamp: chrono::Utc::now(),
+            timestamp: at_time::Timestamp::now(),
         });
         self.event_bus.publish(msg.clone());
         Ok(msg)
@@ -247,7 +247,7 @@ impl IpcHandler {
                 bead_id,
                 if failed { "failed" } else { "completed" }
             ),
-            timestamp: chrono::Utc::now(),
+            timestamp: at_time::Timestamp::now(),
         });
         self.event_bus.publish(msg.clone());
         Ok(msg)
@@ -259,7 +259,7 @@ impl IpcHandler {
             agent_id: None,
             bead_id: None,
             message: format!("Nudged '{}': {}", agent_name, message),
-            timestamp: chrono::Utc::now(),
+            timestamp: at_time::Timestamp::now(),
         });
         self.event_bus.publish(msg.clone());
         Ok(msg)

@@ -5,6 +5,7 @@ edition.workspace = true
 publish = false
 
 [dependencies]
+at-time = { path = "../at-time" }
 at-core = { path = "../at-core" }
 tokio = { workspace = true }
 async-trait = { workspace = true }
@@ -14,8 +15,6 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 dashmap = { workspace = true }
 uuid = { workspace = true }
-# audit_chain timestamps (RFC 3339, millis, Z). Removed with the rest of chrono in #168.
-chrono = { workspace = true }
 regex = "1"
 sha2 = "0.10"
 

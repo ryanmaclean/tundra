@@ -266,7 +266,7 @@ impl ModelRouter {
             cache_hit: false,
             task_id: None,
             agent_id: None,
-            timestamp: chrono::Utc::now(),
+            timestamp: at_time::Timestamp::now(),
         };
         self.cost_tracker.record_request(record).await;
 

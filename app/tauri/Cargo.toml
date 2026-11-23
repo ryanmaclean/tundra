@@ -13,6 +13,7 @@ name = "auto-tundra"
 path = "src/main.rs"
 
 [dependencies]
+at-time = { path = "../../crates/at-time" }
 at-core = { path = "../../crates/at-core" }
 at-daemon = { path = "../../crates/at-daemon" }
 at-harness = { path = "../../crates/at-harness" }
@@ -31,7 +32,6 @@ tracing = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 uuid = { workspace = true }
-chrono = { workspace = true }
 toml = "0.9"
 rodio = { version = "0.22", optional = true, default-features = false, features = ["playback"] }
 # default-features = false, features = ["png"]: tray.rs only decodes the bundled

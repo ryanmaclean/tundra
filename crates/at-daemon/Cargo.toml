@@ -13,6 +13,7 @@ path = "src/main.rs"
 e2e-test = []
 
 [dependencies]
+at-time = { path = "../at-time" }
 at-core = { path = "../at-core" }
 at-telemetry = { path = "../at-telemetry" }
 at-session = { path = "../at-session" }
@@ -25,7 +26,6 @@ tracing.workspace = true
 thiserror = { workspace = true }
 anyhow = { workspace = true }
 uuid = { workspace = true }
-chrono = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 flume = { workspace = true }

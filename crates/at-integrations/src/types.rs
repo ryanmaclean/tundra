@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use at_time::Timestamp;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -17,8 +17,8 @@ pub struct GitHubIssue {
     pub labels: Vec<GitHubLabel>,
     pub assignees: Vec<String>,
     pub author: String,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: Timestamp,
+    pub updated_at: Timestamp,
     pub comments: u64,
     pub html_url: String,
 }
@@ -53,9 +53,9 @@ pub struct GitHubPullRequest {
     pub additions: u64,
     pub deletions: u64,
     pub changed_files: u64,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-    pub merged_at: Option<DateTime<Utc>>,
+    pub created_at: Timestamp,
+    pub updated_at: Timestamp,
+    pub merged_at: Option<Timestamp>,
     pub html_url: String,
 }
 
@@ -74,7 +74,7 @@ pub struct GitHubRelease {
     pub body: Option<String>,
     pub draft: bool,
     pub prerelease: bool,
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     pub html_url: String,
 }
 

@@ -7,7 +7,7 @@
 //! the GitLab API and runs heuristic analysis on changed files. Without a
 //! client (or in tests), it falls back to stub findings for pipeline validation.
 
-use chrono::{DateTime, Utc};
+use at_time::Timestamp;
 use serde::{Deserialize, Serialize};
 
 use super::{GitLabClient, GitLabError};
@@ -112,7 +112,7 @@ pub struct MrReviewResult {
     /// Whether the MR is approved.
     pub approved: bool,
     /// Timestamp when the review was completed.
-    pub reviewed_at: DateTime<Utc>,
+    pub reviewed_at: Timestamp,
 }
 
 // ---------------------------------------------------------------------------
@@ -371,7 +371,7 @@ impl MrReviewEngine {
             }],
             summary: format!("Review failed; the merge request was NOT analysed. {message}"),
             approved: false,
-            reviewed_at: Utc::now(),
+            reviewed_at: Timestamp::now(),
         }
     }
 
@@ -481,7 +481,7 @@ impl MrReviewEngine {
             findings,
             summary,
             approved,
-            reviewed_at: Utc::now(),
+            reviewed_at: Timestamp::now(),
         }
     }
 }
@@ -580,7 +580,7 @@ mod tests {
             }],
             summary: "1 finding".into(),
             approved: true,
-            reviewed_at: Utc::now(),
+            reviewed_at: Timestamp::now(),
         };
 
         let json = serde_json::to_string(&result).unwrap();

@@ -1,3 +1,4 @@
+use at_time::Timestamp;
 use tauri::State;
 use uuid::Uuid;
 
@@ -11,7 +12,6 @@ use at_intelligence::{
     memory::{MemoryCategory, MemoryEntry},
     roadmap::{FeatureStatus, RoadmapFeature},
 };
-use chrono::{Datelike, Utc};
 
 use crate::sounds::{SoundEffect, SoundEngine};
 use crate::state::AppState;
@@ -141,7 +141,7 @@ pub async fn cmd_update_bead_status(
     }
 
     bead.status = status;
-    bead.updated_at = chrono::Utc::now();
+    bead.updated_at = at_time::Timestamp::now();
 
     let bead_snapshot = bead.clone();
 
@@ -205,7 +205,7 @@ pub async fn cmd_update_bead(
     if let Some(lane) = lane {
         bead.lane = lane;
     }
-    bead.updated_at = chrono::Utc::now();
+    bead.updated_at = at_time::Timestamp::now();
 
     let bead_snapshot = bead.clone();
 
@@ -907,7 +907,7 @@ pub async fn cmd_roadmap_add_feature(
         priority,
         estimated_effort: String::new(),
         dependencies: Vec::new(),
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
     };
 
     let mut engine = state.daemon.api_state().roadmap_engine.write().await;
@@ -967,7 +967,7 @@ pub async fn cmd_roadmap_add_feature_to_latest(
         priority: priority_num,
         estimated_effort: String::new(),
         dependencies: Vec::new(),
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
     };
 
     engine
@@ -1036,8 +1036,9 @@ pub async fn cmd_changelog_get(
             };
             commits.push_str(&format!("{}: {}\n", category, task.title));
         }
-        let now = Utc::now();
-        let version = format!("{}.{}.{}", now.year(), now.month(), now.day());
+        let now = Timestamp::now();
+        let (year, month, day) = now.date();
+        let version = format!("{year}.{month}.{day}");
         let entry = engine.generate_from_commits(&commits, &version);
         let markdown = engine.generate_markdown();
 

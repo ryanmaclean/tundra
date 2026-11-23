@@ -12,7 +12,7 @@ use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
 mod timestamp;
-pub use timestamp::{Duration, ParseTimestampError, Timestamp};
+pub use timestamp::{ts_milliseconds, Duration, ParseTimestampError, Timestamp};
 
 // Chrono's DateTime year range. Its native `Utc::now()` reads SystemTime,
 // which does not represent leap-second fields.

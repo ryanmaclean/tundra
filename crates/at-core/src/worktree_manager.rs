@@ -1,7 +1,7 @@
+use at_time::Timestamp;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tracing::{info, warn};
@@ -310,7 +310,7 @@ impl WorktreeManager {
                     branch: branch_name,
                     base_branch: "main".to_string(),
                     task_name: sanitized,
-                    created_at: Utc::now(),
+                    created_at: Timestamp::now(),
                 };
                 Ok(info)
             }
@@ -803,7 +803,7 @@ mod tests {
             branch: "task/my-task".to_string(),
             base_branch: "main".to_string(),
             task_name: "my-task".to_string(),
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
         };
 
         let rp = manager.repo_path_for_worktree(&wt);
@@ -861,7 +861,7 @@ mod tests {
             branch: "task/test".to_string(),
             base_branch: "main".to_string(),
             task_name: "test".to_string(),
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
         }
     }
 
@@ -1118,7 +1118,7 @@ mod tests {
             branch,
             base_branch: "main".to_string(),
             task_name: name.to_string(),
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
         }
     }
 

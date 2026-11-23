@@ -1,12 +1,12 @@
 //! Real-git tests for the merge gate in front of `WorktreeManager::merge_to_main`.
 
+use at_time::Timestamp;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use at_core::merge_gate::{GateBlock, MergeGateConfig, MERGE_GATE_SCHEMA};
 use at_core::worktree::WorktreeInfo;
 use at_core::worktree_manager::{GatedMerge, MergeResult, WorktreeManager};
-use chrono::Utc;
 
 fn sh_git(dir: &Path, args: &[&str]) -> String {
     let out = std::process::Command::new("git")
@@ -60,7 +60,7 @@ fn task_worktree(repo: &Path, name: &str) -> WorktreeInfo {
         branch,
         base_branch: "main".to_string(),
         task_name: name.to_string(),
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
     }
 }
 

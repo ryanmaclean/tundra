@@ -467,7 +467,7 @@ pub(crate) async fn simulate_planning_poker_for_bead(
         });
     }
 
-    let now = chrono::Utc::now();
+    let now = at_time::Timestamp::now();
     let mut session = PlanningPokerSession {
         bead_id: req.bead_id,
         phase: PlanningPokerPhase::Voting,
@@ -534,7 +534,7 @@ pub(crate) async fn start_planning_poker(
         }
     };
 
-    let now = chrono::Utc::now();
+    let now = at_time::Timestamp::now();
     let session = PlanningPokerSession {
         bead_id: req.bead_id,
         phase: PlanningPokerPhase::Voting,
@@ -598,7 +598,7 @@ pub(crate) async fn submit_planning_poker_vote(
     if !session.participants.iter().any(|p| p == &req.voter) {
         session.participants.push(req.voter);
     }
-    session.updated_at = chrono::Utc::now();
+    session.updated_at = at_time::Timestamp::now();
 
     Ok((
         axum::http::StatusCode::OK,
@@ -646,7 +646,7 @@ pub(crate) async fn reveal_planning_poker(
 
     session.phase = PlanningPokerPhase::Revealed;
     session.consensus_card = consensus_card_from_votes(&session.votes);
-    session.updated_at = chrono::Utc::now();
+    session.updated_at = at_time::Timestamp::now();
 
     Ok((
         axum::http::StatusCode::OK,

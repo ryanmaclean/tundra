@@ -3,7 +3,7 @@
 //! Supports pushing local task updates to Linear and pulling Linear issue
 //! changes back into the local bead store.
 
-use chrono::{DateTime, Utc};
+use at_time::Timestamp;
 use serde::{Deserialize, Serialize};
 
 use super::{LinearClient, Result};
@@ -29,7 +29,7 @@ pub struct SyncResult {
     pub pulled: u32,
     pub conflicts: u32,
     pub dead_lettered: u32,
-    pub synced_at: DateTime<Utc>,
+    pub synced_at: Timestamp,
 }
 
 /// Configuration for automatic sync scheduling.
@@ -114,7 +114,7 @@ pub struct PendingChange {
     pub entity_id: String,
     /// The real value to push. See [`ChangePayload`].
     pub payload: ChangePayload,
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
 }
 
 // ---------------------------------------------------------------------------
@@ -129,7 +129,7 @@ pub type DeadLetter = (PendingChange, u32, String);
 pub struct LinearSyncEngine {
     client: LinearClient,
     config: SyncConfig,
-    last_sync: Option<DateTime<Utc>>,
+    last_sync: Option<Timestamp>,
     pending_changes: Vec<PendingChange>,
     /// Retry counts keyed by change id.
     retry_counts: std::collections::HashMap<String, u32>,
@@ -289,7 +289,7 @@ impl LinearSyncEngine {
             }
         }
 
-        let synced_at = Utc::now();
+        let synced_at = Timestamp::now();
         self.last_sync = Some(synced_at);
 
         Ok(SyncResult {
@@ -303,7 +303,7 @@ impl LinearSyncEngine {
     }
 
     /// Get the last sync timestamp.
-    pub fn last_sync_time(&self) -> Option<DateTime<Utc>> {
+    pub fn last_sync_time(&self) -> Option<Timestamp> {
         self.last_sync
     }
 
@@ -443,7 +443,7 @@ mod tests {
             payload: ChangePayload::State {
                 state_id: "state-in-progress".into(),
             },
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
         });
 
         assert_eq!(engine.pending_changes().len(), 1);
@@ -465,7 +465,7 @@ mod tests {
             pulled: 5,
             conflicts: 1,
             dead_lettered: 0,
-            synced_at: Utc::now(),
+            synced_at: Timestamp::now(),
         };
         let json = serde_json::to_string(&r).unwrap();
         let de: SyncResult = serde_json::from_str(&json).unwrap();
@@ -485,7 +485,7 @@ mod tests {
             payload: ChangePayload::State {
                 state_id: "state-in-progress".into(),
             },
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
         }
     }
 

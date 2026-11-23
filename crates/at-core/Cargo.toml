@@ -8,7 +8,6 @@ publish = false
 serde = { workspace = true }
 serde_json = { workspace = true }
 uuid = { workspace = true }
-chrono = { workspace = true }
 at-time = { path = "../at-time" }
 thiserror = { workspace = true }
 tracing = { workspace = true }

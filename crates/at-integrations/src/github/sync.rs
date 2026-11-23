@@ -1,5 +1,5 @@
 use at_core::types::{Bead, BeadStatus};
-use chrono::{DateTime, Utc};
+use at_time::Timestamp;
 use serde_json::json;
 
 use crate::types::{GitHubIssue, IssueState};
@@ -70,7 +70,7 @@ impl IssueSyncEngine {
     }
 
     /// Check for new/updated issues since `since`.
-    pub async fn poll_updates(&self, since: DateTime<Utc>) -> Result<Vec<GitHubIssue>> {
+    pub async fn poll_updates(&self, since: Timestamp) -> Result<Vec<GitHubIssue>> {
         // Server-side `since` + sort=updated, paginated; the client-side
         // filter guards against servers that ignore `since`.
         let updated = issues::list_issues_updated_since(&self.client, None, since)
@@ -119,13 +119,12 @@ pub fn build_issue_metadata(issue: &GitHubIssue) -> serde_json::Value {
 mod tests {
     use super::*;
     use at_core::types::{BeadStatus, Lane};
-    use chrono::Utc;
     use serde_json::json;
     use uuid::Uuid;
 
     /// Helper to build a bead with GitHub issue metadata.
     fn make_bead_with_issue(issue_number: u64, status: BeadStatus) -> Bead {
-        let now = Utc::now();
+        let now = Timestamp::now();
         Bead {
             id: Uuid::new_v4(),
             title: format!("Issue #{}", issue_number),
@@ -156,7 +155,7 @@ mod tests {
 
     /// Helper to build a mock GitHubIssue.
     fn make_github_issue(number: u64, title: &str, state: IssueState) -> GitHubIssue {
-        let now = Utc::now();
+        let now = Timestamp::now();
         GitHubIssue {
             number,
             title: title.to_string(),
@@ -303,10 +302,10 @@ mod tests {
 
     #[test]
     fn test_poll_updates_filters_by_time() {
-        let now = Utc::now();
-        let old = now - chrono::Duration::hours(2);
-        let recent = now - chrono::Duration::minutes(5);
-        let since = now - chrono::Duration::hours(1);
+        let now = Timestamp::now();
+        let old = now - at_time::Duration::hours(2);
+        let recent = now - at_time::Duration::minutes(5);
+        let since = now - at_time::Duration::hours(1);
 
         let issues = [
             {

@@ -5,7 +5,7 @@
 use at_bridge::event_bus::EventBus;
 use at_bridge::protocol::{BridgeMessage, EventPayload};
 use at_core::types::Task;
-use chrono::Utc;
+use at_time::Timestamp;
 
 /// `EventPayload::event_type` published when task output was redacted.
 pub const OUTPUT_REDACTED_EVENT: &str = "output_redacted";
@@ -29,7 +29,7 @@ pub fn redact_task_output(bus: &EventBus, task: &Task, output: String) -> String
         agent_id: None,
         bead_id: Some(task.bead_id),
         message: format!("Task {}: output redacted ({})", task.id, report.summary()),
-        timestamp: Utc::now(),
+        timestamp: Timestamp::now(),
     }));
     redacted
 }

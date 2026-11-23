@@ -90,7 +90,7 @@ pub(crate) async fn execute_task_pipeline(
 
     task.set_phase(TaskPhase::Coding);
     if task.started_at.is_none() {
-        task.started_at = Some(chrono::Utc::now());
+        task.started_at = Some(at_time::Timestamp::now());
     }
     let task_snapshot = task.clone();
     drop(tasks);
@@ -346,14 +346,12 @@ pub(crate) async fn get_build_logs(
     };
 
     let logs: Vec<&BuildLogEntry> = if let Some(ref since_str) = q.since {
-        match chrono::DateTime::parse_from_rfc3339(since_str) {
-            Ok(since_ts) => {
-                let since_utc = since_ts.with_timezone(&chrono::Utc);
-                task.build_logs
-                    .iter()
-                    .filter(|e| e.timestamp > since_utc)
-                    .collect()
-            }
+        match since_str.parse::<at_time::Timestamp>() {
+            Ok(since_utc) => task
+                .build_logs
+                .iter()
+                .filter(|e| e.timestamp > since_utc)
+                .collect(),
             Err(_) => {
                 return (
                     axum::http::StatusCode::BAD_REQUEST,

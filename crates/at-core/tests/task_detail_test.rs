@@ -1,5 +1,5 @@
 use at_core::types::*;
-use chrono::Utc;
+use at_time::Timestamp;
 use uuid::Uuid;
 
 // ===========================================================================
@@ -33,7 +33,7 @@ fn make_log_entry(
     detail: Option<&str>,
 ) -> TaskLogEntry {
     TaskLogEntry {
-        timestamp: Utc::now(),
+        timestamp: Timestamp::now(),
         phase,
         log_type,
         message: message.to_string(),
@@ -160,11 +160,11 @@ fn task_with_description_and_rationale() {
 #[test]
 fn task_timing_fields() {
     let mut task = make_task("Timed task");
-    let before = Utc::now();
+    let before = Timestamp::now();
     assert!(task.created_at <= before);
     assert!(task.updated_at <= before);
-    task.started_at = Some(Utc::now());
-    task.completed_at = Some(Utc::now());
+    task.started_at = Some(Timestamp::now());
+    task.completed_at = Some(Timestamp::now());
     assert!(task.started_at.unwrap() <= task.completed_at.unwrap());
 }
 
@@ -777,7 +777,7 @@ fn task_serialization_deserialization_roundtrip() {
     task.subtasks.push(make_subtask("s1"));
     task.log(TaskLogType::Info, "hello");
     task.error = Some("oops".into());
-    task.started_at = Some(Utc::now());
+    task.started_at = Some(Timestamp::now());
 
     let json = serde_json::to_string(&task).expect("serialize");
     let deserialized: Task = serde_json::from_str(&json).expect("deserialize");
@@ -806,8 +806,8 @@ fn task_clone_preserves_all_fields() {
     task.subtasks.push(make_subtask("c1"));
     task.log(TaskLogType::Error, "err");
     task.error = Some("fail".into());
-    task.started_at = Some(Utc::now());
-    task.completed_at = Some(Utc::now());
+    task.started_at = Some(Timestamp::now());
+    task.completed_at = Some(Timestamp::now());
 
     let cloned = task.clone();
     assert_eq!(cloned.id, task.id);
@@ -1025,7 +1025,7 @@ fn task_full_lifecycle_integration() {
     // Move through phases
     task.set_phase(TaskPhase::Discovery);
     task.log(TaskLogType::PhaseStart, "discovery");
-    task.started_at = Some(Utc::now());
+    task.started_at = Some(Timestamp::now());
 
     task.set_phase(TaskPhase::ContextGathering);
     task.set_phase(TaskPhase::SpecCreation);
@@ -1046,7 +1046,7 @@ fn task_full_lifecycle_integration() {
 
     task.set_phase(TaskPhase::Merging);
     task.set_phase(TaskPhase::Complete);
-    task.completed_at = Some(Utc::now());
+    task.completed_at = Some(Timestamp::now());
 
     assert_eq!(task.phase, TaskPhase::Complete);
     assert_eq!(task.progress_percent, 100);

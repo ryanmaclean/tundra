@@ -9,6 +9,7 @@
 //! - Session insight extraction
 //! - Spec pipeline progression
 
+use at_time::Timestamp;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -17,7 +18,6 @@ use at_core::rlm::{
     Decomposition, ProgressiveRefinement, StuckDetector, StuckReason, SynthesisStrategy,
 };
 use at_core::types::AgentRole;
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -88,8 +88,8 @@ pub struct TaskExecution {
     pub used_refinement: bool,
     /// Recovery actions taken.
     pub recoveries: Vec<RecoveryEvent>,
-    pub started_at: DateTime<Utc>,
-    pub completed_at: Option<DateTime<Utc>>,
+    pub started_at: Timestamp,
+    pub completed_at: Option<Timestamp>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -115,7 +115,7 @@ pub struct RecoveryEvent {
     pub phase: String,
     pub reason: StuckReason,
     pub action: String,
-    pub timestamp: DateTime<Utc>,
+    pub timestamp: Timestamp,
 }
 
 // ---------------------------------------------------------------------------
@@ -179,7 +179,7 @@ impl Orchestrator {
             used_rlm: false,
             used_refinement: false,
             recoveries: Vec::new(),
-            started_at: Utc::now(),
+            started_at: Timestamp::now(),
             completed_at: None,
         };
 
@@ -313,7 +313,7 @@ impl Orchestrator {
     /// Mark a task as complete.
     pub fn complete_task(&mut self, execution_id: &Uuid) {
         if let Some(exec) = self.executions.get_mut(execution_id) {
-            exec.completed_at = Some(Utc::now());
+            exec.completed_at = Some(Timestamp::now());
         }
         self.stuck_detectors.remove(execution_id);
     }
@@ -356,7 +356,7 @@ impl Orchestrator {
                 phase: phase.to_string(),
                 reason,
                 action: action.to_string(),
-                timestamp: Utc::now(),
+                timestamp: Timestamp::now(),
             });
         }
         // Reset stuck detector after recovery
@@ -434,8 +434,8 @@ impl Orchestrator {
     ///
     /// Returns the number of executions removed.
     pub fn cleanup_completed_executions(&mut self, ttl_secs: u64) -> usize {
-        let now = Utc::now();
-        let cutoff = now - chrono::Duration::seconds(ttl_secs as i64);
+        let now = Timestamp::now();
+        let cutoff = now - at_time::Duration::seconds(ttl_secs as i64);
 
         let mut removed_count = 0;
         let mut executions_to_remove = Vec::new();
@@ -751,7 +751,7 @@ mod tests {
             used_rlm: false,
             used_refinement: false,
             recoveries: vec![],
-            started_at: Utc::now(),
+            started_at: Timestamp::now(),
             completed_at: None,
         };
         let json = serde_json::to_string(&exec).unwrap();
@@ -766,7 +766,7 @@ mod tests {
 
         // Mark task as completed 10 days ago
         if let Some(exec) = orch.executions.get_mut(&id) {
-            exec.completed_at = Some(Utc::now() - chrono::Duration::days(10));
+            exec.completed_at = Some(Timestamp::now() - at_time::Duration::days(10));
         }
 
         assert_eq!(orch.total_count(), 1);
@@ -787,7 +787,7 @@ mod tests {
 
         // Mark task as completed 5 days ago
         if let Some(exec) = orch.executions.get_mut(&id) {
-            exec.completed_at = Some(Utc::now() - chrono::Duration::days(5));
+            exec.completed_at = Some(Timestamp::now() - at_time::Duration::days(5));
         }
 
         assert_eq!(orch.total_count(), 1);
@@ -823,13 +823,13 @@ mod tests {
         // Create old completed task
         let old_id = orch.start_task("old", "desc", AgentRole::Coder);
         if let Some(exec) = orch.executions.get_mut(&old_id) {
-            exec.completed_at = Some(Utc::now() - chrono::Duration::days(10));
+            exec.completed_at = Some(Timestamp::now() - at_time::Duration::days(10));
         }
 
         // Create recent completed task
         let recent_id = orch.start_task("recent", "desc", AgentRole::Coder);
         if let Some(exec) = orch.executions.get_mut(&recent_id) {
-            exec.completed_at = Some(Utc::now() - chrono::Duration::days(5));
+            exec.completed_at = Some(Timestamp::now() - at_time::Duration::days(5));
         }
 
         // Create active task
@@ -864,7 +864,7 @@ mod tests {
 
         // Mark task as completed 1 second ago
         if let Some(exec) = orch.executions.get_mut(&id) {
-            exec.completed_at = Some(Utc::now() - chrono::Duration::seconds(1));
+            exec.completed_at = Some(Timestamp::now() - at_time::Duration::seconds(1));
         }
 
         assert_eq!(orch.total_count(), 1);
@@ -887,7 +887,7 @@ mod tests {
 
         // Mark as completed 10 days ago
         if let Some(exec) = orch.executions.get_mut(&id) {
-            exec.completed_at = Some(Utc::now() - chrono::Duration::days(10));
+            exec.completed_at = Some(Timestamp::now() - at_time::Duration::days(10));
         }
 
         // Cleanup with TTL of 7 days
@@ -930,7 +930,7 @@ mod tests {
             let mut orch_guard = orch.lock().unwrap();
             let id = orch_guard.start_task("old task", "description", AgentRole::Coder);
             if let Some(exec) = orch_guard.executions.get_mut(&id) {
-                exec.completed_at = Some(Utc::now() - chrono::Duration::days(30));
+                exec.completed_at = Some(Timestamp::now() - at_time::Duration::days(30));
             }
             // Set very short TTL for testing
             orch_guard.config.execution_ttl_secs = 0; // Immediate cleanup
@@ -963,7 +963,7 @@ mod tests {
             let mut orch_guard = orch.lock().unwrap();
             let id = orch_guard.start_task("recent task", "description", AgentRole::Coder);
             if let Some(exec) = orch_guard.executions.get_mut(&id) {
-                exec.completed_at = Some(Utc::now() - chrono::Duration::days(5));
+                exec.completed_at = Some(Timestamp::now() - at_time::Duration::days(5));
             }
             // Set TTL to 7 days (task should be kept)
             orch_guard.config.execution_ttl_secs = 7 * 24 * 60 * 60;
@@ -1004,7 +1004,7 @@ mod tests {
                 let id =
                     orch_guard.start_task(format!("task {}", i), "description", AgentRole::Coder);
                 if let Some(exec) = orch_guard.executions.get_mut(&id) {
-                    exec.completed_at = Some(Utc::now() - chrono::Duration::days(10));
+                    exec.completed_at = Some(Timestamp::now() - at_time::Duration::days(10));
                 }
             }
 
@@ -1057,7 +1057,7 @@ mod tests {
             orch_guard.config.execution_ttl_secs = 0;
             let id = orch_guard.start_task("task", "description", AgentRole::Coder);
             if let Some(exec) = orch_guard.executions.get_mut(&id) {
-                exec.completed_at = Some(Utc::now() - chrono::Duration::days(10));
+                exec.completed_at = Some(Timestamp::now() - at_time::Duration::days(10));
             }
         }
 
@@ -1112,7 +1112,7 @@ mod tests {
             guard.config.execution_ttl_secs = 0; // expire immediately
             let id = guard.start_task("stale task", "should be cleaned", AgentRole::Coder);
             if let Some(exec) = guard.executions.get_mut(&id) {
-                exec.completed_at = Some(Utc::now() - chrono::Duration::days(30));
+                exec.completed_at = Some(Timestamp::now() - at_time::Duration::days(30));
             }
         }
 

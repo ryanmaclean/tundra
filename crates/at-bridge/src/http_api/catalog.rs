@@ -242,7 +242,7 @@ pub(crate) fn mount_all(domains: Vec<Domain>, auth_enforced: bool) -> Mounted {
 
     let catalog = ApiCatalog {
         schema_version: CATALOG_SCHEMA_VERSION.to_string(),
-        generated_at: chrono::Utc::now().to_rfc3339(),
+        generated_at: at_time::Timestamp::now().to_rfc3339(),
         source: "at-bridge".to_string(),
         service: ApiCatalogService {
             name: "auto-tundra".to_string(),

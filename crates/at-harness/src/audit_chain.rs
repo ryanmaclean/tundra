@@ -158,7 +158,7 @@ impl AuditChain {
         let mut entry = AuditEntry {
             schema: SCHEMA.to_string(),
             sequence: state.sequence,
-            timestamp: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+            timestamp: at_time::Timestamp::now().to_rfc3339_millis_z(),
             event_id: uuid::Uuid::new_v4().to_string(),
             kind: kind.to_string(),
             actor: actor.map(str::to_string),

@@ -24,8 +24,8 @@ use at_integrations::github::issues::import_issue_as_task;
 use at_integrations::github::pr_automation::PrStatus;
 use at_integrations::github::sync::{bead_issue_number, build_issue_metadata};
 use at_integrations::types::*;
+use at_time::{Duration, Timestamp};
 
-use chrono::{Duration, Utc};
 use serde_json::json;
 use uuid::Uuid;
 
@@ -42,7 +42,7 @@ fn make_config(token: Option<&str>) -> GitHubConfig {
 }
 
 fn make_github_issue(number: u64, title: &str, state: IssueState) -> GitHubIssue {
-    let now = Utc::now();
+    let now = Timestamp::now();
     GitHubIssue {
         number,
         title: title.to_string(),
@@ -86,7 +86,7 @@ fn make_github_pr(
     head: &str,
     author: &str,
 ) -> GitHubPullRequest {
-    let now = Utc::now();
+    let now = Timestamp::now();
     GitHubPullRequest {
         number,
         title: title.to_string(),
@@ -113,7 +113,7 @@ fn make_github_pr(
 }
 
 fn make_bead_with_issue(issue_number: u64, status: BeadStatus) -> Bead {
-    let now = Utc::now();
+    let now = Timestamp::now();
     Bead {
         id: Uuid::new_v4(),
         title: format!("Issue #{}", issue_number),
@@ -177,13 +177,21 @@ fn generate_pr_body_for_task(task: &Task) -> String {
     if let Some(started) = &task.started_at {
         body.push_str(&format!(
             "- **Started**: {}\n",
-            started.format("%Y-%m-%d %H:%M UTC")
+            format!(
+                "{} {} UTC",
+                started.date_string(),
+                &started.time_string()[..5]
+            )
         ));
     }
     if let Some(completed) = &task.completed_at {
         body.push_str(&format!(
             "- **Completed**: {}\n",
-            completed.format("%Y-%m-%d %H:%M UTC")
+            format!(
+                "{} {} UTC",
+                completed.date_string(),
+                &completed.time_string()[..5]
+            )
         ));
     }
 
@@ -539,7 +547,7 @@ fn test_deduplication_by_issue_number() {
 #[test]
 fn test_poll_updates() {
     // poll_updates filters issues by updated_at >= since
-    let now = Utc::now();
+    let now = Timestamp::now();
     let two_hours_ago = now - Duration::hours(2);
     let five_min_ago = now - Duration::minutes(5);
     let since = now - Duration::hours(1);
@@ -815,8 +823,8 @@ fn test_auto_create_pr_from_completed_task() {
 #[test]
 fn test_pr_body_includes_task_details() {
     let mut task = make_test_task("Refactor auth module", TaskPhase::Complete);
-    task.started_at = Some(Utc::now() - Duration::hours(2));
-    task.completed_at = Some(Utc::now());
+    task.started_at = Some(Timestamp::now() - Duration::hours(2));
+    task.completed_at = Some(Timestamp::now());
 
     let body = generate_pr_body_for_task(&task);
 

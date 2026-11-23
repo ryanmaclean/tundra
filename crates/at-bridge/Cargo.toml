@@ -20,7 +20,6 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 flume = { workspace = true }
 uuid = { workspace = true }
-chrono = { workspace = true }
 axum = { workspace = true }
 tower = { workspace = true }
 tower-http = { workspace = true }
@@ -43,5 +42,4 @@ tokio = { workspace = true, features = ["test-util"] }
 reqwest = { workspace = true, features = ["query"] }
 tokio-tungstenite = "0.28"
 futures-util = "0.3"
-chrono = { workspace = true }
 wiremock = "0.6"

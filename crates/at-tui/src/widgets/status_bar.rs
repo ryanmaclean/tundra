@@ -1,4 +1,4 @@
-use chrono::Local;
+use at_time::Timestamp;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
@@ -9,7 +9,12 @@ use crate::app::App;
 
 /// Render the bottom status bar.
 pub fn render(frame: &mut Frame, app: &App, area: Rect) {
-    let now = Local::now().format("%Y-%m-%d %H:%M:%S");
+    let now = Timestamp::now();
+    let (hour, minute, second) = now.time_of_day();
+    let now = format!(
+        "{} {hour:02}:{minute:02}:{second:02} UTC",
+        now.date_string()
+    );
 
     let conn_indicator = if app.offline {
         Span::styled(
@@ -42,7 +47,7 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect) {
     ];
 
     let left_len: usize = left.iter().map(|s| s.content.len()).sum();
-    let right_text = format!("{}", now);
+    let right_text = now.clone();
     let total_width = area.width as usize;
     let padding = if total_width > left_len + right_text.len() {
         total_width - left_len - right_text.len()

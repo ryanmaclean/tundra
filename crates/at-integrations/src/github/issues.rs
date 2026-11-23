@@ -36,7 +36,7 @@ pub async fn list_issues(
 pub async fn list_issues_updated_since(
     client: &GitHubClient,
     state_filter: Option<IssueState>,
-    since: chrono::DateTime<chrono::Utc>,
+    since: at_time::Timestamp,
 ) -> Result<Vec<GitHubIssue>> {
     list_issues_inner(client, state_filter, None, None, None, Some(since)).await
 }
@@ -47,7 +47,7 @@ async fn list_issues_inner(
     labels: Option<Vec<String>>,
     page: Option<u32>,
     per_page: Option<u8>,
-    since: Option<chrono::DateTime<chrono::Utc>>,
+    since: Option<at_time::Timestamp>,
 ) -> Result<Vec<GitHubIssue>> {
     let issue_handler = client.octocrab.issues(&client.owner, &client.repo);
 
@@ -69,7 +69,7 @@ async fn list_issues_inner(
 
     if let Some(since) = since {
         handler = handler
-            .since(since)
+            .since(std::time::SystemTime::from(since))
             .sort(octocrab::params::issues::Sort::Updated);
     }
 
@@ -219,8 +219,8 @@ pub fn import_issue_as_task(issue: &GitHubIssue) -> Bead {
         priority: 0,
         agent_id: None,
         convoy_id: None,
-        created_at: issue.created_at,
-        updated_at: issue.updated_at,
+        created_at: super::timestamp_from(issue.created_at),
+        updated_at: super::timestamp_from(issue.updated_at),
         hooked_at: None,
         slung_at: None,
         done_at: if issue.state == IssueState::Closed {
@@ -270,8 +270,8 @@ fn octocrab_issue_to_github_issue(issue: octocrab::models::issues::Issue) -> Git
         labels,
         assignees,
         author,
-        created_at: issue.created_at,
-        updated_at: issue.updated_at,
+        created_at: super::timestamp_from(issue.created_at),
+        updated_at: super::timestamp_from(issue.updated_at),
         comments: issue.comments as u64,
         html_url: issue.html_url.to_string(),
     }
@@ -423,9 +423,7 @@ mod tests {
     #[tokio::test]
     async fn updated_since_sends_since_and_sort() {
         let (base, log) = mock_github(vec![vec![issue_json(1, false), issue_json(2, true)]]).await;
-        let since = chrono::DateTime::parse_from_rfc3339("2026-01-01T00:00:00Z")
-            .unwrap()
-            .with_timezone(&chrono::Utc);
+        let since = at_time::Timestamp::parse_rfc3339("2026-01-01T00:00:00Z").unwrap();
         let issues = list_issues_updated_since(&client_for(&base), None, since)
             .await
             .unwrap();

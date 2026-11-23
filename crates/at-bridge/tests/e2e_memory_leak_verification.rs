@@ -39,7 +39,7 @@ fn create_task_with_heavy_logging(
     for i in 0..log_count {
         // Add task logs
         task.logs.push(TaskLogEntry {
-            timestamp: chrono::Utc::now(),
+            timestamp: at_time::Timestamp::now(),
             phase: TaskPhase::Coding,
             log_type: TaskLogType::Info,
             message: format!(
@@ -51,7 +51,7 @@ fn create_task_with_heavy_logging(
 
         // Add build logs
         task.build_logs.push(BuildLogEntry {
-            timestamp: chrono::Utc::now(),
+            timestamp: at_time::Timestamp::now(),
             stream: if i % 2 == 0 {
                 BuildStream::Stdout
             } else {
@@ -66,7 +66,8 @@ fn create_task_with_heavy_logging(
     }
 
     // Mark as completed with timestamp in the past
-    task.completed_at = Some(chrono::Utc::now() - chrono::Duration::days(completed_days_ago));
+    task.completed_at =
+        Some(at_time::Timestamp::now() - at_time::Duration::days(completed_days_ago));
 
     task
 }
@@ -312,7 +313,7 @@ async fn test_stress_cleanup_with_buffers() {
         for _i in 0..50 {
             let session_id = uuid::Uuid::new_v4();
             let mut buffer = at_bridge::terminal::DisconnectBuffer::new(10_000); // 10KB max
-            buffer.disconnected_at = chrono::Utc::now() - chrono::Duration::minutes(10);
+            buffer.disconnected_at = at_time::Timestamp::now() - at_time::Duration::minutes(10);
 
             // Add some data to the buffer
             for j in 0..100 {

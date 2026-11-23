@@ -1,3 +1,4 @@
+use at_time::Timestamp;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -7,7 +8,6 @@ use at_bridge::http_api::ApiState;
 use at_core::cache::CacheDb;
 use at_core::config::{Config, CredentialProvider};
 use at_intelligence::ResilientRegistry;
-use chrono::Utc;
 use tracing::{error, info, warn};
 
 use at_harness::shutdown::ShutdownSignal;
@@ -315,7 +315,7 @@ impl Daemon {
                                             "stale_agents={} stuck_beads={} orphan_ptys={}",
                                             report.stale_agents, report.stuck_beads, report.orphan_ptys
                                         ),
-                                        timestamp: Utc::now(),
+                                        timestamp: Timestamp::now(),
                                     },
                                 ),
                             );

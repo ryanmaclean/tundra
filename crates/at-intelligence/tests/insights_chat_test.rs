@@ -1,11 +1,11 @@
 //! Exhaustive integration tests for InsightsEngine (Insights / AI Chat feature).
 
+use at_time::Timestamp;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::Mutex;
 
 use async_trait::async_trait;
-use chrono::Utc;
 use futures_util::Stream;
 use uuid::Uuid;
 
@@ -139,10 +139,10 @@ fn test_get_chat_session_by_id() {
 
 #[test]
 fn test_chat_session_has_created_at_timestamp() {
-    let before = Utc::now();
+    let before = Timestamp::now();
     let mut engine = InsightsEngine::new();
     let id = engine.create_session("Timestamped", "model").id;
-    let after = Utc::now();
+    let after = Timestamp::now();
 
     let session = engine.get_session(&id).unwrap();
     assert!(session.created_at >= before);
@@ -491,7 +491,7 @@ fn test_serde_roundtrip_chat_message() {
     let msg = ChatMessage {
         role: ChatRole::Assistant,
         content: "Hello world".to_string(),
-        timestamp: Utc::now(),
+        timestamp: Timestamp::now(),
     };
     let json = serde_json::to_string(&msg).unwrap();
     let deserialized: ChatMessage = serde_json::from_str(&json).unwrap();
@@ -508,16 +508,16 @@ fn test_serde_roundtrip_insights_session() {
             ChatMessage {
                 role: ChatRole::User,
                 content: "hi".to_string(),
-                timestamp: Utc::now(),
+                timestamp: Timestamp::now(),
             },
             ChatMessage {
                 role: ChatRole::Assistant,
                 content: "hello".to_string(),
-                timestamp: Utc::now(),
+                timestamp: Timestamp::now(),
             },
         ],
         model: "claude-3".to_string(),
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
     };
     let json = serde_json::to_string(&session).unwrap();
     let deserialized: InsightsSession = serde_json::from_str(&json).unwrap();
@@ -537,11 +537,11 @@ fn test_chat_role_variants() {
 
 #[test]
 fn test_message_timestamp_is_set() {
-    let before = Utc::now();
+    let before = Timestamp::now();
     let mut engine = InsightsEngine::new();
     let id = engine.create_session("Timestamps", "model").id;
     engine.add_message(&id, ChatRole::User, "hi").unwrap();
-    let after = Utc::now();
+    let after = Timestamp::now();
 
     let session = engine.get_session(&id).unwrap();
     let ts = session.messages[0].timestamp;

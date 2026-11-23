@@ -28,11 +28,8 @@ pub(crate) struct UpdateProjectRequest {
 /// Sort key giving creation order: parsed RFC 3339 timestamp, then id as a
 /// tie-break. `projects`/`attachments` are HashMaps (random iteration order),
 /// so every listing and fallback choice must go through this key.
-pub(crate) fn creation_key(
-    created_at: &str,
-    id: Uuid,
-) -> (Option<chrono::DateTime<chrono::FixedOffset>>, Uuid) {
-    (chrono::DateTime::parse_from_rfc3339(created_at).ok(), id)
+pub(crate) fn creation_key(created_at: &str, id: Uuid) -> (Option<at_time::Timestamp>, Uuid) {
+    (at_time::Timestamp::parse_rfc3339(created_at), id)
 }
 
 /// GET /api/projects -- retrieve all projects, oldest first.
@@ -159,8 +156,8 @@ mod tests {
     use crate::http_api::types::{Attachment, AttachmentQuery};
 
     fn ts(i: i64) -> String {
-        (chrono::DateTime::parse_from_rfc3339("2026-01-01T00:00:00Z").unwrap()
-            + chrono::Duration::seconds(i))
+        (at_time::Timestamp::parse_rfc3339("2026-01-01T00:00:00Z").unwrap()
+            + at_time::Duration::seconds(i))
         .to_rfc3339()
     }
 

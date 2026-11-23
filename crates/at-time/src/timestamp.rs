@@ -11,6 +11,7 @@
 use std::fmt;
 use std::ops::{Add, AddAssign, Sub, SubAssign};
 use std::str::FromStr;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::de::{self, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -47,6 +48,17 @@ impl Timestamp {
         nanos: 0,
     };
 
+    /// The earliest supported instant, `-262143-01-01T00:00:00Z`.
+    pub const MIN: Timestamp = Timestamp {
+        seconds: -8_334_601_228_800,
+        nanos: 0,
+    };
+
+    /// The latest supported instant, `+262142-12-31T23:59:59.999999999Z`.
+    pub const MAX: Timestamp = Timestamp {
+        seconds: 8_210_298_412_799,
+        nanos: 999_999_999,
+    };
     /// The current UTC time.
     pub fn now() -> Self {
         let (seconds, nanos) = now_parts();
@@ -111,6 +123,18 @@ impl Timestamp {
         text
     }
 
+    /// `2026-11-22T10:00:00.123Z`: always three fractional digits, truncated
+    /// like chrono's `SecondsFormat::Millis`.
+    pub fn to_rfc3339_millis_z(self) -> String {
+        let (year, month, day) = self.date();
+        let (hour, minute, second) = self.time_of_day();
+        format!(
+            "{}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}.{:03}Z",
+            format_year(year),
+            self.nanos / 1_000_000
+        )
+    }
+
     /// The UTC calendar date as `(year, month, day)`.
     pub fn date(self) -> (i32, u8, u8) {
         calendar(self.seconds).expect("timestamp validated at construction")
@@ -132,6 +156,11 @@ impl Timestamp {
         )
     }
 
+    /// The UTC time of day as `HH:MM:SS`.
+    pub fn time_string(self) -> String {
+        let (hour, minute, second) = self.time_of_day();
+        format!("{hour:02}:{minute:02}:{second:02}")
+    }
     fn total_nanos(self) -> i128 {
         i128::from(self.seconds) * NANOS_PER_SECOND + i128::from(self.nanos)
     }
@@ -220,6 +249,44 @@ impl Sub<Timestamp> for Timestamp {
     }
 }
 
+impl From<SystemTime> for Timestamp {
+    /// # Panics
+    ///
+    /// Panics if `time` is outside the supported year range, like chrono.
+    fn from(time: SystemTime) -> Self {
+        let (seconds, nanos) = match time.duration_since(UNIX_EPOCH) {
+            Ok(after) => (
+                i64::try_from(after.as_secs()).expect("system time out of range"),
+                after.subsec_nanos(),
+            ),
+            Err(error) => {
+                let before = error.duration();
+                let whole = i64::try_from(before.as_secs()).expect("system time out of range");
+                match before.subsec_nanos() {
+                    0 => (-whole, 0),
+                    nanos => (-whole - 1, 1_000_000_000 - nanos),
+                }
+            }
+        };
+        Timestamp::from_unix(seconds, nanos).expect("system time out of range")
+    }
+}
+impl From<Timestamp> for SystemTime {
+    /// # Panics
+    ///
+    /// Panics if the platform's `SystemTime` cannot represent the instant.
+    fn from(timestamp: Timestamp) -> Self {
+        let after_epoch = std::time::Duration::from_nanos(u64::from(timestamp.nanos));
+        if timestamp.seconds >= 0 {
+            UNIX_EPOCH
+                + std::time::Duration::from_secs(timestamp.seconds.unsigned_abs())
+                + after_epoch
+        } else {
+            UNIX_EPOCH - std::time::Duration::from_secs(timestamp.seconds.unsigned_abs())
+                + after_epoch
+        }
+    }
+}
 impl Serialize for Timestamp {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.serialize_str(&self.to_rfc3339_z())
@@ -247,6 +314,50 @@ impl<'de> Deserialize<'de> for Timestamp {
     }
 }
 
+/// serde `with` module: a [`Timestamp`] as integer milliseconds since the
+/// Unix epoch, like `chrono::serde::ts_milliseconds`.
+pub mod ts_milliseconds {
+    use std::fmt;
+
+    use serde::{de, Deserializer, Serializer};
+
+    use super::Timestamp;
+
+    /// Serialize as whole milliseconds, rounded toward negative infinity.
+    pub fn serialize<S: Serializer>(
+        timestamp: &Timestamp,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        serializer.serialize_i64(timestamp.unix_millis())
+    }
+
+    /// Deserialize from signed or unsigned integer milliseconds.
+    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Timestamp, D::Error> {
+        struct MillisVisitor;
+
+        impl de::Visitor<'_> for MillisVisitor {
+            type Value = Timestamp;
+
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("a Unix timestamp in milliseconds")
+            }
+
+            fn visit_i64<E: de::Error>(self, value: i64) -> Result<Timestamp, E> {
+                Timestamp::from_unix_millis(value)
+                    .ok_or_else(|| E::custom(format!("value is not a legal timestamp: {value}")))
+            }
+
+            fn visit_u64<E: de::Error>(self, value: u64) -> Result<Timestamp, E> {
+                i64::try_from(value)
+                    .ok()
+                    .and_then(Timestamp::from_unix_millis)
+                    .ok_or_else(|| E::custom(format!("value is not a legal timestamp: {value}")))
+            }
+        }
+
+        deserializer.deserialize_i64(MillisVisitor)
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -286,6 +397,10 @@ mod tests {
             assert_eq!(
                 ours.to_rfc3339_z(),
                 theirs.to_rfc3339_opts(SecondsFormat::AutoSi, true)
+            );
+            assert_eq!(
+                ours.to_rfc3339_millis_z(),
+                theirs.to_rfc3339_opts(SecondsFormat::Millis, true)
             );
         }
     }
@@ -337,6 +452,35 @@ mod tests {
         assert!(serde_json::from_str::<Timestamp>("1700000000").is_err());
     }
 
+    #[derive(serde::Serialize, serde::Deserialize, PartialEq, Debug)]
+    struct Millis {
+        #[serde(with = "ts_milliseconds")]
+        at: Timestamp,
+    }
+
+    #[derive(serde::Serialize, serde::Deserialize)]
+    struct ChronoMillis {
+        #[serde(with = "chrono::serde::ts_milliseconds")]
+        at: DateTime<Utc>,
+    }
+
+    #[test]
+    fn ts_milliseconds_matches_chrono() {
+        for &(seconds, nanos) in SAMPLES {
+            let ours = Millis {
+                at: Timestamp::from_unix(seconds, nanos).unwrap(),
+            };
+            let theirs = ChronoMillis {
+                at: chrono_at(seconds, nanos),
+            };
+            let json = serde_json::to_string(&ours).unwrap();
+            assert_eq!(json, serde_json::to_string(&theirs).unwrap());
+            let back: Millis = serde_json::from_str(&json).unwrap();
+            assert_eq!(back.at.unix_millis(), ours.at.unix_millis());
+        }
+        assert!(serde_json::from_str::<Millis>(r#"{"at":"x"}"#).is_err());
+        assert!(serde_json::from_str::<Millis>(r#"{"at":18446744073709551615}"#).is_err());
+    }
     #[test]
     fn leap_second_is_the_next_posix_second() {
         let leap = Timestamp::parse_rfc3339("2016-12-31T23:59:60Z").unwrap();
@@ -357,6 +501,11 @@ mod tests {
         let min = DateTime::<Utc>::MIN_UTC;
         assert!(Timestamp::from_unix(min.timestamp(), 0).is_some());
         assert!(Timestamp::from_unix(min.timestamp() - 1, 0).is_none());
+        assert_eq!(Timestamp::MIN.unix_seconds(), min.timestamp());
+        assert_eq!(Timestamp::MAX.unix_seconds(), max.timestamp());
+        assert_eq!(Timestamp::MAX.subsec_nanos(), max.timestamp_subsec_nanos());
+        assert_eq!(Timestamp::MIN.to_rfc3339(), min.to_rfc3339());
+        assert_eq!(Timestamp::MAX.to_rfc3339(), max.to_rfc3339());
     }
 
     #[test]

@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use at_time::Timestamp;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -85,11 +85,11 @@ pub struct Bead {
     pub priority: i32,
     pub agent_id: Option<Uuid>,
     pub convoy_id: Option<Uuid>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-    pub hooked_at: Option<DateTime<Utc>>,
-    pub slung_at: Option<DateTime<Utc>>,
-    pub done_at: Option<DateTime<Utc>>,
+    pub created_at: Timestamp,
+    pub updated_at: Timestamp,
+    pub hooked_at: Option<Timestamp>,
+    pub slung_at: Option<Timestamp>,
+    pub done_at: Option<Timestamp>,
     pub git_branch: Option<String>,
     pub metadata: Option<serde_json::Value>,
 }
@@ -97,7 +97,7 @@ pub struct Bead {
 impl Bead {
     /// Create a new Bead in Backlog status with the given title and lane.
     pub fn new(title: impl Into<String>, lane: Lane) -> Self {
-        let now = Utc::now();
+        let now = Timestamp::now();
         Self {
             id: Uuid::new_v4(),
             title: title.into(),
@@ -294,15 +294,15 @@ pub struct Agent {
     pub rig: Option<String>,
     pub pid: Option<u32>,
     pub session_id: Option<String>,
-    pub created_at: DateTime<Utc>,
-    pub last_seen: DateTime<Utc>,
+    pub created_at: Timestamp,
+    pub last_seen: Timestamp,
     pub metadata: Option<serde_json::Value>,
 }
 
 impl Agent {
     /// Create a new Agent in Pending status with the given name, role, and CLI type.
     pub fn new(name: impl Into<String>, role: AgentRole, cli_type: CliType) -> Self {
-        let now = Utc::now();
+        let now = Timestamp::now();
         Self {
             id: Uuid::new_v4(),
             name: name.into(),
@@ -352,8 +352,8 @@ pub struct Convoy {
     pub name: String,
     pub status: ConvoyStatus,
     pub bead_ids: Vec<Uuid>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: Timestamp,
+    pub updated_at: Timestamp,
     pub metadata: Option<serde_json::Value>,
 }
 
@@ -374,7 +374,7 @@ pub struct Mail {
     pub to_agent: Uuid,
     pub subject: String,
     pub body: String,
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     pub read: bool,
 }
 
@@ -394,7 +394,7 @@ pub struct Event {
     pub kind: String,
     pub source: String,
     pub payload: serde_json::Value,
-    pub timestamp: DateTime<Utc>,
+    pub timestamp: Timestamp,
 }
 
 // ---------------------------------------------------------------------------
@@ -412,7 +412,7 @@ pub struct TokenMetric {
     pub input_tokens: u64,
     pub output_tokens: u64,
     pub cost_usd: f64,
-    pub timestamp: DateTime<Utc>,
+    pub timestamp: Timestamp,
 }
 
 // ---------------------------------------------------------------------------
@@ -430,7 +430,7 @@ pub enum BuildStream {
 /// A single captured line of build output (stdout or stderr) with metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BuildLogEntry {
-    pub timestamp: DateTime<Utc>,
+    pub timestamp: Timestamp,
     pub stream: BuildStream,
     pub line: String,
     pub phase: TaskPhase,
@@ -934,7 +934,7 @@ pub enum TaskLogType {
 /// of where issues occurred.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskLogEntry {
-    pub timestamp: DateTime<Utc>,
+    pub timestamp: Timestamp,
     pub phase: TaskPhase,
     pub log_type: TaskLogType,
     pub message: String,
@@ -1035,13 +1035,13 @@ pub struct Task {
     /// Per-phase model and thinking configuration overrides.
     pub phase_configs: Vec<PhaseConfig>,
     /// When the task was created.
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// Last modification timestamp.
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: Timestamp,
     /// When task execution began (first phase transition from Discovery).
-    pub started_at: Option<DateTime<Utc>>,
+    pub started_at: Option<Timestamp>,
     /// When the task reached Complete phase.
-    pub completed_at: Option<DateTime<Utc>>,
+    pub completed_at: Option<Timestamp>,
     /// Error message if task failed or encountered an issue.
     pub error: Option<String>,
     /// Structured log entries tracking phase transitions and events.
@@ -1073,7 +1073,7 @@ pub struct Task {
     /// When the task branch was merged into its target by a gated merge
     /// (`None` while unmerged, including after a verify-only gate pass).
     #[serde(default)]
-    pub merged_at: Option<DateTime<Utc>>,
+    pub merged_at: Option<Timestamp>,
 }
 
 impl Task {
@@ -1084,7 +1084,7 @@ impl Task {
         priority: TaskPriority,
         complexity: TaskComplexity,
     ) -> Self {
-        let now = Utc::now();
+        let now = Timestamp::now();
         Self {
             id: Uuid::new_v4(),
             title: title.into(),
@@ -1122,31 +1122,31 @@ impl Task {
     /// Append a log entry for the current phase.
     pub fn log(&mut self, log_type: TaskLogType, message: impl Into<String>) {
         self.logs.push(TaskLogEntry {
-            timestamp: Utc::now(),
+            timestamp: Timestamp::now(),
             phase: self.phase.clone(),
             log_type,
             message: message.into(),
             detail: None,
         });
-        self.updated_at = Utc::now();
+        self.updated_at = Timestamp::now();
     }
 
     /// Append a build output line captured from a pipeline command.
     pub fn add_build_log(&mut self, stream: BuildStream, line: impl Into<String>) {
         self.build_logs.push(BuildLogEntry {
-            timestamp: Utc::now(),
+            timestamp: Timestamp::now(),
             stream,
             line: line.into(),
             phase: self.phase.clone(),
         });
-        self.updated_at = Utc::now();
+        self.updated_at = Timestamp::now();
     }
 
     /// Transition the task to a new phase, updating progress.
     pub fn set_phase(&mut self, phase: TaskPhase) {
         self.progress_percent = phase.progress_percent();
         self.phase = phase;
-        self.updated_at = Utc::now();
+        self.updated_at = Timestamp::now();
     }
 
     /// Truncate task and build logs to keep only the most recent N entries.
@@ -1163,7 +1163,7 @@ impl Task {
             let start_index = self.build_logs.len() - max_entries;
             self.build_logs.drain(..start_index);
         }
-        self.updated_at = Utc::now();
+        self.updated_at = Timestamp::now();
     }
 }
 
@@ -1237,7 +1237,7 @@ pub struct QaReport {
     /// List of issues found during review, if any.
     pub issues: Vec<QaIssue>,
     /// When this report was generated.
-    pub timestamp: DateTime<Utc>,
+    pub timestamp: Timestamp,
 }
 
 impl QaReport {
@@ -1251,7 +1251,7 @@ impl QaReport {
             task_id,
             status,
             issues: Vec::new(),
-            timestamp: Utc::now(),
+            timestamp: Timestamp::now(),
         }
     }
 
@@ -1406,5 +1406,5 @@ pub struct KpiSnapshot {
     pub failed: u64,
     pub escalated: u64,
     pub active_agents: u64,
-    pub timestamp: DateTime<Utc>,
+    pub timestamp: Timestamp,
 }

@@ -1,7 +1,7 @@
+use at_time::Timestamp;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 // ---------------------------------------------------------------------------
@@ -69,7 +69,7 @@ pub struct WorktreeInfo {
     pub branch: String,
     pub base_branch: String,
     pub task_name: String,
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
 }
 
 // ---------------------------------------------------------------------------
@@ -129,7 +129,7 @@ impl WorktreeManager {
             branch: branch_name,
             base_branch: base_branch.to_string(),
             task_name: sanitized,
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
         })
     }
 
@@ -208,7 +208,7 @@ impl WorktreeManager {
                             branch: branch.clone(),
                             base_branch: String::new(), // not available from porcelain output
                             task_name,
-                            created_at: Utc::now(), // approximate; git doesn't track this
+                            created_at: Timestamp::now(), // approximate; git doesn't track this
                         });
                     }
                 }
@@ -258,7 +258,7 @@ impl WorktreeManager {
                 branch,
                 base_branch: String::new(),
                 task_name,
-                created_at: Utc::now(),
+                created_at: Timestamp::now(),
             });
         }
 
@@ -317,7 +317,7 @@ mod tests {
             branch: "task/test".to_string(),
             base_branch: "main".to_string(),
             task_name: "test".to_string(),
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
         };
         let json = serde_json::to_string(&info).expect("serialize");
         let back: WorktreeInfo = serde_json::from_str(&json).expect("deserialize");

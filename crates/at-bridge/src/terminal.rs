@@ -21,7 +21,7 @@
 //! terminal resumes normally. Otherwise, the PTY is killed and the terminal moves to
 //! `TerminalStatus::Dead`.
 
-use chrono::{DateTime, Utc};
+use at_time::Timestamp;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use uuid::Uuid;
@@ -88,8 +88,8 @@ pub enum TerminalStatus {
     /// the PTY will be killed and the terminal moved to `Dead`.
     Disconnected {
         /// Timestamp when the disconnection occurred.
-        #[serde(with = "chrono::serde::ts_milliseconds")]
-        since: DateTime<Utc>,
+        #[serde(with = "at_time::ts_milliseconds")]
+        since: Timestamp,
     },
     /// PTY has been killed after grace period expired (or explicit kill).
     Dead,
@@ -198,7 +198,7 @@ pub struct DisconnectBuffer {
     /// Maximum capacity; oldest bytes are dropped when exceeded.
     pub max_bytes: usize,
     /// Timestamp when disconnection occurred, used for grace period check.
-    pub disconnected_at: DateTime<Utc>,
+    pub disconnected_at: Timestamp,
 }
 
 impl DisconnectBuffer {
@@ -222,14 +222,14 @@ impl DisconnectBuffer {
         Self {
             data: VecDeque::with_capacity(max_bytes),
             max_bytes,
-            disconnected_at: Utc::now(),
+            disconnected_at: Timestamp::now(),
         }
     }
 
     /// Construct a `DisconnectBuffer` directly from pre-built parts.
     ///
     /// This is `pub(crate)` and gated `#[cfg(test)]` so unit tests can inject
-    /// an explicit `disconnected_at` timestamp instead of capturing `Utc::now()`
+    /// an explicit `disconnected_at` timestamp instead of capturing `Timestamp::now()`
     /// inside [`DisconnectBuffer::new`].  That allows [`grace_expired`] to be
     /// tested deterministically without sleeping or post-construction field
     /// mutation.
@@ -241,7 +241,7 @@ impl DisconnectBuffer {
     pub(crate) fn from_parts(
         max_bytes: usize,
         data: VecDeque<u8>,
-        disconnected_at: DateTime<Utc>,
+        disconnected_at: Timestamp,
     ) -> Self {
         Self {
             data,
@@ -280,9 +280,9 @@ impl DisconnectBuffer {
     /// Returns `true` if the elapsed time since `disconnected_at` exceeds
     /// [`WS_RECONNECT_GRACE`]. This signals that the PTY should be killed.
     pub fn grace_expired(&self) -> bool {
-        let elapsed = Utc::now()
+        let elapsed = Timestamp::now()
             .signed_duration_since(self.disconnected_at)
-            .to_std()
+            .try_into()
             .unwrap_or(std::time::Duration::ZERO);
         elapsed >= WS_RECONNECT_GRACE
     }
@@ -675,7 +675,9 @@ mod tests {
 
     #[test]
     fn test_disconnected_status_variant() {
-        let status = TerminalStatus::Disconnected { since: Utc::now() };
+        let status = TerminalStatus::Disconnected {
+            since: Timestamp::now(),
+        };
         let json = serde_json::to_string(&status).unwrap();
         assert!(json.contains("disconnected"));
     }
@@ -701,7 +703,7 @@ mod tests {
     #[test]
     fn grace_expired_returns_true_when_disconnected_long_ago() {
         // WS_RECONNECT_GRACE is 30 seconds. Use 2 minutes to be unambiguous.
-        let disconnected_at = Utc::now() - chrono::Duration::minutes(2);
+        let disconnected_at = Timestamp::now() - at_time::Duration::minutes(2);
         let buf = DisconnectBuffer::from_parts(64, VecDeque::new(), disconnected_at);
 
         assert!(
@@ -714,7 +716,7 @@ mod tests {
     /// the 30-second WS_RECONNECT_GRACE) must report grace_expired() == false.
     #[test]
     fn grace_expired_returns_false_when_recently_disconnected() {
-        let disconnected_at = Utc::now() - chrono::Duration::seconds(1);
+        let disconnected_at = Timestamp::now() - at_time::Duration::seconds(1);
         let buf = DisconnectBuffer::from_parts(64, VecDeque::new(), disconnected_at);
 
         assert!(
@@ -732,7 +734,7 @@ mod tests {
         data.push_back(b'b');
         data.push_back(b'c');
 
-        let mut buf = DisconnectBuffer::from_parts(16, data, Utc::now());
+        let mut buf = DisconnectBuffer::from_parts(16, data, Timestamp::now());
         let out = buf.drain_all();
 
         assert_eq!(
@@ -752,7 +754,7 @@ mod tests {
     fn from_parts_capacity_is_enforced_after_subsequent_push() {
         let capacity = 4usize;
         let buf_data = VecDeque::new();
-        let mut buf = DisconnectBuffer::from_parts(capacity, buf_data, Utc::now());
+        let mut buf = DisconnectBuffer::from_parts(capacity, buf_data, Timestamp::now());
 
         // Push 6 bytes into a 4-byte buffer — oldest 2 must be evicted.
         buf.push(b"123456");

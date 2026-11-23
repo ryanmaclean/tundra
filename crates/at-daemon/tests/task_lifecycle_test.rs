@@ -3,10 +3,10 @@
 //!
 //! These tests exercise at-core types directly (no network, no real PTY).
 
+use at_time::{Duration as TimeDelta, Timestamp};
 use std::time::Duration;
 
 use at_core::types::*;
-use chrono::{TimeDelta, Utc};
 use uuid::Uuid;
 
 // ===========================================================================
@@ -45,19 +45,19 @@ fn advance_through_all_phases(task: &mut Task) {
         TaskPhase::Merging,
         TaskPhase::Complete,
     ];
-    task.started_at = Some(Utc::now());
+    task.started_at = Some(Timestamp::now());
     for phase in &phases {
         task.set_phase(phase.clone());
         task.log(TaskLogType::PhaseStart, format!("Starting {phase:?}"));
         task.log(TaskLogType::PhaseEnd, format!("Completed {phase:?}"));
     }
-    task.completed_at = Some(Utc::now());
+    task.completed_at = Some(Timestamp::now());
 }
 
 /// Simulate a stuck-task detector: returns task ids that have not been
 /// updated within `threshold`.
 fn detect_stuck_tasks(tasks: &[Task], threshold: Duration) -> Vec<Uuid> {
-    let now = Utc::now();
+    let now = Timestamp::now();
     tasks
         .iter()
         .filter(|t| {
@@ -68,7 +68,7 @@ fn detect_stuck_tasks(tasks: &[Task], threshold: Duration) -> Vec<Uuid> {
         })
         .filter(|t| {
             let elapsed = now - t.updated_at;
-            elapsed > TimeDelta::from_std(threshold).unwrap()
+            elapsed > TimeDelta::try_from(threshold).unwrap()
         })
         .map(|t| t.id)
         .collect()
@@ -142,7 +142,7 @@ fn task_phase_timing_tracking() {
     assert!(task.started_at.is_none());
     assert!(task.completed_at.is_none());
 
-    task.started_at = Some(Utc::now());
+    task.started_at = Some(Timestamp::now());
     advance_through_all_phases(&mut task);
 
     assert!(task.started_at.is_some());
@@ -214,7 +214,7 @@ fn task_stall_detection_identifies_stuck_task() {
     let mut task = make_task("Stalled");
     task.set_phase(TaskPhase::Coding);
     // Simulate an old updated_at
-    task.updated_at = Utc::now() - TimeDelta::seconds(600);
+    task.updated_at = Timestamp::now() - TimeDelta::seconds(600);
 
     let stuck = detect_stuck_tasks(&[task], Duration::from_secs(300));
     assert_eq!(stuck.len(), 1);
@@ -225,7 +225,7 @@ fn task_queue_ordering_fifo() {
     let mut tasks = Vec::new();
     for i in 0..5 {
         let mut t = make_task(&format!("Task-{i}"));
-        t.created_at = Utc::now() - TimeDelta::seconds((5 - i) as i64);
+        t.created_at = Timestamp::now() - TimeDelta::seconds((5 - i) as i64);
         tasks.push(t);
     }
 
@@ -265,7 +265,7 @@ fn task_with_worktree_lifecycle() {
 fn detect_stuck_task_no_progress_beyond_threshold() {
     let mut task = make_task("Stuck");
     task.set_phase(TaskPhase::Planning);
-    task.updated_at = Utc::now() - TimeDelta::seconds(900);
+    task.updated_at = Timestamp::now() - TimeDelta::seconds(900);
 
     let stuck = detect_stuck_tasks(&[task.clone()], Duration::from_secs(300));
     assert!(stuck.contains(&task.id));
@@ -287,7 +287,7 @@ fn stuck_task_recovery_resets_phase() {
 fn stuck_task_auto_restart() {
     let mut task = make_task("Auto restart");
     task.set_phase(TaskPhase::Qa);
-    task.updated_at = Utc::now() - TimeDelta::seconds(1200);
+    task.updated_at = Timestamp::now() - TimeDelta::seconds(1200);
 
     // Detect stuck
     let stuck = detect_stuck_tasks(&[task.clone()], Duration::from_secs(300));
@@ -320,7 +320,7 @@ fn multiple_stuck_tasks_detected_simultaneously() {
         .map(|i| {
             let mut t = make_task(&format!("Stuck-{i}"));
             t.set_phase(TaskPhase::Coding);
-            t.updated_at = Utc::now() - TimeDelta::seconds(600);
+            t.updated_at = Timestamp::now() - TimeDelta::seconds(600);
             t
         })
         .collect();
@@ -366,7 +366,7 @@ fn stuck_task_with_pending_subtasks_gets_subtasks_reset() {
     });
 
     task.set_phase(TaskPhase::Coding);
-    task.updated_at = Utc::now() - TimeDelta::seconds(600);
+    task.updated_at = Timestamp::now() - TimeDelta::seconds(600);
 
     // Recover: reset pending/in-progress subtasks
     let _ = recover_stuck_task(&mut task);
@@ -410,7 +410,7 @@ fn recovery_updates_task_timestamp() {
     task.set_phase(TaskPhase::Coding);
     let _old_updated = task.updated_at;
     // Make it stale
-    task.updated_at = Utc::now() - TimeDelta::seconds(600);
+    task.updated_at = Timestamp::now() - TimeDelta::seconds(600);
     let stale = task.updated_at;
 
     let _ = recover_stuck_task(&mut task);
@@ -422,7 +422,7 @@ fn recovery_updates_task_timestamp() {
 fn stuck_task_detection_configurable_threshold() {
     let mut task = make_task("Configurable threshold");
     task.set_phase(TaskPhase::Qa);
-    task.updated_at = Utc::now() - TimeDelta::seconds(120);
+    task.updated_at = Timestamp::now() - TimeDelta::seconds(120);
 
     // With a 300s threshold: NOT stuck
     let stuck_300 = detect_stuck_tasks(&[task.clone()], Duration::from_secs(300));

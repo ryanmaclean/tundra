@@ -1405,7 +1405,7 @@ async fn detach(
         state.terminal_registry.write().await.update_status(
             &terminal_id,
             TerminalStatus::Disconnected {
-                since: chrono::Utc::now(),
+                since: at_time::Timestamp::now(),
             },
         );
         state
@@ -2351,7 +2351,7 @@ mod grace_period_tests {
             agent_id: Uuid::nil(),
             title: "grace-period-test".to_string(),
             status: TerminalStatus::Disconnected {
-                since: chrono::Utc::now(),
+                since: at_time::Timestamp::now(),
             },
             cols: 80,
             rows: 24,

@@ -316,7 +316,7 @@ pub(crate) async fn update_task(
     if let Some(criteria) = req.acceptance_criteria {
         task.acceptance_criteria = criteria;
     }
-    task.updated_at = chrono::Utc::now();
+    task.updated_at = at_time::Timestamp::now();
 
     let task_snapshot = task.clone();
     drop(tasks);

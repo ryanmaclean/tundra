@@ -6,6 +6,7 @@
 //! recovery, stuck task detection, retry/escalation, scheduler ordering, and
 //! daemon start/shutdown/heartbeat/patrol/KPI.
 
+use at_time::Timestamp;
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -23,7 +24,6 @@ use at_daemon::kpi::KpiCollector;
 use at_daemon::orchestrator::{OrchestratorError, TaskOrchestrator};
 use at_daemon::patrol::PatrolRunner;
 use at_daemon::scheduler::TaskScheduler;
-use chrono::Utc;
 use uuid::Uuid;
 
 // ===========================================================================
@@ -684,7 +684,7 @@ async fn test_daemon_heartbeat_monitoring() {
 
     // Register an agent that is stale.
     let mut agent = Agent::new("stale-agent", AgentRole::Crew, CliType::Claude);
-    agent.last_seen = Utc::now() - chrono::Duration::seconds(120);
+    agent.last_seen = Timestamp::now() - at_time::Duration::seconds(120);
     cache.upsert_agent(&agent).await.unwrap();
     monitor
         .register_agent("stale-agent".to_string(), agent.id)
@@ -709,13 +709,13 @@ async fn test_daemon_patrol_cleanup() {
     // Create a stuck bead (slung for 2 hours).
     let mut stuck = Bead::new("stuck bead", Lane::Standard);
     stuck.status = BeadStatus::Slung;
-    stuck.slung_at = Some(Utc::now() - chrono::Duration::hours(2));
+    stuck.slung_at = Some(Timestamp::now() - at_time::Duration::hours(2));
     cache.upsert_bead(&stuck).await.unwrap();
 
     // Create a fresh slung bead.
     let mut fresh = Bead::new("fresh bead", Lane::Standard);
     fresh.status = BeadStatus::Slung;
-    fresh.slung_at = Some(Utc::now());
+    fresh.slung_at = Some(Timestamp::now());
     cache.upsert_bead(&fresh).await.unwrap();
 
     let patrol = PatrolRunner::new(30);

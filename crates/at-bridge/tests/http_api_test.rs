@@ -470,8 +470,8 @@ async fn test_pagination_defaults() {
             rig: Some("test-rig".to_string()),
             pid: Some(1000 + i),
             session_id: Some(format!("session-{}", i)),
-            created_at: chrono::Utc::now(),
-            last_seen: chrono::Utc::now(),
+            created_at: at_time::Timestamp::now(),
+            last_seen: at_time::Timestamp::now(),
             metadata: None,
         };
         state.agents.write().await.insert(agent.id, agent);
@@ -2097,7 +2097,7 @@ async fn test_list_queue_excludes_started_tasks() {
             at_core::types::TaskPriority::High,
             at_core::types::TaskComplexity::Small,
         );
-        started_task.started_at = Some(chrono::Utc::now());
+        started_task.started_at = Some(at_time::Timestamp::now());
         tasks.insert(started_task.id, started_task);
 
         let queued_task = at_core::types::Task::new(
@@ -2520,7 +2520,7 @@ fn test_build_log_entry_serialization() {
     use at_core::types::{BuildLogEntry, BuildStream, TaskPhase};
 
     let entry = BuildLogEntry {
-        timestamp: chrono::Utc::now(),
+        timestamp: at_time::Timestamp::now(),
         stream: BuildStream::Stdout,
         line: "cargo build --release".to_string(),
         phase: TaskPhase::Coding,
@@ -2738,7 +2738,7 @@ async fn test_get_build_logs_since_filter() {
         task.add_build_log(BuildStream::Stdout, "first line");
         // Record a timestamp between entries.
         // Use to_rfc3339_opts with Z suffix to avoid URL-encoding issues with '+'.
-        mid_timestamp = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Nanos, true);
+        mid_timestamp = at_time::Timestamp::now().to_rfc3339_z();
         // Small sleep to ensure timestamp difference.
         std::thread::sleep(std::time::Duration::from_millis(10));
         task.add_build_log(BuildStream::Stdout, "second line");

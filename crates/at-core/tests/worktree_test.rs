@@ -5,6 +5,7 @@
 //! - "Total Worktrees" counter, "Select", "Refresh" actions
 //! - "Merge to main", "Delete", "Copy Path", "Done" per-worktree actions
 
+use at_time::Timestamp;
 use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -16,7 +17,6 @@ use at_core::worktree_manager::{
     GitOutput, GitRunner, MergeResult, WorktreeManager, WorktreeManagerError,
 };
 
-use chrono::Utc;
 use uuid::Uuid;
 
 // ===========================================================================
@@ -90,7 +90,7 @@ fn make_worktree_info(name: &str, branch: &str) -> WorktreeInfo {
         branch: branch.to_string(),
         base_branch: "main".to_string(),
         task_name: name.to_string(),
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
     }
 }
 
@@ -114,7 +114,7 @@ async fn test_create_worktree() {
     assert!(info.path.contains(".worktrees"));
     assert_eq!(info.base_branch, "main");
     assert!(!info.task_name.is_empty());
-    assert!(info.created_at <= Utc::now());
+    assert!(info.created_at <= Timestamp::now());
 
     let _ = std::fs::remove_dir_all(&tmp);
 }
@@ -523,7 +523,7 @@ async fn test_worktree_info_serialization_roundtrip() {
         branch: "task/my-task".to_string(),
         base_branch: "main".to_string(),
         task_name: "my-task".to_string(),
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
     };
 
     let json = serde_json::to_string(&info).unwrap();

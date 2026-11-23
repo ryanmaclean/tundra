@@ -177,7 +177,7 @@ mod tests {
             agent_id,
             bead_id: None,
             message: "evt".into(),
-            timestamp: chrono::Utc::now(),
+            timestamp: at_time::Timestamp::now(),
         })
     }
 

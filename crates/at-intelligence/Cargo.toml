@@ -5,6 +5,7 @@ edition.workspace = true
 publish = false
 
 [dependencies]
+at-time = { path = "../at-time" }
 at-core = { path = "../at-core" }
 at-harness = { path = "../at-harness" }
 serde = { workspace = true }
@@ -12,7 +13,6 @@ serde_json = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 thiserror = { workspace = true }
-chrono = { workspace = true }
 uuid = { workspace = true }
 reqwest = { workspace = true, features = ["json", "stream"] }
 async-trait = { workspace = true }

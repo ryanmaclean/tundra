@@ -23,10 +23,10 @@
 //! * **Resilience**: 5 s connect / 30 s request timeouts; only GETs are
 //!   retried (transport errors, 429, 502-504); POST/PATCH never are.
 
+use at_time::Timestamp;
 use std::fmt;
 use std::time::Duration;
 
-use chrono::{DateTime, Utc};
 use reqwest::{Method, StatusCode, Url};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
@@ -156,8 +156,8 @@ pub struct GiteaIssue {
     pub labels: Vec<GiteaLabel>,
     pub assignees: Vec<String>,
     pub author: String,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: Timestamp,
+    pub updated_at: Timestamp,
     pub comments: u64,
     pub html_url: String,
 }
@@ -174,10 +174,10 @@ pub struct GiteaPullRequest {
     pub base_branch: String,
     pub draft: bool,
     pub mergeable: Option<bool>,
-    pub merged_at: Option<DateTime<Utc>>,
+    pub merged_at: Option<Timestamp>,
     pub html_url: String,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: Timestamp,
+    pub updated_at: Timestamp,
 }
 
 /// Repository metadata.
@@ -193,7 +193,7 @@ pub struct GiteaRepo {
     pub ssh_url: String,
     pub open_issues_count: u64,
     pub open_pr_counter: u64,
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: Timestamp,
 }
 
 /// A release attachment.
@@ -204,7 +204,7 @@ pub struct GiteaAsset {
     pub size: u64,
     pub download_count: u64,
     pub browser_download_url: String,
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
 }
 
 /// A release with its assets.
@@ -216,7 +216,7 @@ pub struct GiteaRelease {
     pub body: Option<String>,
     pub draft: bool,
     pub prerelease: bool,
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     pub html_url: String,
     pub assets: Vec<GiteaAsset>,
 }
@@ -383,8 +383,8 @@ struct WireIssue {
     user: WireUser,
     #[serde(default)]
     comments: i64,
-    created_at: DateTime<Utc>,
-    updated_at: DateTime<Utc>,
+    created_at: Timestamp,
+    updated_at: Timestamp,
     #[serde(default, deserialize_with = "null_as_default")]
     html_url: String,
     #[serde(default)]
@@ -439,7 +439,7 @@ struct WirePull {
     #[serde(default)]
     merged: bool,
     #[serde(default)]
-    merged_at: Option<DateTime<Utc>>,
+    merged_at: Option<Timestamp>,
     #[serde(default, deserialize_with = "null_as_default")]
     user: WireUser,
     #[serde(default, deserialize_with = "null_as_default")]
@@ -452,8 +452,8 @@ struct WirePull {
     mergeable: Option<bool>,
     #[serde(default, deserialize_with = "null_as_default")]
     html_url: String,
-    created_at: DateTime<Utc>,
-    updated_at: DateTime<Utc>,
+    created_at: Timestamp,
+    updated_at: Timestamp,
 }
 
 impl From<WirePull> for GiteaPullRequest {
@@ -504,7 +504,7 @@ struct WireRepo {
     open_issues_count: i64,
     #[serde(default)]
     open_pr_counter: i64,
-    updated_at: DateTime<Utc>,
+    updated_at: Timestamp,
 }
 
 impl From<WireRepo> for GiteaRepo {
@@ -536,7 +536,7 @@ struct WireAsset {
     download_count: i64,
     #[serde(default, deserialize_with = "null_as_default")]
     browser_download_url: String,
-    created_at: DateTime<Utc>,
+    created_at: Timestamp,
 }
 
 impl From<WireAsset> for GiteaAsset {
@@ -565,7 +565,7 @@ struct WireRelease {
     draft: bool,
     #[serde(default)]
     prerelease: bool,
-    created_at: DateTime<Utc>,
+    created_at: Timestamp,
     #[serde(default, deserialize_with = "null_as_default")]
     html_url: String,
     #[serde(default, deserialize_with = "null_as_default")]
@@ -827,7 +827,7 @@ impl GiteaClient {
     }
 
     fn stub_issue(&self, number: u64, state: IssueState) -> GiteaIssue {
-        let now = Utc::now();
+        let now = Timestamp::now();
         GiteaIssue {
             number,
             title: format!("Stub issue #{number}"),
@@ -854,7 +854,7 @@ impl GiteaClient {
             size,
             download_count: 0,
             browser_download_url: self.stub_url(&format!("/releases/download/stub/{name}")),
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
         }
     }
 
@@ -874,7 +874,7 @@ impl GiteaClient {
                 ssh_url: format!("git@stub:{}/{}.git", self.owner, self.repo),
                 open_issues_count: 3,
                 open_pr_counter: 0,
-                updated_at: Utc::now(),
+                updated_at: Timestamp::now(),
             });
         }
         let reply = self
@@ -1053,7 +1053,7 @@ impl GiteaClient {
     pub async fn create_pull_request(&self, req: &CreateGiteaPr) -> Result<GiteaPullRequest> {
         let body = self.prepare(req)?;
         if self.stub {
-            let now = Utc::now();
+            let now = Timestamp::now();
             return Ok(GiteaPullRequest {
                 number: 1,
                 title: body["title"].as_str().unwrap_or_default().to_string(),
@@ -1086,7 +1086,7 @@ impl GiteaClient {
                 body: None,
                 draft: false,
                 prerelease: false,
-                created_at: Utc::now(),
+                created_at: Timestamp::now(),
                 html_url: self.stub_url(&format!("/releases/tag/{tag}")),
                 assets: vec![self.stub_asset(1, "stub.tar.gz", 0)],
             });
@@ -1965,7 +1965,7 @@ mod tests {
     #[test]
     fn normalized_keys_match_github_types() {
         use crate::types::{GitHubIssue, GitHubLabel, GitHubPullRequest};
-        let now = Utc::now();
+        let now = Timestamp::now();
         let gh_issue = GitHubIssue {
             number: 1,
             title: String::new(),
