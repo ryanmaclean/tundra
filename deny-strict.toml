@@ -41,13 +41,18 @@ crate = "const_format_proc_macros@0.2.34"
 allow = ["Zlib"]
 
 [[licenses.exceptions]]
-# Cargo.lock checksum: dae61cf9c0abb83bd659dab65b7e4e38d8236824c85f0f804f173567bda257d2
-crate = "cssparser@0.36.0"
+# Cargo.lock checksum: 8c9cdaae01d5ed7882b04d795e7f752f46ff52d2fa3b50a20d28c464510bba98
+crate = "cssparser@0.37.0"
 allow = ["MPL-2.0"]
 
 [[licenses.exceptions]]
-# Cargo.lock checksum: 13b588ba4ac1a99f7f2964d24b3d896ddc6bf847ee3855dbd4366f058cfcd331
-crate = "cssparser-macros@0.6.1"
+# Cargo.lock checksum: 11119743ad110e8c1bdccd930d7f5c30c99e5fc76a7b63ec9807e84eef0c5f59
+crate = "cssparser@0.38.0"
+allow = ["MPL-2.0"]
+
+[[licenses.exceptions]]
+# Cargo.lock checksum: d045de693cb712d0b22c6a64be5b953f67b3ce00ab5ad3dd5d8b441886ab8e1a
+crate = "cssparser-macros@0.7.1"
 allow = ["MPL-2.0"]
 
 [[licenses.exceptions]]
@@ -76,8 +81,13 @@ crate = "option-ext@0.2.0"
 allow = ["MPL-2.0"]
 
 [[licenses.exceptions]]
-# Cargo.lock checksum: c5d9c0c92a92d33f08817311cf3f2c29a3538a8240e94a6a3c622ce652d7e00c
-crate = "selectors@0.36.1"
+# Cargo.lock checksum: 8adfa1c298912827b8a28b223b3b874357397ae706e6190acd9bf28cee99114d
+crate = "selectors@0.38.0"
+allow = ["MPL-2.0"]
+
+[[licenses.exceptions]]
+# Cargo.lock checksum: 8322aebea94a6cc288ff884e8a49bdbceef60206c400c6c46d22e62fc4fd91a6
+crate = "selectors@0.41.0"
 allow = ["MPL-2.0"]
 
 [[licenses.exceptions]]
@@ -96,6 +106,6 @@ crate = "tiny-keccak@2.0.2"
 allow = ["CC0-1.0"]
 
 [[licenses.exceptions]]
-# Cargo.lock checksum: fdd20c5420375476fbd4394763288da7eb0cc0b8c11deed431a91562af7335d3
-crate = "xxhash-rust@0.8.15"
+# Cargo.lock checksum: 40de123dbb523ebcc00d61ec01840ad192578afc378d859f3429caa38308fad5
+crate = "xxhash-rust@0.8.21"
 allow = ["BSL-1.0"]
