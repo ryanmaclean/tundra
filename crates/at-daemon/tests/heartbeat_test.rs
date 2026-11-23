@@ -1,9 +1,9 @@
+use at_time::Timestamp;
 use std::time::Duration;
 
 use at_core::cache::CacheDb;
 use at_core::types::{Agent, AgentRole, AgentStatus, CliType};
 use at_daemon::heartbeat::HeartbeatMonitor;
-use chrono::Utc;
 use uuid::Uuid;
 
 #[tokio::test]
@@ -24,7 +24,7 @@ async fn fresh_agent_is_not_stale() {
 
     let mut agent = Agent::new("agent-fresh", AgentRole::Crew, CliType::Claude);
     agent.status = AgentStatus::Active;
-    agent.last_seen = Utc::now();
+    agent.last_seen = Timestamp::now();
     cache.upsert_agent(&agent).await.expect("upsert agent");
 
     let monitor = HeartbeatMonitor::new(Duration::from_secs(60));
@@ -46,7 +46,7 @@ async fn old_agent_is_detected_as_stale() {
     let mut agent = Agent::new("agent-old", AgentRole::Deacon, CliType::Codex);
     agent.status = AgentStatus::Active;
     // Set last_seen to 5 minutes ago.
-    agent.last_seen = Utc::now() - chrono::Duration::seconds(300);
+    agent.last_seen = Timestamp::now() - at_time::Duration::seconds(300);
     cache.upsert_agent(&agent).await.expect("upsert agent");
 
     // Threshold is 60 seconds, so 300 seconds ago is definitely stale.
@@ -71,7 +71,7 @@ async fn unregistered_agent_in_cache_is_ignored() {
 
     // Insert an old agent into cache but don't register it with the monitor.
     let mut agent = Agent::new("untracked-agent", AgentRole::Crew, CliType::Claude);
-    agent.last_seen = Utc::now() - chrono::Duration::seconds(600);
+    agent.last_seen = Timestamp::now() - at_time::Duration::seconds(600);
     cache.upsert_agent(&agent).await.expect("upsert agent");
 
     let monitor = HeartbeatMonitor::new(Duration::from_secs(60));

@@ -886,63 +886,39 @@ mod tests {
     use std::path::PathBuf;
 
     #[test]
-    fn activity_dates_match_legacy_chrono_boundaries_and_fallback() {
-        let cutoff_seconds = 1_700_000_000;
-        let legacy_cutoff = chrono::DateTime::from_timestamp(cutoff_seconds, 0).unwrap();
-        let min = chrono::DateTime::<chrono::Utc>::MIN_UTC.timestamp();
-        let max = chrono::DateTime::<chrono::Utc>::MAX_UTC.timestamp();
-        for seconds in [
-            i64::MIN,
-            min - 1,
-            min,
-            -62_167_219_200,
-            -1,
-            0,
-            951_782_400,
-            253_402_300_799,
-            253_402_300_800,
-            max,
-            max + 1,
-            i64::MAX,
+    fn activity_dates_use_utc_calendar_days_and_fall_back_to_the_cutoff() {
+        let cutoff_seconds = 1_700_000_000; // 2023-11-14
+        for (seconds, expected) in [
+            (-62_167_219_200, "0000-01-01"),
+            (-1, "1969-12-31"),
+            (0, "1970-01-01"),
+            (951_782_400, "2000-02-29"),
+            (951_868_799, "2000-02-29"),
+            (951_868_800, "2000-03-01"),
+            (253_402_300_799, "9999-12-31"),
+            (253_402_300_800, "+10000-01-01"),
+            (i64::MIN, "2023-11-14"),
+            (i64::MAX, "2023-11-14"),
         ] {
-            let legacy = chrono::DateTime::from_timestamp(seconds, 0).unwrap_or(legacy_cutoff);
             assert_eq!(
                 activity_date(seconds, cutoff_seconds),
-                legacy.format("%Y-%m-%d").to_string(),
+                expected,
                 "timestamp {seconds}"
             );
-        }
-        // Sample across the entire legacy range, including negative epochs and
-        // Gregorian 400-year cycle boundaries.
-        let span = max - min;
-        for i in 0..=10_000 {
-            let seconds = min + span * i / 10_000;
-            let expected = chrono::DateTime::from_timestamp(seconds, 0)
-                .unwrap()
-                .format("%Y-%m-%d")
-                .to_string();
-            assert_eq!(activity_date(seconds, cutoff_seconds), expected);
         }
     }
 
     #[test]
-    fn activity_cutoff_matches_legacy_calendar_arithmetic() {
-        for (seconds, days) in [(0, 0), (951_868_800, 1), (1_700_000_000, 365), (0, 10_000)] {
-            let candidate = activity_cutoff(seconds, days);
-            let legacy = chrono::DateTime::from_timestamp(seconds, 0).unwrap()
-                - chrono::Duration::days(i64::from(days));
-            assert_eq!(candidate, legacy.timestamp());
-            assert_eq!(
-                activity_date(candidate, candidate),
-                legacy.format("%Y-%m-%d").to_string()
-            );
+    fn activity_cutoff_subtracts_whole_utc_days() {
+        for (seconds, days, expected) in [
+            (0, 0, 0),
+            (951_868_800, 1, 951_782_400),
+            (1_700_000_000, 365, 1_668_464_000),
+            (0, 10_000, -864_000_000),
+        ] {
+            assert_eq!(activity_cutoff(seconds, days), expected);
         }
         assert!(std::panic::catch_unwind(|| activity_cutoff(0, u32::MAX)).is_err());
-        assert!(std::panic::catch_unwind(|| {
-            chrono::DateTime::from_timestamp(0, 0).unwrap()
-                - chrono::Duration::days(i64::from(u32::MAX))
-        })
-        .is_err());
     }
 
     #[test]
@@ -969,10 +945,9 @@ mod tests {
         assert_eq!(activity[0].count, 1);
         assert_eq!(
             activity[0].date,
-            chrono::DateTime::from_timestamp(timestamp, 0)
+            at_time::Timestamp::from_unix_seconds(timestamp)
                 .unwrap()
-                .format("%Y-%m-%d")
-                .to_string()
+                .date_string()
         );
     }
 

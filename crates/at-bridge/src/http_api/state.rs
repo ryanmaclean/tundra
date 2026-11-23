@@ -256,7 +256,7 @@ pub(crate) fn kpi_snapshot_of<'a>(
         failed: 0,
         escalated: 0,
         active_agents: active_agents as u64,
-        timestamp: chrono::Utc::now(),
+        timestamp: at_time::Timestamp::now(),
     };
     for bead in beads {
         snap.total_beads += 1;
@@ -296,7 +296,7 @@ impl ApiState {
                 failed: 0,
                 escalated: 0,
                 active_agents: 0,
-                timestamp: chrono::Utc::now(),
+                timestamp: at_time::Timestamp::now(),
             })),
             tasks: Arc::new(RwLock::new(std::collections::HashMap::new())),
             pipeline_semaphore: Arc::new(Semaphore::new(pipeline_max_concurrent)),
@@ -424,8 +424,8 @@ impl ApiState {
         let archived = self.archived_tasks.read().await;
         let mut tasks = self.tasks.write().await;
 
-        let now = chrono::Utc::now();
-        let cutoff = now - chrono::Duration::seconds(ttl_secs as i64);
+        let now = at_time::Timestamp::now();
+        let cutoff = now - at_time::Duration::seconds(ttl_secs as i64);
 
         let mut removed_count = 0;
         let mut tasks_to_remove = Vec::new();
@@ -463,8 +463,8 @@ impl ApiState {
     pub async fn cleanup_disconnect_buffers(&self, ttl_secs: u64) -> usize {
         let mut buffers = self.disconnect_buffers.write().await;
 
-        let now = chrono::Utc::now();
-        let cutoff = now - chrono::Duration::seconds(ttl_secs as i64);
+        let now = at_time::Timestamp::now();
+        let cutoff = now - at_time::Duration::seconds(ttl_secs as i64);
 
         let mut removed_count = 0;
         let mut buffers_to_remove = Vec::new();
@@ -688,13 +688,13 @@ impl ApiState {
 mod tests {
     use super::*;
     use at_core::types::{Task, TaskPhase};
-    use chrono::{Duration, Utc};
+    use at_time::{Duration, Timestamp};
 
     fn create_test_state() -> ApiState {
         ApiState::new(EventBus::new())
     }
 
-    fn create_test_task(id: Uuid, completed_at: Option<chrono::DateTime<Utc>>) -> Task {
+    fn create_test_task(id: Uuid, completed_at: Option<at_time::Timestamp>) -> Task {
         let bead_id = Uuid::new_v4();
         Task {
             id,
@@ -712,8 +712,8 @@ mod tests {
             impact: None,
             agent_profile: None,
             phase_configs: vec![],
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
             started_at: None,
             completed_at,
             error: None,
@@ -736,7 +736,7 @@ mod tests {
         let task_id = Uuid::new_v4();
 
         // Create a task that was completed 10 days ago
-        let old_completed_at = Utc::now() - Duration::days(10);
+        let old_completed_at = Timestamp::now() - Duration::days(10);
         let task = create_test_task(task_id, Some(old_completed_at));
 
         // Add task to tasks HashMap
@@ -760,7 +760,7 @@ mod tests {
         let task_id = Uuid::new_v4();
 
         // Create a task that was completed 5 days ago
-        let recent_completed_at = Utc::now() - Duration::days(5);
+        let recent_completed_at = Timestamp::now() - Duration::days(5);
         let task = create_test_task(task_id, Some(recent_completed_at));
 
         // Add task to tasks HashMap
@@ -784,7 +784,7 @@ mod tests {
         let task_id = Uuid::new_v4();
 
         // Create a task that was completed 10 days ago but is NOT archived
-        let old_completed_at = Utc::now() - Duration::days(10);
+        let old_completed_at = Timestamp::now() - Duration::days(10);
         let task = create_test_task(task_id, Some(old_completed_at));
 
         // Add task to tasks HashMap but don't archive it
@@ -830,8 +830,8 @@ mod tests {
         let recent_archived_id = Uuid::new_v4();
         let non_archived_id = Uuid::new_v4();
 
-        let old_completed_at = Utc::now() - Duration::days(10);
-        let recent_completed_at = Utc::now() - Duration::days(5);
+        let old_completed_at = Timestamp::now() - Duration::days(10);
+        let recent_completed_at = Timestamp::now() - Duration::days(5);
 
         // Old archived task 1
         let task1 = create_test_task(old_archived_id1, Some(old_completed_at));
@@ -891,7 +891,7 @@ mod tests {
         let task_id = Uuid::new_v4();
 
         // Create a task that was just completed
-        let just_completed_at = Utc::now();
+        let just_completed_at = Timestamp::now();
         let task = create_test_task(task_id, Some(just_completed_at));
 
         // Add task to tasks HashMap and archive it
@@ -914,7 +914,7 @@ mod tests {
 
         // Create a buffer that was disconnected 10 minutes ago
         let mut buffer = crate::terminal::DisconnectBuffer::new(1024);
-        buffer.disconnected_at = Utc::now() - Duration::minutes(10);
+        buffer.disconnected_at = Timestamp::now() - Duration::minutes(10);
 
         // Add buffer to disconnect_buffers HashMap
         state
@@ -937,7 +937,7 @@ mod tests {
 
         // Create a buffer that was disconnected 3 minutes ago
         let mut buffer = crate::terminal::DisconnectBuffer::new(1024);
-        buffer.disconnected_at = Utc::now() - Duration::minutes(3);
+        buffer.disconnected_at = Timestamp::now() - Duration::minutes(3);
 
         // Add buffer to disconnect_buffers HashMap
         state
@@ -964,7 +964,7 @@ mod tests {
 
         // Old buffer 1 (10 minutes ago)
         let mut buffer1 = crate::terminal::DisconnectBuffer::new(1024);
-        buffer1.disconnected_at = Utc::now() - Duration::minutes(10);
+        buffer1.disconnected_at = Timestamp::now() - Duration::minutes(10);
         state
             .disconnect_buffers
             .write()
@@ -973,7 +973,7 @@ mod tests {
 
         // Old buffer 2 (15 minutes ago)
         let mut buffer2 = crate::terminal::DisconnectBuffer::new(1024);
-        buffer2.disconnected_at = Utc::now() - Duration::minutes(15);
+        buffer2.disconnected_at = Timestamp::now() - Duration::minutes(15);
         state
             .disconnect_buffers
             .write()
@@ -982,7 +982,7 @@ mod tests {
 
         // Recent buffer (3 minutes ago)
         let mut buffer3 = crate::terminal::DisconnectBuffer::new(1024);
-        buffer3.disconnected_at = Utc::now() - Duration::minutes(3);
+        buffer3.disconnected_at = Timestamp::now() - Duration::minutes(3);
         state
             .disconnect_buffers
             .write()
@@ -1042,10 +1042,10 @@ mod tests {
 
         // Create a buffer that was disconnected 5 minutes and 1 second ago to
         // reliably land before the cutoff. Using exactly 5 minutes can race at
-        // nanosecond precision when both Utc::now() calls happen in the same
+        // nanosecond precision when both Timestamp::now() calls happen in the same
         // clock tick (disconnected_at == cutoff → strict-less-than is false).
         let mut buffer = crate::terminal::DisconnectBuffer::new(1024);
-        buffer.disconnected_at = Utc::now() - Duration::minutes(5) - Duration::seconds(1);
+        buffer.disconnected_at = Timestamp::now() - Duration::minutes(5) - Duration::seconds(1);
 
         // Add buffer to disconnect_buffers HashMap
         state
@@ -1069,7 +1069,7 @@ mod tests {
         // Create a buffer with some data
         let mut buffer = crate::terminal::DisconnectBuffer::new(1024);
         buffer.push(b"test data");
-        buffer.disconnected_at = Utc::now() - Duration::minutes(3);
+        buffer.disconnected_at = Timestamp::now() - Duration::minutes(3);
 
         // Add buffer to disconnect_buffers HashMap
         state
@@ -1125,7 +1125,7 @@ mod tests {
         // Seed one expired disconnect buffer (disconnected 10 minutes ago).
         let terminal_id = Uuid::new_v4();
         let mut buffer = crate::terminal::DisconnectBuffer::new(1024);
-        buffer.disconnected_at = Utc::now() - Duration::minutes(10);
+        buffer.disconnected_at = Timestamp::now() - Duration::minutes(10);
         state
             .disconnect_buffers
             .write()
@@ -1165,7 +1165,7 @@ mod tests {
 
         // Create old archived task
         let task_id = Uuid::new_v4();
-        let old_task = create_test_task(task_id, Some(Utc::now() - Duration::days(10)));
+        let old_task = create_test_task(task_id, Some(Timestamp::now() - Duration::days(10)));
         state.tasks.write().await.insert(task_id, old_task);
         state.archived_tasks.write().await.insert(task_id);
         state.task_count.store(1, Ordering::Relaxed);
@@ -1173,7 +1173,7 @@ mod tests {
         // Create old disconnect buffer
         let terminal_id = Uuid::new_v4();
         let mut buffer = crate::terminal::DisconnectBuffer::new(1024);
-        buffer.disconnected_at = Utc::now() - Duration::minutes(10);
+        buffer.disconnected_at = Timestamp::now() - Duration::minutes(10);
         state
             .disconnect_buffers
             .write()
@@ -1216,7 +1216,7 @@ mod tests {
 
         // Create recent archived task (5 days old, should be kept)
         let task_id = Uuid::new_v4();
-        let recent_task = create_test_task(task_id, Some(Utc::now() - Duration::days(5)));
+        let recent_task = create_test_task(task_id, Some(Timestamp::now() - Duration::days(5)));
         state.tasks.write().await.insert(task_id, recent_task);
         state.archived_tasks.write().await.insert(task_id);
         state.task_count.store(1, Ordering::Relaxed);
@@ -1224,7 +1224,7 @@ mod tests {
         // Create recent disconnect buffer (3 minutes old, should be kept)
         let terminal_id = Uuid::new_v4();
         let mut buffer = crate::terminal::DisconnectBuffer::new(1024);
-        buffer.disconnected_at = Utc::now() - Duration::minutes(3);
+        buffer.disconnected_at = Timestamp::now() - Duration::minutes(3);
         state
             .disconnect_buffers
             .write()
@@ -1263,7 +1263,7 @@ mod tests {
         // Add old data in multiple batches and verify cleanup runs multiple times
         for i in 0..3 {
             let task_id = Uuid::new_v4();
-            let old_task = create_test_task(task_id, Some(Utc::now() - Duration::days(10)));
+            let old_task = create_test_task(task_id, Some(Timestamp::now() - Duration::days(10)));
             state.tasks.write().await.insert(task_id, old_task);
             state.archived_tasks.write().await.insert(task_id);
             state
@@ -1318,7 +1318,7 @@ mod tests {
 
         // Create some data to clean up
         let task_id = Uuid::new_v4();
-        let old_task = create_test_task(task_id, Some(Utc::now() - Duration::days(10)));
+        let old_task = create_test_task(task_id, Some(Timestamp::now() - Duration::days(10)));
         state.tasks.write().await.insert(task_id, old_task);
         state.archived_tasks.write().await.insert(task_id);
         state.task_count.store(1, Ordering::Relaxed);

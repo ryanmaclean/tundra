@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use at_time::Timestamp;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use uuid::Uuid;
@@ -26,7 +26,7 @@ pub enum ChatRole {
 pub struct ChatMessage {
     pub role: ChatRole,
     pub content: String,
-    pub timestamp: DateTime<Utc>,
+    pub timestamp: Timestamp,
 }
 
 // ---------------------------------------------------------------------------
@@ -39,7 +39,7 @@ pub struct InsightsSession {
     pub title: String,
     pub messages: Vec<ChatMessage>,
     pub model: String,
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
 }
 
 // ---------------------------------------------------------------------------
@@ -85,7 +85,7 @@ impl InsightsEngine {
             title: title.to_string(),
             messages: Vec::new(),
             model: model.to_string(),
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
         };
         self.sessions.push(session);
         self.sessions.last().unwrap()
@@ -117,7 +117,7 @@ impl InsightsEngine {
         session.messages.push(ChatMessage {
             role,
             content: content.to_string(),
-            timestamp: Utc::now(),
+            timestamp: Timestamp::now(),
         });
         Ok(())
     }
@@ -146,7 +146,7 @@ impl InsightsEngine {
         // deferred commit (after a possibly-slow provider call) still reflects
         // when the user actually sent the message — not when we got around to
         // recording it.
-        let user_timestamp = Utc::now();
+        let user_timestamp = Timestamp::now();
 
         let provider = self
             .provider
@@ -210,7 +210,7 @@ impl InsightsEngine {
         let assistant_msg = ChatMessage {
             role: ChatRole::Assistant,
             content: response.content.clone(),
-            timestamp: Utc::now(),
+            timestamp: Timestamp::now(),
         };
 
         let session_mut = self

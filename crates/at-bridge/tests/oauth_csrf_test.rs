@@ -342,7 +342,7 @@ async fn test_oauth_csrf_callback_rejects_expired_state() {
 
     // Manually insert an expired state (15 minutes ago)
     let expired_state = uuid::Uuid::new_v4().to_string();
-    let old_timestamp = (chrono::Utc::now() - chrono::Duration::minutes(15)).to_rfc3339();
+    let old_timestamp = (at_time::Timestamp::now() - at_time::Duration::minutes(15)).to_rfc3339();
     state
         .oauth_pending_states
         .write()

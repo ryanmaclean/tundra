@@ -1,9 +1,9 @@
+use at_time::Timestamp;
 use std::sync::Arc;
 
 use anyhow::Result;
 use at_core::cache::{CacheDb, CacheError};
 use at_core::types::{Bead, BeadStatus, Lane};
-use chrono::{DateTime, Utc};
 use tokio::sync::Semaphore;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
@@ -90,7 +90,7 @@ impl TaskScheduler {
             return None;
         }
 
-        let now = Utc::now();
+        let now = Timestamp::now();
         rank_beads(&mut backlog, now);
         let next = backlog.into_iter().next()?;
 
@@ -143,7 +143,7 @@ impl TaskScheduler {
             );
         }
 
-        let now = Utc::now();
+        let now = Timestamp::now();
         let mut updated = bead;
         updated.status = BeadStatus::Hooked;
         updated.agent_id = Some(agent_id);
@@ -234,9 +234,9 @@ pub struct ScoreInput {
     /// Bead priority; higher is more urgent. Negative values score as 0.
     pub priority: i32,
     /// When the bead was created.
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     /// When the bead's convoy was created, if it belongs to one.
-    pub convoy_created_at: Option<DateTime<Utc>>,
+    pub convoy_created_at: Option<Timestamp>,
     /// How many times the bead has been retried (0 = first attempt).
     pub retry_count: u32,
 }
@@ -255,8 +255,7 @@ impl ScoreInput {
             .and(meta)
             .and_then(|m| m.get(CONVOY_CREATED_AT_KEY))
             .and_then(serde_json::Value::as_str)
-            .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
-            .map(|t| t.with_timezone(&Utc));
+            .and_then(Timestamp::parse_rfc3339);
         Self {
             priority: bead.priority,
             created_at: bead.created_at,
@@ -277,14 +276,14 @@ impl ScoreInput {
 /// ```
 ///
 /// Pure: depends only on `bead` and `now`.
-pub fn score(bead: &Bead, now: DateTime<Utc>) -> i64 {
+pub fn score(bead: &Bead, now: Timestamp) -> i64 {
     score_with(&ScoreInput::from_bead(bead), now, &ScoreWeights::default())
 }
 
 /// Score explicit inputs with explicit weights (gastown `ScoreMR`).
 ///
 /// Ages in the future (clock skew) contribute 0.
-pub fn score_with(input: &ScoreInput, now: DateTime<Utc>, w: &ScoreWeights) -> i64 {
+pub fn score_with(input: &ScoreInput, now: Timestamp, w: &ScoreWeights) -> i64 {
     let mut total = w.base;
 
     if let Some(convoy_at) = input.convoy_created_at {
@@ -312,8 +311,8 @@ pub fn score_with(input: &ScoreInput, now: DateTime<Utc>, w: &ScoreWeights) -> i
 }
 
 /// Whole hours from `since` to `now`, 0 if `since` is in the future.
-fn whole_hours(since: DateTime<Utc>, now: DateTime<Utc>) -> i64 {
-    now.signed_duration_since(since).num_hours().max(0)
+fn whole_hours(since: Timestamp, now: Timestamp) -> i64 {
+    now.signed_duration_since(since).whole_hours().max(0)
 }
 
 /// Sort beads into scheduling order, best first.
@@ -321,7 +320,7 @@ fn whole_hours(since: DateTime<Utc>, now: DateTime<Utc>) -> i64 {
 /// Keys: lane (Critical > Standard > Experimental), then [`score`] descending,
 /// then `created_at` ascending, then `id` ascending. The final `id` key makes
 /// the order total, so the result does not depend on input order.
-pub fn rank_beads(beads: &mut [Bead], now: DateTime<Utc>) {
+pub fn rank_beads(beads: &mut [Bead], now: Timestamp) {
     beads.sort_by_cached_key(|b| {
         (
             std::cmp::Reverse(lane_rank(&b.lane)),
@@ -335,11 +334,11 @@ pub fn rank_beads(beads: &mut [Bead], now: DateTime<Utc>) {
 #[cfg(test)]
 mod score_tests {
     use super::*;
-    use chrono::{Duration, TimeZone};
+    use at_time::Duration;
     use serde_json::json;
 
-    fn t0() -> DateTime<Utc> {
-        Utc.with_ymd_and_hms(2026, 1, 1, 12, 0, 0).unwrap()
+    fn t0() -> Timestamp {
+        Timestamp::parse_rfc3339("2026-01-01T12:00:00Z").unwrap()
     }
 
     /// A bead created exactly at `t0()` with no priority, retries, or convoy.
@@ -502,7 +501,7 @@ mod score_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Duration;
+    use at_time::Duration;
 
     fn make_bead(lane: Lane, priority: i32, status: BeadStatus) -> Bead {
         let mut b = Bead::new("test", lane);
@@ -637,7 +636,7 @@ mod tests {
         let cache = CacheDb::new_in_memory().await.unwrap();
         let s = TaskScheduler::new(4);
 
-        let now = Utc::now();
+        let now = Timestamp::now();
         let mut older = make_bead(Lane::Standard, 5, BeadStatus::Backlog);
         older.created_at = now - Duration::hours(2);
         let mut newer = make_bead(Lane::Standard, 5, BeadStatus::Backlog);

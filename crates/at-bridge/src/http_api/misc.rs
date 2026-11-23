@@ -232,7 +232,9 @@ pub(crate) async fn list_agent_sessions(
     let sessions: Vec<AgentSessionEntry> = agents
         .values()
         .map(|a| {
-            let duration_secs = (chrono::Utc::now() - a.created_at).num_seconds().max(0) as u64;
+            let duration_secs = (at_time::Timestamp::now() - a.created_at)
+                .whole_seconds()
+                .max(0) as u64;
             let mins = duration_secs / 60;
             let secs = duration_secs % 60;
             AgentSessionEntry {
@@ -606,7 +608,7 @@ pub(crate) async fn run_competitor_analysis(
             "Underserved enterprise segment".to_string(),
             "Better developer experience possible".to_string(),
         ],
-        analyzed_at: chrono::Utc::now(),
+        analyzed_at: at_time::Timestamp::now(),
     };
     (axum::http::StatusCode::OK, Json(serde_json::json!(result)))
 }

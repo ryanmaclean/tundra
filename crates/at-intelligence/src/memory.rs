@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use at_time::Timestamp;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -51,8 +51,8 @@ pub struct MemoryEntry {
     pub category: MemoryCategory,
     pub confidence: f32,
     pub source: String,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: Timestamp,
+    pub updated_at: Timestamp,
     pub related: Vec<Uuid>,
     /// Tier determines how this entry is included in context windows.
     #[serde(default)]
@@ -73,7 +73,7 @@ pub struct MemoryEntry {
     /// (or the entry was last boosted). `None` means "use `updated_at`".
     /// Kept separate so `updated_at` keeps meaning "last modified".
     #[serde(default)]
-    pub last_decayed_at: Option<DateTime<Utc>>,
+    pub last_decayed_at: Option<Timestamp>,
 }
 
 impl MemoryEntry {
@@ -83,7 +83,7 @@ impl MemoryEntry {
         category: MemoryCategory,
         source: impl Into<String>,
     ) -> Self {
-        let now = Utc::now();
+        let now = Timestamp::now();
         Self {
             id: Uuid::new_v4(),
             key: key.into(),
@@ -127,7 +127,7 @@ pub struct FileInfo {
     pub path: String,
     pub language: String,
     pub lines: u64,
-    pub last_modified: DateTime<Utc>,
+    pub last_modified: Timestamp,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -149,7 +149,7 @@ pub struct ProjectIndex {
     pub files: Vec<FileInfo>,
     pub services: Vec<ServiceInfo>,
     pub dependencies: Vec<DependencyInfo>,
-    pub indexed_at: DateTime<Utc>,
+    pub indexed_at: Timestamp,
 }
 
 // ---------------------------------------------------------------------------
@@ -170,7 +170,7 @@ impl MemoryStore {
 
     pub fn add_entry(&mut self, mut entry: MemoryEntry) -> Uuid {
         let id = entry.id;
-        entry.created_at = Utc::now();
+        entry.created_at = Timestamp::now();
         entry.updated_at = entry.created_at;
         self.entries.push(entry);
         id
@@ -216,7 +216,7 @@ impl MemoryStore {
 
         if !entry.related.contains(to) {
             entry.related.push(*to);
-            entry.updated_at = Utc::now();
+            entry.updated_at = Timestamp::now();
         }
         Ok(())
     }
@@ -232,7 +232,7 @@ impl MemoryStore {
                 })?;
 
         entry.value = value.to_string();
-        entry.updated_at = Utc::now();
+        entry.updated_at = Timestamp::now();
         Ok(())
     }
 
@@ -278,8 +278,8 @@ impl MemoryStore {
                     let last_modified = dir_entry
                         .metadata()
                         .and_then(|m| m.modified())
-                        .map(DateTime::<Utc>::from)
-                        .unwrap_or_else(|_| Utc::now());
+                        .map(Timestamp::from)
+                        .unwrap_or_else(|_| Timestamp::now());
 
                     files.push(FileInfo {
                         path: path.to_string_lossy().to_string(),
@@ -329,7 +329,7 @@ impl MemoryStore {
             files,
             services: Vec::new(),
             dependencies,
-            indexed_at: Utc::now(),
+            indexed_at: Timestamp::now(),
         }
     }
 }
@@ -369,7 +369,7 @@ pub struct MemoryEdge {
     pub to: Uuid,
     pub kind: EdgeKind,
     pub weight: f64,
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
 }
 
 /// A topic cluster grouping related memories.
@@ -379,7 +379,7 @@ pub struct TopicCluster {
     pub label: String,
     pub member_ids: Vec<Uuid>,
     pub centroid_keywords: Vec<String>,
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
 }
 
 impl TopicCluster {
@@ -389,7 +389,7 @@ impl TopicCluster {
             label: label.into(),
             member_ids: Vec::new(),
             centroid_keywords: keywords,
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
         }
     }
 
@@ -460,7 +460,7 @@ impl GraphMemory {
             to,
             kind,
             weight,
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
         });
     }
 
@@ -635,11 +635,11 @@ impl GraphMemory {
     ///
     /// Entries with confidence strictly below `min_confidence` are removed.
     pub fn apply_decay(&mut self, min_confidence: f32) {
-        let now = Utc::now();
+        let now = Timestamp::now();
         let scale = self.stability_scale();
         for entry in &mut self.entries {
             let since = entry.last_decayed_at.unwrap_or(entry.updated_at);
-            let delta_days = ((now - since).num_seconds() as f64 / 86_400.0).max(0.0);
+            let delta_days = ((now - since).whole_seconds() as f64 / 86_400.0).max(0.0);
             let effective_stability = entry.stability * scale;
             let retention = if delta_days == 0.0 {
                 1.0
@@ -669,7 +669,7 @@ impl GraphMemory {
         if let Some(entry) = self.get_entry_mut(id) {
             entry.confidence = (entry.confidence + amount).min(1.0);
             entry.stability = (entry.stability * 1.25_f64).min(30.0);
-            let now = Utc::now();
+            let now = Timestamp::now();
             entry.updated_at = now;
             entry.last_decayed_at = Some(now); // a recall restarts the forgetting clock
         }
@@ -1002,7 +1002,7 @@ mod graph_tests {
         let mut g = GraphMemory::new();
         let mut e = make_entry("old_api", "deprecated endpoint", MemoryCategory::ApiRoute);
         // Simulate an old entry — set updated_at (the Ebbinghaus delta reference)
-        let old_time = Utc::now() - chrono::Duration::days(100);
+        let old_time = Timestamp::now() - at_time::Duration::days(100);
         e.created_at = old_time;
         e.updated_at = old_time;
         e.confidence = 0.5;
@@ -1177,7 +1177,7 @@ mod graph_tests {
         let mut e = make_entry("k", "v", MemoryCategory::Pattern);
         e.confidence = 1.0;
         // Set updated_at to 1 day ago so first call decays by ~1 day
-        e.updated_at = chrono::Utc::now() - chrono::Duration::days(1);
+        e.updated_at = at_time::Timestamp::now() - at_time::Duration::days(1);
         let id = e.id;
         g.add_entry(e);
 
@@ -1228,7 +1228,7 @@ mod graph_tests {
         let mut g = GraphMemory::new(); // decay_rate 0.02
         let mut e = make_entry("k", "v", MemoryCategory::Pattern);
         e.confidence = 1.0;
-        e.updated_at = Utc::now() - chrono::Duration::days(7);
+        e.updated_at = Timestamp::now() - at_time::Duration::days(7);
         let id = e.id;
         g.add_entry(e);
         g.apply_decay(0.0);
@@ -1241,7 +1241,7 @@ mod graph_tests {
         fast.decay_rate = 0.5;
         let mut e = make_entry("k", "v", MemoryCategory::Pattern);
         e.confidence = 1.0;
-        e.updated_at = Utc::now() - chrono::Duration::days(1);
+        e.updated_at = Timestamp::now() - at_time::Duration::days(1);
         let id = e.id;
         fast.add_entry(e);
         fast.apply_decay(0.0);
@@ -1252,7 +1252,7 @@ mod graph_tests {
         let mut none = GraphMemory::new();
         none.decay_rate = 0.0;
         let mut e = make_entry("k", "v", MemoryCategory::Pattern);
-        e.updated_at = Utc::now() - chrono::Duration::days(365);
+        e.updated_at = Timestamp::now() - at_time::Duration::days(365);
         let id = e.id;
         none.add_entry(e);
         none.apply_decay(0.0);
@@ -1263,7 +1263,7 @@ mod graph_tests {
     fn decay_does_not_touch_updated_at() {
         let mut g = GraphMemory::new();
         let mut e = make_entry("k", "v", MemoryCategory::Pattern);
-        let modified = Utc::now() - chrono::Duration::days(3);
+        let modified = Timestamp::now() - at_time::Duration::days(3);
         e.updated_at = modified;
         let id = e.id;
         g.add_entry(e);

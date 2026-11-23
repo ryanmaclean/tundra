@@ -10,7 +10,6 @@ use axum::{
     response::IntoResponse,
     Json,
 };
-use chrono::Datelike;
 use serde::Deserialize;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -1228,8 +1227,9 @@ pub(crate) async fn get_changelog(
             };
             commits.push_str(&format!("{}: {}\n", category, task.title));
         }
-        let now = chrono::Utc::now();
-        let version = format!("{}.{}.{}", now.year(), now.month(), now.day());
+        let now = at_time::Timestamp::now();
+        let (year, month, day) = now.date();
+        let version = format!("{year}.{month}.{day}");
         drop(tasks);
         let entry = at_intelligence::changelog::ChangelogEngine::build_entry(&commits, &version);
         let markdown = at_intelligence::changelog::ChangelogEngine::render_entries(

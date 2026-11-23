@@ -32,7 +32,7 @@ pub(crate) async fn save_ui_session(
     State(state): State<Arc<ApiState>>,
     Json(mut session): Json<SessionState>,
 ) -> impl IntoResponse {
-    session.last_active_at = chrono::Utc::now();
+    session.last_active_at = at_time::Timestamp::now();
     match state.session_store.save_session(&session).await {
         Ok(()) => (axum::http::StatusCode::OK, Json(serde_json::json!(session))),
         Err(e) => (

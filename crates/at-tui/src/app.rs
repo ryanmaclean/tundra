@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use at_time::Timestamp;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use at_core::types::{AgentRole, AgentStatus, BeadStatus, CliType, ConvoyStatus, Lane};
@@ -37,7 +37,7 @@ pub struct AgentInfo {
     pub cli_type: CliType,
     pub model: String,
     pub status: AgentStatus,
-    pub last_seen: DateTime<Utc>,
+    pub last_seen: Timestamp,
 }
 
 #[derive(Debug, Clone)]
@@ -85,7 +85,7 @@ pub struct McpServerInfo {
 
 #[derive(Debug, Clone)]
 pub struct ActivityEntry {
-    pub timestamp: DateTime<Utc>,
+    pub timestamp: Timestamp,
     pub message: String,
 }
 
@@ -282,7 +282,7 @@ impl App {
         }
 
         // Agents
-        let now = Utc::now();
+        let now = Timestamp::now();
         self.agents = data
             .agents
             .into_iter()
@@ -773,7 +773,7 @@ fn parse_convoy_status(s: &str) -> ConvoyStatus {
 // ---------------------------------------------------------------------------
 
 fn demo_agents() -> Vec<AgentInfo> {
-    let now = Utc::now();
+    let now = Timestamp::now();
     vec![
         AgentInfo {
             name: "mayor-alpha".into(),
@@ -1006,7 +1006,7 @@ fn demo_mcp() -> Vec<McpServerInfo> {
 }
 
 fn demo_activity() -> Vec<ActivityEntry> {
-    let now = Utc::now();
+    let now = Timestamp::now();
     vec![
         ActivityEntry {
             timestamp: now,

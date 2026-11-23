@@ -1,10 +1,10 @@
 //! Exhaustive integration tests for IdeationEngine (Ideation feature).
 
+use at_time::Timestamp;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use chrono::Utc;
 use futures_util::Stream;
 use uuid::Uuid;
 
@@ -451,7 +451,7 @@ fn test_serde_roundtrip_idea() {
         impact: ImpactLevel::High,
         effort: EffortLevel::Medium,
         source: "analysis".to_string(),
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
     };
     let json = serde_json::to_string(&idea).unwrap();
     let deserialized: Idea = serde_json::from_str(&json).unwrap();
@@ -472,10 +472,10 @@ fn test_serde_roundtrip_ideation_result() {
             impact: ImpactLevel::Critical,
             effort: EffortLevel::Massive,
             source: "test".to_string(),
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
         }],
         analysis_type: "security".to_string(),
-        generated_at: Utc::now(),
+        generated_at: Timestamp::now(),
     };
     let json = serde_json::to_string(&result).unwrap();
     let deserialized: IdeationResult = serde_json::from_str(&json).unwrap();
@@ -573,10 +573,10 @@ async fn test_ai_ideas_impact_effort_parsing() {
 
 #[test]
 fn test_idea_created_at_timestamp() {
-    let before = Utc::now();
+    let before = Timestamp::now();
     let mut engine = IdeationEngine::new();
     let result = engine.generate_ideas(&IdeaCategory::Quality, "ctx");
-    let after = Utc::now();
+    let after = Timestamp::now();
 
     let ts = result.ideas[0].created_at;
     assert!(ts >= before);
@@ -585,10 +585,10 @@ fn test_idea_created_at_timestamp() {
 
 #[test]
 fn test_generated_at_timestamp() {
-    let before = Utc::now();
+    let before = Timestamp::now();
     let mut engine = IdeationEngine::new();
     let result = engine.generate_ideas(&IdeaCategory::Quality, "ctx");
-    let after = Utc::now();
+    let after = Timestamp::now();
 
     assert!(result.generated_at >= before);
     assert!(result.generated_at <= after);

@@ -1,7 +1,7 @@
 pub mod mr_review;
 pub mod oauth;
 
-use chrono::{DateTime, Utc};
+use at_time::Timestamp;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -83,9 +83,9 @@ pub struct GitLabIssue {
     pub author: GitLabUser,
     pub assignees: Vec<GitLabUser>,
     pub labels: Vec<String>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-    pub closed_at: Option<DateTime<Utc>>,
+    pub created_at: Timestamp,
+    pub updated_at: Timestamp,
+    pub closed_at: Option<Timestamp>,
     pub web_url: String,
 }
 
@@ -103,9 +103,9 @@ pub struct GitLabMergeRequest {
     pub labels: Vec<String>,
     pub draft: bool,
     pub merge_status: String,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-    pub merged_at: Option<DateTime<Utc>>,
+    pub created_at: Timestamp,
+    pub updated_at: Timestamp,
+    pub merged_at: Option<Timestamp>,
     pub web_url: String,
 }
 
@@ -274,7 +274,7 @@ impl GitLabClient {
     }
 
     fn stub_issue(project_id: &str, iid: u32, state: &str) -> GitLabIssue {
-        let now = Utc::now();
+        let now = Timestamp::now();
         GitLabIssue {
             id: iid as u64 * 100,
             iid,
@@ -293,7 +293,7 @@ impl GitLabClient {
     }
 
     fn stub_mr(project_id: &str, iid: u32, state: &str) -> GitLabMergeRequest {
-        let now = Utc::now();
+        let now = Timestamp::now();
         GitLabMergeRequest {
             id: iid as u64 * 100,
             iid,
@@ -420,7 +420,7 @@ impl GitLabClient {
         target: &str,
     ) -> Result<GitLabMergeRequest> {
         if self.is_stub() {
-            let now = Utc::now();
+            let now = Timestamp::now();
             return Ok(GitLabMergeRequest {
                 id: 999,
                 iid: 1,

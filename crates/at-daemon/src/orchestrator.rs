@@ -1,7 +1,7 @@
 use at_bridge::event_bus::EventBus;
 use at_bridge::protocol::{BridgeMessage, EventPayload};
 use at_core::types::{QaReport, QaStatus, Task, TaskLogType, TaskPhase};
-use chrono::Utc;
+use at_time::Timestamp;
 use std::sync::Arc;
 use thiserror::Error;
 use tracing::{error, info, warn};
@@ -254,7 +254,7 @@ impl TaskOrchestrator {
     pub async fn start_task(&self, task: &mut Task) -> Result<()> {
         info!(task_id = %task.id, title = %task.title, "orchestrator starting task");
 
-        task.started_at = Some(Utc::now());
+        task.started_at = Some(Timestamp::now());
 
         // Create worktree
         match self.worktree_manager.create_for_task(task).await {
@@ -288,7 +288,7 @@ impl TaskOrchestrator {
         for phase in &phases {
             if *phase == TaskPhase::Complete {
                 task.set_phase(TaskPhase::Complete);
-                task.completed_at = Some(Utc::now());
+                task.completed_at = Some(Timestamp::now());
                 task.log(TaskLogType::Success, "Task completed successfully");
                 self.publish_event(task, "task_complete");
                 break;
@@ -539,7 +539,7 @@ impl TaskOrchestrator {
             branch,
             base_branch: "main".to_string(),
             task_name: sanitize_task_title(&task.title),
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
         };
 
         let mut fix_iterations = 0usize;
@@ -753,7 +753,7 @@ impl TaskOrchestrator {
             agent_id: None,
             bead_id: Some(task.bead_id),
             message: format!("Task '{}': {}", task.title, event_type),
-            timestamp: Utc::now(),
+            timestamp: Timestamp::now(),
         }));
     }
 }
@@ -781,7 +781,7 @@ fn run_spec_pipeline_for_task(task: &mut Task) {
             ),
             artifacts: vec![],
             metrics: PhaseMetrics::default(),
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
         };
         runner.record_result(result);
     }

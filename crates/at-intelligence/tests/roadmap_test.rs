@@ -4,7 +4,7 @@
 //! the Kanban columns (Under Review / Planned / In Progress / Done),
 //! roadmap views, and generation from codebase analysis.
 
-use chrono::Utc;
+use at_time::Timestamp;
 use uuid::Uuid;
 
 use at_intelligence::roadmap::{FeatureStatus, RoadmapEngine, RoadmapFeature};
@@ -583,10 +583,10 @@ fn test_reorder_nonexistent_feature_errors() {
 
 #[test]
 fn test_roadmap_generated_at_timestamp() {
-    let before = Utc::now();
+    let before = Timestamp::now();
     let mut engine = RoadmapEngine::new();
     let roadmap = engine.create_roadmap("Timed");
-    let after = Utc::now();
+    let after = Timestamp::now();
 
     assert!(roadmap.generated_at >= before);
     assert!(roadmap.generated_at <= after);
@@ -594,9 +594,9 @@ fn test_roadmap_generated_at_timestamp() {
 
 #[test]
 fn test_feature_created_at_timestamp() {
-    let before = Utc::now();
+    let before = Timestamp::now();
     let f = feature("Timed Feature");
-    let after = Utc::now();
+    let after = Timestamp::now();
 
     assert!(f.created_at >= before);
     assert!(f.created_at <= after);

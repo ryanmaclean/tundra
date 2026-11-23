@@ -1,3 +1,4 @@
+use at_time::{Duration as ChronoDuration, Timestamp};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -8,7 +9,6 @@ use at_bridge::protocol::{BridgeMessage, EventPayload};
 use at_core::cache::{CacheDb, CacheError};
 use at_core::config::PatrolConfig;
 use at_core::types::{Agent, AgentStatus, Bead, BeadStatus};
-use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
@@ -26,7 +26,7 @@ pub struct PatrolReport {
     /// IDs of stuck beads found.
     pub stuck_bead_ids: Vec<uuid::Uuid>,
     /// Timestamp of this patrol run.
-    pub timestamp: DateTime<Utc>,
+    pub timestamp: Timestamp,
 }
 
 /// Runs periodic patrol sweeps over the cache to detect anomalies.
@@ -64,7 +64,7 @@ impl PatrolRunner {
     ///   expose a list-all-agents API).
     /// - Orphan PTYs: placeholder for future PTY session tracking.
     pub async fn run_patrol(&self, cache: &CacheDb) -> Result<PatrolReport> {
-        let now = Utc::now();
+        let now = Timestamp::now();
         debug!("patrol sweep starting");
 
         // --- Check for stuck beads (slung longer than timeout) ---
@@ -120,7 +120,7 @@ impl PatrolRunner {
     pub fn stuck_bead_ids<'a>(
         &self,
         beads: impl IntoIterator<Item = &'a Bead>,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> Vec<Uuid> {
         let mut ids = Vec::new();
         for bead in beads {
@@ -134,7 +134,7 @@ impl PatrolRunner {
                     info!(
                         bead_id = %bead.id,
                         slung_at = %slung_at,
-                        elapsed_mins = elapsed.num_minutes(),
+                        elapsed_mins = elapsed.whole_minutes(),
                         "stuck bead detected"
                     );
                 }
@@ -255,12 +255,12 @@ struct AgentHealth {
     consecutive_failures: u32,
     /// When the most recent failure was counted; failures are counted at most
     /// once per `ping_timeout` window regardless of how often patrol runs.
-    last_failure_at: Option<DateTime<Utc>>,
-    last_force_kill: Option<DateTime<Utc>>,
+    last_failure_at: Option<Timestamp>,
+    last_force_kill: Option<Timestamp>,
     force_kill_count: u32,
     /// Silence is measured from `max(last_seen, baseline)`; set when a slot is
     /// released so a reused agent starts with a clean window.
-    baseline: Option<DateTime<Utc>>,
+    baseline: Option<Timestamp>,
 }
 
 /// Pure stuck-session state machine. Callers supply `now`, so it is
@@ -296,7 +296,7 @@ impl StuckDetector {
     /// Run one health check for `agent` at `now`.
     ///
     /// Returns `None` when the agent is not monitored and has no cooldown.
-    pub fn check(&mut self, agent: &Agent, now: DateTime<Utc>) -> Option<StuckVerdict> {
+    pub fn check(&mut self, agent: &Agent, now: Timestamp) -> Option<StuckVerdict> {
         if let Some(verdict) = self.advance_cooldown(agent.id, now) {
             return Some(verdict);
         }
@@ -348,13 +348,13 @@ impl StuckDetector {
     /// Cooldown handling shared by [`check`](Self::check) and
     /// [`prune`](Self::prune): `InCooldown` while it runs, `SlotReleased` once
     /// when it ends, `None` if the agent was not in cooldown.
-    fn advance_cooldown(&mut self, id: Uuid, now: DateTime<Utc>) -> Option<StuckVerdict> {
+    fn advance_cooldown(&mut self, id: Uuid, now: Timestamp) -> Option<StuckVerdict> {
         let cooldown = self.policy.cooldown;
         let h = self.health.get_mut(&id)?;
         let until = h.last_force_kill? + cooldown;
         if now < until {
             return Some(StuckVerdict::InCooldown {
-                remaining_secs: until.signed_duration_since(now).num_seconds(),
+                remaining_secs: until.signed_duration_since(now).whole_seconds(),
             });
         }
         h.last_force_kill = None;
@@ -366,7 +366,7 @@ impl StuckDetector {
 
     /// Drop state for agents no longer present, releasing any whose cooldown
     /// has ended. Returns the released ids.
-    pub fn prune(&mut self, present: &HashSet<Uuid>, now: DateTime<Utc>) -> Vec<Uuid> {
+    pub fn prune(&mut self, present: &HashSet<Uuid>, now: Timestamp) -> Vec<Uuid> {
         let gone: Vec<Uuid> = self
             .health
             .keys()
@@ -391,7 +391,7 @@ impl StuckDetector {
 
     /// Whether the agent's slot may be (re)used at `now`: false only while a
     /// post-kill cooldown is running.
-    pub fn slot_reusable(&self, agent_id: Uuid, now: DateTime<Utc>) -> bool {
+    pub fn slot_reusable(&self, agent_id: Uuid, now: Timestamp) -> bool {
         self.health
             .get(&agent_id)
             .and_then(|h| h.last_force_kill)
@@ -408,7 +408,7 @@ impl StuckDetector {
 
 /// Source of "now" for [`StuckMonitor`], swappable for a fake clock in tests.
 pub trait Clock: Send + Sync {
-    fn now(&self) -> DateTime<Utc>;
+    fn now(&self) -> Timestamp;
 }
 
 /// Wall-clock [`Clock`].
@@ -416,8 +416,8 @@ pub trait Clock: Send + Sync {
 pub struct SystemClock;
 
 impl Clock for SystemClock {
-    fn now(&self) -> DateTime<Utc> {
-        Utc::now()
+    fn now(&self) -> Timestamp {
+        Timestamp::now()
     }
 }
 
@@ -528,7 +528,7 @@ async fn force_kill(
     agent: &Agent,
     failures: u32,
     kill_count: u32,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) {
     let reason = format!(
         "unresponsive after {failures} consecutive health check failures \
@@ -560,7 +560,7 @@ async fn force_kill(
     ));
 }
 
-fn publish_released(bus: &EventBus, id: Uuid, now: DateTime<Utc>) {
+fn publish_released(bus: &EventBus, id: Uuid, now: Timestamp) {
     info!(agent_id = %id, "stuck-agent cooldown ended; slot reusable");
     bus.publish(event(
         EVENT_AGENT_SLOT_RELEASED,
@@ -570,7 +570,7 @@ fn publish_released(bus: &EventBus, id: Uuid, now: DateTime<Utc>) {
     ));
 }
 
-fn event(kind: &str, agent_id: Uuid, message: String, now: DateTime<Utc>) -> BridgeMessage {
+fn event(kind: &str, agent_id: Uuid, message: String, now: Timestamp) -> BridgeMessage {
     BridgeMessage::Event(EventPayload {
         event_type: kind.to_string(),
         agent_id: Some(agent_id),
@@ -584,14 +584,13 @@ fn event(kind: &str, agent_id: Uuid, message: String, now: DateTime<Utc>) -> Bri
 mod stuck_tests {
     use super::*;
     use at_core::types::{AgentRole, CliType};
-    use chrono::TimeZone;
     use std::sync::Mutex;
 
     /// Manually advanced clock.
-    struct FakeClock(Mutex<DateTime<Utc>>);
+    struct FakeClock(Mutex<Timestamp>);
 
     impl FakeClock {
-        fn at(t: DateTime<Utc>) -> Arc<Self> {
+        fn at(t: Timestamp) -> Arc<Self> {
             Arc::new(Self(Mutex::new(t)))
         }
         fn advance(&self, d: ChronoDuration) {
@@ -600,16 +599,16 @@ mod stuck_tests {
     }
 
     impl Clock for FakeClock {
-        fn now(&self) -> DateTime<Utc> {
+        fn now(&self) -> Timestamp {
             *self.0.lock().unwrap()
         }
     }
 
-    fn t0() -> DateTime<Utc> {
-        Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap()
+    fn t0() -> Timestamp {
+        Timestamp::parse_rfc3339("2026-01-01T00:00:00Z").unwrap()
     }
 
-    fn live_agent(last_seen: DateTime<Utc>) -> Agent {
+    fn live_agent(last_seen: Timestamp) -> Agent {
         let mut a = Agent::new("worker", AgentRole::Crew, CliType::Claude);
         a.status = AgentStatus::Active;
         a.session_id = Some("sess-1".into());
@@ -1297,7 +1296,7 @@ mod tests {
         assert_eq!(pool.active_count(), 0);
     }
 
-    fn make_slung_bead(slung_at: Option<DateTime<Utc>>) -> Bead {
+    fn make_slung_bead(slung_at: Option<Timestamp>) -> Bead {
         let mut bead = Bead::new("test bead", Lane::Standard);
         bead.status = BeadStatus::Slung;
         bead.slung_at = slung_at;
@@ -1330,8 +1329,8 @@ mod tests {
 
     #[test]
     fn with_slung_timeout_accepts_zero() {
-        let runner = PatrolRunner::new(60).with_slung_timeout(ChronoDuration::zero());
-        assert_eq!(runner.slung_timeout, ChronoDuration::zero());
+        let runner = PatrolRunner::new(60).with_slung_timeout(ChronoDuration::ZERO);
+        assert_eq!(runner.slung_timeout, ChronoDuration::ZERO);
     }
 
     #[test]
@@ -1341,7 +1340,7 @@ mod tests {
             stuck_beads: 2,
             orphan_ptys: 3,
             stuck_bead_ids: vec![uuid::Uuid::new_v4(), uuid::Uuid::new_v4()],
-            timestamp: Utc::now(),
+            timestamp: Timestamp::now(),
         };
         let json = serde_json::to_string(&report).expect("serialize");
         let back: PatrolReport = serde_json::from_str(&json).expect("deserialize");
@@ -1383,7 +1382,7 @@ mod tests {
         let cache = CacheDb::new_in_memory().await.expect("cache");
 
         // Slung 5 minutes ago, default timeout 30 minutes — not stuck.
-        let recent = make_slung_bead(Some(Utc::now() - ChronoDuration::minutes(5)));
+        let recent = make_slung_bead(Some(Timestamp::now() - ChronoDuration::minutes(5)));
         insert_beads(&cache, &[recent]).await;
 
         let report = runner.run_patrol(&cache).await.expect("patrol");
@@ -1396,7 +1395,7 @@ mod tests {
         let cache = CacheDb::new_in_memory().await.expect("cache");
 
         // Slung 45 minutes ago, default timeout 30 minutes — stuck.
-        let stuck = make_slung_bead(Some(Utc::now() - ChronoDuration::minutes(45)));
+        let stuck = make_slung_bead(Some(Timestamp::now() - ChronoDuration::minutes(45)));
         let stuck_id = stuck.id;
         insert_beads(&cache, &[stuck]).await;
 
@@ -1411,7 +1410,7 @@ mod tests {
         let cache = CacheDb::new_in_memory().await.expect("cache");
 
         // Slung 30 seconds ago — exceeds the custom 10-second timeout.
-        let stuck = make_slung_bead(Some(Utc::now() - ChronoDuration::seconds(30)));
+        let stuck = make_slung_bead(Some(Timestamp::now() - ChronoDuration::seconds(30)));
         let stuck_id = stuck.id;
         insert_beads(&cache, &[stuck]).await;
 
@@ -1428,10 +1427,10 @@ mod tests {
         // Backlog/Done beads must not be considered stuck regardless of
         // slung_at, because list_beads_by_status(Slung) excludes them.
         let mut backlog = Bead::new("backlog", Lane::Standard);
-        backlog.slung_at = Some(Utc::now() - ChronoDuration::hours(99));
+        backlog.slung_at = Some(Timestamp::now() - ChronoDuration::hours(99));
         let mut done = Bead::new("done", Lane::Standard);
         done.status = BeadStatus::Done;
-        done.slung_at = Some(Utc::now() - ChronoDuration::hours(99));
+        done.slung_at = Some(Timestamp::now() - ChronoDuration::hours(99));
 
         insert_beads(&cache, &[backlog, done]).await;
 
@@ -1445,9 +1444,9 @@ mod tests {
         let runner = PatrolRunner::new(60);
         let cache = CacheDb::new_in_memory().await.expect("cache");
 
-        let fresh = make_slung_bead(Some(Utc::now() - ChronoDuration::minutes(1)));
-        let stuck1 = make_slung_bead(Some(Utc::now() - ChronoDuration::hours(1)));
-        let stuck2 = make_slung_bead(Some(Utc::now() - ChronoDuration::hours(3)));
+        let fresh = make_slung_bead(Some(Timestamp::now() - ChronoDuration::minutes(1)));
+        let stuck1 = make_slung_bead(Some(Timestamp::now() - ChronoDuration::hours(1)));
+        let stuck2 = make_slung_bead(Some(Timestamp::now() - ChronoDuration::hours(3)));
         let no_slung = make_slung_bead(None);
 
         let stuck_ids = [stuck1.id, stuck2.id];
@@ -1469,9 +1468,9 @@ mod tests {
         let runner = PatrolRunner::new(60);
         let cache = CacheDb::new_in_memory().await.expect("cache");
 
-        let before = Utc::now();
+        let before = Timestamp::now();
         let report = runner.run_patrol(&cache).await.expect("patrol");
-        let after = Utc::now();
+        let after = Timestamp::now();
 
         assert!(report.timestamp >= before);
         assert!(report.timestamp <= after);
@@ -1539,7 +1538,7 @@ mod tests {
             .expect("raw insert corrupt bead");
 
         // Well-formed stuck bead alongside it.
-        let stuck = make_slung_bead(Some(Utc::now() - ChronoDuration::hours(1)));
+        let stuck = make_slung_bead(Some(Timestamp::now() - ChronoDuration::hours(1)));
         let stuck_id = stuck.id;
         insert_beads(&cache, &[stuck]).await;
 
@@ -1559,8 +1558,8 @@ mod tests {
         let runner = PatrolRunner::new(60).with_slung_timeout(ChronoDuration::minutes(10));
         let cache = CacheDb::new_in_memory().await.expect("cache");
 
-        let fresh = make_slung_bead(Some(Utc::now() - ChronoDuration::minutes(1)));
-        let stuck = make_slung_bead(Some(Utc::now() - ChronoDuration::hours(1)));
+        let fresh = make_slung_bead(Some(Timestamp::now() - ChronoDuration::minutes(1)));
+        let stuck = make_slung_bead(Some(Timestamp::now() - ChronoDuration::hours(1)));
         insert_beads(&cache, &[fresh, stuck]).await;
 
         let report = runner

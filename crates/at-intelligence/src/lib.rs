@@ -100,8 +100,8 @@ pub enum IntelligenceError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use at_time::Timestamp;
     use changelog::*;
-    use chrono::Utc;
     use ideation::*;
     use insights::*;
     use memory::*;
@@ -365,7 +365,7 @@ mod tests {
         let entry = ChangelogEntry {
             id: Uuid::new_v4(),
             version: "0.1.0".to_string(),
-            date: Utc::now(),
+            date: Timestamp::now(),
             sections: vec![ChangelogSection {
                 category: ChangeCategory::Added,
                 items: vec!["Initial release".to_string()],
@@ -384,7 +384,7 @@ mod tests {
         engine.add_entry(ChangelogEntry {
             id: Uuid::new_v4(),
             version: "0.2.0".to_string(),
-            date: Utc::now(),
+            date: Timestamp::now(),
             sections: vec![
                 ChangelogSection {
                     category: ChangeCategory::Added,
@@ -415,7 +415,7 @@ mod tests {
         let msg = ChatMessage {
             role: ChatRole::Assistant,
             content: "Hello world".to_string(),
-            timestamp: Utc::now(),
+            timestamp: Timestamp::now(),
         };
         let json = serde_json::to_string(&msg).unwrap();
         let deserialized: ChatMessage = serde_json::from_str(&json).unwrap();
@@ -446,7 +446,7 @@ mod tests {
         let entry = ChangelogEntry {
             id: Uuid::new_v4(),
             version: "1.0.0".to_string(),
-            date: Utc::now(),
+            date: Timestamp::now(),
             sections: vec![ChangelogSection {
                 category: ChangeCategory::Security,
                 items: vec!["Patched CVE".to_string()],
@@ -468,7 +468,7 @@ mod tests {
             impact: ImpactLevel::High,
             effort: EffortLevel::Medium,
             source: "analysis".to_string(),
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
         };
         let json = serde_json::to_string(&idea).unwrap();
         let deserialized: Idea = serde_json::from_str(&json).unwrap();

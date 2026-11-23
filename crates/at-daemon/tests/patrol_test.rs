@@ -1,3 +1,4 @@
+use at_time::{Duration, Timestamp};
 use std::sync::Arc;
 
 use at_bridge::event_bus::EventBus;
@@ -6,7 +7,6 @@ use at_bridge::terminal::{TerminalInfo, TerminalStatus};
 use at_core::cache::CacheDb;
 use at_core::types::{Bead, BeadStatus, Lane};
 use at_daemon::patrol::{reap_orphan_ptys, PatrolRunner};
-use chrono::{Duration, Utc};
 use uuid::Uuid;
 
 #[tokio::test]
@@ -32,13 +32,13 @@ async fn patrol_detects_stuck_slung_beads() {
     // Create a bead that has been slung for 2 hours (well past 30-minute timeout).
     let mut bead = Bead::new("stuck task", Lane::Standard);
     bead.status = BeadStatus::Slung;
-    bead.slung_at = Some(Utc::now() - Duration::hours(2));
+    bead.slung_at = Some(Timestamp::now() - Duration::hours(2));
     cache.upsert_bead(&bead).await.expect("upsert bead");
 
     // Create a bead that was just slung (should not be stuck).
     let mut fresh_bead = Bead::new("fresh task", Lane::Standard);
     fresh_bead.status = BeadStatus::Slung;
-    fresh_bead.slung_at = Some(Utc::now());
+    fresh_bead.slung_at = Some(Timestamp::now());
     cache.upsert_bead(&fresh_bead).await.expect("upsert bead");
 
     let runner = PatrolRunner::new(30);
@@ -167,10 +167,10 @@ async fn patrol_live_detects_stuck_beads_held_only_in_api_state() {
     let state = ApiState::new(EventBus::new());
     let mut stuck = Bead::new("api stuck", Lane::Standard);
     stuck.status = BeadStatus::Slung;
-    stuck.slung_at = Some(Utc::now() - Duration::hours(2));
+    stuck.slung_at = Some(Timestamp::now() - Duration::hours(2));
     let mut fresh = Bead::new("api fresh", Lane::Standard);
     fresh.status = BeadStatus::Slung;
-    fresh.slung_at = Some(Utc::now());
+    fresh.slung_at = Some(Timestamp::now());
     {
         let mut beads = state.beads.write().await;
         beads.insert(stuck.id, stuck.clone());

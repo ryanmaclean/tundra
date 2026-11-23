@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use at_time::Timestamp;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -48,7 +48,7 @@ pub struct ChangelogSection {
 pub struct ChangelogEntry {
     pub id: Uuid,
     pub version: String,
-    pub date: DateTime<Utc>,
+    pub date: Timestamp,
     pub sections: Vec<ChangelogSection>,
 }
 
@@ -184,7 +184,7 @@ impl ChangelogEngine {
         ChangelogEntry {
             id: Uuid::new_v4(),
             version: version.to_string(),
-            date: Utc::now(),
+            date: Timestamp::now(),
             sections,
         }
     }
@@ -202,7 +202,7 @@ impl ChangelogEngine {
             md.push_str(&format!(
                 "## [{}] - {}\n\n",
                 entry.version,
-                entry.date.format("%Y-%m-%d")
+                entry.date.date_string()
             ));
 
             for section in &entry.sections {

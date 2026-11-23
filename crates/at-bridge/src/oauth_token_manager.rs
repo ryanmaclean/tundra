@@ -7,7 +7,7 @@
 //! 4. Secure memory zeroing when tokens are cleared
 
 use at_core::crypto::{decrypt, encrypt, CryptoError, EncryptionKey};
-use chrono::{DateTime, Duration, Utc};
+use at_time::{Duration, Timestamp};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -99,11 +99,11 @@ struct TokenData {
 
     /// When the token was stored (not sensitive, skip zeroize)
     #[zeroize(skip)]
-    stored_at: DateTime<Utc>,
+    stored_at: Timestamp,
 
     /// When the token expires (not sensitive, skip zeroize)
     #[zeroize(skip)]
-    expires_at: Option<DateTime<Utc>>,
+    expires_at: Option<Timestamp>,
 }
 
 /// Manages the lifecycle of OAuth tokens with encryption and expiration tracking.
@@ -149,8 +149,8 @@ pub struct OAuthTokenManager {
 #[derive(Debug, Clone)]
 struct TokenMetadata {
     #[allow(dead_code)] // Retained for future audit logging / token age queries
-    stored_at: DateTime<Utc>,
-    expires_at: Option<DateTime<Utc>>,
+    stored_at: Timestamp,
+    expires_at: Option<Timestamp>,
 }
 
 impl OAuthTokenManager {
@@ -188,7 +188,7 @@ impl OAuthTokenManager {
         expires_in: Option<u64>,
         refresh_token: Option<&str>,
     ) {
-        let stored_at = Utc::now();
+        let stored_at = Timestamp::now();
         let expires_at = expires_in.map(|seconds| stored_at + Duration::seconds(seconds as i64));
 
         // Create token data structure
@@ -322,7 +322,7 @@ impl OAuthTokenManager {
             Some(meta) => {
                 match meta.expires_at {
                     None => false, // No expiration time = never expires
-                    Some(expires_at) => Utc::now() >= expires_at,
+                    Some(expires_at) => Timestamp::now() >= expires_at,
                 }
             }
         }
@@ -360,7 +360,7 @@ impl OAuthTokenManager {
                     None => false, // No expiration time = no need to refresh
                     Some(expires_at) => {
                         // Refresh if expires within 5 minutes
-                        let refresh_threshold = Utc::now() + Duration::minutes(5);
+                        let refresh_threshold = Timestamp::now() + Duration::minutes(5);
                         expires_at <= refresh_threshold
                     }
                 }

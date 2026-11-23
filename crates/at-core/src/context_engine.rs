@@ -8,13 +8,13 @@
 //!
 //! Based on the agentskills.io specification and Claude Code patterns.
 
+use at_time::Timestamp;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -33,7 +33,7 @@ pub struct ContextNode {
     pub relevance: f64,
     /// Edges to other nodes.
     pub edges: Vec<ContextEdge>,
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
     pub metadata: HashMap<String, String>,
 }
 
@@ -50,7 +50,7 @@ impl ContextNode {
             content: content.into(),
             relevance: 1.0,
             edges: Vec::new(),
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
             metadata: HashMap::new(),
         }
     }
@@ -851,7 +851,7 @@ pub struct HealthStatus {
     pub status: HealthState,
     pub message: Option<String>,
     pub checks: Vec<HealthCheck>,
-    pub timestamp: DateTime<Utc>,
+    pub timestamp: Timestamp,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -876,7 +876,7 @@ impl HealthStatus {
             status: HealthState::Healthy,
             message: None,
             checks: Vec::new(),
-            timestamp: Utc::now(),
+            timestamp: Timestamp::now(),
         }
     }
 

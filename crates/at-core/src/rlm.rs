@@ -15,9 +15,9 @@
 //! Key insight: "Context management matters more than context length."
 //! Instead of cramming 10M tokens into one call, fold context recursively.
 
+use at_time::Timestamp;
 use std::collections::{HashMap, VecDeque};
 
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -42,7 +42,7 @@ pub struct ContextFold {
     pub summaries: Vec<FoldSummary>,
     /// Index of named sections for fast lookup.
     pub sections: HashMap<String, SectionSpan>,
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
 }
 
 /// A summary at a specific compression level.
@@ -74,7 +74,7 @@ impl ContextFold {
             total_tokens,
             summaries: Vec::new(),
             sections: HashMap::new(),
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
         }
     }
 
@@ -421,7 +421,7 @@ pub struct Revision {
     pub delta: Option<String>,
     /// Confidence score (0.0–1.0).
     pub confidence: f64,
-    pub timestamp: DateTime<Utc>,
+    pub timestamp: Timestamp,
 }
 
 impl ProgressiveRefinement {
@@ -451,7 +451,7 @@ impl ProgressiveRefinement {
             content: content.into(),
             delta,
             confidence: confidence.clamp(0.0, 1.0),
-            timestamp: Utc::now(),
+            timestamp: Timestamp::now(),
         });
         true
     }
@@ -503,7 +503,7 @@ pub struct StuckDetector {
     /// Recent outputs for loop detection.
     recent_outputs: VecDeque<String>,
     /// Timestamp of last meaningful progress.
-    last_progress: DateTime<Utc>,
+    last_progress: Timestamp,
     /// Total tokens consumed.
     tokens_consumed: usize,
     /// Token budget.
@@ -526,7 +526,7 @@ impl StuckDetector {
             timeout_secs,
             max_repeats: 3,
             recent_outputs: VecDeque::new(),
-            last_progress: Utc::now(),
+            last_progress: Timestamp::now(),
             tokens_consumed: 0,
             token_budget,
         }
@@ -546,16 +546,16 @@ impl StuckDetector {
         if self.recent_outputs.len() < 2
             || self.recent_outputs.back() != self.recent_outputs.get(self.recent_outputs.len() - 2)
         {
-            self.last_progress = Utc::now();
+            self.last_progress = Timestamp::now();
         }
     }
 
     /// Check if the agent is stuck.
     pub fn check(&self) -> Option<StuckReason> {
         // Check timeout
-        let elapsed = Utc::now()
+        let elapsed = Timestamp::now()
             .signed_duration_since(self.last_progress)
-            .num_seconds() as u64;
+            .whole_seconds() as u64;
         if elapsed > self.timeout_secs {
             return Some(StuckReason::Timeout);
         }
@@ -585,7 +585,7 @@ impl StuckDetector {
     /// Reset the detector (after recovery).
     pub fn reset(&mut self) {
         self.recent_outputs.clear();
-        self.last_progress = Utc::now();
+        self.last_progress = Timestamp::now();
         self.tokens_consumed = 0;
     }
 

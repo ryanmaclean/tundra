@@ -1,3 +1,4 @@
+use at_time::Timestamp;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -7,7 +8,6 @@ use at_core::context_steering::ContextSteerer;
 use at_core::rlm::StuckDetector;
 use at_core::types::{AgentRole, Task, TaskLogType, TaskPhase};
 use at_session::session::AgentSession;
-use chrono::Utc;
 use tracing::{error, info, warn};
 
 use crate::prompts::PromptRegistry;
@@ -205,7 +205,7 @@ impl TaskRunner {
     ) -> Result<()> {
         info!(task_id = %task.id, title = %task.title, "starting task pipeline");
 
-        task.started_at = Some(Utc::now());
+        task.started_at = Some(Timestamp::now());
 
         let phases = vec![
             TaskPhase::Discovery,
@@ -238,7 +238,7 @@ impl TaskRunner {
             }
         }
 
-        task.completed_at = Some(Utc::now());
+        task.completed_at = Some(Timestamp::now());
         info!(task_id = %task.id, "task pipeline complete");
         Ok(())
     }
@@ -466,7 +466,7 @@ impl TaskRunner {
             agent_id: None,
             bead_id: Some(task.bead_id),
             message: format!("Task '{}': {}", task.title, event_type),
-            timestamp: Utc::now(),
+            timestamp: Timestamp::now(),
         }));
     }
 

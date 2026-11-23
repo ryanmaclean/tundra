@@ -214,7 +214,7 @@ impl ProfilingTests {
         crate::profiling::record_event(
             "datadog_integration_test",
             &[
-                ("test_timestamp", &chrono::Utc::now().to_rfc3339()),
+                ("test_timestamp", &at_time::Timestamp::now().to_rfc3339()),
                 ("test_component", "profiling_tests"),
             ],
         );

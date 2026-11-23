@@ -17,8 +17,7 @@ use at_integrations::linear::sync::{
 use at_integrations::linear::{
     ImportResult, LinearClient, LinearError, LinearIssue, LinearProject, LinearTeam,
 };
-
-use chrono::Utc;
+use at_time::Timestamp;
 
 // ===========================================================================
 // Client creation
@@ -153,7 +152,7 @@ fn linear_project_serde_roundtrip() {
         description: Some("Agent orchestrator".to_string()),
         state: "active".to_string(),
         team_id: "team-001".to_string(),
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
     };
     let json = serde_json::to_string(&project).unwrap();
     let de: LinearProject = serde_json::from_str(&json).unwrap();
@@ -170,7 +169,7 @@ fn linear_project_without_description() {
         description: None,
         state: "active".to_string(),
         team_id: "team-001".to_string(),
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
     };
     let json = serde_json::to_string(&project).unwrap();
     let de: LinearProject = serde_json::from_str(&json).unwrap();
@@ -179,7 +178,7 @@ fn linear_project_without_description() {
 
 #[test]
 fn linear_issue_serde_roundtrip() {
-    let now = Utc::now();
+    let now = Timestamp::now();
     let issue = LinearIssue {
         id: "issue-001".to_string(),
         identifier: "ENG-1".to_string(),
@@ -210,7 +209,7 @@ fn linear_issue_serde_roundtrip() {
 
 #[test]
 fn linear_issue_without_optional_fields() {
-    let now = Utc::now();
+    let now = Timestamp::now();
     let issue = LinearIssue {
         id: "issue-002".to_string(),
         identifier: "ENG-2".to_string(),
@@ -329,7 +328,7 @@ fn sync_result_serde_roundtrip() {
         pulled: 5,
         conflicts: 1,
         dead_lettered: 0,
-        synced_at: Utc::now(),
+        synced_at: Timestamp::now(),
     };
     let json = serde_json::to_string(&result).unwrap();
     let de: SyncResult = serde_json::from_str(&json).unwrap();
@@ -347,7 +346,7 @@ fn sync_result_zero_values() {
         pulled: 0,
         conflicts: 0,
         dead_lettered: 0,
-        synced_at: Utc::now(),
+        synced_at: Timestamp::now(),
     };
     let json = serde_json::to_string(&result).unwrap();
     let de: SyncResult = serde_json::from_str(&json).unwrap();
@@ -367,7 +366,7 @@ fn pending_change_serde_roundtrip() {
         payload: ChangePayload::State {
             state_id: "state-uuid-001".to_string(),
         },
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
     };
     let json = serde_json::to_string(&change).unwrap();
     let de: PendingChange = serde_json::from_str(&json).unwrap();
@@ -390,7 +389,7 @@ fn pending_change_pull_direction() {
         entity_type: "issue".to_string(),
         entity_id: "issue-ext-42".to_string(),
         payload: ChangePayload::Title("Renamed by pull".to_string()),
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
     };
     let json = serde_json::to_string(&change).unwrap();
     let de: PendingChange = serde_json::from_str(&json).unwrap();
@@ -443,7 +442,7 @@ fn queue_single_change() {
         payload: ChangePayload::State {
             state_id: "state-updated".into(),
         },
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
     });
     assert_eq!(engine.pending_changes().len(), 1);
 }
@@ -462,7 +461,7 @@ fn queue_multiple_changes() {
             payload: ChangePayload::State {
                 state_id: "state-updated".into(),
             },
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
         });
     }
 
@@ -482,7 +481,7 @@ fn queue_mixed_directions() {
         payload: ChangePayload::State {
             state_id: "state-updated".into(),
         },
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
     });
     engine.queue_change(PendingChange {
         id: "ch-pull".into(),
@@ -490,7 +489,7 @@ fn queue_mixed_directions() {
         entity_type: "issue".into(),
         entity_id: "issue-ext-42".into(),
         payload: ChangePayload::Title("Renamed".into()),
-        created_at: Utc::now(),
+        created_at: Timestamp::now(),
     });
 
     assert_eq!(engine.pending_changes().len(), 2);
@@ -569,7 +568,7 @@ async fn e2e_import_then_queue_changes() {
             payload: ChangePayload::State {
                 state_id: "state-updated".into(),
             },
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
         });
     }
 

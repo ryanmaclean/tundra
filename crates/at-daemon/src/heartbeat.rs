@@ -1,3 +1,4 @@
+use at_time::Timestamp;
 use std::collections::HashMap;
 use std::time::Duration;
 
@@ -5,7 +6,6 @@ use tokio::sync::Mutex;
 
 use anyhow::Result;
 use at_core::cache::{CacheDb, CacheError};
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -17,7 +17,7 @@ pub struct StaleAgent {
     /// The agent's name.
     pub name: String,
     /// When the agent was last seen.
-    pub last_seen: DateTime<Utc>,
+    pub last_seen: Timestamp,
     /// How long the agent has been stale.
     #[serde(with = "duration_serde")]
     pub duration_since: Duration,
@@ -92,7 +92,7 @@ impl HeartbeatMonitor {
     /// Returns a list of agents whose `last_seen` timestamp exceeds the
     /// staleness threshold relative to now.
     pub async fn check_agents(&self, cache: &CacheDb) -> Result<Vec<StaleAgent>> {
-        let now = Utc::now();
+        let now = Timestamp::now();
         let tracked: Vec<(String, Uuid)> = {
             let agents = self.tracked_agents.lock().await;
             agents.iter().map(|(k, v)| (k.clone(), *v)).collect()
@@ -104,7 +104,7 @@ impl HeartbeatMonitor {
                 Ok(Some(agent)) => {
                     let elapsed = now
                         .signed_duration_since(agent.last_seen)
-                        .to_std()
+                        .try_into()
                         .unwrap_or(Duration::ZERO);
                     if elapsed > self.staleness_threshold {
                         stale.push(StaleAgent {
@@ -120,7 +120,7 @@ impl HeartbeatMonitor {
                     stale.push(StaleAgent {
                         agent_id: id,
                         name,
-                        last_seen: DateTime::<Utc>::MIN_UTC,
+                        last_seen: at_time::Timestamp::MIN,
                         duration_since: self.staleness_threshold + Duration::from_secs(1),
                     });
                 }
@@ -157,7 +157,7 @@ mod tests {
     use super::*;
     use at_core::types::{Agent, AgentRole, CliType};
 
-    fn make_agent(name: &str, last_seen: DateTime<Utc>) -> Agent {
+    fn make_agent(name: &str, last_seen: Timestamp) -> Agent {
         let mut agent = Agent::new(name, AgentRole::Crew, CliType::Claude);
         agent.last_seen = last_seen;
         agent
@@ -180,7 +180,7 @@ mod tests {
         let stale = StaleAgent {
             agent_id: Uuid::new_v4(),
             name: "alpha".to_string(),
-            last_seen: DateTime::<Utc>::MIN_UTC,
+            last_seen: at_time::Timestamp::MIN,
             duration_since: Duration::new(7, 250),
         };
 
@@ -244,7 +244,7 @@ mod tests {
         let entry = &stale[0];
         assert_eq!(entry.agent_id, id);
         assert_eq!(entry.name, "phantom");
-        assert_eq!(entry.last_seen, DateTime::<Utc>::MIN_UTC);
+        assert_eq!(entry.last_seen, at_time::Timestamp::MIN);
         // Sentinel duration must exceed the threshold so callers treat as stale.
         assert!(entry.duration_since > monitor.staleness_threshold());
     }
@@ -256,7 +256,7 @@ mod tests {
         let cache = CacheDb::new_in_memory().await.expect("cache");
 
         // Insert an agent whose last_seen is "now" — well within threshold.
-        let agent = make_agent("fresh", Utc::now());
+        let agent = make_agent("fresh", Timestamp::now());
         cache.upsert_agent(&agent).await.expect("upsert");
 
         monitor.register_agent("fresh".to_string(), agent.id).await;
@@ -274,7 +274,7 @@ mod tests {
         let cache = CacheDb::new_in_memory().await.expect("cache");
 
         // last_seen is 120s in the past — clearly beyond a 60s threshold.
-        let last_seen = Utc::now() - chrono::Duration::seconds(120);
+        let last_seen = Timestamp::now() - at_time::Duration::seconds(120);
         let agent = make_agent("slowpoke", last_seen);
         cache.upsert_agent(&agent).await.expect("upsert");
 
@@ -295,7 +295,7 @@ mod tests {
         let monitor = HeartbeatMonitor::new(threshold);
         let cache = CacheDb::new_in_memory().await.expect("cache");
 
-        let last_seen = Utc::now() - chrono::Duration::seconds(1);
+        let last_seen = Timestamp::now() - at_time::Duration::seconds(1);
         let agent = make_agent("just-pinged", last_seen);
         cache.upsert_agent(&agent).await.expect("upsert");
 
@@ -312,8 +312,8 @@ mod tests {
         let monitor = HeartbeatMonitor::new(threshold);
         let cache = CacheDb::new_in_memory().await.expect("cache");
 
-        let fresh = make_agent("alpha", Utc::now());
-        let stale = make_agent("bravo", Utc::now() - chrono::Duration::seconds(600));
+        let fresh = make_agent("alpha", Timestamp::now());
+        let stale = make_agent("bravo", Timestamp::now() - at_time::Duration::seconds(600));
         cache.upsert_agent(&fresh).await.expect("upsert alpha");
         cache.upsert_agent(&stale).await.expect("upsert bravo");
 
@@ -352,7 +352,10 @@ mod tests {
             .expect("raw insert");
 
         // Also insert a healthy agent — it must still show up in results.
-        let healthy = make_agent("healthy-agent", Utc::now() - chrono::Duration::seconds(120));
+        let healthy = make_agent(
+            "healthy-agent",
+            Timestamp::now() - at_time::Duration::seconds(120),
+        );
         cache.upsert_agent(&healthy).await.expect("upsert healthy");
 
         monitor
@@ -396,7 +399,10 @@ mod tests {
             .await
             .expect("raw insert");
 
-        let stale = make_agent("real-stale", Utc::now() - chrono::Duration::seconds(999));
+        let stale = make_agent(
+            "real-stale",
+            Timestamp::now() - at_time::Duration::seconds(999),
+        );
         cache.upsert_agent(&stale).await.expect("upsert stale");
 
         monitor

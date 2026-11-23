@@ -249,7 +249,7 @@ pub(crate) async fn transition_bead_status(
             )));
         }
         bead.status = status;
-        bead.updated_at = chrono::Utc::now();
+        bead.updated_at = at_time::Timestamp::now();
         bead.clone()
     };
     state

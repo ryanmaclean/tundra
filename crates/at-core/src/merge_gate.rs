@@ -169,7 +169,7 @@ pub struct MergeGateReport {
     pub head: Option<String>,
     /// When the gate ran (RFC 3339, UTC).
     #[serde(default)]
-    pub generated_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub generated_at: Option<at_time::Timestamp>,
 }
 
 impl MergeGateReport {
@@ -185,7 +185,7 @@ impl MergeGateReport {
             results: Vec::new(),
             criteria: Vec::new(),
             head: None,
-            generated_at: Some(chrono::Utc::now()),
+            generated_at: Some(at_time::Timestamp::now()),
         }
     }
 

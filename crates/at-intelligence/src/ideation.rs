@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use at_time::Timestamp;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use uuid::Uuid;
@@ -62,7 +62,7 @@ pub struct Idea {
     pub impact: ImpactLevel,
     pub effort: EffortLevel,
     pub source: String,
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
 }
 
 // ---------------------------------------------------------------------------
@@ -73,7 +73,7 @@ pub struct Idea {
 pub struct IdeationResult {
     pub ideas: Vec<Idea>,
     pub analysis_type: String,
-    pub generated_at: DateTime<Utc>,
+    pub generated_at: Timestamp,
 }
 
 // ---------------------------------------------------------------------------
@@ -236,7 +236,7 @@ impl IdeationEngine {
             impact: ImpactLevel::Medium,
             effort: EffortLevel::Small,
             source: "auto-analysis".to_string(),
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
         };
 
         self.ideas.push(idea.clone());
@@ -244,7 +244,7 @@ impl IdeationEngine {
         IdeationResult {
             ideas: vec![idea],
             analysis_type: category_label.to_string(),
-            generated_at: Utc::now(),
+            generated_at: Timestamp::now(),
         }
     }
 
@@ -404,7 +404,7 @@ impl IdeationEngine {
                 impact: Self::parse_impact(&raw.impact),
                 effort: Self::parse_effort(&raw.effort),
                 source: "llm-analysis".to_string(),
-                created_at: Utc::now(),
+                created_at: Timestamp::now(),
             })
             .collect();
 
@@ -431,7 +431,7 @@ impl IdeationEngine {
                     impact: ImpactLevel::Medium,
                     effort: EffortLevel::Medium,
                     source: "llm-analysis".to_string(),
-                    created_at: Utc::now(),
+                    created_at: Timestamp::now(),
                 }
             })
             .collect()
@@ -599,7 +599,7 @@ impl AiIdeationRequest {
         Ok(IdeationResult {
             ideas,
             analysis_type: IdeationEngine::category_label(&self.category).to_string(),
-            generated_at: Utc::now(),
+            generated_at: Timestamp::now(),
         })
     }
 }

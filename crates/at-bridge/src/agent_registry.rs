@@ -125,7 +125,7 @@ mod tests {
     use super::*;
     use crate::protocol::EventPayload;
     use at_core::types::{AgentRole, CliType};
-    use chrono::{Duration, Utc};
+    use at_time::{Duration, Timestamp};
 
     fn live() -> Agent {
         let mut a = Agent::new("exec", AgentRole::Crew, CliType::Claude);
@@ -134,7 +134,7 @@ mod tests {
         a
     }
 
-    fn beat(id: Uuid, at: chrono::DateTime<Utc>) -> BridgeMessage {
+    fn beat(id: Uuid, at: at_time::Timestamp) -> BridgeMessage {
         BridgeMessage::Event(EventPayload {
             event_type: EVENT_AGENT_HEARTBEAT.into(),
             agent_id: Some(id),
@@ -184,7 +184,7 @@ mod tests {
     fn heartbeat_for_unknown_agent_is_ignored() {
         let mut map = HashMap::new();
         assert_eq!(
-            apply(&mut map, &beat(Uuid::new_v4(), Utc::now())),
+            apply(&mut map, &beat(Uuid::new_v4(), Timestamp::now())),
             Applied::Ignored
         );
         assert!(map.is_empty());
@@ -236,8 +236,8 @@ mod tests {
         assert!(is_registry_message(&BridgeMessage::AgentDeleted(
             Uuid::new_v4()
         )));
-        assert!(is_registry_message(&beat(Uuid::new_v4(), Utc::now())));
-        let mut no_agent = beat(Uuid::new_v4(), Utc::now());
+        assert!(is_registry_message(&beat(Uuid::new_v4(), Timestamp::now())));
+        let mut no_agent = beat(Uuid::new_v4(), Timestamp::now());
         if let BridgeMessage::Event(p) = &mut no_agent {
             p.agent_id = None;
         }

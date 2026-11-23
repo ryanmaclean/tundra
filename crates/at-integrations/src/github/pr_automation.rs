@@ -62,16 +62,10 @@ impl PrAutomation {
         body.push_str(&format!("- **Complexity**: {:?}\n", task.complexity));
 
         if let Some(started) = &task.started_at {
-            body.push_str(&format!(
-                "- **Started**: {}\n",
-                started.format("%Y-%m-%d %H:%M UTC")
-            ));
+            body.push_str(&format!("- **Started**: {}\n", utc_minute(started)));
         }
         if let Some(completed) = &task.completed_at {
-            body.push_str(&format!(
-                "- **Completed**: {}\n",
-                completed.format("%Y-%m-%d %H:%M UTC")
-            ));
+            body.push_str(&format!("- **Completed**: {}\n", utc_minute(completed)));
         }
 
         // Worktree info
@@ -169,6 +163,12 @@ impl TaskLogEntryExt for at_core::types::TaskLogEntry {
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+/// `2026-11-22 10:20 UTC`.
+fn utc_minute(timestamp: &at_time::Timestamp) -> String {
+    let (hour, minute, _) = timestamp.time_of_day();
+    format!("{} {hour:02}:{minute:02} UTC", timestamp.date_string())
+}
 
 #[cfg(test)]
 mod tests {
@@ -345,16 +345,10 @@ mod tests {
         body.push_str(&format!("- **Complexity**: {:?}\n", task.complexity));
 
         if let Some(started) = &task.started_at {
-            body.push_str(&format!(
-                "- **Started**: {}\n",
-                started.format("%Y-%m-%d %H:%M UTC")
-            ));
+            body.push_str(&format!("- **Started**: {}\n", utc_minute(started)));
         }
         if let Some(completed) = &task.completed_at {
-            body.push_str(&format!(
-                "- **Completed**: {}\n",
-                completed.format("%Y-%m-%d %H:%M UTC")
-            ));
+            body.push_str(&format!("- **Completed**: {}\n", utc_minute(completed)));
         }
 
         if let Some(worktree) = &task.worktree_path {

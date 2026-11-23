@@ -45,7 +45,7 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect) {
                 Cell::from(format!("{:?}", a.role)),
                 Cell::from(format!("{:?}", a.cli_type)),
                 Cell::from(a.model.as_str()),
-                Cell::from(a.last_seen.format("%H:%M:%S").to_string()),
+                Cell::from(a.last_seen.time_string()),
             ]);
             if i == app.selected_index {
                 row.style(Style::default().bg(Color::DarkGray))

@@ -1,6 +1,6 @@
 pub mod sync;
 
-use chrono::{DateTime, Utc};
+use at_time::Timestamp;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -79,7 +79,7 @@ pub struct LinearProject {
     pub description: Option<String>,
     pub state: String,
     pub team_id: String,
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -93,8 +93,8 @@ pub struct LinearIssue {
     pub team: LinearTeam,
     pub assignee_name: Option<String>,
     pub labels: Vec<String>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: Timestamp,
+    pub updated_at: Timestamp,
     pub url: String,
 }
 
@@ -254,7 +254,7 @@ impl LinearClient {
     }
 
     fn stub_issue(idx: u32, state: &str) -> LinearIssue {
-        let now = Utc::now();
+        let now = Timestamp::now();
         LinearIssue {
             id: format!("issue-{idx:04}"),
             identifier: format!("ENG-{idx}"),
@@ -328,16 +328,14 @@ impl LinearClient {
                         .collect()
                 })
                 .unwrap_or_default(),
-            created_at: chrono::DateTime::parse_from_rfc3339(
+            created_at: Timestamp::parse_rfc3339(
                 n["createdAt"].as_str().unwrap_or("2024-01-01T00:00:00Z"),
             )
-            .map(|dt| dt.with_timezone(&Utc))
-            .unwrap_or_else(|_| Utc::now()),
-            updated_at: chrono::DateTime::parse_from_rfc3339(
+            .unwrap_or_else(Timestamp::now),
+            updated_at: Timestamp::parse_rfc3339(
                 n["updatedAt"].as_str().unwrap_or("2024-01-01T00:00:00Z"),
             )
-            .map(|dt| dt.with_timezone(&Utc))
-            .unwrap_or_else(|_| Utc::now()),
+            .unwrap_or_else(Timestamp::now),
             url: n["url"].as_str().unwrap_or_default().to_string(),
         }
     }

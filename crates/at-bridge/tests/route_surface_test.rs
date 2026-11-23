@@ -300,7 +300,7 @@ async fn catalog_matches_bop_catalog_v1_shape() {
     let app = app();
     let catalog = fetch_catalog(&app, CATALOG_PATH, Some(API_KEY)).await;
     assert_eq!(catalog.schema_version, "v1");
-    chrono::DateTime::parse_from_rfc3339(&catalog.generated_at).expect("RFC 3339 generated_at");
+    at_time::Timestamp::parse_rfc3339(&catalog.generated_at).expect("RFC 3339 generated_at");
     assert_eq!(catalog.source, "at-bridge");
     assert_eq!(catalog.service.name, "auto-tundra");
     assert!(catalog.auth.enforced);

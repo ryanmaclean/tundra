@@ -29,12 +29,12 @@
 //! // manager.send_message(session_id, "Hello").await;
 //! ```
 
+use at_time::Timestamp;
 use std::collections::HashMap;
 
 use at_intelligence::llm::{
     AnthropicProvider, LlmConfig, LlmError, LlmMessage, LlmProvider, LlmResponse,
 };
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -76,8 +76,8 @@ impl Default for SessionConfig {
 /// Metadata about a session's lifecycle and usage.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionMetadata {
-    pub created_at: DateTime<Utc>,
-    pub last_active_at: DateTime<Utc>,
+    pub created_at: Timestamp,
+    pub last_active_at: Timestamp,
     pub turn_count: u64,
     pub total_input_tokens: u64,
     pub total_output_tokens: u64,
@@ -85,7 +85,7 @@ pub struct SessionMetadata {
 
 impl SessionMetadata {
     fn new() -> Self {
-        let now = Utc::now();
+        let now = Timestamp::now();
         Self {
             created_at: now,
             last_active_at: now,
@@ -96,7 +96,7 @@ impl SessionMetadata {
     }
 
     fn record_turn(&mut self, response: &LlmResponse) {
-        self.last_active_at = Utc::now();
+        self.last_active_at = Timestamp::now();
         self.turn_count += 1;
         self.total_input_tokens += response.total_input_tokens();
         self.total_output_tokens += response.output_tokens;

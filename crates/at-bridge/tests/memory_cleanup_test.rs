@@ -48,7 +48,7 @@ async fn test_task_archival_and_manual_cleanup() {
             at_core::types::TaskComplexity::Small,
         );
         task1.id = task_id_1;
-        task1.completed_at = Some(chrono::Utc::now() - chrono::Duration::days(30));
+        task1.completed_at = Some(at_time::Timestamp::now() - at_time::Duration::days(30));
         tasks.insert(task_id_1, task1);
 
         // Recent completed task (1 day ago)
@@ -60,7 +60,7 @@ async fn test_task_archival_and_manual_cleanup() {
             at_core::types::TaskComplexity::Small,
         );
         task2.id = task_id_2;
-        task2.completed_at = Some(chrono::Utc::now() - chrono::Duration::days(1));
+        task2.completed_at = Some(at_time::Timestamp::now() - at_time::Duration::days(1));
         tasks.insert(task_id_2, task2);
 
         // Non-archived task
@@ -72,7 +72,7 @@ async fn test_task_archival_and_manual_cleanup() {
             at_core::types::TaskComplexity::Small,
         );
         task3.id = task_id_3;
-        task3.completed_at = Some(chrono::Utc::now() - chrono::Duration::days(30));
+        task3.completed_at = Some(at_time::Timestamp::now() - at_time::Duration::days(30));
         tasks.insert(task_id_3, task3);
 
         state
@@ -135,7 +135,7 @@ async fn test_cleanup_only_affects_archived_tasks() {
             at_core::types::TaskComplexity::Small,
         );
         task1.id = old_archived_id;
-        task1.completed_at = Some(chrono::Utc::now() - chrono::Duration::days(30));
+        task1.completed_at = Some(at_time::Timestamp::now() - at_time::Duration::days(30));
         tasks.insert(old_archived_id, task1);
 
         // Old but not archived task
@@ -147,7 +147,7 @@ async fn test_cleanup_only_affects_archived_tasks() {
             at_core::types::TaskComplexity::Small,
         );
         task2.id = old_unarchived_id;
-        task2.completed_at = Some(chrono::Utc::now() - chrono::Duration::days(30));
+        task2.completed_at = Some(at_time::Timestamp::now() - at_time::Duration::days(30));
         tasks.insert(old_unarchived_id, task2);
     }
 
@@ -186,7 +186,7 @@ async fn test_cleanup_respects_completed_at_field() {
             at_core::types::TaskComplexity::Small,
         );
         task1.id = task_with_timestamp;
-        task1.completed_at = Some(chrono::Utc::now() - chrono::Duration::days(30));
+        task1.completed_at = Some(at_time::Timestamp::now() - at_time::Duration::days(30));
         tasks.insert(task_with_timestamp, task1);
 
         // Old archived task without completed_at
@@ -235,7 +235,7 @@ async fn test_disconnect_buffer_cleanup() {
             at_bridge::terminal::DisconnectBuffer {
                 data: old_data,
                 max_bytes: 1024,
-                disconnected_at: chrono::Utc::now() - chrono::Duration::minutes(10),
+                disconnected_at: at_time::Timestamp::now() - at_time::Duration::minutes(10),
             },
         );
 
@@ -247,7 +247,7 @@ async fn test_disconnect_buffer_cleanup() {
             at_bridge::terminal::DisconnectBuffer {
                 data: recent_data,
                 max_bytes: 1024,
-                disconnected_at: chrono::Utc::now() - chrono::Duration::minutes(1),
+                disconnected_at: at_time::Timestamp::now() - at_time::Duration::minutes(1),
             },
         );
     }
@@ -348,7 +348,7 @@ async fn test_background_cleanup_task_integration() {
             at_core::types::TaskComplexity::Small,
         );
         task.id = old_task_id;
-        task.completed_at = Some(chrono::Utc::now() - chrono::Duration::days(30));
+        task.completed_at = Some(at_time::Timestamp::now() - at_time::Duration::days(30));
         tasks.insert(old_task_id, task);
 
         let mut archived = state.archived_tasks.write().await;
@@ -415,7 +415,7 @@ async fn test_unarchive_and_cleanup() {
             at_core::types::TaskComplexity::Small,
         );
         task.id = task_id;
-        task.completed_at = Some(chrono::Utc::now() - chrono::Duration::days(30));
+        task.completed_at = Some(at_time::Timestamp::now() - at_time::Duration::days(30));
         tasks.insert(task_id, task);
     }
 

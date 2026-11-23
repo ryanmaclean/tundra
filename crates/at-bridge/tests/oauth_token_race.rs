@@ -35,7 +35,7 @@
 //!   (concurrent readers, racing writer + readers, racing clear + readers).
 //!   These are the contracts that the higher-level refresh-race fix would
 //!   eventually rely on.
-//! * Group D — clock/expiry edge cases. Clock is `chrono::Utc::now()` and
+//! * Group D — clock/expiry edge cases. Clock is `at_time::Timestamp::now()` and
 //!   not injectable, so we use `expires_in: 0` (boundary) and very short
 //!   sub-second sleeps where unavoidable.
 //!
@@ -52,13 +52,13 @@ use tokio::task::JoinSet;
 // ---------------------------------------------------------------------------
 
 /// A1: token at exact expiry boundary surfaces `TokenExpired` from
-/// `get_token` and `is_expired() == true`. Pins the `Utc::now() >=
+/// `get_token` and `is_expired() == true`. Pins the `Timestamp::now() >=
 /// expires_at` boundary in `is_expired`.
 #[tokio::test]
 async fn token_at_exact_expiry_is_treated_as_expired() {
     let manager = OAuthTokenManager::new();
-    // expires_in: 0 -> expires_at == stored_at == Utc::now() at the call
-    // site. By the time we observe it, Utc::now() has advanced, so the
+    // expires_in: 0 -> expires_at == stored_at == Timestamp::now() at the call
+    // site. By the time we observe it, Timestamp::now() has advanced, so the
     // `>=` branch fires.
     manager.store_token("ghp_at_boundary", Some(0), None).await;
 
@@ -299,7 +299,7 @@ async fn store_after_expired_failure_recovers() {
 /// D1: `should_refresh()` flips at the 5-minute pre-expiry skew window.
 /// Pins the hardcoded `Duration::minutes(5)` threshold in
 /// `OAuthTokenManager::should_refresh` (oauth_token_manager.rs:363).
-/// Clock is `chrono::Utc::now()` and not injectable, so we test on the
+/// Clock is `at_time::Timestamp::now()` and not injectable, so we test on the
 /// two safe sides: an `expires_in` well inside the window (60s) must
 /// trigger refresh; one well outside (10 min) must not.
 #[tokio::test]
@@ -324,7 +324,7 @@ async fn should_refresh_pins_five_minute_skew_window() {
 /// D2: `is_expired()` and `should_refresh()` are independent of whether a
 /// token has been retrieved before — calling `get_token` does not "cache"
 /// or "freeze" the expiry decision. Pins that expiry checks always read
-/// fresh `Utc::now()`.
+/// fresh `Timestamp::now()`.
 #[tokio::test]
 async fn expiry_check_is_not_cached_by_prior_get_token() {
     let manager = OAuthTokenManager::new();

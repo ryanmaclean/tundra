@@ -113,5 +113,5 @@ pub struct EventPayload {
     pub agent_id: Option<Uuid>,
     pub bead_id: Option<Uuid>,
     pub message: String,
-    pub timestamp: chrono::DateTime<chrono::Utc>,
+    pub timestamp: at_time::Timestamp,
 }

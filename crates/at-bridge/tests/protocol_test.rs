@@ -130,7 +130,7 @@ fn test_event_roundtrip() {
         agent_id: Some(Uuid::new_v4()),
         bead_id: Some(Uuid::new_v4()),
         message: "something happened".into(),
-        timestamp: chrono::Utc::now(),
+        timestamp: at_time::Timestamp::now(),
     }));
 }
 

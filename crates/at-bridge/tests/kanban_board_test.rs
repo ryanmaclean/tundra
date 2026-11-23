@@ -315,7 +315,7 @@ async fn test_update_task_title() {
         let mut beads = state.beads.write().await;
         let bead = beads.get_mut(&id).unwrap();
         bead.title = "new-title".to_string();
-        bead.updated_at = chrono::Utc::now();
+        bead.updated_at = at_time::Timestamp::now();
     }
 
     let beads = state.beads.read().await;
@@ -332,7 +332,7 @@ async fn test_update_task_description() {
         let mut beads = state.beads.write().await;
         let bead = beads.get_mut(&id).unwrap();
         bead.description = Some("Updated description content".to_string());
-        bead.updated_at = chrono::Utc::now();
+        bead.updated_at = at_time::Timestamp::now();
     }
 
     let beads = state.beads.read().await;
@@ -1209,7 +1209,7 @@ async fn test_hooked_at_timestamp_set_on_transition() {
         let mut beads = state.beads.write().await;
         let bead = beads.get_mut(&id).unwrap();
         bead.status = BeadStatus::Hooked;
-        bead.hooked_at = Some(chrono::Utc::now());
+        bead.hooked_at = Some(at_time::Timestamp::now());
     }
 
     let beads = state.beads.read().await;
@@ -1227,7 +1227,7 @@ async fn test_done_at_timestamp_set_on_completion() {
         let mut beads = state.beads.write().await;
         let bead = beads.get_mut(&id).unwrap();
         bead.status = BeadStatus::Done;
-        bead.done_at = Some(chrono::Utc::now());
+        bead.done_at = Some(at_time::Timestamp::now());
     }
 
     let beads = state.beads.read().await;
@@ -1245,7 +1245,7 @@ async fn test_slung_at_timestamp_set_on_ai_review() {
         let mut beads = state.beads.write().await;
         let bead = beads.get_mut(&id).unwrap();
         bead.status = BeadStatus::Slung;
-        bead.slung_at = Some(chrono::Utc::now());
+        bead.slung_at = Some(at_time::Timestamp::now());
     }
 
     let beads = state.beads.read().await;

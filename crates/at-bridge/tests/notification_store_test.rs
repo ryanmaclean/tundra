@@ -1,6 +1,6 @@
 use at_bridge::notifications::{notification_from_event, NotificationLevel, NotificationStore};
 use at_bridge::protocol::{BridgeMessage, EventPayload};
-use chrono::Utc;
+use at_time::Timestamp;
 use uuid::Uuid;
 
 // ---------------------------------------------------------------------------
@@ -305,7 +305,7 @@ fn make_event(
         agent_id,
         bead_id,
         message: message.to_string(),
-        timestamp: Utc::now(),
+        timestamp: Timestamp::now(),
     })
 }
 

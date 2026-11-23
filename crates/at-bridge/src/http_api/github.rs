@@ -249,7 +249,7 @@ pub(crate) async fn trigger_github_sync(State(state): State<Arc<ApiState>>) -> i
     {
         let mut status = state.sync_status.write().await;
         status.is_syncing = false;
-        status.last_sync_time = Some(chrono::Utc::now());
+        status.last_sync_time = Some(at_time::Timestamp::now());
         status.issues_imported = status.issues_imported.saturating_add(imported_count);
     }
 
@@ -547,7 +547,7 @@ pub(crate) async fn github_oauth_authorize(
     let url = oauth_client.authorization_url(&csrf_state);
 
     // Store the state for CSRF validation during callback
-    let timestamp = chrono::Utc::now().to_rfc3339();
+    let timestamp = at_time::Timestamp::now().to_rfc3339();
     state
         .oauth_pending_states
         .write()
@@ -573,12 +573,11 @@ pub(crate) async fn github_oauth_callback(
     let state_timestamp = pending_states.get(&body.state).cloned();
 
     let state_valid = if let Some(timestamp_str) = state_timestamp {
-        match chrono::DateTime::parse_from_rfc3339(&timestamp_str) {
+        match timestamp_str.parse::<at_time::Timestamp>() {
             Ok(timestamp) => {
-                let age =
-                    chrono::Utc::now().signed_duration_since(timestamp.with_timezone(&chrono::Utc));
+                let age = at_time::Timestamp::now().signed_duration_since(timestamp);
 
-                if age.num_minutes() < 10 {
+                if age.whole_minutes() < 10 {
                     pending_states.remove(&body.state);
                     true
                 } else {
@@ -970,7 +969,7 @@ pub fn spawn_pr_poller(
             tokio::select! {
                 _ = tokio::time::sleep(std::time::Duration::from_secs(30)) => {
                     let mut reg = registry.write().await;
-                    let now = chrono::Utc::now();
+                    let now = at_time::Timestamp::now();
                     for status in reg.values_mut() {
                         status.last_polled = now;
                     }
@@ -994,7 +993,7 @@ pub(crate) async fn watch_pr(
         state: "open".to_string(),
         mergeable: None,
         checks_passed: None,
-        last_polled: chrono::Utc::now(),
+        last_polled: at_time::Timestamp::now(),
     };
     let mut registry = state.pr_poll_registry.write().await;
     registry.insert(number, status.clone());
@@ -1059,8 +1058,11 @@ pub(crate) async fn create_release(
             body: req.body,
             draft: req.draft,
             prerelease: req.prerelease,
-            created_at: chrono::Utc::now(),
-            html_url: format!("local://releases/{}", chrono::Utc::now().timestamp_millis()),
+            created_at: at_time::Timestamp::now(),
+            html_url: format!(
+                "local://releases/{}",
+                at_time::Timestamp::now().unix_millis()
+            ),
         };
         let mut releases = state.releases.write().await;
         releases.retain(|r| r.tag_name != release.tag_name);
@@ -1128,9 +1130,8 @@ pub(crate) async fn create_release(
         created_at: created
             .get("created_at")
             .and_then(|v| v.as_str())
-            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-            .map(|dt| dt.with_timezone(&chrono::Utc))
-            .unwrap_or_else(chrono::Utc::now),
+            .and_then(at_time::Timestamp::parse_rfc3339)
+            .unwrap_or_else(at_time::Timestamp::now),
         html_url: created
             .get("html_url")
             .and_then(|v| v.as_str())
@@ -1191,9 +1192,8 @@ pub(crate) async fn list_releases(
                         created_at: r
                             .get("created_at")
                             .and_then(|v| v.as_str())
-                            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-                            .map(|dt| dt.with_timezone(&chrono::Utc))
-                            .unwrap_or_else(chrono::Utc::now),
+                            .and_then(at_time::Timestamp::parse_rfc3339)
+                            .unwrap_or_else(at_time::Timestamp::now),
                         html_url: r
                             .get("html_url")
                             .and_then(|v| v.as_str())

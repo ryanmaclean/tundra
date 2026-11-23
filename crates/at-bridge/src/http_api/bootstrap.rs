@@ -46,7 +46,7 @@ pub(crate) async fn get_bootstrap(State(state): State<Arc<ApiState>>) -> Json<Bo
         failed,
         escalated,
         active_agents: agents_guard.len() as u64,
-        timestamp: chrono::Utc::now(),
+        timestamp: at_time::Timestamp::now(),
     };
 
     Json(BootstrapResponse {

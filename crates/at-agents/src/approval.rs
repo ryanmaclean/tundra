@@ -1,10 +1,10 @@
+use at_time::Timestamp;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use at_core::types::AgentRole;
 use at_harness::audit_chain::{AuditChain, AuditError};
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -48,9 +48,9 @@ pub struct PendingApproval {
     pub agent_id: Uuid,
     pub tool_name: String,
     pub arguments: serde_json::Value,
-    pub requested_at: DateTime<Utc>,
+    pub requested_at: Timestamp,
     pub status: ApprovalStatus,
-    pub resolved_at: Option<DateTime<Utc>>,
+    pub resolved_at: Option<Timestamp>,
 }
 
 // ---------------------------------------------------------------------------
@@ -319,7 +319,7 @@ impl ToolApprovalSystem {
             agent_id,
             tool_name: tool_name.into(),
             arguments,
-            requested_at: Utc::now(),
+            requested_at: Timestamp::now(),
             status: ApprovalStatus::Pending,
             resolved_at: None,
         };
@@ -362,7 +362,7 @@ impl ToolApprovalSystem {
             return Err(ApprovalError::AlreadyResolved(approval_id));
         }
 
-        let resolved_at = Utc::now();
+        let resolved_at = Timestamp::now();
         let approval = &self.approvals[idx];
         let kind = match status {
             ApprovalStatus::Approved => "approval.approved",

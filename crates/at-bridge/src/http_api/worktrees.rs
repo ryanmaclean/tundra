@@ -296,7 +296,7 @@ pub(crate) async fn merge_worktree_in(
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_default(),
-        created_at: chrono::Utc::now(),
+        created_at: at_time::Timestamp::now(),
     };
     let gate_config = state.settings_manager.load_or_default().merge_gate;
     let outcome = match gate_flow::run_gate(

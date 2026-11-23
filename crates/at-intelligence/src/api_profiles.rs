@@ -9,10 +9,10 @@
 //! - **Circuit breaker**: Per-provider fault isolation with auto-failover
 //! - **Rate limiting**: Per-provider token-bucket rate limiting
 
+use at_time::Timestamp;
 use std::collections::HashMap;
 use std::time::Duration;
 
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -47,7 +47,7 @@ pub struct ApiProfile {
     pub enabled: bool,
     /// Custom headers to send with requests.
     pub custom_headers: HashMap<String, String>,
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -100,7 +100,7 @@ impl ApiProfile {
             priority: 0,
             enabled: true,
             custom_headers: HashMap::new(),
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
         }
     }
 
@@ -152,7 +152,7 @@ pub struct ProfileUsage {
     pub total_rate_limits: u64,
     /// Estimated spend in USD.
     pub estimated_spend_usd: f64,
-    pub last_used: Option<DateTime<Utc>>,
+    pub last_used: Option<Timestamp>,
     pub last_error: Option<String>,
 }
 
@@ -177,7 +177,7 @@ impl ProfileUsage {
         self.total_tokens_in += tokens_in;
         self.total_tokens_out += tokens_out;
         self.estimated_spend_usd += cost_usd;
-        self.last_used = Some(Utc::now());
+        self.last_used = Some(Timestamp::now());
     }
 
     /// Record an error (counts as a request for error-rate purposes).

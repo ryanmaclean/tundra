@@ -23,11 +23,10 @@ pub mod types;
 
 #[cfg(test)]
 mod tests {
-    use chrono::Utc;
-
     use crate::github::client::GitHubClient;
     use crate::github::issues::import_issue_as_task;
     use crate::types::*;
+    use at_time::Timestamp;
 
     // ---- Type serialization roundtrips ----
 
@@ -45,8 +44,8 @@ mod tests {
             }],
             assignees: vec!["alice".to_string()],
             author: "bob".to_string(),
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
             comments: 3,
             html_url: "https://github.com/owner/repo/issues/42".to_string(),
         };
@@ -78,8 +77,8 @@ mod tests {
             additions: 50,
             deletions: 10,
             changed_files: 3,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
             merged_at: None,
             html_url: "https://github.com/owner/repo/pull/101".to_string(),
         };
@@ -146,7 +145,7 @@ mod tests {
             body: Some("Release notes".to_string()),
             draft: false,
             prerelease: false,
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
             html_url: "https://github.com/owner/repo/releases/tag/v1.0.0".to_string(),
         };
 
@@ -207,7 +206,7 @@ mod tests {
 
     #[test]
     fn import_open_issue_as_bead() {
-        let now = Utc::now();
+        let now = Timestamp::now();
         let issue = GitHubIssue {
             number: 7,
             title: "Add logging".to_string(),
@@ -242,7 +241,7 @@ mod tests {
 
     #[test]
     fn import_closed_issue_as_bead() {
-        let now = Utc::now();
+        let now = Timestamp::now();
         let issue = GitHubIssue {
             number: 12,
             title: "Fix crash".to_string(),

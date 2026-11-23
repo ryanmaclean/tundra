@@ -9,9 +9,9 @@
 //!
 //! Each phase produces a `PhaseResult` that feeds into the next phase.
 
+use at_time::Timestamp;
 use std::collections::HashMap;
 
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -31,7 +31,7 @@ pub struct PhaseResult {
     pub artifacts: Vec<SpecArtifact>,
     /// Execution metrics.
     pub metrics: PhaseMetrics,
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
 }
 
 /// Which spec phase this result belongs to.
@@ -140,13 +140,13 @@ pub struct Spec {
     pub quality_score: Option<f64>,
     /// Files that need to be modified.
     pub affected_files: Vec<String>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: Timestamp,
+    pub updated_at: Timestamp,
 }
 
 impl Spec {
     pub fn new(title: impl Into<String>, description: impl Into<String>) -> Self {
-        let now = Utc::now();
+        let now = Timestamp::now();
         Self {
             id: Uuid::new_v4(),
             task_title: title.into(),
@@ -163,7 +163,7 @@ impl Spec {
 
     /// Add a phase result.
     pub fn add_phase_result(&mut self, result: PhaseResult) {
-        self.updated_at = Utc::now();
+        self.updated_at = Timestamp::now();
         self.phases.push(result);
     }
 
@@ -428,7 +428,7 @@ pub struct ComplexityAssessment {
     pub risk: RiskLevel,
     /// Breakdown by dimension.
     pub dimensions: Vec<ComplexityDimension>,
-    pub assessed_at: DateTime<Utc>,
+    pub assessed_at: Timestamp,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -457,7 +457,7 @@ impl ComplexityAssessment {
             estimated_subtasks: 0,
             risk: RiskLevel::Medium,
             dimensions: Vec::new(),
-            assessed_at: Utc::now(),
+            assessed_at: Timestamp::now(),
         }
     }
 }
@@ -476,7 +476,7 @@ impl ComplexityAssessment {
 /// ```rust
 /// use at_intelligence::spec::{SpecPipeline, SpecError, SpecPhase, PhaseResult, PhaseStatus, PhaseMetrics};
 /// use uuid::Uuid;
-/// use chrono::Utc;
+/// use at_time::Timestamp;
 ///
 /// fn handle_spec_operations(pipeline: &mut SpecPipeline) -> Result<(), SpecError> {
 ///     let spec = pipeline.create_spec("Add feature", "Description");
@@ -490,7 +490,7 @@ impl ComplexityAssessment {
 ///         content: "Analysis complete".to_string(),
 ///         artifacts: vec![],
 ///         metrics: PhaseMetrics::default(),
-///         created_at: Utc::now(),
+///         created_at: Timestamp::now(),
 ///     })?;
 ///
 ///     // Try with invalid ID - will return NotFound error
@@ -502,7 +502,7 @@ impl ComplexityAssessment {
 ///         content: "".to_string(),
 ///         artifacts: vec![],
 ///         metrics: PhaseMetrics::default(),
-///         created_at: Utc::now(),
+///         created_at: Timestamp::now(),
 ///     }) {
 ///         Err(SpecError::NotFound(_)) => println!("Spec not found"),
 ///         _ => {}
@@ -579,7 +579,7 @@ mod tests {
                 content: "done".into(),
                 artifacts: vec![],
                 metrics: PhaseMetrics::default(),
-                created_at: Utc::now(),
+                created_at: Timestamp::now(),
             });
         }
 
@@ -597,7 +597,7 @@ mod tests {
             content: "all criteria pass".into(),
             artifacts: vec![],
             metrics: PhaseMetrics::default(),
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
         });
         assert!(spec.is_validated());
     }
@@ -655,7 +655,7 @@ mod tests {
                 tokens_used: 500,
                 ..Default::default()
             },
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
         });
         spec.add_phase_result(PhaseResult {
             id: Uuid::new_v4(),
@@ -667,7 +667,7 @@ mod tests {
                 tokens_used: 1000,
                 ..Default::default()
             },
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
         });
         assert_eq!(spec.total_tokens(), 1500);
     }
@@ -700,7 +700,7 @@ mod tests {
                     content: "found stuff".into(),
                     artifacts: vec![],
                     metrics: PhaseMetrics::default(),
-                    created_at: Utc::now(),
+                    created_at: Timestamp::now(),
                 },
             )
             .unwrap();
@@ -720,7 +720,7 @@ mod tests {
                 content: "".into(),
                 artifacts: vec![],
                 metrics: PhaseMetrics::default(),
-                created_at: Utc::now(),
+                created_at: Timestamp::now(),
             },
         );
         assert!(result.is_err());
@@ -748,7 +748,7 @@ mod tests {
                     content: "".into(),
                     artifacts: vec![],
                     metrics: PhaseMetrics::default(),
-                    created_at: Utc::now(),
+                    created_at: Timestamp::now(),
                 },
             )
             .unwrap();
@@ -805,7 +805,7 @@ mod tests {
                 metadata: HashMap::new(),
             }],
             metrics: PhaseMetrics::default(),
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
         };
         let json = serde_json::to_string(&result).unwrap();
         let deser: PhaseResult = serde_json::from_str(&json).unwrap();
@@ -845,7 +845,7 @@ mod tests {
             content: "done".into(),
             artifacts: vec![],
             metrics: PhaseMetrics::default(),
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
         });
         assert!(spec.get_phase(SpecPhase::Discovery).is_some());
         assert!(spec.get_phase(SpecPhase::Writing).is_none());

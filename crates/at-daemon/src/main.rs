@@ -137,7 +137,7 @@ async fn main() -> Result<()> {
         api_port,
         frontend_port,
         host: config.daemon.host.clone(),
-        started_at: chrono::Utc::now().to_rfc3339(),
+        started_at: at_time::Timestamp::now().to_rfc3339(),
         project_path: std::env::current_dir()
             .ok()
             .map(|p| p.to_string_lossy().into_owned()),

@@ -223,7 +223,7 @@ impl PerformanceBenchmarks {
                     "benchmark_event",
                     &[
                         ("event_id", &i.to_string()),
-                        ("timestamp", &chrono::Utc::now().to_rfc3339()),
+                        ("timestamp", &at_time::Timestamp::now().to_rfc3339()),
                         ("component", "benchmark"),
                     ],
                 );

@@ -1,5 +1,5 @@
 use at_core::types::AgentRole;
-use chrono::{DateTime, Utc};
+use at_time::Timestamp;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -80,7 +80,7 @@ pub struct AgentInfo {
     pub name: String,
     pub role: AgentRole,
     pub state: AgentState,
-    pub last_seen: DateTime<Utc>,
+    pub last_seen: Timestamp,
 }
 
 // ---------------------------------------------------------------------------
@@ -93,7 +93,7 @@ struct ManagedAgent {
     role: AgentRole,
     sm: AgentStateMachine,
     lifecycle: Box<dyn AgentLifecycle>,
-    last_seen: DateTime<Utc>,
+    last_seen: Timestamp,
 }
 
 // ---------------------------------------------------------------------------
@@ -146,7 +146,7 @@ impl AgentSupervisor {
             role: role.clone(),
             sm,
             lifecycle,
-            last_seen: Utc::now(),
+            last_seen: Timestamp::now(),
         };
 
         self.agents.lock().await.insert(id, managed);
@@ -164,7 +164,7 @@ impl AgentSupervisor {
         agent.sm.transition(AgentEvent::Stop)?;
         agent.lifecycle.on_stop().await?;
         agent.sm.transition(AgentEvent::Stop)?; // Stopping -> Stopped
-        agent.last_seen = Utc::now();
+        agent.last_seen = Timestamp::now();
 
         tracing::info!(id = %id, "agent stopped");
         Ok(())
@@ -191,7 +191,7 @@ impl AgentSupervisor {
         for agent in agents.values_mut() {
             if agent.sm.state() == AgentState::Active {
                 agent.lifecycle.on_heartbeat().await?;
-                agent.last_seen = Utc::now();
+                agent.last_seen = Timestamp::now();
             }
         }
         Ok(())
@@ -211,7 +211,7 @@ impl AgentSupervisor {
                 // on_start + Spawned: Spawning -> Active
                 agent.lifecycle.on_start().await?;
                 agent.sm.transition(AgentEvent::Spawned)?;
-                agent.last_seen = Utc::now();
+                agent.last_seen = Timestamp::now();
                 restarted.push(agent.id);
                 tracing::info!(id = %agent.id, "agent restarted after failure");
             }
@@ -263,7 +263,7 @@ impl AgentSupervisor {
                 role,
                 sm,
                 lifecycle,
-                last_seen: chrono::Utc::now(),
+                last_seen: at_time::Timestamp::now(),
             },
         );
     }

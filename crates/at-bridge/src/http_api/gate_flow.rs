@@ -197,7 +197,7 @@ pub(crate) async fn record_gate_outcome(
                 match outcome {
                     GateOutcome::Merged { result, .. } => match result {
                         MergeResult::Success => {
-                            t.merged_at = Some(chrono::Utc::now());
+                            t.merged_at = Some(at_time::Timestamp::now());
                             t.add_build_log(
                                 BuildStream::Stdout,
                                 format!("merged {} into {}", report.branch, report.target),
@@ -261,7 +261,7 @@ pub(crate) async fn record_gate_outcome(
             agent_id: None,
             bead_id,
             message,
-            timestamp: chrono::Utc::now(),
+            timestamp: at_time::Timestamp::now(),
         }));
     }
 }
@@ -304,7 +304,7 @@ fn worktree_info(path: &str, branch: &str) -> WorktreeInfo {
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_default(),
-        created_at: chrono::Utc::now(),
+        created_at: at_time::Timestamp::now(),
     }
 }
 
@@ -338,7 +338,7 @@ impl PipelineCtx {
             agent_id: None,
             bead_id: Some(bead_id),
             message,
-            timestamp: chrono::Utc::now(),
+            timestamp: at_time::Timestamp::now(),
         }));
     }
 
@@ -358,12 +358,12 @@ impl PipelineCtx {
         let mut tasks = self.tasks.write().await;
         if let Some(t) = tasks.get_mut(&task_id) {
             t.build_logs.push(BuildLogEntry {
-                timestamp: chrono::Utc::now(),
+                timestamp: at_time::Timestamp::now(),
                 stream,
                 line,
                 phase: t.phase.clone(),
             });
-            t.updated_at = chrono::Utc::now();
+            t.updated_at = at_time::Timestamp::now();
         }
     }
 
@@ -373,7 +373,7 @@ impl PipelineCtx {
             let mut tasks = self.tasks.write().await;
             let t = tasks.get_mut(&task_id)?;
             f(t);
-            t.updated_at = chrono::Utc::now();
+            t.updated_at = at_time::Timestamp::now();
             t.clone()
         };
         self.event_bus
@@ -410,7 +410,7 @@ impl PipelineCtx {
     pub(crate) async fn complete(&self, task_id: Uuid, bead_id: Uuid) {
         self.update(task_id, |t| {
             t.set_phase(TaskPhase::Complete);
-            t.completed_at = Some(chrono::Utc::now());
+            t.completed_at = Some(at_time::Timestamp::now());
             t.error = None;
         })
         .await;

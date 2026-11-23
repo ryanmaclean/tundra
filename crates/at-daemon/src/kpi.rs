@@ -274,7 +274,7 @@ mod tests {
             .collect_snapshot(&cache)
             .await
             .expect("snapshot 1");
-        // Yield the runtime so a fresh `Utc::now()` will return >= s1.timestamp.
+        // Yield the runtime so a fresh `Timestamp::now()` will return >= s1.timestamp.
         tokio::task::yield_now().await;
         let s2 = collector
             .collect_snapshot(&cache)

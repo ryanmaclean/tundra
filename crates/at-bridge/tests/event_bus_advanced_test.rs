@@ -1,6 +1,6 @@
 use at_bridge::event_bus::EventBus;
 use at_bridge::protocol::{BridgeMessage, EventPayload, KpiPayload, StatusPayload};
-use chrono::Utc;
+use at_time::Timestamp;
 use std::sync::{Arc, Barrier};
 use std::thread;
 use uuid::Uuid;
@@ -19,7 +19,7 @@ fn test_publish_event_to_subscribers() {
         agent_id: None,
         bead_id: Some(Uuid::new_v4()),
         message: "State changed to review".to_string(),
-        timestamp: Utc::now(),
+        timestamp: Timestamp::now(),
     });
 
     bus.publish(event);
@@ -46,7 +46,7 @@ fn test_publish_multiple_events_in_order() {
             agent_id: None,
             bead_id: None,
             message: format!("msg_{t}"),
-            timestamp: Utc::now(),
+            timestamp: Timestamp::now(),
         }));
     }
 
@@ -102,7 +102,7 @@ fn test_multiple_subscribers_all_receive() {
         agent_id: None,
         bead_id: Some(bead_id),
         message: "done".to_string(),
-        timestamp: Utc::now(),
+        timestamp: Timestamp::now(),
     }));
 
     for (i, rx) in receivers.iter().enumerate() {
@@ -155,7 +155,7 @@ fn test_event_bead_created() {
         agent_id: None,
         bead_id: Some(bead_id),
         message: "New bead created".to_string(),
-        timestamp: Utc::now(),
+        timestamp: Timestamp::now(),
     }));
 
     let msg = rx.try_recv().unwrap();
@@ -179,7 +179,7 @@ fn test_event_bead_state_changed() {
         agent_id: None,
         bead_id: Some(bead_id),
         message: "Moved to slung".to_string(),
-        timestamp: Utc::now(),
+        timestamp: Timestamp::now(),
     }));
 
     match &*rx.try_recv().unwrap() {
@@ -202,7 +202,7 @@ fn test_event_agent_spawned() {
         agent_id: Some(agent_id),
         bead_id: None,
         message: "Agent online".to_string(),
-        timestamp: Utc::now(),
+        timestamp: Timestamp::now(),
     }));
 
     match &*rx.try_recv().unwrap() {
@@ -225,7 +225,7 @@ fn test_event_agent_stopped() {
         agent_id: Some(agent_id),
         bead_id: None,
         message: "Agent gracefully stopped".to_string(),
-        timestamp: Utc::now(),
+        timestamp: Timestamp::now(),
     }));
 
     match &*rx.try_recv().unwrap() {
@@ -271,7 +271,7 @@ fn test_event_serialization_roundtrip() {
         agent_id: Some(Uuid::new_v4()),
         bead_id: Some(Uuid::new_v4()),
         message: "Moved to done".to_string(),
-        timestamp: Utc::now(),
+        timestamp: Timestamp::now(),
     });
 
     let json = serde_json::to_string(&original).expect("serialize");
@@ -347,7 +347,7 @@ fn test_concurrent_publish_and_subscribe() {
                     agent_id: None,
                     bead_id: None,
                     message: format!("msg from publisher {pub_id}, seq {i}"),
-                    timestamp: Utc::now(),
+                    timestamp: Timestamp::now(),
                 }));
             }
         });
@@ -392,7 +392,7 @@ fn test_subscriber_backpressure() {
             agent_id: None,
             bead_id: None,
             message: format!("msg {i}"),
-            timestamp: Utc::now(),
+            timestamp: Timestamp::now(),
         }));
     }
 

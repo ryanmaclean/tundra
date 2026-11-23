@@ -24,8 +24,8 @@ async fn project_creation_preserves_utc_wire_and_state_timestamp() {
     let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let body: Value = serde_json::from_slice(&bytes).unwrap();
     let text = body["created_at"].as_str().unwrap();
-    let parsed = chrono::DateTime::parse_from_rfc3339(text).unwrap();
-    assert_eq!(text, parsed.with_timezone(&chrono::Utc).to_rfc3339());
+    let parsed = at_time::Timestamp::parse_rfc3339(text).unwrap();
+    assert_eq!(text, parsed.to_rfc3339());
     let projects = state.projects.read().await;
     let stored = projects
         .values()
@@ -36,8 +36,8 @@ async fn project_creation_preserves_utc_wire_and_state_timestamp() {
 
 fn assert_legacy_utc(value: &Value) -> &str {
     let text = value.as_str().unwrap();
-    let parsed = chrono::DateTime::parse_from_rfc3339(text).unwrap();
-    assert_eq!(text, parsed.with_timezone(&chrono::Utc).to_rfc3339());
+    let parsed = at_time::Timestamp::parse_rfc3339(text).unwrap();
+    assert_eq!(text, parsed.to_rfc3339());
     text
 }
 

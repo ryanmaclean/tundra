@@ -175,8 +175,14 @@ fn octocrab_pr_to_github_pr(pr: octocrab::models::pulls::PullRequest) -> GitHubP
     let head_branch = pr.head.ref_field.clone();
     let base_branch = pr.base.ref_field.clone();
 
-    let created_at = pr.created_at.unwrap_or_else(chrono::Utc::now);
-    let updated_at = pr.updated_at.unwrap_or(created_at);
+    let created_at = pr
+        .created_at
+        .map(super::timestamp_from)
+        .unwrap_or_else(at_time::Timestamp::now);
+    let updated_at = pr
+        .updated_at
+        .map(super::timestamp_from)
+        .unwrap_or(created_at);
 
     GitHubPullRequest {
         number: pr.number,
@@ -195,7 +201,7 @@ fn octocrab_pr_to_github_pr(pr: octocrab::models::pulls::PullRequest) -> GitHubP
         changed_files: pr.changed_files.unwrap_or(0),
         created_at,
         updated_at,
-        merged_at: pr.merged_at,
+        merged_at: pr.merged_at.map(super::timestamp_from),
         html_url: pr.html_url.map(|u| u.to_string()).unwrap_or_default(),
     }
 }

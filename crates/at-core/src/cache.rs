@@ -1,7 +1,7 @@
+use at_time::Timestamp;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use chrono::Utc;
 use tokio_rusqlite::Connection;
 use uuid::Uuid;
 
@@ -513,7 +513,7 @@ impl CacheDb {
                     failed: get("failed"),
                     escalated: get("escalated"),
                     active_agents,
-                    timestamp: Utc::now(),
+                    timestamp: Timestamp::now(),
                 })
             })
             .await
@@ -526,9 +526,8 @@ impl CacheDb {
 
 /// Parse an RFC-3339 timestamp string, returning `CacheError::InvalidRow` on
 /// failure.  The `column` argument is embedded in the error message.
-fn parse_datetime(s: &str, column: &str) -> Result<chrono::DateTime<Utc>, CacheError> {
-    chrono::DateTime::parse_from_rfc3339(s)
-        .map(|dt| dt.with_timezone(&Utc))
+fn parse_datetime(s: &str, column: &str) -> Result<Timestamp, CacheError> {
+    s.parse::<Timestamp>()
         .map_err(|e| CacheError::invalid_row(format!("{column}: invalid RFC-3339 date {:?}", s), e))
 }
 
@@ -693,9 +692,7 @@ mod tests {
         let json = serde_json::to_value(&bead).unwrap();
         assert_eq!(json["created_at"], "2024-01-01T00:02:03.123456789Z");
         assert_eq!(json["updated_at"], "1969-12-31T23:59:59Z");
-        bead.updated_at = chrono::DateTime::parse_from_rfc3339("1970-01-01T01:00:00.123+01:00")
-            .unwrap()
-            .with_timezone(&Utc);
+        bead.updated_at = Timestamp::parse_rfc3339("1970-01-01T01:00:00.123+01:00").unwrap();
         db.upsert_bead(&bead).await.unwrap();
         let reread = db.get_bead(id).await.unwrap().unwrap();
         assert_eq!(reread.created_at, bead.created_at);
@@ -887,7 +884,7 @@ mod tests {
     #[tokio::test]
     async fn cache_returns_error_on_malformed_agent_row() {
         let db = CacheDb::new_in_memory().await.unwrap();
-        let now = Utc::now().to_rfc3339();
+        let now = Timestamp::now().to_rfc3339();
         db.conn
             .call(move |conn| {
                 conn.execute(
@@ -922,7 +919,7 @@ mod tests {
     #[tokio::test]
     async fn malformed_bead_row_errors_without_killing_connection() {
         let db = CacheDb::new_in_memory().await.unwrap();
-        let now = Utc::now().to_rfc3339();
+        let now = Timestamp::now().to_rfc3339();
 
         // Bad status enum. Status is not "backlog", so this row is not part
         // of the backlog scan below — it only exercises the single-row

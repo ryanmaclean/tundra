@@ -33,7 +33,7 @@ async fn test_pr_poll_status_serialization_roundtrip() {
         state: "open".to_string(),
         mergeable: Some(true),
         checks_passed: Some(false),
-        last_polled: chrono::Utc::now(),
+        last_polled: at_time::Timestamp::now(),
     };
 
     let json = serde_json::to_string(&status).unwrap();

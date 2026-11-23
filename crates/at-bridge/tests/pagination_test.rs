@@ -62,8 +62,8 @@ async fn seed_tasks(state: &ApiState, count: usize) -> Vec<Uuid> {
             subtasks: vec![],
             worktree_path: None,
             git_branch: None,
-            created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
+            created_at: at_time::Timestamp::now(),
+            updated_at: at_time::Timestamp::now(),
             started_at: None,
             completed_at: None,
             error: None,
@@ -134,7 +134,7 @@ async fn seed_projects(state: &ApiState, count: usize) -> Vec<Uuid> {
             id: project_id,
             name: format!("Project {}", i),
             path: format!("/path/to/project{}", i),
-            created_at: chrono::Utc::now().to_rfc3339(),
+            created_at: at_time::Timestamp::now().to_rfc3339(),
             is_active: true,
         };
         projects.insert(project_id, project);

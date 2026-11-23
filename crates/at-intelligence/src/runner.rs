@@ -7,7 +7,7 @@
 //! - **RoadmapRunner**: Discovers and plans future features
 //! - **AnalysisRunner**: AI-powered codebase analysis
 
-use chrono::{DateTime, Utc};
+use at_time::Timestamp;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -26,8 +26,8 @@ pub struct RunnerResult {
     pub status: RunnerStatus,
     pub output: String,
     pub metrics: RunnerMetrics,
-    pub started_at: DateTime<Utc>,
-    pub completed_at: Option<DateTime<Utc>>,
+    pub started_at: Timestamp,
+    pub completed_at: Option<Timestamp>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -146,7 +146,7 @@ pub struct SessionInsight {
     pub category: InsightCategory,
     pub content: String,
     pub confidence: f64,
-    pub created_at: DateTime<Utc>,
+    pub created_at: Timestamp,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -186,7 +186,7 @@ impl InsightsRunner {
             category,
             content: content.into(),
             confidence: confidence.clamp(0.0, 1.0),
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
         };
         let id = insight.id;
         self.insights.push(insight);
@@ -349,7 +349,7 @@ pub struct RecoveryRecord {
     pub action: RecoveryAction,
     pub reason: String,
     pub successful: bool,
-    pub timestamp: DateTime<Utc>,
+    pub timestamp: Timestamp,
 }
 
 /// Manages recovery from failed sessions.
@@ -379,7 +379,7 @@ impl RecoveryManager {
             action,
             reason: reason.into(),
             successful: false,
-            timestamp: Utc::now(),
+            timestamp: Timestamp::now(),
         };
         let id = record.id;
         self.records.push(record);
@@ -457,7 +457,7 @@ mod tests {
             content: "found".into(),
             artifacts: vec![],
             metrics: PhaseMetrics::default(),
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
         });
         assert_eq!(next, Some(SpecPhase::Requirements));
         assert_eq!(runner.current_phase(), SpecPhase::Requirements);
@@ -487,7 +487,7 @@ mod tests {
                 files_read: 3,
                 llm_calls: 1,
             },
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
         });
         runner.record_result(PhaseResult {
             id: Uuid::new_v4(),
@@ -501,7 +501,7 @@ mod tests {
                 files_read: 1,
                 llm_calls: 1,
             },
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
         });
 
         let metrics = runner.summary_metrics();
@@ -621,8 +621,8 @@ mod tests {
             status: RunnerStatus::Complete,
             output: "done".into(),
             metrics: RunnerMetrics::default(),
-            started_at: Utc::now(),
-            completed_at: Some(Utc::now()),
+            started_at: Timestamp::now(),
+            completed_at: Some(Timestamp::now()),
         };
         let json = serde_json::to_string(&result).unwrap();
         let deser: RunnerResult = serde_json::from_str(&json).unwrap();
@@ -637,7 +637,7 @@ mod tests {
             category: InsightCategory::Pattern,
             content: "use iterators".into(),
             confidence: 0.85,
-            created_at: Utc::now(),
+            created_at: Timestamp::now(),
         };
         let json = serde_json::to_string(&insight).unwrap();
         let deser: SessionInsight = serde_json::from_str(&json).unwrap();
@@ -653,7 +653,7 @@ mod tests {
             action: RecoveryAction::Rollback,
             reason: "test failure".into(),
             successful: false,
-            timestamp: Utc::now(),
+            timestamp: Timestamp::now(),
         };
         let json = serde_json::to_string(&record).unwrap();
         let deser: RecoveryRecord = serde_json::from_str(&json).unwrap();

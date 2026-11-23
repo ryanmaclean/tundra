@@ -108,7 +108,7 @@ mod tests {
         let message = super::heartbeat_message();
         assert_eq!(message["type"], "ping");
         let text = message["timestamp"].as_str().unwrap();
-        let parsed = chrono::DateTime::parse_from_rfc3339(text).unwrap();
-        assert_eq!(text, parsed.with_timezone(&chrono::Utc).to_rfc3339());
+        let parsed = at_time::Timestamp::parse_rfc3339(text).unwrap();
+        assert_eq!(text, parsed.to_rfc3339());
     }
 }

@@ -71,13 +71,13 @@ async fn older_bead_wins_on_tie() {
 
     let mut older = Bead::new("older task", Lane::Standard);
     older.priority = 5;
-    older.created_at = chrono::Utc::now() - chrono::Duration::hours(2);
+    older.created_at = at_time::Timestamp::now() - at_time::Duration::hours(2);
     older.updated_at = older.created_at;
     cache.upsert_bead(&older).await.expect("upsert");
 
     let mut newer = Bead::new("newer task", Lane::Standard);
     newer.priority = 5;
-    newer.created_at = chrono::Utc::now();
+    newer.created_at = at_time::Timestamp::now();
     newer.updated_at = newer.created_at;
     cache.upsert_bead(&newer).await.expect("upsert");
 

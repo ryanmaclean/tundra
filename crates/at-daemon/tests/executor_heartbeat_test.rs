@@ -3,6 +3,7 @@
 //! executor whose CLI is silent but alive while still killing an agent that
 //! stops heartbeating.
 
+use at_time::Timestamp;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -17,7 +18,6 @@ use at_core::types::{
     TaskPriority,
 };
 use at_daemon::daemon::{Daemon, DaemonIntervals};
-use chrono::Utc;
 use uuid::Uuid;
 
 /// How long the fake CLI stays silent before printing and exiting 0.
@@ -179,7 +179,7 @@ async fn patrol_spares_heartbeating_executor_and_kills_silent_agent() {
         "idle reads must advance last_seen"
     );
     assert!(
-        Utc::now().signed_duration_since(mid.last_seen) < chrono::Duration::seconds(1),
+        Timestamp::now().signed_duration_since(mid.last_seen) < at_time::Duration::seconds(1),
         "last_seen should be fresh"
     );
 
