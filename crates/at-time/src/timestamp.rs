@@ -451,6 +451,40 @@ mod tests {
     }
 
     #[test]
+    fn signed_years_round_trip() {
+        for ts in [
+            Timestamp::MIN,
+            Timestamp::MAX,
+            Timestamp::from_unix(253_402_300_800, 0).unwrap(),
+            Timestamp::from_unix(-62_167_219_201, 123_000_000).unwrap(),
+            Timestamp::from_unix(-62_135_596_801, 0).unwrap(),
+        ] {
+            let text = ts.to_rfc3339_z();
+            assert_eq!(Timestamp::parse_rfc3339(&text), Some(ts), "{text}");
+            assert_eq!(
+                serde_json::from_str::<Timestamp>(&format!("{text:?}")).unwrap(),
+                ts
+            );
+        }
+        assert_eq!(
+            Timestamp::parse_rfc3339("+10000-01-01T00:00:00Z"),
+            Timestamp::from_unix(253_402_300_800, 0)
+        );
+        assert_eq!(
+            Timestamp::parse_rfc3339("-0001-12-31T23:59:59Z"),
+            Timestamp::from_unix(-62_167_219_201, 0)
+        );
+        for text in [
+            "+262143-01-01T00:00:00Z",
+            "-262144-01-01T00:00:00Z",
+            "+12-01-01T00:00:00Z",
+            "+12345678-01-01T00:00:00Z",
+        ] {
+            assert!(Timestamp::parse_rfc3339(text).is_none(), "{text}");
+        }
+    }
+
+    #[test]
     fn leap_second_is_the_next_posix_second() {
         let leap = Timestamp::parse_rfc3339("2016-12-31T23:59:60Z").unwrap();
         assert_eq!(
