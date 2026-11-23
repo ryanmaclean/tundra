@@ -248,7 +248,7 @@ jobs:
           # releases (.fingerprint/<pkg>-<hash>/ and build/<pkg>/<hash>/fingerprint/);
           # accept either, but still require exactly one binary fingerprint.
           mapfile -d '' fingerprints < <(find target/release \
-            \( -path '*/.fingerprint/at-tauri-*' -o -path '*/build/at-tauri/*/fingerprint' \) \
+            \( -path "*/.fingerprint/at-tauri-*/*" -o -path "*/build/at-tauri/*/fingerprint/*" \) \
             -name bin-auto-tundra.json -print0)
           printf 'at-tauri binary fingerprints found: %s\n' "${#fingerprints[@]}"
           if [[ "${#fingerprints[@]}" -ne 1 ]]; then
