@@ -287,7 +287,7 @@ fn main() {
     // Handle used to drive the async terminal shutdown from the `Exit` event.
     let exit_runtime = runtime.handle().clone();
 
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
         .manage(state)
         .manage(sound_engine)
@@ -382,25 +382,42 @@ fn main() {
             }
         })
         .build(context)
-        .expect("error while building auto-tundra")
-        .run(move |app, event| {
-            // `App::run` never returns on desktop (the event loop ends in
-            // `process::exit`), so neither code after it nor `AppState`'s
-            // `Drop` runs. `Exit` is the last hook that does: stop admitting
-            // terminals and kill their shells before the process goes.
-            if let tauri::RunEvent::Exit = event {
-                use tauri::Manager;
-                info!("exiting, shutting down daemon and terminal children");
-                let state = app.state::<AppState>();
-                let pending = exit_runtime.block_on(state.shutdown_for_exit());
-                if !pending.is_empty() {
-                    tracing::warn!(
-                        count = pending.len(),
-                        "terminal children not confirmed exited"
-                    );
-                }
+        .expect("error while building auto-tundra");
+
+    // SIGINT/SIGTERM would otherwise end the process without `RunEvent::Exit`,
+    // leaving the terminal shells running. Route them into the event loop's
+    // exit path; a second signal forces the exit.
+    let mut signals = runtime
+        .block_on(async { at_tauri::signals::TerminationSignals::install() })
+        .expect("failed to install termination signal handlers");
+    let signal_handle = app.handle().clone();
+    runtime.spawn(async move {
+        let name = signals.recv().await;
+        info!(signal = name, "termination signal received, exiting");
+        signal_handle.exit(0);
+        let name = signals.recv().await;
+        tracing::warn!(signal = name, "second termination signal, forcing exit");
+        std::process::exit(130);
+    });
+
+    app.run(move |app, event| {
+        // `App::run` never returns on desktop (the event loop ends in
+        // `process::exit`), so neither code after it nor `AppState`'s
+        // `Drop` runs. `Exit` is the last hook that does: stop admitting
+        // terminals and kill their shells before the process goes.
+        if let tauri::RunEvent::Exit = event {
+            use tauri::Manager;
+            info!("exiting, shutting down daemon and terminal children");
+            let state = app.state::<AppState>();
+            let pending = exit_runtime.block_on(state.shutdown_for_exit());
+            if !pending.is_empty() {
+                tracing::warn!(
+                    count = pending.len(),
+                    "terminal children not confirmed exited"
+                );
             }
-        });
+        }
+    });
 }
 
 #[derive(serde::Serialize)]
