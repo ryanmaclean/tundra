@@ -27,13 +27,13 @@
     "security": {
       "csp": {
         "default-src": "'self'",
-        "script-src": "'self' 'wasm-unsafe-eval' https://cdn.jsdelivr.net/npm/@duckdb/",
+        "script-src": "'self' 'wasm-unsafe-eval'",
         "style-src": "'self' 'unsafe-inline'",
         "img-src": "'self' data: blob: https:",
         "font-src": "'self' data:",
         "media-src": "'self' data: blob:",
         "worker-src": "'self' blob:",
-        "connect-src": "'self' ipc: http://ipc.localhost http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:* https://cdn.jsdelivr.net",
+        "connect-src": "'self' ipc: http://ipc.localhost http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:*",
         "object-src": "'none'",
         "base-uri": "'self'",
         "form-action": "'self'",

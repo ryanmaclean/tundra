@@ -5,8 +5,8 @@ use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
 extern "C" {
-    #[wasm_bindgen(js_namespace = duckdb)]
-    pub async fn init_duckdb();
+    #[wasm_bindgen(catch, js_namespace = duckdb)]
+    pub async fn init_duckdb() -> Result<JsValue, JsValue>;
 
     #[wasm_bindgen(js_namespace = duckdb)]
     pub async fn query_duckdb(query: &str) -> JsValue;
@@ -61,7 +61,9 @@ pub struct DuckDbClient {
 impl DuckDbClient {
     /// Initialize DuckDB WASM and return a client handle.
     pub async fn init() -> Result<Self, DuckDbError> {
-        init_duckdb().await;
+        init_duckdb()
+            .await
+            .map_err(|error| DuckDbError(format!("initialization: {error:?}")))?;
         Ok(Self { _private: () })
     }
 
