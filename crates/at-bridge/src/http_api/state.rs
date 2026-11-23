@@ -30,6 +30,30 @@ use super::types::{
 use at_integrations::types::GitHubRelease;
 
 // ---------------------------------------------------------------------------
+// Default API rate limits
+// ---------------------------------------------------------------------------
+
+/// Requests one local TUI refresh makes: a bootstrap call plus a dozen list
+/// endpoints, fanned out every [`TUI_REFRESH_SECS`] seconds.
+pub const TUI_REQUESTS_PER_REFRESH: u64 = 13;
+/// Seconds between TUI refreshes (`at-tui` `spawn_refresh`).
+pub const TUI_REFRESH_SECS: u64 = 5;
+/// Requests per minute one TUI sends to the daemon (156). Direct loopback
+/// peers count toward the global tier only, so the global limit must clear
+/// this with room for the desktop app, CLI and MCP clients.
+pub const TUI_REQUESTS_PER_MINUTE: u64 = TUI_REQUESTS_PER_REFRESH * 60 / TUI_REFRESH_SECS;
+
+/// Global tier: requests per minute across all clients (about four TUIs).
+/// 100/min, the earlier default, returns 429 to a single TUI.
+pub const RATE_LIMIT_GLOBAL_PER_MINUTE: u64 = 600;
+/// Per-client tier: requests per minute per peer IP (non-loopback clients).
+pub const RATE_LIMIT_CLIENT_PER_MINUTE: u64 = 120;
+/// Per-client-per-route tier: requests per minute to one route template from
+/// one peer. A page polling one route every 5 s sends 12/min; 30 leaves
+/// room for reloads and retries while still throttling a hammered endpoint.
+pub const RATE_LIMIT_ROUTE_PER_MINUTE: u64 = 30;
+
+// ---------------------------------------------------------------------------
 // Type aliases
 // ---------------------------------------------------------------------------
 
@@ -126,6 +150,10 @@ pub struct ApiState {
     pub terminal_registry: Arc<RwLock<TerminalRegistry>>,
     /// Active PTY handles keyed by terminal ID.
     pub pty_handles: Arc<RwLock<std::collections::HashMap<Uuid, at_session::pty_pool::PtyHandle>>>,
+    /// Admission and retirement bookkeeping for terminal children. All
+    /// changes to `terminal_registry` + `pty_handles` that create or end a
+    /// child go through [`crate::terminal_lifecycle`].
+    pub terminal_lifecycle: Arc<crate::terminal_lifecycle::TerminalLifecycle>,
     /// Settings persistence manager.
     pub settings_manager: Arc<SettingsManager>,
     /// GitHub sync status tracking.
@@ -283,6 +311,7 @@ impl ApiState {
             terminal_ws: crate::terminal_ws::TerminalWsSettings::default(),
             terminal_registry: Arc::new(RwLock::new(TerminalRegistry::new())),
             pty_handles: Arc::new(RwLock::new(std::collections::HashMap::new())),
+            terminal_lifecycle: Arc::new(crate::terminal_lifecycle::TerminalLifecycle::default()),
             settings_manager: Arc::new(SettingsManager::default_path()),
             sync_status: Arc::new(RwLock::new(SyncStatus::default())),
             insights_engine: Arc::new(RwLock::new(InsightsEngine::new())),
@@ -324,10 +353,10 @@ impl ApiState {
             // ---- Rate Limiter Configuration -------------------------------------
             // Three-tier check-then-commit limiting (see rate_limit_middleware):
             //
-            // 1. Global: 1200/min across ALL clients — protects the daemon.
-            // 2. Per-client: 600/min per peer IP (ConnectInfo; proxy headers
+            // 1. Global: 600/min across ALL clients — protects the daemon.
+            // 2. Per-client: 120/min per peer IP (ConnectInfo; proxy headers
             //    only with `rate_limit_policy.trust_proxy_headers`).
-            // 3. Per-client-per-route: 120/min per (client, method, route
+            // 3. Per-client-per-route: 30/min per (client, method, route
             //    template) — throttles hammering of one expensive endpoint.
             //
             // Direct loopback peers (TUI, desktop app, CLI, MCP) skip tiers 2
@@ -337,9 +366,9 @@ impl ApiState {
             //
             // When exceeded, middleware returns HTTP 429 with Retry-After header.
             rate_limiter: Arc::new(MultiKeyRateLimiter::new(
-                RateLimitConfig::per_minute(1200), // Global tier
-                RateLimitConfig::per_minute(600),  // Per-client tier
-                RateLimitConfig::per_minute(120),  // Per-client-per-route tier
+                RateLimitConfig::per_minute(RATE_LIMIT_GLOBAL_PER_MINUTE),
+                RateLimitConfig::per_minute(RATE_LIMIT_CLIENT_PER_MINUTE),
+                RateLimitConfig::per_minute(RATE_LIMIT_ROUTE_PER_MINUTE),
             )),
             rate_limit_policy: RateLimitPolicy::default(),
             retention_config: Arc::new(RwLock::new(RetentionConfig::default())),
