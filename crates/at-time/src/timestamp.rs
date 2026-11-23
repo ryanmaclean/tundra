@@ -56,7 +56,7 @@ impl Timestamp {
 
     /// The latest supported instant, `+262142-12-31T23:59:59.999999999Z`.
     pub const MAX: Timestamp = Timestamp {
-        seconds: 8_210_298_412_799,
+        seconds: 8_210_266_876_799,
         nanos: 999_999_999,
     };
     /// The current UTC time.
@@ -102,7 +102,37 @@ impl Timestamp {
     }
 
     /// Parse the RFC 3339 forms chrono's reader accepts, in any UTC offset.
+    /// Years outside 0000..=9999 use the signed form `+10000` / `-0005` that
+    /// `Display` and serde write.
     pub fn parse_rfc3339(input: &str) -> Option<Self> {
+        Self::parse_four_digit_year(input).or_else(|| Self::parse_signed_year(input))
+    }
+
+    /// Years in a 400-year Gregorian cycle repeat exactly, so parse the same
+    /// text with the year moved into 2000..2400 and shift by whole cycles.
+    fn parse_signed_year(input: &str) -> Option<Self> {
+        let bytes = input.as_bytes();
+        if !matches!(bytes.first(), Some(b'+' | b'-')) {
+            return None;
+        }
+        let digits = bytes[1..].iter().take_while(|b| b.is_ascii_digit()).count();
+        if !(4..=7).contains(&digits) || bytes.get(1 + digits) != Some(&b'-') {
+            return None;
+        }
+        let magnitude: i64 = input[1..=digits].parse().ok()?;
+        let year = if bytes[0] == b'-' {
+            -magnitude
+        } else {
+            magnitude
+        };
+        let cycles = (year - 2000).div_euclid(400);
+        let normalized = format!("{:04}{}", year - cycles * 400, &input[1 + digits..]);
+        let base = Self::parse_four_digit_year(&normalized)?;
+        let shift = i128::from(cycles) * 146_097 * 86_400 * NANOS_PER_SECOND;
+        Self::from_total_nanos(base.total_nanos() + shift)
+    }
+
+    fn parse_four_digit_year(input: &str) -> Option<Self> {
         let parsed = parse_rfc3339(input)?;
         // The parser reports a leap second as the preceding `:59` second plus
         // a marker. The instant it denotes is one second later.
@@ -481,6 +511,40 @@ mod tests {
         assert!(serde_json::from_str::<Millis>(r#"{"at":"x"}"#).is_err());
         assert!(serde_json::from_str::<Millis>(r#"{"at":18446744073709551615}"#).is_err());
     }
+    #[test]
+    fn signed_years_round_trip() {
+        for ts in [
+            Timestamp::MIN,
+            Timestamp::MAX,
+            Timestamp::from_unix(253_402_300_800, 0).unwrap(),
+            Timestamp::from_unix(-62_167_219_201, 123_000_000).unwrap(),
+            Timestamp::from_unix(-62_135_596_801, 0).unwrap(),
+        ] {
+            let text = ts.to_rfc3339_z();
+            assert_eq!(Timestamp::parse_rfc3339(&text), Some(ts), "{text}");
+            assert_eq!(
+                serde_json::from_str::<Timestamp>(&format!("{text:?}")).unwrap(),
+                ts
+            );
+        }
+        assert_eq!(
+            Timestamp::parse_rfc3339("+10000-01-01T00:00:00Z"),
+            Timestamp::from_unix(253_402_300_800, 0)
+        );
+        assert_eq!(
+            Timestamp::parse_rfc3339("-0001-12-31T23:59:59Z"),
+            Timestamp::from_unix(-62_167_219_201, 0)
+        );
+        for text in [
+            "+262143-01-01T00:00:00Z",
+            "-262144-01-01T00:00:00Z",
+            "+12-01-01T00:00:00Z",
+            "+12345678-01-01T00:00:00Z",
+        ] {
+            assert!(Timestamp::parse_rfc3339(text).is_none(), "{text}");
+        }
+    }
+
     #[test]
     fn leap_second_is_the_next_posix_second() {
         let leap = Timestamp::parse_rfc3339("2016-12-31T23:59:60Z").unwrap();
