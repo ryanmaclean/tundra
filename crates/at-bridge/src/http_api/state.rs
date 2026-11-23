@@ -150,6 +150,10 @@ pub struct ApiState {
     pub terminal_registry: Arc<RwLock<TerminalRegistry>>,
     /// Active PTY handles keyed by terminal ID.
     pub pty_handles: Arc<RwLock<std::collections::HashMap<Uuid, at_session::pty_pool::PtyHandle>>>,
+    /// Admission and retirement bookkeeping for terminal children. All
+    /// changes to `terminal_registry` + `pty_handles` that create or end a
+    /// child go through [`crate::terminal_lifecycle`].
+    pub terminal_lifecycle: Arc<crate::terminal_lifecycle::TerminalLifecycle>,
     /// Settings persistence manager.
     pub settings_manager: Arc<SettingsManager>,
     /// GitHub sync status tracking.
@@ -307,6 +311,7 @@ impl ApiState {
             terminal_ws: crate::terminal_ws::TerminalWsSettings::default(),
             terminal_registry: Arc::new(RwLock::new(TerminalRegistry::new())),
             pty_handles: Arc::new(RwLock::new(std::collections::HashMap::new())),
+            terminal_lifecycle: Arc::new(crate::terminal_lifecycle::TerminalLifecycle::default()),
             settings_manager: Arc::new(SettingsManager::default_path()),
             sync_status: Arc::new(RwLock::new(SyncStatus::default())),
             insights_engine: Arc::new(RwLock::new(InsightsEngine::new())),
