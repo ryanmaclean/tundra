@@ -207,3 +207,37 @@ jobs:
         run: |
           npm install -g @datadog/datadog-ci
           datadog-ci sarif upload ast-grep-results.sarif || true
+
+  # The Linux Test job never runs the PTY layer on macOS or Windows (ConPTY).
+  # Run the at-session suite there too, including the native child lifecycle
+  # tests that kill and reap real processes.
+  native-session:
+    name: Native session (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry & build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-native-session-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-native-session-
+
+      - name: Test at-session
+        # .cargo/config.toml sets target-cpu=native for aarch64, which the
+        # hosted macOS VMs report without the features ring requires.
+        env:
+          RUSTFLAGS: ${{ runner.os == 'macOS' && '-C target-cpu=apple-m1' || '' }}
+        run: cargo test -p at-session --locked

@@ -1,3 +1,7 @@
+// These suites spawn /bin/* programs. The cross-platform native lifecycle
+// contract (Windows included) lives in native_child_lifecycle_test.rs.
+#![cfg(unix)]
+
 use std::time::Duration;
 
 use at_session::pty_pool::{PtyError, PtyPool};

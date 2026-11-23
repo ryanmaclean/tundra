@@ -1,3 +1,7 @@
+// These suites spawn /bin/* programs. The cross-platform native lifecycle
+// contract (Windows included) lives in native_child_lifecycle_test.rs.
+#![cfg(unix)]
+
 use at_session::pty_pool::{PtyError, PtyPool};
 use std::time::Duration;
 
@@ -266,7 +270,12 @@ fn drop_escalates_when_child_ignores_sighup() {
 
     drop(handle);
 
-    assert_eq!(pool.active_count(), 0);
+    // SIGKILL was needed, so the exit may be confirmed by the reaper thread
+    // a moment after drop; the slot is freed only then.
+    assert!(
+        wait_active_count(&pool, 0, Duration::from_secs(5)),
+        "slot not freed after the escalated kill was reaped"
+    );
     assert!(
         wait_pid_gone(pid, Duration::from_secs(5)),
         "SIGHUP-ignoring child {pid} survived handle drop"
@@ -329,4 +338,16 @@ fn drop_after_pool_dropped_still_kills_child() {
     drop(handle); // must not panic with the pool gone
 
     assert!(wait_pid_gone(pid, Duration::from_secs(5)));
+}
+
+/// Poll until the pool's active count equals `want` or `timeout` elapses.
+fn wait_active_count(pool: &PtyPool, want: usize, timeout: Duration) -> bool {
+    let deadline = std::time::Instant::now() + timeout;
+    while std::time::Instant::now() < deadline {
+        if pool.active_count() == want {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    pool.active_count() == want
 }

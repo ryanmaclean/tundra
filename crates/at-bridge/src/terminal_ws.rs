@@ -434,6 +434,12 @@ pub async fn create_terminal(State(state): State<Arc<ApiState>>) -> impl IntoRes
             );
         }
     };
+    if !state.terminal_lifecycle.accepting() {
+        return (
+            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "server is shutting down"})),
+        );
+    }
 
     // Spawn a shell process.
     let shell = if cfg!(target_os = "macos") {
@@ -473,15 +479,16 @@ pub async fn create_terminal(State(state): State<Arc<ApiState>>) -> impl IntoRes
 
     let resp = TerminalResponse::from(&info);
 
-    // Register in the terminal registry.
-    {
-        let mut registry = state.terminal_registry.write().await;
-        registry.register(info);
-    }
-    // Store the PTY handle.
-    {
-        let mut handles = state.pty_handles.write().await;
-        handles.insert(terminal_id, handle);
+    // Publish the registry entry and the PTY handle together.
+    if let Err(handle) = crate::terminal_lifecycle::admit(&state, info, handle).await {
+        // Shutdown began while the shell was spawning: do not leak it.
+        if let Err(e) = handle.terminate_async().await {
+            tracing::warn!(%terminal_id, error = %e, "could not stop refused terminal child");
+        }
+        return (
+            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "server is shutting down"})),
+        );
     }
 
     (
@@ -544,15 +551,17 @@ pub async fn list_terminals(State(state): State<Arc<ApiState>>) -> impl IntoResp
 /// - **200 OK**: Terminal deleted successfully
 /// - **400 Bad Request**: Invalid UUID format
 /// - **404 Not Found**: Terminal not found in registry
+/// - **409 Conflict**: The terminal is already being closed
+/// - **500 Internal Server Error**: The child did not exit; the terminal stays
+///   tracked (status `dead`) and the patrol reaper retries the kill
 ///
 /// # Cleanup Operations
 ///
-/// This handler performs the following cleanup:
-/// 1. Unregister terminal from registry
-/// 2. Kill PTY child process (sends `SIGKILL`)
-/// 3. Remove PTY handle from tracking map
-/// 4. Release terminal ID from pool
-/// 5. Remove any disconnect buffer
+/// Delegates to [`crate::terminal_lifecycle::retire`], which:
+/// 1. Kills the PTY child and waits for its exit to be confirmed
+/// 2. Drops the PTY handle, freeing its pool slot
+/// 3. Unregisters the terminal
+/// 4. Removes any disconnect buffer and connection-tracking entry
 ///
 /// # Example
 ///
@@ -578,48 +587,31 @@ pub async fn delete_terminal(
         }
     };
 
-    // Remove from registry.
-    {
-        let mut registry = state.terminal_registry.write().await;
-        if registry.unregister(&terminal_id).is_none() {
-            return (
-                axum::http::StatusCode::NOT_FOUND,
-                Json(serde_json::json!({"error": "terminal not found"})),
-            );
-        }
+    // Kill the child (lock-free while the kill runs), then remove the
+    // registry entry, disconnect buffer and connection-tracking entry. The
+    // pool slot is freed once the exit is confirmed.
+    use crate::terminal_lifecycle::{retire, RetireMode, RetireOutcome};
+    match retire(&state, terminal_id, RetireMode::Remove).await {
+        RetireOutcome::Retired => (
+            axum::http::StatusCode::OK,
+            Json(serde_json::json!({"status": "deleted", "id": id})),
+        ),
+        RetireOutcome::NotFound => (
+            axum::http::StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "terminal not found"})),
+        ),
+        RetireOutcome::InProgress => (
+            axum::http::StatusCode::CONFLICT,
+            Json(serde_json::json!({"error": "terminal is already being closed"})),
+        ),
+        RetireOutcome::Failed(e) => (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "error": format!("terminal process did not exit: {e}"),
+                "retryable": true,
+            })),
+        ),
     }
-
-    // Remove the PTY handle, then kill it after the write lock is released so
-    // the (up to ~200ms) SIGHUP grace period never blocks other terminals.
-    let removed = state.pty_handles.write().await.remove(&terminal_id);
-    if let Some(handle) = removed {
-        let _ = handle.kill_async().await;
-    }
-
-    // Release from pool tracking.
-    if let Some(pool) = &state.pty_pool {
-        pool.release(terminal_id);
-    }
-
-    // Clean up any disconnect buffer.
-    {
-        let mut buffers = state.disconnect_buffers.write().await;
-        buffers.remove(&terminal_id);
-    }
-
-    // Drop the connection-tracking entry too, or it leaks forever: nothing
-    // else removes `terminal_conns[terminal_id]` once the terminal itself is
-    // gone (the reconnect-grace task only reaps it after its own timeout, and
-    // that task never runs for a terminal deleted outright via this route).
-    {
-        let mut conns = state.terminal_conns.lock().await;
-        conns.remove(&terminal_id);
-    }
-
-    (
-        axum::http::StatusCode::OK,
-        Json(serde_json::json!({"status": "deleted", "id": id})),
-    )
 }
 
 // ---------------------------------------------------------------------------
@@ -1563,31 +1555,13 @@ async fn spawn_reconnect_grace_task(
 /// - When the PTY output channel closes early (child process exited).
 ///
 /// Idempotent: missing entries in any of the maps are silently ignored.
+/// If the kill cannot be confirmed the handle stays owned (status `Dead`)
+/// and the patrol reaper retries it.
 async fn cleanup_disconnected_terminal(state: &Arc<ApiState>, terminal_id: Uuid) {
-    // Kill the PTY child process (SIGHUP, then SIGKILL after a grace period).
-    // Remove it under the lock, kill after the lock is dropped: `kill_async`
-    // reaps the child on the blocking thread pool and can take up to ~200ms,
-    // which would otherwise stall every other holder of this lock.
-    let removed = state.pty_handles.write().await.remove(&terminal_id);
-    if let Some(handle) = removed {
-        let _ = handle.kill_async().await;
-    }
-
-    // Release terminal ID from pool tracking.
-    if let Some(pool) = &state.pty_pool {
-        pool.release(terminal_id);
-    }
-
-    // Set status to Dead — subsequent reconnect attempts will receive 410 Gone.
-    state
-        .terminal_registry
-        .write()
-        .await
-        .update_status(&terminal_id, TerminalStatus::Dead);
-
-    // Clean up the disconnect buffer and connection-tracking entry.
-    state.disconnect_buffers.write().await.remove(&terminal_id);
-    state.terminal_conns.lock().await.remove(&terminal_id);
+    use crate::terminal_lifecycle::{retire, RetireMode};
+    // Status becomes Dead, so later reconnect attempts receive 410 Gone.
+    let outcome = retire(state, terminal_id, RetireMode::MarkDead).await;
+    tracing::debug!(%terminal_id, ?outcome, "disconnected terminal retired");
 }
 
 // Routes to add to http_api.rs api_router_with_auth:
