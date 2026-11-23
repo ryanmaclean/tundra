@@ -236,4 +236,8 @@ jobs:
             ${{ runner.os }}-native-session-
 
       - name: Test at-session
+        # .cargo/config.toml sets target-cpu=native for aarch64, which the
+        # hosted macOS VMs report without the features ring requires.
+        env:
+          RUSTFLAGS: ${{ runner.os == 'macOS' && '-C target-cpu=apple-m1' || '' }}
         run: cargo test -p at-session --locked
