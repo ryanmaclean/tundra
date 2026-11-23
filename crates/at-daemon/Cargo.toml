@@ -48,7 +48,7 @@ tracing-subscriber.workspace = true
 at-core = { path = "../at-core", features = ["test-utils"] }
 tokio = { workspace = true }
 reqwest = { workspace = true }
-tokio-tungstenite = "0.28"
+tokio-tungstenite = "0.29"
 futures-util = "0.3"
 portable-pty = "0.8"
 at-session = { path = "../at-session", features = ["test-helpers"] }
