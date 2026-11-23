@@ -935,15 +935,6 @@ impl PtyPool {
         env: &[(&str, &str)],
         cwd: Option<&Path>,
     ) -> Result<PtyHandle> {
-        if let Some(dir) = cwd {
-            if !dir.is_dir() {
-                return Err(PtyError::SpawnFailed(format!(
-                    "working directory does not exist or is not a directory: {}",
-                    dir.display()
-                )));
-            }
-        }
-
         // Capacity check + slot reservation under a single lock so concurrent
         // spawns cannot all pass the check before any of them inserts.
         let handle_id = Uuid::new_v4();
@@ -962,6 +953,14 @@ impl PtyPool {
             id: handle_id,
             armed: true,
         };
+        if let Some(dir) = cwd {
+            if !dir.is_dir() {
+                return Err(PtyError::SpawnFailed(format!(
+                    "working directory does not exist or is not a directory: {}",
+                    dir.display()
+                )));
+            }
+        }
 
         let pty_system = native_pty_system();
 
