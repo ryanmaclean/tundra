@@ -6158,30 +6158,6 @@
       ]
     },
     {
-      "package_id": "registry+https://github.com/rust-lang/crates.io-index#opentelemetry@0.31.0",
-      "name": "opentelemetry",
-      "version": "0.31.0",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "lock_checksum": "b84bcd6ae87133e903af7ef497404dda70c60d0ea14895fc8a5e6722754fc2a0",
-      "profiles": [
-        "x86_64-unknown-linux-gnu/default",
-        "x86_64-unknown-linux-gnu/tauri-sounds"
-      ],
-      "selected_license_ids": [
-        "Apache-2.0"
-      ],
-      "texts": [
-        {
-          "file": "app/tauri/third-party-licenses/selected/opentelemetry-0.31.0/LICENSE",
-          "text_sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
-          "source_kind": "vcs-root",
-          "vcs_repo": "open-telemetry/opentelemetry-rust",
-          "vcs_commit": "285dc925f98403ff426acc70968f104dc820d4f2",
-          "vcs_license_path": "LICENSE"
-        }
-      ]
-    },
-    {
       "package_id": "registry+https://github.com/rust-lang/crates.io-index#opentelemetry@0.33.1",
       "name": "opentelemetry",
       "version": "0.33.1",
