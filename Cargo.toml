@@ -41,7 +41,7 @@ ratatui = "0.30"
 crossterm = "0.29"
 axum = { version = "0.8", features = ["ws"] }
 tower = "0.5"
-tower-http = { version = "0.6", features = ["cors", "trace", "fs", "compression-gzip", "compression-br"] }
+tower-http = { version = "0.7", features = ["cors", "trace", "fs", "compression-gzip", "compression-br"] }
 octocrab = { version = "0.54", default-features = false, features = ["follow-redirect", "retry", "rustls", "timeout", "tracing", "default-client", "rustls-aws-lc-rs", "jwt-aws-lc-rs"] }
 # rustls instead of native-tls (SecureTransport/OpenSSL). reqwest 0.13's
 # `rustls` feature uses the aws-lc-rs provider and rustls-platform-verifier
