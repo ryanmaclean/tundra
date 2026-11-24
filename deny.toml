@@ -29,23 +29,6 @@ ignore = [
     # expires: 2026-07-26
     # owner: TBD
     "RUSTSEC-2024-0429",
-    # rand 0.9.2 unsound only when a custom global logger calls rand::rng();
-    # we don't install a custom logger and neither do our transitive deps
-    # (pulled via tungstenite + proptest + tracing-datadog). Re-evaluate on rand 0.10.
-    # expires: 2026-07-26
-    # owner: TBD
-    "RUSTSEC-2026-0097",
-    # lru 0.12.5 is pulled by ratatui 0.29 (at-tui, tachyonfx); at-core already uses
-    # lru 0.18.5. Fix lands with the ratatui 0.30 upgrade; we never call LruCache::pop.
-    # expires: 2027-01-24
-    # owner: tundra maintainers
-    "RUSTSEC-2026-0253",
-    # quick-xml 0.38.4 via tauri-utils -> plist (build-time/own Info.plist only, no
-    # untrusted XML). Fix needs a plist release on quick-xml >=0.41.
-    # expires: 2027-01-24
-    # owner: tundra maintainers
-    "RUSTSEC-2026-0194",
-    "RUSTSEC-2026-0195",
 ]
 
 # ---------------------------------------------------------------------------
