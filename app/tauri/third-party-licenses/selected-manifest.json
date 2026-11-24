@@ -9807,6 +9807,28 @@
       ]
     },
     {
+      "package_id": "registry+https://github.com/rust-lang/crates.io-index#tower-http@0.7.1",
+      "name": "tower-http",
+      "version": "0.7.1",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "lock_checksum": "08a05a66a4fdd61cbbe0a1d755ffe0ca6aba159dd4820936a0ff8a8278245b9c",
+      "profiles": [
+        "x86_64-unknown-linux-gnu/default",
+        "x86_64-unknown-linux-gnu/tauri-sounds"
+      ],
+      "selected_license_ids": [
+        "MIT"
+      ],
+      "texts": [
+        {
+          "file": "app/tauri/third-party-licenses/selected/tower-http-0.7.1/LICENSE",
+          "text_sha256": "5049cf464977eff4b4fcfa7988d84e74116956a3eb9d5f1d451b3f828f945233",
+          "source_kind": "crate",
+          "crate_member": "tower-http-0.7.1/LICENSE"
+        }
+      ]
+    },
+    {
       "package_id": "registry+https://github.com/rust-lang/crates.io-index#tower-layer@0.3.3",
       "name": "tower-layer",
       "version": "0.3.3",
