@@ -72,7 +72,7 @@ tauri-build = "2"
 tracing-datadog = "0.6"
 opentelemetry = "0.31"
 opentelemetry-datadog = "0.9"
-tracing-opentelemetry = "0.22"
+tracing-opentelemetry = "0.34"
 opentelemetry_sdk = { version = "0.21", features = ["rt-tokio"] }
 
 # ---------------------------------------------------------------------------
