@@ -6182,6 +6182,30 @@
       ]
     },
     {
+      "package_id": "registry+https://github.com/rust-lang/crates.io-index#opentelemetry@0.33.1",
+      "name": "opentelemetry",
+      "version": "0.33.1",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "lock_checksum": "8c1f1a6ac9c875a4941e4c7c085b61e8f4daa326de03b4701768c3491a6ad9ee",
+      "profiles": [
+        "x86_64-unknown-linux-gnu/default",
+        "x86_64-unknown-linux-gnu/tauri-sounds"
+      ],
+      "selected_license_ids": [
+        "Apache-2.0"
+      ],
+      "texts": [
+        {
+          "file": "app/tauri/third-party-licenses/selected/opentelemetry-0.33.1/LICENSE",
+          "text_sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+          "source_kind": "vcs-root",
+          "vcs_repo": "open-telemetry/opentelemetry-rust",
+          "vcs_commit": "372ebbc74d4dba71bb9820732f57f7316b4e7a1e",
+          "vcs_license_path": "LICENSE"
+        }
+      ]
+    },
+    {
       "package_id": "registry+https://github.com/rust-lang/crates.io-index#opentelemetry_sdk@0.21.2",
       "name": "opentelemetry_sdk",
       "version": "0.21.2",
@@ -9961,11 +9985,11 @@
       ]
     },
     {
-      "package_id": "registry+https://github.com/rust-lang/crates.io-index#tracing-opentelemetry@0.22.0",
+      "package_id": "registry+https://github.com/rust-lang/crates.io-index#tracing-opentelemetry@0.34.0",
       "name": "tracing-opentelemetry",
-      "version": "0.22.0",
+      "version": "0.34.0",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "lock_checksum": "c67ac25c5407e7b961fafc6f7e9aa5958fd297aada2d20fa2ae1737357e55596",
+      "lock_checksum": "0a904802a1b902f43638b677ff2a650847e3b4404101b6c586d648e8c1e3e8fe",
       "profiles": [
         "x86_64-unknown-linux-gnu/default",
         "x86_64-unknown-linux-gnu/tauri-sounds"
@@ -9975,10 +9999,10 @@
       ],
       "texts": [
         {
-          "file": "app/tauri/third-party-licenses/selected/tracing-opentelemetry-0.22.0/LICENSE",
+          "file": "app/tauri/third-party-licenses/selected/tracing-opentelemetry-0.34.0/LICENSE",
           "text_sha256": "898b1ae9821e98daf8964c8d6c7f61641f5f5aa78ad500020771c0939ee0dea1",
           "source_kind": "crate",
-          "crate_member": "tracing-opentelemetry-0.22.0/LICENSE"
+          "crate_member": "tracing-opentelemetry-0.34.0/LICENSE"
         }
       ]
     },
