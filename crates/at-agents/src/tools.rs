@@ -204,7 +204,11 @@ impl Tool for ReadFileTool {
             .with_open_world(false)
     }
 
-    async fn call(&self, _context: &mut RigToolContext, args: Self::Args) -> Result<String, ToolError> {
+    async fn call(
+        &self,
+        _context: &mut RigToolContext,
+        args: Self::Args,
+    ) -> Result<String, ToolError> {
         self.ctx.gate("file_read").await?;
         let path = self.ctx.resolve_within(&args.path).await?;
         let meta = tokio::fs::metadata(&path)
@@ -281,7 +285,11 @@ impl Tool for ShellExecTool {
         })
     }
 
-    async fn call(&self, _context: &mut RigToolContext, args: Self::Args) -> Result<String, ToolError> {
+    async fn call(
+        &self,
+        _context: &mut RigToolContext,
+        args: Self::Args,
+    ) -> Result<String, ToolError> {
         if !self.ctx.allow_shell_exec {
             return Err(tool_err(
                 "shell_exec is disabled (security.allow_shell_exec = false)",
@@ -367,10 +375,17 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("test.txt"), "hello tools").unwrap();
         let tool = ReadFileTool::new(ctx(dir.path(), false));
-        assert_eq!(tool.call(&mut RigToolContext::default(), read("test.txt")).await.unwrap(), "hello tools");
+        assert_eq!(
+            tool.call(&mut RigToolContext::default(), read("test.txt"))
+                .await
+                .unwrap(),
+            "hello tools"
+        );
         let abs = dir.path().join("test.txt");
         assert_eq!(
-            tool.call(&mut RigToolContext::default(), read(&abs.to_string_lossy())).await.unwrap(),
+            tool.call(&mut RigToolContext::default(), read(&abs.to_string_lossy()))
+                .await
+                .unwrap(),
             "hello tools"
         );
     }
@@ -379,7 +394,10 @@ mod tests {
     async fn read_file_missing_returns_error() {
         let dir = tempfile::tempdir().unwrap();
         let tool = ReadFileTool::new(ctx(dir.path(), false));
-        assert!(tool.call(&mut RigToolContext::default(), read("nope.txt")).await.is_err());
+        assert!(tool
+            .call(&mut RigToolContext::default(), read("nope.txt"))
+            .await
+            .is_err());
     }
 
     #[tokio::test]
@@ -390,14 +408,20 @@ mod tests {
         std::fs::create_dir(&root).unwrap();
         let tool = ReadFileTool::new(ctx(&root, false));
 
-        let dotdot = tool.call(&mut RigToolContext::default(), read("../secret.txt")).await.unwrap_err();
+        let dotdot = tool
+            .call(&mut RigToolContext::default(), read("../secret.txt"))
+            .await
+            .unwrap_err();
         assert!(
             dotdot.to_string().contains("outside the workspace"),
             "{dotdot}"
         );
 
         let abs = outer.path().join("secret.txt");
-        let abs_err = tool.call(&mut RigToolContext::default(), read(&abs.to_string_lossy())).await.unwrap_err();
+        let abs_err = tool
+            .call(&mut RigToolContext::default(), read(&abs.to_string_lossy()))
+            .await
+            .unwrap_err();
         assert!(abs_err.to_string().contains("outside the workspace"));
     }
 
@@ -410,7 +434,10 @@ mod tests {
         std::fs::create_dir(&root).unwrap();
         std::os::unix::fs::symlink(outer.path().join("secret.txt"), root.join("link")).unwrap();
         let tool = ReadFileTool::new(ctx(&root, false));
-        assert!(tool.call(&mut RigToolContext::default(), read("link")).await.is_err());
+        assert!(tool
+            .call(&mut RigToolContext::default(), read("link"))
+            .await
+            .is_err());
     }
 
     #[tokio::test]
@@ -418,7 +445,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("big.txt"), "0123456789").unwrap();
         let tool = ReadFileTool::new(ctx(dir.path(), false).with_max_read_bytes(4));
-        let err = tool.call(&mut RigToolContext::default(), read("big.txt")).await.unwrap_err();
+        let err = tool
+            .call(&mut RigToolContext::default(), read("big.txt"))
+            .await
+            .unwrap_err();
         assert!(err.to_string().contains("limit"), "{err}");
     }
 
@@ -448,7 +478,10 @@ mod tests {
         let marker = dir.path().join("ran");
         let tool = ShellExecTool::new(ctx(dir.path(), false));
         let err = tool
-            .call(&mut RigToolContext::default(), sh(&format!("touch {}", marker.display()), None))
+            .call(
+                &mut RigToolContext::default(),
+                sh(&format!("touch {}", marker.display()), None),
+            )
             .await
             .unwrap_err();
         assert!(err.to_string().contains("allow_shell_exec"), "{err}");
@@ -476,13 +509,19 @@ mod tests {
     async fn shell_exec_success_runs_in_root() {
         let dir = tempfile::tempdir().unwrap();
         let tool = ShellExecTool::new(ctx(dir.path(), true));
-        let out = tool.call(&mut RigToolContext::default(), sh("pwd -P", None)).await.unwrap();
+        let out = tool
+            .call(&mut RigToolContext::default(), sh("pwd -P", None))
+            .await
+            .unwrap();
         assert_eq!(
             Path::new(out.trim()),
             std::fs::canonicalize(dir.path()).unwrap()
         );
         assert_eq!(
-            tool.call(&mut RigToolContext::default(), sh("echo hello", None)).await.unwrap().trim(),
+            tool.call(&mut RigToolContext::default(), sh("echo hello", None))
+                .await
+                .unwrap()
+                .trim(),
             "hello"
         );
     }
@@ -491,7 +530,10 @@ mod tests {
     async fn shell_exec_failure() {
         let dir = tempfile::tempdir().unwrap();
         let tool = ShellExecTool::new(ctx(dir.path(), true));
-        assert!(tool.call(&mut RigToolContext::default(), sh("exit 1", None)).await.is_err());
+        assert!(tool
+            .call(&mut RigToolContext::default(), sh("exit 1", None))
+            .await
+            .is_err());
     }
 
     #[tokio::test]
@@ -500,9 +542,15 @@ mod tests {
         let root = outer.path().join("ws");
         std::fs::create_dir(&root).unwrap();
         let tool = ShellExecTool::new(ctx(&root, true));
-        let err = tool.call(&mut RigToolContext::default(), sh("pwd", Some(".."))).await.unwrap_err();
+        let err = tool
+            .call(&mut RigToolContext::default(), sh("pwd", Some("..")))
+            .await
+            .unwrap_err();
         assert!(err.to_string().contains("outside the workspace"), "{err}");
-        let err = tool.call(&mut RigToolContext::default(), sh("pwd", Some("/"))).await.unwrap_err();
+        let err = tool
+            .call(&mut RigToolContext::default(), sh("pwd", Some("/")))
+            .await
+            .unwrap_err();
         assert!(err.to_string().contains("outside the workspace"), "{err}");
     }
 
@@ -513,7 +561,10 @@ mod tests {
             ctx(dir.path(), true).with_shell_timeout(Duration::from_millis(200)),
         );
         let start = std::time::Instant::now();
-        let err = tool.call(&mut RigToolContext::default(), sh("sleep 30", None)).await.unwrap_err();
+        let err = tool
+            .call(&mut RigToolContext::default(), sh("sleep 30", None))
+            .await
+            .unwrap_err();
         assert!(err.to_string().contains("timed out"), "{err}");
         assert!(start.elapsed() < Duration::from_secs(5));
     }
@@ -526,9 +577,6 @@ mod tests {
             tool_definition(&ReadFileTool::new(c.clone())).name,
             "read_file"
         );
-        assert_eq!(
-            tool_definition(&ShellExecTool::new(c)).name,
-            "shell_exec"
-        );
+        assert_eq!(tool_definition(&ShellExecTool::new(c)).name, "shell_exec");
     }
 }
