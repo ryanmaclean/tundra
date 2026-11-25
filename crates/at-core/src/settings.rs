@@ -531,7 +531,10 @@ project_name = "partial"
         assert_eq!(fs::metadata(&path).unwrap().permissions().mode() & 0o077, 0);
         fs::set_permissions(&path, fs::Permissions::from_mode(0o640)).unwrap();
         manager.save(&Config::default()).unwrap();
-        assert_eq!(fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o640);
+        assert_eq!(
+            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o640
+        );
         fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
 
