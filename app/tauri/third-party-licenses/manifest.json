@@ -43,16 +43,6 @@
       "source": "crate:foldhash-0.2.0/LICENSE"
     },
     {
-      "approval_id": "tundra-2026-10-24-nanorand-0.7.0",
-      "name": "nanorand",
-      "version": "0.7.0",
-      "license_id": "Zlib",
-      "crate_sha256": "6a51313c5820b0b02bd422f4b44776fbf47961755c74ce64afc73bfad10226c3",
-      "file": "app/tauri/third-party-licenses/nanorand-0.7.0/LICENSE.md",
-      "text_sha256": "ad4d94921cc5b085cb7c7d3c9120e14c89eef4240b07f8386b909d218cc7f922",
-      "source": "crate:nanorand-0.7.0/LICENSE.md"
-    },
-    {
       "approval_id": "tundra-2026-10-24-option-ext-0.2.0",
       "name": "option-ext",
       "version": "0.2.0",

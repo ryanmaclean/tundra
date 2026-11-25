@@ -66,11 +66,6 @@ crate = "foldhash@0.2.0"
 allow = ["Zlib"]
 
 [[licenses.exceptions]]
-# Cargo.lock checksum: 6a51313c5820b0b02bd422f4b44776fbf47961755c74ce64afc73bfad10226c3
-crate = "nanorand@0.7.0"
-allow = ["Zlib"]
-
-[[licenses.exceptions]]
 # Cargo.lock checksum: c533b4c39709f9ba5005d8002048266593c1cfaf3c5f0739d5b8ab0c6c504009
 crate = "notify@7.0.0"
 allow = ["CC0-1.0"]

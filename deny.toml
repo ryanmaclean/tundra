@@ -50,7 +50,7 @@ allow = [
     #      simple_asn1 (jsonwebtoken <- octocrab), inotify/inotify-sys (notify, Linux).
     #      ISC is MIT-equivalent (permissive, no copyleft).
     "ISC",
-    # Zlib: foldhash (hashbrown), nanorand (flume), const_format + slotmap (leptos).
+    # Zlib: foldhash (hashbrown), const_format + slotmap (leptos).
     "Zlib",
     # Unicode-3.0: icu_* / zerovec / yoke / litemap (url -> idna), unicode-ident.
     "Unicode-3.0",
