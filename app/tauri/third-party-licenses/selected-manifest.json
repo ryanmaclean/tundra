@@ -2616,11 +2616,11 @@
       ]
     },
     {
-      "package_id": "registry+https://github.com/rust-lang/crates.io-index#flume@0.11.1",
+      "package_id": "registry+https://github.com/rust-lang/crates.io-index#flume@0.12.0",
       "name": "flume",
-      "version": "0.11.1",
+      "version": "0.12.0",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "lock_checksum": "da0e4dd2a88388a1f4ccc7c9ce104604dab68d9f408dc34cd45823d5a9069095",
+      "lock_checksum": "5e139bc46ca777eb5efaf62df0ab8cc5fd400866427e56c68b22e414e53bd3be",
       "profiles": [
         "x86_64-unknown-linux-gnu/default",
         "x86_64-unknown-linux-gnu/tauri-sounds"
@@ -2630,16 +2630,16 @@
       ],
       "texts": [
         {
-          "file": "app/tauri/third-party-licenses/selected/flume-0.11.1/LICENSE-APACHE",
+          "file": "app/tauri/third-party-licenses/selected/flume-0.12.0/LICENSE-APACHE",
           "text_sha256": "d8621ec2eee5b9ca3c65f8492505f3590de8574fac0fdf5132a77232dba47abc",
           "source_kind": "crate",
-          "crate_member": "flume-0.11.1/LICENSE-APACHE"
+          "crate_member": "flume-0.12.0/LICENSE-APACHE"
         },
         {
-          "file": "app/tauri/third-party-licenses/selected/flume-0.11.1/LICENSE-MIT",
+          "file": "app/tauri/third-party-licenses/selected/flume-0.12.0/LICENSE-MIT",
           "text_sha256": "30fefc3a7d6a0041541858293bcbea2dde4caa4c0a5802f996a7f7e8c0085652",
           "source_kind": "crate",
-          "crate_member": "flume-0.11.1/LICENSE-MIT"
+          "crate_member": "flume-0.12.0/LICENSE-MIT"
         }
       ]
     },
@@ -5631,27 +5631,6 @@
           "text_sha256": "b99f9d43803f2ac979c50949df630bd8eeaf2fcd1b9fdb9093710d70f5dfb63d",
           "source_kind": "crate",
           "crate_member": "muda-0.20.0/LICENSE.spdx"
-        }
-      ]
-    },
-    {
-      "package_id": "registry+https://github.com/rust-lang/crates.io-index#nanorand@0.7.0",
-      "name": "nanorand",
-      "version": "0.7.0",
-      "source": "registry+https://github.com/rust-lang/crates.io-index",
-      "lock_checksum": "6a51313c5820b0b02bd422f4b44776fbf47961755c74ce64afc73bfad10226c3",
-      "profiles": [
-        "x86_64-unknown-linux-gnu/default",
-        "x86_64-unknown-linux-gnu/tauri-sounds"
-      ],
-      "selected_license_ids": [
-        "Zlib"
-      ],
-      "texts": [
-        {
-          "file": "app/tauri/third-party-licenses/nanorand-0.7.0/LICENSE.md",
-          "text_sha256": "ad4d94921cc5b085cb7c7d3c9120e14c89eef4240b07f8386b909d218cc7f922",
-          "source_kind": "verified-exception"
         }
       ]
     },
