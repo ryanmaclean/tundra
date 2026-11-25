@@ -158,16 +158,14 @@ impl SettingsManager {
         ));
 
         let write_tmp = || -> std::io::Result<()> {
-            let mut f = std::fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&tmp)?;
+            let mut f = Self::create_temp_file(&tmp)?;
             f.write_all(text.as_bytes())?;
-            f.sync_all()?;
             // Keep the existing file's permissions (e.g. 0600).
             if let Ok(meta) = std::fs::metadata(&target) {
-                std::fs::set_permissions(&tmp, meta.permissions())?;
+                f.set_permissions(meta.permissions())?;
             }
+            // Persist both contents and the final permissions before publishing.
+            f.sync_all()?;
             Ok(())
         };
         if let Err(e) = write_tmp() {
@@ -184,6 +182,20 @@ impl SettingsManager {
             let _ = d.sync_all();
         }
         Ok(())
+    }
+
+    /// Keep settings private from the moment the staging file exists. Applying
+    /// permissions only after writing exposes its contents under a permissive
+    /// umask, even when the destination was already owner-only.
+    fn create_temp_file(path: &Path) -> std::io::Result<std::fs::File> {
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        options.open(path)
     }
 
     /// Load config from disk, falling back to `Config::default()` when the
@@ -492,6 +504,38 @@ project_name = "partial"
             .collect();
         assert_eq!(names, vec!["settings.toml".to_string()]);
         let _ = fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn staging_file_is_private_before_any_settings_are_written() {
+        use std::os::unix::fs::PermissionsExt;
+        let path = tmp_settings_path();
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let file = SettingsManager::create_temp_file(&path).unwrap();
+        assert_eq!(file.metadata().unwrap().permissions().mode() & 0o077, 0);
+        assert_eq!(file.metadata().unwrap().len(), 0);
+        // Creation is exclusive and cannot follow a preexisting staging name.
+        assert!(SettingsManager::create_temp_file(&path).is_err());
+        drop(file);
+        fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn new_settings_are_private_and_existing_permissions_are_preserved() {
+        use std::os::unix::fs::PermissionsExt;
+        let path = tmp_settings_path();
+        let manager = SettingsManager::new(&path);
+        manager.save(&Config::default()).unwrap();
+        assert_eq!(fs::metadata(&path).unwrap().permissions().mode() & 0o077, 0);
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o640)).unwrap();
+        manager.save(&Config::default()).unwrap();
+        assert_eq!(
+            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o640
+        );
+        fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
 
     #[cfg(unix)]
