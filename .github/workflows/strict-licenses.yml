@@ -322,7 +322,7 @@ jobs:
             jq -e '(.features | fromjson | index("sounds")) == null' "$RUNNER_TEMP/installer-bin-fingerprint.json"
           fi
           test -s target/release/auto-tundra
-      - name: Verify nine license resources inside built .deb
+      - name: Verify eight license resources inside built .deb
         id: verify_deb_resources
         shell: bash
         run: |
@@ -332,8 +332,8 @@ jobs:
           test "${#debs[@]}" -eq 1
           manifest=app/tauri/third-party-licenses/manifest.json
           jq -e '
-            (.entries | length) == 9 and
-            ([.entries[].file] | unique | length) == 9 and
+            (.entries | length) == 8 and
+            ([.entries[].file] | unique | length) == 8 and
             all(.entries[];
               (.file | test("^app/tauri/third-party-licenses/[A-Za-z0-9._/-]+$")) and
               (.file | contains("/../") | not) and
@@ -372,7 +372,7 @@ jobs:
             cmp "$source" "${matches[0]}"
             printf '%s\t%s\t%s\n' "$relative" "$expected" "${matches[0]#"$root"/}" >> "$receipt"
           done < "$RUNNER_TEMP/expected-license-resources.tsv"
-          test "$(wc -l < "$receipt")" -eq 9
+          test "$(wc -l < "$receipt")" -eq 8
           sha256sum "${debs[0]}" | tee "$RUNNER_TEMP/installer-deb.sha256"
           sha256sum "$RUNNER_TEMP/profile-metadata.json" > "$RUNNER_TEMP/installer-profile-metadata.sha256"
           if [[ '${{ matrix.profile }}' == sounds ]]; then tauri_features=sounds; else tauri_features=default; fi
